@@ -1,0 +1,23 @@
+[rdp]
+user = "User"
+# password is auto-generated; leave empty for random
+password = ""
+password_updated = ""
+password_max_age = 7  # days, 0 = disable auto-rotation
+askpass = ""          # Command to retrieve password
+domain = ""
+ip = "127.0.0.1"
+port = 3390
+scale = 100           # 100, 140, or 180 (auto-detected from DE)
+dpi = 0               # 0 = auto, 100-300 = explicit Windows DPI %
+extra_flags = ""
+
+[pod]
+backend = "podman"    # podman | docker | libvirt | manual
+vm_name = "RDPWindows"
+win_version = "11"    # 11 | 10 | ltsc10 | tiny11 | tiny10
+cpu_cores = 4
+ram_gb = 4
+vnc_port = 8007
+auto_start = true     # Auto-start pod when launching an app
+idle_timeout = 0      # Seconds before auto-suspend (0 = disabled)

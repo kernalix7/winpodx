@@ -1,0 +1,5 @@
+name = "explorer"
+full_name = "Windows Explorer"
+executable = "C:\\Windows\\explorer.exe"
+categories = ["System", "FileManager"]
+mime_types = []

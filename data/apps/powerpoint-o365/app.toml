@@ -1,0 +1,8 @@
+name = "powerpoint"
+full_name = "Microsoft PowerPoint"
+executable = "C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE"
+categories = ["Office", "Presentation"]
+mime_types = [
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+]

@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "winpodx"
+version = "0.1.0"
+description = "Windows app integration for Linux desktop"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Kim DaeHyun", email = "kernalix7@kodenet.io" },
+]
+keywords = ["windows", "linux", "desktop-integration", "rdp", "winapps"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Desktop Environment",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.5,<7.0",
+]
+libvirt = [
+    "libvirt-python>=9.0,<11.0",
+]
+docker = [
+    "docker>=7.0,<8.0",
+]
+dev = [
+    "pytest>=7.0,<9.0",
+    "ruff>=0.4,<1.0",
+    "pip-audit>=2.7",
+]
+all = [
+    "winpodx[gui,libvirt,docker,dev]",
+]
+
+[project.scripts]
+winpodx = "winpodx.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/kernalix7/winpodx"
+Repository = "https://github.com/kernalix7/winpodx"
+Issues = "https://github.com/kernalix7/winpodx/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/winpodx"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

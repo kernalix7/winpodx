@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.so
+.mypy_cache/
+
+# AI config (actual files in .priv-storage/, root has symlinks)
+.priv-storage/
+CLAUDE.md
+.cursorrules
+.claude
+.vscode
+WORK_STATUS.md
+
+# Backup toolkit (generic, not project-specific)
+tmp-igbkp/

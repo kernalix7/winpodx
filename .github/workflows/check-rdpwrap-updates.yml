@@ -1,0 +1,99 @@
+name: Check RDPWrap Updates
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"  # Every Monday 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for new releases
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Track current versions
+          CURRENT_FILE="config/oem/rdpwrap/VERSIONS.txt"
+          mkdir -p config/oem/rdpwrap
+
+          # Get latest tags
+          RDPWRAP_LATEST=$(gh api repos/stascorp/rdpwrap/tags --jq '.[0].name' 2>/dev/null || echo "unknown")
+          OFFSETFINDER_LATEST=$(gh api repos/llccd/RDPWrapOffsetFinder/commits/master --jq '.sha[:7]' 2>/dev/null || echo "unknown")
+
+          echo "rdpwrap_latest=$RDPWRAP_LATEST" >> "$GITHUB_OUTPUT"
+          echo "offsetfinder_latest=$OFFSETFINDER_LATEST" >> "$GITHUB_OUTPUT"
+
+          # Compare with tracked versions
+          NEEDS_UPDATE=false
+          if [ -f "$CURRENT_FILE" ]; then
+            RDPWRAP_CURRENT=$(grep "^rdpwrap=" "$CURRENT_FILE" | cut -d= -f2 || echo "")
+            OFFSETFINDER_CURRENT=$(grep "^offsetfinder=" "$CURRENT_FILE" | cut -d= -f2 || echo "")
+
+            if [ "$RDPWRAP_LATEST" != "$RDPWRAP_CURRENT" ] && [ "$RDPWRAP_LATEST" != "unknown" ]; then
+              NEEDS_UPDATE=true
+              echo "RDPWrap: $RDPWRAP_CURRENT -> $RDPWRAP_LATEST"
+            fi
+            if [ "$OFFSETFINDER_LATEST" != "$OFFSETFINDER_CURRENT" ] && [ "$OFFSETFINDER_LATEST" != "unknown" ]; then
+              NEEDS_UPDATE=true
+              echo "OffsetFinder: $OFFSETFINDER_CURRENT -> $OFFSETFINDER_LATEST"
+            fi
+          else
+            NEEDS_UPDATE=true
+            echo "No version tracking file found"
+          fi
+
+          echo "needs_update=$NEEDS_UPDATE" >> "$GITHUB_OUTPUT"
+
+      - name: Create update PR
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RDPWRAP_LATEST: ${{ steps.check.outputs.rdpwrap_latest }}
+          OFFSETFINDER_LATEST: ${{ steps.check.outputs.offsetfinder_latest }}
+        run: |
+          BRANCH="chore/rdpwrap-update-$(date +%Y%m%d)"
+
+          # Check if PR already exists
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already exists, skipping"
+            exit 0
+          fi
+
+          # Create branch and update version file
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          cat > config/oem/rdpwrap/VERSIONS.txt << EOF
+          rdpwrap=$RDPWRAP_LATEST
+          offsetfinder=$OFFSETFINDER_LATEST
+          EOF
+
+          git add config/oem/rdpwrap/VERSIONS.txt
+          git commit -m "chore: RDPWrap upstream update available"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: RDPWrap update available ($RDPWRAP_LATEST)" \
+            --body "$(cat <<'EOF'
+          ## RDPWrap Upstream Update
+
+          New versions detected:
+          - **stascorp/rdpwrap**: ${{ steps.check.outputs.rdpwrap_latest }}
+          - **llccd/RDPWrapOffsetFinder**: ${{ steps.check.outputs.offsetfinder_latest }}
+
+          ### Action Required
+          1. Review upstream changelogs for breaking changes
+          2. Run **Build RDPWrap** workflow with the new refs
+          3. Test multi-session RDP in container
+          EOF
+          )"

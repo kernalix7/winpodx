@@ -1,0 +1,91 @@
+name: Check Windows Build Updates
+
+on:
+  schedule:
+    - cron: "0 9 * * 3"  # Every Wednesday 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check latest dockur Windows image
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get latest dockur/windows release info
+          DOCKUR_LATEST=$(gh api repos/dockur/windows/releases/latest --jq '.tag_name' 2>/dev/null || echo "unknown")
+          echo "dockur_latest=$DOCKUR_LATEST" >> "$GITHUB_OUTPUT"
+
+          # Track current version
+          VERSION_FILE="config/oem/rdpwrap/VERSIONS.txt"
+          DOCKUR_CURRENT=""
+          if [ -f "$VERSION_FILE" ]; then
+            DOCKUR_CURRENT=$(grep "^dockur=" "$VERSION_FILE" | cut -d= -f2 || echo "")
+          fi
+
+          NEEDS_UPDATE=false
+          if [ "$DOCKUR_LATEST" != "$DOCKUR_CURRENT" ] && [ "$DOCKUR_LATEST" != "unknown" ]; then
+            NEEDS_UPDATE=true
+            echo "dockur/windows: $DOCKUR_CURRENT -> $DOCKUR_LATEST"
+          fi
+
+          echo "needs_update=$NEEDS_UPDATE" >> "$GITHUB_OUTPUT"
+          echo "dockur_current=$DOCKUR_CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Create update PR
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKUR_LATEST: ${{ steps.check.outputs.dockur_latest }}
+          DOCKUR_CURRENT: ${{ steps.check.outputs.dockur_current }}
+        run: |
+          BRANCH="chore/windows-build-update-$(date +%Y%m%d)"
+
+          # Check if PR already exists
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already exists, skipping"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          # Update version tracking
+          VERSION_FILE="config/oem/rdpwrap/VERSIONS.txt"
+          mkdir -p config/oem/rdpwrap
+          if [ -f "$VERSION_FILE" ]; then
+            sed -i "s/^dockur=.*/dockur=$DOCKUR_LATEST/" "$VERSION_FILE"
+            # Add if not exists
+            grep -q "^dockur=" "$VERSION_FILE" || echo "dockur=$DOCKUR_LATEST" >> "$VERSION_FILE"
+          else
+            echo "dockur=$DOCKUR_LATEST" > "$VERSION_FILE"
+          fi
+
+          git add "$VERSION_FILE"
+          git commit -m "chore: dockur/windows update available ($DOCKUR_LATEST)"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: Windows build update — dockur $DOCKUR_LATEST" \
+            --body "$(cat <<EOF
+          ## Windows Build Update
+
+          **dockur/windows**: ${DOCKUR_CURRENT:-unknown} → $DOCKUR_LATEST
+
+          ### Action Required
+          1. Recreate container to get the new Windows build
+          2. Check if \`TargetReleaseVersionInfo\` in \`install.bat\` needs updating
+          3. Run **Build RDPWrap** workflow if RDPWrap binaries need rebuild
+          4. OffsetFinder will auto-generate new INI on first boot
+          EOF
+          )"

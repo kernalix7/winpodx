@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=winpodx
+Comment=Windows App Integration for Linux
+Exec=winpodx gui
+Icon=winpodx
+Categories=System;Utility;
+Keywords=windows;winpodx;rdp;virtualization;
+Terminal=false
+StartupNotify=true

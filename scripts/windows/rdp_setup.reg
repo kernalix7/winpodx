@@ -1,0 +1,21 @@
+Windows Registry Editor Version 5.00
+
+; Enable Remote Desktop
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Terminal Server]
+"fDenyTSConnections"=dword:00000000
+"fSingleSessionPerUser"=dword:00000000
+
+; Allow RemoteApp
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList]
+"fDisabledAllowList"=dword:00000001
+
+; NLA off for automated FreeRDP connections (RDP bound to 127.0.0.1 only)
+; SecurityLayer=2 enforces TLS encryption on the RDP channel
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp]
+"UserAuthentication"=dword:00000000
+"SecurityLayer"=dword:00000002
+
+; Firewall rule for RDP
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules]
+"RemoteDesktop-UserMode-In-TCP"="v2.10|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=3389|"
+"RemoteDesktop-UserMode-In-UDP"="v2.10|Action=Allow|Active=TRUE|Dir=In|Protocol=17|LPort=3389|"

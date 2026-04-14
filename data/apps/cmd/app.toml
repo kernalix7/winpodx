@@ -1,0 +1,5 @@
+name = "cmd"
+full_name = "Windows Command Prompt"
+executable = "C:\\Windows\\System32\\cmd.exe"
+categories = ["System", "TerminalEmulator"]
+mime_types = []

@@ -1,0 +1,8 @@
+name = "access"
+full_name = "Microsoft Access"
+executable = "C:\\Program Files\\Microsoft Office\\root\\Office16\\MSACCESS.EXE"
+categories = ["Office", "Database"]
+mime_types = [
+    "application/msaccess",
+    "application/vnd.ms-access",
+]

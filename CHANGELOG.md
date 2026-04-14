@@ -1,0 +1,74 @@
+# Changelog
+
+**English** | [한국어](docs/CHANGELOG.ko.md)
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- **Zero-config auto-provisioning**: First app launch auto-creates config, compose.yaml, starts pod, and registers desktop entries
+- **14 bundled app definitions**: Word, Excel, PowerPoint, Outlook, OneNote, Access, Notepad, Explorer, CMD, PowerShell, Paint, Calculator, VS Code, Teams
+- **Auto suspend/resume**: Container pauses when idle, auto-resumes on app launch, with graceful shutdown via stop_event
+- **Password auto-rotation**: Cryptographically secure random password (20-char), auto-rotated every 7 days (configurable via `password_max_age`), with rollback on failure
+- **`winpodx rotate-password`**: Manual password rotation command
+- **Office lock file cleanup**: `winpodx cleanup` removes `~$*.*` lock files from home directory
+- **Windows time sync**: `winpodx timesync` forces clock resync after host sleep/wake
+- **Windows debloat**: `winpodx debloat` disables telemetry, ads, Cortana, search indexing
+- **Power management**: `winpodx power --suspend/--resume` for manual container pause/unpause
+- **System diagnostics**: `winpodx info` shows display, dependencies, and config status
+- **Desktop notifications**: Notifies on app launch via D-Bus/notify-send
+- **Smart DPI scaling**: Auto-detects scale from GNOME, KDE Plasma 5/6, Sway, Hyprland, Cinnamon, env vars, xrdb
+- **Qt system tray**: Pod controls, app launchers, maintenance tools, idle monitor, auto-refresh
+- **Backend abstraction**: Podman (default), Docker, libvirt/KVM, manual RDP with unified interface
+- **Compose.yaml generation**: Auto-generated for Podman/Docker backends with dockur/windows image
+- **RDPWrap multi-session**: Multiple Windows apps run simultaneously in independent windows (no session reconnection flicker)
+- **RDPWrapOffsetFinder integration**: Generates `rdpwrap.ini` from actual `termsrv.dll` at first boot using Microsoft symbol server — no community INI dependency
+- **Per-app taskbar separation**: Each app gets its own WM_CLASS and `StartupWMClass` for independent taskbar icons
+- **Windows build pinning**: Feature updates blocked via `TargetReleaseVersion` registry policy, security updates allowed
+- **CI: Build RDPWrap workflow**: Builds RDPWrap + OffsetFinder from source on `windows-latest` (manual trigger)
+- **CI: Upstream update monitoring**: Weekly checks for new releases of stascorp/rdpwrap, llccd/RDPWrapOffsetFinder, dockur/windows — creates PRs automatically
+- **GUI: Update RDPWrap button**: Manual INI regeneration from settings panel
+- **GUI: Container restart prompt**: Prompts to restart container when CPU, RAM, or port settings change
+- **GUI: Scale as dropdown**: FreeRDP scale limited to valid values (100%/140%/180%) via QComboBox
+- **GUI: Concurrent launch protection**: Threading lock prevents simultaneous app launch crashes
+- **GUI: Windows Update toggle**: Enable/Disable buttons with status display, triple-layer block (services + scheduled tasks + hosts file)
+- Desktop integration: `.desktop` entries, hicolor icons, MIME type registration, icon cache refresh
+- argparse-based CLI: app, pod, config, setup, tray, info, cleanup, timesync, debloat, power, rotate-password commands
+- TOML configuration with 0600 file permissions for credential protection
+- FreeRDP session management with process tracking (.cproc files) and zombie process reaper
+- winapps.conf import for migration from existing setups
+
+### Security
+- Config and compose.yaml files created with 0600 permissions
+- RDP certificate: `/cert:ignore` for localhost only, `/cert:tofu` for remote connections
+- Password filtered from log output
+- App name validation (alphanumeric + dash/underscore only) to prevent injection
+- Notification text sanitized (control characters removed, HTML escaped, length limited)
+- PID file exclusive locking (`fcntl.flock`) to prevent race conditions on concurrent launches
+- Zombie process reaper (daemon thread per RDP process) to prevent process table leaks
+- Config `_apply()` uses `dataclasses.fields()` allowlist to prevent arbitrary attribute injection
+- SecurityLayer=2 (TLS) for encrypted RDP channel in OEM install and registry template
+- TLS-only RDP authentication for Podman backend (`/sec:tls`) — NLA/Kerberos fails in `podman unshare` namespace
+- RDPWrap built from source via CI (Apache 2.0 licensed) — no pre-built binaries
+- RDPWrap/OffsetFinder license files bundled with binaries (Apache 2.0 / MIT compliance)
+- Exit code 145 (SIGTERM) treated as normal app close, not error
+- Subprocess error handling with timeout in debloat (CLI + GUI)
+
+### Changed
+- Default RDP port changed from 3389 to 3390 (avoids collision with other containers)
+- Default VNC port set to 8007 (avoids collision with LinOffice on 8006)
+- FreeRDP search order: xfreerdp3 → xfreerdp → sdl-freerdp3 → sdl-freerdp → flatpak
+- `wlfreerdp` removed from search order (deprecated upstream by FreeRDP project)
+- Uninstall always removes container (previously only with `--purge`)
+
+### Changed
+- `podman unshare --rootless-netns` wrapper for FreeRDP — required for rootless Podman RDP access
+- Per-app desktop notification removed (was noisy on every launch)
+
+### Removed
+- `data/templates/app.desktop.j2` (unused Jinja2 template)
+- Dead code: `icons_cache_dir()`, `decode_base64_icon()`, `MISSING_DEPS_MSG`

@@ -1,0 +1,5 @@
+name = "calc"
+full_name = "Windows Calculator"
+executable = "C:\\Windows\\System32\\calc.exe"
+categories = ["Utility", "Calculator"]
+mime_types = []

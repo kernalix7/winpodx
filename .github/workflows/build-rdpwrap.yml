@@ -1,0 +1,187 @@
+name: Build RDPWrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      rdpwrap_ref:
+        description: "stascorp/rdpwrap git ref (tag/branch/commit)"
+        default: "master"
+        required: true
+      offsetfinder_ref:
+        description: "llccd/RDPWrapOffsetFinder git ref (tag/branch/commit)"
+        default: "master"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # --- Build RDPWrap (C++ Fusix version) ---
+      - name: Clone RDPWrap source
+        run: |
+          git clone https://github.com/stascorp/rdpwrap.git rdpwrap-src
+          cd rdpwrap-src
+          git checkout ${{ github.event.inputs.rdpwrap_ref }}
+
+      - name: Build rdpwrap.dll (C++ Fusix)
+        shell: powershell
+        run: |
+          cd rdpwrap-src
+          # The Delphi sources require VCL units unavailable in Free Pascal.
+          # Use the C++ reimplementation by Fusix (x64 + x86).
+          # Override PlatformToolset: vcxproj targets v120 (VS 2013) but runners have VS 2022 (v143).
+          # CL env var: vcxproj uses /Zp1 (1-byte packing) which conflicts with newer SDK headers.
+          $env:CL = "/DWINDOWS_IGNORE_PACKING_MISMATCH"
+          Write-Host "=== Building rdpwrap.dll (x64) ==="
+          msbuild "src-x86-x64-Fusix\RDPWrap.vcxproj" /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /m
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "x64 build failed, trying Win32..."
+            msbuild "src-x86-x64-Fusix\RDPWrap.vcxproj" /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /m
+          }
+
+          # Verify output
+          $dll = Get-ChildItem -Path "src-x86-x64-Fusix" -Recurse -Filter "rdpwrap.dll" | Select-Object -First 1
+          if ($dll) {
+            Write-Host "rdpwrap.dll built: $($dll.FullName) ($($dll.Length) bytes)"
+          } else {
+            Write-Error "rdpwrap.dll not found after build"
+            exit 1
+          }
+
+      # --- Build RDPWrapOffsetFinder ---
+      - name: Clone RDPWrapOffsetFinder source
+        run: |
+          git clone --recursive https://github.com/llccd/RDPWrapOffsetFinder.git offsetfinder-src
+          cd offsetfinder-src
+          git checkout ${{ github.event.inputs.offsetfinder_ref }}
+
+      - name: Build Zydis dependency
+        shell: powershell
+        run: |
+          cd offsetfinder-src
+          # OffsetFinder expects Zydis.lib at zydis\msvc\bin\ReleaseX64\
+          # Zydis.sln uses configs like "Release MT|x64" (not "Release|x64")
+          Write-Host "Building Zydis with MSBuild (Release MT|x64)..."
+          msbuild zydis\msvc\Zydis.sln "/p:Configuration=Release MT" /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release MT failed, trying Release MD..."
+            msbuild zydis\msvc\Zydis.sln "/p:Configuration=Release MD" /p:Platform=x64 /m
+          }
+          # Verify the lib exists where OffsetFinder expects it
+          if (Test-Path "zydis\msvc\bin\ReleaseX64\Zydis.lib") {
+            Write-Host "Zydis.lib found at expected path"
+          } else {
+            Write-Host "WARNING: Zydis.lib not found, listing bin contents:"
+            Get-ChildItem zydis\msvc\bin -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+          }
+
+      - name: Build RDPWrapOffsetFinder
+        shell: powershell
+        run: |
+          cd offsetfinder-src
+          # Zydis was built as a static lib (Release MT). Tell the linker not to
+          # expect __declspec(dllimport) symbols by defining ZYDIS_STATIC_BUILD.
+          $env:CL = "/DZYDIS_STATIC_BUILD /DZYCORE_STATIC_BUILD"
+          Write-Host "Building RDPWrapOffsetFinder.sln (Release|x64)..."
+          msbuild RDPWrapOffsetFinder.sln /p:Configuration=Release /p:Platform=x64 /m
+
+      # --- Collect all artifacts ---
+      - name: Collect artifacts
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+
+          # rdpwrap.dll from C++ Fusix build
+          $rdpDll = Get-ChildItem -Path rdpwrap-src\src-x86-x64-Fusix -Recurse -Filter "rdpwrap.dll" | Select-Object -First 1
+          if ($rdpDll) {
+            Copy-Item $rdpDll.FullName -Destination artifacts/
+            Write-Host "RDPWrap: rdpwrap.dll <- $($rdpDll.DirectoryName)"
+          } else {
+            Write-Error "rdpwrap.dll not found in build output"
+            exit 1
+          }
+
+          # OffsetFinder binaries
+          Get-ChildItem -Path offsetfinder-src -Recurse -Include "*.exe" |
+            Where-Object { $_.DirectoryName -match "Release|x64|bin" } |
+            ForEach-Object {
+              Copy-Item $_.FullName -Destination artifacts/
+              Write-Host "OffsetFinder: $($_.Name)"
+            }
+
+          # Zydis DLL (runtime dependency for OffsetFinder)
+          Get-ChildItem -Path offsetfinder-src -Recurse -Include "Zydis.dll" |
+            ForEach-Object {
+              Copy-Item $_.FullName -Destination artifacts/
+              Write-Host "Zydis: $($_.Name)"
+            }
+
+          # Copy Windows SDK symbol helpers if available
+          $sdkPaths = @(
+            "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\dbghelp.dll",
+            "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\symsrv.dll"
+          )
+          foreach ($sdk in $sdkPaths) {
+            if (Test-Path $sdk) {
+              Copy-Item $sdk -Destination artifacts/
+              Write-Host "SDK: $(Split-Path $sdk -Leaf)"
+            }
+          }
+
+          # Create symsrv.yes (enables symbol server without EULA prompt)
+          New-Item -ItemType File -Force -Path artifacts\symsrv.yes
+
+          # Bundle license notices (Apache 2.0 requires this for redistribution)
+          if (Test-Path "rdpwrap-src\LICENSE") {
+            Copy-Item "rdpwrap-src\LICENSE" -Destination "artifacts\LICENSE-rdpwrap.txt"
+          }
+          if (Test-Path "rdpwrap-src\NOTICE") {
+            Copy-Item "rdpwrap-src\NOTICE" -Destination "artifacts\NOTICE-rdpwrap.txt"
+          }
+          if (Test-Path "offsetfinder-src\LICENSE") {
+            Copy-Item "offsetfinder-src\LICENSE" -Destination "artifacts\LICENSE-offsetfinder.txt"
+          }
+
+          # List what we got
+          Write-Host "`n=== Collected artifacts ==="
+          Get-ChildItem artifacts/ | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+
+          # Generate checksums
+          Get-ChildItem artifacts/* -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            "$hash  $($_.Name)" | Out-File -Append -FilePath artifacts\SHA256SUMS.txt
+          }
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdpwrap-${{ github.event.inputs.rdpwrap_ref }}
+          path: artifacts/
+          retention-days: 90
+
+      - name: Copy to OEM directory
+        shell: powershell
+        run: |
+          $oemDir = "config/oem/rdpwrap"
+          New-Item -ItemType Directory -Force -Path $oemDir
+          Copy-Item artifacts/*.dll -Destination $oemDir/ -ErrorAction SilentlyContinue
+          Copy-Item artifacts/*.exe -Destination $oemDir/ -ErrorAction SilentlyContinue
+          Copy-Item artifacts/symsrv.yes -Destination $oemDir/ -ErrorAction SilentlyContinue
+          Copy-Item artifacts/LICENSE-*.txt -Destination $oemDir/ -ErrorAction SilentlyContinue
+          Copy-Item artifacts/SHA256SUMS.txt -Destination $oemDir/
+
+      - name: Commit built binaries
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config/oem/rdpwrap/
+          git diff --cached --quiet || git commit -m "chore: update RDPWrap + OffsetFinder binaries (rdpwrap ${{ github.event.inputs.rdpwrap_ref }}, offsetfinder ${{ github.event.inputs.offsetfinder_ref }})"
+          git push

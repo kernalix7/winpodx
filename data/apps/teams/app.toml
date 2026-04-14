@@ -1,0 +1,5 @@
+name = "teams"
+full_name = "Microsoft Teams"
+executable = "C:\\Program Files\\WindowsApps\\MSTeams_*\\ms-teams.exe"
+categories = ["Network", "Chat"]
+mime_types = []

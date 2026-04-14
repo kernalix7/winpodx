@@ -1,0 +1,10 @@
+name = "mspaint"
+full_name = "Microsoft Paint"
+executable = "C:\\Windows\\System32\\mspaint.exe"
+categories = ["Graphics", "2DGraphics"]
+mime_types = [
+    "image/png",
+    "image/jpeg",
+    "image/bmp",
+    "image/gif",
+]
