@@ -64,8 +64,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - FreeRDP search order: xfreerdp3 → xfreerdp → sdl-freerdp3 → sdl-freerdp → flatpak
 - `wlfreerdp` removed from search order (deprecated upstream by FreeRDP project)
 - Uninstall always removes container (previously only with `--purge`)
-
-### Changed
+- App launch switched from `/app:program:` (RemoteApp/RAIL) to `/shell:` (alternate shell) — RAIL requires RDSH role which Windows Desktop edition lacks
 - `podman unshare --rootless-netns` wrapper for FreeRDP — required for rootless Podman RDP access
 - Per-app desktop notification removed (was noisy on every launch)
 
