@@ -109,20 +109,16 @@ jobs:
             exit 1
           }
 
-          # OffsetFinder binaries
-          Get-ChildItem -Path offsetfinder-src -Recurse -Include "*.exe" |
-            Where-Object { $_.DirectoryName -match "Release|x64|bin" } |
-            ForEach-Object {
-              Copy-Item $_.FullName -Destination artifacts/
-              Write-Host "OffsetFinder: $($_.Name)"
+          # OffsetFinder binaries (only the two we need, not Zydis examples)
+          foreach ($name in @("RDPWrapOffsetFinder.exe", "RDPWrapOffsetFinder_nosymbol.exe")) {
+            $found = Get-ChildItem -Path offsetfinder-src -Recurse -Filter $name | Select-Object -First 1
+            if ($found) {
+              Copy-Item $found.FullName -Destination artifacts/
+              Write-Host "OffsetFinder: $($found.Name) <- $($found.DirectoryName)"
+            } else {
+              Write-Host "WARNING: $name not found"
             }
-
-          # Zydis DLL (runtime dependency for OffsetFinder)
-          Get-ChildItem -Path offsetfinder-src -Recurse -Include "Zydis.dll" |
-            ForEach-Object {
-              Copy-Item $_.FullName -Destination artifacts/
-              Write-Host "Zydis: $($_.Name)"
-            }
+          }
 
           # Copy Windows SDK symbol helpers if available
           $sdkPaths = @(
