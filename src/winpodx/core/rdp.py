@@ -159,10 +159,10 @@ def build_rdp_command(
         cmd.append(f"/p:{password}")
         password = ""  # signal launch_app to skip stdin write
 
-    # Launch specific app seamlessly via RemoteApp (RAIL).
-    # Requires fDisabledAllowList=1 and fInheritInitialProgram=1 in the
-    # Windows registry (set by install.bat).  Falls back to /shell: if
-    # RAIL is not supported.
+    # Launch app seamlessly via RemoteApp (RAIL).
+    # Requires fDisabledAllowList=1 in Windows registry (set by install.bat).
+    # With RDPWrap multi-session each app gets its own independent RDP
+    # session — no reconnection flicker, no shared taskbar icon.
     if app_executable:
         from pathlib import PureWindowsPath
 

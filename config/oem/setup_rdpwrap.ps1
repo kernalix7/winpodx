@@ -1,7 +1,7 @@
-# winpodx — RDPWrap setup script
+# winpodx - RDPWrap setup script
 # Installs RDPWrap from local OEM directory (built from source via CI).
 # Generates rdpwrap.ini using RDPWrapOffsetFinder (symbol-based, from MS symbol server).
-# No third-party downloads — only Microsoft official symbol server is contacted.
+# No third-party downloads - only Microsoft official symbol server is contacted.
 # Runs inside the Windows container only.
 
 $ErrorActionPreference = "Stop"
@@ -107,4 +107,4 @@ Stop-Service TermService -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 Start-Service TermService -ErrorAction SilentlyContinue
 
-Write-Host "[winpodx] RDPWrap setup complete — multi-session RDP enabled"
+Write-Host "[winpodx] RDPWrap setup complete - multi-session RDP enabled"

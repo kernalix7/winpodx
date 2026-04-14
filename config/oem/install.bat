@@ -38,7 +38,7 @@ reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
 
 REM === Pin Windows build (security updates OK, feature/build upgrades blocked) ===
-REM Keeps termsrv.dll stable for RDPWrap — build upgrades come via winpodx releases only
+REM Keeps termsrv.dll stable for RDPWrap - build upgrades come via winpodx releases only
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f
 REM Block feature updates and build upgrades (keeps current build number)
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v TargetReleaseVersion /t REG_DWORD /d 1 /f

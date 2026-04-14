@@ -1,4 +1,4 @@
-# winpodx — Windows Update toggle
+# winpodx - Windows Update toggle
 # Usage: toggle_updates.ps1 -Action enable|disable|status
 # Runs inside the Windows container only.
 

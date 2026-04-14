@@ -1,4 +1,4 @@
-# winpodx — RDPWrap INI updater (manual trigger only)
+# winpodx - RDPWrap INI updater (manual trigger only)
 # Re-runs RDPWrapOffsetFinder against current termsrv.dll to regenerate offsets.
 # Contacts Microsoft symbol server only. No third-party downloads.
 
