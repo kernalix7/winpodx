@@ -159,23 +159,19 @@ def build_rdp_command(
         cmd.append(f"/p:{password}")
         password = ""  # signal launch_app to skip stdin write
 
-    # Launch specific app via alternate shell.
-    # RemoteApp (RAIL / /app:program:) requires the RDSH role which
-    # Windows Desktop edition does not have.  RDPWrap enables multi-session
-    # but not RAIL.  /shell: launches the app as the session program —
-    # when the app exits the RDP session disconnects.  With RDPWrap each
-    # /shell: session is independent so multiple apps run simultaneously.
+    # Launch specific app seamlessly via RemoteApp (RAIL).
+    # Requires fDisabledAllowList=1 and fInheritInitialProgram=1 in the
+    # Windows registry (set by install.bat).  Falls back to /shell: if
+    # RAIL is not supported.
     if app_executable:
         from pathlib import PureWindowsPath
 
         stem = PureWindowsPath(app_executable).stem.lower()
+        app_arg = f"/app:program:{app_executable},name:{stem}"
         if file_path:
             unc_path = linux_to_unc(file_path)
-            cmd.append(f"/shell:{app_executable}")
-            cmd.append(f"/shell-dir:{PureWindowsPath(app_executable).parent}")
-            cmd.append(f"/app-cmd:{unc_path}")
-        else:
-            cmd.append(f"/shell:{app_executable}")
+            app_arg += f",cmd:{unc_path}"
+        cmd.append(app_arg)
         cmd.append(f"/wm-class:{stem}")
 
     # TLS auth: NLA/Kerberos fails inside podman unshare namespace

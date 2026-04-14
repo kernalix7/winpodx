@@ -32,12 +32,13 @@ def update_rdpwrap_ini(cfg: Config) -> bool:
         app_executable=(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"),
     )
 
-    # Replace the /shell argument to pass the script as arguments
+    # Replace the /app argument to pass the script path
     for i, arg in enumerate(cmd):
-        if arg.startswith("/shell:"):
+        if arg.startswith("/app:program:"):
             cmd[i] = (
-                r"/shell:C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-                r" -ExecutionPolicy Bypass -File C:\OEM\update_rdpwrap.ps1"
+                "/app:program:"
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe,"
+                r"cmd:-ExecutionPolicy Bypass -File C:\OEM\update_rdpwrap.ps1"
             )
             break
 

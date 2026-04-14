@@ -19,6 +19,12 @@ REM === Enable RemoteApp (allow any app to run as RemoteApp) ===
 echo [winpodx] Enabling RemoteApp...
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList" /v fDisabledAllowList /t REG_DWORD /d 1 /f
 
+REM === Allow client-specified initial program (alternate shell / RemoteApp) ===
+REM Without this, Windows ignores /shell: and /app: parameters from the RDP client
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fInheritInitialProgram /t REG_DWORD /d 1 /f
+REM MaxInstanceCount > 1 allows concurrent sessions to use different initial programs
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 10 /f
+
 REM === Firewall: allow RDP ===
 echo [winpodx] Configuring firewall...
 netsh advfirewall firewall set rule group="Remote Desktop" new enable=yes 2>nul

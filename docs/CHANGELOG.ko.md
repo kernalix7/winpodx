@@ -64,7 +64,7 @@
 - FreeRDP 탐색 순서: xfreerdp3 → xfreerdp → sdl-freerdp3 → sdl-freerdp → flatpak
 - `wlfreerdp` 탐색 순서에서 제거 (FreeRDP 프로젝트에서 공식 지원 종료)
 - 언인스톨 시 항상 컨테이너 제거 (이전: `--purge` 플래그 필요)
-- 앱 실행 방식 `/app:program:` (RemoteApp/RAIL) → `/shell:` (대체 셸) — Windows Desktop 에디션에 RDSH 역할 없어 RAIL 미지원
+- RemoteApp (RAIL) 활성화: `fDisabledAllowList` + `fInheritInitialProgram` 레지스트리 키 — 바탕화면 없이 앱 창만 심리스 표시
 - FreeRDP에 `podman unshare --rootless-netns` 래퍼 — rootless Podman RDP 접속에 필수
 - 앱별 데스크톱 알림 제거 (매번 실행 시 알림이 과다)
 

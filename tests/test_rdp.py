@@ -83,7 +83,7 @@ class TestBuildRdpCommand:
             lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
-        assert "/shell:notepad.exe" in cmd
+        assert any("/app:program:notepad.exe" in c for c in cmd)
 
     def test_dpi_flag_when_set(self, cfg, monkeypatch):
         monkeypatch.setattr(
