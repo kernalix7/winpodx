@@ -29,6 +29,10 @@ class Backend(ABC):
     def get_ip(self) -> str:
         """Return the IP address of the running Windows environment."""
 
+    def wait_for_ready(self, timeout: int = 300) -> bool:
+        """Wait for the Windows environment to be ready for RDP."""
+        return False
+
     def restart(self) -> None:
         """Restart the Windows environment."""
         self.stop()

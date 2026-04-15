@@ -55,6 +55,11 @@ Issues = "https://github.com/kernalix7/winpodx/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/winpodx"]
 
+[tool.hatch.build.targets.wheel.shared-data]
+"data" = "share/winpodx/data"
+"config" = "share/winpodx/config"
+"scripts" = "share/winpodx/scripts"
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

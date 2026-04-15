@@ -196,6 +196,10 @@ else
             fi
         done
     else
+        if ! command -v git >/dev/null 2>&1; then
+            err "git is required for remote install. Install git first or run from the repository."
+            exit 1
+        fi
         log "Cloning from GitHub..."
         git clone --quiet "$REPO_URL" "$INSTALL_DIR"
     fi

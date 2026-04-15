@@ -32,7 +32,11 @@ def _format_value(val: Any) -> str:
         escaped = val.replace("\\", "\\\\").replace('"', '\\"')
         escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
         return f'"{escaped}"'
+    elif isinstance(val, float):
+        return str(val)
     elif isinstance(val, list):
         items = ", ".join(_format_value(v) for v in val)
         return f"[{items}]"
-    return f'"{val}"'
+    elif val is None:
+        return '""'
+    raise TypeError(f"Unsupported TOML value type: {type(val).__name__}")

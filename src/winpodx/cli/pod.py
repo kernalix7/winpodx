@@ -42,7 +42,7 @@ def _start(wait: bool, timeout: int) -> None:
         if wait:
             print(f"Waiting for RDP at {status.ip}:{cfg.rdp.port}...")
             backend = get_backend(cfg)
-            if hasattr(backend, "wait_for_ready") and backend.wait_for_ready(timeout):
+            if backend.wait_for_ready(timeout):
                 print("Pod is ready!")
                 notify_pod_started(status.ip)
             else:

@@ -70,6 +70,19 @@ class LibvirtBackend(Backend):
             log.warning("virsh not found in PATH")
             return False
 
+    def wait_for_ready(self, timeout: int = 300) -> bool:
+        """Wait for libvirt VM to be running and RDP port available."""
+        import time
+
+        from winpodx.core.pod import check_rdp_port
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.is_running() and check_rdp_port(self.get_ip(), self.cfg.rdp.port, timeout=3):
+                return True
+            time.sleep(5)
+        return False
+
     def get_ip(self) -> str:
         if self.cfg.rdp.ip:
             return self.cfg.rdp.ip

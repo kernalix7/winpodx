@@ -6,7 +6,7 @@ Thank you for your interest in contributing to winpodx! This guide will help you
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - FreeRDP 3+
 
 ## Build
