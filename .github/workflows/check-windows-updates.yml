@@ -25,7 +25,7 @@ jobs:
           echo "dockur_latest=$DOCKUR_LATEST" >> "$GITHUB_OUTPUT"
 
           # Track current version
-          VERSION_FILE="config/oem/rdpwrap/VERSIONS.txt"
+          VERSION_FILE="config/oem/VERSIONS.txt"
           DOCKUR_CURRENT=""
           if [ -f "$VERSION_FILE" ]; then
             DOCKUR_CURRENT=$(grep "^dockur=" "$VERSION_FILE" | cut -d= -f2 || echo "")
@@ -61,8 +61,8 @@ jobs:
           git checkout -b "$BRANCH"
 
           # Update version tracking
-          VERSION_FILE="config/oem/rdpwrap/VERSIONS.txt"
-          mkdir -p config/oem/rdpwrap
+          VERSION_FILE="config/oem/VERSIONS.txt"
+          mkdir -p config/oem
           if [ -f "$VERSION_FILE" ]; then
             sed -i "s/^dockur=.*/dockur=$DOCKUR_LATEST/" "$VERSION_FILE"
             # Add if not exists
@@ -85,7 +85,6 @@ jobs:
           ### Action Required
           1. Recreate container to get the new Windows build
           2. Check if \`TargetReleaseVersionInfo\` in \`install.bat\` needs updating
-          3. Run **Build RDPWrap** workflow if RDPWrap binaries need rebuild
-          4. OffsetFinder will auto-generate new INI on first boot
+          3. Multi-session support is planned as a separate project
           EOF
           )"

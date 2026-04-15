@@ -337,20 +337,40 @@ def _recreate_container(cfg: Config) -> None:
 
 
 def handle_rotate_password(args: argparse.Namespace) -> None:
-    """Rotate the Windows RDP password."""
+    """Rotate the Windows RDP password.
+
+    Changes the password inside Windows first (via net user),
+    then updates config and compose.yaml. No container recreation needed.
+    """
     from datetime import datetime, timezone
 
+    from winpodx.core.pod import PodState, pod_status
+    from winpodx.core.provisioner import _change_windows_password
+
     cfg = Config.load()
+
+    if cfg.pod.backend not in ("podman", "docker"):
+        print("Password rotation is only supported for podman/docker backends.")
+        raise SystemExit(1)
+
+    status = pod_status(cfg)
+    if status.state != PodState.RUNNING:
+        print("Container is not running. Start it first: winpodx pod start --wait")
+        raise SystemExit(1)
+
     new_password = _generate_password()
 
-    # Update config and compose
+    # Change password inside Windows first
+    print("Changing Windows user password...")
+    if not _change_windows_password(cfg, new_password):
+        print("Failed to change Windows password. Is the container fully booted?")
+        raise SystemExit(1)
+
+    # Windows password changed — update config and compose to match
     cfg.rdp.password = new_password
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
     cfg.save()
-
-    if cfg.pod.backend in ("podman", "docker"):
-        _generate_compose(cfg)
-        _recreate_container(cfg)
+    _generate_compose(cfg)
 
     print("Password rotated successfully.")
     print(f"New password saved to {Config.path()}")

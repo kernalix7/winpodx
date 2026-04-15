@@ -161,8 +161,8 @@ def build_rdp_command(
 
     # Launch app seamlessly via RemoteApp (RAIL).
     # Requires fDisabledAllowList=1 in Windows registry (set by install.bat).
-    # With RDPWrap multi-session each app gets its own independent RDP
-    # session — no reconnection flicker, no shared taskbar icon.
+    # Currently single-session: opening a new app reconnects the existing session.
+    # Multi-session support (independent RDP sessions per app) is planned.
     if app_executable:
         from pathlib import PureWindowsPath
 
@@ -173,6 +173,7 @@ def build_rdp_command(
             app_arg += f",cmd:{unc_path}"
         cmd.append(app_arg)
         cmd.append(f"/wm-class:{stem}")
+        cmd.append("+grab-keyboard")
 
     # TLS auth: NLA/Kerberos fails inside podman unshare namespace
     # (krb5_parse_name EAGAIN), so use TLS-level authentication.

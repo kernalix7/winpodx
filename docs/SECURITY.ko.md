@@ -64,9 +64,7 @@
 - **XDG 준수 파일 권한** — 설정 파일은 적절한 파일 권한과 함께 XDG Base Directory 사양을 따릅니다
 - **코드나 git에 비밀 정보 없음** — 비밀 정보, 자격 증명, API 키는 저장소에 절대 커밋하지 않습니다
 - **TLS 전용 RDP** — SecurityLayer=2 (TLS) RDP 채널 암호화 적용; NLA는 127.0.0.1 바인딩 환경에서만 비활성화
-- **RDPWrap 소스 빌드** — 모든 RDPWrap 바이너리는 GitHub Actions CI에서 소스 빌드, 사전 빌드 바이너리 미사용
-- **자동 다운로드 없음** — RDPWrap INI 재생성은 수동 전용 (GUI 버튼); 부팅 시 외부 파일 다운로드 예약 작업 없음
-- **Windows 빌드 고정** — Feature update 차단으로 예기치 않은 `termsrv.dll` 변경 방지; 보안 업데이트는 정상 설치
+- **Windows 빌드 고정** — 레지스트리 정책으로 Feature update 차단; 보안 업데이트는 정상 설치
 - **컨테이너 격리 RDP** — RDP 포트는 127.0.0.1에만 바인딩, 네트워크에 노출되지 않음
 
 ## 기여 인정

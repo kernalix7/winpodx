@@ -25,13 +25,9 @@
 - **Qt 시스템 트레이**: 팟 제어, 앱 런처, 유지보수 도구, 유휴 모니터, 자동 갱신
 - **백엔드 추상화**: Podman (기본), Docker, libvirt/KVM, 수동 RDP 통합 인터페이스
 - **compose.yaml 자동 생성**: Podman/Docker 백엔드용 dockur/windows 이미지 설정
-- **RDPWrap 멀티세션**: 여러 Windows 앱을 독립 창에서 동시 실행 (세션 재연결 깜빡임 없음)
-- **RDPWrapOffsetFinder 통합**: 첫 부팅 시 실제 `termsrv.dll`에서 `rdpwrap.ini` 자동 생성 (Microsoft 심볼 서버 사용) — 커뮤니티 INI 의존 없음
 - **앱별 작업 표시줄 분리**: 앱마다 독립 WM_CLASS 및 `StartupWMClass`로 작업 표시줄 아이콘 분리
 - **Windows 빌드 고정**: `TargetReleaseVersion` 레지스트리 정책으로 feature update 차단, 보안 업데이트만 허용
-- **CI: Build RDPWrap 워크플로우**: `windows-latest`에서 RDPWrap + OffsetFinder 소스 빌드 (수동 트리거)
-- **CI: 업스트림 업데이트 모니터링**: stascorp/rdpwrap, llccd/RDPWrapOffsetFinder, dockur/windows 매주 확인 → 자동 PR 생성
-- **GUI: Update RDPWrap 버튼**: 설정 패널에서 수동 INI 재생성
+- **CI: 업스트림 업데이트 모니터링**: dockur/windows 매주 확인 → 자동 PR 생성
 - **GUI: 컨테이너 재시작 프롬프트**: CPU, RAM, 포트 설정 변경 시 재시작 확인
 - **GUI: 스케일 드롭다운**: FreeRDP 스케일을 유효 값(100%/140%/180%)으로 제한 (QComboBox)
 - **GUI: 동시 실행 보호**: 스레딩 잠금으로 동시 앱 실행 충돌 방지
@@ -53,10 +49,11 @@
 - `_apply()` 설정 로딩 시 `dataclasses.fields()` 허용 목록 — 임의 속성 주입 방지
 - SecurityLayer=2 (TLS) — OEM 설치 및 레지스트리 템플릿에서 암호화된 RDP 채널
 - Podman 백엔드에서 TLS 전용 RDP 인증 (`/sec:tls`) — `podman unshare` 네임스페이스에서 NLA/Kerberos 실패
-- RDPWrap CI 소스 빌드 (Apache 2.0 라이선스) — 사전 빌드 바이너리 없음
-- RDPWrap/OffsetFinder 라이선스 파일 바이너리와 함께 번들 (Apache 2.0 / MIT 준수)
 - 종료 코드 145 (SIGTERM) 정상 앱 종료로 처리, 에러 아님
 - debloat에서 subprocess 에러 처리 및 타임아웃 (CLI + GUI)
+
+### 수정됨
+- FreeRDP RemoteApp: RAIL 모드에서 즉시 전송 실패를 유발하던 `/rfx` 플래그 제거
 
 ### 변경됨
 - 기본 RDP 포트 3389 → 3390 (다른 컨테이너와 충돌 방지)
@@ -69,5 +66,6 @@
 - 앱별 데스크톱 알림 제거 (매번 실행 시 알림이 과다)
 
 ### 제거됨
+- **RDPWrap 멀티세션**: 모든 RDPWrap 바이너리, 스크립트, CI 워크플로우, Python 모듈 제거 — 멀티세션 지원은 별도 프로젝트로 개발 예정
 - `data/templates/app.desktop.j2` (미사용 Jinja2 템플릿)
 - 데드코드: `icons_cache_dir()`, `decode_base64_icon()`, `MISSING_DEPS_MSG`

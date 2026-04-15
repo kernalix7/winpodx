@@ -968,12 +968,6 @@ class WinpodxWindow(QMainWindow):
                 "Disable telemetry & ads",
                 self._on_debloat,
             ),
-            (
-                "\u21bb",
-                "Update RDPWrap",
-                "Update multi-session INI",
-                self._on_update_rdpwrap,
-            ),
         ]
         for i, (icon, label, desc, handler) in enumerate(sys_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
@@ -1543,25 +1537,6 @@ class WinpodxWindow(QMainWindow):
             else:
                 self.app_launch_failed.emit("Failed to disable Windows Update")
             self._refresh_update_status()
-
-        threading.Thread(target=_do, daemon=True).start()
-
-    def _on_update_rdpwrap(self) -> None:
-        self.info_label.setText("Updating RDPWrap INI...")
-        QApplication.processEvents()
-
-        def _do() -> None:
-            try:
-                from winpodx.core.rdpwrap import update_rdpwrap_ini
-
-                cfg = Config.load()
-                ok = update_rdpwrap_ini(cfg)
-                if ok:
-                    self.app_launched.emit("RDPWrap INI updated")
-                else:
-                    self.app_launch_failed.emit("RDPWrap INI update failed")
-            except Exception as e:
-                self.app_launch_failed.emit(f"RDPWrap update failed: {e}")
 
         threading.Thread(target=_do, daemon=True).start()
 

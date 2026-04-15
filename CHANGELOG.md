@@ -25,13 +25,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **Qt system tray**: Pod controls, app launchers, maintenance tools, idle monitor, auto-refresh
 - **Backend abstraction**: Podman (default), Docker, libvirt/KVM, manual RDP with unified interface
 - **Compose.yaml generation**: Auto-generated for Podman/Docker backends with dockur/windows image
-- **RDPWrap multi-session**: Multiple Windows apps run simultaneously in independent windows (no session reconnection flicker)
-- **RDPWrapOffsetFinder integration**: Generates `rdpwrap.ini` from actual `termsrv.dll` at first boot using Microsoft symbol server — no community INI dependency
 - **Per-app taskbar separation**: Each app gets its own WM_CLASS and `StartupWMClass` for independent taskbar icons
 - **Windows build pinning**: Feature updates blocked via `TargetReleaseVersion` registry policy, security updates allowed
-- **CI: Build RDPWrap workflow**: Builds RDPWrap + OffsetFinder from source on `windows-latest` (manual trigger)
-- **CI: Upstream update monitoring**: Weekly checks for new releases of stascorp/rdpwrap, llccd/RDPWrapOffsetFinder, dockur/windows — creates PRs automatically
-- **GUI: Update RDPWrap button**: Manual INI regeneration from settings panel
+- **CI: Upstream update monitoring**: Weekly checks for new dockur/windows releases — creates PRs automatically
 - **GUI: Container restart prompt**: Prompts to restart container when CPU, RAM, or port settings change
 - **GUI: Scale as dropdown**: FreeRDP scale limited to valid values (100%/140%/180%) via QComboBox
 - **GUI: Concurrent launch protection**: Threading lock prevents simultaneous app launch crashes
@@ -53,10 +49,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Config `_apply()` uses `dataclasses.fields()` allowlist to prevent arbitrary attribute injection
 - SecurityLayer=2 (TLS) for encrypted RDP channel in OEM install and registry template
 - TLS-only RDP authentication for Podman backend (`/sec:tls`) — NLA/Kerberos fails in `podman unshare` namespace
-- RDPWrap built from source via CI (Apache 2.0 licensed) — no pre-built binaries
-- RDPWrap/OffsetFinder license files bundled with binaries (Apache 2.0 / MIT compliance)
 - Exit code 145 (SIGTERM) treated as normal app close, not error
 - Subprocess error handling with timeout in debloat (CLI + GUI)
+
+### Fixed
+- FreeRDP RemoteApp: removed `/rfx` flag that caused immediate transport failure in RAIL mode
 
 ### Changed
 - Default RDP port changed from 3389 to 3390 (avoids collision with other containers)
@@ -69,5 +66,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Per-app desktop notification removed (was noisy on every launch)
 
 ### Removed
+- **RDPWrap multi-session**: Removed all RDPWrap binaries, scripts, CI workflows, and Python modules — multi-session support will be developed as a separate project
 - `data/templates/app.desktop.j2` (unused Jinja2 template)
 - Dead code: `icons_cache_dir()`, `decode_base64_icon()`, `MISSING_DEPS_MSG`

@@ -26,23 +26,21 @@ winpodx runs a Windows container (via Podman) in the background and presents Win
 <table>
 <tr><td width="50%">
 
-**Launch & Integration**
+**Seamless App Windows**
+- RemoteApp (RAIL) renders each app as a native Linux window
+- Per-app taskbar icons (WM_CLASS matching)
+- File associations (double-click `.docx` → Word opens)
+- Multi-session support (independent RDP sessions) planned
+
+</td><td width="50%">
+
+**Launch & Automation**
 - Zero-config auto-provisioning
 - 14 bundled app profiles
 - `.desktop` entries, icons, MIME types
 - Qt6 system tray with full controls
-- Per-app taskbar icons (WM_CLASS)
-- Smart DPI scaling per DE
-
-</td><td width="50%">
-
-**Automation & Security**
 - Auto suspend/resume (saves CPU)
 - Password auto-rotation (7-day cycle)
-- TLS-only RDP on 127.0.0.1
-- Multi-session via RDPWrap
-- Windows build pinning
-- CI upstream dependency tracking
 
 </td></tr>
 </table>
@@ -68,8 +66,8 @@ winpodx runs a Windows container (via Podman) in the background and presents Win
                      ┌──────────────▼──────────────┐
                      │   Windows Container (Podman) │
                      │   ┌──────────────────────┐   │
-                     │   │  RDPWrap multi-session│   │
                      │   │  Word  Excel  PPT ... │   │
+                     │   │  (single-session RDP)  │   │
                      │   └──────────────────────┘   │
                      │   127.0.0.1:3390 (TLS)       │
                      └─────────────────────────────┘
@@ -84,7 +82,6 @@ winpodx runs a Windows container (via Podman) in the background and presents Win
 | GUI (optional) | PySide6 (Qt6) |
 | Config | TOML (stdlib tomllib + built-in writer) |
 | RDP | FreeRDP 3+ (xfreerdp) |
-| Multi-session | [RDPWrap](https://github.com/stascorp/rdpwrap) (built from source) + [OffsetFinder](https://github.com/llccd/RDPWrapOffsetFinder) |
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
 
@@ -227,19 +224,13 @@ winpodx app install myapp   # Register in desktop menu
 
 </details>
 
-## Multi-Session RDP (RDPWrap)
+## Multi-Session RDP
 
-Windows Desktop edition limits RDP to one session per user — opening a second app disconnects the first. winpodx uses [RDPWrap](https://github.com/stascorp/rdpwrap) to remove this limitation.
+> **Status: Planned** — Multi-session support is being developed as a separate project.
 
-| Step | What happens |
-|------|-------------|
-| **CI build** | RDPWrap + OffsetFinder built from source via GitHub Actions (manual trigger) |
-| **First boot** | `setup_rdpwrap.ps1` installs RDPWrap, OffsetFinder generates `rdpwrap.ini` from actual `termsrv.dll` |
-| **Symbol source** | Microsoft's official PDB server (`msdl.microsoft.com`) — no third-party downloads |
-| **Taskbar** | Each app gets its own `/wm-class` + `StartupWMClass` for independent taskbar icons |
-| **Build pinning** | Feature updates blocked via registry policy; security updates install normally |
-| **INI update** | Manual only — GUI "Update RDPWrap" button regenerates offsets from current DLL |
-| **Upstream watch** | CI checks weekly for new releases, creates PRs (no auto-merge) |
+Currently, Windows Desktop edition limits RDP to one session per user — opening a second app reconnects the existing session. Each app still opens as a seamless RemoteApp (RAIL) window, but only one can be active at a time.
+
+Multi-session support (multiple independent RDP sessions per app) is planned as a separate project and will be integrated into winpodx when available.
 
 ## Install / Uninstall
 
@@ -270,9 +261,9 @@ winpodx/
 │   ├── gui/               # Qt6 main window, app dialog, theme
 │   └── utils/             # XDG paths, deps, TOML writer, winapps compat
 ├── data/apps/             # 14 bundled app definitions (TOML)
-├── config/oem/            # Windows OEM scripts (RDPWrap setup, post-install)
+├── config/oem/            # Windows OEM scripts (post-install)
 ├── scripts/windows/       # PowerShell scripts (debloat, time sync, RDP setup)
-├── .github/workflows/     # CI: build RDPWrap, check upstream updates
+├── .github/workflows/     # CI: check upstream updates
 └── tests/                 # pytest test suite (92 tests)
 ```
 
@@ -304,4 +295,4 @@ For security issues, follow the process in [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE) - Kim DaeHyun
+[MIT](LICENSE) - Kim DaeHyun (kernalix7@kodenet.io)

@@ -64,9 +64,7 @@ This project follows these security practices:
 - **XDG-compliant file permissions** — Configuration files follow XDG Base Directory Specification with appropriate file permissions
 - **No secrets in code or git** — Secrets, credentials, and API keys are never committed to the repository
 - **TLS-only RDP** — SecurityLayer=2 (TLS) enforced on the RDP channel; NLA disabled only because RDP is bound to 127.0.0.1
-- **RDPWrap built from source** — All RDPWrap binaries are built from source via GitHub Actions CI, not downloaded as pre-built binaries
-- **No automatic downloads** — RDPWrap INI regeneration is manual-only (GUI button); no scheduled tasks download external files at boot
-- **Windows build pinning** — Feature updates blocked to prevent unexpected `termsrv.dll` changes; security updates install normally
+- **Windows build pinning** — Feature updates blocked via registry policy; security updates install normally
 - **Container-isolated RDP** — RDP port is bound to 127.0.0.1 only; not exposed to the network
 
 ## Attribution

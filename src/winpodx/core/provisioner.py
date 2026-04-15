@@ -63,19 +63,64 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     return cfg
 
 
-def _auto_rotate_password(cfg: Config) -> Config:
-    """Rotate RDP password if it's older than 1 day.
+def _change_windows_password(cfg: Config, new_password: str) -> bool:
+    """Change Windows user password inside the container via PowerShell.
 
-    Updates config, compose.yaml, and recreates the container
-    so both sides use the new password. If any step fails,
-    rolls back to the old password to prevent mismatch.
+    Uses PowerShell with single-quoted password to avoid cmd.exe
+    special character parsing issues (& % ! etc. in generated passwords).
+    Returns True if password was changed successfully.
+    """
+    backend = cfg.pod.backend
+    if backend not in ("podman", "docker"):
+        return False
+
+    runtime = "podman" if backend == "podman" else "docker"
+    # Single quotes in PowerShell treat all characters as literal.
+    # Our password alphabet (ascii + digits + !@#$%&*) never includes
+    # single quotes, so this is safe.
+    ps_cmd = f"net user '{cfg.rdp.user}' '{new_password}'"
+    cmd = [
+        runtime,
+        "exec",
+        "winpodx-windows",
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ps_cmd,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("Failed to exec password change: %s", e)
+        return False
+
+    if result.returncode == 0:
+        return True
+
+    log.warning(
+        "Password change failed (rc=%d): %s",
+        result.returncode,
+        result.stderr.strip(),
+    )
+    return False
+
+
+def _auto_rotate_password(cfg: Config) -> Config:
+    """Rotate RDP password if older than max_age.
+
+    Changes the Windows user password inside the container first,
+    then updates config and compose.yaml. No container recreation needed.
+    If the container is not running, rotation is skipped (can't change
+    the Windows password without a running container).
     """
     from datetime import datetime, timezone
 
     if not cfg.rdp.password:
         return cfg
 
-    # Skip rotation if disabled or manual/libvirt backends
+    # Skip rotation if disabled or non-container backends
     if cfg.rdp.password_max_age <= 0:
         return cfg
     if cfg.pod.backend not in ("podman", "docker"):
@@ -93,35 +138,38 @@ def _auto_rotate_password(cfg: Config) -> Config:
         except ValueError as e:
             log.warning("Invalid password_updated timestamp: %s", e)
 
-    log.info("Password older than 1 day, rotating...")
+    # Pod must be running to change Windows password
+    from winpodx.core.pod import PodState, pod_status
 
-    from winpodx.cli.setup_cmd import (
-        _generate_compose,
-        _generate_password,
-        _recreate_container,
-    )
+    status = pod_status(cfg)
+    if status.state != PodState.RUNNING:
+        log.debug("Pod not running, skipping password rotation")
+        return cfg
 
-    old_password = cfg.rdp.password
-    old_timestamp = cfg.rdp.password_updated
+    log.info("Password older than %d days, rotating...", cfg.rdp.password_max_age)
 
-    cfg.rdp.password = _generate_password()
+    from winpodx.cli.setup_cmd import _generate_compose, _generate_password
+
+    new_password = _generate_password()
+
+    # Change password inside Windows first
+    if not _change_windows_password(cfg, new_password):
+        log.warning("Password rotation skipped: could not change Windows password")
+        return cfg
+
+    # Windows password changed — now update config and compose to match
+    cfg.rdp.password = new_password
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
 
     try:
         cfg.save()
         _generate_compose(cfg)
-        _recreate_container(cfg)
         log.info("Password rotated successfully")
-    except (OSError, subprocess.CalledProcessError, RuntimeError) as e:
-        # Rollback — keep old password so config matches container
-        log.warning("Password rotation failed: %s", e)
-        cfg.rdp.password = old_password
-        cfg.rdp.password_updated = old_timestamp
-        try:
-            cfg.save()
-            _generate_compose(cfg)
-        except (OSError, RuntimeError) as e:
-            log.error("Rollback also failed: %s", e)
+    except OSError as e:
+        # Config save failed but Windows already has the new password.
+        # Try to revert Windows password to keep things in sync.
+        log.error("Failed to save config after rotation: %s", e)
+        _change_windows_password(cfg, cfg.rdp.password)
 
     return cfg
 

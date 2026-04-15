@@ -5,6 +5,11 @@ REM Configures RDP, RemoteApp, firewall, and performance settings
 
 echo [winpodx] Starting post-install configuration...
 
+REM === Set DNS (Cloudflare) - slirp network has no DNS by default ===
+echo [winpodx] Setting DNS...
+netsh interface ip set dns "Ethernet" static 1.1.1.1
+netsh interface ip add dns "Ethernet" 1.0.0.1 index=2
+
 REM === Enable Remote Desktop ===
 echo [winpodx] Enabling Remote Desktop...
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
@@ -38,7 +43,7 @@ reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
 
 REM === Pin Windows build (security updates OK, feature/build upgrades blocked) ===
-REM Keeps termsrv.dll stable for RDPWrap - build upgrades come via winpodx releases only
+REM Keeps termsrv.dll stable - build upgrades come via winpodx releases only
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f
 REM Block feature updates and build upgrades (keeps current build number)
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v TargetReleaseVersion /t REG_DWORD /d 1 /f
@@ -92,9 +97,10 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplicat
 REM === Map home folder ===
 echo [winpodx] Home folder is available at \\tsclient\home via RDP drive redirection
 
-REM === RDPWrap: enable multi-session RDP ===
-echo [winpodx] Installing RDPWrap for multi-session support...
-powershell -ExecutionPolicy Bypass -File "C:\OEM\setup_rdpwrap.ps1"
+REM === Multi-session RDP (TBD) ===
+REM Multi-session support (RDPWrap or equivalent) is planned as a separate project.
+REM Currently, only one RemoteApp/RDP session per user is supported.
+REM See: https://github.com/kernalix7/winpodx
 
 REM === Mark setup complete ===
 echo done > C:\OEM\winpodx_setup_done.txt
