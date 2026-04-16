@@ -194,6 +194,27 @@ class TestTomlWriterEscaping:
         assert '\\\\"' in result or '\\"' in result
 
 
+class TestYamlEscape:
+    def test_yaml_escape_newlines(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.rdp.user = "User"
+        cfg.rdp.password = "pass\nword\rtest"
+
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        # Raw newlines in PASSWORD value would break YAML structure
+        for line in compose.splitlines():
+            if "PASSWORD" in line:
+                assert "\nword" not in line
+                assert "\\n" in line or "\\r" in line
+                break
+
+
 # --- Password filter ---
 
 

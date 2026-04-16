@@ -151,6 +151,7 @@ def _auto_rotate_password(cfg: Config) -> Config:
     from winpodx.cli.setup_cmd import _generate_compose, _generate_password
 
     new_password = _generate_password()
+    old_password = cfg.rdp.password
 
     # Change password inside Windows first
     if not _change_windows_password(cfg, new_password):
@@ -169,7 +170,7 @@ def _auto_rotate_password(cfg: Config) -> Config:
         # Config save failed but Windows already has the new password.
         # Try to revert Windows password to keep things in sync.
         log.error("Failed to save config after rotation: %s", e)
-        _change_windows_password(cfg, cfg.rdp.password)
+        _change_windows_password(cfg, old_password)
 
     return cfg
 

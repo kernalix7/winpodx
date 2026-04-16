@@ -247,7 +247,9 @@ def _generate_compose(cfg: Config) -> None:
     # Escape values for safe YAML embedding (prevent format string injection)
     def _yaml_escape(val: str) -> str:
         """Escape a value for safe embedding in YAML double-quoted string."""
-        return val.replace("\\", "\\\\").replace('"', '\\"')
+        return (
+            val.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+        )
 
     content = COMPOSE_TEMPLATE.format(
         ram=cfg.pod.ram_gb,

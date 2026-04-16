@@ -82,7 +82,7 @@ class Config:
 
         try:
             data = tomllib.loads(path.read_text(encoding="utf-8"))
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError, PermissionError) as e:
             logging.getLogger(__name__).warning("Corrupted config %s, using defaults: %s", path, e)
             return cfg
 
@@ -153,7 +153,10 @@ def _apply(obj: Any, data: dict[str, Any]) -> None:
         expected = type(getattr(obj, key))
         if expected is not type(None) and not isinstance(val, expected):
             try:
-                val = expected(val)
+                if expected is bool and isinstance(val, str):
+                    val = val.lower() in ("true", "1", "yes")
+                else:
+                    val = expected(val)
             except (ValueError, TypeError):
                 log.warning(
                     "Config key %r: cannot coerce %r to %s, using default",

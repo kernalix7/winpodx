@@ -200,7 +200,8 @@ def _xrdb_scale() -> float:
         for line in result.stdout.splitlines():
             if "Xft.dpi" in line:
                 dpi = float(line.split(":")[-1].strip())
-                return dpi / 96.0
+                if dpi > 0:
+                    return dpi / 96.0
     except (ValueError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return 1.0

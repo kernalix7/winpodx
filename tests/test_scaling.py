@@ -49,3 +49,33 @@ def test_env_scale_negative_guard(monkeypatch):
 
     monkeypatch.setenv("GDK_SCALE", "-1")
     assert _env_scale() == 1.0
+
+
+def test_xrdb_zero_dpi_guard(monkeypatch):
+    """xrdb returning Xft.dpi: 0 must not produce 0.0 scale."""
+    import subprocess
+
+    from winpodx.display.scaling import _xrdb_scale
+
+    def mock_run(*args, **kwargs):
+        result = subprocess.CompletedProcess(args[0], 0)
+        result.stdout = "Xft.dpi:\t0\n"
+        return result
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    assert _xrdb_scale() == 1.0
+
+
+def test_xrdb_valid_dpi(monkeypatch):
+    """xrdb with valid DPI should return correct scale."""
+    import subprocess
+
+    from winpodx.display.scaling import _xrdb_scale
+
+    def mock_run(*args, **kwargs):
+        result = subprocess.CompletedProcess(args[0], 0)
+        result.stdout = "Xft.dpi:\t192\n"
+        return result
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    assert _xrdb_scale() == 2.0

@@ -94,10 +94,11 @@ class LibvirtBackend(Backend):
                 text=True,
                 timeout=15,
             )
-            for line in result.stdout.splitlines():
-                parts = line.split()
-                if len(parts) >= 4 and "/" in parts[-1]:
-                    return parts[-1].split("/")[0]
-        except FileNotFoundError:
-            log.warning("virsh not found in PATH")
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4 and "/" in parts[-1]:
+                        return parts[-1].split("/")[0]
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            log.warning("virsh domifaddr failed for %s", self.vm_name)
         return "127.0.0.1"

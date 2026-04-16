@@ -53,6 +53,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Subprocess error handling with timeout in debloat (CLI + GUI)
 
 ### Fixed
+- Config `_apply()` bool coercion: `bool("false")` was returning `True` — now uses explicit string mapping
+- Password rotation rollback: revert was using the already-overwritten new password instead of the original
+- RDP `launch_app()` lock file leak: PID file not cleaned up when `Popen` fails
+- DPI detection: `_xrdb_scale()` zero DPI guard to prevent 0.0 scale factor
+- YAML escape: `_yaml_escape()` now handles `\n` and `\r` to prevent YAML structure injection
+- libvirt `get_ip()`: added returncode check and `TimeoutExpired` exception handling
 - FreeRDP RemoteApp: removed `/rfx` flag that caused immediate transport failure in RAIL mode
 
 ### Changed

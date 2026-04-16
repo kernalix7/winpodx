@@ -63,6 +63,27 @@ def test_config_save_load(tmp_path, monkeypatch):
     assert loaded.pod.backend == "libvirt"
 
 
+def test_apply_bool_coercion_from_string():
+    """String 'false' must not be coerced to True via bool()."""
+    from winpodx.core.config import _apply
+
+    pod = PodConfig()
+    _apply(pod, {"auto_start": "false"})
+    assert pod.auto_start is False
+
+    _apply(pod, {"auto_start": "true"})
+    assert pod.auto_start is True
+
+    _apply(pod, {"auto_start": "0"})
+    assert pod.auto_start is False
+
+    _apply(pod, {"auto_start": "yes"})
+    assert pod.auto_start is True
+
+    _apply(pod, {"auto_start": "no"})
+    assert pod.auto_start is False
+
+
 def test_parse_winapps_conf(tmp_path):
     conf = tmp_path / "winapps.conf"
     conf.write_text(

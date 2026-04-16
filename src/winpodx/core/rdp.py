@@ -330,7 +330,7 @@ def launch_app(
             return existing
         raise RuntimeError(f"Could not acquire lock for {app_name}")
 
-    # Password is embedded in the command via /p: flag
+    # Launch process under the lock
     try:
         proc = subprocess.Popen(
             cmd,
@@ -344,6 +344,9 @@ def launch_app(
         # Write PID under the lock
         lock_fd.write(str(proc.pid))
         lock_fd.flush()
+    except Exception:
+        session.pid_file.unlink(missing_ok=True)
+        raise
     finally:
         lock_fd.close()
 

@@ -53,6 +53,12 @@
 - debloat에서 subprocess 에러 처리 및 타임아웃 (CLI + GUI)
 
 ### 수정됨
+- 설정 `_apply()` bool 강제변환: `bool("false")`가 `True`를 반환하던 버그 — 명시적 문자열 매핑으로 수정
+- 비밀번호 롤백: 이미 덮어쓴 새 비밀번호로 되돌리던 버그 — 원본 비밀번호 보존 후 롤백
+- RDP `launch_app()` lock 파일 누수: `Popen` 실패 시 PID 파일 미정리 — 예외 경로에서 정리
+- DPI 감지: `_xrdb_scale()` DPI 0 방어 — 0.0 스케일 팩터 방지
+- YAML 이스케이프: `_yaml_escape()`에 `\n`, `\r` 처리 추가 — YAML 구조 인젝션 방지
+- libvirt `get_ip()`: returncode 확인 및 `TimeoutExpired` 예외 처리 추가
 - FreeRDP RemoteApp: RAIL 모드에서 즉시 전송 실패를 유발하던 `/rfx` 플래그 제거
 
 ### 변경됨
