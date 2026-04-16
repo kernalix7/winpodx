@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 96 passed](https://img.shields.io/badge/Tests-96%20passed-brightgreen.svg)](#testing)
+[![Tests: 96 passed](https://img.shields.io/badge/Tests-99%20passed-brightgreen.svg)](#testing)
 
 **English** | [한국어](docs/README.ko.md)
 
@@ -337,7 +337,7 @@ winpodx/
 ├── config/oem/            # Windows OEM scripts (post-install)
 ├── scripts/windows/       # PowerShell scripts (debloat, time sync, USB mapping)
 ├── .github/workflows/     # CI: lint + test + upstream update checker
-└── tests/                 # pytest test suite (96 tests)
+└── tests/                 # pytest test suite (99 tests)
 ```
 
 ## Supported Distros
@@ -354,7 +354,7 @@ winpodx/
 ```bash
 # From repo root (no install needed)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/ -v    # 96 tests
+python3 -m pytest tests/ -v    # 99 tests
 ruff check src/ tests/         # Lint
 ```
 

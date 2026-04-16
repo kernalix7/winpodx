@@ -55,6 +55,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - TLS-only RDP authentication for Podman backend (`/sec:tls`) — NLA/Kerberos fails in `podman unshare` namespace
 - Exit code 145 (SIGTERM) treated as normal app close, not error
 - Subprocess error handling with timeout in debloat (CLI + GUI)
+- PowerShell username escaping: single quotes doubled to prevent command injection in `net user` calls
+- Password timestamp timezone handling: naive timestamps upgraded to UTC, `TypeError` caught alongside `ValueError`
 
 ### Fixed
 - Config `_apply()` bool coercion: `bool("false")` was returning `True` — now uses explicit string mapping

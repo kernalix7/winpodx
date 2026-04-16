@@ -266,6 +266,61 @@ class TestPasswordFilter:
 # --- Config set integer validation ---
 
 
+class TestPowerShellEscape:
+    def test_username_single_quote_escaped(self):
+        from unittest.mock import patch
+
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = "admin'; whoami; '"
+        cfg.pod.backend = "podman"
+
+        with patch("winpodx.core.provisioner.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            from winpodx.core.provisioner import _change_windows_password
+
+            _change_windows_password(cfg, "newpass123")
+            ps_cmd = mock_run.call_args[0][0][7]  # -Command argument
+            # Single quotes must be doubled, preventing injection
+            assert "admin''; whoami; ''" in ps_cmd
+
+    def test_normal_username_unchanged(self):
+        from unittest.mock import patch
+
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = "User"
+        cfg.pod.backend = "podman"
+
+        with patch("winpodx.core.provisioner.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            from winpodx.core.provisioner import _change_windows_password
+
+            _change_windows_password(cfg, "testpass")
+            ps_cmd = mock_run.call_args[0][0][7]
+            assert "net user 'User' 'testpass'" == ps_cmd
+
+
+class TestPasswordTimestamp:
+    def test_naive_timestamp_no_crash(self, tmp_path, monkeypatch):
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.rdp.password = "testpass"
+        cfg.rdp.password_max_age = 7
+        cfg.rdp.password_updated = "2020-01-01T00:00:00"  # naive, no timezone
+        cfg.pod.backend = "podman"
+
+        from winpodx.core.provisioner import _auto_rotate_password
+
+        # Should not raise TypeError
+        result = _auto_rotate_password(cfg)
+        assert result is not None
+
+
 class TestConfigSetValidation:
     def test_int_coercion_error(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

@@ -55,6 +55,8 @@
 - Podman 백엔드에서 TLS 전용 RDP 인증 (`/sec:tls`) — `podman unshare` 네임스페이스에서 NLA/Kerberos 실패
 - 종료 코드 145 (SIGTERM) 정상 앱 종료로 처리, 에러 아님
 - debloat에서 subprocess 에러 처리 및 타임아웃 (CLI + GUI)
+- PowerShell 사용자 이름 이스케이프: `net user` 호출 시 작은따옴표를 두 번으로 변환하여 명령 주입 방지
+- 비밀번호 타임스탬프 타임존 처리: naive 타임스탬프를 UTC로 업그레이드, `TypeError`도 `ValueError`와 함께 catch
 
 ### 수정됨
 - 설정 `_apply()` bool 강제변환: `bool("false")`가 `True`를 반환하던 버그 — 명시적 문자열 매핑으로 수정

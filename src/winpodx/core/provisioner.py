@@ -75,10 +75,12 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
         return False
 
     runtime = "podman" if backend == "podman" else "docker"
-    # Single quotes in PowerShell treat all characters as literal.
-    # Our password alphabet (ascii + digits + !@#$%&*) never includes
-    # single quotes, so this is safe.
-    ps_cmd = f"net user '{cfg.rdp.user}' '{new_password}'"
+    # Escape single quotes for PowerShell (double them).
+    # Password alphabet never includes single quotes, but username is
+    # user-supplied and must be escaped to prevent command injection.
+    user = cfg.rdp.user.replace("'", "''")
+    pw = new_password.replace("'", "''")
+    ps_cmd = f"net user '{user}' '{pw}'"
     cmd = [
         runtime,
         "exec",
@@ -132,10 +134,12 @@ def _auto_rotate_password(cfg: Config) -> Config:
     if cfg.rdp.password_updated:
         try:
             updated = datetime.fromisoformat(cfg.rdp.password_updated)
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
             age = datetime.now(timezone.utc) - updated
             if age.total_seconds() < max_age_seconds:
                 return cfg
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             log.warning("Invalid password_updated timestamp: %s", e)
 
     # Pod must be running to change Windows password
