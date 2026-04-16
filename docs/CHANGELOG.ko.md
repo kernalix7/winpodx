@@ -32,6 +32,10 @@
 - **GUI: 스케일 드롭다운**: FreeRDP 스케일을 유효 값(100%/140%/180%)으로 제한 (QComboBox)
 - **GUI: 동시 실행 보호**: 스레딩 잠금으로 동시 앱 실행 충돌 방지
 - **GUI: Windows Update 토글**: 활성화/비활성화 버튼 + 상태 표시, 3중 차단 (서비스 + 예약 작업 + hosts 파일)
+- **사운드 및 프린터**: RDP 오디오 (`/sound:sys:alsa`) 및 프린터 리다이렉션 (`/printer`) 기본 활성화
+- **USB 드라이브 공유**: 이동식 미디어 `/drive:media`로 자동 공유 — 세션 시작 후 꽂은 USB도 하위 폴더로 즉시 접근 가능
+- **USB 장치 리다이렉션**: `/usb:auto` 기본 활성화 — FreeRDP urbdrc 플러그인 있으면 Windows에서 진짜 USB로 인식, 없으면 드라이브 공유로 폴백
+- **USB 자동 드라이브 매핑**: Windows 측 FileSystemWatcher 스크립트가 USB 하위 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑, 제거 시 해제 — 이벤트 기반, 폴링 없음
 - 데스크톱 통합: `.desktop` 엔트리, hicolor 아이콘, MIME 타입 등록, 아이콘 캐시 갱신
 - argparse 기반 CLI: app, pod, config, setup, tray, info, cleanup, timesync, debloat, power, rotate-password 명령
 - TOML 설정 파일 (자격 증명 보호를 위한 0600 권한)

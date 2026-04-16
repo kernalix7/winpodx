@@ -36,6 +36,23 @@ class RDPSession:
         return self.process.poll() is None
 
 
+def _find_media_base() -> Path | None:
+    """Find the user's removable media base directory.
+
+    Shares the parent directory so USB drives plugged in after
+    session start are visible as subfolders without reconnecting.
+    """
+    user = os.environ.get("USER", "")
+
+    # /run/media/$USER (modern: openSUSE, Fedora, Arch)
+    # /media/$USER     (Ubuntu, Debian)
+    for base in (Path("/run/media") / user, Path("/media") / user):
+        if base.is_dir():
+            return base
+
+    return None
+
+
 def find_freerdp() -> tuple[str, str] | None:
     """Locate a FreeRDP 3+ binary on the system.
 
@@ -141,7 +158,22 @@ def build_rdp_command(
         "+home-drive",
         "+clipboard",
         "-wallpaper",
+        "/sound:sys:alsa",
+        "/printer",
+        "/usb:auto",
     ]
+
+    # USB sharing (two layers):
+    # 1. /usb:auto — if urbdrc plugin is available, USB devices appear
+    #    as real USB in Windows. If plugin is missing, FreeRDP logs a
+    #    warning and continues (no crash).
+    # 2. /drive:media — fallback: shares the media mount directory so
+    #    USB storage is always accessible as \\tsclient\media, even
+    #    without the urbdrc plugin. Drives plugged in after session
+    #    start appear as subfolders without reconnecting.
+    media_base = _find_media_base()
+    if media_base:
+        cmd.append(f"/drive:media,{media_base}")
 
     # Scale from config (detected once during setup, not every launch)
     cmd.append(f"/scale:{cfg.rdp.scale}")

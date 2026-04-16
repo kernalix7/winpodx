@@ -32,6 +32,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **GUI: Scale as dropdown**: FreeRDP scale limited to valid values (100%/140%/180%) via QComboBox
 - **GUI: Concurrent launch protection**: Threading lock prevents simultaneous app launch crashes
 - **GUI: Windows Update toggle**: Enable/Disable buttons with status display, triple-layer block (services + scheduled tasks + hosts file)
+- **Sound and printer**: RDP audio (`/sound:sys:alsa`) and printer redirection (`/printer`) enabled by default
+- **USB drive sharing**: Removable media auto-shared via `/drive:media` — USB drives plugged in after session start appear as subfolders without reconnecting
+- **USB device redirection**: `/usb:auto` enabled by default — if FreeRDP urbdrc plugin is available, USB devices appear as real USB in Windows; falls back to drive sharing if not
+- **USB auto drive mapping**: Windows-side FileSystemWatcher script auto-maps USB subfolders to drive letters (E:, F:, ...) when plugged in, unmaps when removed — event-driven, no polling
 - Desktop integration: `.desktop` entries, hicolor icons, MIME type registration, icon cache refresh
 - argparse-based CLI: app, pod, config, setup, tray, info, cleanup, timesync, debloat, power, rotate-password commands
 - TOML configuration with 0600 file permissions for credential protection

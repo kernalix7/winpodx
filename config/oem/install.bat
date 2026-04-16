@@ -73,9 +73,8 @@ net stop SysMain 2>nul
 REM === Disable hibernation ===
 powercfg /h off
 
-REM === Disable Print Spooler (not needed for RemoteApp) ===
-sc config Spooler start= disabled
-net stop Spooler 2>nul
+REM === Print Spooler: keep enabled for RDP printer redirection ===
+REM sc config Spooler start= disabled
 
 REM === Disable Windows Error Reporting ===
 sc config WerSvc start= disabled
@@ -96,6 +95,14 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplicat
 
 REM === Map home folder ===
 echo [winpodx] Home folder is available at \\tsclient\home via RDP drive redirection
+
+REM === USB media auto-mapping (FileSystemWatcher, event-driven) ===
+REM Watches \\tsclient\media for USB mount/unmount and maps drive letters automatically
+REM No polling — reacts only when OS sends a file change event
+echo [winpodx] Setting up USB media auto-mapping...
+mkdir C:\winpodx 2>nul
+copy /Y \\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1 C:\winpodx\media_monitor.ps1 2>nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\media_monitor.ps1" /f
 
 REM === Multi-session RDP (TBD) ===
 REM Multi-session support (RDPWrap or equivalent) is planned as a separate project.
