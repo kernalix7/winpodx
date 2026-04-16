@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 92 passed](https://img.shields.io/badge/Tests-92%20passed-brightgreen.svg)](#testing)
+[![Tests: 96 passed](https://img.shields.io/badge/Tests-96%20passed-brightgreen.svg)](#testing)
 
 **English** | [한국어](docs/README.ko.md)
 
@@ -19,7 +19,26 @@
 
 ---
 
-winpodx runs a Windows container (via Podman) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup. **Zero external Python dependencies** — stdlib only (Python 3.11+).
+winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Zero external Python dependencies** — stdlib only (Python 3.11+).
+
+## Why winpodx?
+
+Existing tools for running Windows apps on Linux all have trade-offs:
+
+| | winapps | LinOffice | winpodx |
+|---|---------|-----------|---------|
+| Core tech | dockur/windows + FreeRDP | dockur/windows + FreeRDP | dockur/windows + FreeRDP |
+| Setup | Manual (shell scripts, config files, RDP testing) | One-liner script | **Zero-config** (auto on first launch) |
+| App scope | Any Windows app | Office only | **Any Windows app** |
+| Language | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
+| Dependencies | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.11+ (stdlib only)** |
+| Auto suspend | No | No | **Yes** |
+| Password rotation | No | No | **Yes (7-day cycle)** |
+| HiDPI | No | No | **Auto-detect** |
+| Sound / Printer | No | No | **Yes (default)** |
+| USB sharing | No | No | **Yes (auto drive mapping)** |
+| System tray | No | No | **Qt6 tray** |
+| License | MIT | AGPL-3.0 | **MIT** |
 
 ## Key Features
 
@@ -27,20 +46,41 @@ winpodx runs a Windows container (via Podman) in the background and presents Win
 <tr><td width="50%">
 
 **Seamless App Windows**
-- RemoteApp (RAIL) renders each app as a native Linux window
-- Per-app taskbar icons (WM_CLASS matching)
-- File associations (double-click `.docx` → Word opens)
+- RemoteApp (RAIL) renders each app as a native Linux window — no full desktop
+- Per-app taskbar icons via WM_CLASS matching
+- File associations: double-click `.docx` in your file manager → Word opens
 - Multi-session support (independent RDP sessions) planned
 
 </td><td width="50%">
 
-**Launch & Automation**
-- Zero-config auto-provisioning
-- 14 bundled app profiles
-- `.desktop` entries, icons, MIME types
-- Qt6 system tray with full controls
-- Auto suspend/resume (saves CPU)
-- Password auto-rotation (7-day cycle)
+**Zero-Config Launch**
+- First app click auto-provisions everything: config, container, desktop entries
+- 14 bundled app profiles (Office, VS Code, built-in Windows tools)
+- Add any Windows app via simple TOML definition
+- Interactive setup wizard for advanced configuration
+
+</td></tr>
+<tr><td width="50%">
+
+**Peripherals & Sharing**
+- **Clipboard**: Bidirectional copy-paste (text + images) enabled by default
+- **Sound**: RDP audio streaming (`/sound:sys:alsa`) enabled by default
+- **Printer**: Linux printers shared to Windows via RDP redirection
+- **USB drives**: Auto-shared via `/drive:media` — plugged after session start still accessible
+- **USB devices**: Native USB redirection (`/usb:auto`) when FreeRDP urbdrc plugin is available
+- **USB auto drive mapping**: Windows-side FileSystemWatcher script maps USB folders to drive letters (E:, F:, ...) automatically
+- **Home directory**: Shared as `\\tsclient\home` for file access
+
+</td><td width="50%">
+
+**Automation & Security**
+- Auto suspend/resume: container pauses when idle, resumes on next launch
+- Password auto-rotation: 20-char cryptographic password, 7-day cycle with rollback
+- Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
+- Qt6 system tray: pod controls, app launchers, idle monitor
+- Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
+- Windows debloat: disable telemetry, ads, Cortana, search indexing
+- Time sync: force Windows clock resync after host sleep/wake
 
 </td></tr>
 </table>
@@ -81,9 +121,10 @@ winpodx runs a Windows container (via Podman) in the background and presents Win
 | CLI | argparse (stdlib) |
 | GUI (optional) | PySide6 (Qt6) |
 | Config | TOML (stdlib tomllib + built-in writer) |
-| RDP | FreeRDP 3+ (xfreerdp) |
+| RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
+| CI | GitHub Actions (lint + test on 3.11-3.13 + pip-audit) |
 
 ## Quick Start
 
@@ -169,6 +210,36 @@ winpodx config import             # Import existing winapps.conf
 
 </details>
 
+## Peripherals & Sharing
+
+| Feature | How it works | Default |
+|---------|-------------|---------|
+| **Clipboard** | Bidirectional copy-paste via RDP (`+clipboard`) | Enabled |
+| **Sound** | Audio streaming via ALSA (`/sound:sys:alsa`) | Enabled |
+| **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
+| **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
+| **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`) — USB drives plugged in after session start are accessible as subfolders | Enabled |
+| **USB devices** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | Enabled (fallback to drive sharing) |
+| **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
+
+### USB Drive Flow
+
+```
+Plug in USB on Linux
+    │
+    ▼
+Linux mounts to /run/media/$USER/USBNAME
+    │
+    ▼
+FreeRDP shares as \\tsclient\media\USBNAME
+    │
+    ▼
+media_monitor.ps1 detects → net use E: \\tsclient\media\USBNAME
+    │
+    ▼
+Windows Explorer shows E: drive
+```
+
 ## Configuration
 
 Config file: `~/.config/winpodx/winpodx.toml` (auto-created, 0600 permissions)
@@ -182,6 +253,8 @@ password_max_age = 7         # Days before auto-rotation (0 = disable)
 ip = "127.0.0.1"
 port = 3390
 scale = 100                  # Auto-detected from your DE
+dpi = 0                      # Windows DPI % (0 = auto)
+extra_flags = ""             # Additional FreeRDP flags (allowlisted)
 
 [pod]
 backend = "podman"
@@ -262,9 +335,9 @@ winpodx/
 │   └── utils/             # XDG paths, deps, TOML writer, winapps compat
 ├── data/apps/             # 14 bundled app definitions (TOML)
 ├── config/oem/            # Windows OEM scripts (post-install)
-├── scripts/windows/       # PowerShell scripts (debloat, time sync, RDP setup)
-├── .github/workflows/     # CI: check upstream updates
-└── tests/                 # pytest test suite (92 tests)
+├── scripts/windows/       # PowerShell scripts (debloat, time sync, USB mapping)
+├── .github/workflows/     # CI: lint + test + upstream update checker
+└── tests/                 # pytest test suite (96 tests)
 ```
 
 ## Supported Distros
@@ -281,7 +354,7 @@ winpodx/
 ```bash
 # From repo root (no install needed)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/ -v    # 92 tests
+python3 -m pytest tests/ -v    # 96 tests
 ruff check src/ tests/         # Lint
 ```
 

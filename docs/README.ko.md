@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 92 passed](https://img.shields.io/badge/Tests-92%20passed-brightgreen.svg)](#테스트)
+[![Tests: 96 passed](https://img.shields.io/badge/Tests-96%20passed-brightgreen.svg)](#테스트)
 
 [English](../README.md) | **한국어**
 
@@ -19,7 +19,26 @@
 
 ---
 
-winpodx는 백그라운드에서 Podman을 통해 Windows 컨테이너를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요. **외부 Python 의존성 없음** — 표준 라이브러리만 사용 (Python 3.11+).
+winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 없음** — 표준 라이브러리만 사용 (Python 3.11+).
+
+## 왜 winpodx인가?
+
+Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있습니다:
+
+| | winapps | LinOffice | winpodx |
+|---|---------|-----------|---------|
+| 핵심 기술 | dockur/windows + FreeRDP | dockur/windows + FreeRDP | dockur/windows + FreeRDP |
+| 설정 | 수동 (셸 스크립트, 설정 파일, RDP 테스트) | 원라인 스크립트 | **제로 설정** (첫 실행 시 자동) |
+| 앱 범위 | 모든 Windows 앱 | Office 전용 | **모든 Windows 앱** |
+| 언어 | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
+| 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.11+ (표준 라이브러리만)** |
+| 자동 일시정지 | 없음 | 없음 | **있음** |
+| 비밀번호 로테이션 | 없음 | 없음 | **있음 (7일 주기)** |
+| HiDPI | 없음 | 없음 | **자동 감지** |
+| 사운드 / 프린터 | 없음 | 없음 | **있음 (기본 활성화)** |
+| USB 공유 | 없음 | 없음 | **있음 (자동 드라이브 매핑)** |
+| 시스템 트레이 | 없음 | 없음 | **Qt6 트레이** |
+| 라이선스 | MIT | AGPL-3.0 | **MIT** |
 
 ## 주요 기능
 
@@ -27,20 +46,41 @@ winpodx는 백그라운드에서 Podman을 통해 Windows 컨테이너를 실행
 <tr><td width="50%">
 
 **심리스 앱 창**
-- RemoteApp (RAIL)으로 각 앱을 네이티브 Linux 창으로 렌더링
-- 앱별 독립 작업 표시줄 아이콘 (WM_CLASS)
-- 파일 연결 (`.docx` 더블클릭 → Word 실행)
+- RemoteApp (RAIL)으로 각 앱을 네이티브 Linux 창으로 렌더링 — 전체 데스크톱 없음
+- 앱별 독립 작업 표시줄 아이콘 (WM_CLASS 매칭)
+- 파일 연결: 파일 관리자에서 `.docx` 더블클릭 → Word 실행
 - 멀티세션 지원 (앱별 독립 RDP 세션) 계획 중
 
 </td><td width="50%">
 
-**실행 및 자동화**
-- 제로 설정 자동 프로비저닝
-- 14개 번들 앱 프로필
-- `.desktop` 엔트리, 아이콘, MIME 타입
-- Qt6 시스템 트레이
-- 자동 일시정지/재개 (CPU 절약)
-- 비밀번호 자동 로테이션 (7일 주기)
+**제로 설정 실행**
+- 첫 앱 클릭 시 모든 것을 자동 프로비저닝: 설정, 컨테이너, 데스크톱 엔트리
+- 14개 번들 앱 프로필 (Office, VS Code, Windows 기본 도구)
+- 간단한 TOML 정의로 모든 Windows 앱 추가 가능
+- 고급 설정을 위한 대화형 설정 위자드
+
+</td></tr>
+<tr><td width="50%">
+
+**주변기기 및 공유**
+- **클립보드**: 양방향 복사-붙여넣기 (텍스트 + 이미지) 기본 활성화
+- **사운드**: RDP 오디오 스트리밍 (`/sound:sys:alsa`) 기본 활성화
+- **프린터**: Linux 프린터를 RDP 리다이렉션으로 Windows에 공유
+- **USB 드라이브**: `/drive:media`로 자동 공유 — 세션 시작 후 꽂은 USB도 접근 가능
+- **USB 장치**: FreeRDP urbdrc 플러그인 사용 가능 시 네이티브 USB 리다이렉션 (`/usb:auto`)
+- **USB 자동 드라이브 매핑**: Windows 측 FileSystemWatcher 스크립트가 USB 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑
+- **홈 디렉토리**: `\\tsclient\home`으로 파일 접근 공유
+
+</td><td width="50%">
+
+**자동화 및 보안**
+- 자동 일시정지/재개: 유휴 시 컨테이너 일시정지, 다음 실행 시 자동 재개
+- 비밀번호 자동 로테이션: 20자 암호학적 비밀번호, 7일 주기, 롤백 지원
+- 스마트 DPI 스케일링: GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb 자동 감지
+- Qt6 시스템 트레이: 팟 제어, 앱 런처, 유휴 모니터
+- 멀티 백엔드: Podman (기본), Docker, libvirt/KVM, 수동 RDP
+- Windows 디블로트: 텔레메트리, 광고, Cortana, 검색 인덱싱 비활성화
+- 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 재동기화
 
 </td></tr>
 </table>
@@ -81,9 +121,10 @@ winpodx는 백그라운드에서 Podman을 통해 Windows 컨테이너를 실행
 | CLI | argparse (표준 라이브러리) |
 | GUI (선택) | PySide6 (Qt6) |
 | 설정 | TOML (표준 라이브러리 tomllib + 내장 writer) |
-| RDP | FreeRDP 3+ (xfreerdp) |
+| RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
+| CI | GitHub Actions (lint + test on 3.11-3.13 + pip-audit) |
 
 ## 빠른 시작
 
@@ -169,6 +210,36 @@ winpodx config import             # 기존 winapps.conf 가져오기
 
 </details>
 
+## 주변기기 및 공유
+
+| 기능 | 동작 방식 | 기본값 |
+|------|----------|--------|
+| **클립보드** | RDP를 통한 양방향 복사-붙여넣기 (`+clipboard`) | 활성화 |
+| **사운드** | ALSA를 통한 오디오 스트리밍 (`/sound:sys:alsa`) | 활성화 |
+| **프린터** | Linux 프린터를 Windows에 공유 (`/printer`) | 활성화 |
+| **홈 디렉토리** | `\\tsclient\home`으로 공유 (`+home-drive`) | 활성화 |
+| **USB 드라이브** | 미디어 폴더를 `\\tsclient\media`로 공유 (`/drive:media`) — 세션 시작 후 꽂은 USB도 하위 폴더로 접근 가능 | 활성화 |
+| **USB 장치** | 네이티브 USB 리다이렉션 (`/usb:auto`) — FreeRDP urbdrc 플러그인 필요 | 활성화 (드라이브 공유로 폴백) |
+| **USB 드라이브 매핑** | Windows 측 스크립트가 USB 하위 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑 (FileSystemWatcher) | 활성화 |
+
+### USB 드라이브 흐름
+
+```
+Linux에서 USB 꽂기
+    │
+    ▼
+Linux가 /run/media/$USER/USBNAME에 마운트
+    │
+    ▼
+FreeRDP가 \\tsclient\media\USBNAME으로 공유
+    │
+    ▼
+media_monitor.ps1이 감지 → net use E: \\tsclient\media\USBNAME
+    │
+    ▼
+Windows 탐색기에 E: 드라이브 표시
+```
+
 ## 설정
 
 설정 파일: `~/.config/winpodx/winpodx.toml` (자동 생성, 0600 권한)
@@ -182,6 +253,8 @@ password_max_age = 7         # 자동 변경 주기 (일, 0 = 비활성화)
 ip = "127.0.0.1"
 port = 3390
 scale = 100                  # DE에서 자동 감지
+dpi = 0                      # Windows DPI % (0 = 자동)
+extra_flags = ""             # 추가 FreeRDP 플래그 (허용 목록)
 
 [pod]
 backend = "podman"
@@ -262,9 +335,9 @@ winpodx/
 │   └── utils/             # XDG 경로, 의존성, TOML writer, winapps 호환
 ├── data/apps/             # 14개 번들 앱 정의 (TOML)
 ├── config/oem/            # Windows OEM 스크립트 (포스트인스톨)
-├── scripts/windows/       # PowerShell 스크립트 (디블로트, 시간 동기화, RDP 설정)
-├── .github/workflows/     # CI: 업스트림 업데이트 확인
-└── tests/                 # pytest 테스트 스위트 (92개 테스트)
+├── scripts/windows/       # PowerShell 스크립트 (디블로트, 시간 동기화, USB 매핑)
+├── .github/workflows/     # CI: lint + test on 3.11-3.13 + pip-audit
+└── tests/                 # pytest 테스트 스위트 (96개 테스트)
 ```
 
 ## 지원 배포판
@@ -281,7 +354,7 @@ winpodx/
 ```bash
 # 저장소 루트에서 (설치 불필요)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/ -v    # 92개 테스트
+python3 -m pytest tests/ -v    # 96개 테스트
 ruff check src/ tests/         # 린트
 ```
 
