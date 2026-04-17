@@ -42,6 +42,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - FreeRDP session management with process tracking (.cproc files) and zombie process reaper
 - winapps.conf import for migration from existing setups
 
+### Performance
+- **`find_freerdp()` caching**: wrapped with `functools.lru_cache` — first call scans PATH and (as fallback) runs `flatpak list` with a 10s timeout; subsequent calls in the same process are free. Biggest win on cold RDP launches, and avoids the 10s flatpak probe entirely on systems that have xfreerdp3 installed normally
+- **Skip `pod_status()` subprocess on fresh install**: `_auto_rotate_password` now returns early when `password_updated` is empty. Previously the rotation path unconditionally invoked `backend.is_running` + `net user` even on first launch, adding a 100-500ms subprocess round-trip before the user's first app could start. `setup_cmd` and `rotate-password` both stamp the timestamp, so the fast path only kicks in for brand-new or hand-edited configs — exactly when rotation cannot make an informed decision anyway
+- **FreeRDP visual/codec flags**: hardcoded `-menu-anims`, `-window-drag`, `/gfx:avc420`, `/network:auto` in the base command. `-menu-anims`/`-window-drag` disable eye-candy, not functionality (menus still open, drag still works, background just isn't rendered). `/gfx:avc420` requests H.264 encoding with automatic fallback to RFX for Windows builds that don't advertise AVC. `/network:auto` tunes compression/fastpath to measured link quality instead of assuming LAN
+
 ### Cleanup
 - **Compose module extraction**: `_yaml_escape`, `_build_compose_content`, `generate_compose`, `generate_compose_to`, `generate_password`, and the YAML templates moved from `cli/setup_cmd.py` to a new `core/compose.py`. Eliminates the core→cli reverse dependency (`provisioner.py` previously did `from winpodx.cli.setup_cmd import _generate_compose, _generate_password` inside function bodies). `setup_cmd.py` now re-exports the private-aliased names for backward compatibility so existing imports and test patches continue to work
 - Compose atomic write: added `os.fsync(fd)` before `os.replace()` — prevents zero-byte `compose.yaml` after a crash between rename-metadata commit and data flush (matches the pattern already used in `config.py:save()`)

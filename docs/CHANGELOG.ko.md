@@ -42,6 +42,11 @@
 - FreeRDP 세션 관리 및 프로세스 추적 (.cproc 파일), 좀비 프로세스 리퍼
 - winapps.conf 가져오기 (기존 설정 마이그레이션)
 
+### 성능
+- **`find_freerdp()` 캐싱**: `functools.lru_cache`로 래핑 — 첫 호출은 PATH 스캔 + (폴백 경로에서) `flatpak list`를 최대 10초 타임아웃으로 실행, 같은 프로세스 내 이후 호출은 0비용. 콜드 RDP 실행의 가장 큰 이득이며, xfreerdp3가 정상 설치된 시스템에서는 10초 flatpak 프로브 자체를 건너뜀
+- **첫 실행 시 `pod_status()` subprocess 스킵**: `_auto_rotate_password`가 `password_updated`가 비어 있으면 조기 반환. 이전에는 rotation 경로가 첫 실행에서도 무조건 `backend.is_running` + `net user`를 호출하여 사용자의 첫 앱 실행 전에 100-500ms subprocess 왕복이 추가됐음. `setup_cmd`와 `rotate-password`가 모두 타임스탬프를 찍으므로, 이 fast path는 새 config 또는 손으로 편집한 config에서만 발동 — 마침 rotation이 올바른 판단을 할 수 없는 상황
+- **FreeRDP 시각/코덱 플래그**: 기본 명령에 `-menu-anims`, `-window-drag`, `/gfx:avc420`, `/network:auto` 하드코딩. `-menu-anims`/`-window-drag`는 시각 효과만 끄고 기능은 유지 (메뉴 열림, 드래그 동작, 배경만 미렌더링). `/gfx:avc420`은 H.264 인코딩 요청 — AVC를 광고하지 않는 Windows 빌드에서는 RFX로 자동 폴백. `/network:auto`는 LAN 가정 대신 실측 링크 품질에 맞춰 압축/fastpath 튜닝
+
 ### 정리
 - **Compose 모듈 분리**: `_yaml_escape`, `_build_compose_content`, `generate_compose`, `generate_compose_to`, `generate_password`와 YAML 템플릿을 `cli/setup_cmd.py`에서 새 `core/compose.py`로 이동. core→cli 역방향 의존 제거 (기존에 `provisioner.py`가 함수 본문 안에서 `from winpodx.cli.setup_cmd import _generate_compose, _generate_password` 호출했음). `setup_cmd.py`는 하위 호환을 위해 private-별칭으로 re-export하여 기존 import와 테스트 patch 그대로 작동
 - Compose atomic write: `os.replace()` 이전에 `os.fsync(fd)` 추가 — rename 메타데이터 커밋 후 데이터 플러시 전 크래시 시 0바이트 `compose.yaml` 방지 (`config.py:save()`에서 이미 사용하는 패턴과 일치)

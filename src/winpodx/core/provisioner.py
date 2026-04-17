@@ -147,17 +147,27 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
     max_age_seconds = cfg.rdp.password_max_age * 86400
 
+    # No timestamp → we cannot judge age, so skip. This is the first-launch
+    # fast path: setup just baked the password into compose.yaml, Windows is
+    # still booting, and the rotation subprocess (pod_status + net user)
+    # would add ~100-500ms to every startup for no benefit. setup_cmd and
+    # handle_rotate_password both stamp password_updated when they write a
+    # new password, so the only way to hit this branch is a hand-edited
+    # config — in which case "don't rotate silently" is the safe default.
+    if not cfg.rdp.password_updated:
+        return cfg
+
     # Check password age
-    if cfg.rdp.password_updated:
-        try:
-            updated = datetime.fromisoformat(cfg.rdp.password_updated)
-            if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
-            age = datetime.now(timezone.utc) - updated
-            if age.total_seconds() < max_age_seconds:
-                return cfg
-        except (ValueError, TypeError) as e:
-            log.warning("Invalid password_updated timestamp: %s", e)
+    try:
+        updated = datetime.fromisoformat(cfg.rdp.password_updated)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - updated
+        if age.total_seconds() < max_age_seconds:
+            return cfg
+    except (ValueError, TypeError) as e:
+        log.warning("Invalid password_updated timestamp: %s", e)
+        return cfg
 
     # Pod must be running to change Windows password
     status = pod_status(cfg)

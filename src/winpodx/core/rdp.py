@@ -6,6 +6,7 @@ for individual Windows applications.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -58,6 +59,7 @@ def _find_media_base() -> Path | None:
     return None
 
 
+@functools.lru_cache(maxsize=1)
 def find_freerdp() -> tuple[str, str] | None:
     """Locate a FreeRDP 3+ binary on the system.
 
@@ -66,6 +68,11 @@ def find_freerdp() -> tuple[str, str] | None:
 
     Returns (binary_path, variant) where variant is one of:
       'xfreerdp', 'sdl', 'flatpak'.
+
+    Cached per-process: the binary location does not change mid-session,
+    and a cold lookup costs up to 10s when ``flatpak list`` must be probed.
+    Cache is invalidated only when the Python process exits — which matches
+    how users actually install FreeRDP (once, then relaunch winpodx).
     """
     # xfreerdp works on both X11 and Wayland (via XWayland)
     for name in ("xfreerdp3", "xfreerdp"):
@@ -158,11 +165,28 @@ def build_rdp_command(
     if cfg.rdp.domain:
         cmd.append(f"/d:{cfg.rdp.domain}")
 
-    # Display & performance
+    # Display & performance.
+    # Perf flags (safe to hardcode — all are pure-visual / codec hints, none
+    # disable functionality):
+    #   -wallpaper / -menu-anims / -window-drag: turn off eye-candy, not
+    #       the underlying windows — menus still open, drag still works,
+    #       the background just isn't rendered. Biggest latency win on
+    #       slow loopback/VM paths.
+    #   /gfx:avc420: request H.264 (AVC) graphics encoding. FreeRDP 3+
+    #       advertises multiple codecs and the Windows side picks what it
+    #       supports, so older Windows builds without AVC simply fall back
+    #       to RFX/RemoteFX without error.
+    #   /network:auto: let FreeRDP tune compression/fastpath to measured
+    #       link quality instead of assuming LAN. Localhost → LAN profile,
+    #       slower links → broadband tuning.
     cmd += [
         "+home-drive",
         "+clipboard",
         "-wallpaper",
+        "-menu-anims",
+        "-window-drag",
+        "/gfx:avc420",
+        "/network:auto",
         "/sound:sys:alsa",
         "/printer",
         "/usb:auto",
