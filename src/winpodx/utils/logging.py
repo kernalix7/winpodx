@@ -75,16 +75,12 @@ class PasswordFilter(logging.Filter):
     authoritative payload for every downstream handler.
     """
 
-    _KEYWORDS = ("password", "pass", "passwd", "secret", "token")
-
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        lowered = msg.lower()
-        if any(kw in lowered for kw in self._KEYWORDS):
-            record.msg = self._mask_value(msg)
-            # Must clear args too — record.getMessage() on downstream
-            # handlers would otherwise do `sanitized % original_args`.
-            record.args = ()
+        record.msg = self._mask_value(msg)
+        # Must clear args too — record.getMessage() on downstream
+        # handlers would otherwise do `sanitized % original_args`.
+        record.args = ()
         return True
 
     @staticmethod

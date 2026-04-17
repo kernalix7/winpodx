@@ -33,7 +33,6 @@ def test_load_app_missing(tmp_path):
 
 
 def test_bundled_apps_dir_returns_source_when_repo_layout_exists():
-    """When the repo-layout path exists, it should be preferred and exist."""
     result = bundled_apps_dir()
     # This project has data/apps present in the repo, so it must resolve.
     assert result.parts[-2:] == ("data", "apps")
@@ -41,12 +40,10 @@ def test_bundled_apps_dir_returns_source_when_repo_layout_exists():
 
 
 def test_bundled_apps_dir_falls_back_to_sys_prefix(tmp_path, monkeypatch):
-    """When the repo layout is absent, ``sys.prefix/share/winpodx/data/apps`` must win.
-
-    We patch ``__file__`` inside the app module so the first candidate
-    (repo layout, 4 levels up) resolves to a non-existent path, and point
-    ``sys.prefix`` at a fake wheel-install tree.
-    """
+    # When the repo layout is absent, sys.prefix/share/winpodx/data/apps must win.
+    # We patch __file__ inside the app module so the first candidate
+    # (repo layout, 4 levels up) resolves to a non-existent path, and point
+    # sys.prefix at a fake wheel-install tree.
     import winpodx.core.app as app_mod
 
     # Fake prefix with wheel-install layout.
@@ -72,7 +69,7 @@ def test_bundled_apps_dir_falls_back_to_sys_prefix(tmp_path, monkeypatch):
 
 
 def test_bundled_apps_dir_falls_back_to_user_local(tmp_path, monkeypatch):
-    """If neither repo nor sys.prefix hit, ~/.local/share/winpodx/data/apps must win."""
+    # If neither repo nor sys.prefix hit, ~/.local/share/winpodx/data/apps must win.
     import winpodx.core.app as app_mod
 
     fake_home = tmp_path / "home"
@@ -95,7 +92,7 @@ def test_bundled_apps_dir_falls_back_to_user_local(tmp_path, monkeypatch):
 
 
 def test_bundled_apps_dir_returns_source_default_when_nothing_exists(tmp_path, monkeypatch):
-    """If no candidate exists, return the source-layout path (callers check existence)."""
+    # If no candidate exists, return the source-layout path (callers check existence).
     import winpodx.core.app as app_mod
 
     fake_prefix = tmp_path / "empty-prefix"

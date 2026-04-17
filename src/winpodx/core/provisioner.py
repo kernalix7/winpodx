@@ -17,6 +17,8 @@ import logging
 import shutil
 import subprocess
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 from winpodx.core.config import Config
 from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
@@ -31,9 +33,7 @@ log = logging.getLogger(__name__)
 _ROTATION_PENDING_MARKER = "rotation_pending"
 
 
-def _rotation_marker_path() -> "Path":  # noqa: F821 - forward ref for annotation
-    from pathlib import Path
-
+def _rotation_marker_path() -> Path:
     return Path(config_dir()) / f".{_ROTATION_PENDING_MARKER}"
 
 
@@ -135,8 +135,6 @@ def _auto_rotate_password(cfg: Config) -> Config:
     If the container is not running, rotation is skipped (can't change
     the Windows password without a running container).
     """
-    from datetime import datetime, timezone
-
     if not cfg.rdp.password:
         return cfg
 
@@ -161,8 +159,6 @@ def _auto_rotate_password(cfg: Config) -> Config:
             log.warning("Invalid password_updated timestamp: %s", e)
 
     # Pod must be running to change Windows password
-    from winpodx.core.pod import PodState, pod_status
-
     status = pod_status(cfg)
     if status.state != PodState.RUNNING:
         log.debug("Pod not running, skipping password rotation")
@@ -217,12 +213,8 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
 
 def _mark_rotation_pending(old_password: str, new_password: str) -> None:
-    """Create a marker file signalling a partial rotation.
-
-    Writes the marker atomically with mode 0o600. The file contents are
-    intentionally minimal and exclude the new password — only the fact of
-    a pending rotation is persisted, so a read of the marker cannot leak
-    credentials beyond what the config already contains.
+    """Atomically write a 0o600 marker signalling a partial rotation.
+    Contents exclude the password so the marker cannot leak credentials.
     """
     import os
     import tempfile
@@ -248,7 +240,6 @@ def _mark_rotation_pending(old_password: str, new_password: str) -> None:
 
 
 def _clear_rotation_pending() -> None:
-    """Remove the rotation-pending marker if present."""
     marker = _rotation_marker_path()
     try:
         marker.unlink(missing_ok=True)
@@ -257,7 +248,6 @@ def _clear_rotation_pending() -> None:
 
 
 def _check_rotation_pending() -> None:
-    """Warn the user if a prior rotation did not fully complete."""
     marker = _rotation_marker_path()
     if marker.exists():
         log.error(

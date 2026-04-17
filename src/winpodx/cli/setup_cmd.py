@@ -69,6 +69,57 @@ def _build_compose_template(backend: str) -> str:
     return template
 
 
+def _yaml_escape(val: str) -> str:
+    """Escape a value for safe embedding in YAML double-quoted string.
+
+    Also escapes ``{`` and ``}`` so that user-controlled values cannot be
+    interpreted as str.format() placeholders (e.g. a username of ``{password}``
+    would otherwise leak the real password into the USERNAME field).
+    """
+    return (
+        val.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("{", "{{")
+        .replace("}", "}}")
+    )
+
+
+def _find_oem_dir() -> str:
+    """Return the best available OEM directory path as a string."""
+    oem_candidates = [
+        Path(__file__).parent.parent.parent.parent / "config" / "oem",
+        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem",
+    ]
+    oem_dir = str(oem_candidates[0])
+    for candidate in oem_candidates:
+        if candidate.exists():
+            oem_dir = str(candidate)
+            break
+    return oem_dir
+
+
+def _build_compose_content(cfg: Config) -> str:
+    """Build and return compose YAML content string for *cfg*."""
+    password = cfg.rdp.password or _generate_password()
+    template = _build_compose_template(cfg.pod.backend)
+    return template.format(
+        ram=cfg.pod.ram_gb,
+        cpu=cfg.pod.cpu_cores,
+        container_name=cfg.pod.container_name,
+        image=cfg.pod.image,
+        disk_size=cfg.pod.disk_size,
+        user=_yaml_escape(cfg.rdp.user),
+        password=_yaml_escape(password),
+        home=str(Path.home()),
+        win_version=cfg.pod.win_version,
+        rdp_port=cfg.rdp.port,
+        vnc_port=cfg.pod.vnc_port,
+        oem_dir=_find_oem_dir(),
+    )
+
+
 def _generate_password(length: int = 20) -> str:
     """Generate a cryptographically secure random password."""
     # '$' excluded: PowerShell treats it as a variable sigil, causing silent
@@ -264,62 +315,16 @@ def handle_setup(args: argparse.Namespace) -> None:
 
 
 def _generate_compose(cfg: Config) -> None:
-    """Generate a compose.yaml for Podman/Docker backend."""
-    compose_path = config_dir() / "compose.yaml"
-    compose_path.parent.mkdir(parents=True, exist_ok=True)
-
-    home = str(Path.home())
-
-    # Find OEM directory (bundled with winpodx)
-    oem_candidates = [
-        Path(__file__).parent.parent.parent.parent / "config" / "oem",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem",
-    ]
-    oem_dir = str(oem_candidates[0])
-    for candidate in oem_candidates:
-        if candidate.exists():
-            oem_dir = str(candidate)
-            break
-
-    password = cfg.rdp.password or _generate_password()
-
-    # Escape values for safe YAML embedding (prevent format string injection)
-    def _yaml_escape(val: str) -> str:
-        """Escape a value for safe embedding in YAML double-quoted string.
-
-        Also escapes ``{`` and ``}`` so that user-controlled values cannot be
-        interpreted as str.format() placeholders (e.g. a username of ``{password}``
-        would otherwise leak the real password into the USERNAME field).
-        """
-        return (
-            val.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("{", "{{")
-            .replace("}", "}}")
-        )
-
-    template = _build_compose_template(cfg.pod.backend)
-    content = template.format(
-        ram=cfg.pod.ram_gb,
-        cpu=cfg.pod.cpu_cores,
-        container_name=cfg.pod.container_name,
-        image=cfg.pod.image,
-        disk_size=cfg.pod.disk_size,
-        user=_yaml_escape(cfg.rdp.user),
-        password=_yaml_escape(password),
-        home=home,
-        win_version=cfg.pod.win_version,
-        rdp_port=cfg.rdp.port,
-        vnc_port=cfg.pod.vnc_port,
-        oem_dir=oem_dir,
-    )
-
-    # Atomic write with secure permissions from creation
+    """Generate a compose.yaml for Podman/Docker backend (atomic write)."""
     import os
     import tempfile
 
+    compose_path = config_dir() / "compose.yaml"
+    compose_path.parent.mkdir(parents=True, exist_ok=True)
+
+    content = _build_compose_content(cfg)
+
+    # Atomic write with secure permissions from creation
     fd, tmp_path = tempfile.mkstemp(dir=compose_path.parent, prefix=".compose-", suffix=".tmp")
     fd_closed = False
     try:
@@ -471,46 +476,7 @@ def _generate_compose_to(cfg: Config, dest: Path) -> None:
     """Write compose YAML for *cfg* to *dest* (used for atomic rotation)."""
     import os
 
-    home = str(Path.home())
-
-    oem_candidates = [
-        Path(__file__).parent.parent.parent.parent / "config" / "oem",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem",
-    ]
-    oem_dir = str(oem_candidates[0])
-    for candidate in oem_candidates:
-        if candidate.exists():
-            oem_dir = str(candidate)
-            break
-
-    password = cfg.rdp.password or _generate_password()
-
-    def _yaml_escape(val: str) -> str:
-        return (
-            val.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("{", "{{")
-            .replace("}", "}}")
-        )
-
-    template = _build_compose_template(cfg.pod.backend)
-    content = template.format(
-        ram=cfg.pod.ram_gb,
-        cpu=cfg.pod.cpu_cores,
-        container_name=cfg.pod.container_name,
-        image=cfg.pod.image,
-        disk_size=cfg.pod.disk_size,
-        user=_yaml_escape(cfg.rdp.user),
-        password=_yaml_escape(password),
-        home=home,
-        win_version=cfg.pod.win_version,
-        rdp_port=cfg.rdp.port,
-        vnc_port=cfg.pod.vnc_port,
-        oem_dir=oem_dir,
-    )
-
+    content = _build_compose_content(cfg)
     os.chmod(dest, 0o600)
     dest.write_bytes(content.encode("utf-8"))
 

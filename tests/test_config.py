@@ -64,7 +64,7 @@ def test_config_save_load(tmp_path, monkeypatch):
 
 
 def test_apply_bool_coercion_from_string():
-    """String 'false' must not be coerced to True via bool()."""
+    # String 'false' must not be coerced to True via bool().
     from winpodx.core.config import _apply
 
     pod = PodConfig()
@@ -85,7 +85,6 @@ def test_apply_bool_coercion_from_string():
 
 
 def test_pod_config_boot_timeout_defaults_and_clamping():
-    """boot_timeout should default to 300s and be clamped to [30, 3600]."""
     assert PodConfig().boot_timeout == 300
     assert PodConfig(boot_timeout=10).boot_timeout == 30
     assert PodConfig(boot_timeout=99999).boot_timeout == 3600
@@ -93,7 +92,6 @@ def test_pod_config_boot_timeout_defaults_and_clamping():
 
 
 def test_pod_config_container_name_default_and_persist(tmp_path, monkeypatch):
-    """container_name should default to 'winpodx-windows' and survive save/load."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     cfg = Config()
@@ -107,13 +105,12 @@ def test_pod_config_container_name_default_and_persist(tmp_path, monkeypatch):
 
 
 def test_pod_config_container_name_empty_fallback():
-    """Empty container_name must fall back to the default."""
     pod = PodConfig(container_name="")
     assert pod.container_name == "winpodx-windows"
 
 
 def test_config_save_calls_fsync(tmp_path, monkeypatch):
-    """save() must fsync the tmp file before rename to avoid 0-byte files on crash."""
+    # save() must fsync the tmp file before rename to avoid 0-byte files on crash.
     import os
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

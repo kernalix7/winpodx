@@ -24,109 +24,64 @@ log = logging.getLogger(__name__)
 # --- Auto Suspend/Resume ---
 
 
-def suspend_pod(cfg: Config) -> bool:
-    """Pause the Windows container to free CPU (keeps memory)."""
+def _run_container_cmd(
+    cfg: Config,
+    cmd: list[str],
+    timeout: int,
+    timeout_msg: str,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run a container runtime command, returning None on exec/timeout failure."""
     backend = cfg.pod.backend
-    container = cfg.pod.container_name
-
-    if backend == "podman":
-        cmd = ["podman", "pause", container]
-    elif backend == "docker":
-        cmd = ["docker", "pause", container]
-    else:
-        return False  # libvirt/manual don't support pause
-
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         log.warning("Container runtime %s not found in PATH", backend)
-        return False
+        return None
     except subprocess.TimeoutExpired:
-        log.warning("Pod suspend timed out after 30s")
+        log.warning(timeout_msg)
+        return None
+
+
+def suspend_pod(cfg: Config) -> bool:
+    """Pause the Windows container to free CPU (keeps memory)."""
+    if cfg.pod.backend not in ("podman", "docker"):
+        return False  # libvirt/manual don't support pause
+    cmd = [cfg.pod.backend, "pause", cfg.pod.container_name]
+    result = _run_container_cmd(cfg, cmd, timeout=30, timeout_msg="Pod suspend timed out after 30s")
+    if result is None:
         return False
     if result.returncode == 0:
         log.info("Pod suspended (paused)")
         return True
-    log.warning(
-        "Pod suspend failed (rc=%d): %s",
-        result.returncode,
-        result.stderr.strip(),
-    )
+    log.warning("Pod suspend failed (rc=%d): %s", result.returncode, result.stderr.strip())
     return False
 
 
 def resume_pod(cfg: Config) -> bool:
     """Unpause a suspended container."""
-    backend = cfg.pod.backend
-    container = cfg.pod.container_name
-
-    if backend == "podman":
-        cmd = ["podman", "unpause", container]
-    elif backend == "docker":
-        cmd = ["docker", "unpause", container]
-    else:
+    if cfg.pod.backend not in ("podman", "docker"):
         return False
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except FileNotFoundError:
-        log.warning("Container runtime %s not found in PATH", backend)
-        return False
-    except subprocess.TimeoutExpired:
-        log.warning("Pod resume timed out after 30s")
+    cmd = [cfg.pod.backend, "unpause", cfg.pod.container_name]
+    result = _run_container_cmd(cfg, cmd, timeout=30, timeout_msg="Pod resume timed out after 30s")
+    if result is None:
         return False
     if result.returncode == 0:
         log.info("Pod resumed (unpaused)")
         return True
-    log.warning(
-        "Pod resume failed (rc=%d): %s",
-        result.returncode,
-        result.stderr.strip(),
-    )
+    log.warning("Pod resume failed (rc=%d): %s", result.returncode, result.stderr.strip())
     return False
 
 
 def is_pod_paused(cfg: Config) -> bool:
     """Check if the container is in paused state."""
-    backend = cfg.pod.backend
-    container = cfg.pod.container_name
-
-    if backend == "podman":
-        cmd = ["podman", "inspect", "--format", "{{.State.Status}}", container]
-    elif backend == "docker":
-        cmd = ["docker", "inspect", "--format", "{{.State.Status}}", container]
-    else:
+    if cfg.pod.backend not in ("podman", "docker"):
         return False
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except FileNotFoundError:
-        log.warning("Container runtime %s not found in PATH", backend)
-        return False
-    except subprocess.TimeoutExpired:
-        log.warning("Pod inspect timed out after 10s")
+    cmd = [cfg.pod.backend, "inspect", "--format", "{{.State.Status}}", cfg.pod.container_name]
+    result = _run_container_cmd(cfg, cmd, timeout=10, timeout_msg="Pod inspect timed out after 10s")
+    if result is None:
         return False
     if result.returncode != 0:
-        log.debug(
-            "Pod inspect failed (rc=%d): %s",
-            result.returncode,
-            result.stderr.strip(),
-        )
+        log.debug("Pod inspect failed (rc=%d): %s", result.returncode, result.stderr.strip())
         return False
     return "paused" in result.stdout.lower()
 

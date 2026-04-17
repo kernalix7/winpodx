@@ -371,38 +371,9 @@ class TestYamlEscape:
 
 
 class TestPasswordFilter:
-    def test_filter_masks_password_in_log(self):
-        from winpodx.utils.logging import PasswordFilter
-
-        f = PasswordFilter()
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="password=supersecret123",
-            args=None,
-            exc_info=None,
-        )
-        f.filter(record)
-        assert "supersecret123" not in record.getMessage()
-        assert "***" in record.getMessage()
-
-    def test_filter_passes_normal_log(self):
-        from winpodx.utils.logging import PasswordFilter
-
-        f = PasswordFilter()
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="Pod started successfully",
-            args=None,
-            exc_info=None,
-        )
-        f.filter(record)
-        assert record.getMessage() == "Pod started successfully"
+    # Note: filter-masks and clean-passthrough coverage lives in
+    # test_audit5_core.py::test_password_filter_{clears_args,passes_through_clean_records}
+    # which additionally asserts the H5 fix that record.args is reset to ().
 
     def test_filter_installed_on_handlers(self):
         from winpodx.utils.logging import PasswordFilter, setup_logging

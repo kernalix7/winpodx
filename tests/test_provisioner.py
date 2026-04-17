@@ -10,14 +10,12 @@ from winpodx.core.provisioner import ProvisionError
 
 
 def test_provision_error():
-    """ProvisionError should be a proper exception."""
     err = ProvisionError("test error")
     assert str(err) == "test error"
     assert isinstance(err, Exception)
 
 
 def test_ensure_config_creates_default(tmp_path, monkeypatch):
-    """Should create a default config when none exists."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     from winpodx.core.provisioner import _ensure_config
@@ -52,13 +50,13 @@ def _rotation_cfg(tmp_path, monkeypatch):
 
 
 def test_rotation_rollback_success_reverts_password(_rotation_cfg, monkeypatch):
-    """When config.save fails but Windows rollback succeeds, the returned
-    config should hold the ORIGINAL password (not the new one)."""
+    # When config.save fails but Windows rollback succeeds, the returned
+    # config should hold the ORIGINAL password (not the new one).
     from winpodx.core import provisioner
     from winpodx.core.pod import PodState, PodStatus
 
     monkeypatch.setattr(
-        "winpodx.core.pod.pod_status",
+        "winpodx.core.provisioner.pod_status",
         lambda cfg: PodStatus(state=PodState.RUNNING),
     )
     # Windows password change: accept both the new and rollback calls.
@@ -75,13 +73,13 @@ def test_rotation_rollback_success_reverts_password(_rotation_cfg, monkeypatch):
 
 
 def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
-    """Config save fails AND Windows rollback fails: must log an error
-    and write the .rotation_pending marker for follow-up."""
+    # Config save fails AND Windows rollback fails: must log an error
+    # and write the .rotation_pending marker for follow-up.
     from winpodx.core import provisioner
     from winpodx.core.pod import PodState, PodStatus
 
     monkeypatch.setattr(
-        "winpodx.core.pod.pod_status",
+        "winpodx.core.provisioner.pod_status",
         lambda cfg: PodStatus(state=PodState.RUNNING),
     )
 
@@ -107,7 +105,7 @@ def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
 
 
 def test_check_rotation_pending_warns(tmp_path, monkeypatch, caplog):
-    """ensure_ready should log an error when the marker exists."""
+    # ensure_ready should log an error when the marker exists.
     import logging
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -124,8 +122,8 @@ def test_check_rotation_pending_warns(tmp_path, monkeypatch, caplog):
 
 
 def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
-    """A successful rotation must clear a previously-written marker so
-    the user isn't nagged forever after a manual recovery."""
+    # A successful rotation must clear a previously-written marker so
+    # the user isn't nagged forever after a manual recovery.
     from winpodx.core import provisioner
     from winpodx.core.pod import PodState, PodStatus
 
@@ -135,7 +133,7 @@ def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
     marker.write_text("pending\n")
 
     monkeypatch.setattr(
-        "winpodx.core.pod.pod_status",
+        "winpodx.core.provisioner.pod_status",
         lambda cfg: PodStatus(state=PodState.RUNNING),
     )
     monkeypatch.setattr(provisioner, "_change_windows_password", lambda cfg, pw: True)

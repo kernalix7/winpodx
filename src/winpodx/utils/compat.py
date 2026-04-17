@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from winpodx.core.config import Config
+from winpodx.core.config import _VALID_BACKENDS, Config
 
 log = logging.getLogger(__name__)
 
@@ -17,13 +17,6 @@ WINAPPS_CONF_PATHS = [
     Path.home() / ".config" / "winapps" / "winapps.conf",
     Path("/etc/winapps/winapps.conf"),
 ]
-
-FLAVOR_MAP = {
-    "docker": "docker",
-    "podman": "podman",
-    "libvirt": "libvirt",
-    "manual": "manual",
-}
 
 
 def find_winapps_conf() -> Path | None:
@@ -149,7 +142,7 @@ def import_winapps_config() -> Config | None:
     cfg.rdp.scale = _parse_scale(vals.get("RDP_SCALE", "100"))
 
     flavor = vals.get("WAFLAVOR", "docker")
-    cfg.pod.backend = FLAVOR_MAP.get(flavor, "podman")
+    cfg.pod.backend = flavor if flavor in _VALID_BACKENDS else "podman"
     cfg.pod.vm_name = vals.get("VM_NAME", "RDPWindows")
 
     return cfg

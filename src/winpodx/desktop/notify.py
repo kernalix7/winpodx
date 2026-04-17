@@ -55,9 +55,5 @@ def notify_pod_stopped() -> None:
     send_notification("winpodx", "Windows pod stopped")
 
 
-def notify_app_launched(app_name: str) -> None:
-    send_notification("winpodx", f"{app_name} launched")
-
-
 def notify_error(message: str) -> None:
     send_notification("winpodx Error", message, urgency="critical")

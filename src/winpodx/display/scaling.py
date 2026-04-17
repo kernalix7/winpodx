@@ -21,21 +21,8 @@ def detect_scale_factor() -> int:
     Returns an RDP-compatible scale value: 100, 140, or 180.
     Checks DE-specific settings, then environment variables, then xrdb.
     """
-    de = desktop_environment()
-    factor = 1.0
-
-    if de == "gnome":
-        factor = _gnome_scale()
-    elif de == "kde":
-        factor = _kde_scale()
-    elif de in ("sway", "hyprland"):
-        factor = _wayland_compositor_scale()
-    elif de == "cinnamon":
-        factor = _cinnamon_scale()
-    else:
-        factor = _env_scale() or _xrdb_scale()
-
-    log.debug("Detected scale factor: %.2f (DE: %s)", factor, de)
+    factor = detect_raw_scale()
+    log.debug("Detected scale factor: %.2f", factor)
 
     # Map to nearest RDP scale
     if factor >= 1.7:

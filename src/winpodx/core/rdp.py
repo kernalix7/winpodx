@@ -20,6 +20,9 @@ from winpodx.utils.paths import runtime_dir
 
 log = logging.getLogger(__name__)
 
+# Characters invalid in Windows file paths — rejected by ``linux_to_unc``.
+_INVALID_WIN_CHARS: frozenset[str] = frozenset('*?"<>|')
+
 
 @dataclass
 class RDPSession:
@@ -238,30 +241,10 @@ def build_rdp_command(
     return cmd, password
 
 
-# -----------------------------------------------------------------------------
-# Extra-flag allowlist (H1 hardening)
-#
-# Historical design used prefix matching (e.g. accept anything starting with
-# ``/drive:``).  That is fundamentally unsafe: an adversarial winapps.conf
-# imported via ``compat.import_winapps_config`` could smuggle
-# ``/drive:etc,/etc`` (mount host ``/etc`` into the Windows guest) or
-# ``/serial:/dev/tty`` (expose host serial devices) past the filter because
-# those flags DO start with an allowed prefix.
-#
-# The replacement design below validates each flag's *argument shape* against
-# a per-flag rule.  Three categories exist:
-#
-#   * ``_BARE_FLAGS`` — exact tokens, no ``:argument`` payload allowed.
-#   * ``_SIMPLE_VALUE_FLAGS`` — ``<flag>:<value>`` where the value must match
-#     a conservative regex (digits, bounded identifiers, known keywords).
-#   * ``_STRICT_PATTERN_FLAGS`` — ``<flag>:<value>`` where ``<value>`` must be
-#     an element of a tiny documented set.  Used for the device-redirection
-#     flags that can otherwise tunnel host resources into the guest
-#     (``/drive``, ``/serial``, ``/parallel``, ``/smartcard``, ``/usb``).
-#
-# Anything that does not match its rule is dropped and logged.  Unknown flags
-# are also dropped — we never fall back to prefix matching.
-# -----------------------------------------------------------------------------
+# Allowlist for FreeRDP flags. Three categories: bare toggles, value-regex,
+# device-redirection strict set. Prefix matching is unsafe (adversarial
+# ``/drive:etc,/etc`` etc.), so each flag is validated by argument shape and
+# unknown flags are dropped.
 
 # Exact-match flags (no ``:arg`` payload tolerated).
 _BARE_FLAGS: frozenset[str] = frozenset(
@@ -322,34 +305,15 @@ _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
     "/log-level": re.compile(r"(OFF|FATAL|ERROR|WARN|INFO|DEBUG|TRACE)", re.IGNORECASE),
 }
 
-# Strict, documented allowlist for device-redirection flags.
-#
-# These flags tunnel host resources into the Windows guest.  Prefix matching
-# is not acceptable: arbitrary argument payloads can mount host paths
-# (``/drive:any,/etc``) or expose raw devices (``/serial:/dev/ttyUSB0``).  The
-# only accepted forms are:
-#
-#   /drive:home            — the shared home directory, added by
-#                            ``build_rdp_command`` already.  Re-allowed here
-#                            so users can keep it in ``extra_flags`` without
-#                            losing it silently.
-#   /drive:media           — mounted-media base, same reasoning.
-#   /usb:auto              — enable urbdrc auto-share (FreeRDP documented).
-#   /usb:id,dev=...        — intentionally NOT allowed here.  If a user
-#                            needs a specific device they must request it
-#                            through a future first-class config option.
-#
-# ``/serial``, ``/parallel``, ``/smartcard`` with payloads are rejected
-# outright: these have no known safe argument shape that does not reference
-# a host device path.  The bare ``/smartcard`` toggle is still accepted via
-# ``_BARE_FLAGS`` above for users who need smartcard redirection.
+# Device-redirection flags tunnel host resources into the guest; only the tiny
+# documented value sets below are safe. Empty allowlist => any ``:value`` form
+# is rejected (bare ``/smartcard`` toggle is still accepted via ``_BARE_FLAGS``).
 _STRICT_PATTERN_FLAGS: dict[str, frozenset[str]] = {
-    "/drive": frozenset({"home", "media"}),
-    "/usb": frozenset({"auto"}),
-    # Empty allowlists — any ``<flag>:<value>`` form is rejected.
-    "/serial": frozenset(),
-    "/parallel": frozenset(),
-    "/smartcard": frozenset(),
+    "/drive": frozenset({"home", "media"}),  # home/media shares only — no host paths
+    "/usb": frozenset({"auto"}),  # urbdrc auto-share; specific devs need first-class config
+    "/serial": frozenset(),  # reject all — no safe value shape
+    "/parallel": frozenset(),  # reject all — no safe value shape
+    "/smartcard": frozenset(),  # reject all :value — bare toggle only
 }
 
 
@@ -547,7 +511,6 @@ def linux_to_unc(path: str) -> str:
         found"). Callers must surface this error to the user.
     """
     # Reject characters invalid in Windows file paths
-    _INVALID_WIN_CHARS = set('*?"<>|')
     p = Path(path).resolve()
     posix_str = str(p)
     if _INVALID_WIN_CHARS & set(posix_str):

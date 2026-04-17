@@ -14,12 +14,6 @@ class DepCheck:
     note: str = ""
 
 
-# Kept for backward compatibility — runtime detection now delegates to
-# winpodx.core.rdp.find_freerdp which also handles sdl-freerdp and the
-# Flatpak fallback. Previously check_freerdp() only probed this list,
-# so a user with only sdl-freerdp3 installed saw `winpodx setup` report
-# FreeRDP missing even though launch_app would have worked fine.
-REQUIRED_DEPS = ["xfreerdp3", "xfreerdp"]
 OPTIONAL_DEPS = {
     "docker": "Docker backend",
     "podman": "Podman backend",
@@ -45,19 +39,11 @@ def check_freerdp() -> DepCheck:
     return DepCheck(name=variant, found=True, path=path)
 
 
-def check_backends() -> list[DepCheck]:
-    """Check which backends are available on the system."""
-    results = []
-    for cmd, desc in OPTIONAL_DEPS.items():
-        path = shutil.which(cmd)
-        results.append(DepCheck(name=cmd, found=bool(path), path=path or "", note=desc))
-    return results
-
-
 def check_all() -> dict[str, DepCheck]:
     """Run all dependency checks."""
     checks: dict[str, DepCheck] = {}
     checks["freerdp"] = check_freerdp()
-    for dep in check_backends():
-        checks[dep.name] = dep
+    for cmd, desc in OPTIONAL_DEPS.items():
+        path = shutil.which(cmd)
+        checks[cmd] = DepCheck(name=cmd, found=bool(path), path=path or "", note=desc)
     return checks

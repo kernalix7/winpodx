@@ -39,7 +39,6 @@ class TestPasswordAlphabet:
         assert len(_generate_password()) == 20
 
     def test_allowed_specials_present_in_alphabet(self):
-        """Every special character in _SPECIALS must be reachable."""
         from winpodx.cli.setup_cmd import _generate_password
 
         seen_specials: set[str] = set()
@@ -82,7 +81,7 @@ class TestAskHelper:
         assert _ask("prompt: ") == ""
 
     def test_non_tty_forces_non_interactive(self, tmp_path, monkeypatch):
-        """handle_setup with non-TTY stdin must not raise."""
+        # handle_setup with non-TTY stdin must not raise.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
 
@@ -138,7 +137,7 @@ class TestRotatePasswordAtomicity:
         _generate_compose(cfg)
 
     def test_compose_failure_does_not_corrupt_config(self, tmp_path, monkeypatch):
-        """Compose failure must leave on-disk config unchanged."""
+        # Compose failure must leave on-disk config unchanged.
         self._make_cfg(tmp_path, monkeypatch)
         from winpodx.core.config import Config
 
@@ -171,7 +170,7 @@ class TestRotatePasswordAtomicity:
         assert reloaded.rdp.password == original_password
 
     def test_successful_rotation_updates_both(self, tmp_path, monkeypatch):
-        """On success, both config and compose must reflect the new password."""
+        # On success, both config and compose must reflect the new password.
         self._make_cfg(tmp_path, monkeypatch)
         from winpodx.core.config import Config
 
@@ -235,7 +234,7 @@ class TestInstallAllIconCache:
         assert update_called, "update_icon_cache() was not called by _install_all()"
 
     def test_update_icon_cache_not_called_when_no_apps(self):
-        """When there are no apps, icon cache must not be refreshed."""
+        # When there are no apps, icon cache must not be refreshed.
         update_called: list[bool] = []
 
         with (
@@ -316,7 +315,7 @@ class TestWinappsRDPFlagsFilter:
         assert "/sound:sys:alsa" in cfg.rdp.extra_flags
 
     def test_dangerous_flags_refused_entirely(self, tmp_path):
-        """H7: when ANY flag is blocked, extra_flags must be empty (all-or-nothing)."""
+        # H7: when ANY flag is blocked, extra_flags must be empty (all-or-nothing).
         conf = tmp_path / "winapps.conf"
         self._write_conf(conf, 'RDP_FLAGS="/exec:whoami /shell:sh /scale:100"\n')
 
@@ -392,7 +391,7 @@ class TestComposeTemplateFormatInjection:
         return cfg
 
     def test_username_with_format_index_placeholder(self, tmp_path, monkeypatch):
-        """{0} in username must not raise IndexError."""
+        # {0} in username must not raise IndexError.
         cfg = self._make_cfg(tmp_path, monkeypatch, username="{0}")
         from winpodx.cli.setup_cmd import _generate_compose
 
@@ -401,7 +400,7 @@ class TestComposeTemplateFormatInjection:
         assert compose_path.exists()
 
     def test_username_with_named_placeholder_does_not_leak_password(self, tmp_path, monkeypatch):
-        """{password} in username must not expand to the real password."""
+        # {password} in username must not expand to the real password.
         secret = "SuperSecret!99"
         cfg = self._make_cfg(tmp_path, monkeypatch, username="{password}", password=secret)
         from winpodx.cli.setup_cmd import _generate_compose
@@ -418,7 +417,7 @@ class TestComposeTemplateFormatInjection:
         )
 
     def test_username_with_arbitrary_braces_does_not_raise(self, tmp_path, monkeypatch):
-        """A username like 'a{b}c' must render without KeyError."""
+        # A username like 'a{b}c' must render without KeyError.
         cfg = self._make_cfg(tmp_path, monkeypatch, username="a{b}c")
         from winpodx.cli.setup_cmd import _generate_compose
 
@@ -427,7 +426,7 @@ class TestComposeTemplateFormatInjection:
         assert compose_path.exists()
 
     def test_password_with_braces_does_not_raise(self, tmp_path, monkeypatch):
-        """A password containing braces must not raise during compose generation."""
+        # A password containing braces must not raise during compose generation.
         cfg = self._make_cfg(tmp_path, monkeypatch, username="User", password="P@ss{word}1!")
         from winpodx.cli.setup_cmd import _generate_compose
 
@@ -443,7 +442,7 @@ class TestComposeTemplateFormatInjection:
 
 class TestContainerNameFromConfig:
     def test_compose_uses_cfg_container_name(self, tmp_path, monkeypatch):
-        """compose.yaml container_name must match cfg.pod.container_name."""
+        # compose.yaml container_name must match cfg.pod.container_name.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         from winpodx.core.config import Config
 
@@ -500,7 +499,7 @@ class TestComposeBackendSpecificKeys:
 
 class TestComposeNetworkKey:
     def test_network_slirp_not_emitted(self, tmp_path, monkeypatch):
-        """NETWORK: slirp must not appear in generated compose — let Podman pick."""
+        # NETWORK: slirp must not appear in generated compose — let Podman pick.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         from winpodx.core.config import Config
 

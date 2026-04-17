@@ -4,13 +4,11 @@ from winpodx.display.scaling import detect_scale_factor
 
 
 def test_scale_factor_returns_valid():
-    """Scale factor should be one of the valid RDP values."""
     result = detect_scale_factor()
     assert result in (100, 140, 180)
 
 
 def test_env_scale_gdk(monkeypatch):
-    """GDK_SCALE environment variable should be detected."""
     from winpodx.display.scaling import _env_scale
 
     monkeypatch.setenv("GDK_SCALE", "2")
@@ -18,7 +16,6 @@ def test_env_scale_gdk(monkeypatch):
 
 
 def test_env_scale_qt(monkeypatch):
-    """QT_SCALE_FACTOR should be detected."""
     from winpodx.display.scaling import _env_scale
 
     monkeypatch.delenv("GDK_SCALE", raising=False)
@@ -27,7 +24,6 @@ def test_env_scale_qt(monkeypatch):
 
 
 def test_env_scale_fallback(monkeypatch):
-    """With no scale env vars, _env_scale should return 1.0 (not 0.0)."""
     from winpodx.display.scaling import _env_scale
 
     for var in ("GDK_SCALE", "QT_SCALE_FACTOR", "ELM_SCALE"):
@@ -36,7 +32,6 @@ def test_env_scale_fallback(monkeypatch):
 
 
 def test_env_scale_zero_guard(monkeypatch):
-    """GDK_SCALE=0 should return 1.0, not 0.0."""
     from winpodx.display.scaling import _env_scale
 
     monkeypatch.setenv("GDK_SCALE", "0")
@@ -44,7 +39,6 @@ def test_env_scale_zero_guard(monkeypatch):
 
 
 def test_env_scale_negative_guard(monkeypatch):
-    """Negative scale should return 1.0."""
     from winpodx.display.scaling import _env_scale
 
     monkeypatch.setenv("GDK_SCALE", "-1")
@@ -52,7 +46,6 @@ def test_env_scale_negative_guard(monkeypatch):
 
 
 def test_xrdb_zero_dpi_guard(monkeypatch):
-    """xrdb returning Xft.dpi: 0 must not produce 0.0 scale."""
     import subprocess
 
     from winpodx.display.scaling import _xrdb_scale
@@ -67,7 +60,6 @@ def test_xrdb_zero_dpi_guard(monkeypatch):
 
 
 def test_xrdb_valid_dpi(monkeypatch):
-    """xrdb with valid DPI should return correct scale."""
     import subprocess
 
     from winpodx.display.scaling import _xrdb_scale
@@ -85,12 +77,10 @@ def test_xrdb_valid_dpi(monkeypatch):
 
 
 def test_wayland_sway_returns_max_scale(monkeypatch):
-    """Issue 15: sway with 1x external + 2x internal must return 2.0.
-
-    Prior behavior read only the focused output, so launching winpodx
-    from the 1x external HDMI would pick scale=1 and render apps tiny
-    once the user moved them to the 2x internal panel.
-    """
+    # Issue 15: sway with 1x external + 2x internal must return 2.0.
+    # Prior behavior read only the focused output, so launching winpodx
+    # from the 1x external HDMI would pick scale=1 and render apps tiny
+    # once the user moved them to the 2x internal panel.
     import json
     import subprocess
 
@@ -124,7 +114,7 @@ def test_wayland_sway_returns_max_scale(monkeypatch):
 
 
 def test_wayland_hyprland_returns_max_scale(monkeypatch):
-    """Issue 15: hyprland — max across monitors, not focused."""
+    # Issue 15: hyprland — max across monitors, not focused.
     import json
     import subprocess
 
@@ -149,7 +139,7 @@ def test_wayland_hyprland_returns_max_scale(monkeypatch):
 
 
 def test_wayland_prefers_qt_when_available(monkeypatch):
-    """Issue 15: Qt DPR wins over swaymsg/hyprctl parsing."""
+    # Issue 15: Qt DPR wins over swaymsg/hyprctl parsing.
     from winpodx.display import scaling as scaling_mod
 
     monkeypatch.setattr(scaling_mod, "_qt_max_device_pixel_ratio", lambda: 1.25)
@@ -164,7 +154,7 @@ def test_wayland_prefers_qt_when_available(monkeypatch):
 
 
 def test_wayland_fallback_when_everything_missing(monkeypatch):
-    """Issue 15: no Qt, no swaymsg, no hyprctl → 1.0."""
+    # Issue 15: no Qt, no swaymsg, no hyprctl → 1.0.
     from winpodx.display import scaling as scaling_mod
 
     monkeypatch.setattr(scaling_mod, "_qt_max_device_pixel_ratio", lambda: None)

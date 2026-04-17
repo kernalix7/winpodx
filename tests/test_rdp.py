@@ -18,12 +18,10 @@ def test_linux_to_unc_home(monkeypatch, tmp_path):
 
 
 def test_linux_to_unc_outside_home_raises(monkeypatch, tmp_path):
-    """Paths outside $HOME (and outside any media share) must raise.
-
-    Returning \\\\tsclient\\tmp\\... silently produced an unshared UNC
-    that Windows could not resolve — Office opened an empty window.
-    The function must now fail loudly so the CLI reports a clear error.
-    """
+    # Paths outside $HOME (and outside any media share) must raise.
+    # Returning \\tsclient\tmp\... silently produced an unshared UNC
+    # that Windows could not resolve — Office opened an empty window.
+    # The function must now fail loudly so the CLI reports a clear error.
     monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path / "home"))
     monkeypatch.setattr("winpodx.core.rdp._find_media_base", lambda: None)
     with pytest.raises(ValueError, match="outside shared locations"):
@@ -31,7 +29,7 @@ def test_linux_to_unc_outside_home_raises(monkeypatch, tmp_path):
 
 
 def test_linux_to_unc_media_path(monkeypatch, tmp_path):
-    """Paths under the shared media base map to \\\\tsclient\\media."""
+    # Paths under the shared media base map to \\tsclient\media.
     media = tmp_path / "run_media" / "user"
     media.mkdir(parents=True)
     usb_file = media / "USB" / "report.docx"
@@ -54,14 +52,12 @@ def test_find_freerdp_returns_tuple_or_none():
 
 
 def test_find_existing_session_rejects_non_freerdp_pid(tmp_path, monkeypatch):
-    """PID reuse: a non-freerdp process whose cmdline happens to contain
-    'winpodx' (e.g. `winpodx app list`) must not be mistaken for a live
-    RDP session.
-
-    Before the fix, any cmdline containing 'winpodx' was accepted and
-    _find_existing_session returned a bogus RDPSession with process=None,
-    silently swallowing the actual launch.
-    """
+    # PID reuse: a non-freerdp process whose cmdline happens to contain
+    # 'winpodx' (e.g. `winpodx app list`) must not be mistaken for a live
+    # RDP session.
+    # Before the fix, any cmdline containing 'winpodx' was accepted and
+    # _find_existing_session returned a bogus RDPSession with process=None,
+    # silently swallowing the actual launch.
     import shutil
     import subprocess
     import time
@@ -122,12 +118,10 @@ def test_find_existing_session_cleans_dead_pid(tmp_path, monkeypatch):
 
 
 def test_is_freerdp_pid_helper_accepts_freerdp_only():
-    """The shared helper must accept only freerdp/xfreerdp cmdlines.
-
-    'winpodx' alone is no longer sufficient — the old logic matched any
-    cmdline containing 'winpodx' which caused PID reuse false-positives
-    (e.g. `winpodx app list` process appearing as a live RDP session).
-    """
+    # The shared helper must accept only freerdp/xfreerdp cmdlines.
+    # 'winpodx' alone is no longer sufficient — the old logic matched any
+    # cmdline containing 'winpodx' which caused PID reuse false-positives
+    # (e.g. `winpodx app list` process appearing as a live RDP session).
     from winpodx.core import process as proc_mod
 
     # Dead PID — must be rejected regardless of cmdline.

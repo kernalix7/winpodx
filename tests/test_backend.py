@@ -8,7 +8,6 @@ from winpodx.core.pod import PodState, start_pod
 
 
 def test_manual_backend_start_stop():
-    """Manual backend start/stop should be no-ops."""
     cfg = Config()
     cfg.rdp.ip = "192.168.1.100"
     backend = ManualBackend(cfg)
@@ -18,7 +17,6 @@ def test_manual_backend_start_stop():
 
 
 def test_get_backend():
-    """get_backend should return correct backend class."""
     from winpodx.core.pod import get_backend
 
     cfg = Config()
@@ -34,7 +32,6 @@ def test_get_backend():
 
 
 def test_start_pod_waits_for_ready_and_returns_running():
-    """start_pod must call backend.wait_for_ready and return RUNNING on success."""
     cfg = Config()
     cfg.pod.boot_timeout = 120
 
@@ -51,7 +48,6 @@ def test_start_pod_waits_for_ready_and_returns_running():
 
 
 def test_start_pod_timeout_returns_starting():
-    """If wait_for_ready returns False (timeout), state must be STARTING."""
     cfg = Config()
 
     fake_backend = MagicMock()
@@ -66,7 +62,6 @@ def test_start_pod_timeout_returns_starting():
 
 
 def test_start_pod_start_failure_returns_error():
-    """If backend.start raises, wait_for_ready must not be called."""
     cfg = Config()
 
     fake_backend = MagicMock()
@@ -81,7 +76,7 @@ def test_start_pod_start_failure_returns_error():
 
 
 def test_podman_backend_is_running_uses_configured_container_name():
-    """PodmanBackend.is_running must filter by cfg.pod.container_name."""
+    # PodmanBackend.is_running must filter by cfg.pod.container_name.
     from winpodx.backend.podman import PodmanBackend
 
     cfg = Config()
@@ -103,7 +98,7 @@ def test_podman_backend_is_running_uses_configured_container_name():
 
 
 def test_docker_backend_is_running_uses_configured_container_name():
-    """DockerBackend.is_running must filter by cfg.pod.container_name."""
+    # DockerBackend.is_running must filter by cfg.pod.container_name.
     from winpodx.backend.docker import DockerBackend
 
     cfg = Config()

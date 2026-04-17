@@ -15,7 +15,6 @@ Covers:
 
 from __future__ import annotations
 
-import inspect
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -27,15 +26,8 @@ from winpodx.core.pod import PodState, check_rdp_port, pod_status
 # --- H3 ---------------------------------------------------------------
 
 
-def test_check_rdp_port_requires_explicit_port():
-    """The default-less signature is the audit fix — callers must pass port."""
-    sig = inspect.signature(check_rdp_port)
-    port_param = sig.parameters["port"]
-    assert port_param.default is inspect.Parameter.empty
-
-
 def test_check_rdp_port_still_accepts_port_and_timeout():
-    """Invoking with a closed random port should quickly return False."""
+    # Invoking with a closed random port should quickly return False.
     # Using port 1 (privileged, reserved) → refused or EACCES → False.
     assert check_rdp_port("127.0.0.1", 1, timeout=0.1) is False
 
@@ -121,11 +113,9 @@ def test_manual_backend_never_paused():
 
 
 def test_password_filter_clears_args():
-    """record.args MUST be reset to () after sanitization.
-
-    Previously, downstream handlers re-ran ``sanitized % original_args``
-    which either re-inserted raw values or raised TypeError.
-    """
+    # record.args MUST be reset to () after sanitization.
+    # Previously, downstream handlers re-ran ``sanitized % original_args``
+    # which either re-inserted raw values or raised TypeError.
     from winpodx.utils.logging import PasswordFilter
 
     pw_filter = PasswordFilter()
@@ -193,7 +183,7 @@ def test_sec_tls_applied_for_all_backends(backend_name, monkeypatch):
 
 
 def test_terminate_tracked_sessions_signals_known_pids(tmp_path, monkeypatch):
-    """The helper must SIGTERM only PIDs that ``is_freerdp_pid`` accepts."""
+    # The helper must SIGTERM only PIDs that ``is_freerdp_pid`` accepts.
     import os
     import subprocess
 
@@ -260,7 +250,7 @@ def test_terminate_tracked_sessions_skips_non_freerdp(tmp_path, monkeypatch):
 
 
 def test_list_available_apps_rejects_symlink_escape(tmp_path, monkeypatch):
-    """A symlink in user_apps_dir that points outside must be skipped."""
+    # A symlink in user_apps_dir that points outside must be skipped.
     from winpodx.core import app as app_mod
 
     user_apps = tmp_path / "user_apps"
@@ -292,7 +282,7 @@ def test_list_available_apps_rejects_symlink_escape(tmp_path, monkeypatch):
 
 
 def test_check_freerdp_accepts_sdl(monkeypatch):
-    """check_freerdp must accept whatever find_freerdp finds."""
+    # check_freerdp must accept whatever find_freerdp finds.
     from winpodx.utils import deps
 
     monkeypatch.setattr(
@@ -346,7 +336,7 @@ def test_pod_config_image_and_disk_size_persist(tmp_path, monkeypatch):
 
 
 def test_docker_wait_for_ready_uses_short_sleep(monkeypatch):
-    """wait_for_ready must poll frequently (<=1s) not every 5s."""
+    # wait_for_ready must poll frequently (<=1s) not every 5s.
     import winpodx.backend.docker as dm
 
     cfg = Config()

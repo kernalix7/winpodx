@@ -42,6 +42,18 @@
 - FreeRDP 세션 관리 및 프로세스 추적 (.cproc 파일), 좀비 프로세스 리퍼
 - winapps.conf 가져오기 (기존 설정 마이그레이션)
 
+### 정리
+- Compose 템플릿 생성: `_yaml_escape`, `_find_oem_dir`, `_build_compose_content`를 모듈-레벨 헬퍼로 승격; `_generate_compose`와 `_generate_compose_to`가 하나의 빌더 공유 (`cli/setup_cmd.py` -52줄)
+- 데몬 컨테이너 명령: `_run_container_cmd` 헬퍼가 `suspend_pod`/`resume_pod`/`is_pod_paused`를 통합 — 각 함수가 25-30줄에서 10줄로 (-48줄)
+- Display scaling: `detect_scale_factor`가 `detect_raw_scale`로 위임 — DE dispatch 캐스케이드 중복 제거 (-12줄)
+- `PasswordFilter`: 키워드 튜플 중복 제거, regex가 단일 소스
+- RDP 플래그 allowlist 주석: 24줄/21줄 historical-design 배너를 헤더로 압축, dict value가 self-documenting
+- Provisioner: `datetime`/`Path` import 모듈 top으로 호이스팅, `_rotation_marker_path`의 forward-ref string + noqa 제거, private 헬퍼 docstring 정리
+- `utils/deps.py`: 데드 `REQUIRED_DEPS` 상수 제거, `check_backends()`를 `check_all()`에 인라인화
+- `utils/compat.py`: identity-mapping `FLAVOR_MAP` 제거, `_VALID_BACKENDS` 직접 사용
+- `desktop/notify.py`: 미사용 `notify_app_launched` 래퍼 제거
+- 테스트 스위트: CLAUDE.md 규칙대로 테스트 함수 docstring 제거, signature-introspection 테스트와 audit5에 커버된 `PasswordFilter` 중복 테스트 삭제. 총: **228 → 225 테스트** (더 높은 신호), 리팩터 전반 **~240 LoC 감소**
+
 ### 보안
 - RDP 플래그 allowlist 강화: prefix 매칭을 플래그별 인수 형태 검증으로 교체. `/drive`는 공유 이름을 `{home, media}`로 제한; `/serial`, `/parallel`, `/smartcard`, `/usb`는 명시적 allowlist; `/drive:etc,/etc`나 `/serial:/dev/tty` 같은 악성 winapps.conf 페이로드는 경고 후 제거
 - winapps.conf import: RDP_FLAGS 항목이 하나라도 필터되면 `extra_flags`를 완전히 비움 (all-or-nothing). 부분 집합을 조용히 유지하지 않고 명시적 사용자 opt-in 요구

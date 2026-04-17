@@ -42,6 +42,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - FreeRDP session management with process tracking (.cproc files) and zombie process reaper
 - winapps.conf import for migration from existing setups
 
+### Cleanup
+- Compose template generation: `_yaml_escape`, `_find_oem_dir`, `_build_compose_content` promoted to module-level helpers; `_generate_compose` and `_generate_compose_to` share one builder (-52 lines in `cli/setup_cmd.py`)
+- Daemon container commands: `_run_container_cmd` helper consolidates `suspend_pod`/`resume_pod`/`is_pod_paused` — each now 10 lines instead of 25-30 (-48 lines)
+- Display scaling: `detect_scale_factor` now delegates to `detect_raw_scale` instead of re-running the DE dispatch cascade (-12 lines)
+- `PasswordFilter`: removed duplicate keyword tuple — regex is now the single source of truth
+- RDP flag allowlist comments: 24-line and 21-line historical-design banners compressed to headers; dict values self-document
+- Provisioner: hoisted `datetime`/`Path` imports to module top, dropped forward-ref string + noqa on `_rotation_marker_path`, trimmed private helper docstrings
+- `utils/deps.py`: removed dead `REQUIRED_DEPS` constant and inlined `check_backends()` into `check_all()`
+- `utils/compat.py`: removed identity-mapping `FLAVOR_MAP`; uses `_VALID_BACKENDS` directly
+- `desktop/notify.py`: removed unused `notify_app_launched` wrapper
+- Test suite: stripped docstrings from test functions per project convention (CLAUDE.md), dropped a redundant signature-introspection test and duplicate `PasswordFilter` tests covered by audit5. Total: **228 → 225 tests** (higher signal), **~240 LoC removed** across the refactor
+
 ### Security
 - RDP flag allowlist hardened: prefix matching replaced with per-flag argument-shape validation. `/drive` now restricts share names to `{home, media}`; `/serial`, `/parallel`, `/smartcard`, `/usb` each have explicit allowlists; adversarial winapps.conf payloads like `/drive:etc,/etc` or `/serial:/dev/tty` are dropped with a warning
 - winapps.conf import: if any RDP_FLAGS entry is filtered, `extra_flags` is cleared entirely (all-or-nothing) instead of silently persisting the partial set, forcing explicit user opt-in
