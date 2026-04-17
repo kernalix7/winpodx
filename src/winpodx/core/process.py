@@ -17,6 +17,27 @@ from winpodx.utils.paths import runtime_dir
 log = logging.getLogger(__name__)
 
 
+def is_freerdp_pid(pid: int) -> bool:
+    """Return True if the given PID is a live FreeRDP process we spawned.
+
+    Single source of truth for PID-reuse detection. Accepts only ``freerdp``
+    or ``xfreerdp`` in the cmdline — matching our own spawned binaries.
+    Deliberately excludes ``winpodx`` because that substring can match
+    unrelated CLI invocations (e.g. ``winpodx app list``) after PID reuse.
+    """
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().lower()
+    except (OSError, PermissionError):
+        return False
+
+    return b"freerdp" in cmdline or b"xfreerdp" in cmdline
+
+
 @dataclass
 class TrackedProcess:
     app_name: str
@@ -24,17 +45,7 @@ class TrackedProcess:
 
     @property
     def is_alive(self) -> bool:
-        try:
-            os.kill(self.pid, 0)
-        except (ProcessLookupError, PermissionError):
-            return False
-
-        # Verify it's actually an RDP process (avoid PID reuse attacks)
-        try:
-            cmdline = Path(f"/proc/{self.pid}/cmdline").read_bytes()
-            return b"freerdp" in cmdline.lower() or b"xfreerdp" in cmdline.lower()
-        except (OSError, PermissionError):
-            return False  # Can't verify — assume not ours
+        return is_freerdp_pid(self.pid)
 
 
 def list_active_sessions() -> list[TrackedProcess]:
@@ -66,13 +77,8 @@ def kill_session(app_name: str) -> bool:
     try:
         pid = int(pid_file.read_text().strip())
 
-        # Verify it's actually a FreeRDP process before killing
-        try:
-            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
-            if b"freerdp" not in cmdline.lower():
-                pid_file.unlink(missing_ok=True)
-                return False
-        except OSError:
+        # Verify it's actually a FreeRDP process before killing (PID reuse)
+        if not is_freerdp_pid(pid):
             pid_file.unlink(missing_ok=True)
             return False
 

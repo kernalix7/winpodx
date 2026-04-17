@@ -69,6 +69,12 @@
 - RDP reaper 스레드: stderr 파이프 데드락 — 64KB 파이프 버퍼가 꽉 차면 `proc.wait()`가 무한 대기; `communicate()` 사용으로 변경, 마지막 2KB를 세션에 저장
 - TOML writer: 제어문자 0x00-0x1F, 0x7F이 이스케이프 없이 출력되어 파일 깨짐; `\uXXXX`로 이스케이프
 - media_monitor.ps1: `net use /delete` 종료 코드 미확인; 언마운트 실패 시 tracking 유지로 다음 sync에서 재시도
+- RDP 세션 재사용: `_find_existing_session`이 cmdline에 `winpodx`만 있으면 세션으로 인정 (`winpodx app list` 같은 무관한 프로세스 포함). PID 재사용 시 `process=None`인 가짜 세션 반환. `process.is_freerdp_pid()`로 통합하고 `freerdp`/`xfreerdp`만 허용
+- `linux_to_unc`: `$HOME` 밖 경로(`/tmp` 등)에 대해 공유되지 않은 UNC 경로를 조용히 반환 → Windows "경로 없음" 에러. 이제 `ValueError` raise, 호출자가 명확한 에러 메시지로 변환
+- 비밀번호 로테이션 state 마커: `cfg.save()`와 Windows 롤백이 모두 실패 시 `.rotation_pending` 마커를 기록. `ensure_ready()`가 매 실행 시 사용자에게 경고하고 `winpodx rotate-password` 수동 실행 안내
+- `unregister_mime_types`: `mimeapps.list`에서 winpodx 항목을 포함한 전체 line을 삭제해 다른 앱 연결까지 날리던 버그. `configparser` 파싱으로 해당 항목만 제거하고 atomic write
+- 데스크톱 엔트리 및 테마 인덱스: `encoding="utf-8"` 명시 — 한글/일본어 등 non-ASCII `full_name`이 `C`/`POSIX` 로케일에서 설치 실패하던 버그 수정
+- GUI 아이콘 탐색: `Path(__file__).parent × 4`는 source layout에서만 동작하고 `pip install` 후 실패. `bundled_data_path()` 헬퍼가 source, wheel share-data, `~/.local/share/winpodx/data/` 순으로 탐색
 
 ### 변경됨
 - 기본 RDP 포트 3389 → 3390 (다른 컨테이너와 충돌 방지)

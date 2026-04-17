@@ -24,6 +24,18 @@ from winpodx.utils.paths import config_dir, data_dir
 
 log = logging.getLogger(__name__)
 
+# Marker written when a password rotation left the Windows password
+# and the stored config out of sync (rollback failed). Presence of this
+# file triggers a warning on every ensure_ready() until the user runs
+# `winpodx rotate-password` manually.
+_ROTATION_PENDING_MARKER = "rotation_pending"
+
+
+def _rotation_marker_path() -> "Path":  # noqa: F821 - forward ref for annotation
+    from pathlib import Path
+
+    return Path(config_dir()) / f".{_ROTATION_PENDING_MARKER}"
+
 
 class ProvisionError(Exception):
     """Raised when auto-provisioning fails."""
@@ -38,6 +50,12 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # Step 1: Config
     if cfg is None:
         cfg = _ensure_config()
+
+    # Step 1.1: Warn loudly if a previous rotation rolled back but couldn't
+    # restore the Windows password. The system is in an inconsistent state:
+    # config holds old password, Windows holds new one — RDP auth will fail
+    # until the user runs `winpodx rotate-password` after the pod is healthy.
+    _check_rotation_pending()
 
     # Step 1.5: Auto-rotate password if older than 1 day
     cfg = _auto_rotate_password(cfg)
@@ -170,13 +188,84 @@ def _auto_rotate_password(cfg: Config) -> Config:
         cfg.save()
         _generate_compose(cfg)
         log.info("Password rotated successfully")
+        # Successful save clears any prior pending-rotation marker.
+        _clear_rotation_pending()
     except OSError as e:
         # Config save failed but Windows already has the new password.
-        # Try to revert Windows password to keep things in sync.
+        # Revert the in-memory dataclass so we don't return a Config with
+        # a password Windows does not accept.
+        cfg.rdp.password = old_password
         log.error("Failed to save config after rotation: %s", e)
-        _change_windows_password(cfg, old_password)
+
+        # Try to revert Windows password to keep things in sync.
+        if _change_windows_password(cfg, old_password):
+            log.warning("Password rotation rolled back after config save failure")
+        else:
+            # Worst case: config has old password, Windows has new.
+            # Persist a marker so the user is notified on next launch
+            # and can recover manually once the container is reachable.
+            _mark_rotation_pending(old_password, new_password)
+            log.error(
+                "CRITICAL: password rotation partially applied. "
+                "Windows now uses the new password, but it could not be "
+                "saved to config and could not be reverted. RDP "
+                "authentication will fail until you run "
+                "`winpodx rotate-password` once the container is healthy."
+            )
 
     return cfg
+
+
+def _mark_rotation_pending(old_password: str, new_password: str) -> None:
+    """Create a marker file signalling a partial rotation.
+
+    Writes the marker atomically with mode 0o600. The file contents are
+    intentionally minimal and exclude the new password — only the fact of
+    a pending rotation is persisted, so a read of the marker cannot leak
+    credentials beyond what the config already contains.
+    """
+    import os
+    import tempfile
+
+    marker = _rotation_marker_path()
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=marker.parent, prefix=".winpodx-rot-", suffix=".tmp")
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, b"pending\n")
+            os.close(fd)
+            os.rename(tmp_path, marker)
+        except Exception:
+            os.close(fd)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except OSError as e:
+        log.error("Failed to write rotation marker: %s", e)
+
+
+def _clear_rotation_pending() -> None:
+    """Remove the rotation-pending marker if present."""
+    marker = _rotation_marker_path()
+    try:
+        marker.unlink(missing_ok=True)
+    except OSError as e:
+        log.warning("Could not remove rotation marker: %s", e)
+
+
+def _check_rotation_pending() -> None:
+    """Warn the user if a prior rotation did not fully complete."""
+    marker = _rotation_marker_path()
+    if marker.exists():
+        log.error(
+            "Pending password rotation detected (%s). "
+            "Run `winpodx rotate-password` once the container is "
+            "running to bring config and Windows back in sync.",
+            marker,
+        )
 
 
 def _ensure_config() -> Config:

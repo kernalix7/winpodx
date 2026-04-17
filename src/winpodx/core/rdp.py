@@ -202,7 +202,12 @@ def build_rdp_command(
         stem = PureWindowsPath(app_executable).stem.lower()
         app_arg = f"/app:program:{app_executable},name:{stem}"
         if file_path:
-            unc_path = linux_to_unc(file_path)
+            try:
+                unc_path = linux_to_unc(file_path)
+            except ValueError as e:
+                # Convert to RuntimeError so CLI (_run_app) surfaces it
+                # to the user instead of hitting an unhandled exception.
+                raise RuntimeError(f"Cannot open file: {e}") from e
             app_arg += f",cmd:{unc_path}"
         cmd.append(app_arg)
         cmd.append(f"/wm-class:{stem}")
@@ -281,6 +286,8 @@ def _filter_extra_flags(flags_str: str) -> list[str]:
 
 def _find_existing_session(app_name: str) -> RDPSession | None:
     """Check if an RDP session for this app is already running."""
+    from winpodx.core.process import is_freerdp_pid
+
     pid_file = runtime_dir() / f"{app_name}.cproc"
     if not pid_file.exists():
         return None
@@ -291,20 +298,10 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
         pid_file.unlink(missing_ok=True)
         return None
 
-    # Verify PID is alive (signal 0 = just check existence)
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, OSError):
-        pid_file.unlink(missing_ok=True)
-        return None
-
-    # Verify it's actually an RDP-related process
-    try:
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().lower()
-        if b"freerdp" not in cmdline and b"winpodx" not in cmdline:
-            pid_file.unlink(missing_ok=True)
-            return None
-    except OSError:
+    # Single source of truth: must be a live freerdp/xfreerdp process.
+    # Rejecting unrelated winpodx CLI invocations that may land on a reused
+    # PID — otherwise launch_app would return a fake process=None session.
+    if not is_freerdp_pid(pid):
         pid_file.unlink(missing_ok=True)
         return None
 
@@ -416,8 +413,18 @@ def launch_desktop(cfg: Config) -> RDPSession:
 def linux_to_unc(path: str) -> str:
     """Convert a Linux file path to a Windows UNC path via tsclient.
 
-    The RDP drive share maps the Linux home directory as \\tsclient\\home.
-    Validates the path contains no characters invalid in Windows paths.
+    The RDP drive share maps the Linux home directory as ``\\tsclient\\home``.
+    If the user has removable media mounted under ``/run/media/$USER`` or
+    ``/media/$USER``, that base is shared as ``\\tsclient\\media`` and paths
+    below it are remapped accordingly.
+
+    Raises ``ValueError`` when:
+      * the path contains characters invalid in Windows file paths, or
+      * the path lies outside any shared location (home or media base).
+        Returning an unshared path here would produce a UNC like
+        ``\\tsclient\\tmp\\foo.docx`` which Windows cannot resolve,
+        leading to silent app failures (empty Office window, "path not
+        found"). Callers must surface this error to the user.
     """
     # Reject characters invalid in Windows file paths
     _INVALID_WIN_CHARS = set('*?"<>|')
@@ -433,6 +440,20 @@ def linux_to_unc(path: str) -> str:
         win_path = str(relative).replace("/", sep)
         return f"\\\\tsclient\\home\\{win_path}"
     except ValueError:
-        # File outside home — use absolute path
-        win_path = str(p).lstrip("/").replace("/", sep)
-        return f"\\\\tsclient\\{win_path}"
+        pass
+
+    # Media share: /run/media/$USER or /media/$USER — mounted as \\tsclient\media
+    media_base = _find_media_base()
+    if media_base is not None:
+        try:
+            relative = p.relative_to(media_base)
+            win_path = str(relative).replace("/", sep)
+            return f"\\\\tsclient\\media\\{win_path}"
+        except ValueError:
+            pass
+
+    raise ValueError(
+        f"Path is outside shared locations (home={home}"
+        f"{', media=' + str(media_base) if media_base else ''}): {posix_str}. "
+        "Move the file under your home directory or a mounted media volume."
+    )

@@ -47,7 +47,10 @@ def install_desktop_entry(app: AppInfo) -> Path:
     )
 
     desktop_path = dest_dir / f"winpodx-{app.name}.desktop"
-    desktop_path.write_text(content)
+    # Explicit UTF-8: .desktop spec requires UTF-8 and system locale may be
+    # C/POSIX (common in containers/minimal installs), which would otherwise
+    # raise UnicodeEncodeError on non-ASCII full_name (e.g. Korean/Japanese).
+    desktop_path.write_text(content, encoding="utf-8")
     desktop_path.chmod(0o644)
     return desktop_path
 

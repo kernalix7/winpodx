@@ -150,8 +150,10 @@ class WinpodxWindow(QMainWindow):
         layout.setSpacing(0)
 
         # Logo icon + text
-        icon_path = Path(__file__).parent.parent.parent.parent / "data" / "winpodx-icon.svg"
-        if icon_path.exists():
+        from winpodx.desktop.icons import bundled_data_path
+
+        icon_path = bundled_data_path("winpodx-icon.svg")
+        if icon_path is not None:
             renderer = QSvgRenderer(str(icon_path))
             pixmap = QPixmap(QSize(28, 24))
             pixmap.fill(Qt.GlobalColor.transparent)
@@ -1573,7 +1575,6 @@ class WinpodxWindow(QMainWindow):
 
         def _do() -> None:
             import subprocess
-            from pathlib import Path
 
             cfg = Config.load()
             runtime = "podman" if cfg.pod.backend == "podman" else "docker"
@@ -1728,8 +1729,10 @@ def run_gui() -> None:
     app.setStyle("Fusion")
 
     # Application icon
-    icon_path = Path(__file__).parent.parent.parent.parent / "data" / "winpodx-icon.svg"
-    if icon_path.exists():
+    from winpodx.desktop.icons import bundled_data_path
+
+    icon_path = bundled_data_path("winpodx-icon.svg")
+    if icon_path is not None:
         app.setWindowIcon(QIcon(str(icon_path)))
 
     from PySide6.QtGui import QPalette

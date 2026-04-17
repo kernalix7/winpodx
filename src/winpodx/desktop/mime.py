@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import configparser
 import logging
+import os
 import subprocess
+import tempfile
+from pathlib import Path
 
 from winpodx.core.app import AppInfo
 from winpodx.utils.paths import applications_dir, config_dir
@@ -38,8 +42,12 @@ def register_mime_types(app: AppInfo) -> None:
 def unregister_mime_types(app: AppInfo) -> None:
     """Remove MIME type associations for a Windows app.
 
-    Note: xdg-mime doesn't have a direct 'unset' command.
-    We reset to the system default by removing the association.
+    Parses ``mimeapps.list`` with configparser, removes only the
+    ``winpodx-<name>.desktop`` entry from each semicolon-separated value,
+    and preserves all other app associations (e.g. ``gedit.desktop``).
+
+    If removing the winpodx entry leaves a value empty, the key itself is
+    dropped — matching xdg-mime's own behavior for empty associations.
     """
     # xdg-mime stores defaults in $XDG_CONFIG_HOME/mimeapps.list
     mimeapps = config_dir().parent / "mimeapps.list"
@@ -47,6 +55,65 @@ def unregister_mime_types(app: AppInfo) -> None:
         return
 
     desktop_name = f"winpodx-{app.name}.desktop"
-    lines = mimeapps.read_text(encoding="utf-8").splitlines()
-    filtered = [line for line in lines if desktop_name not in line]
-    mimeapps.write_text("\n".join(filtered) + "\n", encoding="utf-8")
+
+    # strict=False tolerates duplicate sections; delimiters=('=',) avoids
+    # splitting on ':' which appears legitimately in MIME types.
+    parser = configparser.RawConfigParser(strict=False, delimiters=("=",))
+    # Preserve case — MIME types and desktop filenames are case-sensitive.
+    parser.optionxform = str  # type: ignore[assignment,method-assign]
+
+    try:
+        parser.read(mimeapps, encoding="utf-8")
+    except configparser.Error as e:
+        log.warning("Failed to parse %s: %s", mimeapps, e)
+        return
+
+    changed = False
+    for section in parser.sections():
+        # Iterate over a snapshot — we mutate the section while walking it.
+        for key in list(parser[section].keys()):
+            raw = parser.get(section, key)
+            # Preserve trailing ';' convention by splitting and filtering.
+            entries = [e for e in raw.split(";") if e]
+            kept = [e for e in entries if e != desktop_name]
+            if len(kept) == len(entries):
+                continue
+
+            changed = True
+            if not kept:
+                parser.remove_option(section, key)
+            else:
+                # Freedesktop convention: values end with a trailing ';'.
+                parser.set(section, key, ";".join(kept) + ";")
+
+    if not changed:
+        return
+
+    _atomic_write_configparser(mimeapps, parser)
+
+
+def _atomic_write_configparser(path: Path, parser: configparser.RawConfigParser) -> None:
+    """Write a RawConfigParser to ``path`` atomically via tempfile + rename."""
+    # NamedTemporaryFile in the same dir guarantees os.replace is atomic
+    # (same filesystem). delete=False because we rename it into place.
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    try:
+        # space_around_delimiters=False mirrors the format xdg-mime writes.
+        parser.write(tmp, space_around_delimiters=False)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp.close()
+        os.replace(tmp.name, path)
+    except Exception:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise

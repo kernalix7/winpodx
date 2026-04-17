@@ -5,11 +5,39 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from winpodx.utils.paths import icons_dir
 
 log = logging.getLogger(__name__)
+
+
+def bundled_data_path(*parts: str) -> Path | None:
+    """Resolve a file under the project's ``data/`` directory.
+
+    Tries locations in order:
+      1. Source / editable install: ``<repo>/data/...`` (4 levels above this file)
+      2. pip wheel install: ``<sys.prefix>/share/winpodx/data/...``
+         (per ``[tool.hatch.build.targets.wheel.shared-data]`` in pyproject)
+      3. User install: ``~/.local/share/winpodx/data/...``
+
+    Returns the first existing path, or ``None`` if not found. This keeps
+    icon/data lookup working whether winpodx is run from a checkout, from
+    ``pip install -e .``, or from a wheel landing in site-packages where
+    the old ``Path(__file__).parent.parent.parent.parent`` escape hatches
+    to ``site-packages`` and misses the data dir entirely.
+    """
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent.parent / "data",
+        Path(sys.prefix) / "share" / "winpodx" / "data",
+        Path.home() / ".local" / "share" / "winpodx" / "data",
+    ]
+    for base in candidates:
+        candidate = base.joinpath(*parts)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def install_winpodx_icon() -> bool:
@@ -20,9 +48,9 @@ def install_winpodx_icon() -> bool:
 
     Returns True if the icon was installed.
     """
-    src = Path(__file__).parent.parent.parent.parent / "data" / "winpodx-icon.svg"
-    if not src.exists():
-        log.warning("Bundled icon not found: %s", src)
+    src = bundled_data_path("winpodx-icon.svg")
+    if src is None:
+        log.warning("Bundled icon not found in any known data location")
         return False
 
     dest_dir = icons_dir() / "scalable" / "apps"
@@ -66,7 +94,8 @@ def _ensure_index_theme(icon_dir: Path) -> None:
         "MinSize=1\n"
         "MaxSize=512\n"
         "Context=Applications\n"
-        "Type=Scalable\n"
+        "Type=Scalable\n",
+        encoding="utf-8",
     )
     log.info("Created minimal index.theme at %s", index)
 

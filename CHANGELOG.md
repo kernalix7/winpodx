@@ -69,6 +69,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - RDP reaper thread: stderr pipe deadlock — `proc.wait()` could hang indefinitely once the 64KB pipe buffer filled; now uses `communicate()` and stores last 2KB on the session
 - TOML writer: control characters 0x00-0x1F and 0x7F were emitted raw, breaking the file; now escaped as `\uXXXX`
 - media_monitor.ps1: `net use /delete` exit code ignored; now keeps tracking if unmount fails so next sync can retry
+- RDP session reuse: `_find_existing_session` accepted any process with `winpodx` in cmdline (including `winpodx app list`), silently returning a fake session on PID reuse. Unified into `process.is_freerdp_pid()` that matches only `freerdp`/`xfreerdp`
+- `linux_to_unc`: silently returned UNC paths for directories not shared over RDP (e.g. `/tmp`), causing Windows "path not found" errors. Now raises `ValueError` outside `$HOME`/media share; caller converts to a clear user-facing error
+- Password rotation state marker: if both `cfg.save()` and Windows password rollback fail, a `.rotation_pending` marker is persisted so `ensure_ready()` warns on every launch until the user runs `winpodx rotate-password`
+- `unregister_mime_types`: destroyed `mimeapps.list` by deleting whole lines whose values contained a winpodx entry, orphaning unrelated app associations. Now parses with `configparser`, removes only the targeted entries, and writes atomically
+- Desktop entries & theme index: explicit `encoding="utf-8"` — non-ASCII `full_name` (Korean/Japanese) previously crashed install on `C`/`POSIX` locales
+- GUI icon lookup: `Path(__file__).parent × 4` worked only in source layout and broke after `pip install`. New `bundled_data_path()` helper resolves from source, wheel share-data, and `~/.local/share/winpodx/data/`
 
 ### Changed
 - Default RDP port changed from 3389 to 3390 (avoids collision with other containers)
