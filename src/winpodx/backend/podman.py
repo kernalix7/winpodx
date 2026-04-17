@@ -61,7 +61,14 @@ class PodmanBackend(Backend):
     def is_running(self) -> bool:
         try:
             result = subprocess.run(
-                ["podman", "ps", "--filter", "name=winpodx-windows", "--format", "{{.State}}"],
+                [
+                    "podman",
+                    "ps",
+                    "--filter",
+                    f"name={self.cfg.pod.container_name}",
+                    "--format",
+                    "{{.State}}",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=15,

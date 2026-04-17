@@ -43,6 +43,12 @@ dev = [
 all = [
     "winpodx[gui,libvirt,docker,dev]",
 ]
+# Same as `all` but without libvirt-python, which requires libvirt-dev system
+# headers to build from source. Use this for CI, docs builds, and minimal
+# environments (Debian slim, Alpine, Flatpak) where libvirt-dev is unavailable.
+all-no-libvirt = [
+    "winpodx[gui,docker,dev]",
+]
 
 [project.scripts]
 winpodx = "winpodx.cli.main:cli"
@@ -69,3 +75,6 @@ select = ["E", "F", "I", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    "error::DeprecationWarning:winpodx.*",
+]

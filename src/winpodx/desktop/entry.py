@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
 from winpodx.core.app import AppInfo
 from winpodx.utils.paths import applications_dir, icons_dir
+
+log = logging.getLogger(__name__)
 
 DESKTOP_TEMPLATE = """\
 [Desktop Entry]
@@ -60,12 +63,19 @@ def remove_desktop_entry(app_name: str) -> None:
     desktop_path = applications_dir() / f"winpodx-{app_name}.desktop"
     desktop_path.unlink(missing_ok=True)
 
-    # Remove icon
-    for size_dir in icons_dir().glob("*x*/apps"):
-        icon = size_dir / f"winpodx-{app_name}.svg"
-        icon.unlink(missing_ok=True)
-        icon = size_dir / f"winpodx-{app_name}.png"
-        icon.unlink(missing_ok=True)
+    # Remove icon. `_install_icon` places SVGs in ``scalable/apps/`` which the
+    # old ``glob("*x*/apps")`` pattern skipped (it only matched sized dirs like
+    # ``48x48/apps``) — so ``winpodx app remove`` left the icon behind. We now
+    # clean both the scalable directory and any sized dirs that might hold PNG
+    # fallbacks from older installs.
+    hicolor = icons_dir()
+    scalable_apps = hicolor / "scalable" / "apps"
+    for ext in (".svg", ".png"):
+        (scalable_apps / f"winpodx-{app_name}{ext}").unlink(missing_ok=True)
+
+    for size_dir in hicolor.glob("*x*/apps"):
+        (size_dir / f"winpodx-{app_name}.svg").unlink(missing_ok=True)
+        (size_dir / f"winpodx-{app_name}.png").unlink(missing_ok=True)
 
 
 def _install_icon(app: AppInfo) -> str:
@@ -80,10 +90,24 @@ def _install_icon(app: AppInfo) -> str:
     if not src.exists():
         return "winpodx"
 
+    # hicolor spec: ``scalable/apps/`` is reserved for SVG. gtk-update-icon-cache
+    # silently drops non-SVG entries there, making the app icon appear missing.
+    # For anything that isn't SVG (.ico, .png, .bmp…) we fall back to the shared
+    # winpodx icon rather than install something the cache will discard.
+    if src.suffix.lower() != ".svg":
+        log.warning(
+            "Icon %s for app %s is not SVG (%s); scalable/apps/ requires SVG. "
+            "Falling back to default winpodx icon.",
+            src,
+            app.name,
+            src.suffix,
+        )
+        return "winpodx"
+
     dest_dir = icons_dir() / "scalable" / "apps"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    dest = dest_dir / f"{icon_name}{src.suffix}"
+    dest = dest_dir / f"{icon_name}.svg"
     shutil.copy2(src, dest)
 
     return icon_name

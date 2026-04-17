@@ -67,7 +67,12 @@ def check_rdp_port(ip: str, port: int = 3389, timeout: float = 5.0) -> bool:
 
 
 def start_pod(cfg: Config) -> PodStatus:
-    """Start the Windows pod."""
+    """Start the Windows pod.
+
+    Blocks up to ``cfg.pod.boot_timeout`` seconds waiting for the backend
+    to report RDP readiness. Returns ``RUNNING`` if ready, ``STARTING``
+    if the timeout elapsed while the pod is still booting.
+    """
     backend = get_backend(cfg)
     try:
         backend.start()
@@ -75,7 +80,15 @@ def start_pod(cfg: Config) -> PodStatus:
         log.error("Failed to start pod: %s", e)
         return PodStatus(state=PodState.ERROR, error=str(e))
 
-    if check_rdp_port(cfg.rdp.ip, cfg.rdp.port):
+    # Wait for the backend to become RDP-ready. Windows boot commonly
+    # takes 60-120s; shorter one-shot checks here race the app launcher.
+    try:
+        ready = backend.wait_for_ready(timeout=cfg.pod.boot_timeout)
+    except Exception as e:
+        log.error("wait_for_ready failed: %s", e)
+        return PodStatus(state=PodState.ERROR, error=str(e))
+
+    if ready:
         return PodStatus(state=PodState.RUNNING, ip=cfg.rdp.ip)
     return PodStatus(state=PodState.STARTING, ip=cfg.rdp.ip)
 

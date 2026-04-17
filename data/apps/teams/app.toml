@@ -1,5 +1,12 @@
 name = "teams"
 full_name = "Microsoft Teams"
-executable = "C:\\Program Files\\WindowsApps\\MSTeams_*\\ms-teams.exe"
+# New Teams (2024+) is an MSIX package; the versioned folder under
+# WindowsApps (MSTeams_<version>_...) changes on every update and `*`
+# wildcards are NOT expanded by the RemoteApp runtime (FreeRDP passes
+# the string literally), so the old `...MSTeams_*\\ms-teams.exe` path
+# always failed with "program not found". The App Execution Alias
+# installed by MSIX at %LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe
+# is a stable reparse-point shim that survives version upgrades.
+executable = "%LOCALAPPDATA%\\Microsoft\\WindowsApps\\ms-teams.exe"
 categories = ["Network", "Chat"]
 mime_types = []

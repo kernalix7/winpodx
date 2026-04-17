@@ -6,9 +6,12 @@ allowing users to migrate without manual reconfiguration.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from winpodx.core.config import Config
+
+log = logging.getLogger(__name__)
 
 WINAPPS_CONF_PATHS = [
     Path.home() / ".config" / "winapps" / "winapps.conf",
@@ -59,7 +62,26 @@ def import_winapps_config() -> Config | None:
     cfg.rdp.askpass = vals.get("RDP_ASKPASS", "")
     cfg.rdp.domain = vals.get("RDP_DOMAIN", "")
     cfg.rdp.ip = vals.get("RDP_IP", "127.0.0.1")
-    cfg.rdp.extra_flags = vals.get("RDP_FLAGS", "")
+
+    # Filter RDP_FLAGS through the same allowlist used at runtime so that a
+    # malicious winapps.conf cannot smuggle dangerous flags (e.g. /exec:) into
+    # the stored config.  Removed flags are logged as warnings.
+    raw_flags = vals.get("RDP_FLAGS", "")
+    if raw_flags:
+        from winpodx.core.rdp import _filter_extra_flags
+
+        safe_flags = _filter_extra_flags(raw_flags)
+        cfg.rdp.extra_flags = " ".join(safe_flags)
+        if safe_flags != raw_flags.split():
+            log.warning(
+                "import_winapps_config: one or more RDP_FLAGS were blocked by the "
+                "allowlist and removed from the imported config. "
+                "Raw value: %r  Accepted: %r",
+                raw_flags,
+                cfg.rdp.extra_flags,
+            )
+    else:
+        cfg.rdp.extra_flags = ""
 
     scale = vals.get("RDP_SCALE", "100")
     cfg.rdp.scale = int(scale) if scale.isdigit() else 100

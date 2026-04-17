@@ -35,8 +35,27 @@ def bundled_data_path(*parts: str) -> Path | None:
     ]
     for base in candidates:
         candidate = base.joinpath(*parts)
-        if candidate.exists():
-            return candidate
+        if not candidate.exists():
+            continue
+        # Symlink escape guard: an attacker could swap a user-writable data
+        # candidate (e.g. ~/.local/share/winpodx/data/winpodx-icon.svg) for a
+        # symlink pointing at /etc/shadow or ~/.ssh/id_rsa. Without this
+        # check, shutil.copy2() would follow the link and leak the target.
+        try:
+            resolved = candidate.resolve(strict=True)
+            base_resolved = base.resolve(strict=True)
+        except (OSError, RuntimeError):
+            # Broken symlink, permission error, or resolution loop — skip.
+            log.warning("Rejecting unresolvable data candidate: %s", candidate)
+            continue
+        if not resolved.is_relative_to(base_resolved):
+            log.warning(
+                "Rejecting symlink escape in data candidate: %s -> %s",
+                candidate,
+                resolved,
+            )
+            continue
+        return candidate
     return None
 
 
@@ -53,11 +72,20 @@ def install_winpodx_icon() -> bool:
         log.warning("Bundled icon not found in any known data location")
         return False
 
+    # Defense-in-depth: refuse to copy symlinks even if bundled_data_path
+    # somehow returned one. The user-writable ~/.local/share candidate is
+    # the most attacker-friendly surface, so we check again here.
+    if src.is_symlink():
+        log.warning("Refusing to install icon from symlink: %s", src)
+        return False
+
     dest_dir = icons_dir() / "scalable" / "apps"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / "winpodx.svg"
 
-    shutil.copy2(src, dest)
+    # follow_symlinks=False is redundant given the check above but makes the
+    # non-following intent explicit in case future code reorders the guards.
+    shutil.copy2(src, dest, follow_symlinks=False)
     log.info("Installed winpodx icon: %s", dest)
     return True
 
@@ -109,22 +137,28 @@ def update_icon_cache() -> None:
             ["gtk-update-icon-cache", "-f", "-t", str(icon_dir)],
             capture_output=True,
             text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             log.warning("gtk-update-icon-cache failed: %s", result.stderr.strip())
     except FileNotFoundError:
         log.debug("gtk-update-icon-cache not found, skipping")
+    except subprocess.TimeoutExpired:
+        log.warning("gtk-update-icon-cache timed out after 30s (corrupt cache?)")
 
     try:
         result = subprocess.run(
             ["xdg-icon-resource", "forceupdate"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             log.warning("xdg-icon-resource failed: %s", result.stderr.strip())
     except FileNotFoundError:
         log.debug("xdg-icon-resource not found, skipping")
+    except subprocess.TimeoutExpired:
+        log.warning("xdg-icon-resource forceupdate timed out after 30s")
 
     # KDE Plasma sycoca cache rebuild (picks up new icons and .desktop files)
     for cmd in ("kbuildsycoca6", "kbuildsycoca5"):

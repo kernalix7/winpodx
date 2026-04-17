@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,8 +26,27 @@ class AppInfo:
 
 
 def bundled_apps_dir() -> Path:
-    """Path to bundled app definitions shipped with winpodx."""
-    return Path(__file__).parent.parent.parent.parent / "data" / "apps"
+    """Path to bundled app definitions shipped with winpodx.
+
+    Tries locations in order and returns the first that exists:
+      1. Source / editable install: ``<repo>/data/apps`` (4 levels above)
+      2. pip wheel install: ``<sys.prefix>/share/winpodx/data/apps``
+      3. User install: ``~/.local/share/winpodx/data/apps``
+
+    Mirrors ``winpodx.desktop.icons.bundled_data_path`` — kept inline here
+    to avoid a core -> desktop dependency. If none exist, returns the
+    source-layout path so callers see a non-existent Path rather than
+    None (matches prior behaviour).
+    """
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent.parent / "data" / "apps",
+        Path(sys.prefix) / "share" / "winpodx" / "data" / "apps",
+        Path.home() / ".local" / "share" / "winpodx" / "data" / "apps",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def user_apps_dir() -> Path:

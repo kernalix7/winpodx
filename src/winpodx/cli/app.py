@@ -57,10 +57,11 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
     from winpodx.core.rdp import launch_app, launch_desktop
     from winpodx.desktop.notify import notify_error
 
-    # Auto-provision
+    # Auto-provision — catch both ProvisionError (expected) and RuntimeError
+    # (e.g. compose generation failure) so neither surfaces as a raw traceback.
     try:
         cfg = ensure_ready()
-    except ProvisionError as e:
+    except (ProvisionError, RuntimeError) as e:
         notify_error(str(e))
         print(f"Setup error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -114,6 +115,7 @@ def _install_app(name: str, mime: bool) -> None:
 def _install_all() -> None:
     from winpodx.core.app import list_available_apps
     from winpodx.desktop.entry import install_desktop_entry
+    from winpodx.desktop.icons import update_icon_cache
 
     apps = list_available_apps()
     if not apps:
@@ -123,6 +125,10 @@ def _install_all() -> None:
     for a in apps:
         install_desktop_entry(a)
         print(f"  Installed {a.full_name}")
+
+    # Flush the icon cache so GNOME/KDE pick up the newly installed icons
+    # without requiring a logout/login or manual cache invalidation.
+    update_icon_cache()
     print(f"\n{len(apps)} apps installed into desktop environment.")
 
 

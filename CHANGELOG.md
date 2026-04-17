@@ -43,6 +43,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - winapps.conf import for migration from existing setups
 
 ### Security
+- Atomic config writes: `os.fsync(fd)` + parent directory fsync + `os.replace()` — prevents torn writes on power loss
+- Symlink / path-traversal hardening in `bundled_data_path()`: `.resolve()` + `is_relative_to()` checks and `copy2(..., follow_symlinks=False)` — blocks installs pointing outside bundled data dirs
+- Subprocess timeouts in desktop integration (`update_icon_cache`, `notify-send`) — prevents indefinite hangs from unresponsive helpers
+- `import_winapps_config` now filters untrusted `RDP_FLAGS` through `_filter_extra_flags()` — prevents malicious winapps.conf injecting arbitrary FreeRDP flags
 - Config and compose.yaml files created with 0600 permissions
 - RDP certificate: `/cert:ignore` for localhost only, `/cert:tofu` for remote connections
 - Password filtered from log output
@@ -75,6 +79,20 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - `unregister_mime_types`: destroyed `mimeapps.list` by deleting whole lines whose values contained a winpodx entry, orphaning unrelated app associations. Now parses with `configparser`, removes only the targeted entries, and writes atomically
 - Desktop entries & theme index: explicit `encoding="utf-8"` — non-ASCII `full_name` (Korean/Japanese) previously crashed install on `C`/`POSIX` locales
 - GUI icon lookup: `Path(__file__).parent × 4` worked only in source layout and broke after `pip install`. New `bundled_data_path()` helper resolves from source, wheel share-data, and `~/.local/share/winpodx/data/`
+- Pod start race: container started but RDP port not yet listening caused the first app launch to fail. `pod.start()` now calls `backend.wait_for_ready(timeout=cfg.pod.boot_timeout)` before returning
+- Hardcoded container name: multiple modules used the literal `"winpodx-windows"`, so users who customized the container couldn't run winpodx. Now flows through `cfg.pod.container_name`
+- `setup` EOF handling: `input()` raised `EOFError` on piped stdin, crashing non-interactive setup. New `_ask()` helper detects non-TTY and returns defaults; `handle_rotate_password` now uses a three-phase commit with a temp compose file
+- Password alphabet: removed `
+
+ from generated passwords — broke PowerShell single-quote escaping in a subset of tickets; kept `!@#%&*` which survive every shell context we use
+- App install retry: `winpodx app install-all` failed silently on `RuntimeError`. Now widened to `(ProvisionError, RuntimeError)` and refreshes the icon cache after bulk install
+- Wayland DPI detection: previously picked the first output only. Now iterates all outputs and takes the max scale; falls back to Qt `devicePixelRatio()` when compositor exposes no scale
+- Desktop entry icon hygiene: raster formats silently installed into `hicolor/scalable/apps/` (spec requires SVG). Now enforces SVG for scalable and falls back to size-specific dirs for raster icons
+- App profile writes: `gui/app_dialog.save_app_profile` now uses explicit `encoding="utf-8"` — same non-ASCII crash that affected desktop entries
+- Teams app path: `data/apps/teams/app.toml` pointed at the old Classic Teams executable. Now targets `%LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe`
+- Explorer app categories: removed `Office` (invalid for a file manager) and added `FileTools`, `System`
+- CI audit job: `pip install -e .[all]` failed on GitHub runners without libvirt headers. New `all-no-libvirt` extra keeps the audit scope while unblocking CI
+- Test isolation: new `tests/conftest.py` autouse fixture redirects `HOME` and `XDG_*` to tmp dirs — prevents tests from scribbling into the developer's real config
 
 ### Changed
 - Default RDP port changed from 3389 to 3390 (avoids collision with other containers)

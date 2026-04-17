@@ -121,8 +121,23 @@ def _kde_scale() -> float:
 
 
 def _wayland_compositor_scale() -> float:
-    """Detect scale from Wayland compositors (sway, hyprland)."""
+    """Detect scale from Wayland compositors (sway, hyprland).
+
+    Mixed-DPI setups (e.g. 2x laptop panel + 1x external HDMI) broke when we
+    only read the focused monitor: if winpodx was launched from the 1x screen,
+    RDP came back at 100% and apps looked tiny on the 2x panel the user then
+    moved them to. Return the MAX scale across all outputs so the RDP session
+    is sized for the densest display that might host it. Qt's
+    ``devicePixelRatio`` is preferred when a QGuiApplication is live, because
+    it already reflects per-screen scale chosen by the compositor.
+    """
     import json
+
+    # Prefer Qt when available — it aggregates per-screen scale from the
+    # compositor without re-implementing swaymsg/hyprctl parsing.
+    qt_scale = _qt_max_device_pixel_ratio()
+    if qt_scale is not None:
+        return qt_scale
 
     # Sway: swaymsg -t get_outputs
     try:
@@ -134,9 +149,13 @@ def _wayland_compositor_scale() -> float:
         )
         if result.returncode == 0:
             outputs = json.loads(result.stdout)
-            for output in outputs:
-                if output.get("focused") or output.get("active"):
-                    return float(output.get("scale", 1.0))
+            scales = [
+                float(o.get("scale", 1.0))
+                for o in outputs
+                if o.get("active", True) and o.get("scale") is not None
+            ]
+            if scales:
+                return max(scales)
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         pass
 
@@ -150,13 +169,38 @@ def _wayland_compositor_scale() -> float:
         )
         if result.returncode == 0:
             monitors = json.loads(result.stdout)
-            for mon in monitors:
-                if mon.get("focused"):
-                    return float(mon.get("scale", 1.0))
+            scales = [float(m.get("scale", 1.0)) for m in monitors if m.get("scale") is not None]
+            if scales:
+                return max(scales)
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         pass
 
     return 1.0
+
+
+def _qt_max_device_pixel_ratio() -> float | None:
+    """Return max devicePixelRatio across screens, or None if Qt is unusable.
+
+    Only works when a QGuiApplication is already instantiated in the process
+    (i.e. we're being called from the GUI, not a one-shot CLI invocation).
+    Creating a QGuiApplication solely to probe DPR would spawn a Qt event
+    loop for no reason, so we bail out cleanly when one isn't live.
+    """
+    try:
+        from PySide6.QtGui import QGuiApplication
+    except ImportError:
+        return None
+
+    try:
+        app = QGuiApplication.instance()
+        if app is None:
+            return None
+        screens = QGuiApplication.screens()
+        if not screens:
+            return None
+        return max(float(s.devicePixelRatio()) for s in screens)
+    except Exception:  # pragma: no cover — defensive: Qt state can be odd
+        return None
 
 
 def _cinnamon_scale() -> float:

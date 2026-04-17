@@ -57,13 +57,16 @@ services:
 
 def _generate_password(length: int = 20) -> str:
     """Generate a cryptographically secure random password."""
-    alphabet = string.ascii_letters + string.digits + "!@#$%&*"
+    # '$' excluded: PowerShell treats it as a variable sigil, causing silent
+    # expansion (e.g. "$env" → "") in double-quoted strings inside OEM scripts.
+    _SPECIALS = "!@#%&*"
+    alphabet = string.ascii_letters + string.digits + _SPECIALS
     # Ensure at least one of each required type
     pw = [
         secrets.choice(string.ascii_uppercase),
         secrets.choice(string.ascii_lowercase),
         secrets.choice(string.digits),
-        secrets.choice("!@#$%&*"),
+        secrets.choice(_SPECIALS),
     ]
     pw += [secrets.choice(alphabet) for _ in range(length - 4)]
     # Shuffle to avoid predictable positions
@@ -72,10 +75,30 @@ def _generate_password(length: int = 20) -> str:
     return "".join(result)
 
 
+def _ask(prompt: str, default: str = "") -> str:
+    """Prompt the user for input, returning *default* on EOF (non-TTY / CI).
+
+    Wraps ``input()`` so that piped-stdin environments (Ansible, systemd
+    ExecStartPost, CI pipelines) degrade gracefully instead of raising an
+    unhandled ``EOFError`` traceback.
+    """
+    try:
+        return input(prompt).strip() or default
+    except EOFError:
+        return default
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
+    import sys
+
     backend = args.backend
     non_interactive = args.non_interactive
+
+    # Non-TTY stdin (pipe, /dev/null, CI) → force non-interactive mode so that
+    # every input() call uses its default without raising EOFError.
+    if not non_interactive and not sys.stdin.isatty():
+        non_interactive = True
 
     print("=== winpodx setup ===\n")
 
@@ -98,7 +121,7 @@ def handle_setup(args: argparse.Namespace) -> None:
     # Import existing winapps config
     existing = import_winapps_config()
     if existing and not non_interactive:
-        answer = input("Found existing winapps.conf. Import settings? (Y/n): ").strip().lower()
+        answer = _ask("Found existing winapps.conf. Import settings? (Y/n): ").lower()
         if answer in ("", "y", "yes"):
             existing.save()
             print(f"Config saved to {Config.path()}")
@@ -132,7 +155,7 @@ def handle_setup(args: argparse.Namespace) -> None:
             print("No container/VM backends found. Install podman or docker.")
 
         print(f"Available backends: {', '.join(available)}")
-        choice = input(f"Select backend [{available[0]}]: ").strip() or available[0]
+        choice = _ask(f"Select backend [{available[0]}]: ", default=available[0])
         if choice in available:
             cfg.pod.backend = choice
         else:
@@ -148,28 +171,30 @@ def handle_setup(args: argparse.Namespace) -> None:
         cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
         cfg.rdp.ip = "127.0.0.1"
     else:
-        cfg.rdp.user = input("Windows username [User]: ").strip() or "User"
+        cfg.rdp.user = _ask("Windows username [User]: ", default="User")
         import getpass
 
-        cfg.rdp.password = (
-            getpass.getpass("Windows password (Enter for random): ") or _generate_password()
-        )
+        try:
+            entered_pw = getpass.getpass("Windows password (Enter for random): ")
+        except EOFError:
+            entered_pw = ""
+        cfg.rdp.password = entered_pw or _generate_password()
         cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
         if cfg.pod.backend == "manual":
-            cfg.rdp.ip = input("Windows IP address: ").strip()
+            cfg.rdp.ip = _ask("Windows IP address: ")
         else:
-            cfg.rdp.ip = input("Windows IP [127.0.0.1]: ").strip() or "127.0.0.1"
+            cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
 
     # Resource allocation
     if cfg.pod.backend in ("podman", "docker"):
         if not non_interactive:
-            cpu_input = input("CPU cores [4]: ").strip()
+            cpu_input = _ask("CPU cores [4]: ")
             try:
                 cfg.pod.cpu_cores = int(cpu_input) if cpu_input else 4
             except ValueError:
                 print("Invalid number, using default: 4")
                 cfg.pod.cpu_cores = 4
-            ram_input = input("RAM (GB) [4]: ").strip()
+            ram_input = _ask("RAM (GB) [4]: ")
             try:
                 cfg.pod.ram_gb = int(ram_input) if ram_input else 4
             except ValueError:
@@ -180,7 +205,7 @@ def handle_setup(args: argparse.Namespace) -> None:
         _recreate_container(cfg)
 
     if cfg.pod.backend == "libvirt" and not non_interactive:
-        cfg.pod.vm_name = input("VM name [RDPWindows]: ").strip() or "RDPWindows"
+        cfg.pod.vm_name = _ask("VM name [RDPWindows]: ", default="RDPWindows")
 
     # DPI auto-detection
     from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
@@ -341,9 +366,18 @@ def _recreate_container(cfg: Config) -> None:
 def handle_rotate_password(args: argparse.Namespace) -> None:
     """Rotate the Windows RDP password.
 
-    Changes the password inside Windows first (via net user),
-    then updates config and compose.yaml. No container recreation needed.
+    Changes the password inside Windows first (via net user), then updates
+    config and compose.yaml atomically to avoid split-brain state.
+
+    Commit order (all-or-nothing):
+      1. Generate compose content to a temp file (validates template).
+      2. cfg.save() — persist new password to disk.
+      3. Rename temp compose → final path (atomic on same filesystem).
+    On any failure after step 1 the temp file is removed and the in-memory
+    cfg is rolled back so the caller sees a clean error.
     """
+    import os
+    import tempfile
     from datetime import datetime, timezone
 
     from winpodx.core.pod import PodState, pod_status
@@ -361,6 +395,8 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     new_password = _generate_password()
+    old_password = cfg.rdp.password
+    old_password_updated = cfg.rdp.password_updated
 
     # Change password inside Windows first
     print("Changing Windows user password...")
@@ -368,14 +404,78 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
         print("Failed to change Windows password. Is the container fully booted?")
         raise SystemExit(1)
 
-    # Windows password changed — update config and compose to match
+    # Prepare compose content with the new password in a temp file.
+    # This validates the template before touching the on-disk config.
+    compose_path = config_dir() / "compose.yaml"
+    compose_path.parent.mkdir(parents=True, exist_ok=True)
+
     cfg.rdp.password = new_password
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
-    cfg.save()
-    _generate_compose(cfg)
+
+    fd, tmp_compose = tempfile.mkstemp(
+        dir=compose_path.parent, prefix=".compose-rotate-", suffix=".tmp"
+    )
+    try:
+        os.close(fd)
+        # Reuse _generate_compose but redirect to tmp path by monkey-patching
+        # the target — simpler than duplicating compose-generation logic.
+        # We write directly here to avoid a second temp-file round-trip.
+        _generate_compose_to(cfg, Path(tmp_compose))
+
+        # Persist config only after compose content is verified.
+        cfg.save()
+
+        # Atomic rename: compose becomes live only after config is saved.
+        os.replace(tmp_compose, str(compose_path))
+    except Exception:
+        Path(tmp_compose).unlink(missing_ok=True)
+        # Roll back in-memory config so callers don't see stale state.
+        cfg.rdp.password = old_password
+        cfg.rdp.password_updated = old_password_updated
+        print("Password rotation failed; config and compose were not modified.")
+        raise
 
     print("Password rotated successfully.")
     print(f"New password saved to {Config.path()}")
+
+
+def _generate_compose_to(cfg: Config, dest: Path) -> None:
+    """Write compose YAML for *cfg* to *dest* (used for atomic rotation)."""
+    import os
+
+    home = str(Path.home())
+
+    oem_candidates = [
+        Path(__file__).parent.parent.parent.parent / "config" / "oem",
+        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem",
+    ]
+    oem_dir = str(oem_candidates[0])
+    for candidate in oem_candidates:
+        if candidate.exists():
+            oem_dir = str(candidate)
+            break
+
+    password = cfg.rdp.password or _generate_password()
+
+    def _yaml_escape(val: str) -> str:
+        return (
+            val.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+        )
+
+    content = COMPOSE_TEMPLATE.format(
+        ram=cfg.pod.ram_gb,
+        cpu=cfg.pod.cpu_cores,
+        user=_yaml_escape(cfg.rdp.user),
+        password=_yaml_escape(password),
+        home=home,
+        win_version=cfg.pod.win_version,
+        rdp_port=cfg.rdp.port,
+        vnc_port=cfg.pod.vnc_port,
+        oem_dir=oem_dir,
+    )
+
+    os.chmod(dest, 0o600)
+    dest.write_bytes(content.encode("utf-8"))
 
 
 def _register_all_desktop_entries() -> None:

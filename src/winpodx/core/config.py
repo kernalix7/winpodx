@@ -45,12 +45,14 @@ class RDPConfig:
 class PodConfig:
     backend: str = "podman"  # podman | docker | libvirt | manual
     vm_name: str = "RDPWindows"
+    container_name: str = "winpodx-windows"
     win_version: str = "11"  # 11 | 10 | ltsc10 | tiny11 | tiny10
     cpu_cores: int = 4
     ram_gb: int = 4
     vnc_port: int = 8007
     auto_start: bool = True
     idle_timeout: int = 0  # 0 = disabled
+    boot_timeout: int = 300  # seconds, max wait for RDP after start_pod
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -59,6 +61,9 @@ class PodConfig:
         self.ram_gb = max(1, min(512, int(self.ram_gb)))
         self.vnc_port = max(1, min(65535, int(self.vnc_port)))
         self.idle_timeout = max(0, int(self.idle_timeout))
+        self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
+        if not self.container_name:
+            self.container_name = "winpodx-windows"
 
 
 @dataclass
@@ -115,24 +120,41 @@ class Config:
             "pod": {
                 "backend": self.pod.backend,
                 "vm_name": self.pod.vm_name,
+                "container_name": self.pod.container_name,
                 "win_version": self.pod.win_version,
                 "cpu_cores": self.pod.cpu_cores,
                 "ram_gb": self.pod.ram_gb,
                 "vnc_port": self.pod.vnc_port,
                 "auto_start": self.pod.auto_start,
                 "idle_timeout": self.pod.idle_timeout,
+                "boot_timeout": self.pod.boot_timeout,
             },
         }
 
-        # Atomic write: create temp file with 0600, then rename
+        # Atomic write: create temp file with 0600, fsync, then rename.
+        # fsync is required before rename — otherwise a crash can leave a
+        # zero-byte file after the rename metadata commits but data does not.
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".winpodx-", suffix=".tmp")
         fd_closed = False
         try:
             os.fchmod(fd, 0o600)
             os.write(fd, toml_dumps(data).encode("utf-8"))
+            os.fsync(fd)
             os.close(fd)
             fd_closed = True
-            os.rename(tmp_path, path)
+            os.replace(tmp_path, path)
+            # Best-effort parent directory fsync so the rename itself is durable.
+            try:
+                dir_fd = os.open(path.parent, os.O_DIRECTORY)
+            except OSError:
+                dir_fd = None
+            if dir_fd is not None:
+                try:
+                    os.fsync(dir_fd)
+                except OSError:
+                    pass
+                finally:
+                    os.close(dir_fd)
         except Exception:
             if not fd_closed:
                 os.close(fd)

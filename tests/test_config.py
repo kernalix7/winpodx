@@ -84,6 +84,62 @@ def test_apply_bool_coercion_from_string():
     assert pod.auto_start is False
 
 
+def test_pod_config_boot_timeout_defaults_and_clamping():
+    """boot_timeout should default to 300s and be clamped to [30, 3600]."""
+    assert PodConfig().boot_timeout == 300
+    assert PodConfig(boot_timeout=10).boot_timeout == 30
+    assert PodConfig(boot_timeout=99999).boot_timeout == 3600
+    assert PodConfig(boot_timeout=600).boot_timeout == 600
+
+
+def test_pod_config_container_name_default_and_persist(tmp_path, monkeypatch):
+    """container_name should default to 'winpodx-windows' and survive save/load."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    cfg = Config()
+    assert cfg.pod.container_name == "winpodx-windows"
+
+    cfg.pod.container_name = "custom-win-pod"
+    cfg.save()
+
+    loaded = Config.load()
+    assert loaded.pod.container_name == "custom-win-pod"
+
+
+def test_pod_config_container_name_empty_fallback():
+    """Empty container_name must fall back to the default."""
+    pod = PodConfig(container_name="")
+    assert pod.container_name == "winpodx-windows"
+
+
+def test_config_save_calls_fsync(tmp_path, monkeypatch):
+    """save() must fsync the tmp file before rename to avoid 0-byte files on crash."""
+    import os
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    fsynced_fds: list[int] = []
+    real_fsync = os.fsync
+
+    def tracking_fsync(fd: int) -> None:
+        fsynced_fds.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", tracking_fsync)
+
+    cfg = Config()
+    cfg.rdp.user = "syncuser"
+    cfg.save()
+
+    # At least one fsync must have been called (tmp file fd); directory
+    # fsync is best-effort so we only require >= 1.
+    assert len(fsynced_fds) >= 1
+    # File must exist and be non-empty after save.
+    path = Config.path()
+    assert path.exists()
+    assert path.stat().st_size > 0
+
+
 def test_parse_winapps_conf(tmp_path):
     conf = tmp_path / "winapps.conf"
     conf.write_text(

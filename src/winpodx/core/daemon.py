@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 def suspend_pod(cfg: Config) -> bool:
     """Pause the Windows container to free CPU (keeps memory)."""
     backend = cfg.pod.backend
-    container = "winpodx-windows"
+    container = cfg.pod.container_name
 
     if backend == "podman":
         cmd = ["podman", "pause", container]
@@ -63,7 +63,7 @@ def suspend_pod(cfg: Config) -> bool:
 def resume_pod(cfg: Config) -> bool:
     """Unpause a suspended container."""
     backend = cfg.pod.backend
-    container = "winpodx-windows"
+    container = cfg.pod.container_name
 
     if backend == "podman":
         cmd = ["podman", "unpause", container]
@@ -99,7 +99,7 @@ def resume_pod(cfg: Config) -> bool:
 def is_pod_paused(cfg: Config) -> bool:
     """Check if the container is in paused state."""
     backend = cfg.pod.backend
-    container = "winpodx-windows"
+    container = cfg.pod.container_name
 
     if backend == "podman":
         cmd = ["podman", "inspect", "--format", "{{.State.Status}}", container]
@@ -195,7 +195,7 @@ def sync_windows_time(cfg: Config) -> bool:
     Uses podman/docker exec to run w32tm inside the container.
     """
     backend = cfg.pod.backend
-    container = "winpodx-windows"
+    container = cfg.pod.container_name
 
     if backend not in ("podman", "docker"):
         return False

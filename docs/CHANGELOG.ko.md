@@ -43,6 +43,10 @@
 - winapps.conf 가져오기 (기존 설정 마이그레이션)
 
 ### 보안
+- 설정 파일 원자적 쓰기: `os.fsync(fd)` + 상위 디렉토리 fsync + `os.replace()` — 전원 차단 시 파일 깨짐 방지
+- `bundled_data_path()` 심볼릭링크/경로 트래버설 방어: `.resolve()` + `is_relative_to()` 체크 및 `copy2(..., follow_symlinks=False)` — 번들 데이터 디렉토리 밖을 가리키는 설치 차단
+- 데스크톱 통합 subprocess 타임아웃 (`update_icon_cache`, `notify-send`) — 응답 없는 헬퍼로 인한 무한 대기 방지
+- `import_winapps_config`가 신뢰할 수 없는 `RDP_FLAGS`를 `_filter_extra_flags()`로 필터 — 악성 winapps.conf가 임의 FreeRDP 플래그 주입 차단
 - 설정 및 compose.yaml 파일 0600 권한 생성
 - RDP 인증서: localhost는 `/cert:ignore`, 원격은 `/cert:tofu` (Trust On First Use)
 - 로그 출력에서 비밀번호 필터링
@@ -75,6 +79,20 @@
 - `unregister_mime_types`: `mimeapps.list`에서 winpodx 항목을 포함한 전체 line을 삭제해 다른 앱 연결까지 날리던 버그. `configparser` 파싱으로 해당 항목만 제거하고 atomic write
 - 데스크톱 엔트리 및 테마 인덱스: `encoding="utf-8"` 명시 — 한글/일본어 등 non-ASCII `full_name`이 `C`/`POSIX` 로케일에서 설치 실패하던 버그 수정
 - GUI 아이콘 탐색: `Path(__file__).parent × 4`는 source layout에서만 동작하고 `pip install` 후 실패. `bundled_data_path()` 헬퍼가 source, wheel share-data, `~/.local/share/winpodx/data/` 순으로 탐색
+- 팟 시작 레이스: 컨테이너는 시작됐지만 RDP 포트가 아직 리스닝 안 할 때 첫 앱 실행 실패. `pod.start()`가 반환 전 `backend.wait_for_ready(timeout=cfg.pod.boot_timeout)` 호출
+- 하드코드된 컨테이너 이름: 여러 모듈이 `"winpodx-windows"` 리터럴을 사용해 컨테이너를 커스터마이징한 사용자가 winpodx를 못 쓰던 문제. 이제 `cfg.pod.container_name`으로 통일
+- `setup` EOF 처리: 파이프로 stdin을 넣으면 `input()`이 `EOFError`로 크래시. 새 `_ask()` 헬퍼가 non-TTY 감지 시 기본값 반환; `handle_rotate_password`는 임시 compose 파일로 3단계 커밋 사용
+- 비밀번호 알파벳: PowerShell 작은따옴표 이스케이프에서 일부 조합이 깨지던 `
+
+ 제거; 모든 쉘 컨텍스트에서 안전한 `!@#%&*`만 유지
+- 앱 설치 재시도: `winpodx app install-all`이 `RuntimeError`에서 조용히 실패하던 버그. `(ProvisionError, RuntimeError)`로 확대하고 일괄 설치 후 아이콘 캐시 갱신
+- Wayland DPI 감지: 이전에는 첫 출력만 보던 것을 모든 출력 순회 후 최대 스케일 채택; 컴포지터가 스케일을 노출하지 않으면 Qt `devicePixelRatio()`로 폴백
+- 데스크톱 엔트리 아이콘 정리: 래스터 포맷이 `hicolor/scalable/apps/`에 조용히 설치되던 문제 (spec는 SVG만 허용). scalable은 SVG 강제, 래스터는 크기별 디렉토리로 폴백
+- 앱 프로필 쓰기: `gui/app_dialog.save_app_profile`이 명시적 `encoding="utf-8"` 사용 — 데스크톱 엔트리에서 고친 non-ASCII 크래시와 동일 문제
+- Teams 앱 경로: `data/apps/teams/app.toml`이 구 Classic Teams 실행 파일을 가리키던 것을 `%LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe`로 수정
+- Explorer 앱 카테고리: 파일 매니저에 부적절한 `Office` 제거, `FileTools`, `System` 추가
+- CI audit 잡: libvirt 헤더 없는 GitHub 러너에서 `pip install -e .[all]`이 실패. 새 `all-no-libvirt` extra로 audit 범위 유지하며 CI 언블록
+- 테스트 격리: 새 `tests/conftest.py` autouse fixture가 `HOME`과 `XDG_*`를 tmp 디렉토리로 리다이렉트 — 테스트가 개발자의 실제 설정을 덮어쓰는 문제 방지
 
 ### 변경됨
 - 기본 RDP 포트 3389 → 3390 (다른 컨테이너와 충돌 방지)

@@ -30,7 +30,7 @@ def _exec_toggle(cfg: Config, action: str) -> tuple[bool, str]:
     cmd = [
         runtime,
         "exec",
-        "winpodx-windows",
+        cfg.pod.container_name,
         _PS,
         "-ExecutionPolicy",
         "Bypass",

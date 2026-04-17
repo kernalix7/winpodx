@@ -102,7 +102,7 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
     cmd = [
         runtime,
         "exec",
-        "winpodx-windows",
+        cfg.pod.container_name,
         r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
         "-ExecutionPolicy",
         "Bypass",
@@ -351,7 +351,7 @@ def _ensure_pod_running(cfg: Config, timeout: int = 300) -> None:
         f"Timeout ({timeout}s) waiting for RDP at "
         f"{cfg.rdp.ip}:{cfg.rdp.port}.\n"
         f"Troubleshooting:\n"
-        f"  1. Check container: {cfg.pod.backend} logs winpodx-windows\n"
+        f"  1. Check container: {cfg.pod.backend} logs {cfg.pod.container_name}\n"
         f"  2. Check status: winpodx pod status\n"
         f"  3. Common causes: out of disk, OOM, KVM not available"
     )

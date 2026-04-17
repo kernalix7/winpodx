@@ -238,7 +238,10 @@ def save_app_profile(data: dict) -> Path:
     app_dir.mkdir(parents=True, exist_ok=True)
 
     toml_path = app_dir / "app.toml"
-    toml_path.write_text(toml_dumps(data))
+    # Explicit UTF-8: TOML is UTF-8 by spec and users commonly enter non-ASCII
+    # ``full_name`` values (e.g. Korean "한글 메모장"). Under LANG=C the default
+    # locale encoding is ASCII and write_text() would raise UnicodeEncodeError.
+    toml_path.write_text(toml_dumps(data), encoding="utf-8")
     return toml_path
 
 
