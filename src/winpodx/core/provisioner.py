@@ -20,6 +20,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from winpodx.core.compose import generate_compose, generate_password
 from winpodx.core.config import Config
 from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
 from winpodx.utils.paths import config_dir, data_dir
@@ -166,9 +167,7 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
     log.info("Password older than %d days, rotating...", cfg.rdp.password_max_age)
 
-    from winpodx.cli.setup_cmd import _generate_compose, _generate_password
-
-    new_password = _generate_password()
+    new_password = generate_password()
     old_password = cfg.rdp.password
 
     # Change password inside Windows first
@@ -182,7 +181,7 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
     try:
         cfg.save()
-        _generate_compose(cfg)
+        generate_compose(cfg)
         log.info("Password rotated successfully")
         # Successful save clears any prior pending-rotation marker.
         _clear_rotation_pending()
@@ -311,9 +310,7 @@ def _ensure_compose(cfg: Config) -> None:
         return
 
     log.info("Generating compose.yaml")
-    from winpodx.cli.setup_cmd import _generate_compose
-
-    _generate_compose(cfg)
+    generate_compose(cfg)
 
 
 def _ensure_pod_running(cfg: Config, timeout: int = 300) -> None:

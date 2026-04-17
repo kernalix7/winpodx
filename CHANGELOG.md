@@ -43,6 +43,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - winapps.conf import for migration from existing setups
 
 ### Cleanup
+- **Compose module extraction**: `_yaml_escape`, `_build_compose_content`, `generate_compose`, `generate_compose_to`, `generate_password`, and the YAML templates moved from `cli/setup_cmd.py` to a new `core/compose.py`. Eliminates the core→cli reverse dependency (`provisioner.py` previously did `from winpodx.cli.setup_cmd import _generate_compose, _generate_password` inside function bodies). `setup_cmd.py` now re-exports the private-aliased names for backward compatibility so existing imports and test patches continue to work
+- Compose atomic write: added `os.fsync(fd)` before `os.replace()` — prevents zero-byte `compose.yaml` after a crash between rename-metadata commit and data flush (matches the pattern already used in `config.py:save()`)
+- `_recreate_container`: `compose down` now captures stdout/stderr and warns on unexpected non-zero return codes. "No such container" is still treated as benign (common on fresh setup) but other runtime errors are surfaced instead of silently swallowed
 - Compose template generation: `_yaml_escape`, `_find_oem_dir`, `_build_compose_content` promoted to module-level helpers; `_generate_compose` and `_generate_compose_to` share one builder (-52 lines in `cli/setup_cmd.py`)
 - Daemon container commands: `_run_container_cmd` helper consolidates `suspend_pod`/`resume_pod`/`is_pod_paused` — each now 10 lines instead of 25-30 (-48 lines)
 - Display scaling: `detect_scale_factor` now delegates to `detect_raw_scale` instead of re-running the DE dispatch cascade (-12 lines)
@@ -55,6 +58,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Test suite: stripped docstrings from test functions per project convention (CLAUDE.md), dropped a redundant signature-introspection test and duplicate `PasswordFilter` tests covered by audit5. Total: **228 → 225 tests** (higher signal), **~240 LoC removed** across the refactor
 
 ### Security
+- `container_name` input validation: `PodConfig.__post_init__()` now enforces `^[A-Za-z0-9][A-Za-z0-9_.-]*$` (the Podman/Docker accepted charset). Rejected values fall back to `winpodx-windows` — stops a hand-edited config from leaking whitespace, slashes, or shell metacharacters into `podman exec` argument lists or the compose YAML template
+- Icon install symlink guard: `_install_icon()` now refuses symlinked `icon_path` values outright and passes `follow_symlinks=False` to `shutil.copy2`. Prevents a malicious/stray symlink in an app definition from causing the copy to read whatever the target points at and plant it in the shared hicolor tree as that app's icon
 - RDP flag allowlist hardened: prefix matching replaced with per-flag argument-shape validation. `/drive` now restricts share names to `{home, media}`; `/serial`, `/parallel`, `/smartcard`, `/usb` each have explicit allowlists; adversarial winapps.conf payloads like `/drive:etc,/etc` or `/serial:/dev/tty` are dropped with a warning
 - winapps.conf import: if any RDP_FLAGS entry is filtered, `extra_flags` is cleared entirely (all-or-nothing) instead of silently persisting the partial set, forcing explicit user opt-in
 - Compose template format-string injection: usernames/passwords containing `{...}` previously triggered `IndexError` or leaked values into adjacent fields (`{password}` → USERNAME). `_yaml_escape` now escapes `{`/`}` so user values can never be interpreted as `str.format()` placeholders

@@ -106,7 +106,11 @@ def _install_icon(app: AppInfo) -> str:
         return "winpodx"
 
     src = Path(app.icon_path)
-    if not src.exists():
+    # Refuse symlinks outright: a malicious/stray symlink in an app
+    # definition would otherwise cause shutil.copy2 to read whatever the
+    # target points at (outside the app dir) and copy it into the shared
+    # hicolor tree as that app's icon.
+    if src.is_symlink() or not src.exists():
         return "winpodx"
 
     # hicolor spec: ``scalable/apps/`` is reserved for SVG. gtk-update-icon-cache
@@ -127,6 +131,6 @@ def _install_icon(app: AppInfo) -> str:
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     dest = dest_dir / f"{icon_name}.svg"
-    shutil.copy2(src, dest)
+    shutil.copy2(src, dest, follow_symlinks=False)
 
     return icon_name

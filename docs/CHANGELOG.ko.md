@@ -43,6 +43,9 @@
 - winapps.conf 가져오기 (기존 설정 마이그레이션)
 
 ### 정리
+- **Compose 모듈 분리**: `_yaml_escape`, `_build_compose_content`, `generate_compose`, `generate_compose_to`, `generate_password`와 YAML 템플릿을 `cli/setup_cmd.py`에서 새 `core/compose.py`로 이동. core→cli 역방향 의존 제거 (기존에 `provisioner.py`가 함수 본문 안에서 `from winpodx.cli.setup_cmd import _generate_compose, _generate_password` 호출했음). `setup_cmd.py`는 하위 호환을 위해 private-별칭으로 re-export하여 기존 import와 테스트 patch 그대로 작동
+- Compose atomic write: `os.replace()` 이전에 `os.fsync(fd)` 추가 — rename 메타데이터 커밋 후 데이터 플러시 전 크래시 시 0바이트 `compose.yaml` 방지 (`config.py:save()`에서 이미 사용하는 패턴과 일치)
+- `_recreate_container`: `compose down`이 stdout/stderr를 캡처하고 예상치 못한 non-zero 반환 코드 시 경고. "No such container"는 여전히 무해로 처리 (최초 setup 시 흔함) 하지만 다른 런타임 에러는 조용히 삼키지 않고 표시
 - Compose 템플릿 생성: `_yaml_escape`, `_find_oem_dir`, `_build_compose_content`를 모듈-레벨 헬퍼로 승격; `_generate_compose`와 `_generate_compose_to`가 하나의 빌더 공유 (`cli/setup_cmd.py` -52줄)
 - 데몬 컨테이너 명령: `_run_container_cmd` 헬퍼가 `suspend_pod`/`resume_pod`/`is_pod_paused`를 통합 — 각 함수가 25-30줄에서 10줄로 (-48줄)
 - Display scaling: `detect_scale_factor`가 `detect_raw_scale`로 위임 — DE dispatch 캐스케이드 중복 제거 (-12줄)
@@ -55,6 +58,8 @@
 - 테스트 스위트: CLAUDE.md 규칙대로 테스트 함수 docstring 제거, signature-introspection 테스트와 audit5에 커버된 `PasswordFilter` 중복 테스트 삭제. 총: **228 → 225 테스트** (더 높은 신호), 리팩터 전반 **~240 LoC 감소**
 
 ### 보안
+- `container_name` 입력 검증: `PodConfig.__post_init__()`이 Podman/Docker 허용 charset인 `^[A-Za-z0-9][A-Za-z0-9_.-]*$`를 강제. 거부된 값은 `winpodx-windows`로 폴백 — 수동 편집된 config가 `podman exec` 인수 리스트나 compose YAML 템플릿에 공백/슬래시/셸 메타문자를 흘리는 것 차단
+- 아이콘 설치 심볼릭링크 가드: `_install_icon()`이 심볼릭링크 `icon_path`를 거부하고 `shutil.copy2`에 `follow_symlinks=False` 전달. 앱 정의의 악성/잘못된 심볼릭링크가 타깃이 가리키는 파일을 공유 hicolor 트리에 해당 앱의 아이콘으로 심는 것 방지
 - RDP 플래그 allowlist 강화: prefix 매칭을 플래그별 인수 형태 검증으로 교체. `/drive`는 공유 이름을 `{home, media}`로 제한; `/serial`, `/parallel`, `/smartcard`, `/usb`는 명시적 allowlist; `/drive:etc,/etc`나 `/serial:/dev/tty` 같은 악성 winapps.conf 페이로드는 경고 후 제거
 - winapps.conf import: RDP_FLAGS 항목이 하나라도 필터되면 `extra_flags`를 완전히 비움 (all-or-nothing). 부분 집합을 조용히 유지하지 않고 명시적 사용자 opt-in 요구
 - Compose 템플릿 format-string 인젝션: 사용자명/비밀번호에 `{...}`가 포함되면 이전에는 `IndexError` 또는 인접 필드로 값 누출 (`{password}` → USERNAME). `_yaml_escape`가 `{`/`}`도 이스케이프해 `str.format()` placeholder로 해석 불가

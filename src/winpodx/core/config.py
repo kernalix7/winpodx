@@ -9,6 +9,7 @@ winpodx.utils.toml_writer for writing.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,12 @@ from winpodx.utils.paths import config_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps
 
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
+
+# Podman/Docker container name rules: letters, digits, `_`, `-`, `.`,
+# must start with alnum. Anything else could surprise downstream tooling
+# or, in a shell context someone didn't sanitize, be parsed as metacharacters.
+_CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_DEFAULT_CONTAINER_NAME = "winpodx-windows"
 
 
 @dataclass
@@ -67,8 +74,15 @@ class PodConfig:
         self.vnc_port = max(1, min(65535, int(self.vnc_port)))
         self.idle_timeout = max(0, int(self.idle_timeout))
         self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
-        if not self.container_name:
-            self.container_name = "winpodx-windows"
+        if not isinstance(self.container_name, str) or not _CONTAINER_NAME_RE.match(
+            self.container_name
+        ):
+            # Reject anything that would not be a valid podman/docker name —
+            # defends against surprising values (whitespace, slashes, shell
+            # metachars) that could break `podman exec` callers or leak into
+            # compose YAML. Fall back silently rather than raising so a stray
+            # hand-edited config does not brick `winpodx setup`.
+            self.container_name = _DEFAULT_CONTAINER_NAME
         # image / disk_size are free-form strings — reject obviously broken
         # values (empty) by falling back to defaults so the compose template
         # never emits a blank field.
