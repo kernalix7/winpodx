@@ -160,16 +160,27 @@ def update_icon_cache() -> None:
     except subprocess.TimeoutExpired:
         log.warning("xdg-icon-resource forceupdate timed out after 30s")
 
-    # KDE Plasma sycoca cache rebuild (picks up new icons and .desktop files)
+    # KDE Plasma sycoca cache rebuild (picks up new icons and .desktop files).
+    # Historically errors were silently swallowed, which made "Plasma doesn't
+    # show my icon" undebuggable. Surface failures at debug/warning instead.
     for cmd in ("kbuildsycoca6", "kbuildsycoca5"):
         if shutil.which(cmd):
             try:
-                subprocess.run(
+                result = subprocess.run(
                     [cmd, "--noincremental"],
                     capture_output=True,
                     text=True,
                     timeout=30,
                 )
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                pass
+                if result.returncode != 0:
+                    log.warning(
+                        "%s exited %d: %s",
+                        cmd,
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
+            except FileNotFoundError:
+                log.debug("%s not found after shutil.which — race or PATH change", cmd)
+            except subprocess.TimeoutExpired:
+                log.warning("%s timed out after 30s (sycoca rebuild stuck?)", cmd)
             break

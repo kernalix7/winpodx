@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -213,10 +214,16 @@ def build_rdp_command(
         cmd.append(f"/wm-class:{stem}")
         cmd.append("+grab-keyboard")
 
-    # TLS auth: NLA/Kerberos fails inside podman unshare namespace
-    # (krb5_parse_name EAGAIN), so use TLS-level authentication.
-    if cfg.pod.backend == "podman":
-        cmd.append("/sec:tls")
+    # TLS auth for all backends. Two reasons:
+    #  1. config/oem/install.bat sets SecurityLayer=2 (TLS) and disables
+    #     NLA on the Windows side unconditionally, so docker/libvirt/manual
+    #     users would otherwise hit a TLS handshake error when FreeRDP
+    #     defaults to NLA/negotiate.
+    #  2. NLA/Kerberos also fails inside the podman unshare namespace
+    #     (krb5_parse_name EAGAIN).
+    # The original podman-only gate caused "Authentication only" errors
+    # for every non-podman user.
+    cmd.append("/sec:tls")
 
     # Certificate validation: ignore for localhost (safe), tofu for remote
     if cfg.rdp.ip in ("127.0.0.1", "localhost", "::1"):
@@ -231,53 +238,166 @@ def build_rdp_command(
     return cmd, password
 
 
-# Allowlist of safe FreeRDP flag prefixes
-_SAFE_FLAG_PREFIXES = (
-    "/scale:",
-    "/scale-desktop:",
-    "/scale-device:",
-    "/size:",
-    "/w:",
-    "/h:",
-    "/sound",
-    "/microphone",
-    "/gfx",
-    "/rfx",
-    "/bpp:",
-    "/network:",
-    "+fonts",
-    "-fonts",
-    "+aero",
-    "-aero",
-    "+menu-anims",
-    "-menu-anims",
-    "+window-drag",
-    "-window-drag",
-    "/dynamic-resolution",
-    "+toggle-fullscreen",
-    "/codec:",
-    "/compression",
-    "+compression",
-    "-compression",
-    "+gestures",
-    "-gestures",
-    "/log-level:",
-    "/smartcard",
-    "/usb:",
-    "/printer",
-    "/drive:",
-    "/serial:",
-    "/parallel:",
+# -----------------------------------------------------------------------------
+# Extra-flag allowlist (H1 hardening)
+#
+# Historical design used prefix matching (e.g. accept anything starting with
+# ``/drive:``).  That is fundamentally unsafe: an adversarial winapps.conf
+# imported via ``compat.import_winapps_config`` could smuggle
+# ``/drive:etc,/etc`` (mount host ``/etc`` into the Windows guest) or
+# ``/serial:/dev/tty`` (expose host serial devices) past the filter because
+# those flags DO start with an allowed prefix.
+#
+# The replacement design below validates each flag's *argument shape* against
+# a per-flag rule.  Three categories exist:
+#
+#   * ``_BARE_FLAGS`` — exact tokens, no ``:argument`` payload allowed.
+#   * ``_SIMPLE_VALUE_FLAGS`` — ``<flag>:<value>`` where the value must match
+#     a conservative regex (digits, bounded identifiers, known keywords).
+#   * ``_STRICT_PATTERN_FLAGS`` — ``<flag>:<value>`` where ``<value>`` must be
+#     an element of a tiny documented set.  Used for the device-redirection
+#     flags that can otherwise tunnel host resources into the guest
+#     (``/drive``, ``/serial``, ``/parallel``, ``/smartcard``, ``/usb``).
+#
+# Anything that does not match its rule is dropped and logged.  Unknown flags
+# are also dropped — we never fall back to prefix matching.
+# -----------------------------------------------------------------------------
+
+# Exact-match flags (no ``:arg`` payload tolerated).
+_BARE_FLAGS: frozenset[str] = frozenset(
+    {
+        "+fonts",
+        "-fonts",
+        "+aero",
+        "-aero",
+        "+menu-anims",
+        "-menu-anims",
+        "+window-drag",
+        "-window-drag",
+        "/dynamic-resolution",
+        "+toggle-fullscreen",
+        "+compression",
+        "-compression",
+        "/compression",
+        "+gestures",
+        "-gestures",
+        "/printer",
+        # ``/sound`` / ``/microphone`` / ``/gfx`` / ``/rfx`` are also valid as
+        # bare toggles; their ``:arg`` forms are handled below.
+        "/sound",
+        "/microphone",
+        "/gfx",
+        "/rfx",
+        "/smartcard",
+    }
 )
+
+# ``<flag>:<value>`` flags where the value is user-tunable but must match a
+# conservative regex.  Regexes are anchored at both ends via ``fullmatch``.
+# Keep these narrow — the goal is to accept obvious legitimate inputs and
+# nothing else.
+_SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
+    # Display / scaling — small positive integers only
+    "/scale": re.compile(r"[1-9][0-9]{0,3}"),
+    "/scale-desktop": re.compile(r"[1-9][0-9]{0,3}"),
+    "/scale-device": re.compile(r"[1-9][0-9]{0,3}"),
+    "/size": re.compile(r"[1-9][0-9]{1,4}x[1-9][0-9]{1,4}"),
+    "/w": re.compile(r"[1-9][0-9]{1,4}"),
+    "/h": re.compile(r"[1-9][0-9]{1,4}"),
+    "/bpp": re.compile(r"(8|15|16|24|32)"),
+    # Network profile — documented FreeRDP keywords only
+    "/network": re.compile(r"(modem|broadband|broadband-low|broadband-high|wan|lan|auto)"),
+    # Codec names — short identifier-ish only
+    "/codec": re.compile(r"[a-zA-Z0-9_-]{1,32}"),
+    # ``/sound:sys:alsa`` / ``/sound:sys:pulse`` and friends.  Limited to two
+    # ``key:value`` pairs of bounded identifiers.  This covers the
+    # ``sys:alsa|pulse|oss|fake`` + optional ``format:s16|...`` patterns
+    # without permitting arbitrary file paths.
+    "/sound": re.compile(r"[a-zA-Z0-9_-]{1,16}(:[a-zA-Z0-9_-]{1,16}){0,3}"),
+    "/microphone": re.compile(r"[a-zA-Z0-9_-]{1,16}(:[a-zA-Z0-9_-]{1,16}){0,3}"),
+    "/gfx": re.compile(r"[a-zA-Z0-9_,:+-]{1,64}"),
+    "/rfx": re.compile(r"[a-zA-Z0-9_-]{1,32}"),
+    # Log level — documented FreeRDP keywords.  Rejects ``TRACE:FOO`` etc. so
+    # a wildcard scope cannot be injected.
+    "/log-level": re.compile(r"(OFF|FATAL|ERROR|WARN|INFO|DEBUG|TRACE)", re.IGNORECASE),
+}
+
+# Strict, documented allowlist for device-redirection flags.
+#
+# These flags tunnel host resources into the Windows guest.  Prefix matching
+# is not acceptable: arbitrary argument payloads can mount host paths
+# (``/drive:any,/etc``) or expose raw devices (``/serial:/dev/ttyUSB0``).  The
+# only accepted forms are:
+#
+#   /drive:home            — the shared home directory, added by
+#                            ``build_rdp_command`` already.  Re-allowed here
+#                            so users can keep it in ``extra_flags`` without
+#                            losing it silently.
+#   /drive:media           — mounted-media base, same reasoning.
+#   /usb:auto              — enable urbdrc auto-share (FreeRDP documented).
+#   /usb:id,dev=...        — intentionally NOT allowed here.  If a user
+#                            needs a specific device they must request it
+#                            through a future first-class config option.
+#
+# ``/serial``, ``/parallel``, ``/smartcard`` with payloads are rejected
+# outright: these have no known safe argument shape that does not reference
+# a host device path.  The bare ``/smartcard`` toggle is still accepted via
+# ``_BARE_FLAGS`` above for users who need smartcard redirection.
+_STRICT_PATTERN_FLAGS: dict[str, frozenset[str]] = {
+    "/drive": frozenset({"home", "media"}),
+    "/usb": frozenset({"auto"}),
+    # Empty allowlists — any ``<flag>:<value>`` form is rejected.
+    "/serial": frozenset(),
+    "/parallel": frozenset(),
+    "/smartcard": frozenset(),
+}
+
+
+def _validate_flag(part: str) -> bool:
+    """Return True if ``part`` is an allowed FreeRDP flag token.
+
+    Matching is case-sensitive on the flag name (FreeRDP flags are lower-case
+    by convention); the value is matched per-flag.
+    """
+    # Exact-match bare flags first (``+fonts``, ``/printer`` …).
+    if part in _BARE_FLAGS:
+        return True
+
+    # Require ``<flag>:<value>`` form for everything else.
+    if ":" not in part:
+        return False
+    flag, _, value = part.partition(":")
+
+    # Strict device-redirection allowlist.  Empty allowlist means "no
+    # ``:value`` form is acceptable for this flag".
+    if flag in _STRICT_PATTERN_FLAGS:
+        allowed = _STRICT_PATTERN_FLAGS[flag]
+        # Reject any value containing ``,`` / ``/`` / ``\\`` — those are the
+        # separators adversarial payloads use to smuggle host paths
+        # (``/drive:x,/etc``).  Belt-and-braces alongside the set check.
+        if "," in value or "/" in value or "\\" in value:
+            return False
+        return value in allowed
+
+    # Simple-value flags with per-flag regex.
+    pattern = _SIMPLE_VALUE_FLAGS.get(flag)
+    if pattern is None:
+        return False
+    return pattern.fullmatch(value) is not None
 
 
 def _filter_extra_flags(flags_str: str) -> list[str]:
-    """Filter extra_flags to only allow safe FreeRDP switches."""
+    """Filter extra_flags to only allow safe FreeRDP switches.
+
+    Uses per-flag argument-shape validation rather than prefix matching so
+    that flags like ``/drive:`` and ``/serial:`` cannot smuggle arbitrary
+    host paths or device nodes into the Windows guest.  Rejected flags are
+    logged at WARNING level and dropped entirely.
+    """
     parts = shlex.split(flags_str)
     safe: list[str] = []
     for part in parts:
-        lower = part.lower()
-        if any(lower.startswith(prefix.lower()) for prefix in _SAFE_FLAG_PREFIXES):
+        if _validate_flag(part):
             safe.append(part)
         else:
             log.warning("Blocked unsafe extra_flag: %s", part)

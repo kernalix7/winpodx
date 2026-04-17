@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import tomllib
@@ -9,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from winpodx.utils.paths import data_dir
+
+log = logging.getLogger(__name__)
 
 # Only allow safe characters in app names (alphanumeric, dash, underscore)
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -91,17 +94,44 @@ def load_app(app_dir: Path) -> AppInfo | None:
     )
 
 
+def _is_within(candidate: Path, root: Path) -> bool:
+    """Return True if ``candidate`` resolves inside ``root`` (symlink-safe).
+
+    Mirrors the guard in ``desktop/icons.bundled_data_path`` so that a
+    user-writable apps directory (``~/.local/share/winpodx/data/apps``)
+    cannot smuggle a symlink like ``apps/evil -> /etc`` into our loader
+    and cause ``load_app`` to read ``/etc/app.toml``.
+    """
+    try:
+        candidate_resolved = candidate.resolve(strict=True)
+        root_resolved = root.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    return candidate_resolved.is_relative_to(root_resolved)
+
+
 def list_available_apps() -> list[AppInfo]:
-    """List all available app definitions (bundled + user)."""
+    """List all available app definitions (bundled + user).
+
+    Skips any entry that resolves outside the source directory so a
+    malicious symlink cannot cause us to load attacker-controlled TOML.
+    """
     apps: list[AppInfo] = []
     for source in (bundled_apps_dir(), user_apps_dir()):
         if not source.exists():
             continue
         for app_dir in sorted(source.iterdir()):
-            if app_dir.is_dir():
-                app = load_app(app_dir)
-                if app:
-                    apps.append(app)
+            if not app_dir.is_dir():
+                continue
+            if not _is_within(app_dir, source):
+                log.warning(
+                    "Rejecting app entry that escapes its source dir: %s",
+                    app_dir,
+                )
+                continue
+            app = load_app(app_dir)
+            if app:
+                apps.append(app)
     return apps
 
 

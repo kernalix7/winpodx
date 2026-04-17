@@ -25,6 +25,16 @@ class Backend(ABC):
     def is_running(self) -> bool:
         """Check if the Windows environment is currently running."""
 
+    def is_paused(self) -> bool:
+        """Return True if the environment is paused/suspended.
+
+        Default: False. Container backends (podman/docker) override this
+        so the CLI / GUI / tray can surface the ``PAUSED`` pod state that
+        the idle monitor puts the container into. libvirt and manual
+        have no equivalent primitive.
+        """
+        return False
+
     @abstractmethod
     def get_ip(self) -> str:
         """Return the IP address of the running Windows environment."""

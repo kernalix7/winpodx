@@ -97,6 +97,10 @@ class WinpodxWindow(QMainWindow):
         self._pod_state = "checking"
         self._view_mode = "grid"  # "grid" or "list"
         self._active_category = ""  # "" = all
+        # Cooldown sentinel to debounce rapid-fire launch clicks without
+        # blocking the UI thread on a lock. Cleared by QTimer.singleShot in
+        # ``_launch_app`` so subsequent clicks become valid after the window.
+        self._recently_launched: set[str] = set()
 
         self._setup_signals()
         self._build_ui()
@@ -1106,10 +1110,16 @@ class WinpodxWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
 
+        # Route container name through cfg so users who rename the pod in
+        # winpodx.toml (e.g. ``container_name = "winpodx-dev"``) still get
+        # correct status/logs/inspect buttons instead of stale hardcoded refs.
+        container = self.cfg.pod.container_name
+        # ``--filter name=foo`` does a substring match so passing the full
+        # container name is fine and narrows Status output correctly.
         quick = [
-            ("Status", ["podman", "ps", "-a", "--filter", "name=winpodx"]),
-            ("Logs", ["podman", "logs", "--tail", "50", "winpodx-windows"]),
-            ("Inspect", ["podman", "inspect", "winpodx-windows"]),
+            ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
+            ("Logs", ["podman", "logs", "--tail", "50", container]),
+            ("Inspect", ["podman", "inspect", container]),
             ("RDP Test", None),
             ("Clear", None),
         ]
@@ -1144,7 +1154,9 @@ class WinpodxWindow(QMainWindow):
         cmd_row.addWidget(prompt)
 
         self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText("Enter command (e.g. podman logs winpodx-windows)")
+        self.cmd_input.setPlaceholderText(
+            f"Enter command (e.g. podman logs {self.cfg.pod.container_name})"
+        )
         self.cmd_input.setStyleSheet(f"""
             QLineEdit {{
                 background: {C.CRUST}; color: {C.TEXT};
@@ -1321,46 +1333,68 @@ class WinpodxWindow(QMainWindow):
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
 
+    # Serializes provisioning (ensure_ready + Popen spawn) so two simultaneous
+    # launches don't race on container recreation. Released the moment the
+    # child is spawned — the post-launch exit probe runs lock-free.
     _launch_lock = threading.Lock()
 
     def _launch_app(self, app: AppInfo) -> None:
+        # Per-app cooldown: debounce rapid clicks on the UI thread without
+        # blocking. ``QTimer.singleShot`` clears the sentinel 3 s later.
+        if app.name in self._recently_launched:
+            self.app_launch_failed.emit("Just launched — please wait a moment.")
+            return
+        self._recently_launched.add(app.name)
+        QTimer.singleShot(3000, lambda n=app.name: self._recently_launched.discard(n))
+
         self.info_label.setText(f"Launching {app.full_name}...")
 
         def _do() -> None:
+            # Lock protects ensure_ready()+launch_app() against concurrent
+            # provisioning; it is NOT held during the post-launch wait so the
+            # UI can start another launch as soon as Popen returns.
             if not self._launch_lock.acquire(blocking=False):
                 self.app_launch_failed.emit("Another app is launching, please wait.")
                 return
+            session = None
             try:
-                import time
-
                 from winpodx.core.provisioner import ensure_ready
                 from winpodx.core.rdp import launch_app
 
                 cfg = ensure_ready()
                 session = launch_app(cfg, app.executable)
-
-                time.sleep(3)
-                if session.process and session.process.poll() is not None:
-                    rc = session.process.returncode
-                    # 0 = normal exit, 128+signal = killed by signal (e.g. 145=SIGTERM)
-                    if rc == 0 or rc > 128:
-                        self.app_launched.emit(app.full_name)
-                    else:
-                        # Give reaper thread a moment to drain stderr
-                        time.sleep(0.2)
-                        stderr = session.stderr_tail.decode(errors="replace")[-500:]
-                        msg = f"FreeRDP exited with code {rc}"
-                        if stderr:
-                            msg += f"\n{stderr}"
-                        self.app_launch_failed.emit(msg)
-                else:
-                    self.app_launched.emit(app.full_name)
             except Exception:
                 import traceback
 
                 self.app_launch_failed.emit(traceback.format_exc()[-800:])
+                return
             finally:
+                # Drop the lock before the 3 s observation window so rapid
+                # legitimate launches of a *different* app aren't gated on it.
                 self._launch_lock.release()
+
+            # Post-spawn check: wait briefly for FreeRDP to crash early (auth
+            # errors, missing host, etc.) so we can surface a real error
+            # instead of a misleading "launched" notification. This runs off
+            # the UI thread — the ``time.sleep`` does not freeze the GUI.
+            import time
+
+            time.sleep(3)
+            if session.process and session.process.poll() is not None:
+                rc = session.process.returncode
+                # 0 = normal exit, 128+signal = killed by signal (e.g. 145=SIGTERM)
+                if rc == 0 or rc > 128:
+                    self.app_launched.emit(app.full_name)
+                else:
+                    # Give reaper thread a moment to drain stderr
+                    time.sleep(0.2)
+                    stderr = session.stderr_tail.decode(errors="replace")[-500:]
+                    msg = f"FreeRDP exited with code {rc}"
+                    if stderr:
+                        msg += f"\n{stderr}"
+                    self.app_launch_failed.emit(msg)
+            else:
+                self.app_launched.emit(app.full_name)
 
         threading.Thread(target=_do, daemon=True).start()
 
@@ -1405,7 +1439,7 @@ class WinpodxWindow(QMainWindow):
 
     def _save_settings(self) -> None:
         try:
-            port = int(self.input_port.text() or "3389")
+            port = int(self.input_port.text() or str(self.cfg.rdp.port))
             scale = self.input_scale.currentData()
             cpu = int(self.input_cpu.text() or "4")
             ram = int(self.input_ram.text() or "4")
@@ -1578,6 +1612,8 @@ class WinpodxWindow(QMainWindow):
 
             cfg = Config.load()
             runtime = "podman" if cfg.pod.backend == "podman" else "docker"
+            # Use configured container name so renamed pods still work.
+            container = cfg.pod.container_name
             base = Path(__file__).parent.parent.parent.parent
             script = base / "scripts" / "windows" / "debloat.ps1"
             if script.exists():
@@ -1587,7 +1623,7 @@ class WinpodxWindow(QMainWindow):
                             runtime,
                             "cp",
                             str(script),
-                            "winpodx-windows:C:/debloat.ps1",
+                            f"{container}:C:/debloat.ps1",
                         ],
                         capture_output=True,
                         check=True,
@@ -1604,7 +1640,7 @@ class WinpodxWindow(QMainWindow):
                         [
                             runtime,
                             "exec",
-                            "winpodx-windows",
+                            container,
                             "powershell",
                             "-ExecutionPolicy",
                             "Bypass",

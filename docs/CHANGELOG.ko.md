@@ -43,6 +43,12 @@
 - winapps.conf 가져오기 (기존 설정 마이그레이션)
 
 ### 보안
+- RDP 플래그 allowlist 강화: prefix 매칭을 플래그별 인수 형태 검증으로 교체. `/drive`는 공유 이름을 `{home, media}`로 제한; `/serial`, `/parallel`, `/smartcard`, `/usb`는 명시적 allowlist; `/drive:etc,/etc`나 `/serial:/dev/tty` 같은 악성 winapps.conf 페이로드는 경고 후 제거
+- winapps.conf import: RDP_FLAGS 항목이 하나라도 필터되면 `extra_flags`를 완전히 비움 (all-or-nothing). 부분 집합을 조용히 유지하지 않고 명시적 사용자 opt-in 요구
+- Compose 템플릿 format-string 인젝션: 사용자명/비밀번호에 `{...}`가 포함되면 이전에는 `IndexError` 또는 인접 필드로 값 누출 (`{password}` → USERNAME). `_yaml_escape`가 `{`/`}`도 이스케이프해 `str.format()` placeholder로 해석 불가
+- 번들 앱 디렉토리 심볼릭링크 가드: `load_app`이 `bundled_apps_dir()` 밖으로 탈출하는 resolve 경로를 거부 (`bundled_data_path()`의 기존 방어와 동일)
+- `PasswordFilter` 로깅: `record.msg` 리댁션 후 `record.args`를 비워 재방출이나 지연 포맷팅 시 desync 방지
+- TLS 전용 RDP (`/sec:tls`) 이제 모든 백엔드 적용 (이전에는 Podman 전용). OEM install이 Windows에서 NLA를 무조건 비활성화하므로 Docker/libvirt/manual 사용자가 TLS 핸드셰이크 에러를 겪던 문제 해결
 - 설정 파일 원자적 쓰기: `os.fsync(fd)` + 상위 디렉토리 fsync + `os.replace()` — 전원 차단 시 파일 깨짐 방지
 - `bundled_data_path()` 심볼릭링크/경로 트래버설 방어: `.resolve()` + `is_relative_to()` 체크 및 `copy2(..., follow_symlinks=False)` — 번들 데이터 디렉토리 밖을 가리키는 설치 차단
 - 데스크톱 통합 subprocess 타임아웃 (`update_icon_cache`, `notify-send`) — 응답 없는 헬퍼로 인한 무한 대기 방지
@@ -93,6 +99,24 @@
 - Explorer 앱 카테고리: 파일 매니저에 부적절한 `Office` 제거, `FileTools`, `System` 추가
 - CI audit 잡: libvirt 헤더 없는 GitHub 러너에서 `pip install -e .[all]`이 실패. 새 `all-no-libvirt` extra로 audit 범위 유지하며 CI 언블록
 - 테스트 격리: 새 `tests/conftest.py` autouse fixture가 `HOME`과 `XDG_*`를 tmp 디렉토리로 리다이렉트 — 테스트가 개발자의 실제 설정을 덮어쓰는 문제 방지
+- `check_rdp_port` 기본값이 3389였으나 프로젝트 기본 RDP 포트는 3390 — 명시적 포트 인수를 요구하도록 시그니처 변경
+- `PodState.PAUSED` 추가: 자동 일시정지된 컨테이너가 이전에는 GUI에서 STOPPED로 표시되고 resume 버튼이 활성화되지 않던 문제. `podman.is_running() / is_paused()`가 상태 정확히 매핑
+- `uninstall` / cleanup이 `runtime_dir` 삭제 전 `is_freerdp_pid()`로 추적 FreeRDP 세션을 종료 — 고아 xfreerdp 프로세스가 RDP 채널을 잡고 있는 문제 방지
+- `check_freerdp` (`winpodx info`/`setup`에서 사용)가 `xfreerdp3`/`xfreerdp`만 탐지하던 것을 runtime `find_freerdp()`로 위임 — sdl-freerdp와 Flatpak 래퍼도 인식
+- Docker 백엔드 `wait_for_ready` 5초 폴링 루프를 1초로 단축 — Docker 환경 첫 실행 가속
+- `import_winapps_config` RDP_SCALE 파서가 이전에는 정수가 아닌 값을 조용히 버리던 것을 float 파싱 + [100, 400] 클램프 + 범위 외 값 경고로 변경
+- Compose 템플릿 정리: `group_add: keep-groups`와 `run.oci.keep_original_groups` 어노테이션은 Podman 백엔드에서만 발행 (Docker는 keep-groups 거부); `NETWORK: "slirp"` 제거 — Podman이 기본값 (pasta / slirp4netns) 자동 선택
+- 신규 `cfg.pod.image` (기본 `ghcr.io/dockur/windows:latest`)와 `cfg.pod.disk_size` (기본 `64G`) — compose.yaml 수동 편집 없이 이미지 태그 pin 및 디스크 크기 조정 가능
+- `remove_desktop_entry`가 이제 `unregister_mime_types` 호출 — uninstall 시 `mimeapps.list`의 앱별 MIME 연결 정리 (이전에는 stale handler 잔존)
+- Wayland DE 감지: `XDG_CURRENT_DESKTOP="KDE:Budgie"`가 dict 순서 때문에 "kde"로 잘못 매핑되던 것을 `:`로 split 후 선두 세그먼트 우선 매칭, substring 폴백
+- GUI 앱 실행 쿨다운: `_launch_app`이 threading lock을 3초 sleep 동안 잡아 빠른 클릭 시 UI가 얼던 문제. `Popen` 직후 lock 해제; 앱별 sentinel + `QTimer.singleShot(3000, ...)`로 blocking 없이 쿨다운 구현
+- 알림 truncation 수정: `_sanitize`가 raw text를 200자로 HTML-escape *전에* 자르도록 변경 — `&amp;` 같은 multi-char entity가 `&am`으로 잘리는 문제 해결
+- KDE sycoca 리빌드 에러 (`kbuildsycoca6`/`kbuildsycoca5`)를 더 이상 삼키지 않음 — `debug`/`warning` 레벨로 로깅해 "Plasma가 아이콘을 안 보여줌" 계열 버그 디버깅 가능
+- CLI 및 GUI의 하드코드된 컨테이너명/RDP 포트를 `cfg.pod.container_name`, `cfg.rdp.port`로 통일 — 커스텀 컨테이너명이 end-to-end로 동작
+- `config/oem/toggle_updates.ps1` hosts 파일 쓰기를 `-Encoding ASCII`로 고정 — PS7 기본 UTF-8-with-BOM이 Windows DNS 클라이언트 파싱을 깨던 문제 해결
+- `scripts/windows/time_sync.ps1` 재시도 루프가 매 시도마다 `$LASTEXITCODE` 확인; 이전에는 실패해도 첫 반복 후 break
+- `scripts/windows/media_monitor.ps1` `Sync-Drives`가 더 이상 `Test-Path`로 게이팅하지 않음 (`net use`와 TOCTOU); add/delete 모두 try/catch, 실패 시 다음 sync tick에서 재시도
+- `config/oem/install.bat` media_monitor.ps1 복사 경로가 단일 하드코드 `\\tsclient\home\.local\bin\...` 대신 검색 리스트 (compose mount → pip wheel → pipx → source → legacy) 사용
 
 ### 변경됨
 - 기본 RDP 포트 3389 → 3390 (다른 컨테이너와 충돌 방지)

@@ -27,6 +27,12 @@ def desktop_environment() -> str:
     """Detect the current desktop environment.
 
     Returns lowercase name: 'gnome', 'kde', 'xfce', 'sway', 'hyprland', etc.
+
+    Prefers the leading segment of ``XDG_CURRENT_DESKTOP`` (per spec, values are
+    colon-separated in priority order). This matters for hybrids like
+    ``XDG_CURRENT_DESKTOP=KDE:Budgie`` where Budgie is the real session and KDE
+    is only listed for compatibility hints — dict-order substring matching used
+    to misreport that as "kde".
     """
     xdg_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
@@ -43,6 +49,13 @@ def desktop_environment() -> str:
         "deepin": "deepin",
     }
 
+    # Priority match: leading segment before first ':' per freedesktop spec.
+    leading = xdg_desktop.split(":", 1)[0].strip()
+    if leading in de_map:
+        return de_map[leading]
+
+    # Fallback: substring scan for odd values like "X-Cinnamon" where the
+    # leading segment isn't a bare key but still contains one.
     for key, name in de_map.items():
         if key in xdg_desktop:
             return name

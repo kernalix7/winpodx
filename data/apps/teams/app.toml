@@ -7,6 +7,15 @@ full_name = "Microsoft Teams"
 # always failed with "program not found". The App Execution Alias
 # installed by MSIX at %LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe
 # is a stable reparse-point shim that survives version upgrades.
+#
+# Fallback discovery:
+#   If this alias is missing (Alias Reset, MSIX not provisioned for the
+#   user, or tenant policy removed Teams), run the helper script
+#   `scripts/windows/find_teams.ps1` on the guest to resolve the real
+#   path via Get-AppxPackage / where.exe. See data/apps/README.md.
+#   TODO(L2): wire find_teams.ps1 into app-launch failure recovery in
+#   winpodx.core.app so discovery happens automatically instead of
+#   requiring a manual retry.
 executable = "%LOCALAPPDATA%\\Microsoft\\WindowsApps\\ms-teams.exe"
 categories = ["Network", "Chat"]
 mime_types = []

@@ -13,19 +13,19 @@ from winpodx.utils.compat import import_winapps_config
 from winpodx.utils.deps import check_all
 from winpodx.utils.paths import config_dir
 
-COMPOSE_TEMPLATE = """\
+_COMPOSE_TEMPLATE_BASE = """\
 name: "winpodx"
 volumes:
   winpodx-data:
 services:
   windows:
-    image: ghcr.io/dockur/windows:latest
-    container_name: winpodx-windows
+    image: {image}
+    container_name: {container_name}
     environment:
       VERSION: "{win_version}"
       RAM_SIZE: "{ram}G"
       CPU_CORES: "{cpu}"
-      DISK_SIZE: "64G"
+      DISK_SIZE: "{disk_size}"
       USERNAME: "{user}"
       PASSWORD: "{password}"
       HOME: "{home}"
@@ -33,7 +33,6 @@ services:
       REGION: "en-001"
       KEYBOARD: "en-US"
       ARGUMENTS: "-cpu host,arch_capabilities=off"
-      NETWORK: "slirp"
     volumes:
       - winpodx-data:/storage:Z
       - {oem_dir}:/oem:Z
@@ -46,13 +45,28 @@ services:
       - /dev/net/tun
     cap_add:
       - NET_ADMIN
+"""
+
+_COMPOSE_PODMAN_EXTRAS = """\
     group_add:
       - keep-groups
     annotations:
       run.oci.keep_original_groups: "1"
+"""
+
+_COMPOSE_TEMPLATE_FOOTER = """\
     stop_grace_period: 2m
     restart: unless-stopped
 """
+
+
+def _build_compose_template(backend: str) -> str:
+    """Assemble the compose template string for the given backend."""
+    template = _COMPOSE_TEMPLATE_BASE
+    if backend == "podman":
+        template += _COMPOSE_PODMAN_EXTRAS
+    template += _COMPOSE_TEMPLATE_FOOTER
+    return template
 
 
 def _generate_password(length: int = 20) -> str:
@@ -271,14 +285,28 @@ def _generate_compose(cfg: Config) -> None:
 
     # Escape values for safe YAML embedding (prevent format string injection)
     def _yaml_escape(val: str) -> str:
-        """Escape a value for safe embedding in YAML double-quoted string."""
+        """Escape a value for safe embedding in YAML double-quoted string.
+
+        Also escapes ``{`` and ``}`` so that user-controlled values cannot be
+        interpreted as str.format() placeholders (e.g. a username of ``{password}``
+        would otherwise leak the real password into the USERNAME field).
+        """
         return (
-            val.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+            val.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("{", "{{")
+            .replace("}", "}}")
         )
 
-    content = COMPOSE_TEMPLATE.format(
+    template = _build_compose_template(cfg.pod.backend)
+    content = template.format(
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
+        container_name=cfg.pod.container_name,
+        image=cfg.pod.image,
+        disk_size=cfg.pod.disk_size,
         user=_yaml_escape(cfg.rdp.user),
         password=_yaml_escape(password),
         home=home,
@@ -459,12 +487,21 @@ def _generate_compose_to(cfg: Config, dest: Path) -> None:
 
     def _yaml_escape(val: str) -> str:
         return (
-            val.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+            val.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("{", "{{")
+            .replace("}", "}}")
         )
 
-    content = COMPOSE_TEMPLATE.format(
+    template = _build_compose_template(cfg.pod.backend)
+    content = template.format(
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
+        container_name=cfg.pod.container_name,
+        image=cfg.pod.image,
+        disk_size=cfg.pod.disk_size,
         user=_yaml_escape(cfg.rdp.user),
         password=_yaml_escape(password),
         home=home,

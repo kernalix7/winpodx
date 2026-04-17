@@ -397,3 +397,51 @@ def _install_bundled_apps_if_needed() -> None:
             target = dest / app_dir.name
             if not target.exists():
                 shutil.copytree(app_dir, target)
+
+
+def terminate_tracked_sessions(timeout: float = 3.0) -> int:
+    """Terminate all FreeRDP processes tracked via .cproc files.
+
+    Used before uninstall/cleanup removes the runtime directory — wiping
+    the .cproc files while their processes are still alive leaves orphan
+    RDP sessions and loses our only handle on them.
+
+    Uses ``process.is_freerdp_pid`` to verify each PID really is one of
+    our spawned FreeRDP clients (guards against PID reuse). Sends SIGTERM,
+    waits up to ``timeout`` seconds for the process to exit, then escalates
+    to SIGKILL.
+
+    Returns the number of processes that received a signal.
+    """
+    import os
+    import signal
+    import time
+
+    from winpodx.core.process import is_freerdp_pid, list_active_sessions
+
+    sessions = list_active_sessions()
+    signalled = 0
+    for sess in sessions:
+        if not is_freerdp_pid(sess.pid):
+            continue
+        try:
+            os.kill(sess.pid, signal.SIGTERM)
+            signalled += 1
+        except (ProcessLookupError, PermissionError) as e:
+            log.debug("Could not SIGTERM %s (pid %d): %s", sess.app_name, sess.pid, e)
+            continue
+
+        # Wait briefly for the process to exit before we delete its pidfile.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not is_freerdp_pid(sess.pid):
+                break
+            time.sleep(0.1)
+        else:
+            # Still alive — escalate.
+            try:
+                os.kill(sess.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    return signalled

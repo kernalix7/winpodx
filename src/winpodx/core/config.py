@@ -53,6 +53,11 @@ class PodConfig:
     auto_start: bool = True
     idle_timeout: int = 0  # 0 = disabled
     boot_timeout: int = 300  # seconds, max wait for RDP after start_pod
+    # Container image for dockur/windows. Expose as config so users can
+    # pin a known-good tag or switch to a mirror.
+    image: str = "ghcr.io/dockur/windows:latest"
+    # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
+    disk_size: str = "64G"
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -64,6 +69,13 @@ class PodConfig:
         self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
         if not self.container_name:
             self.container_name = "winpodx-windows"
+        # image / disk_size are free-form strings — reject obviously broken
+        # values (empty) by falling back to defaults so the compose template
+        # never emits a blank field.
+        if not isinstance(self.image, str) or not self.image.strip():
+            self.image = "ghcr.io/dockur/windows:latest"
+        if not isinstance(self.disk_size, str) or not self.disk_size.strip():
+            self.disk_size = "64G"
 
 
 @dataclass
@@ -128,6 +140,8 @@ class Config:
                 "auto_start": self.pod.auto_start,
                 "idle_timeout": self.pod.idle_timeout,
                 "boot_timeout": self.pod.boot_timeout,
+                "image": self.pod.image,
+                "disk_size": self.pod.disk_size,
             },
         }
 

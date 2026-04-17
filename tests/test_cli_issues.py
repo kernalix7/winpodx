@@ -1,4 +1,4 @@
-"""Tests for CLI domain issues 7, 8, 9, 10, 19, 22 (4th audit fixes)."""
+"""Tests for CLI issues 7-22 (4th audit) and H2, H7, M3, M6, M7 (5th audit)."""
 
 from __future__ import annotations
 
@@ -315,7 +315,8 @@ class TestWinappsRDPFlagsFilter:
         assert "/scale:200" in cfg.rdp.extra_flags
         assert "/sound:sys:alsa" in cfg.rdp.extra_flags
 
-    def test_dangerous_flags_removed(self, tmp_path):
+    def test_dangerous_flags_refused_entirely(self, tmp_path):
+        """H7: when ANY flag is blocked, extra_flags must be empty (all-or-nothing)."""
         conf = tmp_path / "winapps.conf"
         self._write_conf(conf, 'RDP_FLAGS="/exec:whoami /shell:sh /scale:100"\n')
 
@@ -325,9 +326,9 @@ class TestWinappsRDPFlagsFilter:
             cfg = import_winapps_config()
 
         assert cfg is not None
-        assert "/exec:whoami" not in cfg.rdp.extra_flags
-        assert "/shell:sh" not in cfg.rdp.extra_flags
-        assert "/scale:100" in cfg.rdp.extra_flags
+        # All-or-nothing: even the safe /scale:100 flag must NOT be written
+        # because the input contained blocked flags.
+        assert cfg.rdp.extra_flags == ""
 
     def test_all_dangerous_flags_blocked(self, tmp_path):
         conf = tmp_path / "winapps.conf"
@@ -369,3 +370,148 @@ class TestWinappsRDPFlagsFilter:
 
         assert cfg is not None
         assert cfg.rdp.extra_flags == ""
+
+
+# ---------------------------------------------------------------------------
+# H2 — adversarial username in COMPOSE_TEMPLATE.format()
+# ---------------------------------------------------------------------------
+
+
+class TestComposeTemplateFormatInjection:
+    """H2: usernames/passwords containing { } must not cause IndexError or
+    leak values across YAML fields via str.format() placeholder expansion."""
+
+    def _make_cfg(self, tmp_path, monkeypatch, username: str, password: str = "S3cur3!pw"):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = username
+        cfg.rdp.password = password
+        cfg.pod.backend = "podman"
+        return cfg
+
+    def test_username_with_format_index_placeholder(self, tmp_path, monkeypatch):
+        """{0} in username must not raise IndexError."""
+        cfg = self._make_cfg(tmp_path, monkeypatch, username="{0}")
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        compose_path = tmp_path / "winpodx" / "compose.yaml"
+        assert compose_path.exists()
+
+    def test_username_with_named_placeholder_does_not_leak_password(self, tmp_path, monkeypatch):
+        """{password} in username must not expand to the real password."""
+        secret = "SuperSecret!99"
+        cfg = self._make_cfg(tmp_path, monkeypatch, username="{password}", password=secret)
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        compose_path = tmp_path / "winpodx" / "compose.yaml"
+        content = compose_path.read_text()
+        # The USERNAME line must contain the literal braces, not the password
+        lines = [ln for ln in content.splitlines() if "USERNAME:" in ln]
+        assert lines, "USERNAME field missing from compose output"
+        username_line = lines[0]
+        assert secret not in username_line, (
+            f"Password leaked into USERNAME field: {username_line!r}"
+        )
+
+    def test_username_with_arbitrary_braces_does_not_raise(self, tmp_path, monkeypatch):
+        """A username like 'a{b}c' must render without KeyError."""
+        cfg = self._make_cfg(tmp_path, monkeypatch, username="a{b}c")
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        compose_path = tmp_path / "winpodx" / "compose.yaml"
+        assert compose_path.exists()
+
+    def test_password_with_braces_does_not_raise(self, tmp_path, monkeypatch):
+        """A password containing braces must not raise during compose generation."""
+        cfg = self._make_cfg(tmp_path, monkeypatch, username="User", password="P@ss{word}1!")
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        compose_path = tmp_path / "winpodx" / "compose.yaml"
+        assert compose_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# M3 — container_name routed through cfg.pod.container_name
+# ---------------------------------------------------------------------------
+
+
+class TestContainerNameFromConfig:
+    def test_compose_uses_cfg_container_name(self, tmp_path, monkeypatch):
+        """compose.yaml container_name must match cfg.pod.container_name."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = "User"
+        cfg.rdp.password = "Test123!pw"
+        cfg.pod.backend = "podman"
+        cfg.pod.container_name = "my-custom-windows"
+
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        compose_path = tmp_path / "winpodx" / "compose.yaml"
+        content = compose_path.read_text()
+        assert "my-custom-windows" in content
+        assert "winpodx-windows" not in content
+
+
+# ---------------------------------------------------------------------------
+# M6 — podman-specific keys absent from Docker compose output
+# ---------------------------------------------------------------------------
+
+
+class TestComposeBackendSpecificKeys:
+    def _generate(self, tmp_path, monkeypatch, backend: str) -> str:
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = "User"
+        cfg.rdp.password = "Test123!pw"
+        cfg.pod.backend = backend
+
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        return (tmp_path / "winpodx" / "compose.yaml").read_text()
+
+    def test_podman_backend_includes_keep_groups(self, tmp_path, monkeypatch):
+        content = self._generate(tmp_path, monkeypatch, "podman")
+        assert "keep-groups" in content
+        assert "run.oci.keep_original_groups" in content
+
+    def test_docker_backend_excludes_keep_groups(self, tmp_path, monkeypatch):
+        content = self._generate(tmp_path, monkeypatch, "docker")
+        assert "keep-groups" not in content
+        assert "run.oci.keep_original_groups" not in content
+
+
+# ---------------------------------------------------------------------------
+# M7 — NETWORK: "slirp" removed from compose output
+# ---------------------------------------------------------------------------
+
+
+class TestComposeNetworkKey:
+    def test_network_slirp_not_emitted(self, tmp_path, monkeypatch):
+        """NETWORK: slirp must not appear in generated compose — let Podman pick."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = "User"
+        cfg.rdp.password = "Test123!pw"
+        cfg.pod.backend = "podman"
+
+        from winpodx.cli.setup_cmd import _generate_compose
+
+        _generate_compose(cfg)
+        content = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert "NETWORK" not in content
+        assert "slirp" not in content

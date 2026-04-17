@@ -101,7 +101,35 @@ REM Watches \\tsclient\media for USB mount/unmount and maps drive letters automa
 REM No polling — reacts only when OS sends a file change event
 echo [winpodx] Setting up USB media auto-mapping...
 mkdir C:\winpodx 2>nul
-copy /Y \\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1 C:\winpodx\media_monitor.ps1 2>nul
+
+REM Preferred: compose mounts the scripts dir at C:\winpodx-scripts (read-only)
+REM Fallback paths search well-known install locations over \\tsclient\home.
+REM Search order covers: compose-mounted dir, pip wheel (sys.prefix/share),
+REM editable/source checkout, user-local install, and legacy path.
+REM See config/oem/README.md for the compose mount recipe.
+set "WINPODX_SRC_OK="
+if exist "C:\winpodx-scripts\media_monitor.ps1" (
+    copy /Y "C:\winpodx-scripts\media_monitor.ps1" C:\winpodx\media_monitor.ps1 >nul 2>&1
+    set "WINPODX_SRC_OK=1"
+)
+if not defined WINPODX_SRC_OK (
+    for %%P in (
+        "\\tsclient\home\.local\share\winpodx\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1"
+    ) do (
+        if not defined WINPODX_SRC_OK if exist %%P (
+            copy /Y %%P C:\winpodx\media_monitor.ps1 >nul 2>&1
+            if not errorlevel 1 set "WINPODX_SRC_OK=1"
+        )
+    )
+)
+if not defined WINPODX_SRC_OK (
+    echo [winpodx] WARNING: media_monitor.ps1 not found in any known location.
+    echo [winpodx] Mount the scripts dir at C:\winpodx-scripts via compose, or
+    echo [winpodx] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
+)
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\media_monitor.ps1" /f
 
 REM === Multi-session RDP (TBD) ===

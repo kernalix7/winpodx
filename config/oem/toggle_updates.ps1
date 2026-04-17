@@ -58,7 +58,10 @@ function Disable-Updates {
         $_ -notmatch "^0\.0\.0\.0.*(update\.microsoft|windowsupdate|dl\.delivery)"
     }
     $content += $blockEntries
-    Set-Content $hostsFile $content -Force
+    # -Encoding ASCII: PS 5.1 defaults to locale-ANSI (non-portable) and PS 7
+    # writes UTF-8 with BOM, which the Windows DNS client refuses to parse.
+    # ASCII is the only encoding the hosts resolver has accepted since XP.
+    Set-Content -Path $hostsFile -Value $content -Encoding ASCII -Force
 
     Write-Host "[winpodx] Windows Update disabled"
 }
@@ -87,7 +90,9 @@ function Enable-Updates {
         $_ -notmatch "winpodx-update-block" -and
         $_ -notmatch "^0\.0\.0\.0.*(update\.microsoft|windowsupdate|dl\.delivery)"
     }
-    Set-Content $hostsFile $content -Force
+    # -Encoding ASCII: see Disable-Updates — hosts file must stay ASCII so the
+    # DNS client parses it on both PS 5.1 (ANSI default) and PS 7 (UTF-8 BOM).
+    Set-Content -Path $hostsFile -Value $content -Encoding ASCII -Force
 
     Write-Host "[winpodx] Windows Update enabled"
 }

@@ -59,7 +59,26 @@ def install_desktop_entry(app: AppInfo) -> Path:
 
 
 def remove_desktop_entry(app_name: str) -> None:
-    """Remove the .desktop file for a Windows app."""
+    """Remove the .desktop file, icons, and MIME associations for a Windows app.
+
+    Also clears per-app MIME handler entries from ``~/.config/mimeapps.list``.
+    Without this step, reinstalling the app under a different name would leave
+    stale ``winpodx-<old>.desktop`` entries behind and cause double-registered
+    handlers — or worse, xdg-open resolving to a .desktop file that no longer
+    exists.
+    """
+    # MIME cleanup first: we need the desktop filename to still be meaningful
+    # even though we're about to delete the file itself. ``unregister_mime_types``
+    # only reads the app name, so ordering is purely defensive.
+    try:
+        from winpodx.core.app import AppInfo
+        from winpodx.desktop.mime import unregister_mime_types
+
+        # Minimal stub — unregister_mime_types only inspects app.name.
+        unregister_mime_types(AppInfo(name=app_name, full_name=app_name, executable=""))
+    except Exception as e:  # pragma: no cover — defensive, never blocks removal
+        log.warning("MIME unregister failed for %s: %s", app_name, e)
+
     desktop_path = applications_dir() / f"winpodx-{app_name}.desktop"
     desktop_path.unlink(missing_ok=True)
 

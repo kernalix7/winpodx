@@ -43,6 +43,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - winapps.conf import for migration from existing setups
 
 ### Security
+- RDP flag allowlist hardened: prefix matching replaced with per-flag argument-shape validation. `/drive` now restricts share names to `{home, media}`; `/serial`, `/parallel`, `/smartcard`, `/usb` each have explicit allowlists; adversarial winapps.conf payloads like `/drive:etc,/etc` or `/serial:/dev/tty` are dropped with a warning
+- winapps.conf import: if any RDP_FLAGS entry is filtered, `extra_flags` is cleared entirely (all-or-nothing) instead of silently persisting the partial set, forcing explicit user opt-in
+- Compose template format-string injection: usernames/passwords containing `{...}` previously triggered `IndexError` or leaked values into adjacent fields (`{password}` → USERNAME). `_yaml_escape` now escapes `{`/`}` so user values can never be interpreted as `str.format()` placeholders
+- Bundled apps directory symlink guard: `load_app` now rejects entries whose resolved path escapes `bundled_apps_dir()` (mirrors the hardening already in `bundled_data_path()`)
+- `PasswordFilter` logging: clears `record.args` after redacting `record.msg` so re-emission or late formatting can't desync and leak the raw password
+- TLS-only RDP (`/sec:tls`) now applied for all backends (previously Podman-only). The OEM install disables NLA on Windows unconditionally, so Docker/libvirt/manual users previously hit TLS handshake errors
 - Atomic config writes: `os.fsync(fd)` + parent directory fsync + `os.replace()` — prevents torn writes on power loss
 - Symlink / path-traversal hardening in `bundled_data_path()`: `.resolve()` + `is_relative_to()` checks and `copy2(..., follow_symlinks=False)` — blocks installs pointing outside bundled data dirs
 - Subprocess timeouts in desktop integration (`update_icon_cache`, `notify-send`) — prevents indefinite hangs from unresponsive helpers
@@ -93,6 +99,24 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Explorer app categories: removed `Office` (invalid for a file manager) and added `FileTools`, `System`
 - CI audit job: `pip install -e .[all]` failed on GitHub runners without libvirt headers. New `all-no-libvirt` extra keeps the audit scope while unblocking CI
 - Test isolation: new `tests/conftest.py` autouse fixture redirects `HOME` and `XDG_*` to tmp dirs — prevents tests from scribbling into the developer's real config
+- `check_rdp_port` default was 3389 but project-wide RDP default is 3390 — signature now requires an explicit port so callers can't probe the wrong one
+- `PodState.PAUSED` added: auto-suspended containers previously showed as STOPPED in the GUI and the resume button never enabled. `podman.is_running() / is_paused()` now map container states correctly
+- `uninstall` / cleanup now terminates tracked FreeRDP sessions via `is_freerdp_pid()` before wiping `runtime_dir`, preventing orphaned xfreerdp processes that hold the RDP channel open
+- `check_freerdp` (used by `winpodx info`/`setup`) was only probing `xfreerdp3`/`xfreerdp`; now delegates to the runtime `find_freerdp()` which also recognizes sdl-freerdp and the Flatpak wrapper
+- Docker backend `wait_for_ready` 5-second polling loop tightened to 1 second — faster first-launch on Docker setups
+- `import_winapps_config` RDP_SCALE parser previously dropped non-integer values silently; now parses floats, clamps to [100, 400], and logs out-of-range values
+- Compose template cleanups: `group_add: keep-groups` and `run.oci.keep_original_groups` annotation emitted only for Podman backend (Docker rejects keep-groups); `NETWORK: "slirp"` removed so Podman picks its default (pasta / slirp4netns based on availability)
+- New `cfg.pod.image` (default `ghcr.io/dockur/windows:latest`) and `cfg.pod.disk_size` (default `64G`) — pinnable image tags and adjustable disk size without hand-editing compose.yaml
+- `remove_desktop_entry` now calls `unregister_mime_types` so per-app MIME associations in `mimeapps.list` are cleaned up on uninstall (previously stale handlers survived)
+- Wayland DE detection: `XDG_CURRENT_DESKTOP="KDE:Budgie"` previously resolved to "kde" because of dict iteration order; now splits on `:` and matches the leading segment first, falling back to substring match
+- GUI app-launch cooldown: `_launch_app` previously held a threading lock across a 3-second sleep, freezing the UI on rapid clicks. The lock is now released immediately after `Popen`; a per-app sentinel plus `QTimer.singleShot(3000, ...)` clears the cooldown without blocking
+- Notification truncation fixed: `_sanitize` now truncates raw text to 200 chars *before* HTML-escaping so multi-char entities (`&amp;`) can't be sliced mid-entity into `&am`
+- KDE sycoca rebuild errors (`kbuildsycoca6`/`kbuildsycoca5`) no longer swallowed — logged at `debug`/`warning` so the "Plasma doesn't show my icon" class of bug becomes debuggable
+- Hardcoded container name / RDP port occurrences in CLI and GUI now route through `cfg.pod.container_name` and `cfg.rdp.port` — custom container names work end-to-end
+- `config/oem/toggle_updates.ps1` hosts-file writes pinned to `-Encoding ASCII` — PS7 default UTF-8-with-BOM previously broke Windows DNS client parsing
+- `scripts/windows/time_sync.ps1` retry loop now checks `$LASTEXITCODE` per attempt; previously broke out after the first iteration even on failure
+- `scripts/windows/media_monitor.ps1` `Sync-Drives` no longer gates on `Test-Path` (TOCTOU with `net use`); both add and delete are try/caught, failures retried on next sync tick
+- `config/oem/install.bat` media_monitor.ps1 copy path uses a search list (compose mount → pip wheel → pipx → source → legacy) instead of the single hardcoded `\\tsclient\home\.local\bin\...` path that only matched manual installs
 
 ### Changed
 - Default RDP port changed from 3389 to 3390 (avoids collision with other containers)

@@ -230,7 +230,7 @@ def _cmd_debloat() -> None:
         return
 
     runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-    container = "winpodx-windows"
+    container = cfg.pod.container_name
 
     print("Copying debloat script to Windows...")
     try:
@@ -339,6 +339,9 @@ def _cmd_uninstall(args: argparse.Namespace) -> None:
         else:
             print(f"  Config preserved at {cd} (use --purge to remove)")
 
+    from winpodx.core.config import Config as _Config
+
+    _container = _Config.load().pod.container_name
     print(f"\nUninstall complete ({removed} items removed).")
-    print("Container 'winpodx-windows' was NOT removed.")
-    print("To remove it: podman stop winpodx-windows && podman rm winpodx-windows")
+    print(f"Container '{_container}' was NOT removed.")
+    print(f"To remove it: podman stop {_container} && podman rm {_container}")

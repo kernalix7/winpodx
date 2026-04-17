@@ -58,12 +58,17 @@ class PodmanBackend(Backend):
         except subprocess.TimeoutExpired:
             log.error("podman compose down timed out (60s)")
 
-    def is_running(self) -> bool:
+    def _container_state(self) -> str:
+        """Return the lower-cased container state (running/paused/exited/...).
+
+        Empty string when the container does not exist or podman is missing.
+        """
         try:
             result = subprocess.run(
                 [
                     "podman",
                     "ps",
+                    "-a",
                     "--filter",
                     f"name={self.cfg.pod.container_name}",
                     "--format",
@@ -79,22 +84,44 @@ class PodmanBackend(Backend):
                     result.returncode,
                     result.stderr.strip(),
                 )
-                return False
-            return "running" in result.stdout.lower()
+                return ""
+            return result.stdout.strip().lower()
         except FileNotFoundError:
             log.warning("podman not found in PATH")
-            return False
+            return ""
+
+    def is_running(self) -> bool:
+        # Treat paused as a form of "alive" so callers that ask the pod
+        # question get a consistent view. pod_status() distinguishes the
+        # two using is_paused().
+        state = self._container_state()
+        return "running" in state or "paused" in state
+
+    def is_paused(self) -> bool:
+        return "paused" in self._container_state()
 
     def get_ip(self) -> str:
         return self.cfg.rdp.ip or "127.0.0.1"
 
     def wait_for_ready(self, timeout: int = 300) -> bool:
-        """Wait for the container to be running and RDP port available."""
+        """Wait for the container to be running and RDP port available.
+
+        is_running() now also returns True for paused containers (so
+        PodState.PAUSED can be distinguished upstream); we explicitly
+        filter those out here — a paused pod is never "ready" for RDP.
+        """
         from winpodx.core.pod import check_rdp_port
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if self.is_running() and check_rdp_port(self.get_ip(), self.cfg.rdp.port, timeout=3):
+            if (
+                self.is_running()
+                and not self.is_paused()
+                and check_rdp_port(self.get_ip(), self.cfg.rdp.port, timeout=3)
+            ):
                 return True
-            time.sleep(5)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(1.0, remaining))
         return False

@@ -21,6 +21,7 @@ class PodState(Enum):
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
+    PAUSED = "paused"
     ERROR = "error"
 
 
@@ -57,8 +58,13 @@ def get_backend(cfg: Config) -> Backend:
         raise ValueError(f"Unknown backend: {name}")
 
 
-def check_rdp_port(ip: str, port: int = 3389, timeout: float = 5.0) -> bool:
-    """Check if RDP port is open and accepting connections."""
+def check_rdp_port(ip: str, port: int, timeout: float = 5.0) -> bool:
+    """Check if RDP port is open and accepting connections.
+
+    ``port`` is required — the project default is 3390 (not the Microsoft
+    standard 3389), so silently defaulting here would mask mis-wired callers.
+    Pass ``cfg.rdp.port`` from the caller.
+    """
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
@@ -105,7 +111,13 @@ def stop_pod(cfg: Config) -> PodStatus:
 
 
 def pod_status(cfg: Config) -> PodStatus:
-    """Query the current pod status."""
+    """Query the current pod status.
+
+    Distinguishes PAUSED from STOPPED/RUNNING so the auto-suspend path
+    (daemon.run_idle_monitor → podman pause) actually surfaces to the
+    user in CLI, tray, and GUI. Paused containers answer True from
+    ``is_running`` (they are alive) so we query ``is_paused`` first.
+    """
     backend = get_backend(cfg)
     try:
         running = backend.is_running()
@@ -115,6 +127,12 @@ def pod_status(cfg: Config) -> PodStatus:
 
     if not running:
         return PodStatus(state=PodState.STOPPED)
+
+    try:
+        if backend.is_paused():
+            return PodStatus(state=PodState.PAUSED, ip=cfg.rdp.ip)
+    except Exception as e:  # pragma: no cover - defensive
+        log.debug("is_paused probe failed: %s", e)
 
     rdp_ok = check_rdp_port(cfg.rdp.ip, cfg.rdp.port)
     return PodStatus(

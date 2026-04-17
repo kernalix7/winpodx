@@ -63,17 +63,28 @@ def setup_logging(level: int = logging.INFO, log_file: bool = True) -> None:
 
 
 class PasswordFilter(logging.Filter):
-    """Filter that masks password values in log output."""
+    """Filter that masks password values in log output.
+
+    Produces a sanitized final message and replaces BOTH ``record.msg`` and
+    ``record.args`` atomically. Previously the filter wrote the sanitized
+    text into ``record.msg`` but left ``record.args`` intact, so the next
+    handler along the chain re-ran ``record % args`` and either
+    re-substituted the redacted placeholders with the raw values or raised
+    ``TypeError`` when the format string no longer matched the argument
+    count. Setting ``record.args`` to ``()`` makes the sanitized text the
+    authoritative payload for every downstream handler.
+    """
 
     _KEYWORDS = ("password", "pass", "passwd", "secret", "token")
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        for kw in self._KEYWORDS:
-            if kw in msg.lower():
-                record.msg = self._mask_value(msg)
-                record.args = None
-                break
+        lowered = msg.lower()
+        if any(kw in lowered for kw in self._KEYWORDS):
+            record.msg = self._mask_value(msg)
+            # Must clear args too — record.getMessage() on downstream
+            # handlers would otherwise do `sanitized % original_args`.
+            record.args = ()
         return True
 
     @staticmethod

@@ -9,11 +9,16 @@ log = logging.getLogger(__name__)
 
 
 def _sanitize(text: str) -> str:
-    """Remove control characters, escape HTML, and limit length for safe display."""
+    """Remove control characters, escape HTML, and limit length for safe display.
+
+    Order matters: truncate BEFORE escaping. Escaping first and then slicing
+    to 200 chars could chop a multi-char entity (``&amp;`` → ``&am``) in the
+    middle, producing invalid markup that notification daemons render as-is.
+    """
     cleaned = "".join(c for c in text if c.isprintable())
-    # Escape HTML to prevent markup injection in notification bodies
-    cleaned = cleaned.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return cleaned[:200]
+    # Truncate the raw text first, then escape — preserves entity boundaries.
+    cleaned = cleaned[:200]
+    return cleaned.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def send_notification(

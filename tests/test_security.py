@@ -99,6 +99,145 @@ class TestExtraFlagsWhitelist:
         assert _filter_extra_flags("") == []
 
 
+# --- Device-redirection flag hardening (H1) ---
+
+
+class TestDeviceRedirectionFlags:
+    """Per-flag argument-shape validation for ``/drive``, ``/serial``,
+    ``/parallel``, ``/smartcard``, ``/usb``.
+
+    The previous prefix-matching allowlist accepted arbitrary argument
+    payloads after the colon, allowing an adversarial ``winapps.conf`` to
+    smuggle ``/drive:any,/etc`` or ``/serial:/dev/ttyUSB0`` into the RDP
+    command.  The new validator rejects anything that does not match a
+    documented per-flag pattern.
+    """
+
+    # --- /drive: only known share names ---
+
+    def test_drive_rejects_host_path_payload(self):
+        # The exact exploit reported in the H1 audit.
+        result = _filter_extra_flags("/drive:etc,/etc")
+        assert result == []
+
+    def test_drive_rejects_windows_path_payload(self):
+        result = _filter_extra_flags("/drive:share,C:\\Windows")
+        assert result == []
+
+    def test_drive_rejects_arbitrary_name_without_allowlist(self):
+        # Even innocuous-looking names must be on the allowlist.
+        result = _filter_extra_flags("/drive:downloads,/home/user/Downloads")
+        assert result == []
+
+    def test_drive_rejects_unknown_bare_name(self):
+        # ``/drive:root`` — not a documented share name.
+        result = _filter_extra_flags("/drive:root")
+        assert result == []
+
+    def test_drive_accepts_known_share_home(self):
+        assert _filter_extra_flags("/drive:home") == ["/drive:home"]
+
+    def test_drive_accepts_known_share_media(self):
+        assert _filter_extra_flags("/drive:media") == ["/drive:media"]
+
+    def test_drive_rejects_traversal_in_name(self):
+        result = _filter_extra_flags("/drive:../../etc")
+        assert result == []
+
+    # --- /serial, /parallel: no payload is ever safe ---
+
+    def test_serial_rejects_device_node(self):
+        result = _filter_extra_flags("/serial:/dev/ttyUSB0")
+        assert result == []
+
+    def test_serial_rejects_named_payload(self):
+        result = _filter_extra_flags("/serial:COM1,/dev/ttyS0")
+        assert result == []
+
+    def test_parallel_rejects_device_node(self):
+        result = _filter_extra_flags("/parallel:lp0,/dev/lp0")
+        assert result == []
+
+    # --- /smartcard: bare toggle ok, payload not ---
+
+    def test_smartcard_bare_accepted(self):
+        # A bare ``/smartcard`` toggle is a legitimate redirection request.
+        assert _filter_extra_flags("/smartcard") == ["/smartcard"]
+
+    def test_smartcard_payload_rejected(self):
+        # ``/smartcard:Name,/dev/card`` would reference a host device path.
+        result = _filter_extra_flags("/smartcard:MyCard,/dev/card")
+        assert result == []
+
+    # --- /usb: only ``auto`` permitted ---
+
+    def test_usb_auto_accepted(self):
+        assert _filter_extra_flags("/usb:auto") == ["/usb:auto"]
+
+    def test_usb_specific_id_rejected(self):
+        # Specific-device USB redirection must go through a first-class
+        # config option, not the free-form extra_flags field.
+        result = _filter_extra_flags("/usb:id,dev=1234:5678")
+        assert result == []
+
+    def test_usb_device_path_rejected(self):
+        result = _filter_extra_flags("/usb:/dev/bus/usb/001/002")
+        assert result == []
+
+    # --- Multi-flag injection: good flags don't rescue bad ones ---
+
+    def test_multi_flag_injection_drops_only_bad(self):
+        # Adversarial: smuggle a host mount next to a legitimate scale flag.
+        # The legitimate flag is kept; the adversarial one is dropped.
+        result = _filter_extra_flags("/scale:150 /drive:etc,/etc /serial:/dev/tty")
+        assert result == ["/scale:150"]
+
+    def test_multi_flag_injection_logs_drops(self, caplog):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winpodx.core.rdp"):
+            _filter_extra_flags("/drive:etc,/etc /serial:/dev/tty")
+        # Each rejected token must be surfaced.
+        messages = " ".join(r.getMessage() for r in caplog.records)
+        assert "/drive:etc,/etc" in messages
+        assert "/serial:/dev/tty" in messages
+
+    # --- Regression: argument-shape validation on other value flags ---
+
+    def test_scale_rejects_non_numeric(self):
+        # Previously ``/scale:anything`` was accepted because only the
+        # ``/scale:`` prefix was checked.
+        result = _filter_extra_flags("/scale:abc")
+        assert result == []
+
+    def test_scale_rejects_injection_suffix(self):
+        # ``/scale:100;rm -rf /`` survives shlex as a single token — the
+        # regex must reject it.
+        result = _filter_extra_flags("/scale:100;rm")
+        assert result == []
+
+    def test_network_rejects_unknown_profile(self):
+        assert _filter_extra_flags("/network:ethernet") == []
+
+    def test_network_accepts_documented_profile(self):
+        assert _filter_extra_flags("/network:lan") == ["/network:lan"]
+
+    def test_log_level_rejects_scope_wildcard(self):
+        # ``/log-level:TRACE:com.foo`` is a FreeRDP scope form; allowing it
+        # leaks verbose logs that may contain credentials.  Keep it simple.
+        assert _filter_extra_flags("/log-level:TRACE:com.foo") == []
+
+    def test_log_level_accepts_plain_level(self):
+        assert _filter_extra_flags("/log-level:INFO") == ["/log-level:INFO"]
+
+    # --- Legitimate flags from existing tests must still pass ---
+
+    def test_valid_flag_bundle_passes_unchanged(self):
+        # Same bundle the winapps-import tests exercise.
+        result = _filter_extra_flags("/scale:200 /sound:sys:alsa")
+        assert result == ["/scale:200", "/sound:sys:alsa"]
+
+
 # --- Config validation ---
 
 

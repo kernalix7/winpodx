@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 168 passed](https://img.shields.io/badge/Tests-168%20passed-brightgreen.svg)](#테스트)
+[![Tests: 228 passed](https://img.shields.io/badge/Tests-228%20passed-brightgreen.svg)](#테스트)
 
 [English](../README.md) | **한국어**
 
@@ -337,7 +337,7 @@ winpodx/
 ├── config/oem/            # Windows OEM 스크립트 (포스트인스톨)
 ├── scripts/windows/       # PowerShell 스크립트 (디블로트, 시간 동기화, USB 매핑)
 ├── .github/workflows/     # CI: lint + test on 3.11-3.13 + pip-audit
-└── tests/                 # pytest 테스트 스위트 (168개 테스트)
+└── tests/                 # pytest 테스트 스위트 (228개 테스트)
 ```
 
 ## 지원 배포판
@@ -354,7 +354,7 @@ winpodx/
 ```bash
 # 저장소 루트에서 (설치 불필요)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/ -v    # 168개 테스트
+python3 -m pytest tests/ -v    # 228개 테스트
 ruff check src/ tests/         # 린트
 ```
 
