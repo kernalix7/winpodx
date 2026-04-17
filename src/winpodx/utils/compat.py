@@ -105,6 +105,16 @@ def import_winapps_config() -> Config | None:
     cfg.rdp.domain = vals.get("RDP_DOMAIN", "")
     cfg.rdp.ip = vals.get("RDP_IP", "127.0.0.1")
 
+    # Stamp the import moment so auto-rotation has a reference point.
+    # Without this the imported password is either (a) never rotated — if
+    # ``_auto_rotate_password`` skips on empty timestamp — or (b) rotated on
+    # the very first launch, silently destroying the imported credential.
+    # Starting the 7-day clock at import time matches what a fresh setup does.
+    if cfg.rdp.password:
+        from datetime import datetime, timezone
+
+        cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
+
     # Filter RDP_FLAGS through the same allowlist used at runtime so that a
     # malicious winapps.conf cannot smuggle dangerous flags (e.g. /exec:) into
     # the stored config.

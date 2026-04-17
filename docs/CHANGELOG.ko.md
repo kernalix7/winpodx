@@ -43,7 +43,8 @@
 - winapps.conf 가져오기 (기존 설정 마이그레이션)
 
 ### 성능
-- **`find_freerdp()` 캐싱**: `functools.lru_cache`로 래핑 — 첫 호출은 PATH 스캔 + (폴백 경로에서) `flatpak list`를 최대 10초 타임아웃으로 실행, 같은 프로세스 내 이후 호출은 0비용. 콜드 RDP 실행의 가장 큰 이득이며, xfreerdp3가 정상 설치된 시스템에서는 10초 flatpak 프로브 자체를 건너뜀
+- **`find_freerdp()` 성공 캐싱**: `lru_cache` 대신 성공 결과만 저장하는 수동 모듈-레벨 캐시 — 첫 호출은 PATH 스캔 + (폴백) `flatpak list`를 최대 10초 타임아웃으로 실행, 같은 프로세스 내 이후 호출은 0비용. `None`(미발견) 결과는 **의도적으로 캐시하지 않음** — 장시간 실행되는 트레이/GUI에서 세션 중에 FreeRDP를 설치해도 재시작 없이 다음 실행 시점에 검출됨. 콜드 RDP 실행의 가장 큰 이득이며 xfreerdp3가 설치된 시스템에서는 10초 flatpak 프로브 자체를 건너뜀
+- **`winapps.conf` import가 `password_updated` 찍음**: import 시점에 7일 로테이션 시계 시작. 이전에는 import된 config가 (a) 새 fast path로 영원히 로테이션 안 되거나 (b) 예전 코드에서 첫 실행 시 바로 로테이션되어 방금 마이그레이션한 자격증명이 조용히 대체됨 — 둘 다 바람직하지 않았음
 - **첫 실행 시 `pod_status()` subprocess 스킵**: `_auto_rotate_password`가 `password_updated`가 비어 있으면 조기 반환. 이전에는 rotation 경로가 첫 실행에서도 무조건 `backend.is_running` + `net user`를 호출하여 사용자의 첫 앱 실행 전에 100-500ms subprocess 왕복이 추가됐음. `setup_cmd`와 `rotate-password`가 모두 타임스탬프를 찍으므로, 이 fast path는 새 config 또는 손으로 편집한 config에서만 발동 — 마침 rotation이 올바른 판단을 할 수 없는 상황
 - **FreeRDP 시각/코덱 플래그**: 기본 명령에 `-menu-anims`, `-window-drag`, `/gfx:avc420`, `/network:auto` 하드코딩. `-menu-anims`/`-window-drag`는 시각 효과만 끄고 기능은 유지 (메뉴 열림, 드래그 동작, 배경만 미렌더링). `/gfx:avc420`은 H.264 인코딩 요청 — AVC를 광고하지 않는 Windows 빌드에서는 RFX로 자동 폴백. `/network:auto`는 LAN 가정 대신 실측 링크 품질에 맞춰 압축/fastpath 튜닝
 

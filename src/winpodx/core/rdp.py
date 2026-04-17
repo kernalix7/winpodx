@@ -6,7 +6,6 @@ for individual Windows applications.
 
 from __future__ import annotations
 
-import functools
 import logging
 import os
 import re
@@ -59,7 +58,14 @@ def _find_media_base() -> Path | None:
     return None
 
 
-@functools.lru_cache(maxsize=1)
+# Module-level cache for ``find_freerdp`` results. Only populated on success
+# — a ``None`` result means FreeRDP was not found, and caching that would
+# prevent the tray/GUI (which call ``launch_app`` in-process) from noticing
+# a mid-session install. Success results are stable: xfreerdp doesn't move
+# once installed.
+_FREERDP_CACHE: tuple[str, str] | None = None
+
+
 def find_freerdp() -> tuple[str, str] | None:
     """Locate a FreeRDP 3+ binary on the system.
 
@@ -69,37 +75,50 @@ def find_freerdp() -> tuple[str, str] | None:
     Returns (binary_path, variant) where variant is one of:
       'xfreerdp', 'sdl', 'flatpak'.
 
-    Cached per-process: the binary location does not change mid-session,
-    and a cold lookup costs up to 10s when ``flatpak list`` must be probed.
-    Cache is invalidated only when the Python process exits — which matches
-    how users actually install FreeRDP (once, then relaunch winpodx).
+    Success results are cached in ``_FREERDP_CACHE`` per-process. Cold
+    lookups cost up to 10s when the flatpak fallback runs, so repeated
+    launches from a long-running tray/GUI reuse the first hit. ``None``
+    results are intentionally NOT cached so an install-after-startup is
+    picked up on the next launch attempt.
     """
+    global _FREERDP_CACHE
+    if _FREERDP_CACHE is not None:
+        return _FREERDP_CACHE
+
+    found: tuple[str, str] | None = None
+
     # xfreerdp works on both X11 and Wayland (via XWayland)
     for name in ("xfreerdp3", "xfreerdp"):
         path = shutil.which(name)
         if path:
-            return (path, "xfreerdp")
+            found = (path, "xfreerdp")
+            break
 
     # SDL client — native X11/Wayland support
-    for name in ("sdl-freerdp3", "sdl-freerdp"):
-        path = shutil.which(name)
-        if path:
-            return (path, "sdl")
+    if found is None:
+        for name in ("sdl-freerdp3", "sdl-freerdp"):
+            path = shutil.which(name)
+            if path:
+                found = (path, "sdl")
+                break
 
     # Flatpak fallback
-    try:
-        result = subprocess.run(
-            ["flatpak", "list", "--app", "--columns=application"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and "com.freerdp.FreeRDP" in result.stdout:
-            return ("flatpak run com.freerdp.FreeRDP", "flatpak")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    if found is None:
+        try:
+            result = subprocess.run(
+                ["flatpak", "list", "--app", "--columns=application"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and "com.freerdp.FreeRDP" in result.stdout:
+                found = ("flatpak run com.freerdp.FreeRDP", "flatpak")
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
 
-    return None
+    if found is not None:
+        _FREERDP_CACHE = found
+    return found
 
 
 def _resolve_password(cfg: Config) -> str:
