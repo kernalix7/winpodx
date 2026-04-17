@@ -39,7 +39,11 @@ function Sync-Drives {
     foreach ($entry in $script:mapped.GetEnumerator()) {
         if (-not $current.ContainsKey($entry.Key)) {
             net use "$($entry.Value):" /delete /yes 2>$null
-            $toRemove += $entry.Key
+            # Only drop tracking if the drive is actually gone.
+            # If unmount failed and drive still exists, retry next sync.
+            if ($LASTEXITCODE -eq 0 -or -not (Test-Path "$($entry.Value):")) {
+                $toRemove += $entry.Key
+            }
         }
     }
     foreach ($key in $toRemove) {

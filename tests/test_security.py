@@ -193,6 +193,19 @@ class TestTomlWriterEscaping:
         result = dumps(data)
         assert '\\\\"' in result or '\\"' in result
 
+    def test_escapes_all_control_chars(self):
+        from winpodx.utils.toml_writer import dumps
+
+        # Null byte, bell, vertical tab, DEL — all must be escaped
+        data = {"section": {"key": "a\x00b\x07c\x0bd\x7fe"}}
+        result = dumps(data)
+        # None of the raw control chars should appear in the output
+        for bad in ("\x00", "\x07", "\x0b", "\x7f"):
+            assert bad not in result
+        # Should use \uXXXX escapes
+        assert "\\u0000" in result
+        assert "\\u007F" in result
+
 
 class TestYamlEscape:
     def test_yaml_escape_newlines(self, tmp_path, monkeypatch):

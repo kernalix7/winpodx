@@ -1344,9 +1344,9 @@ class WinpodxWindow(QMainWindow):
                     if rc == 0 or rc > 128:
                         self.app_launched.emit(app.full_name)
                     else:
-                        stderr = ""
-                        if session.process.stderr:
-                            stderr = session.process.stderr.read().decode(errors="replace")[-500:]
+                        # Give reaper thread a moment to drain stderr
+                        time.sleep(0.2)
+                        stderr = session.stderr_tail.decode(errors="replace")[-500:]
                         msg = f"FreeRDP exited with code {rc}"
                         if stderr:
                             msg += f"\n{stderr}"

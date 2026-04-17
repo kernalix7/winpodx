@@ -66,6 +66,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - YAML escape: `_yaml_escape()` now handles `\n` and `\r` to prevent YAML structure injection
 - libvirt `get_ip()`: added returncode check and `TimeoutExpired` exception handling
 - FreeRDP RemoteApp: removed `/rfx` flag that caused immediate transport failure in RAIL mode
+- RDP reaper thread: stderr pipe deadlock — `proc.wait()` could hang indefinitely once the 64KB pipe buffer filled; now uses `communicate()` and stores last 2KB on the session
+- TOML writer: control characters 0x00-0x1F and 0x7F were emitted raw, breaking the file; now escaped as `\uXXXX`
+- media_monitor.ps1: `net use /delete` exit code ignored; now keeps tracking if unmount fails so next sync can retry
 
 ### Changed
 - Default RDP port changed from 3389 to 3390 (avoids collision with other containers)

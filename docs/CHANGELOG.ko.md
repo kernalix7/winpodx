@@ -66,6 +66,9 @@
 - YAML 이스케이프: `_yaml_escape()`에 `\n`, `\r` 처리 추가 — YAML 구조 인젝션 방지
 - libvirt `get_ip()`: returncode 확인 및 `TimeoutExpired` 예외 처리 추가
 - FreeRDP RemoteApp: RAIL 모드에서 즉시 전송 실패를 유발하던 `/rfx` 플래그 제거
+- RDP reaper 스레드: stderr 파이프 데드락 — 64KB 파이프 버퍼가 꽉 차면 `proc.wait()`가 무한 대기; `communicate()` 사용으로 변경, 마지막 2KB를 세션에 저장
+- TOML writer: 제어문자 0x00-0x1F, 0x7F이 이스케이프 없이 출력되어 파일 깨짐; `\uXXXX`로 이스케이프
+- media_monitor.ps1: `net use /delete` 종료 코드 미확인; 언마운트 실패 시 tracking 유지로 다음 sync에서 재시도
 
 ### 변경됨
 - 기본 RDP 포트 3389 → 3390 (다른 컨테이너와 충돌 방지)

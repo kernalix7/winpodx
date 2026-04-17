@@ -23,15 +23,43 @@ def dumps(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _escape_string(val: str) -> str:
+    """Escape a TOML basic string with full control-character coverage.
+
+    TOML requires all control chars (U+0000-U+001F, U+007F) to be escaped.
+    """
+    out: list[str] = ['"']
+    for ch in val:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ch == "\b":
+            out.append("\\b")
+        elif ch == "\f":
+            out.append("\\f")
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\u{code:04X}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
 def _format_value(val: Any) -> str:
     if isinstance(val, bool):
         return "true" if val else "false"
     elif isinstance(val, int):
         return str(val)
     elif isinstance(val, str):
-        escaped = val.replace("\\", "\\\\").replace('"', '\\"')
-        escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-        return f'"{escaped}"'
+        return _escape_string(val)
     elif isinstance(val, float):
         return str(val)
     elif isinstance(val, list):

@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 class RDPSession:
     app_name: str
     process: subprocess.Popen | None = None
+    stderr_tail: bytes = b""
 
     @property
     def pid_file(self) -> Path:
@@ -315,10 +316,24 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
     return RDPSession(app_name=app_name)
 
 
-def _reaper_thread(proc: subprocess.Popen, pid_file: Path) -> None:
-    """Wait for process exit and clean up PID file."""
-    proc.wait()
-    pid_file.unlink(missing_ok=True)
+def _reaper_thread(session: RDPSession) -> None:
+    """Wait for process exit and clean up PID file.
+
+    Drains stderr into session.stderr_tail to prevent pipe buffer
+    deadlock on long sessions (FreeRDP blocks once the 64KB pipe
+    buffer fills if nothing reads from it).
+    """
+    proc = session.process
+    if proc is None:
+        return
+    try:
+        _out, err = proc.communicate()
+        if err:
+            session.stderr_tail = err[-2048:]
+    except (OSError, ValueError):
+        pass
+    finally:
+        session.pid_file.unlink(missing_ok=True)
 
 
 def launch_app(
@@ -385,7 +400,7 @@ def launch_app(
     # Reaper thread to clean up zombie and PID file
     t = threading.Thread(
         target=_reaper_thread,
-        args=(proc, session.pid_file),
+        args=(session,),
         daemon=True,
     )
     t.start()
