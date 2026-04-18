@@ -96,6 +96,12 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplicat
 REM === Map home folder ===
 echo [winpodx] Home folder is available at \\tsclient\home via RDP drive redirection
 
+REM === Replace broken dockur "Shared" desktop link with \\tsclient\* shortcuts ===
+REM dockur's base image ships a "Shared" desktop item pointing to \\host.lan\Data (SMB),
+REM which we don't use. Remove it and create Home/USB shortcuts to the RDP redirections.
+echo [winpodx] Creating desktop shortcuts to tsclient shares...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); foreach($n in 'Shared','Shared.lnk'){ $p=Join-Path $d $n; if(Test-Path -LiteralPath $p){ Remove-Item -Force -Recurse -LiteralPath $p -ErrorAction SilentlyContinue } }; $s=New-Object -ComObject WScript.Shell; foreach($x in @(@('Home','\\tsclient\home'), @('USB','\\tsclient\media'))){ $l=$s.CreateShortcut((Join-Path $d ($x[0]+'.lnk'))); $l.TargetPath=$x[1]; $l.Save() }"
+
 REM === USB media auto-mapping (FileSystemWatcher, event-driven) ===
 REM Watches \\tsclient\media for USB mount/unmount and maps drive letters automatically
 REM No polling — reacts only when OS sends a file change event
