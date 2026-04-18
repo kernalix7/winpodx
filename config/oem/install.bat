@@ -8,7 +8,7 @@ REM Bump WINPODX_OEM_VERSION whenever this script needs to re-apply on
 REM existing VMs (new reg keys, new shortcuts, new firewall rules, etc.).
 REM Every action below MUST be idempotent.
 
-set WINPODX_OEM_VERSION=1
+set WINPODX_OEM_VERSION=2
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -175,7 +175,14 @@ if not defined WINPODX_UPD_OK (
 if not defined WINPODX_UPD_OK (
     echo [winpodx] WARNING: oem_updater.ps1 not found in any known location.
 )
-schtasks /create /tn "WinpodxOEMUpdate" /tr "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\oem_updater.ps1" /sc ONLOGON /rl HIGHEST /f >nul 2>&1
+REM Register the updater with TWO triggers (AtLogOn + AtStartup) so the check
+REM fires on both fresh logon and cold boot. Runs as SYSTEM with highest
+REM privileges — required for the HKLM writes inside install.bat. Pause/unpause
+REM cycles don't fire either trigger; those are handled by winpodx itself
+REM pushing a podman-exec call from the Linux side on version bump.
+REM Delete any legacy /sc ONLOGON task from earlier OEM versions first.
+schtasks /delete /tn "WinpodxOEMUpdate" /f >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\oem_updater.ps1'; $t=@((New-ScheduledTaskTrigger -AtLogOn),(New-ScheduledTaskTrigger -AtStartup)); $p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest; Register-ScheduledTask -TaskName 'WinpodxOEMUpdate' -Action $a -Trigger $t -Principal $p -Force | Out-Null" >nul 2>&1
 
 REM === Record applied OEM version ===
 echo %WINPODX_OEM_VERSION% > C:\winpodx\oem_version.txt

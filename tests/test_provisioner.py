@@ -142,3 +142,93 @@ def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
     provisioner._auto_rotate_password(_rotation_cfg)
 
     assert not marker.exists()
+
+
+# --- OEM version push over podman exec -------------------------------------
+
+
+@pytest.fixture()
+def _oem_push_cfg(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    cfg.pod.container_name = "winpodx-test"
+    cfg.pod.last_oem_push = ""
+    cfg.save()
+    return cfg
+
+
+def test_push_oem_skips_when_version_matches(_oem_push_cfg, monkeypatch):
+    from winpodx.core import provisioner
+
+    _oem_push_cfg.pod.last_oem_push = "9.9.9"
+    monkeypatch.setattr(
+        "importlib.metadata.version",
+        lambda _name: "9.9.9",
+    )
+
+    def _boom(*_a, **_kw):
+        raise AssertionError("podman exec must not run when versions match")
+
+    monkeypatch.setattr(provisioner.subprocess, "run", _boom)
+
+    result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
+    assert result.pod.last_oem_push == "9.9.9"
+
+
+def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch):
+    from winpodx.core import provisioner
+
+    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+    calls: list[list[str]] = []
+
+    class _R:
+        returncode = 0
+        stderr = ""
+        stdout = ""
+
+    def _fake_run(cmd, **_kw):
+        calls.append(cmd)
+        return _R()
+
+    monkeypatch.setattr(provisioner.subprocess, "run", _fake_run)
+
+    result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
+
+    assert result.pod.last_oem_push == "1.2.3"
+    assert calls and calls[0][0] == "podman"
+    assert "oem_updater.ps1" in calls[0][-1]
+
+
+def test_push_oem_keeps_version_unchanged_on_failure(_oem_push_cfg, monkeypatch):
+    from winpodx.core import provisioner
+
+    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+
+    class _R:
+        returncode = 1
+        stderr = "access denied"
+        stdout = ""
+
+    monkeypatch.setattr(provisioner.subprocess, "run", lambda *_a, **_kw: _R())
+
+    result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
+    assert result.pod.last_oem_push == ""
+
+
+def test_push_oem_noop_for_unsupported_backend(_oem_push_cfg, monkeypatch):
+    from winpodx.core import provisioner
+
+    _oem_push_cfg.pod.backend = "libvirt"
+    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+
+    def _boom(*_a, **_kw):
+        raise AssertionError("podman exec must not run for libvirt backend")
+
+    monkeypatch.setattr(provisioner.subprocess, "run", _boom)
+
+    result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
+    assert result.pod.last_oem_push == ""

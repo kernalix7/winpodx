@@ -63,6 +63,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
     # Fast path — RDP already available, skip all checks
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
+        cfg = _push_oem_update_if_stale(cfg)
         return cfg
 
     # Slow path — full provisioning
@@ -78,7 +79,70 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     _ensure_pod_running(cfg, timeout)
     _install_bundled_apps_if_needed()
     _ensure_desktop_entries()
+    cfg = _push_oem_update_if_stale(cfg)
 
+    return cfg
+
+
+def _push_oem_update_if_stale(cfg: Config) -> Config:
+    """Trigger the in-VM oem_updater.ps1 once per winpodx version bump.
+
+    The in-VM Scheduled Task handles AtLogOn and AtStartup, but neither fires
+    on a podman pause/unpause cycle. This path guarantees Windows-side settings
+    stay in sync even for VMs that live forever in a paused state between
+    winpodx releases. Idempotent: ``oem_updater.ps1`` compares its own version
+    marker internally, so multiple invocations are harmless.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _pkg_version
+
+        try:
+            current = _pkg_version("winpodx")
+        except PackageNotFoundError:
+            return cfg
+    except ImportError:
+        return cfg
+
+    if not current or cfg.pod.last_oem_push == current:
+        return cfg
+
+    backend = cfg.pod.backend
+    if backend not in ("podman", "docker"):
+        return cfg
+
+    runtime = "podman" if backend == "podman" else "docker"
+    cmd = [
+        runtime,
+        "exec",
+        cfg.pod.container_name,
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        r"C:\winpodx\oem_updater.ps1",
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("OEM push skipped: %s", e)
+        return cfg
+
+    if result.returncode != 0:
+        log.warning(
+            "oem_updater.ps1 exit=%s stderr=%s",
+            result.returncode,
+            result.stderr.strip()[:200],
+        )
+        return cfg
+
+    cfg.pod.last_oem_push = current
+    try:
+        cfg.save()
+    except OSError as e:
+        log.warning("Failed to persist last_oem_push: %s", e)
     return cfg
 
 
