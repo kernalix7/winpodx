@@ -179,10 +179,22 @@ def test_push_oem_skips_when_version_matches(_oem_push_cfg, monkeypatch):
     assert result.pod.last_oem_push == "9.9.9"
 
 
-def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch):
+def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch, tmp_path):
     from winpodx.core import provisioner
 
+    fake_bat = tmp_path / "install.bat"
+    fake_bat.write_bytes(b"set WINPODX_OEM_VERSION=7\n")
+    fake_ps = tmp_path / "oem_updater.ps1"
+    fake_ps.write_bytes(b"# stub\n")
+
+    def _fake_find(relpath: str):
+        return {"config/oem/install.bat": fake_bat, "scripts/windows/oem_updater.ps1": fake_ps}.get(
+            relpath
+        )
+
+    monkeypatch.setattr(provisioner, "_find_share_file", _fake_find)
     monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+
     calls: list[list[str]] = []
 
     class _R:
@@ -199,13 +211,29 @@ def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch):
     result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
 
     assert result.pod.last_oem_push == "1.2.3"
-    assert calls and calls[0][0] == "podman"
-    assert "oem_updater.ps1" in calls[0][-1]
+    # Two pushes (ps1 first, then bat), then the updater invocation.
+    assert len(calls) == 3
+    assert any("oem_updater.ps1" in arg for arg in calls[0])
+    assert any("install_shipped.bat" in arg for arg in calls[1])
+    assert calls[-1][-1].endswith("oem_updater.ps1")
+    assert calls[-1][-2] == "-File"
 
 
-def test_push_oem_keeps_version_unchanged_on_failure(_oem_push_cfg, monkeypatch):
+def test_push_oem_keeps_version_unchanged_on_failure(_oem_push_cfg, monkeypatch, tmp_path):
     from winpodx.core import provisioner
 
+    fake_bat = tmp_path / "install.bat"
+    fake_bat.write_bytes(b"set WINPODX_OEM_VERSION=7\n")
+    fake_ps = tmp_path / "oem_updater.ps1"
+    fake_ps.write_bytes(b"# stub\n")
+    monkeypatch.setattr(
+        provisioner,
+        "_find_share_file",
+        lambda relpath: {
+            "config/oem/install.bat": fake_bat,
+            "scripts/windows/oem_updater.ps1": fake_ps,
+        }.get(relpath),
+    )
     monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
 
     class _R:
@@ -227,6 +255,21 @@ def test_push_oem_noop_for_unsupported_backend(_oem_push_cfg, monkeypatch):
 
     def _boom(*_a, **_kw):
         raise AssertionError("podman exec must not run for libvirt backend")
+
+    monkeypatch.setattr(provisioner.subprocess, "run", _boom)
+
+    result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
+    assert result.pod.last_oem_push == ""
+
+
+def test_push_oem_skips_when_shipped_files_missing(_oem_push_cfg, monkeypatch):
+    from winpodx.core import provisioner
+
+    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+    monkeypatch.setattr(provisioner, "_find_share_file", lambda _relpath: None)
+
+    def _boom(*_a, **_kw):
+        raise AssertionError("subprocess.run must not fire when files aren't found")
 
     monkeypatch.setattr(provisioner.subprocess, "run", _boom)
 

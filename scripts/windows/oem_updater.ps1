@@ -1,16 +1,24 @@
 # winpodx OEM updater
 #
-# Re-runs install.bat when a newer version is shipped.  Triggered on user
-# login via a Scheduled Task registered by install.bat itself.  Designed as
-# a fast no-op when nothing new is pending.
+# Re-runs install.bat when a newer version is shipped. Fired by:
+#   1. a Scheduled Task (AtLogOn + AtStartup, SYSTEM, HIGHEST) registered
+#      during OEM first boot, and
+#   2. the Linux-side winpodx provisioner via `podman exec` on every
+#      version bump (covers pause/unpause cycles where neither trigger
+#      fires).
+#
+# Only reads from guest-local paths because both invocation contexts run
+# outside any RDP session — \\tsclient\* is therefore unreachable. The
+# Linux-side push refreshes C:\winpodx\install_shipped.bat before invoking
+# us; falling paths cover compose mounts and the original OEM drop.
 #
 # Version contract: install.bat contains a line of the form
 #   set WINPODX_OEM_VERSION=<N>
-# where <N> is a monotonically increasing integer.  We grep the line out of
+# where <N> is a monotonically increasing integer. We grep the line out of
 # the shipped install.bat, compare to the integer stored locally in
 #   C:\winpodx\oem_version.txt
-# and if the shipped version is higher, re-run install.bat end-to-end.
-# install.bat must stay idempotent for this to be safe.
+# and re-run install.bat end-to-end when shipped > applied. install.bat
+# must stay idempotent for this to be safe.
 
 $ErrorActionPreference = 'Stop'
 
@@ -40,11 +48,9 @@ function Get-BatVersion([string]$path) {
 
 try {
     $candidates = @(
+        'C:\winpodx\install_shipped.bat',
         'C:\winpodx-scripts\oem\install.bat',
-        '\\tsclient\home\.local\share\winpodx\config\oem\install.bat',
-        '\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\config\oem\install.bat',
-        '\\tsclient\home\winpodx\config\oem\install.bat',
-        '\\tsclient\home\.local\bin\winpodx-app\config\oem\install.bat'
+        'C:\OEM\install.bat'
     )
     $shipped = $null
     foreach ($c in $candidates) {
@@ -71,6 +77,9 @@ try {
     }
 
     Write-Log "updating $applied -> $shippedVer from $shipped"
+    # Copy aside before invocation: avoids problems if $shipped is a file
+    # winpodx is actively refreshing, and keeps the running copy stable
+    # even if another updater run races in.
     Copy-Item -LiteralPath $shipped -Destination $localBat -Force
 
     $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', "`"$localBat`"" `

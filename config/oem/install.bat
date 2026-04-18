@@ -8,7 +8,7 @@ REM Bump WINPODX_OEM_VERSION whenever this script needs to re-apply on
 REM existing VMs (new reg keys, new shortcuts, new firewall rules, etc.).
 REM Every action below MUST be idempotent.
 
-set WINPODX_OEM_VERSION=2
+set WINPODX_OEM_VERSION=3
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -185,7 +185,8 @@ schtasks /delete /tn "WinpodxOEMUpdate" /f >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\oem_updater.ps1'; $t=@((New-ScheduledTaskTrigger -AtLogOn),(New-ScheduledTaskTrigger -AtStartup)); $p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest; Register-ScheduledTask -TaskName 'WinpodxOEMUpdate' -Action $a -Trigger $t -Principal $p -Force | Out-Null" >nul 2>&1
 
 REM === Record applied OEM version ===
-echo %WINPODX_OEM_VERSION% > C:\winpodx\oem_version.txt
+REM Parenthesized echo strips the trailing space that `echo X > file` leaves behind.
+(echo %WINPODX_OEM_VERSION%)>C:\winpodx\oem_version.txt
 
 REM === Multi-session RDP (TBD) ===
 REM Multi-session support (RDPWrap or equivalent) is planned as a separate project.
@@ -194,7 +195,7 @@ REM See: https://github.com/kernalix7/winpodx
 
 REM === Mark setup complete ===
 REM Stored under C:\winpodx so the sentinel survives past the one-shot C:\OEM stage.
-echo done > C:\winpodx\setup_done.txt
+(echo done)>C:\winpodx\setup_done.txt
 
 echo [winpodx] Post-install configuration complete (version %WINPODX_OEM_VERSION%)!
 echo [winpodx] RDP is now enabled. You can connect with FreeRDP.

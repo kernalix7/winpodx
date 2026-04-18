@@ -84,14 +84,85 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     return cfg
 
 
+def _find_share_file(relpath: str) -> Path | None:
+    """Locate a winpodx-shipped data file across install modes.
+
+    Search order: editable/source checkout, pip wheel / pipx (sys.prefix
+    shared-data), user-local pip, legacy install path. Returns ``None`` if
+    the file isn't found in any of them.
+    """
+    import sys
+
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parent.parent.parent.parent / relpath,
+        Path(sys.prefix) / "share" / "winpodx" / relpath,
+        Path.home() / ".local" / "share" / "winpodx" / relpath,
+        Path.home() / ".local" / "bin" / "winpodx-app" / relpath,
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def _push_file_to_container(
+    runtime: str, container: str, src: Path, dest_win_path: str, timeout: int = 30
+) -> bool:
+    """Write *src*'s bytes into the Windows guest at *dest_win_path*.
+
+    Neither ``\\tsclient\\*`` (RDP-session-only) nor ``podman cp`` (writes to
+    the container's Linux rootfs, not the Windows guest) reaches the guest
+    from a ``podman exec`` context. Instead we inline the file bytes as
+    base64 inside a PowerShell ``-Command`` and let the guest decode and
+    write via ``[System.IO.File]::WriteAllBytes``. Works for any file size
+    that fits a Windows command line (~32 KB); shipped scripts are well
+    under that.
+    """
+    import base64
+
+    b64 = base64.b64encode(src.read_bytes()).decode("ascii")
+    dest = dest_win_path.replace("'", "''")
+    ps_cmd = (
+        r"New-Item -ItemType Directory -Path 'C:\winpodx' -Force | Out-Null;"
+        f"[System.IO.File]::WriteAllBytes('{dest}', [Convert]::FromBase64String('{b64}'))"
+    )
+    cmd = [
+        runtime,
+        "exec",
+        container,
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        ps_cmd,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("push of %s failed: %s", dest_win_path, e)
+        return False
+    if result.returncode != 0:
+        log.warning(
+            "push of %s exit=%s stderr=%s",
+            dest_win_path,
+            result.returncode,
+            result.stderr.strip()[:200],
+        )
+        return False
+    return True
+
+
 def _push_oem_update_if_stale(cfg: Config) -> Config:
     """Trigger the in-VM oem_updater.ps1 once per winpodx version bump.
 
-    The in-VM Scheduled Task handles AtLogOn and AtStartup, but neither fires
-    on a podman pause/unpause cycle. This path guarantees Windows-side settings
-    stay in sync even for VMs that live forever in a paused state between
-    winpodx releases. Idempotent: ``oem_updater.ps1`` compares its own version
-    marker internally, so multiple invocations are harmless.
+    Pushes both the latest ``oem_updater.ps1`` and ``install.bat`` into the
+    guest (via :func:`_push_file_to_container`), then runs the updater. The
+    in-VM Scheduled Task (AtLogOn + AtStartup) reads the same locally-written
+    files, so future triggers can re-apply without needing winpodx running.
+    Idempotent: ``oem_updater.ps1`` compares its own version marker before
+    doing anything expensive, so repeated invocations are harmless.
     """
     try:
         from importlib.metadata import PackageNotFoundError
@@ -111,11 +182,26 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
     if backend not in ("podman", "docker"):
         return cfg
 
+    install_bat = _find_share_file("config/oem/install.bat")
+    oem_updater = _find_share_file("scripts/windows/oem_updater.ps1")
+    if install_bat is None or oem_updater is None:
+        log.debug("OEM push skipped: shipped files not found on local filesystem")
+        return cfg
+
     runtime = "podman" if backend == "podman" else "docker"
-    cmd = [
+    container = cfg.pod.container_name
+
+    if not _push_file_to_container(runtime, container, oem_updater, r"C:\winpodx\oem_updater.ps1"):
+        return cfg
+    if not _push_file_to_container(
+        runtime, container, install_bat, r"C:\winpodx\install_shipped.bat"
+    ):
+        return cfg
+
+    exec_cmd = [
         runtime,
         "exec",
-        cfg.pod.container_name,
+        container,
         r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
         "-NoProfile",
         "-ExecutionPolicy",
@@ -123,9 +209,8 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
         "-File",
         r"C:\winpodx\oem_updater.ps1",
     ]
-
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(exec_cmd, capture_output=True, text=True, timeout=60)
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         log.warning("OEM push skipped: %s", e)
         return cfg
