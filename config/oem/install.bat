@@ -1,9 +1,16 @@
 @echo off
 REM winpodx OEM post-install script
 REM Runs automatically after Windows first boot (via dockur OEM mechanism)
-REM Configures RDP, RemoteApp, firewall, and performance settings
+REM AND re-runs on subsequent logins whenever WINPODX_OEM_VERSION below is
+REM higher than C:\winpodx\oem_version.txt — see scripts/windows/oem_updater.ps1
+REM
+REM Bump WINPODX_OEM_VERSION whenever this script needs to re-apply on
+REM existing VMs (new reg keys, new shortcuts, new firewall rules, etc.).
+REM Every action below MUST be idempotent.
 
-echo [winpodx] Starting post-install configuration...
+set WINPODX_OEM_VERSION=1
+
+echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
 REM === Set DNS (Cloudflare) - slirp network has no DNS by default ===
 echo [winpodx] Setting DNS...
@@ -31,8 +38,11 @@ REM MaxInstanceCount > 1 allows concurrent sessions to use different initial pro
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 10 /f
 
 REM === Firewall: allow RDP ===
+REM Delete-then-add keeps the rule idempotent — plain add creates duplicates on re-run.
 echo [winpodx] Configuring firewall...
 netsh advfirewall firewall set rule group="Remote Desktop" new enable=yes 2>nul
+netsh advfirewall firewall delete rule name="RDP TCP" >nul 2>&1
+netsh advfirewall firewall delete rule name="RDP UDP" >nul 2>&1
 netsh advfirewall firewall add rule name="RDP TCP" dir=in action=allow protocol=tcp localport=3389 2>nul
 netsh advfirewall firewall add rule name="RDP UDP" dir=in action=allow protocol=udp localport=3389 2>nul
 
@@ -138,13 +148,46 @@ if not defined WINPODX_SRC_OK (
 )
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\media_monitor.ps1" /f
 
+REM === OEM updater (re-runs install.bat on winpodx version bump) ===
+REM Deploys oem_updater.ps1 and registers a logon scheduled task at HIGHEST
+REM privileges so HKLM writes succeed on re-run. The updater greps
+REM WINPODX_OEM_VERSION out of the shipped install.bat and replays this
+REM script end-to-end when the number increases.
+echo [winpodx] Installing OEM updater...
+set "WINPODX_UPD_OK="
+if exist "C:\winpodx-scripts\oem_updater.ps1" (
+    copy /Y "C:\winpodx-scripts\oem_updater.ps1" C:\winpodx\oem_updater.ps1 >nul 2>&1
+    set "WINPODX_UPD_OK=1"
+)
+if not defined WINPODX_UPD_OK (
+    for %%P in (
+        "\\tsclient\home\.local\share\winpodx\scripts\windows\oem_updater.ps1"
+        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\oem_updater.ps1"
+        "\\tsclient\home\winpodx\scripts\windows\oem_updater.ps1"
+        "\\tsclient\home\.local\bin\winpodx-app\scripts\windows\oem_updater.ps1"
+    ) do (
+        if not defined WINPODX_UPD_OK if exist %%P (
+            copy /Y %%P C:\winpodx\oem_updater.ps1 >nul 2>&1
+            if not errorlevel 1 set "WINPODX_UPD_OK=1"
+        )
+    )
+)
+if not defined WINPODX_UPD_OK (
+    echo [winpodx] WARNING: oem_updater.ps1 not found in any known location.
+)
+schtasks /create /tn "WinpodxOEMUpdate" /tr "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\oem_updater.ps1" /sc ONLOGON /rl HIGHEST /f >nul 2>&1
+
+REM === Record applied OEM version ===
+echo %WINPODX_OEM_VERSION% > C:\winpodx\oem_version.txt
+
 REM === Multi-session RDP (TBD) ===
 REM Multi-session support (RDPWrap or equivalent) is planned as a separate project.
 REM Currently, only one RemoteApp/RDP session per user is supported.
 REM See: https://github.com/kernalix7/winpodx
 
 REM === Mark setup complete ===
-echo done > C:\OEM\winpodx_setup_done.txt
+REM Stored under C:\winpodx so the sentinel survives past the one-shot C:\OEM stage.
+echo done > C:\winpodx\setup_done.txt
 
-echo [winpodx] Post-install configuration complete!
+echo [winpodx] Post-install configuration complete (version %WINPODX_OEM_VERSION%)!
 echo [winpodx] RDP is now enabled. You can connect with FreeRDP.
