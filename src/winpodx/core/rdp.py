@@ -184,28 +184,11 @@ def build_rdp_command(
     if cfg.rdp.domain:
         cmd.append(f"/d:{cfg.rdp.domain}")
 
-    # Display & performance.
-    # Perf flags (safe to hardcode — all pure-visual / negotiation hints,
-    # none disable functionality):
-    #   -wallpaper / -menu-anims / -window-drag: turn off eye-candy, not
-    #       the underlying windows — menus still open, drag still works,
-    #       the background just isn't rendered. Biggest latency win on
-    #       slow loopback/VM paths.
-    #   /gfx (no codec arg): enable the RDP graphics pipeline explicitly
-    #       and let FreeRDP negotiate the best codec with the Windows
-    #       side. Avoids forcing AVC420, which would fail on FreeRDP
-    #       builds compiled without H.264 support (some source builds).
-    #   /network:auto: let FreeRDP tune compression/fastpath to measured
-    #       link quality instead of assuming LAN. Localhost → LAN profile,
-    #       slower links → broadband tuning.
+    # Display & performance
     cmd += [
         "+home-drive",
         "+clipboard",
         "-wallpaper",
-        "-menu-anims",
-        "-window-drag",
-        "/gfx",
-        "/network:auto",
         "/sound:sys:alsa",
         "/printer",
         "/usb:auto",
