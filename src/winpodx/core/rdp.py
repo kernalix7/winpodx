@@ -191,17 +191,14 @@ def build_rdp_command(
         "-wallpaper",
         "/sound:sys:alsa",
         "/printer",
-        "/usb:auto",
     ]
 
-    # USB sharing (two layers):
-    # 1. /usb:auto — if urbdrc plugin is available, USB devices appear
-    #    as real USB in Windows. If plugin is missing, FreeRDP logs a
-    #    warning and continues (no crash).
-    # 2. /drive:media — fallback: shares the media mount directory so
-    #    USB storage is always accessible as \\tsclient\media, even
-    #    without the urbdrc plugin. Drives plugged in after session
-    #    start appear as subfolders without reconnecting.
+    # USB sharing via shared folder (network drive), not device redirection:
+    # shares the media mount directory so USB storage is accessible as
+    # \\tsclient\media. Drives plugged in after session start appear as
+    # subfolders without reconnecting. /usb:auto is intentionally omitted
+    # because urbdrc plugin availability varies across FreeRDP builds and a
+    # missing plugin can terminate the session on some distros.
     media_base = _find_media_base()
     if media_base:
         cmd.append(f"/drive:media,{media_base}")
