@@ -13,9 +13,11 @@ The goal: user clicks an app icon → everything just works.
 
 from __future__ import annotations
 
+import base64
 import logging
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,8 +93,6 @@ def _find_share_file(relpath: str) -> Path | None:
     shared-data), user-local pip, legacy install path. Returns ``None`` if
     the file isn't found in any of them.
     """
-    import sys
-
     here = Path(__file__).resolve()
     candidates = [
         here.parent.parent.parent.parent / relpath,
@@ -119,8 +119,6 @@ def _push_file_to_container(
     that fits a Windows command line (~32 KB); shipped scripts are well
     under that.
     """
-    import base64
-
     b64 = base64.b64encode(src.read_bytes()).decode("ascii")
     dest = dest_win_path.replace("'", "''")
     ps_cmd = (
@@ -163,6 +161,10 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
     files, so future triggers can re-apply without needing winpodx running.
     Idempotent: ``oem_updater.ps1`` compares its own version marker before
     doing anything expensive, so repeated invocations are harmless.
+
+    Wrapped in a broad ``except Exception`` so the updater path can never
+    block ``ensure_ready`` / app launch — a failure to propagate a Windows
+    update must not keep the user from launching their apps.
     """
     try:
         from importlib.metadata import PackageNotFoundError
@@ -172,62 +174,64 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
             current = _pkg_version("winpodx")
         except PackageNotFoundError:
             return cfg
-    except ImportError:
-        return cfg
 
-    if not current or cfg.pod.last_oem_push == current:
-        return cfg
+        if not current or cfg.pod.last_oem_push == current:
+            return cfg
 
-    backend = cfg.pod.backend
-    if backend not in ("podman", "docker"):
-        return cfg
+        backend = cfg.pod.backend
+        if backend not in ("podman", "docker"):
+            return cfg
 
-    install_bat = _find_share_file("config/oem/install.bat")
-    oem_updater = _find_share_file("scripts/windows/oem_updater.ps1")
-    if install_bat is None or oem_updater is None:
-        log.debug("OEM push skipped: shipped files not found on local filesystem")
-        return cfg
+        install_bat = _find_share_file("config/oem/install.bat")
+        oem_updater = _find_share_file("scripts/windows/oem_updater.ps1")
+        if install_bat is None or oem_updater is None:
+            log.debug("OEM push skipped: shipped files not found on local filesystem")
+            return cfg
 
-    runtime = "podman" if backend == "podman" else "docker"
-    container = cfg.pod.container_name
+        runtime = "podman" if backend == "podman" else "docker"
+        container = cfg.pod.container_name
 
-    if not _push_file_to_container(runtime, container, oem_updater, r"C:\winpodx\oem_updater.ps1"):
-        return cfg
-    if not _push_file_to_container(
-        runtime, container, install_bat, r"C:\winpodx\install_shipped.bat"
-    ):
-        return cfg
+        if not _push_file_to_container(
+            runtime, container, oem_updater, r"C:\winpodx\oem_updater.ps1"
+        ):
+            return cfg
+        if not _push_file_to_container(
+            runtime, container, install_bat, r"C:\winpodx\install_shipped.bat"
+        ):
+            return cfg
 
-    exec_cmd = [
-        runtime,
-        "exec",
-        container,
-        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        r"C:\winpodx\oem_updater.ps1",
-    ]
-    try:
-        result = subprocess.run(exec_cmd, capture_output=True, text=True, timeout=60)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("OEM push skipped: %s", e)
-        return cfg
+        exec_cmd = [
+            runtime,
+            "exec",
+            container,
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            r"C:\winpodx\oem_updater.ps1",
+        ]
+        try:
+            result = subprocess.run(exec_cmd, capture_output=True, text=True, timeout=60)
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            log.warning("OEM push skipped: %s", e)
+            return cfg
 
-    if result.returncode != 0:
-        log.warning(
-            "oem_updater.ps1 exit=%s stderr=%s",
-            result.returncode,
-            result.stderr.strip()[:200],
-        )
-        return cfg
+        if result.returncode != 0:
+            log.warning(
+                "oem_updater.ps1 exit=%s stderr=%s",
+                result.returncode,
+                result.stderr.strip()[:200],
+            )
+            return cfg
 
-    cfg.pod.last_oem_push = current
-    try:
-        cfg.save()
-    except OSError as e:
-        log.warning("Failed to persist last_oem_push: %s", e)
+        cfg.pod.last_oem_push = current
+        try:
+            cfg.save()
+        except OSError as e:
+            log.warning("Failed to persist last_oem_push: %s", e)
+    except Exception as e:  # noqa: BLE001 - defensive: must never block ensure_ready
+        log.warning("OEM push skipped due to unexpected error: %s", e)
     return cfg
 
 
