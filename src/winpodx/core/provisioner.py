@@ -14,8 +14,11 @@ The goal: user clicks an app icon → everything just works.
 from __future__ import annotations
 
 import base64
+import errno
+import fcntl
 import hashlib
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -31,10 +34,17 @@ from winpodx.utils.paths import config_dir, data_dir
 
 log = logging.getLogger(__name__)
 
-# Single-flight lock for the async OEM push. Non-blocking acquire: if one
-# push is already running, a second ensure_ready() in the same process
-# (e.g. user double-clicking an app) silently skips rather than queueing.
+# In-process single-flight lock for the async OEM push. Non-blocking
+# acquire: a second ensure_ready() in the same process silently skips
+# rather than queueing. Cross-process single-flight is handled via
+# fcntl.flock on _oem_push_flock_path() — see _push_oem_update_if_stale_async.
 _OEM_PUSH_LOCK = threading.Lock()
+
+
+def _oem_push_flock_path() -> Path:
+    """Filesystem lock path for cross-process OEM-push single-flight."""
+    return Path(config_dir()) / ".oem_push.lock"
+
 
 # Marker written when a password rotation left the Windows password
 # and the stored config out of sync (rollback failed). Presence of this
@@ -262,14 +272,50 @@ def _push_oem_update_if_stale_async(cfg: Config) -> None:
     Spawns a daemon thread so app launch returns immediately. Persistence
     of ``last_oem_push`` happens on the thread via reload-merge-save to
     avoid clobbering concurrent main-thread config writes (e.g. the
-    password rotation path). Only one push runs at a time per process;
-    a second ``ensure_ready`` call while a push is in flight silently
-    skips rather than queueing.
+    password rotation path).
+
+    Two single-flight gates, both non-blocking:
+
+    * ``_OEM_PUSH_LOCK`` — in-process ``threading.Lock``, cheap.
+    * ``fcntl.flock`` on :func:`_oem_push_flock_path` — cross-process.
+      Without this, two ``winpodx`` CLI invocations started in parallel
+      (two terminals, two desktop icons) would run duplicate
+      ``podman exec`` chains into the same container.
+
+    Linux kernel auto-releases flocks held by a process when that process
+    dies, so a daemon thread killed at interpreter shutdown cannot leave
+    a stale lock behind.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
     if not _OEM_PUSH_LOCK.acquire(blocking=False):
         return
+
+    lock_fd: int | None = None
+    try:
+        lock_path = _oem_push_flock_path()
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                # Another winpodx process is already pushing.
+                os.close(lock_fd)
+                _OEM_PUSH_LOCK.release()
+                return
+            raise
+    except OSError as e:
+        log.debug("OEM push flock skipped: %s", e)
+        if lock_fd is not None:
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
+        _OEM_PUSH_LOCK.release()
+        return
+
+    held_fd = lock_fd
 
     def _runner() -> None:
         try:
@@ -286,6 +332,14 @@ def _push_oem_update_if_stale_async(cfg: Config) -> None:
         except Exception as e:  # noqa: BLE001 - thread must never raise
             log.warning("Async OEM push thread error: %s", e)
         finally:
+            try:
+                fcntl.flock(held_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                os.close(held_fd)
+            except OSError:
+                pass
             _OEM_PUSH_LOCK.release()
 
     threading.Thread(target=_runner, name="winpodx-oem-push", daemon=True).start()
@@ -434,7 +488,6 @@ def _mark_rotation_pending(old_password: str, new_password: str) -> None:
     """Atomically write a 0o600 marker signalling a partial rotation.
     Contents exclude the password so the marker cannot leak credentials.
     """
-    import os
     import tempfile
 
     marker = _rotation_marker_path()
@@ -619,9 +672,7 @@ def terminate_tracked_sessions(timeout: float = 3.0) -> int:
 
     Returns the number of processes that received a signal.
     """
-    import os
     import signal
-    import time
 
     from winpodx.core.process import is_freerdp_pid, list_active_sessions
 

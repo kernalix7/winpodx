@@ -330,3 +330,33 @@ def test_push_oem_async_single_flight(_oem_push_cfg, monkeypatch):
         provisioner._push_oem_update_if_stale_async(_oem_push_cfg)
     finally:
         provisioner._OEM_PUSH_LOCK.release()
+
+
+def test_push_oem_async_flock_blocks_second_process(_oem_push_cfg, monkeypatch):
+    # Simulate another winpodx process holding the flock. The async call
+    # must release its in-process lock and skip — no thread, no exec.
+    import fcntl
+
+    from winpodx.core import provisioner
+
+    lock_path = provisioner._oem_push_flock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    other_fd = provisioner.os.open(
+        str(lock_path), provisioner.os.O_CREAT | provisioner.os.O_RDWR, 0o600
+    )
+    fcntl.flock(other_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+
+        def _boom(*_a, **_kw):
+            raise AssertionError("flocked push must not spawn a thread")
+
+        monkeypatch.setattr(provisioner.threading, "Thread", _boom)
+        provisioner._push_oem_update_if_stale_async(_oem_push_cfg)
+
+        # In-process lock must have been released so the NEXT ensure_ready
+        # (once the other process finishes) can still try again.
+        assert provisioner._OEM_PUSH_LOCK.acquire(blocking=False)
+        provisioner._OEM_PUSH_LOCK.release()
+    finally:
+        fcntl.flock(other_fd, fcntl.LOCK_UN)
+        provisioner.os.close(other_fd)
