@@ -14,10 +14,12 @@ The goal: user clicks an app icon → everything just works.
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +30,11 @@ from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
 from winpodx.utils.paths import config_dir, data_dir
 
 log = logging.getLogger(__name__)
+
+# Single-flight lock for the async OEM push. Non-blocking acquire: if one
+# push is already running, a second ensure_ready() in the same process
+# (e.g. user double-clicking an app) silently skips rather than queueing.
+_OEM_PUSH_LOCK = threading.Lock()
 
 # Marker written when a password rotation left the Windows password
 # and the stored config out of sync (rollback failed). Presence of this
@@ -65,7 +72,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
     # Fast path — RDP already available, skip all checks
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
-        cfg = _push_oem_update_if_stale(cfg)
+        _push_oem_update_if_stale_async(cfg)
         return cfg
 
     # Slow path — full provisioning
@@ -81,7 +88,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     _ensure_pod_running(cfg, timeout)
     _install_bundled_apps_if_needed()
     _ensure_desktop_entries()
-    cfg = _push_oem_update_if_stale(cfg)
+    _push_oem_update_if_stale_async(cfg)
 
     return cfg
 
@@ -152,32 +159,40 @@ def _push_file_to_container(
     return True
 
 
-def _push_oem_update_if_stale(cfg: Config) -> Config:
-    """Trigger the in-VM oem_updater.ps1 once per winpodx version bump.
+def _oem_content_hash(install_bat: Path, oem_updater: Path) -> str:
+    """Return a content fingerprint covering both shipped files.
 
-    Pushes both the latest ``oem_updater.ps1`` and ``install.bat`` into the
-    guest (via :func:`_push_file_to_container`), then runs the updater. The
-    in-VM Scheduled Task (AtLogOn + AtStartup) reads the same locally-written
-    files, so future triggers can re-apply without needing winpodx running.
-    Idempotent: ``oem_updater.ps1`` compares its own version marker before
-    doing anything expensive, so repeated invocations are harmless.
+    A NUL byte between the two contents guards against length-extension
+    ambiguity (``a||b`` vs ``ab``). The hex digest is stored in
+    ``cfg.pod.last_oem_push`` so repeated launches skip the push whenever
+    the shipped bytes are unchanged, regardless of winpodx version bumps.
+    """
+    h = hashlib.sha256()
+    h.update(install_bat.read_bytes())
+    h.update(b"\x00")
+    h.update(oem_updater.read_bytes())
+    return h.hexdigest()
+
+
+def _push_oem_update_if_stale(cfg: Config) -> Config:
+    """Synchronous OEM push — pushes files and runs the updater in-VM.
+
+    Skipped when the combined SHA-256 of ``install.bat`` + ``oem_updater.ps1``
+    matches ``cfg.pod.last_oem_push`` (nothing changed since last successful
+    push). Mutates ``cfg.pod.last_oem_push`` on success but does **not**
+    persist to disk — the async wrapper handles persistence under a
+    reload-merge-save pattern so concurrent config writers can't clobber
+    each other.
+
+    The in-VM Scheduled Task (AtLogOn + AtStartup) also reads the same
+    locally-written files, so future triggers can re-apply without needing
+    winpodx running. Idempotent: ``oem_updater.ps1`` compares its own
+    version marker before doing anything expensive.
 
     Wrapped in a broad ``except Exception`` so the updater path can never
-    block ``ensure_ready`` / app launch — a failure to propagate a Windows
-    update must not keep the user from launching their apps.
+    block ``ensure_ready`` / app launch.
     """
     try:
-        from importlib.metadata import PackageNotFoundError
-        from importlib.metadata import version as _pkg_version
-
-        try:
-            current = _pkg_version("winpodx")
-        except PackageNotFoundError:
-            return cfg
-
-        if not current or cfg.pod.last_oem_push == current:
-            return cfg
-
         backend = cfg.pod.backend
         if backend not in ("podman", "docker"):
             return cfg
@@ -186,6 +201,10 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
         oem_updater = _find_share_file("scripts/windows/oem_updater.ps1")
         if install_bat is None or oem_updater is None:
             log.debug("OEM push skipped: shipped files not found on local filesystem")
+            return cfg
+
+        digest = _oem_content_hash(install_bat, oem_updater)
+        if cfg.pod.last_oem_push == digest:
             return cfg
 
         runtime = "podman" if backend == "podman" else "docker"
@@ -225,14 +244,51 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
             )
             return cfg
 
-        cfg.pod.last_oem_push = current
-        try:
-            cfg.save()
-        except OSError as e:
-            log.warning("Failed to persist last_oem_push: %s", e)
+        old = cfg.pod.last_oem_push
+        cfg.pod.last_oem_push = digest
+        log.info(
+            "OEM content pushed (%s -> %s)",
+            old[:12] if old else "none",
+            digest[:12],
+        )
     except Exception as e:  # noqa: BLE001 - defensive: must never block ensure_ready
         log.warning("OEM push skipped due to unexpected error: %s", e)
     return cfg
+
+
+def _push_oem_update_if_stale_async(cfg: Config) -> None:
+    """Fire-and-forget wrapper used by ``ensure_ready``.
+
+    Spawns a daemon thread so app launch returns immediately. Persistence
+    of ``last_oem_push`` happens on the thread via reload-merge-save to
+    avoid clobbering concurrent main-thread config writes (e.g. the
+    password rotation path). Only one push runs at a time per process;
+    a second ``ensure_ready`` call while a push is in flight silently
+    skips rather than queueing.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+    if not _OEM_PUSH_LOCK.acquire(blocking=False):
+        return
+
+    def _runner() -> None:
+        try:
+            initial = cfg.pod.last_oem_push
+            _push_oem_update_if_stale(cfg)
+            if cfg.pod.last_oem_push == initial:
+                return
+            try:
+                fresh = Config.load()
+                fresh.pod.last_oem_push = cfg.pod.last_oem_push
+                fresh.save()
+            except OSError as e:
+                log.warning("Failed to persist last_oem_push (async): %s", e)
+        except Exception as e:  # noqa: BLE001 - thread must never raise
+            log.warning("Async OEM push thread error: %s", e)
+        finally:
+            _OEM_PUSH_LOCK.release()
+
+    threading.Thread(target=_runner, name="winpodx-oem-push", daemon=True).start()
 
 
 def _change_windows_password(cfg: Config, new_password: str) -> bool:

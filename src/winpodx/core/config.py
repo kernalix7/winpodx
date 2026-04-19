@@ -65,10 +65,11 @@ class PodConfig:
     image: str = "ghcr.io/dockur/windows:latest"
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
-    # Winpodx package version that last successfully triggered the in-VM
-    # oem_updater.ps1 via `podman exec`. When importlib.metadata reports a
-    # different version we re-run the updater once so Windows-side changes
-    # reach VMs that stay paused/unpaused and never see a fresh logon event.
+    # SHA-256 content hash of (install.bat + oem_updater.ps1) that was last
+    # successfully pushed into the VM via `podman exec`. Compared on every
+    # ensure_ready() and the push is skipped when hashes match, so winpodx
+    # version bumps that don't touch the shipped files don't trigger a
+    # redundant in-VM updater run.
     last_oem_push: str = ""
 
     def __post_init__(self) -> None:

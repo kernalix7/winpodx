@@ -161,39 +161,52 @@ def _oem_push_cfg(tmp_path, monkeypatch):
     return cfg
 
 
-def test_push_oem_skips_when_version_matches(_oem_push_cfg, monkeypatch):
+def _stub_shipped(monkeypatch, provisioner, tmp_path, bat_body: bytes, ps_body: bytes):
+    """Point _find_share_file at in-tmp stand-ins for the shipped files.
+
+    Returns the (install.bat, oem_updater.ps1) paths so tests can compute
+    the expected content hash without duplicating the hasher.
+    """
+    fake_bat = tmp_path / "install.bat"
+    fake_bat.write_bytes(bat_body)
+    fake_ps = tmp_path / "oem_updater.ps1"
+    fake_ps.write_bytes(ps_body)
+    monkeypatch.setattr(
+        provisioner,
+        "_find_share_file",
+        lambda relpath: {
+            "config/oem/install.bat": fake_bat,
+            "scripts/windows/oem_updater.ps1": fake_ps,
+        }.get(relpath),
+    )
+    return fake_bat, fake_ps
+
+
+def test_push_oem_skips_when_hash_matches(_oem_push_cfg, monkeypatch, tmp_path):
     from winpodx.core import provisioner
 
-    _oem_push_cfg.pod.last_oem_push = "9.9.9"
-    monkeypatch.setattr(
-        "importlib.metadata.version",
-        lambda _name: "9.9.9",
+    fake_bat, fake_ps = _stub_shipped(
+        monkeypatch, provisioner, tmp_path, b"set WINPODX_OEM_VERSION=7\n", b"# stub\n"
     )
+    digest = provisioner._oem_content_hash(fake_bat, fake_ps)
+    _oem_push_cfg.pod.last_oem_push = digest
 
     def _boom(*_a, **_kw):
-        raise AssertionError("podman exec must not run when versions match")
+        raise AssertionError("podman exec must not run when hashes match")
 
     monkeypatch.setattr(provisioner.subprocess, "run", _boom)
 
     result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
-    assert result.pod.last_oem_push == "9.9.9"
+    assert result.pod.last_oem_push == digest
 
 
 def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch, tmp_path):
     from winpodx.core import provisioner
 
-    fake_bat = tmp_path / "install.bat"
-    fake_bat.write_bytes(b"set WINPODX_OEM_VERSION=7\n")
-    fake_ps = tmp_path / "oem_updater.ps1"
-    fake_ps.write_bytes(b"# stub\n")
-
-    def _fake_find(relpath: str):
-        return {"config/oem/install.bat": fake_bat, "scripts/windows/oem_updater.ps1": fake_ps}.get(
-            relpath
-        )
-
-    monkeypatch.setattr(provisioner, "_find_share_file", _fake_find)
-    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+    fake_bat, fake_ps = _stub_shipped(
+        monkeypatch, provisioner, tmp_path, b"set WINPODX_OEM_VERSION=7\n", b"# stub\n"
+    )
+    expected = provisioner._oem_content_hash(fake_bat, fake_ps)
 
     calls: list[list[str]] = []
 
@@ -210,7 +223,7 @@ def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch, tmp_pat
 
     result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
 
-    assert result.pod.last_oem_push == "1.2.3"
+    assert result.pod.last_oem_push == expected
     # Two pushes (ps1 first, then bat), then the updater invocation.
     assert len(calls) == 3
     assert any("oem_updater.ps1" in arg for arg in calls[0])
@@ -219,22 +232,10 @@ def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch, tmp_pat
     assert calls[-1][-2] == "-File"
 
 
-def test_push_oem_keeps_version_unchanged_on_failure(_oem_push_cfg, monkeypatch, tmp_path):
+def test_push_oem_keeps_hash_unchanged_on_failure(_oem_push_cfg, monkeypatch, tmp_path):
     from winpodx.core import provisioner
 
-    fake_bat = tmp_path / "install.bat"
-    fake_bat.write_bytes(b"set WINPODX_OEM_VERSION=7\n")
-    fake_ps = tmp_path / "oem_updater.ps1"
-    fake_ps.write_bytes(b"# stub\n")
-    monkeypatch.setattr(
-        provisioner,
-        "_find_share_file",
-        lambda relpath: {
-            "config/oem/install.bat": fake_bat,
-            "scripts/windows/oem_updater.ps1": fake_ps,
-        }.get(relpath),
-    )
-    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
+    _stub_shipped(monkeypatch, provisioner, tmp_path, b"set WINPODX_OEM_VERSION=7\n", b"# stub\n")
 
     class _R:
         returncode = 1
@@ -251,7 +252,6 @@ def test_push_oem_noop_for_unsupported_backend(_oem_push_cfg, monkeypatch):
     from winpodx.core import provisioner
 
     _oem_push_cfg.pod.backend = "libvirt"
-    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
 
     def _boom(*_a, **_kw):
         raise AssertionError("podman exec must not run for libvirt backend")
@@ -265,7 +265,6 @@ def test_push_oem_noop_for_unsupported_backend(_oem_push_cfg, monkeypatch):
 def test_push_oem_skips_when_shipped_files_missing(_oem_push_cfg, monkeypatch):
     from winpodx.core import provisioner
 
-    monkeypatch.setattr("importlib.metadata.version", lambda _name: "1.2.3")
     monkeypatch.setattr(provisioner, "_find_share_file", lambda _relpath: None)
 
     def _boom(*_a, **_kw):
@@ -275,3 +274,59 @@ def test_push_oem_skips_when_shipped_files_missing(_oem_push_cfg, monkeypatch):
 
     result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
     assert result.pod.last_oem_push == ""
+
+
+def test_push_oem_async_spawns_thread_and_persists(_oem_push_cfg, monkeypatch, tmp_path):
+    # Exercises the async wrapper end-to-end: thread runs to completion,
+    # last_oem_push gets reload-merged into the on-disk config.
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    fake_bat, fake_ps = _stub_shipped(
+        monkeypatch, provisioner, tmp_path, b"async body\n", b"# async stub\n"
+    )
+    expected = provisioner._oem_content_hash(fake_bat, fake_ps)
+
+    class _R:
+        returncode = 0
+        stderr = ""
+        stdout = ""
+
+    monkeypatch.setattr(provisioner.subprocess, "run", lambda *_a, **_kw: _R())
+
+    # Grab the thread handle so the test can deterministically wait on it.
+    spawned: list = []
+    real_thread = provisioner.threading.Thread
+
+    def _capture(*args, **kwargs):
+        t = real_thread(*args, **kwargs)
+        spawned.append(t)
+        return t
+
+    monkeypatch.setattr(provisioner.threading, "Thread", _capture)
+
+    provisioner._push_oem_update_if_stale_async(_oem_push_cfg)
+    assert len(spawned) == 1
+    spawned[0].join(timeout=5)
+    assert not spawned[0].is_alive()
+
+    reloaded = Config.load()
+    assert reloaded.pod.last_oem_push == expected
+
+
+def test_push_oem_async_single_flight(_oem_push_cfg, monkeypatch):
+    # A second async call while a push is in flight must silently skip,
+    # not queue up a duplicate podman exec chain.
+    from winpodx.core import provisioner
+
+    # Hold the lock as if another push were already running.
+    assert provisioner._OEM_PUSH_LOCK.acquire(blocking=False)
+    try:
+
+        def _boom(*_a, **_kw):
+            raise AssertionError("second push must not spawn a thread")
+
+        monkeypatch.setattr(provisioner.threading, "Thread", _boom)
+        provisioner._push_oem_update_if_stale_async(_oem_push_cfg)
+    finally:
+        provisioner._OEM_PUSH_LOCK.release()
