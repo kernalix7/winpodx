@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-04-21
+
 ### 추가됨
 - **제로 설정 자동 프로비저닝**: 첫 앱 실행 시 설정, compose.yaml, 팟 시작, 데스크톱 엔트리 자동 생성
 - **14개 번들 앱 정의**: Word, Excel, PowerPoint, Outlook, OneNote, Access, Notepad, Explorer, CMD, PowerShell, Paint, Calculator, VS Code, Teams

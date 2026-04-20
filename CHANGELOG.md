@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-04-21
+
 ### Added
 - **Zero-config auto-provisioning**: First app launch auto-creates config, compose.yaml, starts pod, and registers desktop entries
 - **14 bundled app definitions**: Word, Excel, PowerPoint, Outlook, OneNote, Access, Notepad, Explorer, CMD, PowerShell, Paint, Calculator, VS Code, Teams
