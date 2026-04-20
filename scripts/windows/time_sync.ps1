@@ -9,10 +9,7 @@ $synced = $false
 foreach ($server in $ntpServers) {
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
-            # w32tm writes errors to the success stream and returns a non-zero
-            # exit code on failure — it does NOT throw. Catching exceptions is
-            # kept only for truly absent-binary / access-denied cases. Success
-            # must be detected via $LASTEXITCODE after each invocation.
+            # w32tm returns a non-zero exit code on failure without throwing, so success must be checked via $LASTEXITCODE.
             w32tm /config /manualpeerlist:$server /syncfromflags:manual /reliable:YES /update | Out-Null
             $configExit = $LASTEXITCODE
             w32tm /resync /force | Out-Null

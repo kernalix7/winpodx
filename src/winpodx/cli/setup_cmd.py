@@ -191,7 +191,7 @@ def handle_setup(args: argparse.Namespace) -> None:
         print(f"  Compose:  {compose_path}")
     print()
     print("Apps are now in your application menu.")
-    print("Just click any app — winpodx handles the rest automatically.")
+    print("Just click any app. winpodx handles the rest automatically.")
 
 
 def _recreate_container(cfg: Config) -> None:

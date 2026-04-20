@@ -27,15 +27,15 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **Compose.yaml generation**: Auto-generated for Podman/Docker backends with dockur/windows image
 - **Per-app taskbar separation**: Each app gets its own WM_CLASS and `StartupWMClass` for independent taskbar icons
 - **Windows build pinning**: Feature updates blocked via `TargetReleaseVersion` registry policy, security updates allowed
-- **CI: Upstream update monitoring**: Weekly checks for new dockur/windows releases — creates PRs automatically
+- **CI: Upstream update monitoring**: Weekly checks for new dockur/windows releases; creates PRs automatically
 - **GUI: Container restart prompt**: Prompts to restart container when CPU, RAM, or port settings change
 - **GUI: Scale as dropdown**: FreeRDP scale limited to valid values (100%/140%/180%) via QComboBox
 - **GUI: Concurrent launch protection**: Threading lock prevents simultaneous app launch crashes
 - **GUI: Windows Update toggle**: Enable/Disable buttons with status display, triple-layer block (services + scheduled tasks + hosts file)
 - **Sound and printer**: RDP audio (`/sound:sys:alsa`) and printer redirection (`/printer`) enabled by default
-- **USB drive sharing**: Removable media auto-shared via `/drive:media` — USB drives plugged in after session start appear as subfolders without reconnecting
-- **USB device redirection**: `/usb:auto` enabled by default — if FreeRDP urbdrc plugin is available, USB devices appear as real USB in Windows; falls back to drive sharing if not
-- **USB auto drive mapping**: Windows-side FileSystemWatcher script auto-maps USB subfolders to drive letters (E:, F:, ...) when plugged in, unmaps when removed — event-driven, no polling
+- **USB drive sharing**: Removable media auto-shared via `/drive:media`; USB drives plugged in after session start appear as subfolders without reconnecting
+- **USB device redirection**: `/usb:auto` enabled by default; if FreeRDP urbdrc plugin is available, USB devices appear as real USB in Windows; falls back to drive sharing if not
+- **USB auto drive mapping**: Windows-side FileSystemWatcher script auto-maps USB subfolders to drive letters (E:, F:, ...) when plugged in, unmaps when removed (event-driven, no polling)
 - Desktop integration: `.desktop` entries, hicolor icons, MIME type registration, icon cache refresh
 - argparse-based CLI: app, pod, config, setup, tray, info, cleanup, timesync, debloat, power, rotate-password commands
 - TOML configuration with 0600 file permissions for credential protection
@@ -43,17 +43,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - winapps.conf import for migration from existing setups
 
 ### Performance
-- **`find_freerdp()` success caching**: hand-rolled module-level cache (not `lru_cache`) that stores successful lookups only — first call scans PATH and (as fallback) runs `flatpak list` with a 10s timeout; subsequent calls in the same process are free. ``None`` (not-found) results are deliberately not cached so the long-running tray/GUI processes pick up a mid-session FreeRDP install on the next launch attempt instead of staying broken until restart. Biggest win on cold RDP launches, and avoids the 10s flatpak probe entirely on systems that have xfreerdp3 installed normally
-- **`winapps.conf` import stamps `password_updated`**: the 7-day rotation clock starts at import time. Previously an imported config either (a) never auto-rotated with the new fast-path logic or (b) was rotated on the very first launch under the old code, silently replacing the credential the user just migrated in — neither was desirable
-- **Skip `pod_status()` subprocess on fresh install**: `_auto_rotate_password` now returns early when `password_updated` is empty. Previously the rotation path unconditionally invoked `backend.is_running` + `net user` even on first launch, adding a 100-500ms subprocess round-trip before the user's first app could start. `setup_cmd` and `rotate-password` both stamp the timestamp, so the fast path only kicks in for brand-new or hand-edited configs — exactly when rotation cannot make an informed decision anyway
+- **`find_freerdp()` success caching**: hand-rolled module-level cache (not `lru_cache`) that stores successful lookups only. First call scans PATH and (as fallback) runs `flatpak list` with a 10s timeout; subsequent calls in the same process are free. ``None`` (not-found) results are deliberately not cached so the long-running tray/GUI processes pick up a mid-session FreeRDP install on the next launch attempt instead of staying broken until restart. Biggest win on cold RDP launches, and avoids the 10s flatpak probe entirely on systems that have xfreerdp3 installed normally
+- **`winapps.conf` import stamps `password_updated`**: the 7-day rotation clock starts at import time. Previously an imported config either (a) never auto-rotated with the new fast-path logic or (b) was rotated on the very first launch under the old code, silently replacing the credential the user just migrated in; neither was desirable
+- **Skip `pod_status()` subprocess on fresh install**: `_auto_rotate_password` now returns early when `password_updated` is empty. Previously the rotation path unconditionally invoked `backend.is_running` + `net user` even on first launch, adding a 100-500ms subprocess round-trip before the user's first app could start. `setup_cmd` and `rotate-password` both stamp the timestamp, so the fast path only kicks in for brand-new or hand-edited configs, exactly when rotation cannot make an informed decision anyway
 ### Cleanup
 - **Compose module extraction**: `_yaml_escape`, `_build_compose_content`, `generate_compose`, `generate_compose_to`, `generate_password`, and the YAML templates moved from `cli/setup_cmd.py` to a new `core/compose.py`. Eliminates the core→cli reverse dependency (`provisioner.py` previously did `from winpodx.cli.setup_cmd import _generate_compose, _generate_password` inside function bodies). `setup_cmd.py` now re-exports the private-aliased names for backward compatibility so existing imports and test patches continue to work
-- Compose atomic write: added `os.fsync(fd)` before `os.replace()` — prevents zero-byte `compose.yaml` after a crash between rename-metadata commit and data flush (matches the pattern already used in `config.py:save()`)
+- Compose atomic write: added `os.fsync(fd)` before `os.replace()` to prevent zero-byte `compose.yaml` after a crash between rename-metadata commit and data flush (matches the pattern already used in `config.py:save()`)
 - `_recreate_container`: `compose down` now captures stdout/stderr and warns on unexpected non-zero return codes. "No such container" is still treated as benign (common on fresh setup) but other runtime errors are surfaced instead of silently swallowed
 - Compose template generation: `_yaml_escape`, `_find_oem_dir`, `_build_compose_content` promoted to module-level helpers; `_generate_compose` and `_generate_compose_to` share one builder (-52 lines in `cli/setup_cmd.py`)
-- Daemon container commands: `_run_container_cmd` helper consolidates `suspend_pod`/`resume_pod`/`is_pod_paused` — each now 10 lines instead of 25-30 (-48 lines)
+- Daemon container commands: `_run_container_cmd` helper consolidates `suspend_pod`/`resume_pod`/`is_pod_paused`; each now 10 lines instead of 25-30 (-48 lines)
 - Display scaling: `detect_scale_factor` now delegates to `detect_raw_scale` instead of re-running the DE dispatch cascade (-12 lines)
-- `PasswordFilter`: removed duplicate keyword tuple — regex is now the single source of truth
+- `PasswordFilter`: removed duplicate keyword tuple; regex is now the single source of truth
 - RDP flag allowlist comments: 24-line and 21-line historical-design banners compressed to headers; dict values self-document
 - Provisioner: hoisted `datetime`/`Path` imports to module top, dropped forward-ref string + noqa on `_rotation_marker_path`, trimmed private helper docstrings
 - `utils/deps.py`: removed dead `REQUIRED_DEPS` constant and inlined `check_backends()` into `check_all()`
@@ -62,7 +62,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Test suite: stripped docstrings from test functions per project convention (CLAUDE.md), dropped a redundant signature-introspection test and duplicate `PasswordFilter` tests covered by audit5. Total: **228 → 225 tests** (higher signal), **~240 LoC removed** across the refactor
 
 ### Security
-- `container_name` input validation: `PodConfig.__post_init__()` now enforces `^[A-Za-z0-9][A-Za-z0-9_.-]*$` (the Podman/Docker accepted charset). Rejected values fall back to `winpodx-windows` — stops a hand-edited config from leaking whitespace, slashes, or shell metacharacters into `podman exec` argument lists or the compose YAML template
+- `container_name` input validation: `PodConfig.__post_init__()` now enforces `^[A-Za-z0-9][A-Za-z0-9_.-]*$` (the Podman/Docker accepted charset). Rejected values fall back to `winpodx-windows`, stopping a hand-edited config from leaking whitespace, slashes, or shell metacharacters into `podman exec` argument lists or the compose YAML template
 - Icon install symlink guard: `_install_icon()` now refuses symlinked `icon_path` values outright and passes `follow_symlinks=False` to `shutil.copy2`. Prevents a malicious/stray symlink in an app definition from causing the copy to read whatever the target points at and plant it in the shared hicolor tree as that app's icon
 - RDP flag allowlist hardened: prefix matching replaced with per-flag argument-shape validation. `/drive` now restricts share names to `{home, media}`; `/serial`, `/parallel`, `/smartcard`, `/usb` each have explicit allowlists; adversarial winapps.conf payloads like `/drive:etc,/etc` or `/serial:/dev/tty` are dropped with a warning
 - winapps.conf import: if any RDP_FLAGS entry is filtered, `extra_flags` is cleared entirely (all-or-nothing) instead of silently persisting the partial set, forcing explicit user opt-in
@@ -70,10 +70,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Bundled apps directory symlink guard: `load_app` now rejects entries whose resolved path escapes `bundled_apps_dir()` (mirrors the hardening already in `bundled_data_path()`)
 - `PasswordFilter` logging: clears `record.args` after redacting `record.msg` so re-emission or late formatting can't desync and leak the raw password
 - TLS-only RDP (`/sec:tls`) now applied for all backends (previously Podman-only). The OEM install disables NLA on Windows unconditionally, so Docker/libvirt/manual users previously hit TLS handshake errors
-- Atomic config writes: `os.fsync(fd)` + parent directory fsync + `os.replace()` — prevents torn writes on power loss
-- Symlink / path-traversal hardening in `bundled_data_path()`: `.resolve()` + `is_relative_to()` checks and `copy2(..., follow_symlinks=False)` — blocks installs pointing outside bundled data dirs
-- Subprocess timeouts in desktop integration (`update_icon_cache`, `notify-send`) — prevents indefinite hangs from unresponsive helpers
-- `import_winapps_config` now filters untrusted `RDP_FLAGS` through `_filter_extra_flags()` — prevents malicious winapps.conf injecting arbitrary FreeRDP flags
+- Atomic config writes: `os.fsync(fd)` + parent directory fsync + `os.replace()` to prevent torn writes on power loss
+- Symlink / path-traversal hardening in `bundled_data_path()`: `.resolve()` + `is_relative_to()` checks and `copy2(..., follow_symlinks=False)` to block installs pointing outside bundled data dirs
+- Subprocess timeouts in desktop integration (`update_icon_cache`, `notify-send`) to prevent indefinite hangs from unresponsive helpers
+- `import_winapps_config` now filters untrusted `RDP_FLAGS` through `_filter_extra_flags()` to prevent malicious winapps.conf injecting arbitrary FreeRDP flags
 - Config and compose.yaml files created with 0600 permissions
 - RDP certificate: `/cert:ignore` for localhost only, `/cert:tofu` for remote connections
 - Password filtered from log output
@@ -83,58 +83,58 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Zombie process reaper (daemon thread per RDP process) to prevent process table leaks
 - Config `_apply()` uses `dataclasses.fields()` allowlist to prevent arbitrary attribute injection
 - SecurityLayer=2 (TLS) for encrypted RDP channel in OEM install and registry template
-- TLS-only RDP authentication for Podman backend (`/sec:tls`) — NLA/Kerberos fails in `podman unshare` namespace
+- TLS-only RDP authentication for Podman backend (`/sec:tls`); NLA/Kerberos fails in `podman unshare` namespace
 - Exit code 145 (SIGTERM) treated as normal app close, not error
 - Subprocess error handling with timeout in debloat (CLI + GUI)
 - PowerShell username escaping: single quotes doubled to prevent command injection in `net user` calls
 - Password timestamp timezone handling: naive timestamps upgraded to UTC, `TypeError` caught alongside `ValueError`
 
 ### Fixed
-- Config `_apply()` bool coercion: `bool("false")` was returning `True` — now uses explicit string mapping
+- Config `_apply()` bool coercion: `bool("false")` was returning `True`; now uses explicit string mapping
 - Password rotation rollback: revert was using the already-overwritten new password instead of the original
 - RDP `launch_app()` lock file leak: PID file not cleaned up when `Popen` fails
 - DPI detection: `_xrdb_scale()` zero DPI guard to prevent 0.0 scale factor
 - YAML escape: `_yaml_escape()` now handles `\n` and `\r` to prevent YAML structure injection
 - libvirt `get_ip()`: added returncode check and `TimeoutExpired` exception handling
 - FreeRDP RemoteApp: removed `/rfx` flag that caused immediate transport failure in RAIL mode
-- RDP reaper thread: stderr pipe deadlock — `proc.wait()` could hang indefinitely once the 64KB pipe buffer filled; now uses `communicate()` and stores last 2KB on the session
+- RDP reaper thread: stderr pipe deadlock; `proc.wait()` could hang indefinitely once the 64KB pipe buffer filled; now uses `communicate()` and stores last 2KB on the session
 - TOML writer: control characters 0x00-0x1F and 0x7F were emitted raw, breaking the file; now escaped as `\uXXXX`
 - media_monitor.ps1: `net use /delete` exit code ignored; now keeps tracking if unmount fails so next sync can retry
 - RDP session reuse: `_find_existing_session` accepted any process with `winpodx` in cmdline (including `winpodx app list`), silently returning a fake session on PID reuse. Unified into `process.is_freerdp_pid()` that matches only `freerdp`/`xfreerdp`
 - `linux_to_unc`: silently returned UNC paths for directories not shared over RDP (e.g. `/tmp`), causing Windows "path not found" errors. Now raises `ValueError` outside `$HOME`/media share; caller converts to a clear user-facing error
 - Password rotation state marker: if both `cfg.save()` and Windows password rollback fail, a `.rotation_pending` marker is persisted so `ensure_ready()` warns on every launch until the user runs `winpodx rotate-password`
 - `unregister_mime_types`: destroyed `mimeapps.list` by deleting whole lines whose values contained a winpodx entry, orphaning unrelated app associations. Now parses with `configparser`, removes only the targeted entries, and writes atomically
-- Desktop entries & theme index: explicit `encoding="utf-8"` — non-ASCII `full_name` (Korean/Japanese) previously crashed install on `C`/`POSIX` locales
+- Desktop entries & theme index: explicit `encoding="utf-8"`; non-ASCII `full_name` (Korean/Japanese) previously crashed install on `C`/`POSIX` locales
 - GUI icon lookup: `Path(__file__).parent × 4` worked only in source layout and broke after `pip install`. New `bundled_data_path()` helper resolves from source, wheel share-data, and `~/.local/share/winpodx/data/`
 - Pod start race: container started but RDP port not yet listening caused the first app launch to fail. `pod.start()` now calls `backend.wait_for_ready(timeout=cfg.pod.boot_timeout)` before returning
 - Hardcoded container name: multiple modules used the literal `"winpodx-windows"`, so users who customized the container couldn't run winpodx. Now flows through `cfg.pod.container_name`
 - `setup` EOF handling: `input()` raised `EOFError` on piped stdin, crashing non-interactive setup. New `_ask()` helper detects non-TTY and returns defaults; `handle_rotate_password` now uses a three-phase commit with a temp compose file
 - Password alphabet: removed `
 
- from generated passwords — broke PowerShell single-quote escaping in a subset of tickets; kept `!@#%&*` which survive every shell context we use
+ from generated passwords (broke PowerShell single-quote escaping in a subset of tickets); kept `!@#%&*` which survive every shell context we use
 - App install retry: `winpodx app install-all` failed silently on `RuntimeError`. Now widened to `(ProvisionError, RuntimeError)` and refreshes the icon cache after bulk install
 - Wayland DPI detection: previously picked the first output only. Now iterates all outputs and takes the max scale; falls back to Qt `devicePixelRatio()` when compositor exposes no scale
 - Desktop entry icon hygiene: raster formats silently installed into `hicolor/scalable/apps/` (spec requires SVG). Now enforces SVG for scalable and falls back to size-specific dirs for raster icons
-- App profile writes: `gui/app_dialog.save_app_profile` now uses explicit `encoding="utf-8"` — same non-ASCII crash that affected desktop entries
+- App profile writes: `gui/app_dialog.save_app_profile` now uses explicit `encoding="utf-8"` (same non-ASCII crash that affected desktop entries)
 - Teams app path: `data/apps/teams/app.toml` pointed at the old Classic Teams executable. Now targets `%LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe`
 - Explorer app categories: removed `Office` (invalid for a file manager) and added `FileTools`, `System`
 - CI audit job: `pip install -e .[all]` failed on GitHub runners without libvirt headers. New `all-no-libvirt` extra keeps the audit scope while unblocking CI
-- Test isolation: new `tests/conftest.py` autouse fixture redirects `HOME` and `XDG_*` to tmp dirs — prevents tests from scribbling into the developer's real config
-- `check_rdp_port` default was 3389 but project-wide RDP default is 3390 — signature now requires an explicit port so callers can't probe the wrong one
+- Test isolation: new `tests/conftest.py` autouse fixture redirects `HOME` and `XDG_*` to tmp dirs to prevent tests from scribbling into the developer's real config
+- `check_rdp_port` default was 3389 but project-wide RDP default is 3390; signature now requires an explicit port so callers can't probe the wrong one
 - `PodState.PAUSED` added: auto-suspended containers previously showed as STOPPED in the GUI and the resume button never enabled. `podman.is_running() / is_paused()` now map container states correctly
 - `uninstall` / cleanup now terminates tracked FreeRDP sessions via `is_freerdp_pid()` before wiping `runtime_dir`, preventing orphaned xfreerdp processes that hold the RDP channel open
 - `check_freerdp` (used by `winpodx info`/`setup`) was only probing `xfreerdp3`/`xfreerdp`; now delegates to the runtime `find_freerdp()` which also recognizes sdl-freerdp and the Flatpak wrapper
-- Docker backend `wait_for_ready` 5-second polling loop tightened to 1 second — faster first-launch on Docker setups
+- Docker backend `wait_for_ready` 5-second polling loop tightened to 1 second for faster first-launch on Docker setups
 - `import_winapps_config` RDP_SCALE parser previously dropped non-integer values silently; now parses floats, clamps to [100, 400], and logs out-of-range values
 - Compose template cleanups: `group_add: keep-groups` and `run.oci.keep_original_groups` annotation emitted only for Podman backend (Docker rejects keep-groups); `NETWORK: "slirp"` removed so Podman picks its default (pasta / slirp4netns based on availability)
-- New `cfg.pod.image` (default `ghcr.io/dockur/windows:latest`) and `cfg.pod.disk_size` (default `64G`) — pinnable image tags and adjustable disk size without hand-editing compose.yaml
+- New `cfg.pod.image` (default `ghcr.io/dockur/windows:latest`) and `cfg.pod.disk_size` (default `64G`): pinnable image tags and adjustable disk size without hand-editing compose.yaml
 - `remove_desktop_entry` now calls `unregister_mime_types` so per-app MIME associations in `mimeapps.list` are cleaned up on uninstall (previously stale handlers survived)
 - Wayland DE detection: `XDG_CURRENT_DESKTOP="KDE:Budgie"` previously resolved to "kde" because of dict iteration order; now splits on `:` and matches the leading segment first, falling back to substring match
 - GUI app-launch cooldown: `_launch_app` previously held a threading lock across a 3-second sleep, freezing the UI on rapid clicks. The lock is now released immediately after `Popen`; a per-app sentinel plus `QTimer.singleShot(3000, ...)` clears the cooldown without blocking
 - Notification truncation fixed: `_sanitize` now truncates raw text to 200 chars *before* HTML-escaping so multi-char entities (`&amp;`) can't be sliced mid-entity into `&am`
-- KDE sycoca rebuild errors (`kbuildsycoca6`/`kbuildsycoca5`) no longer swallowed — logged at `debug`/`warning` so the "Plasma doesn't show my icon" class of bug becomes debuggable
-- Hardcoded container name / RDP port occurrences in CLI and GUI now route through `cfg.pod.container_name` and `cfg.rdp.port` — custom container names work end-to-end
-- `config/oem/toggle_updates.ps1` hosts-file writes pinned to `-Encoding ASCII` — PS7 default UTF-8-with-BOM previously broke Windows DNS client parsing
+- KDE sycoca rebuild errors (`kbuildsycoca6`/`kbuildsycoca5`) no longer swallowed; logged at `debug`/`warning` so the "Plasma doesn't show my icon" class of bug becomes debuggable
+- Hardcoded container name / RDP port occurrences in CLI and GUI now route through `cfg.pod.container_name` and `cfg.rdp.port`; custom container names work end-to-end
+- `config/oem/toggle_updates.ps1` hosts-file writes pinned to `-Encoding ASCII`; PS7 default UTF-8-with-BOM previously broke Windows DNS client parsing
 - `scripts/windows/time_sync.ps1` retry loop now checks `$LASTEXITCODE` per attempt; previously broke out after the first iteration even on failure
 - `scripts/windows/media_monitor.ps1` `Sync-Drives` no longer gates on `Test-Path` (TOCTOU with `net use`); both add and delete are try/caught, failures retried on next sync tick
 - `config/oem/install.bat` media_monitor.ps1 copy path uses a search list (compose mount → pip wheel → pipx → source → legacy) instead of the single hardcoded `\\tsclient\home\.local\bin\...` path that only matched manual installs
@@ -145,11 +145,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - FreeRDP search order: xfreerdp3 → xfreerdp → sdl-freerdp3 → sdl-freerdp → flatpak
 - `wlfreerdp` removed from search order (deprecated upstream by FreeRDP project)
 - Uninstall always removes container (previously only with `--purge`)
-- RemoteApp (RAIL) enabled via `fDisabledAllowList` + `fInheritInitialProgram` registry keys — seamless app windows without full desktop
-- `podman unshare --rootless-netns` wrapper for FreeRDP — required for rootless Podman RDP access
+- RemoteApp (RAIL) enabled via `fDisabledAllowList` + `fInheritInitialProgram` registry keys (seamless app windows without full desktop)
+- `podman unshare --rootless-netns` wrapper for FreeRDP (required for rootless Podman RDP access)
 - Per-app desktop notification removed (was noisy on every launch)
 
 ### Removed
-- **RDPWrap multi-session**: Removed all RDPWrap binaries, scripts, CI workflows, and Python modules — multi-session support will be developed as a separate project
+- **RDPWrap multi-session**: Removed all RDPWrap binaries, scripts, CI workflows, and Python modules; multi-session support will be developed as a separate project
 - `data/templates/app.desktop.j2` (unused Jinja2 template)
 - Dead code: `icons_cache_dir()`, `decode_base64_icon()`, `MISSING_DEPS_MSG`

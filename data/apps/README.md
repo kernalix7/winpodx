@@ -53,7 +53,7 @@ registration loop will sort by `(priority, name)` ascending and only call
 `xdg-mime default` for the lowest-priority claimant per MIME type. Higher
 numbers will still be registered as *handlers* but not as *defaults*.
 
-Until then, setting `mime_priority` in `app.toml` is a no-op but safe — the
+Until then, setting `mime_priority` in `app.toml` is a no-op but safe; the
 TOML loader ignores unknown fields.
 
 ## Directory layout
@@ -61,7 +61,7 @@ TOML loader ignores unknown fields.
 ```
 data/apps/<name>/
 ├── app.toml      # required
-├── icon.svg      # optional — preferred over PNG
+├── icon.svg      # optional, preferred over PNG
 └── icon.png      # optional fallback
 ```
 
@@ -69,6 +69,6 @@ data/apps/<name>/
 
 1. Create `data/apps/<name>/app.toml` matching the schema above.
 2. Optionally drop in `icon.svg` or `icon.png` (square, 256px+ recommended).
-3. Run `pytest tests/ -v` — `test_app.py` and `test_desktop.py` validate every
+3. Run `pytest tests/ -v`; `test_app.py` and `test_desktop.py` validate every
    bundled definition.
 4. `ruff format` is not applied to TOML; indentation is 4 spaces for lists.

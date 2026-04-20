@@ -19,7 +19,7 @@
 
 ---
 
-winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 없음** — 표준 라이브러리만 사용 (Python 3.11+).
+winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 없음** (표준 라이브러리만 사용, Python 3.11+).
 
 ## 왜 winpodx인가?
 
@@ -46,7 +46,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 <tr><td width="50%">
 
 **심리스 앱 창**
-- RemoteApp (RAIL)으로 각 앱을 네이티브 Linux 창으로 렌더링 — 전체 데스크톱 없음
+- RemoteApp (RAIL)으로 각 앱을 네이티브 Linux 창으로 렌더링 (전체 데스크톱 없음)
 - 앱별 독립 작업 표시줄 아이콘 (WM_CLASS 매칭)
 - 파일 연결: 파일 관리자에서 `.docx` 더블클릭 → Word 실행
 - 멀티세션 지원 (앱별 독립 RDP 세션) 계획 중
@@ -66,7 +66,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 - **클립보드**: 양방향 복사-붙여넣기 (텍스트 + 이미지) 기본 활성화
 - **사운드**: RDP 오디오 스트리밍 (`/sound:sys:alsa`) 기본 활성화
 - **프린터**: Linux 프린터를 RDP 리다이렉션으로 Windows에 공유
-- **USB 드라이브**: `/drive:media`로 자동 공유 — 세션 시작 후 꽂은 USB도 접근 가능
+- **USB 드라이브**: `/drive:media`로 자동 공유, 세션 시작 후 꽂은 USB도 접근 가능
 - **USB 장치**: FreeRDP urbdrc 플러그인 사용 가능 시 네이티브 USB 리다이렉션 (`/usb:auto`)
 - **USB 자동 드라이브 매핑**: Windows 측 FileSystemWatcher 스크립트가 USB 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑
 - **홈 디렉토리**: `\\tsclient\home`으로 파일 접근 공유
@@ -138,7 +138,7 @@ cd winpodx
 
 설치 스크립트가 자동으로:
 1. 배포판 감지 (openSUSE, Fedora, Ubuntu, Arch, ...)
-2. 없는 의존성 설치 (Podman, FreeRDP, KVM) — 설치 전 확인
+2. 없는 의존성 설치 (Podman, FreeRDP, KVM), 설치 전 확인
 3. winpodx를 `~/.local/bin/winpodx/`에 복사
 4. 설정 및 compose.yaml 생성
 5. 14개 앱을 데스크톱 메뉴에 등록
@@ -218,8 +218,8 @@ winpodx config import             # 기존 winapps.conf 가져오기
 | **사운드** | ALSA를 통한 오디오 스트리밍 (`/sound:sys:alsa`) | 활성화 |
 | **프린터** | Linux 프린터를 Windows에 공유 (`/printer`) | 활성화 |
 | **홈 디렉토리** | `\\tsclient\home`으로 공유 (`+home-drive`) | 활성화 |
-| **USB 드라이브** | 미디어 폴더를 `\\tsclient\media`로 공유 (`/drive:media`) — 세션 시작 후 꽂은 USB도 하위 폴더로 접근 가능 | 활성화 |
-| **USB 장치** | 네이티브 USB 리다이렉션 (`/usb:auto`) — FreeRDP urbdrc 플러그인 필요 | 활성화 (드라이브 공유로 폴백) |
+| **USB 드라이브** | 미디어 폴더를 `\\tsclient\media`로 공유 (`/drive:media`); 세션 시작 후 꽂은 USB도 하위 폴더로 접근 가능 | 활성화 |
+| **USB 장치** | 네이티브 USB 리다이렉션 (`/usb:auto`); FreeRDP urbdrc 플러그인 필요 | 활성화 (드라이브 공유로 폴백) |
 | **USB 드라이브 매핑** | Windows 측 스크립트가 USB 하위 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑 (FileSystemWatcher) | 활성화 |
 
 ### USB 드라이브 흐름
@@ -268,16 +268,16 @@ idle_timeout = 0             # 자동 일시정지 (초, 0 = 비활성화)
 
 ## 앱 프로필
 
-앱 프로필은 **메타데이터 전용**입니다 — Windows 앱의 위치를 정의할 뿐, 앱 자체가 아닙니다. 실제 Windows 앱은 Windows 컨테이너 안에 설치해야 합니다.
+앱 프로필은 **메타데이터 전용**입니다. Windows 앱의 위치를 정의할 뿐, 앱 자체가 아닙니다. 실제 Windows 앱은 Windows 컨테이너 안에 설치해야 합니다.
 
 ### 번들 프로필 (14개 앱)
 
 | 프로필 | 설치 필요? |
 |--------|-----------|
-| Notepad, Explorer, CMD, PowerShell, Paint, Calculator | 아니오 — Windows 기본 내장 |
-| Word, Excel, PowerPoint, Outlook, OneNote, Access | 예 — 컨테이너에 Office 설치 필요 |
-| VS Code | 예 — 컨테이너에 VS Code 설치 필요 |
-| Teams | 예 — 컨테이너에 Teams 설치 필요 |
+| Notepad, Explorer, CMD, PowerShell, Paint, Calculator | 아니오 (Windows 기본 내장) |
+| Word, Excel, PowerPoint, Outlook, OneNote, Access | 예 (컨테이너에 Office 설치 필요) |
+| VS Code | 예 (컨테이너에 VS Code 설치 필요) |
+| Teams | 예 (컨테이너에 Teams 설치 필요) |
 
 <details>
 <summary><b>커스텀 앱 프로필 추가</b></summary>
@@ -299,9 +299,9 @@ winpodx app install myapp   # 데스크톱 메뉴에 등록
 
 ## 멀티세션 RDP
 
-> **상태: 계획 중** — 멀티세션 지원은 별도 프로젝트로 개발 중입니다.
+> **상태: 계획 중.** 멀티세션 지원은 별도 프로젝트로 개발 중입니다.
 
-현재 Windows Desktop 에디션은 사용자당 RDP 세션을 1개로 제한합니다 — 두 번째 앱을 열면 기존 세션이 재연결됩니다. 각 앱은 심리스 RemoteApp (RAIL) 창으로 열리지만, 동시에 하나만 활성화됩니다.
+현재 Windows Desktop 에디션은 사용자당 RDP 세션을 1개로 제한합니다. 두 번째 앱을 열면 기존 세션이 재연결됩니다. 각 앱은 심리스 RemoteApp (RAIL) 창으로 열리지만, 동시에 하나만 활성화됩니다.
 
 멀티세션 지원 (앱별 독립 RDP 세션)은 별도 프로젝트로 개발 중이며, 완료 시 winpodx에 통합될 예정입니다.
 

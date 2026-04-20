@@ -19,7 +19,7 @@
 
 ---
 
-winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Zero external Python dependencies** — stdlib only (Python 3.11+).
+winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Zero external Python dependencies** (stdlib only, Python 3.11+).
 
 ## Why winpodx?
 
@@ -46,7 +46,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 <tr><td width="50%">
 
 **Seamless App Windows**
-- RemoteApp (RAIL) renders each app as a native Linux window — no full desktop
+- RemoteApp (RAIL) renders each app as a native Linux window (no full desktop)
 - Per-app taskbar icons via WM_CLASS matching
 - File associations: double-click `.docx` in your file manager → Word opens
 - Multi-session support (independent RDP sessions) planned
@@ -66,7 +66,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 - **Clipboard**: Bidirectional copy-paste (text + images) enabled by default
 - **Sound**: RDP audio streaming (`/sound:sys:alsa`) enabled by default
 - **Printer**: Linux printers shared to Windows via RDP redirection
-- **USB drives**: Auto-shared via `/drive:media` — plugged after session start still accessible
+- **USB drives**: Auto-shared via `/drive:media`; plugged after session start still accessible
 - **USB devices**: Native USB redirection (`/usb:auto`) when FreeRDP urbdrc plugin is available
 - **USB auto drive mapping**: Windows-side FileSystemWatcher script maps USB folders to drive letters (E:, F:, ...) automatically
 - **Home directory**: Shared as `\\tsclient\home` for file access
@@ -138,7 +138,7 @@ cd winpodx
 
 The installer automatically:
 1. Detects your distro (openSUSE, Fedora, Ubuntu, Arch, ...)
-2. Installs missing dependencies (Podman, FreeRDP, KVM) — asks before installing
+2. Installs missing dependencies (Podman, FreeRDP, KVM), asks before installing
 3. Copies winpodx to `~/.local/bin/winpodx/`
 4. Creates config and compose.yaml
 5. Registers all 14 apps in your desktop menu
@@ -218,8 +218,8 @@ winpodx config import             # Import existing winapps.conf
 | **Sound** | Audio streaming via ALSA (`/sound:sys:alsa`) | Enabled |
 | **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
 | **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
-| **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`) — USB drives plugged in after session start are accessible as subfolders | Enabled |
-| **USB devices** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | Enabled (fallback to drive sharing) |
+| **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders | Enabled |
+| **USB devices** | Native USB redirection (`/usb:auto`); requires FreeRDP urbdrc plugin | Enabled (fallback to drive sharing) |
 | **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
 
 ### USB Drive Flow
@@ -268,16 +268,16 @@ idle_timeout = 0             # Seconds before auto-suspend (0 = disabled)
 
 ## App Profiles
 
-App profiles are **metadata only** — they define where a Windows app lives, not the app itself. The actual Windows application must be installed inside the Windows container.
+App profiles are **metadata only**: they define where a Windows app lives, not the app itself. The actual Windows application must be installed inside the Windows container.
 
 ### Bundled Profiles (14 apps)
 
 | Profile | Requires Installation? |
 |---------|----------------------|
-| Notepad, Explorer, CMD, PowerShell, Paint, Calculator | No — built into Windows |
-| Word, Excel, PowerPoint, Outlook, OneNote, Access | Yes — install Office in the container |
-| VS Code | Yes — install VS Code in the container |
-| Teams | Yes — install Teams in the container |
+| Notepad, Explorer, CMD, PowerShell, Paint, Calculator | No (built into Windows) |
+| Word, Excel, PowerPoint, Outlook, OneNote, Access | Yes (install Office in the container) |
+| VS Code | Yes (install VS Code in the container) |
+| Teams | Yes (install Teams in the container) |
 
 <details>
 <summary><b>Adding custom app profiles</b></summary>
@@ -299,9 +299,9 @@ winpodx app install myapp   # Register in desktop menu
 
 ## Multi-Session RDP
 
-> **Status: Planned** — Multi-session support is being developed as a separate project.
+> **Status: Planned.** Multi-session support is being developed as a separate project.
 
-Currently, Windows Desktop edition limits RDP to one session per user — opening a second app reconnects the existing session. Each app still opens as a seamless RemoteApp (RAIL) window, but only one can be active at a time.
+Currently, Windows Desktop edition limits RDP to one session per user; opening a second app reconnects the existing session. Each app still opens as a seamless RemoteApp (RAIL) window, but only one can be active at a time.
 
 Multi-session support (multiple independent RDP sessions per app) is planned as a separate project and will be integrated into winpodx when available.
 

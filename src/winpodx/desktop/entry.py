@@ -86,7 +86,7 @@ def _install_icon(app: AppInfo) -> str:
     icon_name = f"winpodx-{app.name}"
 
     if not app.icon_path:
-        # No app-specific icon — fall back to main winpodx icon
+        # No app-specific icon; fall back to main winpodx icon.
         return "winpodx"
 
     src = Path(app.icon_path)

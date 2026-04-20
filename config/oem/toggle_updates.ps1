@@ -90,8 +90,7 @@ function Enable-Updates {
         $_ -notmatch "winpodx-update-block" -and
         $_ -notmatch "^0\.0\.0\.0.*(update\.microsoft|windowsupdate|dl\.delivery)"
     }
-    # -Encoding ASCII: see Disable-Updates — hosts file must stay ASCII so the
-    # DNS client parses it on both PS 5.1 (ANSI default) and PS 7 (UTF-8 BOM).
+    # -Encoding ASCII: hosts file must stay ASCII so the DNS client parses it on both PS 5.1 and PS 7.
     Set-Content -Path $hostsFile -Value $content -Encoding ASCII -Force
 
     Write-Host "[winpodx] Windows Update enabled"

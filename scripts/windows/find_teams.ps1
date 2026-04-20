@@ -1,24 +1,6 @@
-# find_teams.ps1 — Locate the "New Teams" (MSIX) executable on the guest.
-#
-# Why this exists:
-#   data/apps/teams/app.toml points at the stable App Execution Alias at
-#   %LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe, which Microsoft
-#   installs for every user of the MSIX package. On some images that alias
-#   is missing (Alias reset, MSIX not provisioned for the current user,
-#   or Teams uninstalled by tenant policy). This script returns the real
-#   executable path so winpodx can fall back gracefully.
-#
-# Usage (Windows-side):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File find_teams.ps1
-#   -> prints the absolute path to stdout, exit 0 on success
-#   -> prints nothing, exit 1 on failure
-#
-# Linux-side (future integration — see TODO below):
-#   When app launch fails because the configured executable is missing,
-#   winpodx.core.app could invoke this script over RDP/SSH to discover
-#   the current path and update the in-memory AppInfo.executable before
-#   retrying. Today this remains a manual diagnostic helper; see
-#   data/apps/README.md and data/apps/teams/app.toml for the policy.
+# find_teams.ps1 - Locate the New Teams (MSIX) executable on the guest.
+# Prints absolute path to stdout (exit 0); prints nothing on failure (exit 1).
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File find_teams.ps1
 
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -48,8 +30,7 @@ try {
         if ($fallback -and (Write-Path $fallback.FullName)) { exit 0 }
     }
 } catch {
-    # Get-AppxPackage can fail on Windows editions without Appx support —
-    # fall through to where.exe.
+    # No Appx support on this edition; fall through.
 }
 
 # 3. Last resort: PATH lookup via where.exe (covers classic Teams installers
@@ -61,11 +42,10 @@ try {
         if (Write-Path $first) { exit 0 }
     }
 } catch {
-    # where.exe absent (extremely rare) — fall through.
+    # where.exe absent; fall through.
 }
 
-# 4. Classic Teams install path (pre-2024). Still found on some images that
-#    haven't migrated to New Teams.
+# 4. Classic Teams install path (pre-2024).
 $classic = Join-Path $env:LOCALAPPDATA "Microsoft\Teams\current\Teams.exe"
 if (Write-Path $classic) { exit 0 }
 

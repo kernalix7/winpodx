@@ -5,9 +5,9 @@ set -euo pipefail
 # winpodx uninstaller
 #
 # Usage:
-#   ./uninstall.sh              # Interactive — asks before each step, keeps container
-#   ./uninstall.sh --confirm    # Auto — removes winpodx files, keeps container
-#   ./uninstall.sh --purge      # Full — removes everything including container + data
+#   ./uninstall.sh              # Interactive: asks before each step, keeps container
+#   ./uninstall.sh --confirm    # Auto: removes winpodx files, keeps container
+#   ./uninstall.sh --purge      # Full: removes everything including container + data
 ###############################################################################
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -70,7 +70,7 @@ if [[ -n "$RUNTIME" ]]; then
         done
     fi
 else
-    warn "Neither podman nor docker found — skipping container cleanup"
+    warn "Neither podman nor docker found; skipping container cleanup"
 fi
 
 # --- 2. Desktop entries ---

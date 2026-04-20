@@ -9,7 +9,7 @@ executes `install.bat` once, on first boot, after Windows OOBE finishes.
 | File | Purpose |
 |------|---------|
 | `install.bat` | One-shot first-boot configurator: DNS, RDP/NLA, RemoteApp, firewall, power plan, telemetry lockdown, USB media auto-mapper hookup. |
-| `toggle_updates.ps1` | Runtime toggle for Windows Update (`enable`/`disable`/`status`). Edits `hosts` with `-Encoding ASCII` — PS 5.1 ANSI default and PS 7 UTF-8-BOM both break the Windows DNS client's `hosts` parser. |
+| `toggle_updates.ps1` | Runtime toggle for Windows Update (`enable`/`disable`/`status`). Edits `hosts` with `-Encoding ASCII` (PS 5.1 ANSI default and PS 7 UTF-8-BOM both break the Windows DNS client's `hosts` parser). |
 
 ## Media monitor wiring (see `install.bat:102` region)
 
@@ -17,19 +17,19 @@ executes `install.bat` once, on first boot, after Windows OOBE finishes.
 `C:\winpodx\media_monitor.ps1` and registers it in the HKCU Run key. The copy
 step searches the following sources, in order:
 
-1. **`C:\winpodx-scripts\media_monitor.ps1`** — preferred. Mount
+1. **`C:\winpodx-scripts\media_monitor.ps1`** (preferred). Mount
    `scripts/windows` into the guest at `C:\winpodx-scripts` via compose
    (editable installs, wheel installs, and flatpak all work uniformly this
-   way — no dependency on where the Linux package ended up).
+   way, no dependency on where the Linux package ended up).
 2. `\\tsclient\home\.local\share\winpodx\scripts\windows\media_monitor.ps1`
-   — pip wheel install (`sys.prefix/share/winpodx/...` when `sys.prefix` is
+   (pip wheel install: `sys.prefix/share/winpodx/...` when `sys.prefix` is
    the user's home).
 3. `\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\media_monitor.ps1`
-   — pipx install.
-4. `\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1` — source
-   checkout at `~/winpodx`.
+   (pipx install).
+4. `\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1` (source
+   checkout at `~/winpodx`).
 5. `\\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1`
-   — legacy manual install path (kept for backward compatibility).
+   (legacy manual install path, kept for backward compatibility).
 
 If none match, `install.bat` prints a warning and leaves the Run key pointing
 at a non-existent file; the USB auto-mapper is disabled until the next boot

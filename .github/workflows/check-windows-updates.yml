@@ -76,7 +76,7 @@ jobs:
           git push -u origin "$BRANCH"
 
           gh pr create \
-            --title "chore: Windows build update — dockur $DOCKUR_LATEST" \
+            --title "chore: Windows build update - dockur $DOCKUR_LATEST" \
             --body "$(cat <<EOF
           ## Windows Build Update
 

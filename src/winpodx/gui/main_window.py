@@ -1255,7 +1255,7 @@ class WinpodxWindow(QMainWindow):
     def _launch_app(self, app: AppInfo) -> None:
         # Per-app cooldown debounced via QTimer; released 3s later.
         if app.name in self._recently_launched:
-            self.app_launch_failed.emit("Just launched — please wait a moment.")
+            self.app_launch_failed.emit("Just launched. Please wait a moment.")
             return
         self._recently_launched.add(app.name)
         QTimer.singleShot(3000, lambda n=app.name: self._recently_launched.discard(n))

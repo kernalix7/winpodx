@@ -126,7 +126,7 @@ if [ "$FREERDP_OK" = false ]; then
 fi
 
 if [ ! -e /dev/kvm ]; then
-    warn "/dev/kvm not found — KVM required for Windows container"
+    warn "/dev/kvm not found (KVM required for Windows container)"
     warn "Enable virtualization in BIOS"
     MISSING+=("kvm")
 fi
@@ -162,7 +162,7 @@ else
     log "All dependencies OK"
 fi
 
-# No pip needed — winpodx uses only Python stdlib (3.11+)
+# No pip needed: winpodx uses only Python stdlib (3.11+)
 
 # --- Check Python version ---
 PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
@@ -285,6 +285,6 @@ echo "   winpodx app run excel          # Launch Excel"
 echo "   winpodx app run desktop        # Full Windows desktop"
 echo "   winpodx setup                  # Reconfigure"
 echo ""
-echo " Apps are in your application menu — just click and go."
+echo " Apps are in your application menu. Just click and go."
 echo ""
 log "Installation complete!"

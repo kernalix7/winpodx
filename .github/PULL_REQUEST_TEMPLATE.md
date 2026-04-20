@@ -12,10 +12,10 @@ Closes #
 
 ## Checklist
 
-- [ ] `pytest tests/ -v` — all tests pass
-- [ ] `ruff check src/ tests/` — zero errors
-- [ ] `ruff format --check src/ tests/` — formatted
-- [ ] Documentation updated (CHANGELOG, docs — both ko & en)
+- [ ] `pytest tests/ -v`: all tests pass
+- [ ] `ruff check src/ tests/`: zero errors
+- [ ] `ruff format --check src/ tests/`: formatted
+- [ ] Documentation updated (CHANGELOG, docs: both ko & en)
 - [ ] No hardcoded paths, credentials, or personal info
 
 ## Screenshots
