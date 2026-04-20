@@ -1,4 +1,4 @@
-"""Main CLI entry point for winpodx — zero external dependencies."""
+"""Main CLI entry point for winpodx, zero external dependencies."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from winpodx import __version__
 
 
 def cli(argv: list[str] | None = None) -> None:
-    """winpodx — Windows app integration for Linux desktop."""
+    """winpodx CLI entry point."""
     from winpodx.utils.logging import setup_logging
 
     setup_logging()
@@ -299,7 +299,6 @@ def _cmd_uninstall(args: argparse.Namespace) -> None:
     purge = args.purge
     removed = 0
 
-    # Desktop entries
     app_dir = applications_dir()
     desktop_files = list(app_dir.glob("winpodx-*.desktop"))
     if desktop_files:
@@ -308,7 +307,6 @@ def _cmd_uninstall(args: argparse.Namespace) -> None:
         print(f"  Removed {len(desktop_files)} desktop entries")
         removed += len(desktop_files)
 
-    # Icons
     icon_base = icons_dir()
     if icon_base.exists():
         for icon in icon_base.rglob("winpodx-*"):
@@ -316,20 +314,17 @@ def _cmd_uninstall(args: argparse.Namespace) -> None:
             removed += 1
         print(f"  Removed icons from {icon_base}")
 
-    # App definitions
     dd = data_dir()
     if dd.exists():
         shutil.rmtree(dd)
         print(f"  Removed {dd}")
         removed += 1
 
-    # Runtime PID files
     rd = runtime_dir()
     if rd.exists():
         shutil.rmtree(rd)
         removed += 1
 
-    # Config (only with --purge)
     cd = config_dir()
     if cd.exists():
         if purge:

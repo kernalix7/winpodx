@@ -7,10 +7,7 @@ import shutil
 
 
 def session_type() -> str:
-    """Detect the current display server session type.
-
-    Returns 'x11', 'wayland', or 'unknown'.
-    """
+    """Detect display server session type: 'x11', 'wayland', or 'unknown'."""
     xdg = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if xdg in ("x11", "wayland"):
         return xdg
@@ -24,16 +21,7 @@ def session_type() -> str:
 
 
 def desktop_environment() -> str:
-    """Detect the current desktop environment.
-
-    Returns lowercase name: 'gnome', 'kde', 'xfce', 'sway', 'hyprland', etc.
-
-    Prefers the leading segment of ``XDG_CURRENT_DESKTOP`` (per spec, values are
-    colon-separated in priority order). This matters for hybrids like
-    ``XDG_CURRENT_DESKTOP=KDE:Budgie`` where Budgie is the real session and KDE
-    is only listed for compatibility hints — dict-order substring matching used
-    to misreport that as "kde".
-    """
+    """Detect desktop environment from XDG_CURRENT_DESKTOP leading segment."""
     xdg_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
     de_map = {
@@ -54,8 +42,7 @@ def desktop_environment() -> str:
     if leading in de_map:
         return de_map[leading]
 
-    # Fallback: substring scan for odd values like "X-Cinnamon" where the
-    # leading segment isn't a bare key but still contains one.
+    # Fallback: substring scan for values like "X-Cinnamon".
     for key, name in de_map.items():
         if key in xdg_desktop:
             return name

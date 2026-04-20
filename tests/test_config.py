@@ -64,7 +64,6 @@ def test_config_save_load(tmp_path, monkeypatch):
 
 
 def test_apply_bool_coercion_from_string():
-    # String 'false' must not be coerced to True via bool().
     from winpodx.core.config import _apply
 
     pod = PodConfig()
@@ -110,7 +109,7 @@ def test_pod_config_container_name_empty_fallback():
 
 
 def test_config_save_calls_fsync(tmp_path, monkeypatch):
-    # save() must fsync the tmp file before rename to avoid 0-byte files on crash.
+    # save() must fsync the tmp file before rename.
     import os
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -128,10 +127,7 @@ def test_config_save_calls_fsync(tmp_path, monkeypatch):
     cfg.rdp.user = "syncuser"
     cfg.save()
 
-    # At least one fsync must have been called (tmp file fd); directory
-    # fsync is best-effort so we only require >= 1.
     assert len(fsynced_fds) >= 1
-    # File must exist and be non-empty after save.
     path = Config.path()
     assert path.exists()
     assert path.stat().st_size > 0

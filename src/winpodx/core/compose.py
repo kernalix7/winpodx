@@ -1,9 +1,4 @@
-"""Compose template generation for Podman/Docker backends.
-
-Pure content + atomic file I/O — no CLI concerns. Imported by both
-``cli/setup_cmd`` (setup wizard) and ``core/provisioner`` (ensure_ready,
-password rotation), so lives in core to avoid a core→cli reverse dependency.
-"""
+"""Compose template generation for Podman/Docker backends."""
 
 from __future__ import annotations
 
@@ -73,12 +68,7 @@ def _build_compose_template(backend: str) -> str:
 
 
 def _yaml_escape(val: str) -> str:
-    """Escape a value for safe embedding in a YAML double-quoted string.
-
-    Also escapes ``{`` and ``}`` so user-controlled values cannot be
-    interpreted as ``str.format()`` placeholders (e.g. a username of
-    ``{password}`` would otherwise leak the real password into USERNAME).
-    """
+    """Escape a value for safe embedding in a YAML double-quoted string."""
     return (
         val.replace("\\", "\\\\")
         .replace('"', '\\"')
@@ -125,8 +115,7 @@ def _build_compose_content(cfg: Config) -> str:
 
 def generate_password(length: int = 20) -> str:
     """Generate a cryptographically secure random password."""
-    # '$' excluded: PowerShell treats it as a variable sigil, causing silent
-    # expansion (e.g. "$env" → "") in double-quoted strings inside OEM scripts.
+    # '$' excluded: PowerShell expands it as a variable sigil in OEM scripts.
     _SPECIALS = "!@#%&*"
     alphabet = string.ascii_letters + string.digits + _SPECIALS
     pw = [
@@ -153,8 +142,7 @@ def generate_compose(cfg: Config) -> None:
     try:
         os.fchmod(fd, 0o600)
         os.write(fd, content.encode("utf-8"))
-        # fsync before rename: otherwise a crash can leave a zero-byte file
-        # after the rename metadata commits but data does not.
+        # fsync before rename to avoid a zero-byte file after a crash.
         os.fsync(fd)
         os.close(fd)
         fd_closed = True

@@ -1,7 +1,4 @@
-"""winpodx main GUI — top-nav app launcher and pod manager.
-
-Requires PySide6. Install with system package manager or pip install PySide6.
-"""
+"""winpodx main GUI: top-nav app launcher and pod manager."""
 
 from __future__ import annotations
 
@@ -97,9 +94,7 @@ class WinpodxWindow(QMainWindow):
         self._pod_state = "checking"
         self._view_mode = "grid"  # "grid" or "list"
         self._active_category = ""  # "" = all
-        # Cooldown sentinel to debounce rapid-fire launch clicks without
-        # blocking the UI thread on a lock. Cleared by QTimer.singleShot in
-        # ``_launch_app`` so subsequent clicks become valid after the window.
+        # Cooldown sentinel debounces rapid launch clicks; cleared via QTimer.
         self._recently_launched: set[str] = set()
 
         self._setup_signals()
@@ -112,10 +107,6 @@ class WinpodxWindow(QMainWindow):
         self.app_launch_failed.connect(self._on_app_launch_failed)
         self.log_signal.connect(self._log_append)
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  UI Construction — vertical stack: top bar → banner → content → info
-    # ══════════════════════════════════════════════════════════════════════
-
     def _build_ui(self) -> None:
         central = QWidget()
         central.setStyleSheet(f"background: {C.MANTLE};" + GLOBAL_STYLE)
@@ -124,14 +115,11 @@ class WinpodxWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # 1. Top navigation bar
         root.addWidget(self._build_top_bar())
 
-        # 2. Status banner (shown when pod not running)
         self.status_banner = self._build_status_banner()
         root.addWidget(self.status_banner)
 
-        # 3. Content pages
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_library_page())
         self.pages.addWidget(self._build_settings_page())
@@ -139,10 +127,7 @@ class WinpodxWindow(QMainWindow):
         self.pages.addWidget(self._build_logs_page())
         root.addWidget(self.pages)
 
-        # 4. Bottom info bar
         root.addWidget(self._build_info_bar())
-
-    # ── Top Bar ────────────────────────────────────────────────────────────
 
     def _build_top_bar(self) -> QWidget:
         bar = QWidget()
@@ -153,7 +138,6 @@ class WinpodxWindow(QMainWindow):
         layout.setContentsMargins(20, 0, 20, 0)
         layout.setSpacing(0)
 
-        # Logo icon + text
         from winpodx.desktop.icons import bundled_data_path
 
         icon_path = bundled_data_path("winpodx-icon.svg")
@@ -181,7 +165,6 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(logo_text)
         layout.addSpacing(32)
 
-        # Navigation tabs
         tab_container = QWidget()
         tab_container.setStyleSheet(TAB_BTN)
         tabs = QHBoxLayout(tab_container)
@@ -205,7 +188,6 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(tab_container)
         layout.addStretch()
 
-        # Pod status chip + controls
         chip = QFrame()
         chip.setObjectName("podChip")
         chip.setStyleSheet(POD_CHIP)
@@ -225,7 +207,6 @@ class WinpodxWindow(QMainWindow):
         )
         chip_l.addWidget(self.pod_label)
 
-        # Inline pod controls
         ctrl_w = QWidget()
         ctrl_w.setStyleSheet(POD_CTRL)
         ctrl_l = QHBoxLayout(ctrl_w)
@@ -246,8 +227,6 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(chip)
 
         return bar
-
-    # ── Status Banner ──────────────────────────────────────────────────────
 
     def _build_status_banner(self) -> QFrame:
         banner = QFrame()
@@ -284,8 +263,6 @@ class WinpodxWindow(QMainWindow):
         banner.setVisible(True)
         return banner
 
-    # ── Info Bar ───────────────────────────────────────────────────────────
-
     def _build_info_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("infoBar")
@@ -302,7 +279,6 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(self.info_label)
         layout.addStretch()
 
-        # Pod engine indicator (Docker Desktop style)
         self.info_pod_dot = QLabel("\u25cf")
         self.info_pod_dot.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 8px;"
@@ -329,17 +305,12 @@ class WinpodxWindow(QMainWindow):
 
         return bar
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  Page: Apps — toolbar + category filters + grid/list view
-    # ══════════════════════════════════════════════════════════════════════
-
     def _build_library_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(32, 24, 32, 20)
         layout.setSpacing(0)
 
-        # ── Toolbar: search + count + view toggle + add ──
         toolbar = QHBoxLayout()
         toolbar.setSpacing(12)
 
@@ -359,7 +330,6 @@ class WinpodxWindow(QMainWindow):
         toolbar.addWidget(self.app_count_label)
         toolbar.addSpacing(4)
 
-        # View toggle (grid / list) — Heroic style
         toggle_wrap = QWidget()
         toggle_wrap.setStyleSheet(VIEW_TOGGLE)
         tgl = QHBoxLayout(toggle_wrap)
@@ -389,7 +359,6 @@ class WinpodxWindow(QMainWindow):
         layout.addLayout(toolbar)
         layout.addSpacing(12)
 
-        # ── Category filter chips ──
         self._category_row = QHBoxLayout()
         self._category_row.setSpacing(6)
         self._category_btns: list[QPushButton] = []
@@ -397,7 +366,6 @@ class WinpodxWindow(QMainWindow):
         layout.addLayout(self._category_row)
         layout.addSpacing(16)
 
-        # ── App container (scroll area) ──
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(SCROLL_AREA)
@@ -420,7 +388,6 @@ class WinpodxWindow(QMainWindow):
             cats.update(a.categories)
         cats_sorted = sorted(cats)
 
-        # "All" chip
         all_btn = QPushButton("All")
         all_btn.setCheckable(True)
         all_btn.setChecked(True)
@@ -429,7 +396,7 @@ class WinpodxWindow(QMainWindow):
         self._category_row.addWidget(all_btn)
         self._category_btns.append(all_btn)
 
-        for cat in cats_sorted[:8]:  # max 8 chips
+        for cat in cats_sorted[:8]:
             btn = QPushButton(cat)
             btn.setCheckable(True)
             btn.setStyleSheet(FILTER_CHIP)
@@ -479,7 +446,7 @@ class WinpodxWindow(QMainWindow):
             self._populate_list(apps)
 
     def _populate_grid(self, apps: list[AppInfo]) -> None:
-        """Grid view - Steam/Heroic style cards."""
+        """Grid view - cards."""
         cols = 4
         grid = QGridLayout()
         grid.setSpacing(14)
@@ -489,7 +456,6 @@ class WinpodxWindow(QMainWindow):
             card = self._make_app_card(app)
             grid.addWidget(card, i // cols, i % cols)
 
-        # Fill last row with spacers
         remainder = len(apps) % cols
         if remainder:
             for j in range(remainder, cols):
@@ -510,7 +476,7 @@ class WinpodxWindow(QMainWindow):
         self.app_list_layout.addStretch()
 
     def _make_app_card(self, app: AppInfo) -> QWidget:
-        """Grid card — large avatar + name + launch."""
+        """Grid card with large avatar, name, and launch."""
         color = avatar_color(app.name)
         letter = app.full_name[0].upper() if app.full_name else "?"
 
@@ -525,7 +491,6 @@ class WinpodxWindow(QMainWindow):
         vl.setContentsMargins(16, 18, 16, 14)
         vl.setSpacing(0)
 
-        # Large avatar
         avatar = QLabel(letter)
         avatar.setFixedSize(52, 52)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -538,7 +503,6 @@ class WinpodxWindow(QMainWindow):
         vl.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
         vl.addSpacing(12)
 
-        # Name
         name_lbl = QLabel(app.full_name)
         name_lbl.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: bold;"
@@ -551,7 +515,6 @@ class WinpodxWindow(QMainWindow):
         name_lbl.setToolTip(app.full_name)
         vl.addWidget(name_lbl)
 
-        # Category tag
         cat_text = app.categories[0] if app.categories else ""
         if cat_text:
             cat_lbl = QLabel(cat_text)
@@ -559,7 +522,6 @@ class WinpodxWindow(QMainWindow):
             vl.addWidget(cat_lbl)
         vl.addStretch()
 
-        # Bottom action row
         bottom = QHBoxLayout()
         bottom.setSpacing(6)
 
@@ -615,14 +577,12 @@ class WinpodxWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 16, 0)
         layout.setSpacing(0)
 
-        # Left accent stripe
         stripe = QFrame()
         stripe.setFixedWidth(4)
         stripe.setStyleSheet(f"background: {color}; border-radius: 2px; margin: 8px 0 8px 8px;")
         layout.addWidget(stripe)
         layout.addSpacing(14)
 
-        # Avatar
         avatar = QLabel(letter)
         avatar.setFixedSize(40, 40)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -634,7 +594,6 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(avatar)
         layout.addSpacing(14)
 
-        # Info column
         info = QVBoxLayout()
         info.setSpacing(2)
 
@@ -655,7 +614,6 @@ class WinpodxWindow(QMainWindow):
         layout.addLayout(info)
         layout.addStretch()
 
-        # Action buttons (right side)
         launch_btn = QPushButton("\u25b6  Launch")
         launch_btn.setStyleSheet(BTN_ACCENT)
         launch_btn.clicked.connect(lambda: self._launch_app(app))
@@ -690,10 +648,6 @@ class WinpodxWindow(QMainWindow):
         self._populate_app_view(filtered)
         self.app_count_label.setText(f"{len(filtered)} apps")
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  Page: Settings — two-column layout
-    # ══════════════════════════════════════════════════════════════════════
-
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
         outer = QVBoxLayout(page)
@@ -718,11 +672,9 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(sub)
         layout.addSpacing(20)
 
-        # Two-column layout
         cols = QHBoxLayout()
         cols.setSpacing(16)
 
-        # Left column — RDP
         self.input_user = QLineEdit(self.cfg.rdp.user)
         self.input_ip = QLineEdit(self.cfg.rdp.ip)
         self.input_port = QLineEdit(str(self.cfg.rdp.port))
@@ -747,13 +699,11 @@ class WinpodxWindow(QMainWindow):
         ]
         for label, val in dpi_options:
             self.input_dpi.addItem(label, val)
-        # Select current value
         current_dpi = self.cfg.rdp.dpi
         idx = self.input_dpi.findData(current_dpi)
         if idx >= 0:
             self.input_dpi.setCurrentIndex(idx)
         elif current_dpi > 0:
-            # Custom value not in presets — add it
             self.input_dpi.addItem(f"{current_dpi}%", current_dpi)
             self.input_dpi.setCurrentIndex(self.input_dpi.count() - 1)
 
@@ -791,7 +741,6 @@ class WinpodxWindow(QMainWindow):
         )
         cols.addWidget(rdp_card)
 
-        # Right column — Container
         self.input_backend = QComboBox()
         self.input_backend.addItems(["podman", "docker", "libvirt", "manual"])
         self.input_backend.setCurrentText(self.cfg.pod.backend)
@@ -815,7 +764,6 @@ class WinpodxWindow(QMainWindow):
         layout.addLayout(cols)
         layout.addSpacing(20)
 
-        # Save
         save_btn = QPushButton("Save Settings")
         save_btn.setStyleSheet(BTN_PRIMARY)
         save_btn.setFixedWidth(180)
@@ -858,7 +806,6 @@ class WinpodxWindow(QMainWindow):
         sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
         layout.addWidget(sub)
 
-        # Accent line under header
         accent_line = QFrame()
         accent_line.setFixedHeight(1)
         accent_line.setStyleSheet(f"background: {C.SURFACE1};")
@@ -877,10 +824,6 @@ class WinpodxWindow(QMainWindow):
 
         layout.addLayout(form)
         return card
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  Page: Tools — full-width action rows with icon circles
-    # ══════════════════════════════════════════════════════════════════════
 
     def _build_maintenance_page(self) -> QWidget:
         page = QWidget()
@@ -906,7 +849,6 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(sub)
         layout.addSpacing(20)
 
-        # Group: Pod Management
         grp1 = QLabel("Pod Management")
         grp1.setStyleSheet(
             "background: transparent;"
@@ -943,7 +885,6 @@ class WinpodxWindow(QMainWindow):
 
         layout.addSpacing(20)
 
-        # Group: System
         grp2 = QLabel("System")
         grp2.setStyleSheet(
             "background: transparent;"
@@ -980,7 +921,6 @@ class WinpodxWindow(QMainWindow):
 
         layout.addSpacing(20)
 
-        # Group: Windows Update
         grp3 = QLabel("Windows Update")
         grp3.setStyleSheet(
             "background: transparent;"
@@ -1035,7 +975,6 @@ class WinpodxWindow(QMainWindow):
 
         layout.addWidget(update_row)
 
-        # Check current status in background
         self._refresh_update_status()
 
         layout.addStretch()
@@ -1092,16 +1031,11 @@ class WinpodxWindow(QMainWindow):
         row.mousePressEvent = lambda ev, h=handler: h()
         return row
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  Page: Terminal — dock-style terminal
-    # ══════════════════════════════════════════════════════════════════════
-
     def _build_logs_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(32, 28, 32, 20)
 
-        # Header with quick actions
         header = QHBoxLayout()
         title = QLabel("Terminal")
         title.setStyleSheet(
@@ -1110,12 +1044,8 @@ class WinpodxWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
 
-        # Route container name through cfg so users who rename the pod in
-        # winpodx.toml (e.g. ``container_name = "winpodx-dev"``) still get
-        # correct status/logs/inspect buttons instead of stale hardcoded refs.
+        # Route container name through cfg so renamed pods still work.
         container = self.cfg.pod.container_name
-        # ``--filter name=foo`` does a substring match so passing the full
-        # container name is fine and narrows Status output correctly.
         quick = [
             ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
             ("Logs", ["podman", "logs", "--tail", "50", container]),
@@ -1137,13 +1067,11 @@ class WinpodxWindow(QMainWindow):
         layout.addLayout(header)
         layout.addSpacing(10)
 
-        # Terminal output
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.log_output.setStyleSheet(TERMINAL)
         layout.addWidget(self.log_output)
 
-        # Command input bar
         cmd_row = QHBoxLayout()
         cmd_row.setSpacing(8)
 
@@ -1177,10 +1105,6 @@ class WinpodxWindow(QMainWindow):
 
         layout.addLayout(cmd_row)
         return page
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  Terminal Logic
-    # ══════════════════════════════════════════════════════════════════════
 
     def _log_append(self, text: str, color: str = C.SUBTEXT1) -> None:
         """Append colored text to the log output."""
@@ -1268,10 +1192,6 @@ class WinpodxWindow(QMainWindow):
 
         threading.Thread(target=_do, daemon=True).start()
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  App CRUD
-    # ══════════════════════════════════════════════════════════════════════
-
     def _on_add_app(self) -> None:
         from winpodx.gui.app_dialog import AppProfileDialog, save_app_profile
 
@@ -1324,23 +1244,16 @@ class WinpodxWindow(QMainWindow):
         self.search_box.clear()
         self.app_count_label.setText(f"{len(self.apps)} apps")
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  Actions
-    # ══════════════════════════════════════════════════════════════════════
-
     def _switch_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
 
-    # Serializes provisioning (ensure_ready + Popen spawn) so two simultaneous
-    # launches don't race on container recreation. Released the moment the
-    # child is spawned — the post-launch exit probe runs lock-free.
+    # Serializes ensure_ready + Popen spawn so concurrent launches don't race.
     _launch_lock = threading.Lock()
 
     def _launch_app(self, app: AppInfo) -> None:
-        # Per-app cooldown: debounce rapid clicks on the UI thread without
-        # blocking. ``QTimer.singleShot`` clears the sentinel 3 s later.
+        # Per-app cooldown debounced via QTimer; released 3s later.
         if app.name in self._recently_launched:
             self.app_launch_failed.emit("Just launched — please wait a moment.")
             return
@@ -1350,9 +1263,7 @@ class WinpodxWindow(QMainWindow):
         self.info_label.setText(f"Launching {app.full_name}...")
 
         def _do() -> None:
-            # Lock protects ensure_ready()+launch_app() against concurrent
-            # provisioning; it is NOT held during the post-launch wait so the
-            # UI can start another launch as soon as Popen returns.
+            # Lock guards ensure_ready + launch_app only; dropped before the wait.
             if not self._launch_lock.acquire(blocking=False):
                 self.app_launch_failed.emit("Another app is launching, please wait.")
                 return
@@ -1369,25 +1280,20 @@ class WinpodxWindow(QMainWindow):
                 self.app_launch_failed.emit(traceback.format_exc()[-800:])
                 return
             finally:
-                # Drop the lock before the 3 s observation window so rapid
-                # legitimate launches of a *different* app aren't gated on it.
+                # Drop lock before the 3s observation so other launches aren't gated.
                 self._launch_lock.release()
 
-            # Post-spawn check: wait briefly for FreeRDP to crash early (auth
-            # errors, missing host, etc.) so we can surface a real error
-            # instead of a misleading "launched" notification. This runs off
-            # the UI thread — the ``time.sleep`` does not freeze the GUI.
+            # Post-spawn wait: catch early FreeRDP crashes (auth, missing host, etc.).
             import time
 
             time.sleep(3)
             if session.process and session.process.poll() is not None:
                 rc = session.process.returncode
-                # 0 = normal exit, 128+signal = killed by signal (e.g. 145=SIGTERM)
+                # 0 = normal exit, 128+signal = killed by signal.
                 if rc == 0 or rc > 128:
                     self.app_launched.emit(app.full_name)
                 else:
-                    # Give reaper thread a moment to drain stderr
-                    time.sleep(0.2)
+                    time.sleep(0.2)  # let reaper drain stderr
                     stderr = session.stderr_tail.decode(errors="replace")[-500:]
                     msg = f"FreeRDP exited with code {rc}"
                     if stderr:
@@ -1452,7 +1358,6 @@ class WinpodxWindow(QMainWindow):
             )
             return
 
-        # Detect which settings changed before saving
         old_cfg = Config.load()
         needs_container = (
             cpu != old_cfg.pod.cpu_cores
@@ -1612,7 +1517,6 @@ class WinpodxWindow(QMainWindow):
 
             cfg = Config.load()
             runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-            # Use configured container name so renamed pods still work.
             container = cfg.pod.container_name
             base = Path(__file__).parent.parent.parent.parent
             script = base / "scripts" / "windows" / "debloat.ps1"
@@ -1672,10 +1576,6 @@ class WinpodxWindow(QMainWindow):
 
         threading.Thread(target=_do, daemon=True).start()
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  Status Updates
-    # ══════════════════════════════════════════════════════════════════════
-
     def _start_status_timer(self) -> None:
         self._refresh_pod_status()
         self.status_timer = QTimer()
@@ -1711,7 +1611,6 @@ class WinpodxWindow(QMainWindow):
         self.pod_label.setText(display)
         self.pod_label.setStyleSheet(f"background: transparent; color: {color}; font-size: 12px;")
 
-        # Info bar pod indicator
         self.info_pod_dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 8px;")
         self.info_pod_state.setText(state)
         self.info_pod_state.setStyleSheet(
@@ -1721,7 +1620,6 @@ class WinpodxWindow(QMainWindow):
         self.btn_start.setEnabled(state == "stopped")
         self.btn_stop.setEnabled(state == "running")
 
-        # Show/hide status banner
         self.status_banner.setVisible(state != "running")
         if state == "paused":
             self.banner_icon.setText("\u23f8")
@@ -1764,7 +1662,6 @@ def run_gui() -> None:
     app.setApplicationName("winpodx")
     app.setStyle("Fusion")
 
-    # Application icon
     from winpodx.desktop.icons import bundled_data_path
 
     icon_path = bundled_data_path("winpodx-icon.svg")

@@ -27,7 +27,7 @@ def test_ensure_config_creates_default(tmp_path, monkeypatch):
     assert (tmp_path / "winpodx" / "winpodx.toml").exists()
 
 
-# --- C3: password rotation rollback failure handling -----------------------
+# C3: password rotation rollback failure handling
 
 
 @pytest.fixture()
@@ -50,8 +50,7 @@ def _rotation_cfg(tmp_path, monkeypatch):
 
 
 def test_rotation_rollback_success_reverts_password(_rotation_cfg, monkeypatch):
-    # When config.save fails but Windows rollback succeeds, the returned
-    # config should hold the ORIGINAL password (not the new one).
+    # When config.save fails but Windows rollback succeeds, config keeps the old password.
     from winpodx.core import provisioner
     from winpodx.core.pod import PodState, PodStatus
 
@@ -59,22 +58,17 @@ def test_rotation_rollback_success_reverts_password(_rotation_cfg, monkeypatch):
         "winpodx.core.provisioner.pod_status",
         lambda cfg: PodStatus(state=PodState.RUNNING),
     )
-    # Windows password change: accept both the new and rollback calls.
     monkeypatch.setattr(provisioner, "_change_windows_password", lambda cfg, pw: True)
 
     with patch.object(_rotation_cfg, "save", side_effect=OSError("disk full")):
         result = provisioner._auto_rotate_password(_rotation_cfg)
 
-    # In-memory config must have been reverted — returning the new password
-    # here would have the CLI connect with a password Windows rejects.
     assert result.rdp.password == "old-password"
-    # No pending marker when rollback succeeded.
     assert not provisioner._rotation_marker_path().exists()
 
 
 def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
-    # Config save fails AND Windows rollback fails: must log an error
-    # and write the .rotation_pending marker for follow-up.
+    # Config save and Windows rollback both fail: must log error and write .rotation_pending marker.
     from winpodx.core import provisioner
     from winpodx.core.pod import PodState, PodStatus
 
@@ -87,8 +81,6 @@ def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
 
     def fake_change(cfg, pw):
         calls.append(pw)
-        # First call = change to new password → succeeds.
-        # Second call = rollback to old password → fails (container down).
         return len(calls) == 1
 
     monkeypatch.setattr(provisioner, "_change_windows_password", fake_change)
@@ -96,16 +88,13 @@ def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
     with patch.object(_rotation_cfg, "save", side_effect=OSError("disk full")):
         provisioner._auto_rotate_password(_rotation_cfg)
 
-    # Both the forward change and the rollback attempt must have run.
     assert len(calls) == 2
-    # Marker must exist so next ensure_ready warns the user.
     marker = provisioner._rotation_marker_path()
     assert marker.exists()
     assert marker.stat().st_mode & 0o777 == 0o600
 
 
 def test_check_rotation_pending_warns(tmp_path, monkeypatch, caplog):
-    # ensure_ready should log an error when the marker exists.
     import logging
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -122,12 +111,10 @@ def test_check_rotation_pending_warns(tmp_path, monkeypatch, caplog):
 
 
 def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
-    # A successful rotation must clear a previously-written marker so
-    # the user isn't nagged forever after a manual recovery.
+    # A successful rotation must clear any previously-written marker.
     from winpodx.core import provisioner
     from winpodx.core.pod import PodState, PodStatus
 
-    # Pre-seed the marker as if an earlier rotation half-failed.
     marker = provisioner._rotation_marker_path()
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("pending\n")
@@ -137,14 +124,13 @@ def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
         lambda cfg: PodStatus(state=PodState.RUNNING),
     )
     monkeypatch.setattr(provisioner, "_change_windows_password", lambda cfg, pw: True)
-    # _generate_compose writes to XDG_CONFIG_HOME, which tmp_path provides.
 
     provisioner._auto_rotate_password(_rotation_cfg)
 
     assert not marker.exists()
 
 
-# --- OEM version push over podman exec -------------------------------------
+# OEM push over podman exec
 
 
 @pytest.fixture()
@@ -162,11 +148,6 @@ def _oem_push_cfg(tmp_path, monkeypatch):
 
 
 def _stub_shipped(monkeypatch, provisioner, tmp_path, bat_body: bytes, ps_body: bytes):
-    """Point _find_share_file at in-tmp stand-ins for the shipped files.
-
-    Returns the (install.bat, oem_updater.ps1) paths so tests can compute
-    the expected content hash without duplicating the hasher.
-    """
     fake_bat = tmp_path / "install.bat"
     fake_bat.write_bytes(bat_body)
     fake_ps = tmp_path / "oem_updater.ps1"
@@ -224,7 +205,6 @@ def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch, tmp_pat
     result = provisioner._push_oem_update_if_stale(_oem_push_cfg)
 
     assert result.pod.last_oem_push == expected
-    # Two pushes (ps1 first, then bat), then the updater invocation.
     assert len(calls) == 3
     assert any("oem_updater.ps1" in arg for arg in calls[0])
     assert any("install_shipped.bat" in arg for arg in calls[1])
@@ -277,8 +257,6 @@ def test_push_oem_skips_when_shipped_files_missing(_oem_push_cfg, monkeypatch):
 
 
 def test_push_oem_async_spawns_thread_and_persists(_oem_push_cfg, monkeypatch, tmp_path):
-    # Exercises the async wrapper end-to-end: thread runs to completion,
-    # last_oem_push gets reload-merged into the on-disk config.
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
@@ -294,7 +272,6 @@ def test_push_oem_async_spawns_thread_and_persists(_oem_push_cfg, monkeypatch, t
 
     monkeypatch.setattr(provisioner.subprocess, "run", lambda *_a, **_kw: _R())
 
-    # Grab the thread handle so the test can deterministically wait on it.
     spawned: list = []
     real_thread = provisioner.threading.Thread
 
@@ -315,11 +292,9 @@ def test_push_oem_async_spawns_thread_and_persists(_oem_push_cfg, monkeypatch, t
 
 
 def test_push_oem_async_single_flight(_oem_push_cfg, monkeypatch):
-    # A second async call while a push is in flight must silently skip,
-    # not queue up a duplicate podman exec chain.
+    # A second async call while a push is in flight must silently skip.
     from winpodx.core import provisioner
 
-    # Hold the lock as if another push were already running.
     assert provisioner._OEM_PUSH_LOCK.acquire(blocking=False)
     try:
 
@@ -333,8 +308,7 @@ def test_push_oem_async_single_flight(_oem_push_cfg, monkeypatch):
 
 
 def test_push_oem_async_flock_blocks_second_process(_oem_push_cfg, monkeypatch):
-    # Simulate another winpodx process holding the flock. The async call
-    # must release its in-process lock and skip — no thread, no exec.
+    # Another winpodx process holding the flock: async must release its in-process lock and skip.
     import fcntl
 
     from winpodx.core import provisioner
@@ -353,8 +327,6 @@ def test_push_oem_async_flock_blocks_second_process(_oem_push_cfg, monkeypatch):
         monkeypatch.setattr(provisioner.threading, "Thread", _boom)
         provisioner._push_oem_update_if_stale_async(_oem_push_cfg)
 
-        # In-process lock must have been released so the NEXT ensure_ready
-        # (once the other process finishes) can still try again.
         assert provisioner._OEM_PUSH_LOCK.acquire(blocking=False)
         provisioner._OEM_PUSH_LOCK.release()
     finally:

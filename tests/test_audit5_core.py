@@ -1,17 +1,4 @@
-"""Tests added by the 5th-round core-team audit.
-
-Covers:
-  * H3 — ``check_rdp_port`` now requires an explicit port (no 3389 default).
-  * H4 — ``PodState.PAUSED`` surfaces through ``pod_status``.
-  * H5 — ``PasswordFilter`` mutates ``record.args`` alongside ``record.msg``.
-  * H6 — ``/sec:tls`` applied for every backend, not only podman.
-  * H10 — ``terminate_tracked_sessions`` signals tracked FreeRDP PIDs.
-  * M1 — ``list_available_apps`` rejects symlink escapes.
-  * M5 — ``check_freerdp`` accepts sdl-freerdp via ``find_freerdp``.
-  * M8/M9 — ``PodConfig.image`` / ``PodConfig.disk_size`` defaults + persist.
-  * L4 — ``DockerBackend.wait_for_ready`` polls at 1s cadence.
-  * L5 — ``_parse_scale`` accepts floats and warns on out-of-range.
-"""
+"""Tests added by the 5th-round core-team audit."""
 
 from __future__ import annotations
 
@@ -23,16 +10,15 @@ import pytest
 from winpodx.core.config import Config, PodConfig
 from winpodx.core.pod import PodState, check_rdp_port, pod_status
 
-# --- H3 ---------------------------------------------------------------
+# H3
 
 
 def test_check_rdp_port_still_accepts_port_and_timeout():
-    # Invoking with a closed random port should quickly return False.
-    # Using port 1 (privileged, reserved) → refused or EACCES → False.
+    # Port 1 is privileged/reserved, so connect fails quickly.
     assert check_rdp_port("127.0.0.1", 1, timeout=0.1) is False
 
 
-# --- H4 ---------------------------------------------------------------
+# H4
 
 
 def test_podstate_has_paused():
@@ -50,7 +36,6 @@ def test_pod_status_reports_paused(monkeypatch):
         s = pod_status(cfg)
 
     assert s.state == PodState.PAUSED
-    # GUI maps `state.value` → colour, keep the string exactly "paused".
     assert s.state.value == "paused"
 
 
@@ -83,7 +68,7 @@ def test_podman_backend_is_paused_checks_state():
 
     with patch("winpodx.backend.podman.subprocess.run", return_value=fake_result):
         assert backend.is_paused() is True
-        assert backend.is_running() is True  # paused counts as alive
+        assert backend.is_running() is True
 
 
 def test_docker_backend_is_paused_checks_state():
@@ -109,13 +94,11 @@ def test_manual_backend_never_paused():
     assert ManualBackend(cfg).is_paused() is False
 
 
-# --- H5 ---------------------------------------------------------------
+# H5
 
 
 def test_password_filter_clears_args():
-    # record.args MUST be reset to () after sanitization.
-    # Previously, downstream handlers re-ran ``sanitized % original_args``
-    # which either re-inserted raw values or raised TypeError.
+    # record.args must be reset to () after sanitization.
     from winpodx.utils.logging import PasswordFilter
 
     pw_filter = PasswordFilter()
@@ -131,13 +114,10 @@ def test_password_filter_clears_args():
 
     pw_filter.filter(record)
 
-    # After filtering, args must be empty so getMessage() is idempotent.
     assert record.args == ()
-    # The message must not contain the raw token.
     assert "sekret123" not in record.getMessage()
     assert "token=***" in record.getMessage()
 
-    # Double-application (next handler along the chain) must not crash.
     assert record.getMessage() == record.getMessage()
 
 
@@ -155,11 +135,10 @@ def test_password_filter_passes_through_clean_records():
         exc_info=None,
     )
     assert pw_filter.filter(record) is True
-    # No redaction needed — args untouched so % formatting still works.
     assert record.getMessage() == "plain message arg"
 
 
-# --- H6 ---------------------------------------------------------------
+# H6
 
 
 @pytest.mark.parametrize("backend_name", ["podman", "docker", "libvirt", "manual"])
@@ -179,11 +158,11 @@ def test_sec_tls_applied_for_all_backends(backend_name, monkeypatch):
     assert "/sec:tls" in cmd, f"/sec:tls missing for backend {backend_name!r}"
 
 
-# --- H10 --------------------------------------------------------------
+# H10
 
 
 def test_terminate_tracked_sessions_signals_known_pids(tmp_path, monkeypatch):
-    # The helper must SIGTERM only PIDs that ``is_freerdp_pid`` accepts.
+    # The helper must SIGTERM only PIDs that is_freerdp_pid accepts.
     import os
     import subprocess
 
@@ -191,9 +170,6 @@ def test_terminate_tracked_sessions_signals_known_pids(tmp_path, monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.process import TrackedProcess
 
-    # Spawn a real child we are allowed to kill — no need for it to actually
-    # be FreeRDP; we mock is_freerdp_pid to claim so, then check the PID
-    # received SIGTERM by verifying it exits promptly.
     child = subprocess.Popen(["sleep", "30"])  # noqa: S603,S607
     try:
         fake_sessions = [TrackedProcess(app_name="x", pid=child.pid)]
@@ -202,10 +178,6 @@ def test_terminate_tracked_sessions_signals_known_pids(tmp_path, monkeypatch):
 
         def fake_is_freerdp(pid):
             call_count["n"] += 1
-            # First two calls (the list_active_sessions is_alive + the
-            # dispatch guard inside terminate_tracked_sessions) claim the
-            # PID is freerdp; later calls report real liveness via
-            # os.kill(0) so the wait loop can exit promptly.
             if call_count["n"] <= 2:
                 return True
             try:
@@ -214,16 +186,12 @@ def test_terminate_tracked_sessions_signals_known_pids(tmp_path, monkeypatch):
             except ProcessLookupError:
                 return False
 
-        # terminate_tracked_sessions does `from winpodx.core.process import
-        # list_active_sessions, is_freerdp_pid` inside the function, so we
-        # must patch the module attributes they resolve to.
         monkeypatch.setattr(proc_mod, "list_active_sessions", lambda: fake_sessions)
         monkeypatch.setattr(proc_mod, "is_freerdp_pid", fake_is_freerdp)
 
         signalled = provisioner.terminate_tracked_sessions(timeout=2.0)
         assert signalled == 1
 
-        # Child must have exited (SIGTERM honoured by sleep on Linux).
         child.wait(timeout=5)
         assert child.returncode is not None
     finally:
@@ -239,35 +207,31 @@ def test_terminate_tracked_sessions_skips_non_freerdp(tmp_path, monkeypatch):
 
     fake_sessions = [TrackedProcess(app_name="x", pid=1)]
     monkeypatch.setattr(proc_mod, "list_active_sessions", lambda: fake_sessions)
-    # Pretend nothing is a freerdp process — helper must not signal.
     monkeypatch.setattr(proc_mod, "is_freerdp_pid", lambda _pid: False)
 
     signalled = provisioner.terminate_tracked_sessions(timeout=0.1)
     assert signalled == 0
 
 
-# --- M1 ---------------------------------------------------------------
+# M1
 
 
 def test_list_available_apps_rejects_symlink_escape(tmp_path, monkeypatch):
-    # A symlink in user_apps_dir that points outside must be skipped.
+    # A symlink in user_apps_dir pointing outside must be skipped.
     from winpodx.core import app as app_mod
 
     user_apps = tmp_path / "user_apps"
     user_apps.mkdir()
 
-    # Legit app inside the directory.
     legit = user_apps / "notepad"
     legit.mkdir()
     (legit / "app.toml").write_text('name = "notepad"\nexecutable = "notepad.exe"\n')
 
-    # Malicious symlink escape.
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "app.toml").write_text('name = "evil"\nexecutable = "evil.exe"\n')
     (user_apps / "evil").symlink_to(outside, target_is_directory=True)
 
-    # bundled_apps_dir is unrelated — point it at an empty dir.
     empty = tmp_path / "bundled"
     empty.mkdir()
     monkeypatch.setattr(app_mod, "bundled_apps_dir", lambda: empty)
@@ -278,11 +242,10 @@ def test_list_available_apps_rejects_symlink_escape(tmp_path, monkeypatch):
     assert "evil" not in names
 
 
-# --- M5 ---------------------------------------------------------------
+# M5
 
 
 def test_check_freerdp_accepts_sdl(monkeypatch):
-    # check_freerdp must accept whatever find_freerdp finds.
     from winpodx.utils import deps
 
     monkeypatch.setattr(
@@ -304,7 +267,7 @@ def test_check_freerdp_reports_missing(monkeypatch):
     assert "FreeRDP 3+" in result.note
 
 
-# --- M8 / M9 ----------------------------------------------------------
+# M8 / M9
 
 
 def test_pod_config_image_and_disk_size_defaults():
@@ -332,7 +295,7 @@ def test_pod_config_image_and_disk_size_persist(tmp_path, monkeypatch):
     assert loaded.pod.disk_size == "128G"
 
 
-# --- L4 ---------------------------------------------------------------
+# L4
 
 
 def test_docker_wait_for_ready_uses_short_sleep(monkeypatch):
@@ -344,7 +307,6 @@ def test_docker_wait_for_ready_uses_short_sleep(monkeypatch):
 
     sleeps: list[float] = []
 
-    # Drive a virtual clock so the loop terminates deterministically.
     clock = {"t": 0.0}
 
     def fake_monotonic() -> float:
@@ -361,14 +323,12 @@ def test_docker_wait_for_ready_uses_short_sleep(monkeypatch):
 
     ok = backend.wait_for_ready(timeout=3)
     assert ok is False
-    # No sleep value should exceed 1 second.
     assert sleeps, "wait_for_ready must invoke sleep at least once"
     assert max(sleeps) <= 1.0
-    # With timeout=3 and <=1s cadence, we expect at least 2 poll cycles.
     assert len(sleeps) >= 2
 
 
-# --- L5 ---------------------------------------------------------------
+# L5
 
 
 def test_parse_scale_integer_percent():
@@ -380,7 +340,6 @@ def test_parse_scale_integer_percent():
 def test_parse_scale_float_multiplier():
     from winpodx.utils.compat import _parse_scale
 
-    # 1.5 is a decimal multiplier → 150%.
     assert _parse_scale("1.5") == 150
 
 

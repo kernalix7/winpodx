@@ -1,11 +1,4 @@
-"""Configuration management for winpodx.
-
-Reads/writes TOML config from ~/.config/winpodx/winpodx.toml
-and provides backward compatibility with winapps.conf.
-
-No external dependencies — uses stdlib tomllib (3.11+) and
-winpodx.utils.toml_writer for writing.
-"""
+"""Configuration management for winpodx."""
 
 from __future__ import annotations
 
@@ -20,9 +13,7 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
 
-# Podman/Docker container name rules: letters, digits, `_`, `-`, `.`,
-# must start with alnum. Anything else could surprise downstream tooling
-# or, in a shell context someone didn't sanitize, be parsed as metacharacters.
+# Podman/Docker container name rules: alnum/_/-/., must start with alnum.
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DEFAULT_CONTAINER_NAME = "winpodx-windows"
 
@@ -65,11 +56,7 @@ class PodConfig:
     image: str = "ghcr.io/dockur/windows:latest"
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
-    # SHA-256 content hash of (install.bat + oem_updater.ps1) that was last
-    # successfully pushed into the VM via `podman exec`. Compared on every
-    # ensure_ready() and the push is skipped when hashes match, so winpodx
-    # version bumps that don't touch the shipped files don't trigger a
-    # redundant in-VM updater run.
+    # SHA-256 of (install.bat + oem_updater.ps1) last pushed into the VM.
     last_oem_push: str = ""
 
     def __post_init__(self) -> None:
@@ -83,15 +70,8 @@ class PodConfig:
         if not isinstance(self.container_name, str) or not _CONTAINER_NAME_RE.match(
             self.container_name
         ):
-            # Reject anything that would not be a valid podman/docker name —
-            # defends against surprising values (whitespace, slashes, shell
-            # metachars) that could break `podman exec` callers or leak into
-            # compose YAML. Fall back silently rather than raising so a stray
-            # hand-edited config does not brick `winpodx setup`.
+            # Fall back silently so a hand-edited config does not brick setup.
             self.container_name = _DEFAULT_CONTAINER_NAME
-        # image / disk_size are free-form strings — reject obviously broken
-        # values (empty) by falling back to defaults so the compose template
-        # never emits a blank field.
         if not isinstance(self.image, str) or not self.image.strip():
             self.image = "ghcr.io/dockur/windows:latest"
         if not isinstance(self.disk_size, str) or not self.disk_size.strip():
@@ -167,8 +147,6 @@ class Config:
         }
 
         # Atomic write: create temp file with 0600, fsync, then rename.
-        # fsync is required before rename — otherwise a crash can leave a
-        # zero-byte file after the rename metadata commits but data does not.
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".winpodx-", suffix=".tmp")
         fd_closed = False
         try:

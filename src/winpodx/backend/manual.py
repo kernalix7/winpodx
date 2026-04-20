@@ -1,4 +1,4 @@
-"""Manual backend — direct RDP connection to an existing Windows machine."""
+"""Manual backend: direct RDP connection to an existing Windows machine."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from winpodx.backend.base import Backend
 
 class ManualBackend(Backend):
     def start(self) -> None:
-        pass  # Nothing to start — user manages the machine
+        pass  # Nothing to start; user manages the machine.
 
     def stop(self) -> None:
         pass

@@ -1,8 +1,4 @@
-r"""Windows Update toggle — enable/disable/status via container exec.
-
-Runs C:\OEM\toggle_updates.ps1 inside the Windows container.
-No RDP session required — uses podman/docker exec directly.
-"""
+r"""Windows Update toggle via container exec."""
 
 from __future__ import annotations
 
@@ -18,10 +14,7 @@ _PS = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
 
 
 def _exec_toggle(cfg: Config, action: str) -> tuple[bool, str]:
-    """Run toggle_updates.ps1 with the given action.
-
-    Returns (success, output_text).
-    """
+    """Run toggle_updates.ps1 with the given action."""
     backend = cfg.pod.backend
     if backend not in ("podman", "docker"):
         return False, "Only supported for podman/docker backends"
@@ -74,10 +67,7 @@ def enable_updates(cfg: Config) -> bool:
 
 
 def get_update_status(cfg: Config) -> str | None:
-    """Check if Windows Update is enabled or disabled.
-
-    Returns 'enabled', 'disabled', or None on error.
-    """
+    """Check if Windows Update is enabled or disabled."""
     ok, msg = _exec_toggle(cfg, "status")
     if ok and msg in ("enabled", "disabled"):
         return msg

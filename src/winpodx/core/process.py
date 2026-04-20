@@ -21,9 +21,8 @@ def is_freerdp_pid(pid: int) -> bool:
     """Return True if the given PID is a live FreeRDP process we spawned.
 
     Single source of truth for PID-reuse detection. Accepts only ``freerdp``
-    or ``xfreerdp`` in the cmdline — matching our own spawned binaries.
-    Deliberately excludes ``winpodx`` because that substring can match
-    unrelated CLI invocations (e.g. ``winpodx app list``) after PID reuse.
+    or ``xfreerdp`` in the cmdline (our own spawned binaries). Excludes
+    ``winpodx`` because that substring can match unrelated CLI invocations.
     """
     try:
         os.kill(pid, 0)

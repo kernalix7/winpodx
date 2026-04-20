@@ -1,8 +1,4 @@
-"""Minimal TOML writer — replaces tomli-w dependency.
-
-Only supports the subset of TOML used by winpodx config:
-flat tables with string, int, bool values.
-"""
+"""Minimal TOML writer (replaces tomli-w dependency)."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""FreeRDP session management.
-
-Wraps xfreerdp3/xfreerdp to launch and manage RDP sessions
-for individual Windows applications.
-"""
+"""FreeRDP session management."""
 
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ from winpodx.utils.paths import runtime_dir
 
 log = logging.getLogger(__name__)
 
-# Characters invalid in Windows file paths — rejected by ``linux_to_unc``.
+# Characters invalid in Windows file paths; rejected by linux_to_unc.
 _INVALID_WIN_CHARS: frozenset[str] = frozenset('*?"<>|')
 
 
@@ -42,15 +38,9 @@ class RDPSession:
 
 
 def _find_media_base() -> Path | None:
-    """Find the user's removable media base directory.
-
-    Shares the parent directory so USB drives plugged in after
-    session start are visible as subfolders without reconnecting.
-    """
+    """Find the user's removable media base directory."""
     user = os.environ.get("USER", "")
 
-    # /run/media/$USER (modern: openSUSE, Fedora, Arch)
-    # /media/$USER     (Ubuntu, Debian)
     for base in (Path("/run/media") / user, Path("/media") / user):
         if base.is_dir():
             return base
@@ -58,43 +48,24 @@ def _find_media_base() -> Path | None:
     return None
 
 
-# Module-level cache for ``find_freerdp`` results. Only populated on success
-# — a ``None`` result means FreeRDP was not found, and caching that would
-# prevent the tray/GUI (which call ``launch_app`` in-process) from noticing
-# a mid-session install. Success results are stable: xfreerdp doesn't move
-# once installed.
+# Success-only cache; a miss is not cached so a mid-session install is picked up.
 _FREERDP_CACHE: tuple[str, str] | None = None
 
 
 def find_freerdp() -> tuple[str, str] | None:
-    """Locate a FreeRDP 3+ binary on the system.
-
-    Search order: xfreerdp3 → xfreerdp → sdl-freerdp3 → flatpak
-    Note: wlfreerdp is deprecated upstream; xfreerdp works on Wayland via XWayland.
-
-    Returns (binary_path, variant) where variant is one of:
-      'xfreerdp', 'sdl', 'flatpak'.
-
-    Success results are cached in ``_FREERDP_CACHE`` per-process. Cold
-    lookups cost up to 10s when the flatpak fallback runs, so repeated
-    launches from a long-running tray/GUI reuse the first hit. ``None``
-    results are intentionally NOT cached so an install-after-startup is
-    picked up on the next launch attempt.
-    """
+    """Locate a FreeRDP 3+ binary on the system."""
     global _FREERDP_CACHE
     if _FREERDP_CACHE is not None:
         return _FREERDP_CACHE
 
     found: tuple[str, str] | None = None
 
-    # xfreerdp works on both X11 and Wayland (via XWayland)
     for name in ("xfreerdp3", "xfreerdp"):
         path = shutil.which(name)
         if path:
             found = (path, "xfreerdp")
             break
 
-    # SDL client — native X11/Wayland support
     if found is None:
         for name in ("sdl-freerdp3", "sdl-freerdp"):
             path = shutil.which(name)
@@ -102,7 +73,6 @@ def find_freerdp() -> tuple[str, str] | None:
                 found = (path, "sdl")
                 break
 
-    # Flatpak fallback
     if found is None:
         try:
             result = subprocess.run(
@@ -122,14 +92,9 @@ def find_freerdp() -> tuple[str, str] | None:
 
 
 def _resolve_password(cfg: Config) -> str:
-    """Resolve the RDP password from askpass or config.
-
-    Prefers askpass command; validates it exists before executing.
-    Falls back to stored password in config.
-    """
+    """Resolve the RDP password from askpass or config."""
     if cfg.rdp.askpass:
         parts = shlex.split(cfg.rdp.askpass)
-        # Validate the askpass binary exists
         if not shutil.which(parts[0]):
             log.warning("askpass binary not found: %s", parts[0])
         else:
@@ -154,20 +119,14 @@ def build_rdp_command(
     file_path: str | None = None,
     auto_scale: bool = True,
 ) -> tuple[list[str], str]:
-    """Build the xfreerdp command line for launching an app.
-
-    Returns (command_list, password). Password is passed via stdin
-    to avoid exposing it in /proc/pid/cmdline.
-    """
+    """Build the xfreerdp command line for launching an app."""
     found = find_freerdp()
     if not found:
         raise RuntimeError("FreeRDP 3+ not found. Install xfreerdp3 or xfreerdp.")
 
     binary, variant = found
 
-    # Rootless podman requires entering the network namespace to reach
-    # port-mapped containers.  podman unshare --rootless-netns wraps the
-    # xfreerdp process so it can connect to 127.0.0.1:<mapped-port>.
+    # Rootless podman needs --rootless-netns to reach port-mapped containers.
     cmd: list[str] = []
 
     if cfg.pod.backend == "podman" and shutil.which("podman"):
@@ -175,7 +134,6 @@ def build_rdp_command(
 
     cmd += shlex.split(binary)
 
-    # Connection
     cmd += [
         f"/v:{cfg.rdp.ip}:{cfg.rdp.port}",
         f"/u:{cfg.rdp.user}",
@@ -184,7 +142,6 @@ def build_rdp_command(
     if cfg.rdp.domain:
         cmd.append(f"/d:{cfg.rdp.domain}")
 
-    # Display & performance
     cmd += [
         "+home-drive",
         "+clipboard",
@@ -193,36 +150,25 @@ def build_rdp_command(
         "/printer",
     ]
 
-    # USB sharing via shared folder (network drive), not device redirection:
-    # shares the media mount directory so USB storage is accessible as
-    # \\tsclient\media. Drives plugged in after session start appear as
-    # subfolders without reconnecting. /usb:auto is intentionally omitted
-    # because urbdrc plugin availability varies across FreeRDP builds and a
-    # missing plugin can terminate the session on some distros.
+    # Share the media mount directory so USB storage appears under \\tsclient\media.
     media_base = _find_media_base()
     if media_base:
         cmd.append(f"/drive:media,{media_base}")
 
-    # Scale from config (detected once during setup, not every launch)
     cmd.append(f"/scale:{cfg.rdp.scale}")
 
     # Windows DPI scaling (0 = let Windows decide)
     if cfg.rdp.dpi > 0:
         cmd.append(f"/scale-desktop:{cfg.rdp.dpi}")
 
-    # Password: /p: flag exposes the password in /proc/pid/cmdline (readable
-    # by the same uid only).  /from-stdin:force is not viable because podman
-    # unshare has no tty (tcgetattr fails) and GUI/desktop entry launches
-    # lack stdin.  Acceptable risk: RDP is bound to 127.0.0.1, container-only.
+    # /p: exposes the password in /proc/pid/cmdline (same-uid-readable only);
+    # /from-stdin:force is not viable under podman unshare (no tty) or GUI launches.
     password = _resolve_password(cfg)
     if password:
         cmd.append(f"/p:{password}")
         password = ""  # signal launch_app to skip stdin write
 
-    # Launch app seamlessly via RemoteApp (RAIL).
-    # Requires fDisabledAllowList=1 in Windows registry (set by install.bat).
-    # Currently single-session: opening a new app reconnects the existing session.
-    # Multi-session support (independent RDP sessions per app) is planned.
+    # RemoteApp (RAIL) launch; requires fDisabledAllowList=1 set by install.bat.
     if app_executable:
         from pathlib import PureWindowsPath
 
@@ -232,44 +178,29 @@ def build_rdp_command(
             try:
                 unc_path = linux_to_unc(file_path)
             except ValueError as e:
-                # Convert to RuntimeError so CLI (_run_app) surfaces it
-                # to the user instead of hitting an unhandled exception.
+                # Convert to RuntimeError so CLI (_run_app) surfaces it to the user.
                 raise RuntimeError(f"Cannot open file: {e}") from e
             app_arg += f",cmd:{unc_path}"
         cmd.append(app_arg)
         cmd.append(f"/wm-class:{stem}")
         cmd.append("+grab-keyboard")
 
-    # TLS auth for all backends. Two reasons:
-    #  1. config/oem/install.bat sets SecurityLayer=2 (TLS) and disables
-    #     NLA on the Windows side unconditionally, so docker/libvirt/manual
-    #     users would otherwise hit a TLS handshake error when FreeRDP
-    #     defaults to NLA/negotiate.
-    #  2. NLA/Kerberos also fails inside the podman unshare namespace
-    #     (krb5_parse_name EAGAIN).
-    # The original podman-only gate caused "Authentication only" errors
-    # for every non-podman user.
+    # TLS for all backends: install.bat forces SecurityLayer=2 and podman unshare breaks NLA.
     cmd.append("/sec:tls")
 
-    # Certificate validation: ignore for localhost (safe), tofu for remote
     if cfg.rdp.ip in ("127.0.0.1", "localhost", "::1"):
         cmd.append("/cert:ignore")
     else:
         cmd.append("/cert:tofu")
 
-    # Extra flags from config (only safe FreeRDP switches allowed)
     if cfg.rdp.extra_flags:
         cmd += _filter_extra_flags(cfg.rdp.extra_flags)
 
     return cmd, password
 
 
-# Allowlist for FreeRDP flags. Three categories: bare toggles, value-regex,
-# device-redirection strict set. Prefix matching is unsafe (adversarial
-# ``/drive:etc,/etc`` etc.), so each flag is validated by argument shape and
-# unknown flags are dropped.
-
-# Exact-match flags (no ``:arg`` payload tolerated).
+# Allowlist: bare toggles, value-regex, device-redirection strict set.
+# Exact-match flags (no :arg payload tolerated).
 _BARE_FLAGS: frozenset[str] = frozenset(
     {
         "+fonts",
@@ -288,8 +219,7 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "+gestures",
         "-gestures",
         "/printer",
-        # ``/sound`` / ``/microphone`` / ``/gfx`` / ``/rfx`` are also valid as
-        # bare toggles; their ``:arg`` forms are handled below.
+        # /sound, /microphone, /gfx, /rfx also accept :arg forms handled below.
         "/sound",
         "/microphone",
         "/gfx",
@@ -298,12 +228,9 @@ _BARE_FLAGS: frozenset[str] = frozenset(
     }
 )
 
-# ``<flag>:<value>`` flags where the value is user-tunable but must match a
-# conservative regex.  Regexes are anchored at both ends via ``fullmatch``.
-# Keep these narrow — the goal is to accept obvious legitimate inputs and
-# nothing else.
+# <flag>:<value> pairs validated by per-flag fullmatch regex.
 _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
-    # Display / scaling — small positive integers only
+    # Display / scaling: small positive integers only.
     "/scale": re.compile(r"[1-9][0-9]{0,3}"),
     "/scale-desktop": re.compile(r"[1-9][0-9]{0,3}"),
     "/scale-device": re.compile(r"[1-9][0-9]{0,3}"),
@@ -311,62 +238,44 @@ _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
     "/w": re.compile(r"[1-9][0-9]{1,4}"),
     "/h": re.compile(r"[1-9][0-9]{1,4}"),
     "/bpp": re.compile(r"(8|15|16|24|32)"),
-    # Network profile — documented FreeRDP keywords only
+    # Documented FreeRDP keywords only.
     "/network": re.compile(r"(modem|broadband|broadband-low|broadband-high|wan|lan|auto)"),
-    # Codec names — short identifier-ish only
     "/codec": re.compile(r"[a-zA-Z0-9_-]{1,32}"),
-    # ``/sound:sys:alsa`` / ``/sound:sys:pulse`` and friends.  Limited to two
-    # ``key:value`` pairs of bounded identifiers.  This covers the
-    # ``sys:alsa|pulse|oss|fake`` + optional ``format:s16|...`` patterns
-    # without permitting arbitrary file paths.
+    # /sound:sys:alsa and similar; bounded identifier pairs, no file paths.
     "/sound": re.compile(r"[a-zA-Z0-9_-]{1,16}(:[a-zA-Z0-9_-]{1,16}){0,3}"),
     "/microphone": re.compile(r"[a-zA-Z0-9_-]{1,16}(:[a-zA-Z0-9_-]{1,16}){0,3}"),
     "/gfx": re.compile(r"[a-zA-Z0-9_,:+-]{1,64}"),
     "/rfx": re.compile(r"[a-zA-Z0-9_-]{1,32}"),
-    # Log level — documented FreeRDP keywords.  Rejects ``TRACE:FOO`` etc. so
-    # a wildcard scope cannot be injected.
+    # Documented log levels only; rejects wildcard scopes like TRACE:FOO.
     "/log-level": re.compile(r"(OFF|FATAL|ERROR|WARN|INFO|DEBUG|TRACE)", re.IGNORECASE),
 }
 
-# Device-redirection flags tunnel host resources into the guest; only the tiny
-# documented value sets below are safe. Empty allowlist => any ``:value`` form
-# is rejected (bare ``/smartcard`` toggle is still accepted via ``_BARE_FLAGS``).
+# Device-redirection allowlist; empty set rejects all :value forms.
 _STRICT_PATTERN_FLAGS: dict[str, frozenset[str]] = {
-    "/drive": frozenset({"home", "media"}),  # home/media shares only — no host paths
-    "/usb": frozenset({"auto"}),  # urbdrc auto-share; specific devs need first-class config
-    "/serial": frozenset(),  # reject all — no safe value shape
-    "/parallel": frozenset(),  # reject all — no safe value shape
-    "/smartcard": frozenset(),  # reject all :value — bare toggle only
+    "/drive": frozenset({"home", "media"}),
+    "/usb": frozenset({"auto"}),
+    "/serial": frozenset(),
+    "/parallel": frozenset(),
+    "/smartcard": frozenset(),
 }
 
 
 def _validate_flag(part: str) -> bool:
-    """Return True if ``part`` is an allowed FreeRDP flag token.
-
-    Matching is case-sensitive on the flag name (FreeRDP flags are lower-case
-    by convention); the value is matched per-flag.
-    """
-    # Exact-match bare flags first (``+fonts``, ``/printer`` …).
+    """Return True if part is an allowed FreeRDP flag token."""
     if part in _BARE_FLAGS:
         return True
 
-    # Require ``<flag>:<value>`` form for everything else.
     if ":" not in part:
         return False
     flag, _, value = part.partition(":")
 
-    # Strict device-redirection allowlist.  Empty allowlist means "no
-    # ``:value`` form is acceptable for this flag".
     if flag in _STRICT_PATTERN_FLAGS:
         allowed = _STRICT_PATTERN_FLAGS[flag]
-        # Reject any value containing ``,`` / ``/`` / ``\\`` — those are the
-        # separators adversarial payloads use to smuggle host paths
-        # (``/drive:x,/etc``).  Belt-and-braces alongside the set check.
+        # Reject separators used to smuggle host paths (e.g. /drive:x,/etc).
         if "," in value or "/" in value or "\\" in value:
             return False
         return value in allowed
 
-    # Simple-value flags with per-flag regex.
     pattern = _SIMPLE_VALUE_FLAGS.get(flag)
     if pattern is None:
         return False
@@ -374,13 +283,7 @@ def _validate_flag(part: str) -> bool:
 
 
 def _filter_extra_flags(flags_str: str) -> list[str]:
-    """Filter extra_flags to only allow safe FreeRDP switches.
-
-    Uses per-flag argument-shape validation rather than prefix matching so
-    that flags like ``/drive:`` and ``/serial:`` cannot smuggle arbitrary
-    host paths or device nodes into the Windows guest.  Rejected flags are
-    logged at WARNING level and dropped entirely.
-    """
+    """Filter extra_flags to only allow safe FreeRDP switches."""
     parts = shlex.split(flags_str)
     safe: list[str] = []
     for part in parts:
@@ -405,9 +308,7 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
         pid_file.unlink(missing_ok=True)
         return None
 
-    # Single source of truth: must be a live freerdp/xfreerdp process.
-    # Rejecting unrelated winpodx CLI invocations that may land on a reused
-    # PID — otherwise launch_app would return a fake process=None session.
+    # Must be a live freerdp/xfreerdp process (guard against PID reuse).
     if not is_freerdp_pid(pid):
         pid_file.unlink(missing_ok=True)
         return None
@@ -421,12 +322,7 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
 
 
 def _reaper_thread(session: RDPSession) -> None:
-    """Wait for process exit and clean up PID file.
-
-    Drains stderr into session.stderr_tail to prevent pipe buffer
-    deadlock on long sessions (FreeRDP blocks once the 64KB pipe
-    buffer fills if nothing reads from it).
-    """
+    """Wait for process exit, drain stderr, and clean up the PID file."""
     proc = session.process
     if proc is None:
         return
@@ -448,7 +344,6 @@ def launch_app(
     """Launch a Windows app via RDP and return the session handle."""
     import threading
 
-    # Derive a clean app name for tracking
     if app_executable:
         from pathlib import PureWindowsPath
 
@@ -456,7 +351,6 @@ def launch_app(
     else:
         app_name = "desktop"
 
-    # Reuse existing session if running
     existing = _find_existing_session(app_name)
     if existing is not None:
         return existing
@@ -465,7 +359,7 @@ def launch_app(
 
     log.info("Launching RDP: %s", " ".join(cmd))
 
-    # Acquire PID file lock before launching to prevent race conditions
+    # Acquire PID file lock before launching to prevent race conditions.
     session = RDPSession(app_name=app_name)
     session.pid_file.parent.mkdir(parents=True, exist_ok=True)
     lock_fd = session.pid_file.open("w")
@@ -475,13 +369,11 @@ def launch_app(
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         lock_fd.close()
-        # Another launch in progress — recheck for existing session
         existing = _find_existing_session(app_name)
         if existing is not None:
             return existing
         raise RuntimeError(f"Could not acquire lock for {app_name}")
 
-    # Launch process under the lock
     try:
         proc = subprocess.Popen(
             cmd,
@@ -492,7 +384,6 @@ def launch_app(
 
         session.process = proc
 
-        # Write PID under the lock
         lock_fd.write(str(proc.pid))
         lock_fd.flush()
     except Exception:
@@ -501,7 +392,6 @@ def launch_app(
     finally:
         lock_fd.close()
 
-    # Reaper thread to clean up zombie and PID file
     t = threading.Thread(
         target=_reaper_thread,
         args=(session,),
@@ -518,22 +408,7 @@ def launch_desktop(cfg: Config) -> RDPSession:
 
 
 def linux_to_unc(path: str) -> str:
-    """Convert a Linux file path to a Windows UNC path via tsclient.
-
-    The RDP drive share maps the Linux home directory as ``\\tsclient\\home``.
-    If the user has removable media mounted under ``/run/media/$USER`` or
-    ``/media/$USER``, that base is shared as ``\\tsclient\\media`` and paths
-    below it are remapped accordingly.
-
-    Raises ``ValueError`` when:
-      * the path contains characters invalid in Windows file paths, or
-      * the path lies outside any shared location (home or media base).
-        Returning an unshared path here would produce a UNC like
-        ``\\tsclient\\tmp\\foo.docx`` which Windows cannot resolve,
-        leading to silent app failures (empty Office window, "path not
-        found"). Callers must surface this error to the user.
-    """
-    # Reject characters invalid in Windows file paths
+    """Convert a Linux file path to a Windows UNC path via tsclient."""
     p = Path(path).resolve()
     posix_str = str(p)
     if _INVALID_WIN_CHARS & set(posix_str):
@@ -548,7 +423,7 @@ def linux_to_unc(path: str) -> str:
     except ValueError:
         pass
 
-    # Media share: /run/media/$USER or /media/$USER — mounted as \\tsclient\media
+    # Media share mounted as \\tsclient\media.
     media_base = _find_media_base()
     if media_base is not None:
         try:

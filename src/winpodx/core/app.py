@@ -36,10 +36,9 @@ def bundled_apps_dir() -> Path:
       2. pip wheel install: ``<sys.prefix>/share/winpodx/data/apps``
       3. User install: ``~/.local/share/winpodx/data/apps``
 
-    Mirrors ``winpodx.desktop.icons.bundled_data_path`` — kept inline here
-    to avoid a core -> desktop dependency. If none exist, returns the
-    source-layout path so callers see a non-existent Path rather than
-    None (matches prior behaviour).
+    Mirrors ``winpodx.desktop.icons.bundled_data_path`` (inlined to avoid
+    a core -> desktop dependency). If none exist, returns the source-layout
+    path so callers see a non-existent Path rather than None.
     """
     candidates = [
         Path(__file__).resolve().parent.parent.parent.parent / "data" / "apps",

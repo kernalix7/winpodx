@@ -1,8 +1,4 @@
-"""System tray icon using Qt (QSystemTrayIcon).
-
-Provides a status indicator, quick app launchers, and pod management
-in the system tray. Requires PySide6 (install with: pip install winpodx[gui]).
-"""
+"""System tray icon using Qt (QSystemTrayIcon)."""
 
 from __future__ import annotations
 
@@ -34,12 +30,10 @@ def run_tray() -> None:
     app.setQuitOnLastWindowClosed(False)
 
     tray = QSystemTrayIcon()
-    tray.setToolTip("winpodx — Windows App Integration")
+    tray.setToolTip("winpodx - Windows App Integration")
 
-    # --- Build menu ---
     menu = QMenu()
 
-    # Status header
     status_action = QAction("Status: checking...")
     status_action.setEnabled(False)
     menu.addAction(status_action)
@@ -50,7 +44,6 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    # Pod controls
     start_action = QAction("Start Pod")
     stop_action = QAction("Stop Pod")
     restart_action = QAction("Restart Pod")
@@ -141,7 +134,6 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    # Apps submenu
     apps_menu = QMenu("Launch App")
     available_apps = list_available_apps()
 
@@ -165,17 +157,16 @@ def run_tray() -> None:
 
         return launcher
 
-    for app_info in available_apps[:20]:  # Limit menu items
+    for app_info in available_apps[:20]:
         action = QAction(app_info.full_name)
         action.triggered.connect(make_launcher(app_info.executable, app_info.full_name))
         apps_menu.addAction(action)
 
     if not available_apps:
-        no_apps = QAction("(no apps — run 'winpodx setup')")
+        no_apps = QAction("(no apps - run 'winpodx setup')")
         no_apps.setEnabled(False)
         apps_menu.addAction(no_apps)
 
-    # Desktop session
     apps_menu.addSeparator()
     desktop_action = QAction("Full Desktop")
 
@@ -195,7 +186,6 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    # Display info
     info = display_info()
     info_action = QAction(f"Display: {info['session_type']} / {info['desktop_environment']}")
     info_action.setEnabled(False)
@@ -203,8 +193,6 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    # Quit
-    # --- Maintenance submenu ---
     maint_menu = QMenu("Maintenance")
 
     cleanup_action = QAction("Clean Lock Files")
@@ -254,15 +242,12 @@ def run_tray() -> None:
     tray.setContextMenu(menu)
     tray.show()
 
-    # Initial status check
     refresh_status()
 
-    # Auto-refresh every 30 seconds
     timer = QTimer()
     timer.timeout.connect(refresh_status)
     timer.start(30000)
 
-    # Start idle monitor in background thread
     import threading
 
     idle_stop = threading.Event()
@@ -276,7 +261,6 @@ def run_tray() -> None:
             daemon=True,
         ).start()
 
-    # Double-click opens desktop
     def on_tray_activate(reason: int) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             try:

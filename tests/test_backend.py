@@ -11,8 +11,8 @@ def test_manual_backend_start_stop():
     cfg = Config()
     cfg.rdp.ip = "192.168.1.100"
     backend = ManualBackend(cfg)
-    backend.start()  # No-op
-    backend.stop()  # No-op
+    backend.start()
+    backend.stop()
     assert backend.get_ip() == "192.168.1.100"
 
 
@@ -76,7 +76,6 @@ def test_start_pod_start_failure_returns_error():
 
 
 def test_podman_backend_is_running_uses_configured_container_name():
-    # PodmanBackend.is_running must filter by cfg.pod.container_name.
     from winpodx.backend.podman import PodmanBackend
 
     cfg = Config()
@@ -98,7 +97,6 @@ def test_podman_backend_is_running_uses_configured_container_name():
 
 
 def test_docker_backend_is_running_uses_configured_container_name():
-    # DockerBackend.is_running must filter by cfg.pod.container_name.
     from winpodx.backend.docker import DockerBackend
 
     cfg = Config()

@@ -1,15 +1,4 @@
-"""Auto-provisioning engine for first-run experience.
-
-Handles the entire lifecycle automatically:
-  1. Check dependencies → guide installation
-  2. Generate config if missing
-  3. Generate compose.yaml if missing
-  4. Start pod if not running
-  5. Wait for RDP to be available
-  6. Register desktop entries if not done
-
-The goal: user clicks an app icon → everything just works.
-"""
+"""Auto-provisioning on first launch."""
 
 from __future__ import annotations
 
@@ -34,22 +23,15 @@ from winpodx.utils.paths import config_dir, data_dir
 
 log = logging.getLogger(__name__)
 
-# In-process single-flight lock for the async OEM push. Non-blocking
-# acquire: a second ensure_ready() in the same process silently skips
-# rather than queueing. Cross-process single-flight is handled via
-# fcntl.flock on _oem_push_flock_path() — see _push_oem_update_if_stale_async.
+# Single-flight (non-blocking) for the async OEM push.
 _OEM_PUSH_LOCK = threading.Lock()
 
 
 def _oem_push_flock_path() -> Path:
-    """Filesystem lock path for cross-process OEM-push single-flight."""
     return Path(config_dir()) / ".oem_push.lock"
 
 
-# Marker written when a password rotation left the Windows password
-# and the stored config out of sync (rollback failed). Presence of this
-# file triggers a warning on every ensure_ready() until the user runs
-# `winpodx rotate-password` manually.
+# Marker for a partial password rotation (Windows changed, config did not).
 _ROTATION_PENDING_MARKER = "rotation_pending"
 
 
@@ -62,30 +44,17 @@ class ProvisionError(Exception):
 
 
 def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
-    """Ensure everything is ready to launch a Windows app.
-
-    Fast path: if config exists and RDP is already available, skip everything.
-    Slow path: full provisioning (first run or pod is down).
-    """
-    # Step 1: Config
+    """Ensure everything is ready to launch a Windows app."""
     if cfg is None:
         cfg = _ensure_config()
 
-    # Step 1.1: Warn loudly if a previous rotation rolled back but couldn't
-    # restore the Windows password. The system is in an inconsistent state:
-    # config holds old password, Windows holds new one — RDP auth will fail
-    # until the user runs `winpodx rotate-password` after the pod is healthy.
     _check_rotation_pending()
-
-    # Step 1.5: Auto-rotate password if older than 1 day
     cfg = _auto_rotate_password(cfg)
 
-    # Fast path — RDP already available, skip all checks
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
         _push_oem_update_if_stale_async(cfg)
         return cfg
 
-    # Slow path — full provisioning
     _check_deps()
 
     if cfg.pod.backend in ("podman", "docker"):
@@ -104,12 +73,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
 
 def _find_share_file(relpath: str) -> Path | None:
-    """Locate a winpodx-shipped data file across install modes.
-
-    Search order: editable/source checkout, pip wheel / pipx (sys.prefix
-    shared-data), user-local pip, legacy install path. Returns ``None`` if
-    the file isn't found in any of them.
-    """
+    """Find a shipped data file across editable/wheel/pipx install modes."""
     here = Path(__file__).resolve()
     candidates = [
         here.parent.parent.parent.parent / relpath,
@@ -126,16 +90,7 @@ def _find_share_file(relpath: str) -> Path | None:
 def _push_file_to_container(
     runtime: str, container: str, src: Path, dest_win_path: str, timeout: int = 30
 ) -> bool:
-    """Write *src*'s bytes into the Windows guest at *dest_win_path*.
-
-    Neither ``\\tsclient\\*`` (RDP-session-only) nor ``podman cp`` (writes to
-    the container's Linux rootfs, not the Windows guest) reaches the guest
-    from a ``podman exec`` context. Instead we inline the file bytes as
-    base64 inside a PowerShell ``-Command`` and let the guest decode and
-    write via ``[System.IO.File]::WriteAllBytes``. Works for any file size
-    that fits a Windows command line (~32 KB); shipped scripts are well
-    under that.
-    """
+    """Write src's bytes into the Windows guest via base64-in-PowerShell."""
     b64 = base64.b64encode(src.read_bytes()).decode("ascii")
     dest = dest_win_path.replace("'", "''")
     ps_cmd = (
@@ -170,38 +125,15 @@ def _push_file_to_container(
 
 
 def _oem_content_hash(install_bat: Path, oem_updater: Path) -> str:
-    """Return a content fingerprint covering both shipped files.
-
-    A NUL byte between the two contents guards against length-extension
-    ambiguity (``a||b`` vs ``ab``). The hex digest is stored in
-    ``cfg.pod.last_oem_push`` so repeated launches skip the push whenever
-    the shipped bytes are unchanged, regardless of winpodx version bumps.
-    """
     h = hashlib.sha256()
     h.update(install_bat.read_bytes())
-    h.update(b"\x00")
+    h.update(b"\x00")  # separator prevents a||b / ab collision
     h.update(oem_updater.read_bytes())
     return h.hexdigest()
 
 
 def _push_oem_update_if_stale(cfg: Config) -> Config:
-    """Synchronous OEM push — pushes files and runs the updater in-VM.
-
-    Skipped when the combined SHA-256 of ``install.bat`` + ``oem_updater.ps1``
-    matches ``cfg.pod.last_oem_push`` (nothing changed since last successful
-    push). Mutates ``cfg.pod.last_oem_push`` on success but does **not**
-    persist to disk — the async wrapper handles persistence under a
-    reload-merge-save pattern so concurrent config writers can't clobber
-    each other.
-
-    The in-VM Scheduled Task (AtLogOn + AtStartup) also reads the same
-    locally-written files, so future triggers can re-apply without needing
-    winpodx running. Idempotent: ``oem_updater.ps1`` compares its own
-    version marker before doing anything expensive.
-
-    Wrapped in a broad ``except Exception`` so the updater path can never
-    block ``ensure_ready`` / app launch.
-    """
+    """Sync OEM push; skipped when shipped-file hash matches last push."""
     try:
         backend = cfg.pod.backend
         if backend not in ("podman", "docker"):
@@ -261,31 +193,13 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
             old[:12] if old else "none",
             digest[:12],
         )
-    except Exception as e:  # noqa: BLE001 - defensive: must never block ensure_ready
-        log.warning("OEM push skipped due to unexpected error: %s", e)
+    except Exception as e:  # noqa: BLE001
+        log.warning("OEM push skipped: %s", e)
     return cfg
 
 
 def _push_oem_update_if_stale_async(cfg: Config) -> None:
-    """Fire-and-forget wrapper used by ``ensure_ready``.
-
-    Spawns a daemon thread so app launch returns immediately. Persistence
-    of ``last_oem_push`` happens on the thread via reload-merge-save to
-    avoid clobbering concurrent main-thread config writes (e.g. the
-    password rotation path).
-
-    Two single-flight gates, both non-blocking:
-
-    * ``_OEM_PUSH_LOCK`` — in-process ``threading.Lock``, cheap.
-    * ``fcntl.flock`` on :func:`_oem_push_flock_path` — cross-process.
-      Without this, two ``winpodx`` CLI invocations started in parallel
-      (two terminals, two desktop icons) would run duplicate
-      ``podman exec`` chains into the same container.
-
-    Linux kernel auto-releases flocks held by a process when that process
-    dies, so a daemon thread killed at interpreter shutdown cannot leave
-    a stale lock behind.
-    """
+    """Run the OEM push on a daemon thread so app launch isn't blocked."""
     if cfg.pod.backend not in ("podman", "docker"):
         return
     if not _OEM_PUSH_LOCK.acquire(blocking=False):
@@ -329,7 +243,7 @@ def _push_oem_update_if_stale_async(cfg: Config) -> None:
                 fresh.save()
             except OSError as e:
                 log.warning("Failed to persist last_oem_push (async): %s", e)
-        except Exception as e:  # noqa: BLE001 - thread must never raise
+        except Exception as e:  # noqa: BLE001
             log.warning("Async OEM push thread error: %s", e)
         finally:
             try:
@@ -346,20 +260,13 @@ def _push_oem_update_if_stale_async(cfg: Config) -> None:
 
 
 def _change_windows_password(cfg: Config, new_password: str) -> bool:
-    """Change Windows user password inside the container via PowerShell.
-
-    Uses PowerShell with single-quoted password to avoid cmd.exe
-    special character parsing issues (& % ! etc. in generated passwords).
-    Returns True if password was changed successfully.
-    """
+    """Change Windows user password inside the container via PowerShell."""
     backend = cfg.pod.backend
     if backend not in ("podman", "docker"):
         return False
 
     runtime = "podman" if backend == "podman" else "docker"
-    # Escape single quotes for PowerShell (double them).
-    # Password alphabet never includes single quotes, but username is
-    # user-supplied and must be escaped to prevent command injection.
+    # Escape single quotes in username to prevent PowerShell injection.
     user = cfg.rdp.user.replace("'", "''")
     pw = new_password.replace("'", "''")
     ps_cmd = f"net user '{user}' '{pw}'"
@@ -392,17 +299,10 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
 
 def _auto_rotate_password(cfg: Config) -> Config:
-    """Rotate RDP password if older than max_age.
-
-    Changes the Windows user password inside the container first,
-    then updates config and compose.yaml. No container recreation needed.
-    If the container is not running, rotation is skipped (can't change
-    the Windows password without a running container).
-    """
+    """Rotate RDP password if older than max_age."""
     if not cfg.rdp.password:
         return cfg
 
-    # Skip rotation if disabled or non-container backends
     if cfg.rdp.password_max_age <= 0:
         return cfg
     if cfg.pod.backend not in ("podman", "docker"):
@@ -410,17 +310,10 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
     max_age_seconds = cfg.rdp.password_max_age * 86400
 
-    # No timestamp → we cannot judge age, so skip. This is the first-launch
-    # fast path: setup just baked the password into compose.yaml, Windows is
-    # still booting, and the rotation subprocess (pod_status + net user)
-    # would add ~100-500ms to every startup for no benefit. setup_cmd and
-    # handle_rotate_password both stamp password_updated when they write a
-    # new password, so the only way to hit this branch is a hand-edited
-    # config — in which case "don't rotate silently" is the safe default.
+    # No timestamp means we cannot judge age, so skip rather than rotate silently.
     if not cfg.rdp.password_updated:
         return cfg
 
-    # Check password age
     try:
         updated = datetime.fromisoformat(cfg.rdp.password_updated)
         if updated.tzinfo is None:
@@ -432,7 +325,6 @@ def _auto_rotate_password(cfg: Config) -> Config:
         log.warning("Invalid password_updated timestamp: %s", e)
         return cfg
 
-    # Pod must be running to change Windows password
     status = pod_status(cfg)
     if status.state != PodState.RUNNING:
         log.debug("Pod not running, skipping password rotation")
@@ -443,12 +335,10 @@ def _auto_rotate_password(cfg: Config) -> Config:
     new_password = generate_password()
     old_password = cfg.rdp.password
 
-    # Change password inside Windows first
     if not _change_windows_password(cfg, new_password):
         log.warning("Password rotation skipped: could not change Windows password")
         return cfg
 
-    # Windows password changed — now update config and compose to match
     cfg.rdp.password = new_password
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
 
@@ -456,22 +346,16 @@ def _auto_rotate_password(cfg: Config) -> Config:
         cfg.save()
         generate_compose(cfg)
         log.info("Password rotated successfully")
-        # Successful save clears any prior pending-rotation marker.
         _clear_rotation_pending()
     except OSError as e:
         # Config save failed but Windows already has the new password.
-        # Revert the in-memory dataclass so we don't return a Config with
-        # a password Windows does not accept.
         cfg.rdp.password = old_password
         log.error("Failed to save config after rotation: %s", e)
 
-        # Try to revert Windows password to keep things in sync.
         if _change_windows_password(cfg, old_password):
             log.warning("Password rotation rolled back after config save failure")
         else:
-            # Worst case: config has old password, Windows has new.
-            # Persist a marker so the user is notified on next launch
-            # and can recover manually once the container is reachable.
+            # Worst case: config holds old password, Windows holds new.
             _mark_rotation_pending(old_password, new_password)
             log.error(
                 "CRITICAL: password rotation partially applied. "
@@ -485,9 +369,7 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
 
 def _mark_rotation_pending(old_password: str, new_password: str) -> None:
-    """Atomically write a 0o600 marker signalling a partial rotation.
-    Contents exclude the password so the marker cannot leak credentials.
-    """
+    """Atomically write a 0o600 marker signalling a partial rotation."""
     import tempfile
 
     marker = _rotation_marker_path()
@@ -535,12 +417,11 @@ def _ensure_config() -> Config:
     if path.exists():
         return Config.load()
 
-    log.info("No config found — creating default at %s", path)
+    log.info("No config found, creating default at %s", path)
     cfg = Config()
     cfg.rdp.user = "User"
     cfg.rdp.ip = "127.0.0.1"
 
-    # Auto-detect backend
     if shutil.which("podman"):
         cfg.pod.backend = "podman"
     elif shutil.which("docker"):
@@ -550,7 +431,6 @@ def _ensure_config() -> Config:
     else:
         cfg.pod.backend = "podman"  # Default, will fail with clear error
 
-    # Auto-detect DPI
     try:
         from winpodx.display.scaling import detect_scale_factor
 
@@ -587,17 +467,14 @@ def _ensure_compose(cfg: Config) -> None:
 
 def _ensure_pod_running(cfg: Config, timeout: int = 300) -> None:
     """Start the pod if not running, wait for RDP to be available."""
-    # Already running and RDP available?
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=3):
         return
 
-    # Check if pod is running but RDP not ready yet
     status = pod_status(cfg)
     if status.state == PodState.STOPPED:
         log.info("Starting pod (backend: %s)", cfg.pod.backend)
         start_pod(cfg)
 
-    # Wait for RDP
     log.info("Waiting for RDP at %s:%d ...", cfg.rdp.ip, cfg.rdp.port)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -659,19 +536,7 @@ def _install_bundled_apps_if_needed() -> None:
 
 
 def terminate_tracked_sessions(timeout: float = 3.0) -> int:
-    """Terminate all FreeRDP processes tracked via .cproc files.
-
-    Used before uninstall/cleanup removes the runtime directory — wiping
-    the .cproc files while their processes are still alive leaves orphan
-    RDP sessions and loses our only handle on them.
-
-    Uses ``process.is_freerdp_pid`` to verify each PID really is one of
-    our spawned FreeRDP clients (guards against PID reuse). Sends SIGTERM,
-    waits up to ``timeout`` seconds for the process to exit, then escalates
-    to SIGKILL.
-
-    Returns the number of processes that received a signal.
-    """
+    """Terminate all FreeRDP processes tracked via .cproc files."""
     import signal
 
     from winpodx.core.process import is_freerdp_pid, list_active_sessions
@@ -688,14 +553,13 @@ def terminate_tracked_sessions(timeout: float = 3.0) -> int:
             log.debug("Could not SIGTERM %s (pid %d): %s", sess.app_name, sess.pid, e)
             continue
 
-        # Wait briefly for the process to exit before we delete its pidfile.
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not is_freerdp_pid(sess.pid):
                 break
             time.sleep(0.1)
         else:
-            # Still alive — escalate.
+            # Still alive; escalate to SIGKILL.
             try:
                 os.kill(sess.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):

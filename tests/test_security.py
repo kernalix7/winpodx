@@ -1,8 +1,4 @@
-"""Security-focused tests for winpodx.
-
-Tests input validation, path traversal prevention, injection attacks,
-and credential protection.
-"""
+"""Security-focused tests for winpodx."""
 
 from __future__ import annotations
 
@@ -103,20 +99,9 @@ class TestExtraFlagsWhitelist:
 
 
 class TestDeviceRedirectionFlags:
-    """Per-flag argument-shape validation for ``/drive``, ``/serial``,
-    ``/parallel``, ``/smartcard``, ``/usb``.
-
-    The previous prefix-matching allowlist accepted arbitrary argument
-    payloads after the colon, allowing an adversarial ``winapps.conf`` to
-    smuggle ``/drive:any,/etc`` or ``/serial:/dev/ttyUSB0`` into the RDP
-    command.  The new validator rejects anything that does not match a
-    documented per-flag pattern.
-    """
-
-    # --- /drive: only known share names ---
+    """Per-flag argument-shape validation for /drive, /serial, /parallel, /smartcard, /usb."""
 
     def test_drive_rejects_host_path_payload(self):
-        # The exact exploit reported in the H1 audit.
         result = _filter_extra_flags("/drive:etc,/etc")
         assert result == []
 
@@ -125,12 +110,10 @@ class TestDeviceRedirectionFlags:
         assert result == []
 
     def test_drive_rejects_arbitrary_name_without_allowlist(self):
-        # Even innocuous-looking names must be on the allowlist.
         result = _filter_extra_flags("/drive:downloads,/home/user/Downloads")
         assert result == []
 
     def test_drive_rejects_unknown_bare_name(self):
-        # ``/drive:root`` — not a documented share name.
         result = _filter_extra_flags("/drive:root")
         assert result == []
 
@@ -144,8 +127,6 @@ class TestDeviceRedirectionFlags:
         result = _filter_extra_flags("/drive:../../etc")
         assert result == []
 
-    # --- /serial, /parallel: no payload is ever safe ---
-
     def test_serial_rejects_device_node(self):
         result = _filter_extra_flags("/serial:/dev/ttyUSB0")
         assert result == []
@@ -158,25 +139,17 @@ class TestDeviceRedirectionFlags:
         result = _filter_extra_flags("/parallel:lp0,/dev/lp0")
         assert result == []
 
-    # --- /smartcard: bare toggle ok, payload not ---
-
     def test_smartcard_bare_accepted(self):
-        # A bare ``/smartcard`` toggle is a legitimate redirection request.
         assert _filter_extra_flags("/smartcard") == ["/smartcard"]
 
     def test_smartcard_payload_rejected(self):
-        # ``/smartcard:Name,/dev/card`` would reference a host device path.
         result = _filter_extra_flags("/smartcard:MyCard,/dev/card")
         assert result == []
-
-    # --- /usb: only ``auto`` permitted ---
 
     def test_usb_auto_accepted(self):
         assert _filter_extra_flags("/usb:auto") == ["/usb:auto"]
 
     def test_usb_specific_id_rejected(self):
-        # Specific-device USB redirection must go through a first-class
-        # config option, not the free-form extra_flags field.
         result = _filter_extra_flags("/usb:id,dev=1234:5678")
         assert result == []
 
@@ -184,11 +157,7 @@ class TestDeviceRedirectionFlags:
         result = _filter_extra_flags("/usb:/dev/bus/usb/001/002")
         assert result == []
 
-    # --- Multi-flag injection: good flags don't rescue bad ones ---
-
     def test_multi_flag_injection_drops_only_bad(self):
-        # Adversarial: smuggle a host mount next to a legitimate scale flag.
-        # The legitimate flag is kept; the adversarial one is dropped.
         result = _filter_extra_flags("/scale:150 /drive:etc,/etc /serial:/dev/tty")
         assert result == ["/scale:150"]
 
@@ -197,22 +166,15 @@ class TestDeviceRedirectionFlags:
 
         with caplog.at_level(_logging.WARNING, logger="winpodx.core.rdp"):
             _filter_extra_flags("/drive:etc,/etc /serial:/dev/tty")
-        # Each rejected token must be surfaced.
         messages = " ".join(r.getMessage() for r in caplog.records)
         assert "/drive:etc,/etc" in messages
         assert "/serial:/dev/tty" in messages
 
-    # --- Regression: argument-shape validation on other value flags ---
-
     def test_scale_rejects_non_numeric(self):
-        # Previously ``/scale:anything`` was accepted because only the
-        # ``/scale:`` prefix was checked.
         result = _filter_extra_flags("/scale:abc")
         assert result == []
 
     def test_scale_rejects_injection_suffix(self):
-        # ``/scale:100;rm -rf /`` survives shlex as a single token — the
-        # regex must reject it.
         result = _filter_extra_flags("/scale:100;rm")
         assert result == []
 
@@ -223,17 +185,12 @@ class TestDeviceRedirectionFlags:
         assert _filter_extra_flags("/network:lan") == ["/network:lan"]
 
     def test_log_level_rejects_scope_wildcard(self):
-        # ``/log-level:TRACE:com.foo`` is a FreeRDP scope form; allowing it
-        # leaks verbose logs that may contain credentials.  Keep it simple.
         assert _filter_extra_flags("/log-level:TRACE:com.foo") == []
 
     def test_log_level_accepts_plain_level(self):
         assert _filter_extra_flags("/log-level:INFO") == ["/log-level:INFO"]
 
-    # --- Legitimate flags from existing tests must still pass ---
-
     def test_valid_flag_bundle_passes_unchanged(self):
-        # Same bundle the winapps-import tests exercise.
         result = _filter_extra_flags("/scale:200 /sound:sys:alsa")
         assert result == ["/scale:200", "/sound:sys:alsa"]
 
@@ -269,7 +226,7 @@ class TestConfigSecurity:
         (config_dir / "winpodx.toml").write_text("{{invalid toml}}")
 
         cfg = Config.load()
-        assert cfg.rdp.ip == "127.0.0.1"  # Defaults
+        assert cfg.rdp.ip == "127.0.0.1"
 
 
 # --- App TOML injection ---
@@ -335,13 +292,11 @@ class TestTomlWriterEscaping:
     def test_escapes_all_control_chars(self):
         from winpodx.utils.toml_writer import dumps
 
-        # Null byte, bell, vertical tab, DEL — all must be escaped
+        # Null byte, bell, vertical tab, DEL: all must be escaped
         data = {"section": {"key": "a\x00b\x07c\x0bd\x7fe"}}
         result = dumps(data)
-        # None of the raw control chars should appear in the output
         for bad in ("\x00", "\x07", "\x0b", "\x7f"):
             assert bad not in result
-        # Should use \uXXXX escapes
         assert "\\u0000" in result
         assert "\\u007F" in result
 
@@ -359,7 +314,6 @@ class TestYamlEscape:
         _generate_compose(cfg)
 
         compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
-        # Raw newlines in PASSWORD value would break YAML structure
         for line in compose.splitlines():
             if "PASSWORD" in line:
                 assert "\nword" not in line
@@ -371,15 +325,10 @@ class TestYamlEscape:
 
 
 class TestPasswordFilter:
-    # Note: filter-masks and clean-passthrough coverage lives in
-    # test_audit5_core.py::test_password_filter_{clears_args,passes_through_clean_records}
-    # which additionally asserts the H5 fix that record.args is reset to ().
-
     def test_filter_installed_on_handlers(self):
         from winpodx.utils.logging import PasswordFilter, setup_logging
 
         root = logging.getLogger("winpodx")
-        # Clear handlers from prior tests
         root.handlers.clear()
         setup_logging(log_file=False)
         assert any(isinstance(flt, PasswordFilter) for h in root.handlers for flt in h.filters)
@@ -404,8 +353,7 @@ class TestPowerShellEscape:
             from winpodx.core.provisioner import _change_windows_password
 
             _change_windows_password(cfg, "newpass123")
-            ps_cmd = mock_run.call_args[0][0][7]  # -Command argument
-            # Single quotes must be doubled, preventing injection
+            ps_cmd = mock_run.call_args[0][0][7]
             assert "admin''; whoami; ''" in ps_cmd
 
     def test_normal_username_unchanged(self):
@@ -439,7 +387,6 @@ class TestPasswordTimestamp:
 
         from winpodx.core.provisioner import _auto_rotate_password
 
-        # Should not raise TypeError
         result = _auto_rotate_password(cfg)
         assert result is not None
 

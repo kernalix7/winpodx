@@ -1,4 +1,4 @@
-"""winpodx Design System — GitHub Dark, top-nav architecture."""
+"""winpodx design system: GitHub Dark palette."""
 
 from __future__ import annotations
 
@@ -68,19 +68,13 @@ def accent_color(index: int) -> str:
     return _ACCENT_PALETTE[index % len(_ACCENT_PALETTE)]
 
 
-# ---------------------------------------------------------------------------
-# Global — applied to central widget, cascades to all children
-# ---------------------------------------------------------------------------
-
+# Global: applied to central widget, cascades to children.
 GLOBAL_STYLE = """
     * { background: transparent; }
     QLabel { background: transparent; }
 """
 
-# ---------------------------------------------------------------------------
 # Top Navigation Bar
-# ---------------------------------------------------------------------------
-
 TOP_BAR = f"""
     QWidget#topBar {{
         background: {C.BASE};
@@ -142,10 +136,7 @@ POD_CTRL = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
-# Status Banner  (appears below top bar when pod is stopped/paused)
-# ---------------------------------------------------------------------------
-
+# Status Banner: shown below top bar when pod is stopped/paused.
 STATUS_BANNER_WARN = f"""
     QFrame#statusBanner {{
         background: {C.SURFACE0};
@@ -155,10 +146,7 @@ STATUS_BANNER_WARN = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
 # Form Inputs
-# ---------------------------------------------------------------------------
-
 INPUT = f"""
     QLineEdit {{
         background: {C.MANTLE};
@@ -223,10 +211,7 @@ SEARCH_BAR = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
 # Buttons
-# ---------------------------------------------------------------------------
-
 BTN_PRIMARY = f"""
     QPushButton {{
         background: {C.BLUE};
@@ -314,7 +299,7 @@ BTN_GHOST = f"""
     }}
 """
 
-# Filter chip (like Steam genre tags / Heroic platform filters)
+# Filter chip.
 FILTER_CHIP = f"""
     QPushButton {{
         background: {C.SURFACE0};
@@ -337,7 +322,7 @@ FILTER_CHIP = f"""
     }}
 """
 
-# View toggle (grid/list like Heroic)
+# View toggle (grid/list).
 VIEW_TOGGLE = f"""
     QPushButton {{
         background: {C.SURFACE0};
@@ -358,10 +343,7 @@ VIEW_TOGGLE = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
-# App Card  (grid view — Steam/Heroic style with hover overlay)
-# ---------------------------------------------------------------------------
-
+# App Card (grid view).
 APP_CARD = f"""
     QFrame#appCard {{
         background: {C.SURFACE0};
@@ -376,10 +358,7 @@ APP_CARD = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
-# App Tile  (list view — horizontal row)
-# ---------------------------------------------------------------------------
-
+# App Tile (list view).
 APP_TILE = f"""
     QFrame#appTile {{
         background: {C.SURFACE0};
@@ -393,10 +372,7 @@ APP_TILE = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
-# Tool Action Row  (maintenance page — Docker Desktop style)
-# ---------------------------------------------------------------------------
-
+# Tool Action Row (maintenance page).
 ACTION_ROW = f"""
     QFrame#actionRow {{
         background: {C.SURFACE0};
@@ -410,10 +386,7 @@ ACTION_ROW = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
 # Settings Section
-# ---------------------------------------------------------------------------
-
 SETTINGS_SECTION = f"""
     QFrame#settingsSection {{
         background: {C.SURFACE0};
@@ -423,10 +396,7 @@ SETTINGS_SECTION = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
 # Scroll Area
-# ---------------------------------------------------------------------------
-
 SCROLL_AREA = f"""
     QScrollArea {{
         border: none;
@@ -456,10 +426,7 @@ SCROLL_AREA = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
-# Terminal Dock  (Docker Desktop log viewer style)
-# ---------------------------------------------------------------------------
-
+# Terminal Dock
 TERMINAL = f"""
     QTextEdit {{
         background: {C.CRUST};
@@ -474,10 +441,7 @@ TERMINAL = f"""
     }}
 """
 
-# ---------------------------------------------------------------------------
-# Bottom Info Bar  (Docker Desktop style status bar)
-# ---------------------------------------------------------------------------
-
+# Bottom Info Bar
 INFO_BAR = f"""
     QWidget#infoBar {{
         background: {C.BASE};

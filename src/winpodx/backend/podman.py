@@ -59,10 +59,7 @@ class PodmanBackend(Backend):
             log.error("podman compose down timed out (60s)")
 
     def _container_state(self) -> str:
-        """Return the lower-cased container state (running/paused/exited/...).
-
-        Empty string when the container does not exist or podman is missing.
-        """
+        """Return the lower-cased container state, or empty string if unavailable."""
         try:
             result = subprocess.run(
                 [
@@ -91,9 +88,7 @@ class PodmanBackend(Backend):
             return ""
 
     def is_running(self) -> bool:
-        # Treat paused as a form of "alive" so callers that ask the pod
-        # question get a consistent view. pod_status() distinguishes the
-        # two using is_paused().
+        # Treat paused as alive; pod_status() distinguishes via is_paused().
         state = self._container_state()
         return "running" in state or "paused" in state
 
@@ -104,12 +99,7 @@ class PodmanBackend(Backend):
         return self.cfg.rdp.ip or "127.0.0.1"
 
     def wait_for_ready(self, timeout: int = 300) -> bool:
-        """Wait for the container to be running and RDP port available.
-
-        is_running() now also returns True for paused containers (so
-        PodState.PAUSED can be distinguished upstream); we explicitly
-        filter those out here — a paused pod is never "ready" for RDP.
-        """
+        """Wait for the container to be running and RDP port available."""
         from winpodx.core.pod import check_rdp_port
 
         deadline = time.monotonic() + timeout

@@ -1,4 +1,4 @@
-"""CLI handlers for configuration management — no external dependencies."""
+"""CLI handlers for configuration management."""
 
 from __future__ import annotations
 
@@ -58,7 +58,6 @@ def _set(key: str, value: str) -> None:
         print(f"Unknown config key: {key}")
         sys.exit(1)
 
-    # Type coercion
     current = getattr(target, field)
     if isinstance(current, bool):
         coerced: str | int | bool = value.lower() in ("true", "1", "yes")

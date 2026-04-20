@@ -1,8 +1,4 @@
-"""DPI and display scaling detection.
-
-Auto-detects the display scale factor from the current desktop environment
-and maps it to an RDP-compatible scale value (100, 140, or 180).
-"""
+"""DPI and display scaling detection."""
 
 from __future__ import annotations
 
@@ -16,15 +12,10 @@ log = logging.getLogger(__name__)
 
 
 def detect_scale_factor() -> int:
-    """Detect the current display scale factor.
-
-    Returns an RDP-compatible scale value: 100, 140, or 180.
-    Checks DE-specific settings, then environment variables, then xrdb.
-    """
+    """Detect the current display scale factor as an RDP value (100/140/180)."""
     factor = detect_raw_scale()
     log.debug("Detected scale factor: %.2f", factor)
 
-    # Map to nearest RDP scale
     if factor >= 1.7:
         return 180
     elif factor >= 1.3:
@@ -108,20 +99,10 @@ def _kde_scale() -> float:
 
 
 def _wayland_compositor_scale() -> float:
-    """Detect scale from Wayland compositors (sway, hyprland).
-
-    Mixed-DPI setups (e.g. 2x laptop panel + 1x external HDMI) broke when we
-    only read the focused monitor: if winpodx was launched from the 1x screen,
-    RDP came back at 100% and apps looked tiny on the 2x panel the user then
-    moved them to. Return the MAX scale across all outputs so the RDP session
-    is sized for the densest display that might host it. Qt's
-    ``devicePixelRatio`` is preferred when a QGuiApplication is live, because
-    it already reflects per-screen scale chosen by the compositor.
-    """
+    """Detect scale from Wayland compositors (sway, hyprland) using max across outputs."""
     import json
 
-    # Prefer Qt when available — it aggregates per-screen scale from the
-    # compositor without re-implementing swaymsg/hyprctl parsing.
+    # Prefer Qt when available - it already reflects per-screen compositor scale.
     qt_scale = _qt_max_device_pixel_ratio()
     if qt_scale is not None:
         return qt_scale
@@ -166,13 +147,7 @@ def _wayland_compositor_scale() -> float:
 
 
 def _qt_max_device_pixel_ratio() -> float | None:
-    """Return max devicePixelRatio across screens, or None if Qt is unusable.
-
-    Only works when a QGuiApplication is already instantiated in the process
-    (i.e. we're being called from the GUI, not a one-shot CLI invocation).
-    Creating a QGuiApplication solely to probe DPR would spawn a Qt event
-    loop for no reason, so we bail out cleanly when one isn't live.
-    """
+    """Return max devicePixelRatio across screens, or None if no live QGuiApplication."""
     try:
         from PySide6.QtGui import QGuiApplication
     except ImportError:
@@ -186,7 +161,7 @@ def _qt_max_device_pixel_ratio() -> float | None:
         if not screens:
             return None
         return max(float(s.devicePixelRatio()) for s in screens)
-    except Exception:  # pragma: no cover — defensive: Qt state can be odd
+    except Exception:  # pragma: no cover - defensive: Qt state can be odd
         return None
 
 

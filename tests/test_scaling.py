@@ -77,16 +77,12 @@ def test_xrdb_valid_dpi(monkeypatch):
 
 
 def test_wayland_sway_returns_max_scale(monkeypatch):
-    # Issue 15: sway with 1x external + 2x internal must return 2.0.
-    # Prior behavior read only the focused output, so launching winpodx
-    # from the 1x external HDMI would pick scale=1 and render apps tiny
-    # once the user moved them to the 2x internal panel.
+    # sway with 1x external + 2x internal must return 2.0.
     import json
     import subprocess
 
     from winpodx.display import scaling as scaling_mod
 
-    # Qt path is skipped (no live QGuiApplication in the test)
     monkeypatch.setattr(scaling_mod, "_qt_max_device_pixel_ratio", lambda: None)
 
     outputs = [
@@ -114,7 +110,7 @@ def test_wayland_sway_returns_max_scale(monkeypatch):
 
 
 def test_wayland_hyprland_returns_max_scale(monkeypatch):
-    # Issue 15: hyprland — max across monitors, not focused.
+    # hyprland: max across monitors, not focused.
     import json
     import subprocess
 
@@ -122,7 +118,6 @@ def test_wayland_hyprland_returns_max_scale(monkeypatch):
 
     monkeypatch.setattr(scaling_mod, "_qt_max_device_pixel_ratio", lambda: None)
 
-    # Sway path must fail so we exercise the hyprctl branch
     def fake_run(cmd, **_kwargs):
         if cmd[0] == "swaymsg":
             raise FileNotFoundError(cmd[0])
@@ -139,14 +134,12 @@ def test_wayland_hyprland_returns_max_scale(monkeypatch):
 
 
 def test_wayland_prefers_qt_when_available(monkeypatch):
-    # Issue 15: Qt DPR wins over swaymsg/hyprctl parsing.
+    # Qt DPR wins over swaymsg/hyprctl parsing.
     from winpodx.display import scaling as scaling_mod
 
     monkeypatch.setattr(scaling_mod, "_qt_max_device_pixel_ratio", lambda: 1.25)
 
-    # If we were to fall through, swaymsg would raise — proves
-    # Qt short-circuit.
-    def boom(_cmd, **_kwargs):  # pragma: no cover — must not be called
+    def boom(_cmd, **_kwargs):  # pragma: no cover - must not be called
         raise AssertionError("subprocess.run must not be called when Qt answers")
 
     monkeypatch.setattr(scaling_mod.subprocess, "run", boom)
@@ -154,7 +147,7 @@ def test_wayland_prefers_qt_when_available(monkeypatch):
 
 
 def test_wayland_fallback_when_everything_missing(monkeypatch):
-    # Issue 15: no Qt, no swaymsg, no hyprctl → 1.0.
+    # No Qt, no swaymsg, no hyprctl -> 1.0.
     from winpodx.display import scaling as scaling_mod
 
     monkeypatch.setattr(scaling_mod, "_qt_max_device_pixel_ratio", lambda: None)

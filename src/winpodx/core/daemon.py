@@ -87,7 +87,7 @@ def is_pod_paused(cfg: Config) -> bool:
 
 
 def ensure_pod_awake(cfg: Config) -> None:
-    """Resume pod if it's paused — called before any app launch."""
+    """Resume pod if it's paused (called before any app launch)."""
     if is_pod_paused(cfg):
         log.info("Pod is paused, resuming...")
         resume_pod(cfg)
@@ -186,9 +186,8 @@ def run_idle_monitor(
 ) -> None:
     """Monitor for idle sessions and auto-suspend.
 
-    This runs in a loop — intended to be called from a background thread
-    or the tray application. Pass a threading.Event as stop_event to
-    allow graceful shutdown.
+    Runs in a loop; intended to be called from a background thread or tray app.
+    Pass a threading.Event as stop_event to allow graceful shutdown.
     """
     if stop_event is None:
         stop_event = threading.Event()

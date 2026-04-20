@@ -1,8 +1,4 @@
-"""Pod lifecycle management.
-
-A "pod" is the running Windows environment (Docker container, Podman container,
-or libvirt VM) that hosts the Windows applications.
-"""
+"""Pod lifecycle management."""
 
 from __future__ import annotations
 
@@ -59,12 +55,7 @@ def get_backend(cfg: Config) -> Backend:
 
 
 def check_rdp_port(ip: str, port: int, timeout: float = 5.0) -> bool:
-    """Check if RDP port is open and accepting connections.
-
-    ``port`` is required — the project default is 3390 (not the Microsoft
-    standard 3389), so silently defaulting here would mask mis-wired callers.
-    Pass ``cfg.rdp.port`` from the caller.
-    """
+    """Check if RDP port is open and accepting connections."""
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
@@ -73,12 +64,7 @@ def check_rdp_port(ip: str, port: int, timeout: float = 5.0) -> bool:
 
 
 def start_pod(cfg: Config) -> PodStatus:
-    """Start the Windows pod.
-
-    Blocks up to ``cfg.pod.boot_timeout`` seconds waiting for the backend
-    to report RDP readiness. Returns ``RUNNING`` if ready, ``STARTING``
-    if the timeout elapsed while the pod is still booting.
-    """
+    """Start the Windows pod and wait up to boot_timeout for RDP readiness."""
     backend = get_backend(cfg)
     try:
         backend.start()
@@ -86,8 +72,6 @@ def start_pod(cfg: Config) -> PodStatus:
         log.error("Failed to start pod: %s", e)
         return PodStatus(state=PodState.ERROR, error=str(e))
 
-    # Wait for the backend to become RDP-ready. Windows boot commonly
-    # takes 60-120s; shorter one-shot checks here race the app launcher.
     try:
         ready = backend.wait_for_ready(timeout=cfg.pod.boot_timeout)
     except Exception as e:
@@ -111,13 +95,7 @@ def stop_pod(cfg: Config) -> PodStatus:
 
 
 def pod_status(cfg: Config) -> PodStatus:
-    """Query the current pod status.
-
-    Distinguishes PAUSED from STOPPED/RUNNING so the auto-suspend path
-    (daemon.run_idle_monitor → podman pause) actually surfaces to the
-    user in CLI, tray, and GUI. Paused containers answer True from
-    ``is_running`` (they are alive) so we query ``is_paused`` first.
-    """
+    """Query the current pod status."""
     backend = get_backend(cfg)
     try:
         running = backend.is_running()

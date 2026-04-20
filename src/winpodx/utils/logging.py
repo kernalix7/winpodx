@@ -7,12 +7,7 @@ import logging.handlers
 
 
 def setup_logging(level: int = logging.INFO, log_file: bool = True) -> None:
-    """Configure logging with console and optional rotating file handler.
-
-    Args:
-        level: Logging level (default: INFO).
-        log_file: Whether to write logs to a rotating file.
-    """
+    """Configure logging with console and optional rotating file handler."""
     root = logging.getLogger("winpodx")
     if root.handlers:
         return  # Already configured
@@ -26,7 +21,7 @@ def setup_logging(level: int = logging.INFO, log_file: bool = True) -> None:
 
     pw_filter = PasswordFilter()
 
-    # Console handler — stderr, WARNING+ by default
+    # Console handler: stderr, WARNING+ by default.
     console = logging.StreamHandler()
     console.setLevel(logging.WARNING)
     console.setFormatter(fmt)
@@ -59,27 +54,16 @@ def setup_logging(level: int = logging.INFO, log_file: bool = True) -> None:
 
             root.addHandler(file_handler)
         except OSError:
-            pass  # Can't write log file — continue without it
+            pass  # Can't write log file, continue without it.
 
 
 class PasswordFilter(logging.Filter):
-    """Filter that masks password values in log output.
-
-    Produces a sanitized final message and replaces BOTH ``record.msg`` and
-    ``record.args`` atomically. Previously the filter wrote the sanitized
-    text into ``record.msg`` but left ``record.args`` intact, so the next
-    handler along the chain re-ran ``record % args`` and either
-    re-substituted the redacted placeholders with the raw values or raised
-    ``TypeError`` when the format string no longer matched the argument
-    count. Setting ``record.args`` to ``()`` makes the sanitized text the
-    authoritative payload for every downstream handler.
-    """
+    """Filter that masks password values in log output."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         record.msg = self._mask_value(msg)
-        # Must clear args too — record.getMessage() on downstream
-        # handlers would otherwise do `sanitized % original_args`.
+        # Clear args so downstream handlers do not re-run sanitized % original_args.
         record.args = ()
         return True
 

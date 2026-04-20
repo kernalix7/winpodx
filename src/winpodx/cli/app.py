@@ -1,4 +1,4 @@
-"""CLI handlers for Windows app management — no external dependencies."""
+"""CLI handlers for Windows app management."""
 
 from __future__ import annotations
 
@@ -57,8 +57,6 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
     from winpodx.core.rdp import launch_app, launch_desktop
     from winpodx.desktop.notify import notify_error
 
-    # Auto-provision — catch both ProvisionError (expected) and RuntimeError
-    # (e.g. compose generation failure) so neither surfaces as a raw traceback.
     try:
         cfg = ensure_ready()
     except (ProvisionError, RuntimeError) as e:
@@ -66,7 +64,6 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
         print(f"Setup error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Desktop mode
     if name == "desktop":
         print("Launching Windows desktop...")
         session = launch_desktop(cfg)
@@ -74,7 +71,6 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
             session.process.wait()
         return
 
-    # App mode
     from winpodx.core.app import find_app
 
     app_info = find_app(name)
@@ -126,8 +122,6 @@ def _install_all() -> None:
         install_desktop_entry(a)
         print(f"  Installed {a.full_name}")
 
-    # Flush the icon cache so GNOME/KDE pick up the newly installed icons
-    # without requiring a logout/login or manual cache invalidation.
     update_icon_cache()
     print(f"\n{len(apps)} apps installed into desktop environment.")
 

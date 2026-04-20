@@ -1,8 +1,4 @@
-"""Backward compatibility with winapps configuration.
-
-Reads winapps.conf and converts to winpodx Config format,
-allowing users to migrate without manual reconfiguration.
-"""
+"""Backward compatibility with winapps configuration."""
 
 from __future__ import annotations
 
@@ -47,16 +43,7 @@ _SCALE_DEFAULT = 100
 
 
 def _parse_scale(raw: str) -> int:
-    """Parse an RDP_SCALE value and clamp to [_SCALE_MIN, _SCALE_MAX].
-
-    Accepts either:
-      * an integer percentage like ``"140"`` → 140
-      * a decimal multiplier like ``"1.5"`` (common in winapps docs) → 150
-
-    Logs a warning when the value is non-numeric or outside the supported
-    range and returns the default / clamped value. Empty input falls back
-    silently to the default.
-    """
+    """Parse an RDP_SCALE value and clamp to [_SCALE_MIN, _SCALE_MAX]."""
     value = (raw or "").strip()
     if not value:
         return _SCALE_DEFAULT
@@ -72,8 +59,7 @@ def _parse_scale(raw: str) -> int:
         )
         return _SCALE_DEFAULT
 
-    # Heuristic: values <= 10 are decimal multipliers (e.g. 1.5 for 150%);
-    # larger values are percentages.
+    # Values <= 10 are decimal multipliers (e.g. 1.5 => 150%); larger are percentages.
     percent = int(round(parsed * 100 if parsed <= 10 else parsed))
 
     if percent < _SCALE_MIN or percent > _SCALE_MAX:
@@ -106,24 +92,13 @@ def import_winapps_config() -> Config | None:
     cfg.rdp.ip = vals.get("RDP_IP", "127.0.0.1")
 
     # Stamp the import moment so auto-rotation has a reference point.
-    # Without this the imported password is either (a) never rotated — if
-    # ``_auto_rotate_password`` skips on empty timestamp — or (b) rotated on
-    # the very first launch, silently destroying the imported credential.
-    # Starting the 7-day clock at import time matches what a fresh setup does.
     if cfg.rdp.password:
         from datetime import datetime, timezone
 
         cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
 
-    # Filter RDP_FLAGS through the same allowlist used at runtime so that a
-    # malicious winapps.conf cannot smuggle dangerous flags (e.g. /exec:) into
-    # the stored config.
-    #
-    # Security policy: if ANY flag is filtered (i.e. the raw input contains a
-    # flag the allowlist rejects), we refuse to store *any* extra_flags at all.
-    # The user must explicitly set safe flags via manual config edit.  This
-    # prevents a partially-trusted winapps.conf from silently inheriting even
-    # the "safe" portion of a crafted RDP_FLAGS value.
+    # Filter RDP_FLAGS through the runtime allowlist; if any flag is rejected,
+    # refuse to store any extra_flags so partial inheritance cannot happen.
     raw_flags = vals.get("RDP_FLAGS", "")
     if raw_flags:
         from winpodx.core.rdp import _filter_extra_flags
@@ -135,8 +110,8 @@ def import_winapps_config() -> Config | None:
             log.warning(
                 "import_winapps_config: one or more RDP_FLAGS were blocked by the "
                 "allowlist (%r). "
-                "No extra_flags will be written to the imported config — "
-                "review and add safe flags manually via: winpodx config set rdp.extra_flags '...'",
+                "No extra_flags will be written to the imported config. "
+                "Review and add safe flags manually via: winpodx config set rdp.extra_flags '...'",
                 blocked,
             )
             cfg.rdp.extra_flags = ""
@@ -145,10 +120,7 @@ def import_winapps_config() -> Config | None:
     else:
         cfg.rdp.extra_flags = ""
 
-    # RDP_SCALE: accept either an integer ("140") or a float ("1.5" → 150).
-    # Clamp to [100, 400] and warn on out-of-range — the previous
-    # ``isdigit`` gate dropped non-digit input (including floats and stray
-    # whitespace) silently back to 100, which masked user-configured DPI.
+    # RDP_SCALE accepts an integer ("140") or float ("1.5" => 150), clamped to [100, 400].
     cfg.rdp.scale = _parse_scale(vals.get("RDP_SCALE", "100"))
 
     flavor = vals.get("WAFLAVOR", "docker")

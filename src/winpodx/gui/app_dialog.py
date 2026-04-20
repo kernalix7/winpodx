@@ -1,8 +1,4 @@
-"""Add/Edit app profile dialog.
-
-Allows users to create and edit app profiles (TOML definitions)
-through a GUI instead of manually editing files.
-"""
+"""Add/Edit app profile dialog."""
 
 from __future__ import annotations
 
@@ -61,7 +57,6 @@ class AppProfileDialog(QDialog):
         layout.setSpacing(0)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # ── Header with color stripe and preview avatar ──
         header = QFrame()
         color = avatar_color(name or full_name or "new")
         header.setStyleSheet(f"background: {C.CRUST}; border-bottom: 3px solid {color};")
@@ -69,7 +64,6 @@ class AppProfileDialog(QDialog):
         header_l.setContentsMargins(28, 20, 28, 20)
         header_l.setSpacing(16)
 
-        # Preview avatar
         letter = (full_name or name or "?")[0].upper()
         self._avatar = QLabel(letter)
         self._avatar.setFixedSize(48, 48)
@@ -80,7 +74,6 @@ class AppProfileDialog(QDialog):
         )
         header_l.addWidget(self._avatar)
 
-        # Title + subtitle
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title = QLabel("Edit App Profile" if edit_mode else "New App Profile")
@@ -94,7 +87,6 @@ class AppProfileDialog(QDialog):
 
         layout.addWidget(header)
 
-        # ── Form body ──
         body = QWidget()
         body_l = QVBoxLayout(body)
         body_l.setContentsMargins(28, 24, 28, 24)
@@ -140,7 +132,6 @@ class AppProfileDialog(QDialog):
 
         body_l.addLayout(form)
 
-        # Help
         help_lbl = QLabel(
             "Executable: full Windows path to the .exe file.  "
             "Categories/MIME: comma-separated or leave empty."
@@ -150,7 +141,6 @@ class AppProfileDialog(QDialog):
         body_l.addWidget(help_lbl)
         body_l.addStretch()
 
-        # Action buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
@@ -230,7 +220,6 @@ def save_app_profile(data: dict) -> Path:
         raise ValueError(f"Invalid app name: {name}")
 
     app_dir = data_dir() / "apps" / name
-    # Verify resolved path stays under apps dir
     apps_root = data_dir() / "apps"
     if not app_dir.resolve().is_relative_to(apps_root.resolve()):
         raise ValueError(f"Path traversal detected: {name}")
@@ -238,9 +227,7 @@ def save_app_profile(data: dict) -> Path:
     app_dir.mkdir(parents=True, exist_ok=True)
 
     toml_path = app_dir / "app.toml"
-    # Explicit UTF-8: TOML is UTF-8 by spec and users commonly enter non-ASCII
-    # ``full_name`` values (e.g. Korean "한글 메모장"). Under LANG=C the default
-    # locale encoding is ASCII and write_text() would raise UnicodeEncodeError.
+    # Explicit UTF-8: TOML is UTF-8 by spec; LANG=C would otherwise break non-ASCII.
     toml_path.write_text(toml_dumps(data), encoding="utf-8")
     return toml_path
 
@@ -253,7 +240,6 @@ def delete_app_profile(name: str) -> bool:
         return False
 
     app_dir = data_dir() / "apps" / name
-    # Verify resolved path stays under apps dir
     apps_root = data_dir() / "apps"
     if not app_dir.resolve().is_relative_to(apps_root.resolve()):
         return False

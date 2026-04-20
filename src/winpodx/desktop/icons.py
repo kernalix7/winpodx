@@ -14,20 +14,7 @@ log = logging.getLogger(__name__)
 
 
 def bundled_data_path(*parts: str) -> Path | None:
-    """Resolve a file under the project's ``data/`` directory.
-
-    Tries locations in order:
-      1. Source / editable install: ``<repo>/data/...`` (4 levels above this file)
-      2. pip wheel install: ``<sys.prefix>/share/winpodx/data/...``
-         (per ``[tool.hatch.build.targets.wheel.shared-data]`` in pyproject)
-      3. User install: ``~/.local/share/winpodx/data/...``
-
-    Returns the first existing path, or ``None`` if not found. This keeps
-    icon/data lookup working whether winpodx is run from a checkout, from
-    ``pip install -e .``, or from a wheel landing in site-packages where
-    the old ``Path(__file__).parent.parent.parent.parent`` escape hatches
-    to ``site-packages`` and misses the data dir entirely.
-    """
+    """Resolve a file under data/ across source, wheel, and user install layouts."""
     candidates = [
         Path(__file__).resolve().parent.parent.parent.parent / "data",
         Path(sys.prefix) / "share" / "winpodx" / "data",
@@ -37,15 +24,11 @@ def bundled_data_path(*parts: str) -> Path | None:
         candidate = base.joinpath(*parts)
         if not candidate.exists():
             continue
-        # Symlink escape guard: an attacker could swap a user-writable data
-        # candidate (e.g. ~/.local/share/winpodx/data/winpodx-icon.svg) for a
-        # symlink pointing at /etc/shadow or ~/.ssh/id_rsa. Without this
-        # check, shutil.copy2() would follow the link and leak the target.
+        # Symlink escape guard: prevent leaking files outside the data dir via copy.
         try:
             resolved = candidate.resolve(strict=True)
             base_resolved = base.resolve(strict=True)
         except (OSError, RuntimeError):
-            # Broken symlink, permission error, or resolution loop — skip.
             log.warning("Rejecting unresolvable data candidate: %s", candidate)
             continue
         if not resolved.is_relative_to(base_resolved):
@@ -60,21 +43,13 @@ def bundled_data_path(*parts: str) -> Path | None:
 
 
 def install_winpodx_icon() -> bool:
-    """Install the main winpodx icon into the hicolor icon theme.
-
-    Copies data/winpodx-icon.svg → ~/.local/share/icons/hicolor/scalable/apps/winpodx.svg
-    so that Icon=winpodx in .desktop files resolves correctly.
-
-    Returns True if the icon was installed.
-    """
+    """Install the main winpodx icon into the hicolor icon theme."""
     src = bundled_data_path("winpodx-icon.svg")
     if src is None:
         log.warning("Bundled icon not found in any known data location")
         return False
 
-    # Defense-in-depth: refuse to copy symlinks even if bundled_data_path
-    # somehow returned one. The user-writable ~/.local/share candidate is
-    # the most attacker-friendly surface, so we check again here.
+    # Defense-in-depth: refuse symlinks on the user-writable candidate path.
     if src.is_symlink():
         log.warning("Refusing to install icon from symlink: %s", src)
         return False
@@ -83,24 +58,17 @@ def install_winpodx_icon() -> bool:
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / "winpodx.svg"
 
-    # follow_symlinks=False is redundant given the check above but makes the
-    # non-following intent explicit in case future code reorders the guards.
     shutil.copy2(src, dest, follow_symlinks=False)
     log.info("Installed winpodx icon: %s", dest)
     return True
 
 
 def _ensure_index_theme(icon_dir: Path) -> None:
-    """Ensure index.theme exists in the user's hicolor directory.
-
-    Without index.theme, gtk-update-icon-cache builds a broken cache and
-    KDE Plasma cannot discover icons in the scalable/apps subdirectory.
-    """
+    """Ensure index.theme exists so gtk cache and KDE Plasma can discover icons."""
     index = icon_dir / "index.theme"
     if index.exists():
         return
 
-    # Try to copy from system hicolor first
     system_index = Path("/usr/share/icons/hicolor/index.theme")
     if system_index.exists():
         icon_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +76,6 @@ def _ensure_index_theme(icon_dir: Path) -> None:
         log.info("Copied system index.theme to %s", index)
         return
 
-    # Fallback: write a minimal index.theme with scalable/apps
     icon_dir.mkdir(parents=True, exist_ok=True)
     index.write_text(
         "[Icon Theme]\n"
@@ -160,9 +127,7 @@ def update_icon_cache() -> None:
     except subprocess.TimeoutExpired:
         log.warning("xdg-icon-resource forceupdate timed out after 30s")
 
-    # KDE Plasma sycoca cache rebuild (picks up new icons and .desktop files).
-    # Historically errors were silently swallowed, which made "Plasma doesn't
-    # show my icon" undebuggable. Surface failures at debug/warning instead.
+    # KDE Plasma sycoca rebuild; surface failures at debug/warning for diagnosis.
     for cmd in ("kbuildsycoca6", "kbuildsycoca5"):
         if shutil.which(cmd):
             try:
@@ -180,7 +145,7 @@ def update_icon_cache() -> None:
                         result.stderr.strip(),
                     )
             except FileNotFoundError:
-                log.debug("%s not found after shutil.which — race or PATH change", cmd)
+                log.debug("%s not found after shutil.which - race or PATH change", cmd)
             except subprocess.TimeoutExpired:
                 log.warning("%s timed out after 30s (sycoca rebuild stuck?)", cmd)
             break

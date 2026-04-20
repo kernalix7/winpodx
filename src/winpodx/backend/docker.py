@@ -54,10 +54,7 @@ class DockerBackend(Backend):
             log.error("docker compose down timed out (60s)")
 
     def _container_state(self) -> str:
-        """Return the lower-cased container state (running/paused/exited/...).
-
-        Empty string when the container does not exist or docker is missing.
-        """
+        """Return the lower-cased container state, or empty string if unavailable."""
         try:
             result = subprocess.run(
                 [
@@ -86,9 +83,7 @@ class DockerBackend(Backend):
             return ""
 
     def is_running(self) -> bool:
-        # Treat paused as a form of "alive" so callers that ask the pod
-        # question get a consistent view. pod_status() distinguishes the
-        # two using is_paused().
+        # Treat paused as alive; pod_status() distinguishes via is_paused().
         state = self._container_state()
         return "running" in state or "paused" in state
 
@@ -99,13 +94,7 @@ class DockerBackend(Backend):
         return self.cfg.rdp.ip or "127.0.0.1"
 
     def wait_for_ready(self, timeout: int = 300) -> bool:
-        """Wait for the container to be running and RDP port available.
-
-        Polls at 1-second cadence (previously 5s) while still respecting
-        the overall timeout budget — shorter wakeups give faster RDP
-        readiness feedback on a healthy container without materially
-        increasing load (the subprocess call dominates).
-        """
+        """Wait for the container to be running and RDP port available."""
         from winpodx.core.pod import check_rdp_port
 
         deadline = time.monotonic() + timeout
@@ -116,7 +105,6 @@ class DockerBackend(Backend):
                 and check_rdp_port(self.get_ip(), self.cfg.rdp.port, timeout=3)
             ):
                 return True
-            # Budget check: don't sleep past the deadline.
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break

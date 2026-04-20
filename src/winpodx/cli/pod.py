@@ -1,4 +1,4 @@
-"""CLI handlers for pod management — no external dependencies."""
+"""CLI handlers for pod management."""
 
 from __future__ import annotations
 

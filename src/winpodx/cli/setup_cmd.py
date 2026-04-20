@@ -1,4 +1,4 @@
-"""Interactive setup wizard — no external dependencies."""
+"""Interactive setup wizard, no external dependencies."""
 
 from __future__ import annotations
 
@@ -34,12 +34,7 @@ __all__ = [
 
 
 def _ask(prompt: str, default: str = "") -> str:
-    """Prompt the user for input, returning *default* on EOF (non-TTY / CI).
-
-    Wraps ``input()`` so that piped-stdin environments (Ansible, systemd
-    ExecStartPost, CI pipelines) degrade gracefully instead of raising an
-    unhandled ``EOFError`` traceback.
-    """
+    """Prompt for input, returning default on EOF for non-TTY environments."""
     try:
         return input(prompt).strip() or default
     except EOFError:
@@ -60,7 +55,6 @@ def handle_setup(args: argparse.Namespace) -> None:
 
     print("=== winpodx setup ===\n")
 
-    # Check dependencies
     print("Checking dependencies...")
     deps = check_all()
     for name, dep in deps.items():
@@ -76,7 +70,6 @@ def handle_setup(args: argparse.Namespace) -> None:
     print(f"  {'kvm':<15} [{kvm_status}] Hardware virtualization")
     print()
 
-    # Import existing winapps config
     existing = import_winapps_config()
     if existing and not non_interactive:
         answer = _ask("Found existing winapps.conf. Import settings? (Y/n): ").lower()
@@ -85,7 +78,6 @@ def handle_setup(args: argparse.Namespace) -> None:
             print(f"Config saved to {Config.path()}")
             return
 
-    # Reuse existing config if present (avoid overwriting passwords/compose)
     if Config.path().exists():
         cfg = Config.load()
         if non_interactive:
@@ -94,7 +86,6 @@ def handle_setup(args: argparse.Namespace) -> None:
     else:
         cfg = Config()
 
-    # Backend selection
     if backend:
         cfg.pod.backend = backend
     elif non_interactive:
@@ -120,7 +111,6 @@ def handle_setup(args: argparse.Namespace) -> None:
             print(f"Invalid choice: {choice}")
             raise SystemExit(1)
 
-    # Credentials
     from datetime import datetime, timezone
 
     if non_interactive:
@@ -143,7 +133,6 @@ def handle_setup(args: argparse.Namespace) -> None:
         else:
             cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
 
-    # Resource allocation
     if cfg.pod.backend in ("podman", "docker"):
         if not non_interactive:
             cpu_input = _ask("CPU cores [4]: ")
@@ -165,7 +154,6 @@ def handle_setup(args: argparse.Namespace) -> None:
     if cfg.pod.backend == "libvirt" and not non_interactive:
         cfg.pod.vm_name = _ask("VM name [RDPWindows]: ", default="RDPWindows")
 
-    # DPI auto-detection
     from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
 
     detected_scale = detect_scale_factor()
@@ -187,7 +175,6 @@ def handle_setup(args: argparse.Namespace) -> None:
     _install_bundled_apps_if_needed()
     _register_all_desktop_entries()
 
-    # Summary
     print("\n" + "=" * 40)
     print(" Setup Complete")
     print("=" * 40)
@@ -212,9 +199,8 @@ def _recreate_container(cfg: Config) -> None:
     import subprocess as sp
 
     compose_path = config_dir() / "compose.yaml"
-    backend = cfg.pod.backend  # podman or docker
+    backend = cfg.pod.backend
 
-    # Find compose command
     compose_cmd: list[str] | None = None
     if backend == "podman":
         if shutil.which("podman-compose"):
@@ -240,10 +226,7 @@ def _recreate_container(cfg: Config) -> None:
         return
 
     print("\nRecreating container with new settings...")
-    # `compose down` can legitimately fail when no container exists yet
-    # (fresh setup). Surface the stderr as a warning so operators can
-    # distinguish "nothing to tear down" from a broken runtime instead
-    # of silently swallowing the failure.
+    # compose down may fail on fresh setup when no container exists yet
     down = sp.run(
         [*compose_cmd, "down"],
         cwd=compose_path.parent,
@@ -271,18 +254,7 @@ def _recreate_container(cfg: Config) -> None:
 
 
 def handle_rotate_password(args: argparse.Namespace) -> None:
-    """Rotate the Windows RDP password.
-
-    Changes the password inside Windows first (via net user), then updates
-    config and compose.yaml atomically to avoid split-brain state.
-
-    Commit order (all-or-nothing):
-      1. Generate compose content to a temp file (validates template).
-      2. cfg.save() — persist new password to disk.
-      3. Rename temp compose → final path (atomic on same filesystem).
-    On any failure after step 1 the temp file is removed and the in-memory
-    cfg is rolled back so the caller sees a clean error.
-    """
+    """Rotate the Windows RDP password atomically via a temp-file swap."""
     import os
     import tempfile
     from datetime import datetime, timezone
@@ -305,14 +277,12 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
     old_password = cfg.rdp.password
     old_password_updated = cfg.rdp.password_updated
 
-    # Change password inside Windows first
     print("Changing Windows user password...")
     if not _change_windows_password(cfg, new_password):
         print("Failed to change Windows password. Is the container fully booted?")
         raise SystemExit(1)
 
-    # Prepare compose content with the new password in a temp file.
-    # This validates the template before touching the on-disk config.
+    # Validate compose template before touching on-disk config
     compose_path = config_dir() / "compose.yaml"
     compose_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -324,19 +294,12 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
     )
     try:
         os.close(fd)
-        # Reuse _generate_compose but redirect to tmp path by monkey-patching
-        # the target — simpler than duplicating compose-generation logic.
-        # We write directly here to avoid a second temp-file round-trip.
         _generate_compose_to(cfg, Path(tmp_compose))
 
-        # Persist config only after compose content is verified.
         cfg.save()
-
-        # Atomic rename: compose becomes live only after config is saved.
         os.replace(tmp_compose, str(compose_path))
     except Exception:
         Path(tmp_compose).unlink(missing_ok=True)
-        # Roll back in-memory config so callers don't see stale state.
         cfg.rdp.password = old_password
         cfg.rdp.password_updated = old_password_updated
         print("Password rotation failed; config and compose were not modified.")
