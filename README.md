@@ -130,13 +130,49 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 ### Install
 
+Prebuilt packages are published for each GitHub Release. RPMs come from the
+[openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx)
+and `.deb` packages come from GitHub Actions.
+
+**openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll**
+
+```bash
+sudo zypper addrepo \
+  https://download.opensuse.org/repositories/home:/Kernalix7/openSUSE_Tumbleweed/home:Kernalix7.repo
+sudo zypper refresh
+sudo zypper install winpodx
+```
+
+Replace `openSUSE_Tumbleweed` with `openSUSE_Leap_16.0`, `openSUSE_Leap_15.6`,
+or `openSUSE_Slowroll` as needed.
+
+**Fedora 42 / 43**
+
+```bash
+sudo dnf config-manager --add-repo \
+  https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+sudo dnf install winpodx
+```
+
+**Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10**
+
+Download the matching `.deb` from the
+[latest release](https://github.com/Kernalix7/winpodx/releases/latest) and
+install:
+
+```bash
+sudo apt install ./winpodx_0.1.1_all_debian13.deb   # pick your flavor
+```
+
+**From source (development)**
+
 ```bash
 git clone https://github.com/kernalix7/winpodx.git
 cd winpodx
 ./install.sh
 ```
 
-The installer automatically:
+The source installer automatically:
 1. Detects your distro (openSUSE, Fedora, Ubuntu, Arch, ...)
 2. Installs missing dependencies (Podman, FreeRDP, KVM), asks before installing
 3. Copies winpodx to `~/.local/bin/winpodx/`
@@ -361,6 +397,35 @@ ruff check src/ tests/         # Lint
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and workflow.
+
+## Releasing & Packaging
+
+Release channels (pushed automatically on tag `v*.*.*`):
+
+| Channel | Built by | Attached to |
+|---------|----------|-------------|
+| RPM (openSUSE / Fedora / Slowroll) | [OBS `home:Kernalix7/winpodx`](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) | GitHub Release |
+| `.deb` (Debian / Ubuntu) | GitHub Actions `debs-publish.yml` | GitHub Release |
+| `sdist` + `wheel` | GitHub Actions `release.yml` | GitHub Release |
+
+One-time OBS token + GitHub Secret setup is documented in
+[packaging/obs/README.md](packaging/obs/README.md#2-github-actions-연동).
+TL;DR:
+
+```bash
+# Local (once)
+osc token --create --operation runservice home:Kernalix7 winpodx
+```
+
+Copy the returned token string, then in GitHub:
+`Settings → Secrets and variables → Actions → New repository secret`
+
+| Name | Value |
+|------|-------|
+| `OBS_TOKEN` | the `runservice` token from `osc token` |
+
+No password, no other secrets. `.deb` workflow only needs the default
+`GITHUB_TOKEN` that Actions provides automatically.
 
 ## Security
 

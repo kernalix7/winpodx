@@ -130,13 +130,48 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 
 ### 설치
 
+GitHub Release 에 배포판별 패키지가 자동으로 첨부됩니다. RPM 은
+[openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx)
+에서, `.deb` 는 GitHub Actions 에서 빌드됩니다.
+
+**openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll**
+
+```bash
+sudo zypper addrepo \
+  https://download.opensuse.org/repositories/home:/Kernalix7/openSUSE_Tumbleweed/home:Kernalix7.repo
+sudo zypper refresh
+sudo zypper install winpodx
+```
+
+`openSUSE_Tumbleweed` 부분은 `openSUSE_Leap_16.0`, `openSUSE_Leap_15.6`,
+`openSUSE_Slowroll` 등으로 교체 가능.
+
+**Fedora 42 / 43**
+
+```bash
+sudo dnf config-manager --add-repo \
+  https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+sudo dnf install winpodx
+```
+
+**Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10**
+
+[최신 Release](https://github.com/Kernalix7/winpodx/releases/latest) 에서
+본인 배포판에 맞는 `.deb` 를 다운받아 설치:
+
+```bash
+sudo apt install ./winpodx_0.1.1_all_debian13.deb   # 배포판에 맞게 선택
+```
+
+**소스에서 (개발용)**
+
 ```bash
 git clone https://github.com/kernalix7/winpodx.git
 cd winpodx
 ./install.sh
 ```
 
-설치 스크립트가 자동으로:
+소스 설치 스크립트가 자동으로:
 1. 배포판 감지 (openSUSE, Fedora, Ubuntu, Arch, ...)
 2. 없는 의존성 설치 (Podman, FreeRDP, KVM), 설치 전 확인
 3. winpodx를 `~/.local/bin/winpodx/`에 복사
@@ -361,6 +396,35 @@ ruff check src/ tests/         # 린트
 ## 기여
 
 개발 설정 및 워크플로우는 [CONTRIBUTING.ko.md](CONTRIBUTING.ko.md)를 참조하세요.
+
+## 릴리즈 및 패키징
+
+릴리즈 채널 (태그 `v*.*.*` 푸시 시 자동 배포):
+
+| 채널 | 빌드 | 첨부 위치 |
+|------|------|----------|
+| RPM (openSUSE / Fedora / Slowroll) | [OBS `home:Kernalix7/winpodx`](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) | GitHub Release |
+| `.deb` (Debian / Ubuntu) | GitHub Actions `debs-publish.yml` | GitHub Release |
+| `sdist` + `wheel` | GitHub Actions `release.yml` | GitHub Release |
+
+OBS 토큰 및 GitHub Secret 설정은
+[packaging/obs/README.md](../packaging/obs/README.md#2-github-actions-연동) 참조.
+요약:
+
+```bash
+# 로컬에서 1회
+osc token --create --operation runservice home:Kernalix7 winpodx
+```
+
+출력된 토큰 문자열을 복사한 뒤 GitHub 에서
+`Settings → Secrets and variables → Actions → New repository secret`:
+
+| 이름 | 값 |
+|------|-----|
+| `OBS_TOKEN` | `osc token` 으로 발급받은 `runservice` 토큰 |
+
+비밀번호나 다른 비밀값은 필요 없음. `.deb` 워크플로우는 Actions 가
+기본으로 제공하는 `GITHUB_TOKEN` 만 사용.
 
 ## 보안
 

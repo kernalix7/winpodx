@@ -1,7 +1,7 @@
 %global pypi_name winpodx
 
 Name:           %{pypi_name}
-Version:        0.1.0
+Version:        0.1.1
 Release:        0
 Summary:        Windows app integration for Linux desktop
 License:        MIT
@@ -11,8 +11,9 @@ Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 
 %if 0%{?suse_version}
-# Leap 16 drops python311; use python313 there. Tumbleweed / Leap 15.x keep python311.
-%if 0%{?sle_version} >= 160000
+# Leap 16 (suse_version 1600) drops python311; use python313.
+# Tumbleweed (>= 1600) also has python313. Leap 15.x (1550..1560) keeps python311.
+%if 0%{?suse_version} >= 1600
 %global pythons python313
 %define py_flavor python313
 %define py_sitelib %{python313_sitelib}
@@ -78,4 +79,4 @@ MIME handlers, icons, and a Qt tray.
 
 %changelog
 * Mon Apr 20 2026 Kim DaeHyun <kernalix7@kodenet.io> - 0.1.0-0
-- Initial release.
+- See https://github.com/Kernalix7/winpodx/releases for per-version release notes.

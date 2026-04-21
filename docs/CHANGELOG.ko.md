@@ -9,6 +9,23 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-21
+
+### 패키징
+- **Release 채널별 prebuilt 패키지**: RPM (openSUSE Tumbleweed, Leap 15.6/16.0, Slowroll, Fedora 42/43) 은 OBS `home:Kernalix7/winpodx` 에서, `.deb` (Debian 12/13, Ubuntu 24.04/25.04/25.10) 는 GitHub Actions `debs-publish.yml` 에서, sdist + wheel 은 `release.yml` 에서 빌드되어 모두 같은 GitHub Release 에 첨부됩니다.
+- **RPM spec**: Leap 16.0 / Tumbleweed (`suse_version >= 1600`) 에서 `python313` 사용, Leap 15.x 는 `python311` 유지. Fedora 42 의 pluggy/pluggy1.3 충돌은 `python3-pluggy` 를 명시적으로 `BuildRequires` 하여 해결.
+- **OBS `_service`**: `debtransform` 단계 제거 (OBS 워커에 설치되어 있지 않고, public OBS 는 Debian `3.0 (native)` 소스 형식을 빌드할 수 없음). `.deb` 는 GitHub Actions 컨테이너 매트릭스에서 `dpkg-buildpackage` 로 이전.
+- **Debian 패키징**: 프로젝트 루트에 `debian/` 디렉터리 추가, `3.0 (native)` + `dh-python + pybuild + pyproject` 구성.
+
+### CI
+- **`check-windows-updates.yml`**: "GitHub Actions is not permitted to create or approve pull requests" 오류로 실패하던 워크플로우를 Issue 생성 방식으로 재작성. 저장소 설정 변경 불필요, 기본 `GITHUB_TOKEN` 만 사용.
+
+### 문서
+- **README**: 설치 섹션에 openSUSE (zypper) / Fedora (dnf) / Debian·Ubuntu (apt `.deb`) / 소스 설치 4가지 경로 추가.
+- **README**: "릴리즈 및 패키징" 섹션 신설 — 3개 채널 및 `osc token` → `OBS_TOKEN` GitHub Secret 설정 절차 명시.
+- **한국어 README**: 영문 README 변경사항 동기화.
+- **`packaging/obs/README.md`**: `.deb` 는 Actions 처리로 이전, AppImage 는 미지원 (Python + Qt + FreeRDP + Podman 의존성이 번들 이점을 상쇄).
+
 ## [0.1.0] - 2026-04-21
 
 ### 추가됨

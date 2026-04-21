@@ -1,3 +1,12 @@
+winpodx (0.1.1) unstable; urgency=medium
+
+  * Packaging: drop debtransform from OBS _service; .deb built by GitHub Actions.
+  * Packaging: RPM spec uses python313 on Leap 16.0 / Tumbleweed.
+  * CI: check-windows-updates opens an Issue instead of a pull request.
+  * Docs: install instructions cover openSUSE / Fedora / Debian / Ubuntu prebuilt packages.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 00:00:00 +0900
+
 winpodx (0.1.0) unstable; urgency=medium
 
   * Initial release.

@@ -9,6 +9,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-21
+
+### Packaging
+- **Prebuilt packages via Release channels**: RPMs (openSUSE Tumbleweed, Leap 15.6/16.0, Slowroll, Fedora 42/43) come from OBS `home:Kernalix7/winpodx`; `.deb` (Debian 12/13, Ubuntu 24.04/25.04/25.10) comes from GitHub Actions `debs-publish.yml`; sdist + wheel come from `release.yml`. All three attach to the same GitHub Release.
+- **RPM spec**: Use `python313` on Leap 16.0 / Tumbleweed (`suse_version >= 1600`), keep `python311` on Leap 15.x. Explicit `python3-pluggy` `BuildRequires` on Fedora 42 resolves the pluggy/pluggy1.3 ambiguity.
+- **OBS `_service`**: Removed `debtransform` step (OBS workers don't have the service installed, and public OBS can't build Debian source format `3.0 (native)`). `.deb` packaging moved to GitHub Actions container matrix with `dpkg-buildpackage`.
+- **Debian packaging**: Added `debian/` directory at project root, `3.0 (native)` format with `dh-python + pybuild + pyproject`.
+
+### CI
+- **`check-windows-updates.yml`**: Failed with "GitHub Actions is not permitted to create or approve pull requests" because the repo setting is off. Rewritten to open a tracking Issue instead of pushing a branch and opening a PR. No repo setting changes required; uses only the default `GITHUB_TOKEN`.
+
+### Docs
+- **README**: New "Install" section covers openSUSE (zypper), Fedora (dnf), Debian/Ubuntu (apt `.deb`), and source install paths.
+- **README**: New "Releasing & Packaging" section documents the three channels, plus the one-time `osc token` → `OBS_TOKEN` GitHub Secret setup.
+- **Korean README**: Mirrored to match English README changes.
+- **`packaging/obs/README.md`**: Documents `.deb` handling moved to Actions; AppImage declared unsupported (Python + Qt + FreeRDP + Podman deps negate portability).
+
 ## [0.1.0] - 2026-04-21
 
 ### Added

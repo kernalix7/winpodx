@@ -21,11 +21,12 @@ osc ls home:Kernalix7
 
 ### 1-2. 패키지 파일 업로드
 
-OBS 는 RPM + AppImage 만 담당합니다. Debian / Ubuntu `.deb` 는
-공용 OBS 의 debtransform 제약 때문에 GitHub Actions
-(`.github/workflows/debs-publish.yml`) 에서 `dpkg-buildpackage` 로 빌드해
-Release 에 직접 첨부합니다. `debian/` 디렉터리는 프로젝트 루트에 있고
-Actions 가 그대로 사용합니다.
+OBS 는 RPM 만 담당합니다. Debian / Ubuntu `.deb` 는 공용 OBS 의
+debtransform 제약 때문에 GitHub Actions (`.github/workflows/debs-publish.yml`)
+에서 `dpkg-buildpackage` 로 빌드해 Release 에 직접 첨부합니다.
+`debian/` 디렉터리는 프로젝트 루트에 있고 Actions 가 그대로 사용합니다.
+AppImage 는 Python + Qt + FreeRDP + Podman 의존성이 커 번들 이점이 없어
+지원하지 않습니다.
 
 ```
 cd /tmp
@@ -33,16 +34,31 @@ osc checkout home:Kernalix7 winpodx
 cd home:Kernalix7/winpodx
 
 PRJ=~/Desktop/00_Personal_Project/00G_winpodx
-cp $PRJ/packaging/rpm/winpodx.spec     .
-cp $PRJ/packaging/obs/_service         .
-cp $PRJ/packaging/appimage/winpodx.yml .
+cp $PRJ/packaging/rpm/winpodx.spec .
+cp $PRJ/packaging/obs/_service     .
 
-osc add winpodx.spec _service winpodx.yml
-osc ci -m "winpodx: rpm + appimage recipes"
+osc add winpodx.spec _service
+osc ci -m "winpodx: rpm recipes"
 ```
 
 `osc ci` 가 `_service` 체인을 서버에서 실행 → GitHub `main` HEAD에서
 tarball을 가져오고, `@PARENT_TAG@`로 버전을 자동 해석합니다.
+
+### 1-2-1. spec 을 언제 다시 업로드 해야 하는가
+
+`tar_scm + set_version` 조합이 **Version: 줄을 자동 갱신** 하므로 일반적인
+릴리즈(태그 push)에는 `osc ci` 가 **필요 없습니다**. spec 의 `%changelog`
+는 의도적으로 GitHub Release 를 가리키는 단일 포인터만 두어, 버전별
+노트를 수동으로 유지할 필요가 없게 했습니다.
+
+`osc ci` 가 실제로 필요한 경우:
+
+- `BuildRequires` 추가/삭제 (예: 새 Python 버전 대응, 누락된 의존성)
+- `%files` 섹션 변경 (설치 파일 목록 변경)
+- 배포판 매크로 분기 로직 수정 (`suse_version` / `fedora` 조건)
+- `Requires` / `Recommends` 의존성 변경
+
+단순 버전 번호 상승 (0.1.1 → 0.1.2 등) 은 태그 push 만으로 끝.
 
 ### 1-3. 빌드 대상 배포판 추가
 
@@ -50,10 +66,10 @@ tarball을 가져오고, `@PARENT_TAG@`로 버전을 자동 해석합니다.
 
 - **RPM**: openSUSE Tumbleweed, Leap 15.6, Leap 16.0, Slowroll,
   Fedora 42, Fedora 43 (모두 x86_64 만, spec 이 `noarch`)
-- **AppImage**: AppImage 전용 리포 (x86_64)
 
-Debian_12 / Debian_13 / xUbuntu_25.04 / xUbuntu_25.10 / xUbuntu_26.04 리포는
-전부 **비활성화** 하세요. GitHub Actions 에서 빌드합니다.
+Debian_12 / Debian_13 / xUbuntu_25.04 / xUbuntu_25.10 / xUbuntu_26.04 리포와
+AppImage 리포는 **비활성화** 하세요. `.deb` 는 GitHub Actions,
+AppImage 는 지원 안 함.
 
 Factory ARM/PowerPC/RISCV/zSystems 는 noarch 라 중복이므로
 꺼두는 걸 권장. RISCV 는 현재 상당수 패키지가 queue 에서 blocked 상태라
@@ -61,13 +77,10 @@ Factory ARM/PowerPC/RISCV/zSystems 는 noarch 라 중복이므로
 
 ### 1-3-1. 배포판별 주의사항
 
-- **Leap 16.0**: `python311` 이 빠졌습니다. spec 이 `sle_version >= 160000`
-  조건으로 `python313` 을 자동 사용합니다.
+- **Leap 16.0**: `python311` 이 빠졌습니다. spec 이 `suse_version >= 1600`
+  조건으로 `python313` 을 자동 사용합니다 (최근 Tumbleweed 도 여기 포함).
 - **Fedora 42**: `python3-pluggy` / `python3-pluggy1.3` 선택 충돌이 있어
   spec 에서 `python3-pluggy` 를 명시적으로 pin 했습니다.
-- **AppImage**: `packaging/appimage/winpodx.yml` 레시피. Qt6/PySide6 를
-  번들링하지만, FreeRDP 와 Podman 은 호스트에 설치되어 있어야 동작합니다
-  (RDP 서버/컨테이너가 없으면 어차피 실행 불가).
 
 ### 1-4. 첫 빌드 확인
 

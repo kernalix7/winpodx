@@ -15,6 +15,9 @@ env:
   OBS_API: https://api.opensuse.org
   OBS_DOWNLOAD: https://download.opensuse.org/repositories/home:/Kernalix7
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
