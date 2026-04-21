@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-21
+
+### CI
+- **`obs-publish.yml` / `debs-publish.yml`**: Trigger on `push: tags: v*.*.*` instead of `release: [published]`. GitHub Actions blocks recursive workflow triggers initiated by `GITHUB_TOKEN`, so a Release created by `release.yml` was not firing the downstream publishers. Tag push cascades normally; all three workflows now run in parallel and converge on the same Release via `softprops/action-gh-release@v2` (create-or-update) and `gh release upload --clobber`.
+
+### Packaging
+- **RPM spec**: `%files` globs `winpodx-*.dist-info/` instead of pinning to `%{version}`. Prevents OBS build failures when `pyproject.toml` has drifted past the latest git tag (OBS builds the wheel from HEAD `pyproject.toml` but filenames the tarball from `@PARENT_TAG@`).
+
 ## [0.1.1] - 2026-04-21
 
 ### Packaging

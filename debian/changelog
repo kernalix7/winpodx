@@ -1,3 +1,12 @@
+winpodx (0.1.2) unstable; urgency=medium
+
+  * CI: obs-publish and debs-publish now trigger on tag push, not release:published,
+    to bypass GitHub's recursive-workflow guard on GITHUB_TOKEN-created releases.
+  * Packaging: RPM spec globs the dist-info directory in %files to tolerate
+    pyproject.toml / git tag version drift between release bumps.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 12:00:00 +0900
+
 winpodx (0.1.1) unstable; urgency=medium
 
   * Packaging: drop debtransform from OBS _service; .deb built by GitHub Actions.

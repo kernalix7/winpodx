@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-21
+
+### CI
+- **`obs-publish.yml` / `debs-publish.yml`**: 트리거를 `release: [published]` 에서 `push: tags: v*.*.*` 로 변경. GitHub Actions 는 `GITHUB_TOKEN` 이 생성한 이벤트가 다른 워크플로우를 재귀적으로 트리거하지 못하게 막기 때문에, `release.yml` 이 만든 Release 의 `published` 이벤트가 하위 publisher 들에 전달되지 않던 문제를 우회. 태그 push 는 정상적으로 cascade 되어 세 워크플로우가 병렬 실행되고, `softprops/action-gh-release@v2` (create-or-update) 와 `gh release upload --clobber` 로 같은 Release 에 수렴.
+
+### 패키징
+- **RPM spec**: `%files` 의 dist-info 경로를 `%{version}` 고정에서 `winpodx-*.dist-info/` glob 으로 변경. `pyproject.toml` 버전이 최신 git 태그보다 앞서 있을 때 OBS 빌드가 깨지는 문제 방지 (OBS 는 HEAD `pyproject.toml` 로 wheel 을 빌드하지만 tarball 파일명은 `@PARENT_TAG@` 기준이라 불일치 발생 가능).
+
 ## [0.1.1] - 2026-04-21
 
 ### 패키징
