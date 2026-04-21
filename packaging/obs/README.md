@@ -21,8 +21,11 @@ osc ls home:Kernalix7
 
 ### 1-2. 패키지 파일 업로드
 
-RPM 한 레포에 RPM / Debian / AppImage 빌드 레시피를 모두 같이 두는 구성입니다.
-OBS 는 빌드 타겟 레포 타입에 따라 자동으로 맞는 레시피를 사용합니다.
+OBS 는 RPM + AppImage 만 담당합니다. Debian / Ubuntu `.deb` 는
+공용 OBS 의 debtransform 제약 때문에 GitHub Actions
+(`.github/workflows/debs-publish.yml`) 에서 `dpkg-buildpackage` 로 빌드해
+Release 에 직접 첨부합니다. `debian/` 디렉터리는 프로젝트 루트에 있고
+Actions 가 그대로 사용합니다.
 
 ```
 cd /tmp
@@ -30,18 +33,13 @@ osc checkout home:Kernalix7 winpodx
 cd home:Kernalix7/winpodx
 
 PRJ=~/Desktop/00_Personal_Project/00G_winpodx
-cp $PRJ/packaging/rpm/winpodx.spec    .
-cp $PRJ/packaging/obs/_service        .
-cp $PRJ/packaging/debian/winpodx.dsc  .
+cp $PRJ/packaging/rpm/winpodx.spec     .
+cp $PRJ/packaging/obs/_service         .
 cp $PRJ/packaging/appimage/winpodx.yml .
 
-osc add winpodx.spec _service winpodx.dsc winpodx.yml
-osc ci -m "winpodx: rpm + debian + appimage recipes"
+osc add winpodx.spec _service winpodx.yml
+osc ci -m "winpodx: rpm + appimage recipes"
 ```
-
-Debian 소스 (`debian/` 디렉터리) 는 프로젝트 루트에 커밋되어 있고,
-`_service` 의 `tar_scm` 이 tarball 에 포함시켜 OBS 가 `3.0 (native)` 형식의
-소스 패키지로 빌드합니다.
 
 `osc ci` 가 `_service` 체인을 서버에서 실행 → GitHub `main` HEAD에서
 tarball을 가져오고, `@PARENT_TAG@`로 버전을 자동 해석합니다.
@@ -52,9 +50,10 @@ tarball을 가져오고, `@PARENT_TAG@`로 버전을 자동 해석합니다.
 
 - **RPM**: openSUSE Tumbleweed, Leap 15.6, Leap 16.0, Slowroll,
   Fedora 42, Fedora 43 (모두 x86_64 만, spec 이 `noarch`)
-- **Debian**: Debian 12, Debian 13 (x86_64)
-- **Ubuntu**: xUbuntu 25.04, 25.10, 26.04 (x86_64)
 - **AppImage**: AppImage 전용 리포 (x86_64)
+
+Debian_12 / Debian_13 / xUbuntu_25.04 / xUbuntu_25.10 / xUbuntu_26.04 리포는
+전부 **비활성화** 하세요. GitHub Actions 에서 빌드합니다.
 
 Factory ARM/PowerPC/RISCV/zSystems 는 noarch 라 중복이므로
 꺼두는 걸 권장. RISCV 는 현재 상당수 패키지가 queue 에서 blocked 상태라
@@ -66,8 +65,6 @@ Factory ARM/PowerPC/RISCV/zSystems 는 noarch 라 중복이므로
   조건으로 `python313` 을 자동 사용합니다.
 - **Fedora 42**: `python3-pluggy` / `python3-pluggy1.3` 선택 충돌이 있어
   spec 에서 `python3-pluggy` 를 명시적으로 pin 했습니다.
-- **Debian/Ubuntu**: `debian/` 디렉터리가 tarball 에 포함되어
-  `3.0 (native)` 형식으로 빌드됩니다. `dh-python + pybuild + pyproject` 기반.
 - **AppImage**: `packaging/appimage/winpodx.yml` 레시피. Qt6/PySide6 를
   번들링하지만, FreeRDP 와 Podman 은 호스트에 설치되어 있어야 동작합니다
   (RDP 서버/컨테이너가 없으면 어차피 실행 불가).

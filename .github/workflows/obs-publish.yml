@@ -1,0 +1,130 @@
+name: OBS Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach RPMs to (e.g. v0.1.0)"
+        required: true
+
+env:
+  OBS_PROJECT: home:Kernalix7
+  OBS_PACKAGE: winpodx
+  OBS_API: https://api.opensuse.org
+  OBS_DOWNLOAD: https://download.opensuse.org/repositories/home:/Kernalix7
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install curl + jq
+        run: sudo apt-get update && sudo apt-get install -y curl jq
+
+      - name: Trigger OBS service run (token)
+        env:
+          OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
+        run: |
+          if [ -z "$OBS_TOKEN" ]; then
+            echo "OBS_TOKEN secret is not set" >&2
+            exit 1
+          fi
+          curl -sS -f -X POST \
+            -H "Authorization: Token $OBS_TOKEN" \
+            "$OBS_API/trigger/runservice?project=$OBS_PROJECT&package=$OBS_PACKAGE"
+
+      - name: Wait for OBS build to finish
+        run: |
+          deadline=$(( $(date +%s) + 60 * 60 ))
+          sleep 30
+          while :; do
+            now=$(date +%s)
+            if [ "$now" -ge "$deadline" ]; then
+              echo "Timed out waiting for OBS build" >&2
+              curl -sS "$OBS_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true
+              exit 1
+            fi
+
+            xml=$(curl -sS -f "$OBS_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true)
+            if [ -z "$xml" ]; then
+              sleep 20
+              continue
+            fi
+
+            # Extract all status codes from <status package="winpodx" code="..."/>
+            codes=$(echo "$xml" | grep -oP 'code="[^"]+"' | sort -u | tr '\n' ' ')
+            echo "current codes: $codes"
+
+            pending=$(echo "$codes" | grep -oE 'code="(scheduled|blocked|dispatching|building|signing|finished)"' || true)
+            if [ -n "$pending" ]; then
+              sleep 30
+              continue
+            fi
+
+            failed=$(echo "$xml" | grep -oP 'code="(failed|unresolvable|broken)"' || true)
+            if [ -n "$failed" ]; then
+              echo "OBS build has failures:" >&2
+              echo "$xml" >&2
+              exit 1
+            fi
+            break
+          done
+
+      - name: Discover repos and download RPMs
+        run: |
+          mkdir -p dist-rpms
+
+          # Parse enabled repos from project _meta (public, no auth)
+          meta=$(curl -sS -f "$OBS_API/source/$OBS_PROJECT/_meta")
+          repos=$(echo "$meta" | grep -oP '(?<=<repository name=")[^"]+')
+          if [ -z "$repos" ]; then
+            echo "No repositories configured on $OBS_PROJECT" >&2
+            exit 1
+          fi
+
+          for repo in $repos; do
+            for arch in x86_64 noarch; do
+              base="$OBS_DOWNLOAD/$repo/$arch"
+              listing=$(curl -sS "$base/" || true)
+              [ -z "$listing" ] && continue
+              rpms=$(echo "$listing" | grep -oE 'href="winpodx-[^"]+\.rpm"' | sed 's/href="//;s/"$//' | sort -u)
+              for f in $rpms; do
+                case "$f" in
+                  *debuginfo*|*debugsource*|*.src.rpm) continue ;;
+                esac
+                echo "Fetching $repo/$arch/$f"
+                curl -sS -fL -o "dist-rpms/$f" "$base/$f" || true
+              done
+            done
+          done
+
+          ls -la dist-rpms/
+          if ! ls dist-rpms/*.rpm >/dev/null 2>&1; then
+            echo "No RPMs were downloaded" >&2
+            exit 1
+          fi
+
+      - name: Attach RPMs to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" dist-rpms/*.rpm --clobber
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ steps.tag.outputs.version }}
+          path: dist-rpms/

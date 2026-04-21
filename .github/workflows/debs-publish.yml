@@ -1,0 +1,117 @@
+name: Debian/Ubuntu Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            suffix: debian12
+            backports: true
+          - image: debian:13
+            suffix: debian13
+          - image: ubuntu:24.04
+            suffix: ubuntu2404
+          - image: ubuntu:25.04
+            suffix: ubuntu2504
+          - image: ubuntu:25.10
+            suffix: ubuntu2510
+    container: ${{ matrix.image }}
+    steps:
+      - name: Bootstrap container (git + apt)
+        shell: bash
+        run: |
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - name: Enable backports if needed
+        if: matrix.backports
+        shell: bash
+        run: |
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          echo "deb http://deb.debian.org/debian ${codename}-backports main" \
+            > /etc/apt/sources.list.d/backports.list
+          apt-get update
+
+      - name: Install build deps
+        shell: bash
+        run: |
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          pkgs="build-essential devscripts debhelper dh-python \
+                python3-all python3-setuptools python3-wheel \
+                python3-hatchling python3-pip python3-build"
+          apt-get install -y --no-install-recommends $pkgs
+          if [ "${{ matrix.backports }}" = "true" ]; then
+            codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+            apt-get install -y -t ${codename}-backports pybuild-plugin-pyproject
+          else
+            apt-get install -y --no-install-recommends pybuild-plugin-pyproject
+          fi
+
+      - name: Build .deb
+        shell: bash
+        run: |
+          set -e
+          dpkg-buildpackage -us -uc -b
+          mkdir -p dist
+          for f in ../winpodx_*.deb; do
+            base=$(basename "$f" .deb)
+            cp "$f" "dist/${base}_${{ matrix.suffix }}.deb"
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.suffix }}
+          path: dist/*.deb
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: all-debs
+          pattern: deb-*
+          merge-multiple: true
+
+      - name: List collected debs
+        run: ls -la all-debs/
+
+      - name: Upload .deb to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" all-debs/*.deb --clobber \
+            --repo "${{ github.repository }}"
