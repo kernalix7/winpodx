@@ -17,7 +17,7 @@
   <service name="set_version">
     <param name="basename">winpodx</param>
   </service>
-  <service name="debtransform">
+  <service name="debtransform" mode="buildtime">
     <param name="changesgenerate">disable</param>
   </service>
 </services>
