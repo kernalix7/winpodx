@@ -5,3 +5,7 @@ export PYBUILD_SYSTEM=pyproject
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
+
+# Tests run upstream in GitHub Actions CI across Python 3.11-3.13; skip them
+# here so .deb builds don't need pytest in Build-Depends on every target.
+override_dh_auto_test:

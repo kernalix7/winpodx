@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-21
+
+### CI
+- **`obs-publish.yml`**: 빌드 결과 폴링 엔드포인트를 `/build/...` 에서 `/public/build/...` 로 변경. `runservice` 용 `OBS_TOKEN` 은 서비스 트리거만 가능하고 OBS `/build/` 는 인증 필요 — 익명 읽기는 `/public/` mirror 에서만 허용됨. 기존에는 대기 루프가 HTTP 401 을 60분 타임아웃까지 반복 출력.
+
+### 패키징
+- **Debian**: `debian/rules` 에 `override_dh_auto_test:` 추가하여 `.deb` 빌드 중 테스트 실행 스킵. 업스트림 CI 가 이미 Python 3.11-3.13 매트릭스에서 pytest 를 돌리고 있고, pybuild 의 unittest discover 모드가 최소 Build-Depends 에 pytest 가 없어 실패하던 문제 해결.
+
 ## [0.1.2] - 2026-04-21
 
 ### CI

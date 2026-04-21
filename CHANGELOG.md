@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-21
+
+### CI
+- **`obs-publish.yml`**: Poll `/public/build/...` instead of `/build/...`. The `runservice` `OBS_TOKEN` can only trigger services — OBS `/build/` endpoints require authentication, and anonymous reads are only allowed through the `/public/` mirror. Previously the wait-for-build loop hit HTTP 401 until the 60-minute timeout.
+
+### Packaging
+- **Debian**: `debian/rules` adds `override_dh_auto_test:` to skip test execution during `.deb` build. Upstream CI already runs `pytest` across Python 3.11-3.13, and pybuild's unittest discover mode couldn't find `pytest` in the minimal Build-Depends set.
+
 ## [0.1.2] - 2026-04-21
 
 ### CI

@@ -14,6 +14,9 @@ env:
   OBS_PROJECT: home:Kernalix7
   OBS_PACKAGE: winpodx
   OBS_API: https://api.opensuse.org
+  # /public/ is OBS's anonymous read-only API mirror — no auth needed for
+  # public home: projects. The runservice token can't read /build/.
+  OBS_PUBLIC_API: https://api.opensuse.org/public
   OBS_DOWNLOAD: https://download.opensuse.org/repositories/home:/Kernalix7
 
 permissions:
@@ -59,11 +62,11 @@ jobs:
             now=$(date +%s)
             if [ "$now" -ge "$deadline" ]; then
               echo "Timed out waiting for OBS build" >&2
-              curl -sS "$OBS_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true
+              curl -sS "$OBS_PUBLIC_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true
               exit 1
             fi
 
-            xml=$(curl -sS -f "$OBS_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true)
+            xml=$(curl -sS -f "$OBS_PUBLIC_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true)
             if [ -z "$xml" ]; then
               sleep 20
               continue
@@ -93,7 +96,7 @@ jobs:
           mkdir -p dist-rpms
 
           # Parse enabled repos from project _meta (public, no auth)
-          meta=$(curl -sS -f "$OBS_API/source/$OBS_PROJECT/_meta")
+          meta=$(curl -sS -f "$OBS_PUBLIC_API/source/$OBS_PROJECT/_meta")
           repos=$(echo "$meta" | grep -oP '(?<=<repository name=")[^"]+')
           if [ -z "$repos" ]; then
             echo "No repositories configured on $OBS_PROJECT" >&2

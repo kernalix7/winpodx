@@ -1,3 +1,12 @@
+winpodx (0.1.3) unstable; urgency=medium
+
+  * Packaging: skip dh_auto_test during .deb build; tests run upstream in
+    GitHub Actions CI across Python 3.11-3.13.
+  * CI: obs-publish polls /public/build/... instead of /build/..., since the
+    runservice token can only trigger services and OBS /build/ needs auth.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 15:00:00 +0900
+
 winpodx (0.1.2) unstable; urgency=medium
 
   * CI: obs-publish and debs-publish now trigger on tag push, not release:published,

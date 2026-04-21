@@ -1,7 +1,7 @@
 %global pypi_name winpodx
 
 Name:           %{pypi_name}
-Version:        0.1.2
+Version:        0.1.3
 Release:        0
 Summary:        Windows app integration for Linux desktop
 License:        MIT
