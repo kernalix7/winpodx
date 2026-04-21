@@ -67,13 +67,17 @@ MIME handlers, icons, and a Qt tray.
 %license LICENSE
 %doc README.md CHANGELOG.md
 %{_bindir}/winpodx
+# Use a glob for dist-info so a pyproject.toml version that has drifted past
+# the latest git tag (@PARENT_TAG@) does not break the build. set_version
+# updates Version: from the tarball filename, but the wheel metadata uses
+# pyproject.toml's version, and the two can disagree between tag bumps.
 %if 0%{?suse_version}
 %{py_sitelib}/winpodx/
-%{py_sitelib}/winpodx-%{version}.dist-info/
+%{py_sitelib}/winpodx-*.dist-info/
 %endif
 %if 0%{?fedora} || 0%{?rhel}
 %{python3_sitelib}/winpodx/
-%{python3_sitelib}/winpodx-%{version}.dist-info/
+%{python3_sitelib}/winpodx-*.dist-info/
 %endif
 %{_datadir}/winpodx/
 
