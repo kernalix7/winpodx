@@ -1,61 +1,46 @@
 winpodx (0.1.5) unstable; urgency=medium
 
-  * Packaging: drop the Python >= 3.11 requirement to >= 3.9 so RHEL 9 and its
-    rebuilds (AlmaLinux 9, Rocky 9) can install winpodx without the python3.11
-    AppStream module. The only 3.11 blocker was stdlib tomllib; we now fall
-    back to the pure-Python tomli package on 3.9/3.10 (marker-gated dep).
-  * Packaging: depend on python3-tomli on Debian/Ubuntu so the fallback import
-    works out-of-the-box regardless of the installed Python version.
-  * CI: add Python 3.9 and 3.10 to the pytest matrix.
-  * CI: new rhel-publish.yml workflow builds AlmaLinux 9 and 10 RPMs on tag
-    push and attaches them to the GitHub release (mirrors the debs-publish
-    matrix pattern).
-  * CI: new aur-publish.yml workflow + packaging/aur/PKGBUILD template for
-    Arch Linux AUR. Secret-gated on AUR_SSH_PRIVATE_KEY so tag pushes before
-    the one-time AUR account/SSH setup skip cleanly. See
-    packaging/aur/README.md for onboarding.
-  * CI: obs-publish discover-and-download step now matches MirrorCache "./"
-    href prefixes (the previous grep anchored on `href="winpodx-` and found
-    zero RPMs after v0.1.4); also follows redirects with curl -L.
+  * Lower minimum Python requirement to 3.9 (was 3.11) so RHEL 9 / AlmaLinux 9
+    / Rocky 9 can install without adding a separate Python module.
+  * Add python3-tomli to Depends for the TOML reader fallback on 3.9/3.10.
+  * Expand test matrix to Python 3.9 through 3.13.
+  * Add AlmaLinux 9 and 10 to the publish matrix.
+  * Add Arch Linux AUR publishing infrastructure (activation pending one-time
+    maintainer setup; see packaging/aur/README.md).
+  * Fix OBS RPM auto-download to correctly pick up newly-published assets.
 
  -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 19:00:00 +0900
 
 winpodx (0.1.4) unstable; urgency=medium
 
-  * Packaging: drop debian/winpodx.install; pybuild pyproject plugin installs
-    directly to debian/winpodx/ so the intermediate manifest was pointing at
-    an empty debian/tmp and dh_install aborted with "missing files".
-  * CI: obs-publish wait loop now inspects only <status package="winpodx"
-    code="..."/> instead of any code="..." in the XML. Repo-level broken
-    states (e.g. "nothing provides rpm" on Factory PowerPC ppc64 and Slowroll
-    aarch64) are OBS infrastructure noise and no longer abort our publish.
+  * Fix .deb build aborting with "missing files" during dh_install.
+  * OBS publish step tolerates unrelated build-service-side failures on
+    architectures outside the target matrix.
 
  -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 17:00:00 +0900
 
 winpodx (0.1.3) unstable; urgency=medium
 
-  * Packaging: skip dh_auto_test during .deb build; tests run upstream in
-    GitHub Actions CI across Python 3.11-3.13.
-  * CI: obs-publish polls /public/build/... instead of /build/..., since the
-    runservice token can only trigger services and OBS /build/ needs auth.
+  * Fix OBS publish step looping on authentication errors during build wait.
+  * .deb build no longer runs the test suite; tests run upstream in CI.
 
  -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 15:00:00 +0900
 
 winpodx (0.1.2) unstable; urgency=medium
 
-  * CI: obs-publish and debs-publish now trigger on tag push, not release:published,
-    to bypass GitHub's recursive-workflow guard on GITHUB_TOKEN-created releases.
-  * Packaging: RPM spec globs the dist-info directory in %files to tolerate
-    pyproject.toml / git tag version drift between release bumps.
+  * Fix RPM and .deb publish workflows not running on tag push so their
+    artifacts are now correctly attached to the Release.
+  * RPM build is resilient to pyproject.toml version being ahead of the
+    latest git tag.
 
  -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 12:00:00 +0900
 
 winpodx (0.1.1) unstable; urgency=medium
 
-  * Packaging: drop debtransform from OBS _service; .deb built by GitHub Actions.
-  * Packaging: RPM spec uses python313 on Leap 16.0 / Tumbleweed.
-  * CI: check-windows-updates opens an Issue instead of a pull request.
-  * Docs: install instructions cover openSUSE / Fedora / Debian / Ubuntu prebuilt packages.
+  * Prebuilt packages per Release: RPM (openSUSE Tumbleweed, Leap 15.6/16.0,
+    Slowroll, Fedora 42/43) and .deb (Debian 12/13, Ubuntu 24.04/25.04/25.10).
+  * AppImage packaging dropped.
+  * Install instructions in README cover openSUSE / Fedora / Debian / Ubuntu.
 
  -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 00:00:00 +0900
 

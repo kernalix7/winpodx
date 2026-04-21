@@ -177,10 +177,10 @@ sudo dnf install ./winpodx-0.1.5-1.noarch.el9.rpm   # 또는 .el10.rpm
 
 **Arch Linux (AUR)**
 
-> 참고: AUR 자동 발행은 인프라만 준비되어 있고 아직 활성화 전입니다 (AUR
-> 계정 / SSH 키 1회 세팅 필요 — 자세한 절차는
-> [`packaging/aur/README.md`](../packaging/aur/README.md)). `AUR_SSH_PRIVATE_KEY`
-> 시크릿이 등록되면 이후 태그 푸시마다 자동 발행됩니다.
+> 참고: AUR 자동 발행은 인프라만 준비되어 있고 메인테이너 1회 세팅이 완료되기
+> 전까지는 비활성 상태입니다 (자세한 절차는
+> [`packaging/aur/README.md`](../packaging/aur/README.md)). 활성화 이후에는
+> 태그 푸시마다 자동 발행됩니다.
 
 ```bash
 yay -S winpodx        # 또는:
@@ -423,32 +423,20 @@ ruff check src/ tests/         # 린트
 
 ## 릴리즈 및 패키징
 
-릴리즈 채널 (태그 `v*.*.*` 푸시 시 자동 배포):
+태그 (`v*.*.*`) 푸시 시 모든 지원 채널로 자동 배포됩니다:
 
-| 채널 | 빌드 | 첨부 위치 |
-|------|------|----------|
-| RPM (openSUSE / Fedora / Slowroll) | [OBS `home:Kernalix7/winpodx`](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) | GitHub Release |
-| `.deb` (Debian / Ubuntu) | GitHub Actions `debs-publish.yml` | GitHub Release |
-| `sdist` + `wheel` | GitHub Actions `release.yml` | GitHub Release |
+| 채널 | 배포판 |
+|------|--------|
+| RPM (openSUSE / Fedora / Slowroll) | Tumbleweed, Leap 15.6, Leap 16.0, Slowroll, Fedora 42/43 |
+| RPM (RHEL 계열) | AlmaLinux 9 / 10 (RHEL, Rocky, Oracle Linux 9/10 에도 설치 가능) |
+| `.deb` | Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 |
+| AUR | Arch Linux (활성화 이후 — [`packaging/aur/README.md`](../packaging/aur/README.md) 참조) |
+| `sdist` + `wheel` | PyPI 호환 소스/바이너리 배포판 |
 
-OBS 토큰 및 GitHub Secret 설정은
-[packaging/obs/README.md](../packaging/obs/README.md#2-github-actions-연동) 참조.
-요약:
-
-```bash
-# 로컬에서 1회
-osc token --create --operation runservice home:Kernalix7 winpodx
-```
-
-출력된 토큰 문자열을 복사한 뒤 GitHub 에서
-`Settings → Secrets and variables → Actions → New repository secret`:
-
-| 이름 | 값 |
-|------|-----|
-| `OBS_TOKEN` | `osc token` 으로 발급받은 `runservice` 토큰 |
-
-비밀번호나 다른 비밀값은 필요 없음. `.deb` 워크플로우는 Actions 가
-기본으로 제공하는 `GITHUB_TOKEN` 만 사용.
+각 채널별 메인테이너 설정은 [`packaging/`](../packaging/) 아래에 있습니다:
+- [`packaging/obs/README.md`](../packaging/obs/README.md) — openSUSE Build Service (RPM 계열).
+- [`packaging/aur/README.md`](../packaging/aur/README.md) — Arch User Repository.
+- Debian/Ubuntu 및 AlmaLinux 빌드는 각자의 GitHub Actions 워크플로우에서 자체 완결되어 별도 설정 불필요.
 
 ## 보안
 

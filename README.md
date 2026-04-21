@@ -179,11 +179,9 @@ sudo dnf install ./winpodx-0.1.5-1.noarch.el9.rpm   # or .el10.rpm
 
 **Arch Linux (AUR)**
 
-> Note: AUR publishing is wired up but not yet activated (requires a one-time
-> AUR account / SSH key setup — see
-> [`packaging/aur/README.md`](packaging/aur/README.md)). Once the
-> `AUR_SSH_PRIVATE_KEY` secret is registered, subsequent tag pushes will
-> publish automatically.
+> Note: AUR publishing is wired up but pending a one-time maintainer setup
+> (see [`packaging/aur/README.md`](packaging/aur/README.md)). Once activated,
+> tag pushes publish automatically.
 
 ```bash
 yay -S winpodx        # or:
@@ -426,32 +424,21 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and workflow.
 
 ## Releasing & Packaging
 
-Release channels (pushed automatically on tag `v*.*.*`):
+Each tag push (`v*.*.*`) publishes to all supported channels automatically:
 
-| Channel | Built by | Attached to |
-|---------|----------|-------------|
-| RPM (openSUSE / Fedora / Slowroll) | [OBS `home:Kernalix7/winpodx`](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) | GitHub Release |
-| `.deb` (Debian / Ubuntu) | GitHub Actions `debs-publish.yml` | GitHub Release |
-| `sdist` + `wheel` | GitHub Actions `release.yml` | GitHub Release |
+| Channel | Distros |
+|---------|---------|
+| RPM (openSUSE / Fedora / Slowroll) | Tumbleweed, Leap 15.6, Leap 16.0, Slowroll, Fedora 42/43 |
+| RPM (RHEL-family) | AlmaLinux 9 / 10 (also covers RHEL, Rocky, Oracle Linux 9/10) |
+| `.deb` | Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 |
+| AUR | Arch Linux (once activated — see [`packaging/aur/README.md`](packaging/aur/README.md)) |
+| `sdist` + `wheel` | PyPI-compatible source/binary distributions |
 
-One-time OBS token + GitHub Secret setup is documented in
-[packaging/obs/README.md](packaging/obs/README.md#2-github-actions-연동).
-TL;DR:
+Maintainer setup for each channel lives under [`packaging/`](packaging/):
 
-```bash
-# Local (once)
-osc token --create --operation runservice home:Kernalix7 winpodx
-```
-
-Copy the returned token string, then in GitHub:
-`Settings → Secrets and variables → Actions → New repository secret`
-
-| Name | Value |
-|------|-------|
-| `OBS_TOKEN` | the `runservice` token from `osc token` |
-
-No password, no other secrets. `.deb` workflow only needs the default
-`GITHUB_TOKEN` that Actions provides automatically.
+- [`packaging/obs/README.md`](packaging/obs/README.md) — openSUSE Build Service (RPM family).
+- [`packaging/aur/README.md`](packaging/aur/README.md) — Arch User Repository.
+- Debian/Ubuntu and AlmaLinux builds are self-contained in their respective GitHub Actions workflows and need no external setup.
 
 ## Security
 
