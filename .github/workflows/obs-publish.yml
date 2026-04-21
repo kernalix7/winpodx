@@ -116,9 +116,12 @@ jobs:
           for repo in $repos; do
             for arch in x86_64 noarch; do
               base="$OBS_DOWNLOAD/$repo/$arch"
-              listing=$(curl -sS "$base/" || true)
+              # MirrorCache listing hrefs have a "./" prefix
+              # (href="./winpodx-<ver>-<rel>.noarch.rpm"); match the filename
+              # directly instead of anchoring on `href="winpodx-`.
+              listing=$(curl -sSL "$base/" || true)
               [ -z "$listing" ] && continue
-              rpms=$(echo "$listing" | grep -oE 'href="winpodx-[^"]+\.rpm"' | sed 's/href="//;s/"$//' | sort -u)
+              rpms=$(echo "$listing" | grep -oE 'winpodx-[^"]+\.rpm' | sort -u)
               for f in $rpms; do
                 case "$f" in
                   *debuginfo*|*debugsource*|*.src.rpm) continue ;;

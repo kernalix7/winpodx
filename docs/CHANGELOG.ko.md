@@ -9,6 +9,20 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-21
+
+### 패키징
+- **Python 최소 버전을 3.9 로 낮춤**: `requires-python = ">=3.9"` (이전 `>=3.11`). 코드베이스에서 3.11 을 요구하던 유일한 이유는 표준 라이브러리 `tomllib` 였음 — 3.9/3.10 에서는 순수 파이썬 구현인 `tomli` 로 폴백하도록 marker-gated 의존성 추가 (`tomli>=1.1.0; python_version < '3.11'`). 이로써 `python3.11` AppStream 모듈 없이도 RHEL 9 / AlmaLinux 9 / Rocky 9 에 깔끔하게 설치 가능.
+- **RPM spec**: Fedora/RHEL 분기에서 `BuildRequires: python3 >= 3.9` 와 `Requires: python3 >= 3.9` 로 완화. `rhel <= 9` 조건에서 `Requires: python3-tomli` 를 걸어 EPEL 9 의 `python3-tomli` 를 끌어오게 함. Fedora 와 RHEL 10+ 는 기본 python3 가 이미 >= 3.11 이라 tomllib 가 stdlib 에 포함됨.
+- **Debian `control`**: `python3-all (>= 3.9)`, `python3 (>= 3.9)`. 설치된 Python 버전과 무관하게 폴백 import 가 즉시 동작하도록 `python3-tomli` 를 Depends 에 추가.
+- **ruff `target-version = "py39"`** (이전 `py311`).
+
+### CI
+- **신규 `rhel-publish.yml`**: `push: tags: v*.*.*` 에서 AlmaLinux 9, AlmaLinux 10 noarch RPM 을 매트릭스 빌드하여 `.el9.rpm` / `.el10.rpm` 접미사로 GitHub Release 에 첨부. 기존 `debs-publish.yml` 패턴 (컨테이너 매트릭스 빌드 → `upload-artifact` → 단일 `publish` 잡에서 `download-artifact` + `gh release upload --clobber`) 과 동일. OBS 의 `set_version` 서비스가 하는 방식과 똑같이 `git archive` + 로컬 `rpmbuild -bb` 로 스펙의 Version 필드에 태그 버전을 찍어 빌드.
+- **신규 `aur-publish.yml` + `packaging/aur/PKGBUILD`**: Arch User Repository `winpodx` 패키지 발행 인프라. 워크플로우는 `AUR_SSH_PRIVATE_KEY` 시크릿이 없으면 `::notice::` 로그만 남기고 스킵되도록 secret-gated 처리 (AUR 계정/SSH 키 1회 세팅 전에 태그 푸시해도 릴리즈가 실패로 안 찍힘). 태그 푸시마다 GitHub archive 타르볼의 sha256 을 계산하여 PKGBUILD 템플릿에 `pkgver` + sha 를 찍고, `KSXGitHub/github-actions-deploy-aur@v2` 로 `ssh://aur@aur.archlinux.org/winpodx.git` 에 push. 1회 세팅 절차는 `packaging/aur/README.md` 에 정리됨.
+- **`ci.yml`**: 테스트 매트릭스를 `["3.9", "3.10", "3.11", "3.12", "3.13"]` 로 확장.
+- **`obs-publish.yml`**: discover-and-download 스텝이 MirrorCache 의 `./` prefix href (`href="./winpodx-<ver>-<rel>.noarch.rpm"`) 를 인식하도록 수정. 이전 grep 은 `href="winpodx-` 로 앵커링되어 있어서, v0.1.4 빌드 자체는 성공했음에도 RPM 을 0개 찾아 실패하고 있었음. 리다이렉트 추적을 위해 `curl -sSL` 로도 변경.
+
 ## [0.1.4] - 2026-04-21
 
 ### 패키징

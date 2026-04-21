@@ -1,0 +1,164 @@
+name: RHEL/AlmaLinux Packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # AlmaLinux 9 ships python3 == 3.9. The spec pulls in python3-tomli
+          # on rhel<=9 so the stdlib-tomllib-absent case is covered. EPEL
+          # provides pyproject-rpm-macros + python3-hatchling + python3-tomli.
+          - image: almalinux:9
+            suffix: el9
+            epel: true
+          # AlmaLinux 10 ships python3 >= 3.12 so tomllib is stdlib; the spec
+          # conditional skips the tomli Requires on rhel >= 10. EPEL 10 is
+          # still enabled because python3-hatchling lives there on el10.
+          - image: almalinux:10
+            suffix: el10
+            epel: true
+    container: ${{ matrix.image }}
+    steps:
+      - name: Bootstrap container (git + rpm tools)
+        shell: bash
+        run: |
+          set -e
+          dnf -y install dnf-plugins-core git rpm-build rpmdevtools tar
+
+      - name: Enable EPEL + CRB
+        if: matrix.epel
+        shell: bash
+        run: |
+          set -e
+          # CRB (CodeReady Builder) holds the -devel and python- build deps
+          # that are not in BaseOS/AppStream (needed for python3-pluggy
+          # providers on el9 and some python3-* build deps on el10).
+          dnf -y install epel-release
+          dnf config-manager --set-enabled crb || \
+            dnf config-manager --set-enabled powertools || true
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install RPM build deps
+        shell: bash
+        run: |
+          set -e
+          dnf -y install \
+            python3 python3-pip python3-wheel python3-setuptools \
+            python3-hatchling python3-installer \
+            pyproject-rpm-macros python-rpm-macros \
+            python3-pluggy
+          # el9 default python3 is 3.9 → tomllib is NOT stdlib, so the runtime
+          # Requires: python3-tomli must be resolvable at install time too.
+          # Install here just to keep the build environment symmetric.
+          if [ "${{ matrix.suffix }}" = "el9" ]; then
+            dnf -y install python3-tomli || true
+          fi
+
+      - name: Prepare rpmbuild tree
+        shell: bash
+        run: |
+          set -e
+          version="${{ steps.tag.outputs.version }}"
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          # git archive produces a clean tarball matching what OBS's tar_scm
+          # builds from, including the @PARENT_TAG@-shaped prefix the spec's
+          # %autosetup expects.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git archive --format=tar.gz \
+            --prefix="winpodx-${version}/" \
+            -o "$HOME/rpmbuild/SOURCES/winpodx-${version}.tar.gz" \
+            HEAD
+          # Stamp the real version into the spec (OBS does this via its
+          # set_version service; here we do it locally before rpmbuild).
+          sed "s|^Version:.*|Version:        ${version}|" \
+            packaging/rpm/winpodx.spec > "$HOME/rpmbuild/SPECS/winpodx.spec"
+
+      - name: Build RPM
+        shell: bash
+        run: |
+          set -e
+          rpmbuild -bb "$HOME/rpmbuild/SPECS/winpodx.spec"
+
+      - name: Collect RPMs
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          version="${{ steps.tag.outputs.version }}"
+          # BuildArch is noarch in the spec, so everything lands in noarch/.
+          for f in ~/rpmbuild/RPMS/noarch/winpodx-*.rpm; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f" .rpm)
+            # Drop any existing distro tag (rpmbuild puts .el9 / .el10 here
+            # via %{dist}) and replace with our matrix suffix for clarity.
+            # The rpm itself is noarch so it would install on either distro;
+            # the suffix is just a human hint on the release asset list.
+            case "$base" in
+              *debuginfo*|*debugsource*) continue ;;
+            esac
+            cp "$f" "dist/${base}.${{ matrix.suffix }}.rpm"
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.suffix }}
+          path: dist/*.rpm
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: all-rpms
+          pattern: rpm-*
+          merge-multiple: true
+
+      - name: List collected RPMs
+        run: ls -la all-rpms/
+
+      - name: Upload RPMs to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" all-rpms/*.rpm --clobber \
+            --repo "${{ github.repository }}"

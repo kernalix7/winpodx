@@ -5,9 +5,13 @@ from __future__ import annotations
 import logging
 import re
 import sys
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # Python 3.9, 3.10
 
 from winpodx.utils.paths import data_dir
 

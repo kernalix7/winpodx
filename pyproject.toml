@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "winpodx"
-version = "0.1.4"
+version = "0.1.5"
 description = "Windows app integration for Linux desktop"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 authors = [
     { name = "Kim DaeHyun", email = "kernalix7@kodenet.io" },
 ]
@@ -23,7 +23,12 @@ classifiers = [
     "Topic :: Desktop Environment",
 ]
 
-dependencies = []
+dependencies = [
+    # tomllib is stdlib on Python 3.11+; pull in the pure-Python tomli fallback
+    # for 3.9/3.10 so RHEL 9 (python3 == 3.9) can install winpodx without the
+    # python3.11 AppStream module.
+    "tomli>=1.1.0; python_version < '3.11'",
+]
 
 [project.optional-dependencies]
 gui = [
@@ -67,7 +72,7 @@ packages = ["src/winpodx"]
 "scripts" = "share/winpodx/scripts"
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py39"
 line-length = 100
 
 [tool.ruff.lint]

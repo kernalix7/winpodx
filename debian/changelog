@@ -1,3 +1,25 @@
+winpodx (0.1.5) unstable; urgency=medium
+
+  * Packaging: drop the Python >= 3.11 requirement to >= 3.9 so RHEL 9 and its
+    rebuilds (AlmaLinux 9, Rocky 9) can install winpodx without the python3.11
+    AppStream module. The only 3.11 blocker was stdlib tomllib; we now fall
+    back to the pure-Python tomli package on 3.9/3.10 (marker-gated dep).
+  * Packaging: depend on python3-tomli on Debian/Ubuntu so the fallback import
+    works out-of-the-box regardless of the installed Python version.
+  * CI: add Python 3.9 and 3.10 to the pytest matrix.
+  * CI: new rhel-publish.yml workflow builds AlmaLinux 9 and 10 RPMs on tag
+    push and attaches them to the GitHub release (mirrors the debs-publish
+    matrix pattern).
+  * CI: new aur-publish.yml workflow + packaging/aur/PKGBUILD template for
+    Arch Linux AUR. Secret-gated on AUR_SSH_PRIVATE_KEY so tag pushes before
+    the one-time AUR account/SSH setup skip cleanly. See
+    packaging/aur/README.md for onboarding.
+  * CI: obs-publish discover-and-download step now matches MirrorCache "./"
+    href prefixes (the previous grep anchored on `href="winpodx-` and found
+    zero RPMs after v0.1.4); also follows redirects with curl -L.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 19:00:00 +0900
+
 winpodx (0.1.4) unstable; urgency=medium
 
   * Packaging: drop debian/winpodx.install; pybuild pyproject plugin installs

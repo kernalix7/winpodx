@@ -7,7 +7,7 @@
 **Linux에서 Windows 앱을 심리스하게 실행**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://www.python.org/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
 [![Tests: 225 passed](https://img.shields.io/badge/Tests-225%20passed-brightgreen.svg)](#테스트)
 
@@ -19,7 +19,7 @@
 
 ---
 
-winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 없음** (표준 라이브러리만 사용, Python 3.11+).
+winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
 
 ## 왜 winpodx인가?
 
@@ -31,7 +31,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 | 설정 | 수동 (셸 스크립트, 설정 파일, RDP 테스트) | 원라인 스크립트 | **제로 설정** (첫 실행 시 자동) |
 | 앱 범위 | 모든 Windows 앱 | Office 전용 | **모든 Windows 앱** |
 | 언어 | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
-| 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.11+ (표준 라이브러리만)** |
+| 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.9+ (3.11+ 는 stdlib; 3.9/3.10 은 `tomli`)** |
 | 자동 일시정지 | 없음 | 없음 | **있음** |
 | 비밀번호 로테이션 | 없음 | 없음 | **있음 (7일 주기)** |
 | HiDPI | 없음 | 없음 | **자동 감지** |
@@ -117,22 +117,23 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 
 | 레이어 | 기술 |
 |--------|------|
-| 언어 | Python 3.11+ (표준 라이브러리만, pip 없음) |
+| 언어 | Python 3.9+ (3.11+ 는 표준 라이브러리만; 3.9/3.10 은 `tomli` 폴백) |
 | CLI | argparse (표준 라이브러리) |
 | GUI (선택) | PySide6 (Qt6) |
-| 설정 | TOML (표준 라이브러리 tomllib + 내장 writer) |
+| 설정 | TOML (3.11+ 는 표준 라이브러리 `tomllib` / 3.9/3.10 은 `tomli`; 내장 writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
-| CI | GitHub Actions (lint + test on 3.11-3.13 + pip-audit) |
+| CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
 
 ## 빠른 시작
 
 ### 설치
 
-GitHub Release 에 배포판별 패키지가 자동으로 첨부됩니다. RPM 은
+GitHub Release 에 배포판별 패키지가 자동으로 첨부됩니다. openSUSE/Fedora RPM 은
 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx)
-에서, `.deb` 는 GitHub Actions 에서 빌드됩니다.
+에서 빌드되고, RHEL/AlmaLinux RPM, Debian/Ubuntu `.deb`, Arch Linux AUR
+엔트리는 GitHub Actions 에서 빌드/발행됩니다.
 
 **openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll**
 
@@ -160,7 +161,30 @@ sudo dnf install winpodx
 본인 배포판에 맞는 `.deb` 를 다운받아 설치:
 
 ```bash
-sudo apt install ./winpodx_0.1.4_all_debian13.deb   # 배포판에 맞게 선택
+sudo apt install ./winpodx_0.1.5_all_debian13.deb   # 배포판에 맞게 선택
+```
+
+**AlmaLinux / Rocky / RHEL 9 & 10**
+
+el9 에서는 `python3-tomli` 때문에 EPEL 이 필요합니다.
+[최신 Release](https://github.com/Kernalix7/winpodx/releases/latest) 에서
+`.rpm` 을 받아 설치:
+
+```bash
+sudo dnf install epel-release                     # el9 만 필요
+sudo dnf install ./winpodx-0.1.5-1.noarch.el9.rpm   # 또는 .el10.rpm
+```
+
+**Arch Linux (AUR)**
+
+> 참고: AUR 자동 발행은 인프라만 준비되어 있고 아직 활성화 전입니다 (AUR
+> 계정 / SSH 키 1회 세팅 필요 — 자세한 절차는
+> [`packaging/aur/README.md`](../packaging/aur/README.md)). `AUR_SSH_PRIVATE_KEY`
+> 시크릿이 등록되면 이후 태그 푸시마다 자동 발행됩니다.
+
+```bash
+yay -S winpodx        # 또는:
+paru -S winpodx
 ```
 
 **소스에서 (개발용)**
@@ -371,7 +395,7 @@ winpodx/
 ├── data/apps/             # 14개 번들 앱 정의 (TOML)
 ├── config/oem/            # Windows OEM 스크립트 (포스트인스톨)
 ├── scripts/windows/       # PowerShell 스크립트 (디블로트, 시간 동기화, USB 매핑)
-├── .github/workflows/     # CI: lint + test on 3.11-3.13 + pip-audit
+├── .github/workflows/     # CI: lint + test on 3.9-3.13 + pip-audit
 └── tests/                 # pytest 테스트 스위트 (225개 테스트)
 ```
 

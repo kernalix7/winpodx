@@ -5,7 +5,7 @@ Name:           %{pypi_name}
 # Version: line from the @PARENT_TAG@ tarball filename (e.g. winpodx-0.1.4
 # → "0.1.4"). The literal here is a cosmetic placeholder for local builds;
 # bumping it per release is NOT required and has no effect on OBS output.
-Version:        0.1.4
+Version:        0.1.5
 Release:        0
 Summary:        Windows app integration for Linux desktop
 License:        MIT
@@ -37,7 +37,7 @@ Recommends:     %{py_flavor}-pyside6
 %endif
 
 %if 0%{?fedora} || 0%{?rhel}
-BuildRequires:  python3 >= 3.11
+BuildRequires:  python3 >= 3.9
 BuildRequires:  python3-pip
 BuildRequires:  python3-wheel
 BuildRequires:  python3-setuptools
@@ -46,8 +46,15 @@ BuildRequires:  python3-installer
 BuildRequires:  pyproject-rpm-macros
 # Fedora 42: pluggy has two providers (pluggy / pluggy1.3). Pin the base one.
 BuildRequires:  python3-pluggy
-Requires:       python3 >= 3.11
+Requires:       python3 >= 3.9
 Recommends:     python3-PySide6
+# tomllib is stdlib on Python 3.11+; RHEL 9's default python3 is 3.9, so pull
+# in python3-tomli as the TOML reader fallback. EPEL ships python3-tomli for
+# el9. Fedora's default python3 is already >= 3.11, so this is harmless there
+# (the Python dist-info declares the marker python_version < '3.11').
+%if 0%{?rhel} && 0%{?rhel} <= 9
+Requires:       python3-tomli
+%endif
 %endif
 
 Requires:       freerdp >= 3.0

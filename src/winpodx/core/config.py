@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # Python 3.9, 3.10
 
 from winpodx.utils.paths import config_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps

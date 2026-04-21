@@ -1,0 +1,99 @@
+name: AUR Publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Secret-gated so tag pushes made before AUR_SSH_PRIVATE_KEY is set up
+      # (see packaging/aur/README.md for the one-time onboarding flow) do not
+      # red-X the Release. Once the secret is configured, subsequent tag
+      # pushes publish to AUR automatically with no other changes.
+      - name: Check AUR secret presence
+        id: check
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$AUR_KEY" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not set; skipping AUR publish. See packaging/aur/README.md for one-time setup."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve tag
+        if: steps.check.outputs.skip == 'false'
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Render PKGBUILD (stamp version + sha256)
+        if: steps.check.outputs.skip == 'false'
+        id: render
+        run: |
+          set -e
+          version="${{ steps.tag.outputs.version }}"
+          tag="${{ steps.tag.outputs.tag }}"
+          url="https://github.com/${{ github.repository }}/archive/${tag}.tar.gz"
+
+          # GitHub generates the archive tarball on first request; give it
+          # a few attempts in case the tag-push → archive materialization
+          # has a small race window.
+          for i in 1 2 3 4 5; do
+            sha=$(curl -sSL "$url" | sha256sum | awk '{print $1}')
+            # sha256 of empty string → don't accept it.
+            if [ "$sha" != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ] \
+              && [ -n "$sha" ]; then
+              break
+            fi
+            echo "archive not ready yet, retrying ($i/5)..."
+            sleep 5
+          done
+          if [ -z "$sha" ]; then
+            echo "failed to compute sha256 for $url" >&2
+            exit 1
+          fi
+          echo "sha256: $sha"
+
+          sed -e "s|__PKGVER__|${version}|g" \
+              -e "s|__SHA256__|${sha}|g" \
+              packaging/aur/PKGBUILD > PKGBUILD.rendered
+          mv PKGBUILD.rendered packaging/aur/PKGBUILD
+          echo "---- rendered PKGBUILD ----"
+          cat packaging/aur/PKGBUILD
+
+      # KSXGitHub/github-actions-deploy-aur handles: makepkg-style SRCINFO
+      # regeneration, SSH key material setup, ssh-keyscan of aur.archlinux.org,
+      # and the git clone/commit/push to ssh://aur@aur.archlinux.org/<pkg>.git.
+      # Pinned to v2 (floating on minor) per standard third-party action use.
+      - name: Publish to AUR
+        if: steps.check.outputs.skip == 'false'
+        uses: KSXGitHub/github-actions-deploy-aur@v2
+        with:
+          pkgname: winpodx
+          pkgbuild: packaging/aur/PKGBUILD
+          commit_username: kernalix7
+          commit_email: kernalix7@kodenet.io
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ steps.tag.outputs.version }}"
+          ssh_keyscan_types: rsa,ecdsa,ed25519

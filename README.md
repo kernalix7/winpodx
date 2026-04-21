@@ -7,7 +7,7 @@
 **Run Windows applications seamlessly on Linux**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://www.python.org/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
 [![Tests: 225 passed](https://img.shields.io/badge/Tests-225%20passed-brightgreen.svg)](#testing)
 
@@ -19,7 +19,7 @@
 
 ---
 
-winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Zero external Python dependencies** (stdlib only, Python 3.11+).
+winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 
 ## Why winpodx?
 
@@ -31,7 +31,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | Setup | Manual (shell scripts, config files, RDP testing) | One-liner script | **Zero-config** (auto on first launch) |
 | App scope | Any Windows app | Office only | **Any Windows app** |
 | Language | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
-| Dependencies | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.11+ (stdlib only)** |
+| Dependencies | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.9+ (stdlib on 3.11+; `tomli` on 3.9/3.10)** |
 | Auto suspend | No | No | **Yes** |
 | Password rotation | No | No | **Yes (7-day cycle)** |
 | HiDPI | No | No | **Auto-detect** |
@@ -117,22 +117,24 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.11+ (stdlib only, no pip) |
+| Language | Python 3.9+ (stdlib only on 3.11+; `tomli` fallback on 3.9/3.10) |
 | CLI | argparse (stdlib) |
 | GUI (optional) | PySide6 (Qt6) |
-| Config | TOML (stdlib tomllib + built-in writer) |
+| Config | TOML (stdlib `tomllib` on 3.11+ / `tomli` on 3.9/3.10; built-in writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
-| CI | GitHub Actions (lint + test on 3.11-3.13 + pip-audit) |
+| CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
 
 ## Quick Start
 
 ### Install
 
-Prebuilt packages are published for each GitHub Release. RPMs come from the
-[openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx)
-and `.deb` packages come from GitHub Actions.
+Prebuilt packages are published for each GitHub Release. openSUSE/Fedora RPMs
+come from the
+[openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx);
+RHEL/AlmaLinux RPMs, Debian/Ubuntu `.deb` packages, and the Arch Linux AUR
+entry come from GitHub Actions.
 
 **openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll**
 
@@ -161,7 +163,31 @@ Download the matching `.deb` from the
 install:
 
 ```bash
-sudo apt install ./winpodx_0.1.4_all_debian13.deb   # pick your flavor
+sudo apt install ./winpodx_0.1.5_all_debian13.deb   # pick your flavor
+```
+
+**AlmaLinux / Rocky / RHEL 9 & 10**
+
+EPEL is required on el9 for `python3-tomli`. Download the matching `.rpm`
+from the [latest release](https://github.com/Kernalix7/winpodx/releases/latest)
+and install:
+
+```bash
+sudo dnf install epel-release                     # el9 only
+sudo dnf install ./winpodx-0.1.5-1.noarch.el9.rpm   # or .el10.rpm
+```
+
+**Arch Linux (AUR)**
+
+> Note: AUR publishing is wired up but not yet activated (requires a one-time
+> AUR account / SSH key setup — see
+> [`packaging/aur/README.md`](packaging/aur/README.md)). Once the
+> `AUR_SSH_PRIVATE_KEY` secret is registered, subsequent tag pushes will
+> publish automatically.
+
+```bash
+yay -S winpodx        # or:
+paru -S winpodx
 ```
 
 **From source (development)**

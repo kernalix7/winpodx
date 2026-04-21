@@ -9,6 +9,20 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-21
+
+### Packaging
+- **Python floor lowered to 3.9**: `requires-python = ">=3.9"` (was `>=3.11`). The only 3.11 blocker in the codebase was stdlib `tomllib`; we now fall back to the pure-Python `tomli` package on 3.9/3.10 via a marker-gated dependency (`tomli>=1.1.0; python_version < '3.11'`). This unblocks clean RHEL 9 / AlmaLinux 9 / Rocky 9 installs without requiring the `python3.11` AppStream module.
+- **RPM spec**: `BuildRequires: python3 >= 3.9` and `Requires: python3 >= 3.9` on the Fedora/RHEL branch. Conditional `Requires: python3-tomli` on `rhel <= 9` (EPEL 9 ships `python3-tomli`). Fedora and RHEL 10+ default to Python >= 3.11 so tomllib is stdlib there.
+- **Debian `control`**: `python3-all (>= 3.9)` and `python3 (>= 3.9)`. Added `python3-tomli` to Depends so the fallback import works out-of-the-box on all supported Debian/Ubuntu releases regardless of the installed Python version.
+- **ruff `target-version = "py39"`** (was `py311`).
+
+### CI
+- **New `rhel-publish.yml`**: Matrix-builds AlmaLinux 9 and AlmaLinux 10 noarch RPMs on `push: tags: v*.*.*` and attaches `.el9.rpm` / `.el10.rpm` to the GitHub Release. Mirrors the existing `debs-publish.yml` pattern (container-matrix build → `upload-artifact` → single `publish` job with `download-artifact` + `gh release upload --clobber`). Builds via `git archive` + local `rpmbuild -bb`, stamping the tag version into the spec the same way OBS's `set_version` service does.
+- **New `aur-publish.yml` + `packaging/aur/PKGBUILD`**: Infrastructure for an Arch User Repository `winpodx` package. The workflow is secret-gated on `AUR_SSH_PRIVATE_KEY` (tag pushes before the one-time AUR account/SSH setup is done will short-circuit with an `::notice::` log line instead of red-Xing the release). On each tag push it computes the sha256 of the GitHub archive tarball, stamps `pkgver` + sha into the PKGBUILD template, and pushes the result to `ssh://aur@aur.archlinux.org/winpodx.git` via `KSXGitHub/github-actions-deploy-aur@v2`. One-time setup is documented in `packaging/aur/README.md`.
+- **`ci.yml`**: Test matrix expanded to `["3.9", "3.10", "3.11", "3.12", "3.13"]`.
+- **`obs-publish.yml`**: Discover-and-download step now matches MirrorCache `./`-prefixed hrefs (`href="./winpodx-<ver>-<rel>.noarch.rpm"`). The previous grep anchored on `href="winpodx-` and found zero RPMs after v0.1.4 even though the build itself had succeeded. Also switched to `curl -sSL` to follow redirects.
+
 ## [0.1.4] - 2026-04-21
 
 ### Packaging
