@@ -1,0 +1,7 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=winpodx
+export PYBUILD_SYSTEM=pyproject
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild

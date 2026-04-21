@@ -1,0 +1,33 @@
+Source: winpodx
+Section: x11
+Priority: optional
+Maintainer: Kim DaeHyun <kernalix7@kodenet.io>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ python3-all (>= 3.11),
+ python3-setuptools,
+ python3-wheel,
+ python3-hatchling,
+ python3-pip,
+ pybuild-plugin-pyproject
+Standards-Version: 4.6.2
+Homepage: https://github.com/Kernalix7/winpodx
+Vcs-Git: https://github.com/Kernalix7/winpodx.git
+Vcs-Browser: https://github.com/Kernalix7/winpodx
+Rules-Requires-Root: no
+
+Package: winpodx
+Architecture: all
+Depends:
+ ${python3:Depends},
+ ${misc:Depends},
+ python3 (>= 3.11),
+ freerdp2-x11 | freerdp3-x11
+Recommends:
+ podman,
+ python3-pyside6.qtwidgets
+Description: Windows app integration for Linux desktop
+ winpodx runs Windows applications from a Podman, Docker, or libvirt
+ backend and exposes them on the Linux desktop with desktop entries,
+ MIME handlers, icons, and a Qt system tray.

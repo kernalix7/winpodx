@@ -1,0 +1,46 @@
+app: winpodx
+
+ingredients:
+  dist: bookworm
+  sources:
+    - deb http://deb.debian.org/debian bookworm main
+    - deb http://deb.debian.org/debian bookworm-updates main
+  packages:
+    - python3
+    - python3-pip
+    - python3-setuptools
+    - python3-wheel
+    - python3-pyside6.qtwidgets
+    - python3-pyside6.qtcore
+    - python3-pyside6.qtgui
+    - freerdp2-x11
+    - ca-certificates
+
+script:
+  - set -e
+  - mkdir -p usr/share/winpodx usr/share/applications usr/share/icons/hicolor/256x256/apps usr/share/metainfo
+  - # Install winpodx from the source tarball unpacked alongside the recipe
+  - python3 -m pip install --prefix=/usr --root=$(pwd) --no-deps --no-build-isolation ../winpodx-*
+  - # AppRun wrapper: set PYTHONPATH to the bundled site-packages and launch CLI
+  - cat > AppRun <<'EOF'
+  - #!/bin/bash
+  - HERE="$(dirname "$(readlink -f "${0}")")"
+  - export PATH="$HERE/usr/bin:$PATH"
+  - export PYTHONPATH="$HERE/usr/lib/python3/dist-packages:$HERE/usr/lib/python3.11/site-packages:$HERE/usr/lib/python3.12/site-packages:$HERE/usr/lib/python3.13/site-packages"
+  - export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+  - export QT_PLUGIN_PATH="$HERE/usr/lib/x86_64-linux-gnu/qt6/plugins"
+  - exec "$HERE/usr/bin/python3" -m winpodx.cli.main "$@"
+  - EOF
+  - chmod +x AppRun
+  - # Desktop entry + icon at AppDir root (AppImage convention)
+  - cp data/apps/*/icon.svg winpodx.svg 2>/dev/null || :
+  - cat > winpodx.desktop <<EOF
+  - [Desktop Entry]
+  - Type=Application
+  - Name=winpodx
+  - Comment=Windows app integration for Linux desktop
+  - Exec=winpodx
+  - Icon=winpodx
+  - Categories=Utility;
+  - Terminal=true
+  - EOF

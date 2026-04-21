@@ -1,0 +1,4 @@
+usr/bin/winpodx
+usr/lib/python3*/dist-packages/winpodx/
+usr/lib/python3*/dist-packages/winpodx-*.dist-info/
+usr/share/winpodx/
