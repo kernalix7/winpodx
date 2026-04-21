@@ -1,8 +1,9 @@
 name: OBS Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -27,8 +28,8 @@ jobs:
       - name: Resolve tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            tag="${{ github.event.release.tag_name }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${{ github.ref_name }}"
           else
             tag="${{ inputs.tag }}"
           fi

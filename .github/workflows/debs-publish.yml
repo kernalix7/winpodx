@@ -1,8 +1,9 @@
 name: Debian/Ubuntu Packages
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -94,8 +95,8 @@ jobs:
         id: tag
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
