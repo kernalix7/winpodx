@@ -160,7 +160,7 @@ sudo dnf install winpodx
 본인 배포판에 맞는 `.deb` 를 다운받아 설치:
 
 ```bash
-sudo apt install ./winpodx_0.1.3_all_debian13.deb   # 배포판에 맞게 선택
+sudo apt install ./winpodx_0.1.4_all_debian13.deb   # 배포판에 맞게 선택
 ```
 
 **소스에서 (개발용)**

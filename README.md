@@ -161,7 +161,7 @@ Download the matching `.deb` from the
 install:
 
 ```bash
-sudo apt install ./winpodx_0.1.3_all_debian13.deb   # pick your flavor
+sudo apt install ./winpodx_0.1.4_all_debian13.deb   # pick your flavor
 ```
 
 **From source (development)**

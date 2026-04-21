@@ -1,7 +1,11 @@
 %global pypi_name winpodx
 
 Name:           %{pypi_name}
-Version:        0.1.3
+# OBS's _service chain runs `set_version` on every build and rewrites this
+# Version: line from the @PARENT_TAG@ tarball filename (e.g. winpodx-0.1.4
+# → "0.1.4"). The literal here is a cosmetic placeholder for local builds;
+# bumping it per release is NOT required and has no effect on OBS output.
+Version:        0.1.4
 Release:        0
 Summary:        Windows app integration for Linux desktop
 License:        MIT

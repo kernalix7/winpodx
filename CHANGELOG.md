@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-04-21
+
+### Packaging
+- **Debian**: Drop `debian/winpodx.install`. pybuild's pyproject plugin uses `dh_auto_install --destdir=debian/winpodx/` and populates the final package directory directly, so the old install manifest was pointing `dh_install` at an empty `debian/tmp` and aborting with "missing files".
+
+### CI
+- **`obs-publish.yml`**: Wait loop inspects only `<status package="winpodx" code="..."/>` instead of any `code="..."` in the XML. Repo-level `<result code="broken">` states (e.g. "nothing provides rpm" on openSUSE Factory PowerPC ppc64 and Slowroll aarch64) are OBS infrastructure-side unresolvable preinstalls and must not fail our publish job.
+
 ## [0.1.3] - 2026-04-21
 
 ### CI

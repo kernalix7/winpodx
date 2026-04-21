@@ -1,3 +1,15 @@
+winpodx (0.1.4) unstable; urgency=medium
+
+  * Packaging: drop debian/winpodx.install; pybuild pyproject plugin installs
+    directly to debian/winpodx/ so the intermediate manifest was pointing at
+    an empty debian/tmp and dh_install aborted with "missing files".
+  * CI: obs-publish wait loop now inspects only <status package="winpodx"
+    code="..."/> instead of any code="..." in the XML. Repo-level broken
+    states (e.g. "nothing provides rpm" on Factory PowerPC ppc64 and Slowroll
+    aarch64) are OBS infrastructure noise and no longer abort our publish.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Apr 2026 17:00:00 +0900
+
 winpodx (0.1.3) unstable; urgency=medium
 
   * Packaging: skip dh_auto_test during .deb build; tests run upstream in

@@ -72,19 +72,29 @@ jobs:
               continue
             fi
 
-            # Extract all status codes from <status package="winpodx" code="..."/>
-            codes=$(echo "$xml" | grep -oP 'code="[^"]+"' | sort -u | tr '\n' ' ')
-            echo "current codes: $codes"
+            # Only look at per-package <status package="winpodx" code="..."/>.
+            # Repo-level <result ... code="broken"> (e.g. "nothing provides rpm"
+            # on Factory PowerPC/Slowroll aarch64) is OBS infrastructure noise
+            # that must not fail our publish job.
+            codes=$(echo "$xml" \
+              | grep -oP '<status package="winpodx"[^>]*code="\K[^"]+' \
+              | sort -u | tr '\n' ' ')
+            echo "current package codes: $codes"
 
-            pending=$(echo "$codes" | grep -oE 'code="(scheduled|blocked|dispatching|building|signing|finished)"' || true)
+            if [ -z "$codes" ]; then
+              sleep 30
+              continue
+            fi
+
+            pending=$(echo " $codes " | grep -oE ' (scheduled|blocked|dispatching|building|signing|finished) ' || true)
             if [ -n "$pending" ]; then
               sleep 30
               continue
             fi
 
-            failed=$(echo "$xml" | grep -oP 'code="(failed|unresolvable|broken)"' || true)
+            failed=$(echo " $codes " | grep -oE ' (failed|unresolvable|broken) ' || true)
             if [ -n "$failed" ]; then
-              echo "OBS build has failures:" >&2
+              echo "OBS build has package-level failures:" >&2
               echo "$xml" >&2
               exit 1
             fi

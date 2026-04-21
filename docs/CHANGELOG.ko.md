@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-04-21
+
+### 패키징
+- **Debian**: `debian/winpodx.install` 제거. pybuild 의 pyproject 플러그인이 `dh_auto_install --destdir=debian/winpodx/` 로 최종 패키지 디렉터리에 직접 설치하기 때문에, 기존 install 매니페스트가 빈 `debian/tmp` 를 가리켜 `dh_install` 이 "missing files" 로 실패하던 문제 해결.
+
+### CI
+- **`obs-publish.yml`**: 빌드 대기 루프가 XML 의 임의 `code="..."` 가 아니라 `<status package="winpodx" code="..."/>` (패키지 레벨) 만 검사하도록 타이트닝. repo 레벨 `<result code="broken">` 상태 (예: Factory PowerPC ppc64 / Slowroll aarch64 의 "nothing provides rpm") 는 OBS 인프라 측 unresolvable preinstall 문제라 우리 publish 작업이 실패로 찍히면 안 됨.
+
 ## [0.1.3] - 2026-04-21
 
 ### CI
