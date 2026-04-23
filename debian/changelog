@@ -1,3 +1,12 @@
+winpodx (0.1.6) unstable; urgency=medium
+
+  * Bundle rdprrap v0.1.0 and auto-install on first boot to enable
+    multi-session RDP, so each RemoteApp window gets its own session.
+  * Add `winpodx multi-session {status,enable,disable}` CLI for managing
+    the patch from the Linux host without opening an RDP session.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 22 Apr 2026 09:00:00 +0900
+
 winpodx (0.1.5) unstable; urgency=medium
 
   * Lower minimum Python requirement to 3.9 (was 3.11) so RHEL 9 / AlmaLinux 9

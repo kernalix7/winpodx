@@ -90,6 +90,15 @@ def cli(argv: list[str] | None = None) -> None:
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
+    ms_parser = sub.add_parser(
+        "multi-session",
+        help="Manage multi-session RDP (rdprrap) inside the Windows guest",
+    )
+    ms_sub = ms_parser.add_subparsers(dest="multi_session_command")
+    ms_sub.add_parser("status", help="Show rdprrap patch state")
+    ms_sub.add_parser("enable", help="Install/repair rdprrap (multi-session ON)")
+    ms_sub.add_parser("disable", help="Uninstall rdprrap (back to single-session)")
+
     unsub = sub.add_parser("uninstall", help="Remove winpodx files (keeps container)")
     unsub.add_argument("--purge", action="store_true", help="Also remove config")
 
@@ -130,6 +139,10 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.setup_cmd import handle_rotate_password
 
         handle_rotate_password(args)
+    elif cmd == "multi-session":
+        from winpodx.cli.multi_session_cmd import handle_multi_session
+
+        handle_multi_session(args)
     elif cmd == "gui":
         try:
             from winpodx.gui.main_window import run_gui

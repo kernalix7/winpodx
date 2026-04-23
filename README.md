@@ -49,7 +49,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 - RemoteApp (RAIL) renders each app as a native Linux window (no full desktop)
 - Per-app taskbar icons via WM_CLASS matching
 - File associations: double-click `.docx` in your file manager → Word opens
-- Multi-session support (independent RDP sessions) planned
+- Multi-session RDP: bundled rdprrap auto-enables independent sessions per app
 
 </td><td width="50%">
 
@@ -359,11 +359,26 @@ winpodx app install myapp   # Register in desktop menu
 
 ## Multi-Session RDP
 
-> **Status: Planned.** Multi-session support is being developed as a separate project.
+Stock Windows Desktop editions limit RDP to one session per user; a second app
+would otherwise reconnect and steal the first session. winpodx bundles
+[rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of
+RDPWrap — inside the package itself and installs it automatically on first
+boot, so each RemoteApp window gets its own independent session.
 
-Currently, Windows Desktop edition limits RDP to one session per user; opening a second app reconnects the existing session. Each app still opens as a seamless RemoteApp (RAIL) window, but only one can be active at a time.
+**Works fully offline.** The rdprrap zip ships inside winpodx's data directory
+(`config/oem/`) and is mounted into the Windows guest at `C:\OEM\`. sha256 is
+verified against a pin file before extraction. No network access is required
+at install time.
 
-Multi-session support (multiple independent RDP sessions per app) is planned as a separate project and will be integrated into winpodx when available.
+```bash
+winpodx multi-session status    # Show patch state inside the guest
+winpodx multi-session enable    # (Re)install rdprrap
+winpodx multi-session disable   # Uninstall, revert to single-session
+```
+
+If anything in the install fails (hash mismatch, extraction, installer error),
+winpodx logs a warning and keeps the guest in single-session mode — app launch
+never blocks on this step.
 
 ## Install / Uninstall
 

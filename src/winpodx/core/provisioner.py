@@ -124,11 +124,13 @@ def _push_file_to_container(
     return True
 
 
-def _oem_content_hash(install_bat: Path, oem_updater: Path) -> str:
+def _oem_content_hash(install_bat: Path, oem_updater: Path, rdprrap_pin: Path | None) -> str:
     h = hashlib.sha256()
     h.update(install_bat.read_bytes())
     h.update(b"\x00")  # separator prevents a||b / ab collision
     h.update(oem_updater.read_bytes())
+    h.update(b"\x00")
+    h.update(rdprrap_pin.read_bytes() if rdprrap_pin is not None else b"")
     return h.hexdigest()
 
 
@@ -144,8 +146,10 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
         if install_bat is None or oem_updater is None:
             log.debug("OEM push skipped: shipped files not found on local filesystem")
             return cfg
+        # Pin file is optional — if missing, guest-side install.bat falls back to single-session.
+        rdprrap_pin = _find_share_file("config/oem/rdprrap_version.txt")
 
-        digest = _oem_content_hash(install_bat, oem_updater)
+        digest = _oem_content_hash(install_bat, oem_updater, rdprrap_pin)
         if cfg.pod.last_oem_push == digest:
             return cfg
 
@@ -158,6 +162,10 @@ def _push_oem_update_if_stale(cfg: Config) -> Config:
             return cfg
         if not _push_file_to_container(
             runtime, container, install_bat, r"C:\winpodx\install_shipped.bat"
+        ):
+            return cfg
+        if rdprrap_pin is not None and not _push_file_to_container(
+            runtime, container, rdprrap_pin, r"C:\winpodx\rdprrap_version.txt"
         ):
             return cfg
 

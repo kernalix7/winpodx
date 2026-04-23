@@ -169,7 +169,7 @@ def test_push_oem_skips_when_hash_matches(_oem_push_cfg, monkeypatch, tmp_path):
     fake_bat, fake_ps = _stub_shipped(
         monkeypatch, provisioner, tmp_path, b"set WINPODX_OEM_VERSION=7\n", b"# stub\n"
     )
-    digest = provisioner._oem_content_hash(fake_bat, fake_ps)
+    digest = provisioner._oem_content_hash(fake_bat, fake_ps, None)
     _oem_push_cfg.pod.last_oem_push = digest
 
     def _boom(*_a, **_kw):
@@ -187,7 +187,7 @@ def test_push_oem_bumps_last_push_on_success(_oem_push_cfg, monkeypatch, tmp_pat
     fake_bat, fake_ps = _stub_shipped(
         monkeypatch, provisioner, tmp_path, b"set WINPODX_OEM_VERSION=7\n", b"# stub\n"
     )
-    expected = provisioner._oem_content_hash(fake_bat, fake_ps)
+    expected = provisioner._oem_content_hash(fake_bat, fake_ps, None)
 
     calls: list[list[str]] = []
 
@@ -263,7 +263,7 @@ def test_push_oem_async_spawns_thread_and_persists(_oem_push_cfg, monkeypatch, t
     fake_bat, fake_ps = _stub_shipped(
         monkeypatch, provisioner, tmp_path, b"async body\n", b"# async stub\n"
     )
-    expected = provisioner._oem_content_hash(fake_bat, fake_ps)
+    expected = provisioner._oem_content_hash(fake_bat, fake_ps, None)
 
     class _R:
         returncode = 0

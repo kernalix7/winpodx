@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-04-22
+
+### 추가
+- **멀티세션 RDP — 번들/완전 오프라인.** [rdprrap](https://github.com/kernalix7/rdprrap) v0.1.0 zip (~1.6 MB, `config/oem/` 내부) 을 winpodx 패키지에 동봉하며, 최초 부팅 시 자동 설치합니다. 번들은 Windows 게스트의 `C:\OEM\` 으로 마운트되고, 핀 파일의 sha256 과 일치 여부를 확인한 뒤 압축이 풀립니다. 설치 시점에 네트워크 접근은 필요하지 않습니다. 실패 시 조용히 단일 세션으로 폴백합니다.
+- `winpodx multi-session {status,enable,disable}` — RDP 세션을 열지 않고 리눅스 호스트에서 직접 패치를 관리.
+
 ## [0.1.5] - 2026-04-21
 
 ### 추가
