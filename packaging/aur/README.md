@@ -49,11 +49,11 @@ cd /tmp/aur-winpodx
 # The CI workflow will overwrite both on the next tag push.
 cp /path/to/winpodx/packaging/aur/PKGBUILD ./PKGBUILD
 # Replace placeholders with the current version so makepkg can run:
-sed -i "s|__PKGVER__|0.1.5|; s|__SHA256__|SKIP|" PKGBUILD
+sed -i "s|__PKGVER__|0.1.7|; s|__SHA256__|SKIP|" PKGBUILD
 makepkg --printsrcinfo > .SRCINFO
 
 git add PKGBUILD .SRCINFO
-git commit -m "Initial upload: winpodx 0.1.5"
+git commit -m "Initial upload: winpodx 0.1.7"
 git push
 ```
 

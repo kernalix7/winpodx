@@ -47,9 +47,10 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 **Seamless App Windows**
 - RemoteApp (RAIL) renders each app as a native Linux window (no full desktop)
-- Per-app taskbar icons via WM_CLASS matching
+- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
 - File associations: double-click `.docx` in your file manager → Word opens
-- Multi-session RDP: bundled rdprrap auto-enables independent sessions per app
+- Multi-session RDP: bundled rdprrap auto-enables up to 10 independent sessions
+- RAIL prerequisites (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) are set automatically during unattended install
 
 </td><td width="50%">
 
@@ -70,6 +71,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 - **USB devices**: Native USB redirection (`/usb:auto`) when FreeRDP urbdrc plugin is available
 - **USB auto drive mapping**: Windows-side FileSystemWatcher script maps USB folders to drive letters (E:, F:, ...) automatically
 - **Home directory**: Shared as `\\tsclient\home` for file access
+- **Desktop shortcuts**: Windows desktop auto-populated with `\\tsclient\home` ("Home") and `\\tsclient\media` ("USB") shortcuts during first boot
 
 </td><td width="50%">
 
@@ -77,10 +79,13 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 - Auto suspend/resume: container pauses when idle, resumes on next launch
 - Password auto-rotation: 20-char cryptographic password, 7-day cycle with rollback
 - Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
-- Qt6 system tray: pod controls, app launchers, idle monitor
+- Qt6 system tray + full Qt6 main window (Apps / Settings / Tools / Terminal pages)
 - Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
-- Windows debloat: disable telemetry, ads, Cortana, search indexing
+- Windows build pinned to 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365-day feature-update defer)
+- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (WSearch / SysMain / WerSvc / DiagTrack)
+- High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS
 - Time sync: force Windows clock resync after host sleep/wake
+- FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
 
 </td></tr>
 </table>
@@ -112,6 +117,19 @@ Existing tools for running Windows apps on Linux all have trade-offs:
                      │   127.0.0.1:3390 (TLS)       │
                      └─────────────────────────────┘
 ```
+
+## GUI
+
+Launch with `winpodx gui`. The Qt6 main window has four pages:
+
+| Page | What it does |
+|------|--------------|
+| **Apps** | Grid / list view of installed app profiles, search + category filter, per-app launch with 3s cooldown, Add / Edit / Delete app profile dialogs |
+| **Settings** | RDP (user / IP / port / scale / DPI / password rotation) and Container (backend / CPU / RAM / idle timeout) in one screen |
+| **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, and a one-click Windows Update **enable / disable** toggle |
+| **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `virsh`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
+
+The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), maintenance submenu (Clean Locks / Sync Time / Suspend), and an optional idle-monitor thread.
 
 ## Tech Stack
 
@@ -187,7 +205,7 @@ Download the matching `.deb` from the
 install:
 
 ```bash
-sudo apt install ./winpodx_0.1.5_all_debian13.deb   # pick your flavor
+sudo apt install ./winpodx_0.1.7_all_debian13.deb   # pick your flavor
 ```
 
 **AlmaLinux / Rocky / RHEL 9 & 10**
@@ -198,7 +216,7 @@ and install:
 
 ```bash
 sudo dnf install epel-release                     # el9 only
-sudo dnf install ./winpodx-0.1.5-1.noarch.el9.rpm   # or .el10.rpm
+sudo dnf install ./winpodx-0.1.7-1.noarch.el9.rpm   # or .el10.rpm
 ```
 
 **Arch Linux (AUR)**
@@ -286,6 +304,7 @@ winpodx uninstall --purge         # Remove everything including config
 # System
 winpodx setup                     # Interactive setup wizard
 winpodx info                      # Display, dependencies, config diagnostics
+winpodx gui                       # Launch Qt6 main window (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config
 winpodx config set rdp.scale 140  # Change a config value
@@ -342,12 +361,15 @@ extra_flags = ""             # Additional FreeRDP flags (allowlisted)
 
 [pod]
 backend = "podman"
-win_version = "11"           # 11 | 10 | ltsc10 | tiny11 | tiny10
+win_version = "11"                               # 11 | 10 | ltsc10 | tiny11 | tiny10
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007
-auto_start = true            # Start pod automatically when launching an app
-idle_timeout = 0             # Seconds before auto-suspend (0 = disabled)
+auto_start = true                                # Start pod automatically when launching an app
+idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
+boot_timeout = 300                               # Seconds to wait for first-boot unattended install
+image = "ghcr.io/dockur/windows:latest"          # Container image (override for air-gapped mirror)
+disk_size = "64G"                                # Virtual disk size passed to dockur
 ```
 
 ## App Profiles
@@ -389,6 +411,24 @@ would otherwise reconnect and steal the first session. winpodx bundles
 RDPWrap — inside the package itself and installs it automatically during the
 Windows unattended install, so each RemoteApp window gets its own independent
 session.
+
+**RAIL prerequisites.** RemoteApp itself requires three registry settings that
+winpodx applies during unattended setup: `fDisabledAllowList=1` (enables
+RemoteApp publishing), `fInheritInitialProgram=1` (required for
+`/app:program:...` to launch the target executable instead of a shell), and
+`MaxInstanceCount=10` paired with `fSingleSessionPerUser=0` (lifts the
+single-session cap up to 10 concurrent RemoteApp windows). These are set
+regardless of whether rdprrap installs successfully — rdprrap is what makes
+the sessions *independent*, but the registry keys are what make RemoteApp
+work at all. After rdprrap install `TermService` is cycled so the wrapper
+DLL activates without a reboot.
+
+**Authentication channel.** NLA is disabled (`UserAuthentication=0`) so the
+FreeRDP command line can authenticate unattended from under
+`podman unshare --rootless-netns`, but `SecurityLayer=2` keeps the RDP
+channel itself encrypted with TLS (so `/sec:tls /cert:ignore` against
+`127.0.0.1` is the full authenticated + encrypted path — no cleartext on the
+wire even though NLA is off).
 
 **Works fully offline.** The rdprrap zip ships inside winpodx's data directory
 (`config/oem/`) and is staged into `C:\OEM\` during the guest's first boot.

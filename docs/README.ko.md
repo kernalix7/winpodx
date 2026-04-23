@@ -47,9 +47,10 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 
 **심리스 앱 창**
 - RemoteApp (RAIL)으로 각 앱을 네이티브 Linux 창으로 렌더링 (전체 데스크톱 없음)
-- 앱별 독립 작업 표시줄 아이콘 (WM_CLASS 매칭)
+- 앱별 독립 작업 표시줄 아이콘 (`/wm-class:<stem>` + `StartupWMClass` 매칭)
 - 파일 연결: 파일 관리자에서 `.docx` 더블클릭 → Word 실행
-- 멀티세션 RDP: 번들된 rdprrap 가 앱별 독립 세션을 자동 활성화
+- 멀티세션 RDP: 번들된 rdprrap 가 최대 10개 독립 세션을 자동 활성화
+- RAIL 전제 레지스트리 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) 를 무인 설치 중 자동 설정
 
 </td><td width="50%">
 
@@ -70,6 +71,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 - **USB 장치**: FreeRDP urbdrc 플러그인 사용 가능 시 네이티브 USB 리다이렉션 (`/usb:auto`)
 - **USB 자동 드라이브 매핑**: Windows 측 FileSystemWatcher 스크립트가 USB 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑
 - **홈 디렉토리**: `\\tsclient\home`으로 파일 접근 공유
+- **데스크탑 바로가기**: Windows 바탕화면에 `\\tsclient\home` ("Home"), `\\tsclient\media` ("USB") 바로가기를 최초 부팅 시 자동 생성
 
 </td><td width="50%">
 
@@ -77,10 +79,13 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 - 자동 일시정지/재개: 유휴 시 컨테이너 일시정지, 다음 실행 시 자동 재개
 - 비밀번호 자동 로테이션: 20자 암호학적 비밀번호, 7일 주기, 롤백 지원
 - 스마트 DPI 스케일링: GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb 자동 감지
-- Qt6 시스템 트레이: 팟 제어, 앱 런처, 유휴 모니터
+- Qt6 시스템 트레이 + 전체 Qt6 메인 윈도우 (Apps / Settings / Tools / Terminal)
 - 멀티 백엔드: Podman (기본), Docker, libvirt/KVM, 수동 RDP
-- Windows 디블로트: 텔레메트리, 광고, Cortana, 검색 인덱싱 비활성화
+- Windows 빌드 고정: 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365일 기능 업데이트 연기)
+- Windows 디블로트: 텔레메트리, 광고, Cortana, 검색 인덱싱 및 서비스 (WSearch / SysMain / WerSvc / DiagTrack) 비활성화
+- 고성능 전원 관리 + 최대 절전 해제 + tzutil UTC + Cloudflare DNS 기본값
 - 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 재동기화
+- FreeRDP `extra_flags` 허용 목록 (정규식 검증) — 사용자 입력 안전 경계
 
 </td></tr>
 </table>
@@ -112,6 +117,19 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
                      │   127.0.0.1:3390 (TLS)       │
                      └─────────────────────────────┘
 ```
+
+## GUI
+
+`winpodx gui` 명령으로 실행. Qt6 메인 윈도우는 4개 페이지로 구성되어 있습니다:
+
+| 페이지 | 내용 |
+|--------|------|
+| **Apps** | 설치된 앱 프로필 그리드 / 리스트 뷰, 검색 + 카테고리 필터, 앱별 3초 쿨다운 런치, 앱 프로필 Add / Edit / Delete 다이얼로그 |
+| **Settings** | RDP (사용자 / IP / 포트 / 스케일 / DPI / 비밀번호 로테이션) + Container (백엔드 / CPU / RAM / 유휴 타임아웃) 를 한 화면에 |
+| **Tools** | Suspend / Resume / Full Desktop 버튼, Clean Locks / Sync Time / Debloat, 그리고 Windows Update **enable / disable** 원클릭 토글 |
+| **Terminal** | 명령 허용 목록 (`podman`, `docker`, `virsh`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) 으로 제한된 임베디드 셸. 빠른 버튼 제공 (Status / Logs / Inspect / RDP Test / Clear) |
+
+시스템 트레이 (`winpodx tray`) 는 경량 대안입니다 — 팟 제어, 앱 런처 서브메뉴 (상위 20개 + Full Desktop), 유지보수 서브메뉴 (Clean Locks / Sync Time / Suspend), 선택적 유휴 모니터 스레드.
 
 ## 기술 스택
 
@@ -184,7 +202,7 @@ sudo dnf install winpodx
 본인 배포판에 맞는 `.deb` 를 다운받아 설치:
 
 ```bash
-sudo apt install ./winpodx_0.1.5_all_debian13.deb   # 배포판에 맞게 선택
+sudo apt install ./winpodx_0.1.7_all_debian13.deb   # 배포판에 맞게 선택
 ```
 
 **AlmaLinux / Rocky / RHEL 9 & 10**
@@ -195,7 +213,7 @@ el9 에서는 `python3-tomli` 때문에 EPEL 이 필요합니다.
 
 ```bash
 sudo dnf install epel-release                     # el9 만 필요
-sudo dnf install ./winpodx-0.1.5-1.noarch.el9.rpm   # 또는 .el10.rpm
+sudo dnf install ./winpodx-0.1.7-1.noarch.el9.rpm   # 또는 .el10.rpm
 ```
 
 **Arch Linux (AUR)**
@@ -284,6 +302,7 @@ winpodx uninstall --purge         # 설정 포함 전체 제거
 # 시스템
 winpodx setup                     # 대화형 설정 위자드
 winpodx info                      # 디스플레이, 의존성, 설정 진단
+winpodx gui                       # Qt6 메인 윈도우 실행 (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Qt 시스템 트레이 아이콘
 winpodx config show               # 현재 설정 확인
 winpodx config set rdp.scale 140  # 설정 값 변경
@@ -340,12 +359,15 @@ extra_flags = ""             # 추가 FreeRDP 플래그 (허용 목록)
 
 [pod]
 backend = "podman"
-win_version = "11"           # 11 | 10 | ltsc10 | tiny11 | tiny10
+win_version = "11"                               # 11 | 10 | ltsc10 | tiny11 | tiny10
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007
-auto_start = true            # 앱 실행 시 자동 팟 시작
-idle_timeout = 0             # 자동 일시정지 (초, 0 = 비활성화)
+auto_start = true                                # 앱 실행 시 자동 팟 시작
+idle_timeout = 0                                 # 자동 일시정지 (초, 0 = 비활성화)
+boot_timeout = 300                               # 최초 부팅 무인 설치 대기 시간 (초)
+image = "ghcr.io/dockur/windows:latest"          # 컨테이너 이미지 (에어갭 미러 지정 가능)
+disk_size = "64G"                                # dockur 에 전달되는 가상 디스크 크기
 ```
 
 ## 앱 프로필
@@ -386,6 +408,22 @@ winpodx app install myapp   # 데스크톱 메뉴에 등록
 [rdprrap](https://github.com/kernalix7/rdprrap) — RDPWrap 의 Rust 재구현 —
 을 패키지 자체에 번들로 포함하며, Windows 무인 설치 단계에서 자동 적용해 각
 RemoteApp 창이 독립된 세션을 갖도록 만듭니다.
+
+**RAIL 전제 조건.** RemoteApp 자체가 동작하려면 3개의 레지스트리 값이
+필요하며, winpodx 는 무인 설치 중 이를 자동 적용합니다:
+`fDisabledAllowList=1` (RemoteApp 게시 활성화), `fInheritInitialProgram=1`
+(`/app:program:...` 가 셸 대신 지정한 실행 파일을 실행하도록),
+`MaxInstanceCount=10` + `fSingleSessionPerUser=0` (단일 세션 제한 해제,
+최대 10개 동시 RemoteApp 창). 이 키들은 rdprrap 설치 성공 여부와 무관하게
+적용됩니다 — rdprrap 은 세션을 *독립적*으로 만들어 주는 것이고, 레지스트리
+키는 RemoteApp 자체가 켜지게 만드는 부분입니다. rdprrap 설치 후 wrapper DLL
+활성화를 위해 `TermService` 를 재기동합니다 (재부팅 불필요).
+
+**인증 채널.** `podman unshare --rootless-netns` 내부에서 FreeRDP 가 무인
+인증을 수행할 수 있도록 NLA 를 비활성화 (`UserAuthentication=0`) 하지만,
+`SecurityLayer=2` 로 RDP 채널 자체는 TLS 로 암호화됩니다. 즉
+`127.0.0.1` 상대로 `/sec:tls /cert:ignore` 를 쓰는 구성이 "인증 + 암호화"
+완전 경로이며, NLA 가 꺼져 있더라도 평문이 와이어에 노출되지 않습니다.
 
 **완전 오프라인 동작.** rdprrap zip 은 winpodx 데이터 디렉토리
 (`config/oem/`) 안에 함께 배포되며, 게스트 최초 부팅 시 `C:\OEM\` 로
