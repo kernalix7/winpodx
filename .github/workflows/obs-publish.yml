@@ -114,13 +114,27 @@ jobs:
           fi
 
           for repo in $repos; do
+            # openSUSE_Factory_{ARM,PowerPC,RISCV,zSystems} builds the same
+            # noarch content as openSUSE_Tumbleweed — publishing all five would
+            # just list four identical RPMs with misleading architecture-looking
+            # names. Skip the non-x86 Factory rebuilds; Tumbleweed users on
+            # aarch64/ppc64/riscv64/s390x install the Tumbleweed noarch RPM.
+            case "$repo" in
+              openSUSE_Factory_*) echo "Skipping $repo (noarch duplicate of Tumbleweed)"; continue ;;
+            esac
             # Tumbleweed / Fedora / Slowroll all produce the same filename
             # (winpodx-<ver>-<rel>.noarch.rpm) because their release tags lack
             # a distro suffix. Without renaming, only the last-iterated repo's
             # file survives in dist-rpms/. Append the repo name to every RPM so
             # each distro's build gets a stable, unique asset name on the
             # Release — matches the RHEL convention (.el9.rpm / .el10.rpm).
-            repo_slug=$(echo "$repo" | tr '/:' '__')
+            # Normalize short Leap repo names ("15.6", "16.0") to the familiar
+            # openSUSE_Leap_* form so the final filename is self-describing
+            # instead of ending in a bare version number like ".15.6.rpm".
+            case "$repo" in
+              1[0-9].[0-9]|1[0-9].[0-9][0-9]) repo_slug="openSUSE_Leap_$repo" ;;
+              *)                              repo_slug=$(echo "$repo" | tr '/:' '__') ;;
+            esac
             for arch in x86_64 noarch; do
               base="$OBS_DOWNLOAD/$repo/$arch"
               # MirrorCache listing hrefs have a "./" prefix
