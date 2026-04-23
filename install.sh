@@ -162,15 +162,31 @@ else
     log "All dependencies OK"
 fi
 
-# No pip needed: winpodx uses only Python stdlib (3.11+)
+# winpodx uses only stdlib on 3.11+; on 3.9/3.10 tomli backfills tomllib.
 
 # --- Check Python version ---
 PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
 PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; }; then
-    err "Python 3.11+ required (found $PY_VERSION)"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]; }; then
+    err "Python 3.9+ required (found $PY_VERSION)"
     exit 1
+fi
+# On 3.9/3.10 tomllib is not in stdlib — install tomli via the system package
+# manager if available so the winpodx runtime import doesn't fail.
+if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; then
+    if ! python3 -c "import tomli" >/dev/null 2>&1; then
+        log "Python $PY_VERSION needs tomli (stdlib tomllib arrived in 3.11). Installing..."
+        if command -v zypper >/dev/null 2>&1; then
+            sudo zypper install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
+        elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -S --noconfirm python-tomli || warn "tomli install failed; winpodx may fail to start"
+        fi
+    fi
 fi
 log "Python $PY_VERSION OK"
 

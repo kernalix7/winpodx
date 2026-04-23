@@ -130,10 +130,22 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 
 ### 설치
 
-GitHub Release 에 배포판별 패키지가 자동으로 첨부됩니다. openSUSE/Fedora RPM 은
+**원 라인 설치** (지원하는 모든 Linux 배포판):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
+배포판 자동 감지 → 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을
+사용자 확인 후 설치 → winpodx 를 `~/.local/bin/winpodx-app/` 에 배치 → 14개
+Windows 앱을 데스크탑 메뉴에 등록. 의존성 설치 단계 외에는 root 권한 불필요.
+openSUSE, Fedora, Debian/Ubuntu, RHEL 계열, Arch 지원.
+
+배포판 패키지 매니저로 설치하려면? 모든
+[GitHub Release](https://github.com/kernalix7/winpodx/releases/latest)
+에 RPM / `.deb` / AUR 패키지가 자동 첨부됩니다. openSUSE/Fedora RPM 은
 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx)
-에서 빌드되고, RHEL/AlmaLinux RPM, Debian/Ubuntu `.deb`, Arch Linux AUR
-엔트리는 GitHub Actions 에서 빌드/발행됩니다.
+에서, 나머지는 GitHub Actions 에서 빌드/발행:
 
 **openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll**
 

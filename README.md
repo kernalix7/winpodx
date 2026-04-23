@@ -130,11 +130,23 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 ### Install
 
-Prebuilt packages are published for each GitHub Release. openSUSE/Fedora RPMs
-come from the
-[openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx);
-RHEL/AlmaLinux RPMs, Debian/Ubuntu `.deb` packages, and the Arch Linux AUR
-entry come from GitHub Actions.
+**One-line install** (any supported Linux distro):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
+Detects your distro, installs missing system dependencies (Podman, FreeRDP,
+KVM, Python 3.9+) with your confirmation, drops winpodx into
+`~/.local/bin/winpodx-app/`, and registers all 14 Windows apps in your desktop
+menu. No root required except for the dependency install step. Works on
+openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
+
+Prefer a native package manager? Prebuilt RPM / `.deb` / AUR packages are
+attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest)
+— openSUSE/Fedora RPMs from the
+[openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx),
+the rest from GitHub Actions:
 
 **openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll**
 
