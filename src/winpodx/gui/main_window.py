@@ -6,7 +6,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -60,6 +61,68 @@ from winpodx.gui.theme import (
 )
 
 
+class _DiscoveryWorker(QObject):
+    """Background worker that runs core.discovery scan and persist off the UI thread.
+
+    State machine driven from the main window:
+      idle -> scanning -> (succeeded | failed) -> idle
+
+    Emits ``succeeded(count)`` with the number of persisted apps on success,
+    or ``failed(kind, detail)`` where ``kind`` is a short token (``pod_not_running``,
+    ``module_missing``, ``unexpected``) the UI uses to decide inline actions
+    such as offering a "Start Pod" shortcut.
+    """
+
+    succeeded = Signal(int)
+    failed = Signal(str, str)
+    finished = Signal()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from winpodx.core import discovery as discovery_mod
+            from winpodx.core.config import Config
+        except ImportError as exc:
+            self.failed.emit("module_missing", str(exc))
+            self.finished.emit()
+            return
+
+        try:
+            cfg = Config.load()
+            apps = discovery_mod.discover_apps(cfg)
+        except Exception as exc:  # noqa: BLE001 — worker surfaces all errors to UI
+            kind = "pod_not_running" if _looks_like_pod_down(exc) else "unexpected"
+            self.failed.emit(kind, str(exc))
+            self.finished.emit()
+            return
+
+        try:
+            persisted = discovery_mod.persist_discovered(apps)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit("unexpected", str(exc))
+            self.finished.emit()
+            return
+
+        try:
+            from winpodx.desktop.icons import refresh_icon_cache
+
+            refresh_icon_cache()
+        except Exception:  # noqa: BLE001 — cache refresh is best-effort
+            pass
+
+        try:
+            count = len(persisted)
+        except TypeError:
+            count = len(apps)
+        self.succeeded.emit(count)
+        self.finished.emit()
+
+
+def _looks_like_pod_down(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(tok in text for tok in ("pod", "container", "connection refused", "not running"))
+
+
 class WinpodxWindow(QMainWindow):
     """Main window with horizontal top navigation bar."""
 
@@ -83,6 +146,35 @@ class WinpodxWindow(QMainWindow):
         shadow.setColor(QColor(0, 0, 0, alpha))
         widget.setGraphicsEffect(shadow)
 
+    @staticmethod
+    def _make_source_badge(app: AppInfo) -> QLabel | None:
+        """Pill badge marking app provenance: Detected (from scan) vs Bundled.
+
+        Returns None when ``AppInfo.source`` is absent (older cores) or equals
+        the default user-authored provenance, so legacy apps stay unannotated.
+        """
+        source = getattr(app, "source", "bundled")
+        if source == "discovered":
+            text = "Detected"
+            bg = C.SAPPHIRE
+            fg = C.CRUST
+        elif source == "bundled":
+            text = "Bundled"
+            bg = C.SURFACE2
+            fg = C.SUBTEXT1
+        else:
+            return None
+
+        badge = QLabel(text)
+        badge.setStyleSheet(
+            f"background: {bg}; color: {fg};"
+            " border-radius: 7px;"
+            " font-size: 9px; font-weight: bold;"
+            " padding: 2px 7px;"
+            " letter-spacing: 0.3px;"
+        )
+        return badge
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("winpodx")
@@ -96,6 +188,10 @@ class WinpodxWindow(QMainWindow):
         self._active_category = ""  # "" = all
         # Cooldown sentinel debounces rapid launch clicks; cleared via QTimer.
         self._recently_launched: set[str] = set()
+        # Refresh state: idle -> scanning -> (success|error) -> idle.
+        self._refresh_state = "idle"
+        self._refresh_thread: QThread | None = None
+        self._refresh_worker: _DiscoveryWorker | None = None
 
         self._setup_signals()
         self._build_ui()
@@ -351,6 +447,14 @@ class WinpodxWindow(QMainWindow):
         toolbar.addWidget(toggle_wrap)
         toolbar.addSpacing(8)
 
+        self.refresh_btn = QPushButton("Refresh Apps")
+        self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
+        self.refresh_btn.setStyleSheet(BTN_GHOST)
+        self.refresh_btn.setToolTip("Scan the running pod for installed Windows apps")
+        self.refresh_btn.clicked.connect(self._on_refresh_apps)
+        toolbar.addWidget(self.refresh_btn)
+        toolbar.addSpacing(6)
+
         add_btn = QPushButton("+  Add App")
         add_btn.setStyleSheet(BTN_PRIMARY)
         add_btn.clicked.connect(self._on_add_app)
@@ -358,6 +462,17 @@ class WinpodxWindow(QMainWindow):
 
         layout.addLayout(toolbar)
         layout.addSpacing(12)
+
+        self.refresh_progress = QProgressBar()
+        self.refresh_progress.setRange(0, 0)  # indeterminate
+        self.refresh_progress.setTextVisible(False)
+        self.refresh_progress.setFixedHeight(3)
+        self.refresh_progress.setVisible(False)
+        self.refresh_progress.setStyleSheet(
+            f"QProgressBar {{ background: {C.SURFACE0}; border: none; border-radius: 1px; }}"
+            f"QProgressBar::chunk {{ background: {C.BLUE}; }}"
+        )
+        layout.addWidget(self.refresh_progress)
 
         self._category_row = QHBoxLayout()
         self._category_row.setSpacing(6)
@@ -491,6 +606,10 @@ class WinpodxWindow(QMainWindow):
         vl.setContentsMargins(16, 18, 16, 14)
         vl.setSpacing(0)
 
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(0)
+
         avatar = QLabel(letter)
         avatar.setFixedSize(52, 52)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -500,7 +619,14 @@ class WinpodxWindow(QMainWindow):
             " border-radius: 14px;"
             " font-size: 22px; font-weight: bold;"
         )
-        vl.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
+        top_row.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
+        top_row.addStretch()
+
+        badge = self._make_source_badge(app)
+        if badge is not None:
+            top_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
+
+        vl.addLayout(top_row)
         vl.addSpacing(12)
 
         name_lbl = QLabel(app.full_name)
@@ -601,7 +727,15 @@ class WinpodxWindow(QMainWindow):
         name_lbl.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: bold;"
         )
-        info.addWidget(name_lbl)
+        name_row = QHBoxLayout()
+        name_row.setContentsMargins(0, 0, 0, 0)
+        name_row.setSpacing(8)
+        name_row.addWidget(name_lbl)
+        badge = self._make_source_badge(app)
+        if badge is not None:
+            name_row.addWidget(badge)
+        name_row.addStretch()
+        info.addLayout(name_row)
 
         meta_parts = []
         if app.categories:
@@ -1243,6 +1377,81 @@ class WinpodxWindow(QMainWindow):
         self._populate_app_view(self.apps)
         self.search_box.clear()
         self.app_count_label.setText(f"{len(self.apps)} apps")
+
+    def _on_refresh_apps(self) -> None:
+        """Entry point for the "Refresh Apps" button; kicks off the QThread worker."""
+        if self._refresh_state == "scanning":
+            return
+        self._set_refresh_state("scanning")
+
+        thread = QThread(self)
+        worker = _DiscoveryWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_refresh_succeeded)
+        worker.failed.connect(self._on_refresh_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        # Keep references so the QThread+QObject aren't garbage-collected mid-run.
+        self._refresh_thread = thread
+        self._refresh_worker = worker
+        thread.start()
+
+    def _set_refresh_state(self, state: str) -> None:
+        self._refresh_state = state
+        scanning = state == "scanning"
+        self.refresh_btn.setEnabled(not scanning)
+        self.refresh_btn.setText("Scanning..." if scanning else "Refresh Apps")
+        self.refresh_progress.setVisible(scanning)
+        if scanning:
+            self.info_label.setText("Scanning pod for installed apps...")
+
+    @Slot(int)
+    def _on_refresh_succeeded(self, count: int) -> None:
+        self._set_refresh_state("idle")
+        self._refresh_thread = None
+        self._refresh_worker = None
+        self._reload_apps()
+        if count:
+            self.info_label.setText(f"Discovery complete: {count} app(s) updated")
+        else:
+            self.info_label.setText("Discovery complete: no new apps found")
+
+    @Slot(str, str)
+    def _on_refresh_failed(self, kind: str, detail: str) -> None:
+        self._set_refresh_state("idle")
+        self._refresh_thread = None
+        self._refresh_worker = None
+        self.info_label.setText("App discovery failed")
+
+        if kind == "pod_not_running":
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Pod Not Running")
+            box.setText("The Windows pod must be running to scan for apps.")
+            if detail:
+                box.setInformativeText(detail)
+            start_btn = box.addButton("Start Pod", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is start_btn:
+                self._on_start_pod()
+            return
+
+        if kind == "module_missing":
+            QMessageBox.critical(
+                self,
+                "Discovery Unavailable",
+                f"The app discovery module is not available in this install.\n\n{detail}",
+            )
+            return
+
+        QMessageBox.critical(
+            self,
+            "Discovery Failed",
+            detail or "An unexpected error occurred during app discovery.",
+        )
 
     def _switch_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)

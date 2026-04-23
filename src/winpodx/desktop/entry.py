@@ -82,11 +82,14 @@ def remove_desktop_entry(app_name: str) -> None:
 
 
 def _install_icon(app: AppInfo) -> str:
-    """Install app icon into the hicolor icon theme. Returns the icon name."""
+    """Install app icon into the hicolor icon theme. Returns the icon name.
+
+    SVG icons go to scalable/apps/, PNG icons to 32x32/apps/ per hicolor spec.
+    Other formats fall back to the default winpodx icon.
+    """
     icon_name = f"winpodx-{app.name}"
 
     if not app.icon_path:
-        # No app-specific icon; fall back to main winpodx icon.
         return "winpodx"
 
     src = Path(app.icon_path)
@@ -94,21 +97,25 @@ def _install_icon(app: AppInfo) -> str:
     if src.is_symlink() or not src.exists():
         return "winpodx"
 
-    # hicolor spec: scalable/apps/ is SVG-only; cache silently drops non-SVG.
-    if src.suffix.lower() != ".svg":
+    suffix = src.suffix.lower()
+    if suffix == ".svg":
+        dest_dir = icons_dir() / "scalable" / "apps"
+        dest = dest_dir / f"{icon_name}.svg"
+    elif suffix == ".png":
+        # Discovered apps often only have PNG from extracted Windows resources.
+        dest_dir = icons_dir() / "32x32" / "apps"
+        dest = dest_dir / f"{icon_name}.png"
+    else:
         log.warning(
-            "Icon %s for app %s is not SVG (%s); scalable/apps/ requires SVG. "
-            "Falling back to default winpodx icon.",
+            "Icon %s for app %s is not SVG or PNG (%s); "
+            "hicolor accepts only those. Falling back to default winpodx icon.",
             src,
             app.name,
             src.suffix,
         )
         return "winpodx"
 
-    dest_dir = icons_dir() / "scalable" / "apps"
     dest_dir.mkdir(parents=True, exist_ok=True)
-
-    dest = dest_dir / f"{icon_name}.svg"
     shutil.copy2(src, dest, follow_symlinks=False)
 
     return icon_name
