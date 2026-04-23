@@ -20,6 +20,8 @@ def handle_app(args: argparse.Namespace) -> None:
     cmd = args.app_command
     if cmd == "list":
         _list_apps()
+    elif cmd == "refresh":
+        _refresh_apps(getattr(args, "json", False), getattr(args, "timeout", 30))
     elif cmd == "run":
         _run_app(args.name, args.file, args.wait)
     elif cmd == "install":
@@ -33,7 +35,7 @@ def handle_app(args: argparse.Namespace) -> None:
     elif cmd == "kill":
         _kill_session(args.name)
     else:
-        print("Usage: winpodx app {list|run|install|install-all|remove|sessions|kill}")
+        print("Usage: winpodx app {list|refresh|run|install|install-all|remove|sessions|kill}")
         sys.exit(1)
 
 
@@ -50,6 +52,45 @@ def _list_apps() -> None:
     for a in apps:
         cats = ", ".join(a.categories[:2]) if a.categories else ""
         print(f"{a.name:<20} {a.full_name:<30} {cats:<20}")
+
+
+def _refresh_apps(as_json: bool, timeout: int) -> None:
+    try:
+        from winpodx.core.discovery import DiscoveryError, discover_apps, persist_discovered
+    except ImportError:
+        msg = "ERROR: core discovery module not available (winpodx may need updating)"
+        print(msg, file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        apps = discover_apps(timeout=timeout)
+    except DiscoveryError as exc:
+        code = exc.exit_code if hasattr(exc, "exit_code") else 3
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(code)
+
+    persist_discovered(apps)
+
+    if as_json:
+        import json
+
+        data = [
+            {
+                "name": a.name,
+                "full_name": a.full_name,
+                "executable": a.executable,
+            }
+            for a in apps
+        ]
+        print(json.dumps(data))
+        print(f"OK: discovered {len(apps)} app(s)", file=sys.stderr)
+    else:
+        if apps:
+            print(f"Discovered {len(apps)} app(s):")
+            for a in apps:
+                print(f"  {a.name:<20} {a.full_name}")
+        else:
+            print("No apps discovered.")
 
 
 def _run_app(name: str, file: str | None, wait: bool) -> None:
