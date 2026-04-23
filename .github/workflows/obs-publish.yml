@@ -114,6 +114,13 @@ jobs:
           fi
 
           for repo in $repos; do
+            # Tumbleweed / Fedora / Slowroll all produce the same filename
+            # (winpodx-<ver>-<rel>.noarch.rpm) because their release tags lack
+            # a distro suffix. Without renaming, only the last-iterated repo's
+            # file survives in dist-rpms/. Append the repo name to every RPM so
+            # each distro's build gets a stable, unique asset name on the
+            # Release — matches the RHEL convention (.el9.rpm / .el10.rpm).
+            repo_slug=$(echo "$repo" | tr '/:' '__')
             for arch in x86_64 noarch; do
               base="$OBS_DOWNLOAD/$repo/$arch"
               # MirrorCache listing hrefs have a "./" prefix
@@ -126,8 +133,9 @@ jobs:
                 case "$f" in
                   *debuginfo*|*debugsource*|*.src.rpm) continue ;;
                 esac
-                echo "Fetching $repo/$arch/$f"
-                curl -sS -fL -o "dist-rpms/$f" "$base/$f" || true
+                out="dist-rpms/${f%.rpm}.${repo_slug}.rpm"
+                echo "Fetching $repo/$arch/$f -> $(basename "$out")"
+                curl -sS -fL -o "$out" "$base/$f" || true
               done
             done
           done
