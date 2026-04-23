@@ -138,6 +138,21 @@ jobs:
             exit 1
           fi
 
+      # Publish workflows and release.yml run in parallel on tag push. If this job
+      # finishes before release.yml creates the GitHub Release, `gh release upload`
+      # fails with "release not found". Create a minimal release here if it doesn't
+      # exist yet; release.yml's softprops/action-gh-release will populate title,
+      # notes, and sdist/wheel when it completes.
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" \
+                 --title "$tag" \
+                 --notes "Release artifacts — see CHANGELOG.md for details."
+
       - name: Attach RPMs to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
