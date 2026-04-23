@@ -7,6 +7,31 @@ Files: *
 Copyright: 2026 Kim DaeHyun <kernalix7@kodenet.io>
 License: MIT
 
+Files: config/oem/rdprrap-*-windows-x64.zip
+Copyright: 2026 Kim DaeHyun <kernalix7@kodenet.io>
+License: MIT
+Comment: Pre-built binary bundle of rdprrap (https://github.com/kernalix7/rdprrap),
+ redistributed under the same MIT license as winpodx. Bundled at a
+ SHA256-pinned version (0.1.3 onward) and extracted into the Windows
+ guest during the first-boot OEM setup to enable multi-session RDP.
+ .
+ rdprrap's source tree ports code from three upstream projects whose
+ licenses require source-level attribution:
+   - stascorp/rdpwrap            (Apache-2.0)
+   - llccd/TermWrap              (MIT)
+   - llccd/RDPWrapOffsetFinder   (MIT)
+ .
+ The bundled ZIP therefore ships LICENSE (rdprrap MIT), NOTICE (names
+ each upstream and the derived rdprrap files), vendor/licenses/
+ (verbatim upstream license texts), and THIRD_PARTY_LICENSES.txt (Rust
+ crate dependencies). All four files are extracted into the guest at
+ C:\Program Files\RDP Wrapper\ and C:\winpodx\rdprrap\ and are not
+ re-extracted on the Debian host.
+ .
+ winpodx 0.1.6 and earlier bundled rdprrap 0.1.0, which upstream later
+ withdrew for missing these attribution files. Upgrade to winpodx
+ 0.1.7 or later.
+
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a
  copy of this software and associated documentation files (the

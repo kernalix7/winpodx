@@ -1,3 +1,3 @@
-version=0.1.0
-filename=rdprrap-0.1.0-windows-x64.zip
-sha256=5cc97bb898b7d1cb32ce1780fa643caa41dfc9b54da32dedb1e934d0017b8bde
+version=0.1.3
+filename=rdprrap-0.1.3-windows-x64.zip
+sha256=e3540a1fc3736a928fbd8918a1ad97488406a55befd546806ddc0dbb2f638cd7

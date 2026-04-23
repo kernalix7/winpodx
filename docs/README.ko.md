@@ -141,6 +141,17 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 Windows 앱을 데스크탑 메뉴에 등록. 의존성 설치 단계 외에는 root 권한 불필요.
 openSUSE, Fedora, Debian/Ubuntu, RHEL 계열, Arch 지원.
 
+**원 라인 삭제** — 파이프 실행에서는 `--confirm` 또는 `--purge` 플래그가 필수입니다
+(bash 가 curl 의 stdin 을 소비 중이라 대화형 프롬프트가 터미널을 읽을 수 없음):
+
+```bash
+# winpodx 파일만 삭제, Windows 컨테이너/데이터는 보존
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+
+# 완전 제거: 컨테이너, 볼륨, 설정, 런처까지 전부
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
+```
+
 배포판 패키지 매니저로 설치하려면? 모든
 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest)
 에 RPM / `.deb` / AUR 패키지가 자동 첨부됩니다. openSUSE/Fedora RPM 은
@@ -390,10 +401,16 @@ RemoteApp 창이 독립된 세션을 갖도록 만듭니다.
 ## 설치 / 삭제
 
 ```bash
+# 클론한 repo 에서:
 ./install.sh                # 설치 (배포판 감지, 의존성 설치, 앱 등록)
 ./uninstall.sh              # 삭제 (대화형, 단계별 확인)
 ./uninstall.sh --confirm    # 삭제 (자동, 설정 보존)
 ./uninstall.sh --purge      # 삭제 (설정 포함 전체 제거)
+
+# 또는 원 라인 (클론 불필요):
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh   | bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
 ```
 
 **삭제 시 winpodx 파일만 제거합니다.** 절대 건드리지 않는 것:

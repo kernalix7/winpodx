@@ -142,6 +142,18 @@ KVM, Python 3.9+) with your confirmation, drops winpodx into
 menu. No root required except for the dependency install step. Works on
 openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
 
+**One-line uninstall** — `--confirm` or `--purge` is required under pipe
+(the interactive prompts can't read from a terminal while bash consumes
+stdin from curl):
+
+```bash
+# Remove winpodx files, keep the Windows container + its data
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+
+# Full wipe: container, volume, config, launcher, everything
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
+```
+
 Prefer a native package manager? Prebuilt RPM / `.deb` / AUR packages are
 attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest)
 — openSUSE/Fedora RPMs from the
@@ -392,10 +404,16 @@ app launch never blocks on this step. A guest-side management channel
 ## Install / Uninstall
 
 ```bash
+# From a cloned repo:
 ./install.sh                # Install (detects distro, installs deps, registers apps)
 ./uninstall.sh              # Uninstall (interactive, asks before each step)
 ./uninstall.sh --confirm    # Uninstall (auto, keeps config)
 ./uninstall.sh --purge      # Uninstall (removes everything including config)
+
+# Or one-liner (no clone needed):
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh   | bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
 ```
 
 **Uninstall only removes winpodx files.** It never touches:
