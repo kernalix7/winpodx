@@ -43,6 +43,32 @@ def _is_safe_wm_class(value: str) -> bool:
     return _WM_CLASS_RE.fullmatch(value) is not None
 
 
+def _uwp_fallback_wm_class(aumid: str) -> str:
+    """Derive a unique wm-class from a validated AUMID.
+
+    Used when ``wm_class_hint`` is missing or fails ``_is_safe_wm_class``.
+    A single ``winpodx-uwp`` bucket would collide pid files and make
+    the Linux WM group unrelated UWP apps as one taskbar entry, so we
+    slug the AUMID (already ``_is_valid_aumid``-validated) to produce
+    ``winpodx-uwp-<slug>`` — unique per app, still bounded and shell-safe.
+    """
+    # AUMID is already validated to [A-Za-z0-9._-]+!..., so lowercasing
+    # and replacing '!'/'.' with '-' keeps it inside the _WM_CLASS_RE alphabet.
+    slug = aumid.lower().replace("!", "-").replace(".", "-")
+    # Collapse any run of dashes introduced by the substitution.
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-_")
+    candidate = f"winpodx-uwp-{slug}" if slug else "winpodx-uwp"
+    # /wm-class tokens are bounded at 64 chars by _WM_CLASS_RE; truncate
+    # rather than fail because the AUMID itself is legitimately long.
+    if len(candidate) > 64:
+        candidate = candidate[:64].rstrip("-_")
+    if not _is_safe_wm_class(candidate):
+        return "winpodx-uwp"
+    return candidate
+
+
 @dataclass
 class RDPSession:
     app_name: str
@@ -211,9 +237,9 @@ def build_rdp_command(
         aumid = launch_uri.strip()
         if not _is_valid_aumid(aumid):
             raise RuntimeError(f"Invalid UWP AUMID: {aumid!r}")
-        wm_class = (wm_class_hint or "").strip().lower() or "winpodx-uwp"
-        if not _is_safe_wm_class(wm_class):
-            wm_class = "winpodx-uwp"
+        wm_class = (wm_class_hint or "").strip().lower()
+        if not wm_class or not _is_safe_wm_class(wm_class):
+            wm_class = _uwp_fallback_wm_class(aumid)
         app_arg = f"/app:program:explorer.exe,name:{wm_class},cmd:shell:AppsFolder\\{aumid}"
         cmd.append(app_arg)
         cmd.append(f"/wm-class:{wm_class}")
@@ -406,7 +432,15 @@ def launch_app(
 
     if launch_uri:
         hint = (wm_class_hint or "").strip().lower()
-        app_name = hint if _is_safe_wm_class(hint) else "winpodx-uwp"
+        if hint and _is_safe_wm_class(hint):
+            app_name = hint
+        else:
+            # Derive a per-app slug so two UWP apps with invalid hints
+            # don't collide on the same pid_file. If the AUMID itself
+            # is malformed, build_rdp_command will reject it shortly;
+            # for pid-file purposes just fall back to the bare bucket.
+            aumid = launch_uri.strip()
+            app_name = _uwp_fallback_wm_class(aumid) if _is_valid_aumid(aumid) else "winpodx-uwp"
     elif app_executable:
         from pathlib import PureWindowsPath
 
