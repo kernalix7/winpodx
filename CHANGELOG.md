@@ -9,6 +9,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-04-22
+
+### Added
+- **Multi-session RDP — bundled, fully offline.** winpodx now ships [rdprrap](https://github.com/kernalix7/rdprrap) v0.1.0 inside the package (~1.6 MB zip under `config/oem/`) and auto-installs it during the Windows unattended setup, so each RemoteApp window gets its own independent session instead of stealing the previous one. The bundle is staged into the Windows guest at `C:\OEM\`, sha256-verified against a pin file, then extracted — no network access is required. Failures fall back silently to single-session. A guest-side management channel (enable/disable/status after install) is planned for a later release.
+
 ## [0.1.5] - 2026-04-21
 
 ### Added

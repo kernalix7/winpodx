@@ -60,8 +60,6 @@ class PodConfig:
     image: str = "ghcr.io/dockur/windows:latest"
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
-    # SHA-256 of (install.bat + oem_updater.ps1) last pushed into the VM.
-    last_oem_push: str = ""
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -146,7 +144,6 @@ class Config:
                 "boot_timeout": self.pod.boot_timeout,
                 "image": self.pod.image,
                 "disk_size": self.pod.disk_size,
-                "last_oem_push": self.pod.last_oem_push,
             },
         }
 

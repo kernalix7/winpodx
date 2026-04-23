@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-import base64
-import errno
-import fcntl
-import hashlib
 import logging
 import os
 import shutil
 import subprocess
-import sys
-import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,14 +16,6 @@ from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
 from winpodx.utils.paths import config_dir, data_dir
 
 log = logging.getLogger(__name__)
-
-# Single-flight (non-blocking) for the async OEM push.
-_OEM_PUSH_LOCK = threading.Lock()
-
-
-def _oem_push_flock_path() -> Path:
-    return Path(config_dir()) / ".oem_push.lock"
-
 
 # Marker for a partial password rotation (Windows changed, config did not).
 _ROTATION_PENDING_MARKER = "rotation_pending"
@@ -52,7 +38,6 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     cfg = _auto_rotate_password(cfg)
 
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
-        _push_oem_update_if_stale_async(cfg)
         return cfg
 
     _check_deps()
@@ -67,196 +52,8 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     _ensure_pod_running(cfg, timeout)
     _install_bundled_apps_if_needed()
     _ensure_desktop_entries()
-    _push_oem_update_if_stale_async(cfg)
 
     return cfg
-
-
-def _find_share_file(relpath: str) -> Path | None:
-    """Find a shipped data file across editable/wheel/pipx install modes."""
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parent.parent.parent.parent / relpath,
-        Path(sys.prefix) / "share" / "winpodx" / relpath,
-        Path.home() / ".local" / "share" / "winpodx" / relpath,
-        Path.home() / ".local" / "bin" / "winpodx-app" / relpath,
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return None
-
-
-def _push_file_to_container(
-    runtime: str, container: str, src: Path, dest_win_path: str, timeout: int = 30
-) -> bool:
-    """Write src's bytes into the Windows guest via base64-in-PowerShell."""
-    b64 = base64.b64encode(src.read_bytes()).decode("ascii")
-    dest = dest_win_path.replace("'", "''")
-    ps_cmd = (
-        r"New-Item -ItemType Directory -Path 'C:\winpodx' -Force | Out-Null;"
-        f"[System.IO.File]::WriteAllBytes('{dest}', [Convert]::FromBase64String('{b64}'))"
-    )
-    cmd = [
-        runtime,
-        "exec",
-        container,
-        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        ps_cmd,
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("push of %s failed: %s", dest_win_path, e)
-        return False
-    if result.returncode != 0:
-        log.warning(
-            "push of %s exit=%s stderr=%s",
-            dest_win_path,
-            result.returncode,
-            result.stderr.strip()[:200],
-        )
-        return False
-    return True
-
-
-def _oem_content_hash(install_bat: Path, oem_updater: Path) -> str:
-    h = hashlib.sha256()
-    h.update(install_bat.read_bytes())
-    h.update(b"\x00")  # separator prevents a||b / ab collision
-    h.update(oem_updater.read_bytes())
-    return h.hexdigest()
-
-
-def _push_oem_update_if_stale(cfg: Config) -> Config:
-    """Sync OEM push; skipped when shipped-file hash matches last push."""
-    try:
-        backend = cfg.pod.backend
-        if backend not in ("podman", "docker"):
-            return cfg
-
-        install_bat = _find_share_file("config/oem/install.bat")
-        oem_updater = _find_share_file("scripts/windows/oem_updater.ps1")
-        if install_bat is None or oem_updater is None:
-            log.debug("OEM push skipped: shipped files not found on local filesystem")
-            return cfg
-
-        digest = _oem_content_hash(install_bat, oem_updater)
-        if cfg.pod.last_oem_push == digest:
-            return cfg
-
-        runtime = "podman" if backend == "podman" else "docker"
-        container = cfg.pod.container_name
-
-        if not _push_file_to_container(
-            runtime, container, oem_updater, r"C:\winpodx\oem_updater.ps1"
-        ):
-            return cfg
-        if not _push_file_to_container(
-            runtime, container, install_bat, r"C:\winpodx\install_shipped.bat"
-        ):
-            return cfg
-
-        exec_cmd = [
-            runtime,
-            "exec",
-            container,
-            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            r"C:\winpodx\oem_updater.ps1",
-        ]
-        try:
-            result = subprocess.run(exec_cmd, capture_output=True, text=True, timeout=60)
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            log.warning("OEM push skipped: %s", e)
-            return cfg
-
-        if result.returncode != 0:
-            log.warning(
-                "oem_updater.ps1 exit=%s stderr=%s",
-                result.returncode,
-                result.stderr.strip()[:200],
-            )
-            return cfg
-
-        old = cfg.pod.last_oem_push
-        cfg.pod.last_oem_push = digest
-        log.info(
-            "OEM content pushed (%s -> %s)",
-            old[:12] if old else "none",
-            digest[:12],
-        )
-    except Exception as e:  # noqa: BLE001
-        log.warning("OEM push skipped: %s", e)
-    return cfg
-
-
-def _push_oem_update_if_stale_async(cfg: Config) -> None:
-    """Run the OEM push on a daemon thread so app launch isn't blocked."""
-    if cfg.pod.backend not in ("podman", "docker"):
-        return
-    if not _OEM_PUSH_LOCK.acquire(blocking=False):
-        return
-
-    lock_fd: int | None = None
-    try:
-        lock_path = _oem_push_flock_path()
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as e:
-            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
-                # Another winpodx process is already pushing.
-                os.close(lock_fd)
-                _OEM_PUSH_LOCK.release()
-                return
-            raise
-    except OSError as e:
-        log.debug("OEM push flock skipped: %s", e)
-        if lock_fd is not None:
-            try:
-                os.close(lock_fd)
-            except OSError:
-                pass
-        _OEM_PUSH_LOCK.release()
-        return
-
-    held_fd = lock_fd
-
-    def _runner() -> None:
-        try:
-            initial = cfg.pod.last_oem_push
-            _push_oem_update_if_stale(cfg)
-            if cfg.pod.last_oem_push == initial:
-                return
-            try:
-                fresh = Config.load()
-                fresh.pod.last_oem_push = cfg.pod.last_oem_push
-                fresh.save()
-            except OSError as e:
-                log.warning("Failed to persist last_oem_push (async): %s", e)
-        except Exception as e:  # noqa: BLE001
-            log.warning("Async OEM push thread error: %s", e)
-        finally:
-            try:
-                fcntl.flock(held_fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-            try:
-                os.close(held_fd)
-            except OSError:
-                pass
-            _OEM_PUSH_LOCK.release()
-
-    threading.Thread(target=_runner, name="winpodx-oem-push", daemon=True).start()
 
 
 def _change_windows_password(cfg: Config, new_password: str) -> bool:
