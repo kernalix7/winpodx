@@ -62,11 +62,23 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
         print(msg, file=sys.stderr)
         sys.exit(1)
 
+    _KIND_TO_CODE = {
+        "pod_not_running": 2,
+        "script_failed": 3,
+        "bad_json": 3,
+        "truncated": 3,
+        "timeout": 4,
+    }
+
     try:
         apps = discover_apps(timeout=timeout)
     except DiscoveryError as exc:
-        code = exc.exit_code if hasattr(exc, "exit_code") else 3
-        print(f"ERROR: {exc}", file=sys.stderr)
+        kind = getattr(exc, "kind", "")
+        code = _KIND_TO_CODE.get(kind, 3)
+        if kind == "pod_not_running":
+            print("Pod is not running. Run 'winpodx pod start --wait' first.", file=sys.stderr)
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(code)
 
     persist_discovered(apps)
@@ -77,8 +89,12 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
         data = [
             {
                 "name": a.name,
-                "full_name": a.full_name,
+                "slug": a.slug,
                 "executable": a.executable,
+                "launch_uri": a.launch_uri,
+                "source": a.source,
+                "icon_path": a.icon_path,
+                "full_name": a.full_name,
             }
             for a in apps
         ]
