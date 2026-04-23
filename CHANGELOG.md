@@ -9,6 +9,21 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-04-23
+
+### Changed
+- **Bundled rdprrap bumped to v0.1.3 (license-compliance release).** Upstream withdrew the 0.1.0, 0.1.1, and 0.1.2 GitHub release assets. 0.1.0 / 0.1.1 were missing the upstream source-level attribution notices required by the three projects rdprrap ports code from: `stascorp/rdpwrap` (Apache-2.0), `llccd/TermWrap` (MIT), and `llccd/RDPWrapOffsetFinder` (MIT). 0.1.2 shipped `NOTICE` + `vendor/licenses/` and closed the legal gap but listed only 9 of the 16 rdpwrap-derived Rust sources and had an internally inconsistent copyright line in the `rdprrap-conf` About dialog. 0.1.3 expands the `NOTICE` to all 16 sources (grouped by upstream binary — RDPWInst / RDPConf / RDPCheck), aligns the About-dialog copyright to match `LICENSE`, and cites CC BY 4.0 for the adapted Contributor Covenant text. It also carries forward the registry-readback fix that avoided the `termsrv.dlll` corruption in `OriginalServiceDll`. New bundle SHA256 is pinned in `config/oem/rdprrap_version.txt`; first-boot OEM version bumped to 6 so existing guests re-run the install path and pick up the compliant bundle.
+
+### Documentation
+- Add top-level [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) documenting the bundled rdprrap binary and the runtime/optional Python dependencies (PySide6 LGPL, libvirt-python LGPL, docker-py Apache-2.0, tomli MIT).
+- `debian/copyright` now declares the bundled rdprrap files separately and notes that the in-ZIP `NOTICE` + `vendor/licenses/` texts satisfy the upstream Apache-2.0 / MIT attribution requirements.
+
+### Fixed
+- **`install.sh` now works under `curl … | bash`.** When piped, bash reads from stdin and `BASH_SOURCE[0]` is unset; combined with the `set -u` guard at the top of the script, that aborted the installer at line 205 with `BASH_SOURCE[0]: unbound variable` before the repo could even be cloned. The local-vs-remote branch now defaults the source path to empty and falls through to the git-clone path when there is no local repository. Reported on CachyOS with Python 3.14 / fish shell ([#3](https://github.com/kernalix7/winpodx/issues/3)).
+
+### Security / Compliance
+- winpodx 0.1.6, which shipped rdprrap 0.1.0, inherited the same missing-attribution defect. The 0.1.6 GitHub release assets have been withdrawn; the git tag is preserved. Users should install 0.1.7, which is the first winpodx release whose Windows guest receives a compliant rdprrap bundle (0.1.3, with full `NOTICE` + `vendor/licenses/`).
+
 ## [0.1.6] - 2026-04-22
 
 ### Added

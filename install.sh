@@ -201,9 +201,17 @@ else
         rm -rf "$INSTALL_DIR"
     fi
 
-    # If running from repo, copy only needed files (skip .venv, .git, etc.)
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ -f "$SCRIPT_DIR/src/winpodx/__init__.py" ]; then
+    # If running from repo, copy only needed files (skip .venv, .git, etc.).
+    # When piped via `curl ... | bash`, bash reads from stdin and BASH_SOURCE[0]
+    # is unset — `set -u` would abort here without the default expansion. Fall
+    # through to the git-clone path when there is no local source tree.
+    _src="${BASH_SOURCE[0]:-}"
+    if [ -n "$_src" ]; then
+        SCRIPT_DIR="$(cd "$(dirname "$_src")" && pwd)"
+    else
+        SCRIPT_DIR=""
+    fi
+    if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/src/winpodx/__init__.py" ]; then
         log "Installing from local repository..."
         mkdir -p "$INSTALL_DIR"
         for item in src data config scripts install.sh uninstall.sh pyproject.toml README.md LICENSE; do

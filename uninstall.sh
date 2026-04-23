@@ -8,6 +8,13 @@ set -euo pipefail
 #   ./uninstall.sh              # Interactive: asks before each step, keeps container
 #   ./uninstall.sh --confirm    # Auto: removes winpodx files, keeps container
 #   ./uninstall.sh --purge      # Full: removes everything including container + data
+#
+# One-liner (curl | bash):
+#   curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+#   curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
+#
+#   --confirm or --purge is required when piping — the interactive prompts
+#   cannot read from a terminal while bash is consuming stdin from curl.
 ###############################################################################
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'

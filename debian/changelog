@@ -1,3 +1,30 @@
+winpodx (0.1.7) unstable; urgency=high
+
+  * Bump bundled rdprrap to v0.1.3 — license-compliance release.
+    Upstream withdrew rdprrap 0.1.0 / 0.1.1 / 0.1.2. 0.1.0 / 0.1.1
+    lacked the source-level attribution notices required by the
+    upstream licenses (stascorp/rdpwrap Apache-2.0, llccd/TermWrap
+    MIT, llccd/RDPWrapOffsetFinder MIT); 0.1.2 shipped NOTICE +
+    vendor/licenses/ and closed the legal gap but listed only 9 of
+    the 16 rdpwrap-derived Rust sources and had an inconsistent
+    copyright line in the rdprrap-conf About dialog. 0.1.3 expands
+    NOTICE to all 16 sources (grouped by upstream binary:
+    RDPWInst / RDPConf / RDPCheck), aligns the About-dialog
+    copyright to LICENSE, cites CC BY 4.0 for the adapted
+    Contributor Covenant text, and carries forward the 0.1.1
+    registry-readback fix (OriginalServiceDll was being saved as
+    termsrv.dlll on some hosts, which would have broken rdprrap
+    uninstall). New sha256 pinned; OEM version bumped to 6.
+  * Document bundled rdprrap in debian/copyright and add a top-level
+    THIRD_PARTY_LICENSES.md covering optional Python deps and the
+    bundled binary.
+  * winpodx 0.1.6 inherited the missing-attribution defect; upgrade to
+    0.1.7 so the Windows guest receives the compliant bundle.
+  * install.sh: fix BASH_SOURCE[0] unbound-variable abort under the
+    curl-pipe-to-bash path (set -u + stdin stream). Fixes GitHub #3.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Thu, 23 Apr 2026 12:00:00 +0900
+
 winpodx (0.1.6) unstable; urgency=medium
 
   * Bundle rdprrap v0.1.0 and auto-install during the Windows unattended
