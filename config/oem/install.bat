@@ -1,7 +1,7 @@
 @echo off
-REM First-boot OEM setup for winpodx Windows guest. Bump WINPODX_OEM_VERSION to force re-run on existing VMs; every action must stay idempotent.
+REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=4
+set WINPODX_OEM_VERSION=5
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -108,42 +108,19 @@ if not defined WINPODX_SRC_OK (
 )
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\media_monitor.ps1" /f
 
-echo [winpodx] Installing OEM updater...
-set "WINPODX_UPD_OK="
-if exist "C:\winpodx-scripts\oem_updater.ps1" (
-    copy /Y "C:\winpodx-scripts\oem_updater.ps1" C:\winpodx\oem_updater.ps1 >nul 2>&1
-    set "WINPODX_UPD_OK=1"
-)
-if not defined WINPODX_UPD_OK (
-    for %%P in (
-        "\\tsclient\home\.local\share\winpodx\scripts\windows\oem_updater.ps1"
-        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\oem_updater.ps1"
-        "\\tsclient\home\winpodx\scripts\windows\oem_updater.ps1"
-        "\\tsclient\home\.local\bin\winpodx-app\scripts\windows\oem_updater.ps1"
-    ) do (
-        if not defined WINPODX_UPD_OK if exist %%P (
-            copy /Y %%P C:\winpodx\oem_updater.ps1 >nul 2>&1
-            if not errorlevel 1 set "WINPODX_UPD_OK=1"
-        )
-    )
-)
-if not defined WINPODX_UPD_OK (
-    echo [winpodx] WARNING: oem_updater.ps1 not found in any known location.
-)
-REM Register updater with AtLogOn + AtStartup triggers as SYSTEM/Highest so HKLM writes succeed on re-run. Delete any legacy task first.
+REM Clean up any legacy OEM updater task / file from pre-0.1.6 installs.
 schtasks /delete /tn "WinpodxOEMUpdate" /f >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\oem_updater.ps1'; $t=@((New-ScheduledTaskTrigger -AtLogOn),(New-ScheduledTaskTrigger -AtStartup)); $p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest; Register-ScheduledTask -TaskName 'WinpodxOEMUpdate' -Action $a -Trigger $t -Principal $p -Force | Out-Null" >nul 2>&1
+if exist C:\winpodx\oem_updater.ps1 del /F /Q C:\winpodx\oem_updater.ps1 >nul 2>&1
 
 REM Parenthesized echo strips the trailing space that `echo X > file` leaves behind.
 (echo %WINPODX_OEM_VERSION%)>C:\winpodx\oem_version.txt
 
 echo [winpodx] Installing multi-session RDP (rdprrap) — offline bundle...
-REM Bundle ships under config/oem/ and is mounted read-only at C:\OEM\ by dockur.
+REM Bundle ships under config/oem/ and is staged into C:\OEM\ by dockur's unattended install.
 REM The pin file (version / filename / sha256) lives next to the zip. No network
-REM access is required — everything is copied straight from the mount.
+REM access is required — everything is copied straight from the staged folder.
 set "RDPRRAP_PIN="
-if exist "C:\winpodx\rdprrap_version.txt" set "RDPRRAP_PIN=C:\winpodx\rdprrap_version.txt"
-if not defined RDPRRAP_PIN if exist "C:\OEM\rdprrap_version.txt" set "RDPRRAP_PIN=C:\OEM\rdprrap_version.txt"
+if exist "C:\OEM\rdprrap_version.txt" set "RDPRRAP_PIN=C:\OEM\rdprrap_version.txt"
 
 set "RDPRRAP_VERSION="
 set "RDPRRAP_FILENAME="
@@ -172,10 +149,9 @@ if defined RDPRRAP_CUR if /I "%RDPRRAP_CUR%"=="%RDPRRAP_VERSION%" (
     goto :rdprrap_done
 )
 
-REM Locate the bundled zip — push pipeline target first, then the read-only /oem mount.
+REM Locate the bundled zip inside the OEM staging folder.
 set "RDPRRAP_ZIP_SRC="
-if exist "C:\winpodx\%RDPRRAP_FILENAME%" set "RDPRRAP_ZIP_SRC=C:\winpodx\%RDPRRAP_FILENAME%"
-if not defined RDPRRAP_ZIP_SRC if exist "C:\OEM\%RDPRRAP_FILENAME%" set "RDPRRAP_ZIP_SRC=C:\OEM\%RDPRRAP_FILENAME%"
+if exist "C:\OEM\%RDPRRAP_FILENAME%" set "RDPRRAP_ZIP_SRC=C:\OEM\%RDPRRAP_FILENAME%"
 if not defined RDPRRAP_ZIP_SRC (
     echo [winpodx] WARNING: bundled %RDPRRAP_FILENAME% not found at C:\winpodx or C:\OEM; staying single-session.
     goto :rdprrap_done
@@ -214,6 +190,14 @@ if errorlevel 1 (
     echo [winpodx] WARNING: rdprrap-installer failed; staying single-session.
     goto :rdprrap_done
 )
+
+REM rdprrap patches the registry ServiceDll to termwrap.dll, but the already-running TermService still has the
+REM original termsrv.dll loaded in memory. dockur's unattended flow does not restart svchost before handing off
+REM to logon, so without an explicit cycle here the first RDP connection hits Windows' default single-session
+REM limit and our multi-session feature looks broken. /y auto-confirms stopping dependent services.
+echo [winpodx] Restarting TermService to activate rdprrap...
+net stop TermService /y >nul 2>&1
+net start TermService >nul 2>&1
 
 (echo %RDPRRAP_VERSION%)>"%RDPRRAP_INSTALLED%"
 echo [winpodx] rdprrap %RDPRRAP_VERSION% installed (offline bundle).

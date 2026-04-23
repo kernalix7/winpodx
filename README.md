@@ -362,23 +362,20 @@ winpodx app install myapp   # Register in desktop menu
 Stock Windows Desktop editions limit RDP to one session per user; a second app
 would otherwise reconnect and steal the first session. winpodx bundles
 [rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of
-RDPWrap — inside the package itself and installs it automatically on first
-boot, so each RemoteApp window gets its own independent session.
+RDPWrap — inside the package itself and installs it automatically during the
+Windows unattended install, so each RemoteApp window gets its own independent
+session.
 
 **Works fully offline.** The rdprrap zip ships inside winpodx's data directory
-(`config/oem/`) and is mounted into the Windows guest at `C:\OEM\`. sha256 is
-verified against a pin file before extraction. No network access is required
-at install time.
+(`config/oem/`) and is staged into `C:\OEM\` during the guest's first boot.
+sha256 is verified against a pin file before extraction. No network access is
+required at install time.
 
-```bash
-winpodx multi-session status    # Show patch state inside the guest
-winpodx multi-session enable    # (Re)install rdprrap
-winpodx multi-session disable   # Uninstall, revert to single-session
-```
-
-If anything in the install fails (hash mismatch, extraction, installer error),
-winpodx logs a warning and keeps the guest in single-session mode — app launch
-never blocks on this step.
+Install is one-shot: the patch is applied during dockur's unattended setup
+phase. If anything in that step fails (hash mismatch, extraction, installer
+error), winpodx logs a warning and the guest stays in single-session mode —
+app launch never blocks on this step. A guest-side management channel
+(enable/disable/status after install) is planned for a later release.
 
 ## Install / Uninstall
 

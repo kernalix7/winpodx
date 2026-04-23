@@ -1,9 +1,8 @@
 winpodx (0.1.6) unstable; urgency=medium
 
-  * Bundle rdprrap v0.1.0 and auto-install on first boot to enable
-    multi-session RDP, so each RemoteApp window gets its own session.
-  * Add `winpodx multi-session {status,enable,disable}` CLI for managing
-    the patch from the Linux host without opening an RDP session.
+  * Bundle rdprrap v0.1.0 and auto-install during the Windows unattended
+    setup to enable multi-session RDP, so each RemoteApp window gets its
+    own session. Fully offline; sha256-verified against a pin file.
 
  -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 22 Apr 2026 09:00:00 +0900
 

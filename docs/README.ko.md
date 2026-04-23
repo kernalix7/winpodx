@@ -361,23 +361,19 @@ winpodx app install myapp   # 데스크톱 메뉴에 등록
 기본 Windows Desktop 에디션은 사용자당 RDP 세션 1개로 제한되며, 두 번째 앱을
 열면 기존 세션을 빼앗아 재연결됩니다. winpodx 는
 [rdprrap](https://github.com/kernalix7/rdprrap) — RDPWrap 의 Rust 재구현 —
-을 패키지 자체에 번들로 포함하며, 최초 부팅 시 자동 설치해 각 RemoteApp 창이
-독립된 세션을 갖도록 만듭니다.
+을 패키지 자체에 번들로 포함하며, Windows 무인 설치 단계에서 자동 적용해 각
+RemoteApp 창이 독립된 세션을 갖도록 만듭니다.
 
 **완전 오프라인 동작.** rdprrap zip 은 winpodx 데이터 디렉토리
-(`config/oem/`) 안에 함께 배포되며, Windows 게스트의 `C:\OEM\` 로 마운트됩니다.
-핀 파일과 sha256 이 일치하는지 확인한 뒤에만 압축을 풉니다. 설치 시점에
-네트워크 접근은 필요하지 않습니다.
+(`config/oem/`) 안에 함께 배포되며, 게스트 최초 부팅 시 `C:\OEM\` 로
+스테이징됩니다. 핀 파일과 sha256 이 일치하는지 확인한 뒤에만 압축을 풉니다.
+설치 시점에 네트워크 접근은 필요하지 않습니다.
 
-```bash
-winpodx multi-session status    # 게스트 내 패치 상태 확인
-winpodx multi-session enable    # rdprrap (재)설치
-winpodx multi-session disable   # 제거, 단일 세션으로 복귀
-```
-
-설치 단계에서 문제가 생기더라도(해시 불일치, 압축 해제 실패, 설치기 오류)
-winpodx 는 경고만 남기고 단일 세션 상태를 유지합니다. 앱 실행은 이 단계에서
-블록되지 않습니다.
+설치는 1회성입니다. dockur 의 무인 설치 단계에서 패치가 적용되며, 그 단계에서
+문제가 생기더라도(해시 불일치, 압축 해제 실패, 설치기 오류) winpodx 는 경고만
+남기고 단일 세션 상태를 유지합니다. 앱 실행은 이 단계에서 블록되지 않습니다.
+게스트 측 관리 채널(설치 후 enable/disable/status)은 향후 릴리즈로 예정되어
+있습니다.
 
 ## 설치 / 삭제
 
