@@ -149,3 +149,88 @@ def test_parse_winapps_conf(tmp_path):
     assert vals["RDP_IP"] == "10.0.0.5"
     assert vals["WAFLAVOR"] == "libvirt"
     assert vals["RDP_SCALE"] == "140"
+
+
+# --- v0.1.8: pod.max_sessions + memory budget helpers ---
+
+
+def test_pod_config_max_sessions_default():
+    assert PodConfig().max_sessions == 10
+
+
+def test_pod_config_max_sessions_clamping():
+    assert PodConfig(max_sessions=0).max_sessions == 1
+    assert PodConfig(max_sessions=-5).max_sessions == 1
+    assert PodConfig(max_sessions=200).max_sessions == 50
+
+
+def test_pod_config_max_sessions_roundtrip(tmp_path, monkeypatch):
+    from winpodx.core.config import Config
+    from winpodx.utils import paths as pmod
+
+    monkeypatch.setattr(pmod, "config_dir", lambda: tmp_path)
+    cfg = Config()
+    cfg.pod.max_sessions = 25
+    cfg.save()
+    loaded = Config.load()
+    assert loaded.pod.max_sessions == 25
+
+
+def test_estimate_session_memory_shape():
+    from winpodx.core.config import estimate_session_memory
+
+    assert estimate_session_memory(1) == 2.1
+    assert estimate_session_memory(10) == 3.0
+    assert estimate_session_memory(30) == 5.0
+    assert estimate_session_memory(50) == 7.0
+
+
+def test_check_session_budget_silent_on_default():
+    """Default config (10 sessions, 4 GB) must NOT produce a warning."""
+    from winpodx.core.config import Config, check_session_budget
+
+    cfg = Config()
+    assert cfg.pod.max_sessions == 10
+    assert cfg.pod.ram_gb == 4
+    assert check_session_budget(cfg) is None
+
+
+def test_check_session_budget_silent_when_ram_sufficient():
+    from winpodx.core.config import Config, check_session_budget
+
+    cfg = Config()
+    cfg.pod.max_sessions = 30
+    cfg.pod.ram_gb = 8
+    assert check_session_budget(cfg) is None
+
+
+def test_check_session_budget_warns_when_over_subscribed():
+    from winpodx.core.config import Config, check_session_budget
+
+    cfg = Config()
+    cfg.pod.max_sessions = 30
+    cfg.pod.ram_gb = 4
+    msg = check_session_budget(cfg)
+    assert msg is not None
+    assert "30" in msg
+    assert "ram_gb" in msg
+    assert "4" in msg
+
+
+def test_check_session_budget_recommends_sufficient_ram():
+    """The recommended ram_gb must actually be large enough to silence the warning."""
+    from winpodx.core.config import Config, check_session_budget
+
+    cfg = Config()
+    cfg.pod.max_sessions = 50
+    cfg.pod.ram_gb = 4
+    msg = check_session_budget(cfg)
+    assert msg is not None
+    # Extract recommended value from the message and confirm it clears.
+    import re
+
+    match = re.search(r"raising pod\.ram_gb to at least (\d+)", msg)
+    assert match, f"no recommendation in: {msg}"
+    rec = int(match.group(1))
+    cfg.pod.ram_gb = rec
+    assert check_session_budget(cfg) is None, f"recommended ram_gb={rec} should silence the warning"

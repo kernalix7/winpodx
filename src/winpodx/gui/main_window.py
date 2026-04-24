@@ -882,6 +882,7 @@ class WinpodxWindow(QMainWindow):
         self.input_cpu = QLineEdit(str(self.cfg.pod.cpu_cores))
         self.input_ram = QLineEdit(str(self.cfg.pod.ram_gb))
         self.input_idle = QLineEdit(str(self.cfg.pod.idle_timeout))
+        self.input_max_sessions = QLineEdit(str(self.cfg.pod.max_sessions))
 
         pod_card = self._settings_card(
             "\u25a8  Container / VM",
@@ -891,11 +892,27 @@ class WinpodxWindow(QMainWindow):
                 ("CPU Cores", self.input_cpu),
                 ("RAM (GB)", self.input_ram),
                 ("Idle Timeout", self.input_idle),
+                ("Max Sessions (1-50)", self.input_max_sessions),
             ],
         )
         cols.addWidget(pod_card)
 
         layout.addLayout(cols)
+
+        # Budget warning \u2014 only visible when max_sessions over-subscribes ram_gb.
+        # Live-updates as the user types in either field.
+        self.budget_warning_label = QLabel("")
+        self.budget_warning_label.setWordWrap(True)
+        self.budget_warning_label.setStyleSheet(
+            f"color: {C.YELLOW if hasattr(C, 'YELLOW') else '#e5c07b'}; "
+            f"background: transparent; font-size: 12px; padding: 4px 8px;"
+        )
+        self.budget_warning_label.setVisible(False)
+        layout.addWidget(self.budget_warning_label)
+        self.input_ram.textChanged.connect(self._update_budget_warning)
+        self.input_max_sessions.textChanged.connect(self._update_budget_warning)
+        self._update_budget_warning()
+
         layout.addSpacing(20)
 
         save_btn = QPushButton("Save Settings")
@@ -1552,6 +1569,32 @@ class WinpodxWindow(QMainWindow):
 
         threading.Thread(target=_do, daemon=True).start()
 
+    def _update_budget_warning(self) -> None:
+        """Live-update the session memory budget warning label.
+
+        Quiet when the estimate fits; shows a wrapped message when
+        max_sessions over-subscribes ram_gb. Called whenever either
+        spinbox text changes.
+        """
+        from winpodx.core.config import Config, check_session_budget
+
+        try:
+            sessions = int(self.input_max_sessions.text() or "10")
+            ram = int(self.input_ram.text() or "4")
+        except ValueError:
+            self.budget_warning_label.setVisible(False)
+            return
+
+        tmp = Config()
+        tmp.pod.max_sessions = max(1, min(50, sessions))
+        tmp.pod.ram_gb = max(1, ram)
+        msg = check_session_budget(tmp)
+        if msg:
+            self.budget_warning_label.setText(f"WARNING: {msg}")
+            self.budget_warning_label.setVisible(True)
+        else:
+            self.budget_warning_label.setVisible(False)
+
     def _save_settings(self) -> None:
         try:
             port = int(self.input_port.text() or str(self.cfg.rdp.port))
@@ -1559,11 +1602,12 @@ class WinpodxWindow(QMainWindow):
             cpu = int(self.input_cpu.text() or "4")
             ram = int(self.input_ram.text() or "4")
             idle = int(self.input_idle.text() or "0")
+            max_sessions = int(self.input_max_sessions.text() or "10")
         except ValueError:
             QMessageBox.warning(
                 self,
                 "Invalid Input",
-                "Port, Scale, CPU, RAM, and Idle Timeout must be numbers.",
+                "Port, Scale, CPU, RAM, Idle Timeout, and Max Sessions must be numbers.",
             )
             return
 
@@ -1585,6 +1629,9 @@ class WinpodxWindow(QMainWindow):
         self.cfg.pod.cpu_cores = cpu
         self.cfg.pod.ram_gb = ram
         self.cfg.pod.idle_timeout = idle
+        self.cfg.pod.max_sessions = max_sessions
+        # Let __post_init__ clamp max_sessions to [1, 50] before save.
+        self.cfg.pod.__post_init__()
         self.cfg.save()
 
         if needs_container and self.cfg.pod.backend in ("podman", "docker"):

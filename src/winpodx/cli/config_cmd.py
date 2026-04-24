@@ -21,7 +21,7 @@ def handle_config(args: argparse.Namespace) -> None:
 
 
 def _show() -> None:
-    from winpodx.core.config import Config
+    from winpodx.core.config import Config, check_session_budget
 
     cfg = Config.load()
     print("[rdp]")
@@ -35,16 +35,22 @@ def _show() -> None:
     print(f"  dpi      = {cfg.rdp.dpi or 'auto'}")
     print()
     print("[pod]")
-    print(f"  backend      = {cfg.pod.backend}")
-    print(f"  vm_name      = {cfg.pod.vm_name}")
-    print(f"  cpu_cores    = {cfg.pod.cpu_cores}")
-    print(f"  ram_gb       = {cfg.pod.ram_gb}")
-    print(f"  auto_start   = {cfg.pod.auto_start}")
-    print(f"  idle_timeout = {cfg.pod.idle_timeout}")
+    print(f"  backend       = {cfg.pod.backend}")
+    print(f"  vm_name       = {cfg.pod.vm_name}")
+    print(f"  cpu_cores     = {cfg.pod.cpu_cores}")
+    print(f"  ram_gb        = {cfg.pod.ram_gb}")
+    print(f"  max_sessions  = {cfg.pod.max_sessions}")
+    print(f"  auto_start    = {cfg.pod.auto_start}")
+    print(f"  idle_timeout  = {cfg.pod.idle_timeout}")
+
+    warning = check_session_budget(cfg)
+    if warning:
+        print()
+        print(f"WARNING: {warning}", file=sys.stderr)
 
 
 def _set(key: str, value: str) -> None:
-    from winpodx.core.config import Config
+    from winpodx.core.config import Config, check_session_budget
 
     cfg = Config.load()
 
@@ -71,8 +77,20 @@ def _set(key: str, value: str) -> None:
         coerced = value
 
     setattr(target, field, coerced)
+    # Re-run dataclass __post_init__ so clamps (e.g. max_sessions [1,50])
+    # apply to the value we just set before save + before the budget
+    # check sees it.
+    target.__post_init__()
+    coerced = getattr(target, field)
     cfg.save()
     print(f"Set {key} = {coerced}")
+
+    # Budget warning only fires when over-subscribed — default config
+    # stays quiet. Applies whenever max_sessions or ram_gb changes.
+    if section == "pod" and field in ("max_sessions", "ram_gb"):
+        warning = check_session_budget(cfg)
+        if warning:
+            print(f"WARNING: {warning}", file=sys.stderr)
 
 
 def _import_config() -> None:
