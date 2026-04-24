@@ -1,3 +1,36 @@
+winpodx (0.1.8) unstable; urgency=medium
+
+  * Dynamic Windows-app discovery: new `winpodx app refresh` CLI subcommand
+    and "Refresh Apps" button on the Qt GUI's Apps page enumerate apps
+    installed on the Windows guest (Registry App Paths, Start Menu .lnk,
+    UWP/MSIX via AppxManifest, Chocolatey / Scoop shims) and register them
+    alongside the 14 bundled profiles. Icons are extracted from the real
+    binaries / package logos and written under
+    ~/.local/share/winpodx/discovered/<slug>/.
+  * UWP RemoteApp launching: rdp.build_rdp_command now accepts a launch_uri
+    with strict-regex-validated AUMID and maps UWP apps to
+    /app:program:explorer.exe,cmd:shell:AppsFolder\<AUMID>.
+  * Post-upgrade migration wizard: `winpodx migrate` subcommand shows per-
+    version release notes for every version the user has skipped over and
+    can kick off `winpodx app refresh`. install.sh auto-invokes it on
+    detected upgrades; opt out with WINPODX_NO_MIGRATE=1.
+  * Configurable RemoteApp session cap: pod.max_sessions (clamped [1, 50],
+    default 10) is applied to the guest's Terminal Server
+    MaxInstanceCount at ensure_ready time. Memory budget warning fires in
+    CLI (config show/set, info) and GUI Settings only when the value
+    over-subscribes ram_gb — default config stays silent.
+  * install.sh offline / air-gapped flags: --source PATH, --image-tar PATH,
+    --skip-deps (+ matching WINPODX_* env vars) compose for installs
+    without git / registry / package-repo access.
+  * Security audit remediation (Wave 2): PNG QImage validation before
+    hicolor write, 64 MiB bounded subprocess stdout drain, DiscoveryError
+    kind canonicalization, Start Menu .lnk -Depth 8 cap, installed_version
+    marker size + regex hardening, launch_uri semantic unification across
+    PS code paths, CI persist-credentials:false on discover-apps-ps,
+    SECURITY.md Host <-> Guest Trust Model section.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Fri, 25 Apr 2026 00:00:00 +0900
+
 winpodx (0.1.7) unstable; urgency=high
 
   * Bump bundled rdprrap to v0.1.3 — license-compliance release.

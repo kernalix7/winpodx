@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-04-25
+
 ### Added
 - **Dynamic Windows-app discovery.** A new `winpodx app refresh` CLI subcommand and a "Refresh Apps" button on the Qt GUI's Apps page now enumerate the apps actually installed on the Windows guest and register them alongside the 14 bundled profiles. Inside the container, `scripts/windows/discover_apps.ps1` scans Registry `App Paths` (HKLM + HKCU), Start Menu `.lnk` recursion, UWP/MSIX packages via `Get-AppxPackage` + `AppxManifest.xml`, and Chocolatey / Scoop shims, returning a JSON array with base64-encoded icons extracted from the real binaries / package logos. The host side (`winpodx.core.discovery`) copies the script via `podman cp`, executes it with `podman exec powershell`, and writes the results under `~/.local/share/winpodx/discovered/<slug>/` as TOML + PNG/SVG icon files. Bundled profiles, user-authored entries, and discovered entries live in three separate directories and merge at load time (user > discovered > bundled on slug collision) so a rediscovery run only touches the discovered tree.
 - **UWP RemoteApp launching.** `rdp.build_rdp_command` now accepts a `launch_uri` + strict-regex-validated AUMID (`<PackageFamilyName>!<AppId>`) and maps UWP apps to `/app:program:explorer.exe,cmd:shell:AppsFolder\<AUMID>`. Per-slug `winpodx-uwp-<aumid-slug>` fallback for `/wm-class` keeps Linux taskbar grouping distinct when two UWP apps share the same hint.
