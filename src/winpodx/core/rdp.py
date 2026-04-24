@@ -19,6 +19,55 @@ log = logging.getLogger(__name__)
 # Characters invalid in Windows file paths; rejected by linux_to_unc.
 _INVALID_WIN_CHARS: frozenset[str] = frozenset('*?"<>|')
 
+# UWP AUMID: <PackageFamilyName>!<AppId>
+#   PackageFamilyName := <Name>_<PublisherId>  (Name dotted, PublisherId is
+#   a 13-char hash; Microsoft docs don't fix its alphabet but all observed
+#   values are [a-z0-9])
+#   AppId := up to 64 chars of word / dot / hyphen.
+# Kept strict to block values with separators FreeRDP parses (``,``) or
+# shell metacharacters a malicious discovery JSON could smuggle in.
+_AUMID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}![A-Za-z0-9._-]{1,64}$")
+
+# /wm-class and the /app name: sub-key must be a bounded, shell-safe token;
+# we lowercase first so the regex only needs to cover the trimmed form.
+_WM_CLASS_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+def _is_valid_aumid(value: str) -> bool:
+    """Return True if ``value`` is a syntactically valid UWP AUMID."""
+    return _AUMID_RE.fullmatch(value) is not None
+
+
+def _is_safe_wm_class(value: str) -> bool:
+    """Return True if ``value`` is a safe /wm-class / name: token."""
+    return _WM_CLASS_RE.fullmatch(value) is not None
+
+
+def _uwp_fallback_wm_class(aumid: str) -> str:
+    """Derive a unique wm-class from a validated AUMID.
+
+    Used when ``wm_class_hint`` is missing or fails ``_is_safe_wm_class``.
+    A single ``winpodx-uwp`` bucket would collide pid files and make
+    the Linux WM group unrelated UWP apps as one taskbar entry, so we
+    slug the AUMID (already ``_is_valid_aumid``-validated) to produce
+    ``winpodx-uwp-<slug>`` — unique per app, still bounded and shell-safe.
+    """
+    # AUMID is already validated to [A-Za-z0-9._-]+!..., so lowercasing
+    # and replacing '!'/'.' with '-' keeps it inside the _WM_CLASS_RE alphabet.
+    slug = aumid.lower().replace("!", "-").replace(".", "-")
+    # Collapse any run of dashes introduced by the substitution.
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-_")
+    candidate = f"winpodx-uwp-{slug}" if slug else "winpodx-uwp"
+    # /wm-class tokens are bounded at 64 chars by _WM_CLASS_RE; truncate
+    # rather than fail because the AUMID itself is legitimately long.
+    if len(candidate) > 64:
+        candidate = candidate[:64].rstrip("-_")
+    if not _is_safe_wm_class(candidate):
+        return "winpodx-uwp"
+    return candidate
+
 
 @dataclass
 class RDPSession:
@@ -118,8 +167,19 @@ def build_rdp_command(
     app_executable: str | None = None,
     file_path: str | None = None,
     auto_scale: bool = True,
+    launch_uri: str | None = None,
+    wm_class_hint: str | None = None,
 ) -> tuple[list[str], str]:
-    """Build the xfreerdp command line for launching an app."""
+    """Build the xfreerdp command line for launching an app.
+
+    For classic Win32 apps, pass ``app_executable`` (and optionally
+    ``file_path``). For UWP/MSIX apps, pass ``launch_uri`` containing
+    the AUMID (e.g. ``"Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"``);
+    the builder forwards ``explorer.exe shell:AppsFolder\\<AUMID>`` as
+    the RemoteApp program. ``wm_class_hint`` overrides the default
+    ``/wm-class`` (exe stem) so the Linux window lines up with the
+    discovered app's desktop entry rather than ``explorer``.
+    """
     found = find_freerdp()
     if not found:
         raise RuntimeError("FreeRDP 3+ not found. Install xfreerdp3 or xfreerdp.")
@@ -169,11 +229,29 @@ def build_rdp_command(
         password = ""  # signal launch_app to skip stdin write
 
     # RemoteApp (RAIL) launch; requires fDisabledAllowList=1 set by install.bat.
-    if app_executable:
+    if launch_uri:
+        # UWP/MSIX: launch via explorer + shell:AppsFolder\<AUMID>. The
+        # AUMID must be a bare package-family!app-id token — reject
+        # anything that looks like a flag payload or embeds separators
+        # FreeRDP treats specially ("," splits /app sub-args).
+        aumid = launch_uri.strip()
+        if not _is_valid_aumid(aumid):
+            raise RuntimeError(f"Invalid UWP AUMID: {aumid!r}")
+        wm_class = (wm_class_hint or "").strip().lower()
+        if not wm_class or not _is_safe_wm_class(wm_class):
+            wm_class = _uwp_fallback_wm_class(aumid)
+        app_arg = f"/app:program:explorer.exe,name:{wm_class},cmd:shell:AppsFolder\\{aumid}"
+        cmd.append(app_arg)
+        cmd.append(f"/wm-class:{wm_class}")
+        cmd.append("+grab-keyboard")
+    elif app_executable:
         from pathlib import PureWindowsPath
 
         stem = PureWindowsPath(app_executable).stem.lower()
-        app_arg = f"/app:program:{app_executable},name:{stem}"
+        name_token = (wm_class_hint or "").strip().lower() or stem
+        if not _is_safe_wm_class(name_token):
+            name_token = stem
+        app_arg = f"/app:program:{app_executable},name:{name_token}"
         if file_path:
             try:
                 unc_path = linux_to_unc(file_path)
@@ -182,7 +260,7 @@ def build_rdp_command(
                 raise RuntimeError(f"Cannot open file: {e}") from e
             app_arg += f",cmd:{unc_path}"
         cmd.append(app_arg)
-        cmd.append(f"/wm-class:{stem}")
+        cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
 
     # TLS for all backends: install.bat forces SecurityLayer=2 and podman unshare breaks NLA.
@@ -340,11 +418,30 @@ def launch_app(
     cfg: Config,
     app_executable: str | None = None,
     file_path: str | None = None,
+    launch_uri: str | None = None,
+    wm_class_hint: str | None = None,
 ) -> RDPSession:
-    """Launch a Windows app via RDP and return the session handle."""
+    """Launch a Windows app via RDP and return the session handle.
+
+    Pass ``launch_uri`` for UWP/MSIX apps (takes precedence over
+    ``app_executable``) and ``wm_class_hint`` to override the default
+    ``/wm-class`` token (needed for UWP so the Linux window doesn't
+    come up labelled ``explorer``).
+    """
     import threading
 
-    if app_executable:
+    if launch_uri:
+        hint = (wm_class_hint or "").strip().lower()
+        if hint and _is_safe_wm_class(hint):
+            app_name = hint
+        else:
+            # Derive a per-app slug so two UWP apps with invalid hints
+            # don't collide on the same pid_file. If the AUMID itself
+            # is malformed, build_rdp_command will reject it shortly;
+            # for pid-file purposes just fall back to the bare bucket.
+            aumid = launch_uri.strip()
+            app_name = _uwp_fallback_wm_class(aumid) if _is_valid_aumid(aumid) else "winpodx-uwp"
+    elif app_executable:
         from pathlib import PureWindowsPath
 
         app_name = PureWindowsPath(app_executable).stem.lower()
@@ -355,7 +452,13 @@ def launch_app(
     if existing is not None:
         return existing
 
-    cmd, password = build_rdp_command(cfg, app_executable, file_path)
+    cmd, password = build_rdp_command(
+        cfg,
+        app_executable=app_executable,
+        file_path=file_path,
+        launch_uri=launch_uri,
+        wm_class_hint=wm_class_hint,
+    )
 
     log.info("Launching RDP: %s", " ".join(cmd))
 

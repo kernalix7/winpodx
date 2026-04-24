@@ -30,6 +30,16 @@ class AppInfo:
     categories: list[str] = field(default_factory=list)
     mime_types: list[str] = field(default_factory=list)
     installed: bool = False
+    # Provenance: "bundled" (shipped in data/apps), "discovered" (auto
+    # from guest enumerator), "user" (manually placed in
+    # ~/.local/share/winpodx/apps). Surfaces a Detected/Bundled badge
+    # in the GUI and lets tooling decide what it can safely overwrite
+    # on a rediscovery pass.
+    source: str = "bundled"
+    # Optional extras populated by discovery; blank for bundled entries.
+    args: str = ""
+    wm_class_hint: str = ""
+    launch_uri: str = ""  # UWP AUMID (shell:AppsFolder\<AUMID>)
 
 
 def bundled_apps_dir() -> Path:
@@ -60,8 +70,22 @@ def user_apps_dir() -> Path:
     return data_dir() / "apps"
 
 
-def load_app(app_dir: Path) -> AppInfo | None:
-    """Load an app definition from a directory containing app.toml."""
+def discovered_apps_dir() -> Path:
+    """Path to auto-discovered app definitions (written by discovery)."""
+    return data_dir() / "discovered"
+
+
+_VALID_APP_SOURCES = frozenset({"bundled", "discovered", "user"})
+
+
+def load_app(app_dir: Path, default_source: str = "bundled") -> AppInfo | None:
+    """Load an app definition from a directory containing app.toml.
+
+    ``default_source`` is used when the TOML does not declare a
+    ``source`` field; ``list_available_apps`` passes the provenance of
+    the containing directory so discovered entries are flagged even if
+    the author of the TOML forgot to set the field.
+    """
     toml_path = app_dir / "app.toml"
     if not toml_path.exists():
         return None
@@ -87,13 +111,21 @@ def load_app(app_dir: Path) -> AppInfo | None:
             icon = str(candidate)
             break
 
+    source = data.get("source", default_source)
+    if source not in _VALID_APP_SOURCES:
+        source = default_source
+
     return AppInfo(
         name=name,
         full_name=data.get("full_name", name),
         executable=executable,
         icon_path=icon,
-        categories=data.get("categories", []),
-        mime_types=data.get("mime_types", []),
+        categories=data.get("categories", []) or [],
+        mime_types=data.get("mime_types", []) or [],
+        source=source,
+        args=data.get("args", "") or "",
+        wm_class_hint=data.get("wm_class_hint", "") or "",
+        launch_uri=data.get("launch_uri", "") or "",
     )
 
 
@@ -114,28 +146,42 @@ def _is_within(candidate: Path, root: Path) -> bool:
 
 
 def list_available_apps() -> list[AppInfo]:
-    """List all available app definitions (bundled + user).
+    """List all available app definitions (bundled + discovered + user).
 
-    Skips any entry that resolves outside the source directory so a
-    malicious symlink cannot cause us to load attacker-controlled TOML.
+    Entries found under the discovered dir are loaded with
+    ``source="discovered"``; the user dir defaults to ``"user"``.
+    If two dirs define the same ``name`` the later one wins in the
+    search order ``bundled -> discovered -> user`` so a user-authored
+    override beats both. Skips any entry that resolves outside its
+    containing dir so a malicious symlink cannot cause us to load
+    attacker-controlled TOML.
     """
-    apps: list[AppInfo] = []
-    for source in (bundled_apps_dir(), user_apps_dir()):
-        if not source.exists():
+    sources: list[tuple[Path, str]] = [
+        (bundled_apps_dir(), "bundled"),
+        (discovered_apps_dir(), "discovered"),
+        (user_apps_dir(), "user"),
+    ]
+    by_name: dict[str, AppInfo] = {}
+    order: list[str] = []
+    for source_dir, provenance in sources:
+        if not source_dir.exists():
             continue
-        for app_dir in sorted(source.iterdir()):
+        for app_dir in sorted(source_dir.iterdir()):
             if not app_dir.is_dir():
                 continue
-            if not _is_within(app_dir, source):
+            if not _is_within(app_dir, source_dir):
                 log.warning(
                     "Rejecting app entry that escapes its source dir: %s",
                     app_dir,
                 )
                 continue
-            app = load_app(app_dir)
-            if app:
-                apps.append(app)
-    return apps
+            app = load_app(app_dir, default_source=provenance)
+            if app is None:
+                continue
+            if app.name not in by_name:
+                order.append(app.name)
+            by_name[app.name] = app
+    return [by_name[n] for n in order]
 
 
 def find_app(name: str) -> AppInfo | None:
