@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import base64
 import binascii
+import errno
 import json
 import logging
+import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import threading
+import time
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,6 +39,17 @@ _MAX_ICON_BYTES = 1_048_576  # 1 MiB per icon
 _MAX_NAME_LEN = 255
 _MAX_PATH_LEN = 1024
 
+# L1: hard cap on subprocess stdout so a hostile/misbehaving guest can't
+# flood us into OOM. 64 MiB is ~two orders of magnitude above a normal
+# discovery payload (~hundreds of KB) yet still bounded.
+HARD_STDOUT_CAP = 64 * 1024 * 1024  # 64 MiB
+
+# Bounds for PNG sanity validation (M1). Icons above these dimensions are
+# refused even when the bytestream parses cleanly — a 10000x10000 icon is
+# either a DoS vector or a mis-export from the guest.
+_MAX_PNG_WIDTH = 1024
+_MAX_PNG_HEIGHT = 1024
+
 _VALID_SOURCES = frozenset({"uwp", "win32", "steam"})
 
 # Matches AppInfo's _SAFE_NAME_RE contract so a discovered app loads cleanly.
@@ -46,7 +63,23 @@ class DiscoveryError(RuntimeError):
     Covers: unsupported backend (libvirt/manual), container runtime
     missing, script copy/exec failure, timeout, malformed JSON, or
     the pod not being running.
+
+    The optional ``kind`` keyword attaches a machine-readable tag drawn
+    from the canonical set so CLI/GUI callers can pattern-match without
+    parsing the human-facing message. Canonical kinds:
+
+    - ``pod_not_running``
+    - ``script_missing``
+    - ``script_failed``
+    - ``bad_json``
+    - ``truncated``
+    - ``timeout``
+    - ``unsupported_backend``
     """
+
+    def __init__(self, msg: str = "", *, kind: str = "") -> None:
+        super().__init__(msg)
+        self.kind = kind
 
 
 @dataclass
@@ -59,6 +92,10 @@ class DiscoveredApp:
     wm_class_hint: str = ""
     launch_uri: str = ""  # UWP AUMID (shell:AppsFolder\<AUMID>) when source == "uwp"
     icon_bytes: bytes = field(default=b"", repr=False)
+    # Filled by persist_discovered() after the on-disk layout is
+    # materialised. Empty on freshly-parsed instances.
+    slug: str = ""  # sanitized app name slug (same as `name` after persist)
+    icon_path: str = ""  # absolute path to persisted PNG/SVG, or ""
 
 
 def discovered_apps_dir() -> Path:
@@ -99,7 +136,8 @@ def _runtime_for(backend: str) -> str:
     if backend == "docker":
         return "docker"
     raise DiscoveryError(
-        f"Discovery requires a container backend (podman/docker); got {backend!r}."
+        f"Discovery requires a container backend (podman/docker); got {backend!r}.",
+        kind="unsupported_backend",
     )
 
 
@@ -124,11 +162,14 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
     runtime = _runtime_for(cfg.pod.backend)
 
     if shutil.which(runtime) is None:
-        raise DiscoveryError(f"{runtime!r} not found on PATH; install {cfg.pod.backend} first.")
+        raise DiscoveryError(
+            f"{runtime!r} not found on PATH; install {cfg.pod.backend} first.",
+            kind="pod_not_running",
+        )
 
     script = _ps_script_path()
     if not script.exists():
-        raise DiscoveryError(f"Discovery script not found: {script}")
+        raise DiscoveryError(f"Discovery script not found: {script}", kind="script_missing")
 
     container = cfg.pod.container_name
     guest_path = "C:/winpodx-discover.ps1"
@@ -142,42 +183,147 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
             timeout=30,
         )
     except FileNotFoundError as e:
-        raise DiscoveryError(f"{runtime!r} binary vanished: {e}") from e
+        raise DiscoveryError(f"{runtime!r} binary vanished: {e}", kind="pod_not_running") from e
     except subprocess.TimeoutExpired as e:
-        raise DiscoveryError("Timed out copying discovery script to guest.") from e
+        raise DiscoveryError("Timed out copying discovery script to guest.", kind="timeout") from e
     except subprocess.CalledProcessError as e:
         stderr = (e.stderr or "").strip()
         raise DiscoveryError(
-            f"Failed to copy discovery script (is the pod running?): {stderr}"
+            f"Failed to copy discovery script (is the pod running?): {stderr}",
+            kind="pod_not_running",
         ) from e
 
+    cmd = [
+        runtime,
+        "exec",
+        container,
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        guest_path.replace("/", "\\"),
+    ]
+    stdout_bytes, stderr_bytes, returncode = _run_bounded(cmd, timeout=timeout, runtime=runtime)
+
+    if returncode != 0:
+        stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+        raise DiscoveryError(
+            f"Discovery script failed (rc={returncode}): {stderr}", kind="script_failed"
+        )
+
+    return _parse_discovery_output(stdout_bytes.decode("utf-8", errors="replace"))
+
+
+def _run_bounded(cmd: list[str], *, timeout: int, runtime: str) -> tuple[bytes, bytes, int]:
+    """Run ``cmd`` and return ``(stdout, stderr, returncode)`` with a hard cap.
+
+    Spawns the process via ``Popen`` and drains stdout / stderr via
+    ``os.read`` with an accumulated byte cap of ``HARD_STDOUT_CAP``
+    (L1 audit). If the cap is exceeded the process is killed and a
+    ``DiscoveryError(kind="truncated")`` is raised. If the process
+    does not finish within ``timeout`` seconds it is killed and a
+    ``DiscoveryError(kind="timeout")`` is raised.
+
+    Returns raw bytes so the caller decodes exactly once with an
+    error-replace codec — this avoids UTF-8 decode exceptions on
+    malformed guest output.
+    """
     try:
-        result = subprocess.run(  # noqa: S603
-            [
-                runtime,
-                "exec",
-                container,
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                guest_path.replace("/", "\\"),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+        proc = subprocess.Popen(  # noqa: S603
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
         )
     except FileNotFoundError as e:
-        raise DiscoveryError(f"{runtime!r} binary vanished mid-run: {e}") from e
-    except subprocess.TimeoutExpired as e:
-        raise DiscoveryError(f"Discovery timed out after {timeout}s on guest.") from e
+        raise DiscoveryError(
+            f"{runtime!r} binary vanished mid-run: {e}", kind="pod_not_running"
+        ) from e
 
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        raise DiscoveryError(f"Discovery script failed (rc={result.returncode}): {stderr}")
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+    stdout_bytes = 0
+    stderr_bytes = 0
 
-    return _parse_discovery_output(result.stdout)
+    # Readers drain stdout/stderr in background threads so a full pipe
+    # buffer can't deadlock the child. Each reader enforces the cap
+    # independently and sets an event if tripped.
+    cap_tripped = threading.Event()
+
+    def _drain(fd: int, sink: list[bytes], counter_name: str) -> None:
+        nonlocal stdout_bytes, stderr_bytes
+        try:
+            while True:
+                try:
+                    chunk = os.read(fd, 65536)
+                except OSError as err:
+                    if err.errno == errno.EBADF:
+                        return
+                    raise
+                if not chunk:
+                    return
+                sink.append(chunk)
+                if counter_name == "stdout":
+                    stdout_bytes += len(chunk)
+                    if stdout_bytes > HARD_STDOUT_CAP:
+                        cap_tripped.set()
+                        return
+                else:
+                    stderr_bytes += len(chunk)
+                    # stderr is also capped (symmetry + cheap guard).
+                    if stderr_bytes > HARD_STDOUT_CAP:
+                        cap_tripped.set()
+                        return
+        except Exception:
+            # Reader threads must never propagate — surface via cap_tripped
+            # + returncode on the main path.
+            log.debug("discovery: reader thread crashed", exc_info=True)
+
+    assert proc.stdout is not None and proc.stderr is not None
+    t_out = threading.Thread(
+        target=_drain, args=(proc.stdout.fileno(), stdout_chunks, "stdout"), daemon=True
+    )
+    t_err = threading.Thread(
+        target=_drain, args=(proc.stderr.fileno(), stderr_chunks, "stderr"), daemon=True
+    )
+    t_out.start()
+    t_err.start()
+
+    deadline = time.monotonic() + max(1, int(timeout))
+    killed_for_cap = False
+    killed_for_timeout = False
+    while True:
+        if cap_tripped.is_set():
+            killed_for_cap = True
+            proc.kill()
+            break
+        if proc.poll() is not None:
+            break
+        if time.monotonic() >= deadline:
+            killed_for_timeout = True
+            proc.kill()
+            break
+        time.sleep(0.05)
+
+    # Wait for process + drain threads to finish so we don't leak FDs.
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    t_out.join(timeout=2)
+    t_err.join(timeout=2)
+
+    if killed_for_cap:
+        raise DiscoveryError(
+            f"Discovery stdout exceeded {HARD_STDOUT_CAP} bytes; aborted.",
+            kind="truncated",
+        )
+    if killed_for_timeout:
+        raise DiscoveryError(f"Discovery timed out after {timeout}s on guest.", kind="timeout")
+
+    return b"".join(stdout_chunks), b"".join(stderr_chunks), proc.returncode
 
 
 def _parse_discovery_output(stdout: str) -> list[DiscoveredApp]:
@@ -194,12 +340,16 @@ def _parse_discovery_output(stdout: str) -> list[DiscoveredApp]:
         raw = json.loads(text)
     except json.JSONDecodeError as e:
         snippet = text[:200].replace("\n", " ")
-        raise DiscoveryError(f"Malformed discovery JSON: {e}; head={snippet!r}") from e
+        raise DiscoveryError(
+            f"Malformed discovery JSON: {e}; head={snippet!r}", kind="bad_json"
+        ) from e
 
     if isinstance(raw, dict):
         raw = [raw]
     if not isinstance(raw, list):
-        raise DiscoveryError(f"Discovery JSON must be an array, got {type(raw).__name__}.")
+        raise DiscoveryError(
+            f"Discovery JSON must be an array, got {type(raw).__name__}.", kind="bad_json"
+        )
 
     apps: list[DiscoveredApp] = []
     truncated = False
@@ -333,6 +483,12 @@ def persist_discovered(
             _safe_rmtree(app_dir, root)
         app_dir.mkdir(parents=True, exist_ok=True)
 
+        # Stamp the contract fields cli/gui callers rely on (I2). slug
+        # mirrors `name` post-sanitisation; icon_path is filled below
+        # only when a valid image is written.
+        app.slug = app.name
+        app.icon_path = ""
+
         toml_path = app_dir / "app.toml"
         try:
             toml_path.write_text(_render_app_toml(app), encoding="utf-8")
@@ -342,9 +498,20 @@ def persist_discovered(
 
         if app.icon_bytes:
             icon_ext = _sniff_icon_ext(app.icon_bytes)
-            if icon_ext:
+            icon_ok = True
+            if icon_ext == "png" and not _validate_png_bytes(app.icon_bytes):
+                # M1: malformed / oversized / CRC-broken PNG from a
+                # compromised guest must not abort the run. Skip this
+                # app's icon but keep the entry.
+                log.warning(
+                    "Rejecting malformed PNG icon for %s; writing entry without icon.", app.name
+                )
+                icon_ok = False
+            if icon_ext and icon_ok:
+                icon_target = app_dir / f"icon.{icon_ext}"
                 try:
-                    (app_dir / f"icon.{icon_ext}").write_bytes(app.icon_bytes)
+                    icon_target.write_bytes(app.icon_bytes)
+                    app.icon_path = str(icon_target.resolve())
                 except OSError as e:
                     log.warning("Could not write icon for %s: %s", app.name, e)
 
@@ -381,6 +548,110 @@ def _sniff_icon_ext(data: bytes) -> str:
     if head.startswith(b"<?xml") or head.startswith(b"<svg"):
         return "svg"
     return ""
+
+
+def _validate_png_bytes(data: bytes) -> bool:
+    """Return True only if ``data`` is a structurally valid PNG (M1).
+
+    The 8-byte magic check in ``_sniff_icon_ext`` is sufficient to
+    *classify* bytes as PNG but not to trust them as a PNG — a guest
+    can trivially prepend the magic to arbitrary garbage. This helper
+    runs a second-pass validation before the bytes reach disk /
+    hicolor cache:
+
+    1. If PySide6 is available, use ``QImage.loadFromData`` and reject
+       anything that lands on ``QImage.isNull()``.
+    2. Otherwise fall back to a stdlib chunk walker that verifies the
+       PNG magic, requires ``IHDR`` as the first chunk with sane
+       dimensions (``0 < w,h <= _MAX_PNG_WIDTH/_MAX_PNG_HEIGHT``),
+       validates every chunk CRC, and requires the stream to terminate
+       with ``IEND``.
+
+    Never raises — on any exception we return ``False`` so the caller
+    can simply skip the icon.
+    """
+    if not data or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return False
+
+    # Fast path: PySide6 is already a GUI-team dependency, and QImage
+    # is strict about truncated/corrupt streams.
+    try:
+        from PySide6.QtGui import QImage  # type: ignore[import-not-found]
+    except ImportError:
+        QImage = None  # type: ignore[assignment]
+    except Exception:  # noqa: BLE001 — Qt init can fail headless; fall through.
+        QImage = None  # type: ignore[assignment]
+
+    if QImage is not None:
+        try:
+            img = QImage()
+            if not img.loadFromData(data):
+                return False
+            if img.isNull():
+                return False
+            if img.width() <= 0 or img.height() <= 0:
+                return False
+            if img.width() > _MAX_PNG_WIDTH or img.height() > _MAX_PNG_HEIGHT:
+                return False
+            return True
+        except Exception:  # noqa: BLE001 — headless Qt edge cases.
+            log.debug("discovery: QImage validation crashed; falling back", exc_info=True)
+            # Fall through to the stdlib walker.
+
+    return _validate_png_stdlib(data)
+
+
+def _validate_png_stdlib(data: bytes) -> bool:
+    """Stdlib-only PNG chunk walker (fallback for ``_validate_png_bytes``)."""
+    try:
+        if len(data) < 8 + 12:  # magic + at least one chunk header+CRC
+            return False
+        pos = 8  # past the magic
+        saw_ihdr = False
+        saw_iend = False
+        width = 0
+        height = 0
+
+        while pos < len(data):
+            if pos + 8 > len(data):
+                return False
+            length = struct.unpack(">I", data[pos : pos + 4])[0]
+            chunk_type = data[pos + 4 : pos + 8]
+            if length > len(data):  # obviously bogus length prefix
+                return False
+            data_start = pos + 8
+            data_end = data_start + length
+            crc_end = data_end + 4
+            if crc_end > len(data):
+                return False
+
+            declared_crc = struct.unpack(">I", data[data_end:crc_end])[0]
+            actual_crc = zlib.crc32(data[pos + 4 : data_end]) & 0xFFFFFFFF
+            if declared_crc != actual_crc:
+                return False
+
+            if not saw_ihdr:
+                if chunk_type != b"IHDR" or length != 13:
+                    return False
+                width = struct.unpack(">I", data[data_start : data_start + 4])[0]
+                height = struct.unpack(">I", data[data_start + 4 : data_start + 8])[0]
+                if width == 0 or height == 0:
+                    return False
+                if width > _MAX_PNG_WIDTH or height > _MAX_PNG_HEIGHT:
+                    return False
+                saw_ihdr = True
+            elif chunk_type == b"IEND":
+                if length != 0:
+                    return False
+                saw_iend = True
+                pos = crc_end
+                break
+
+            pos = crc_end
+
+        return saw_ihdr and saw_iend
+    except (struct.error, ValueError, IndexError):
+        return False
 
 
 def _safe_rmtree(path: Path, root: Path) -> None:
