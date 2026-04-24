@@ -20,6 +20,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+from winpodx.core.config import Config
 from winpodx.core.discovery import (
     DiscoveredApp,
     DiscoveryError,
@@ -31,8 +33,6 @@ from winpodx.core.discovery import (
     discover_apps,
     persist_discovered,
 )
-
-from winpodx.core.config import Config
 
 # --- Fixtures --------------------------------------------------------------
 
