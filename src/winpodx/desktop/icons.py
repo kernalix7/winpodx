@@ -95,8 +95,27 @@ def _ensure_index_theme(icon_dir: Path) -> None:
     log.info("Created minimal index.theme at %s", index)
 
 
+def refresh_icon_cache() -> None:
+    """Refresh the system icon cache after installing one or more icons.
+
+    Safe to call once after a batch of icon installs (e.g. after
+    ``persist_discovered`` has written N app icons). Runs the gtk-update-icon-cache,
+    xdg-icon-resource, and Plasma sycoca rebuild steps in sequence; each is
+    bounded by a 30s timeout. Missing tools are skipped.
+
+    For single-icon workflows, this is also safe to call per icon, but callers
+    installing many icons at once should invoke this exactly once at the end
+    of the batch to avoid redundant cache rebuilds.
+    """
+    _do_refresh_icon_cache()
+
+
 def update_icon_cache() -> None:
-    """Refresh the system icon cache after installing icons."""
+    """Backward-compatible alias for :func:`refresh_icon_cache`."""
+    _do_refresh_icon_cache()
+
+
+def _do_refresh_icon_cache() -> None:
     icon_dir = Path.home() / ".local/share/icons/hicolor"
     _ensure_index_theme(icon_dir)
     try:
