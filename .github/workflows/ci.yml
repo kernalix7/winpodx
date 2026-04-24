@@ -33,6 +33,34 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v
 
+  discover-apps-ps:
+    # Smoke test for scripts/windows/discover_apps.ps1 — runs the script
+    # under -DryRun (no Registry/AppX access) and asserts stdout parses as
+    # a non-empty JSON array with the shape core.discovery expects. Catches
+    # PowerShell syntax regressions before they hit the Windows guest.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure PowerShell Core is available
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            echo "pwsh already installed: $(pwsh --version)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends wget apt-transport-https ca-certificates
+            # Official Microsoft repository for PowerShell on Ubuntu.
+            source /etc/os-release
+            wget -q "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/packages-microsoft-prod.deb" -O /tmp/packages-microsoft-prod.deb
+            sudo dpkg -i /tmp/packages-microsoft-prod.deb
+            sudo apt-get update
+            sudo apt-get install -y powershell
+            pwsh --version
+          fi
+      - name: Run discover_apps.ps1 -DryRun and validate JSON shape
+        run: |
+          pwsh -NoProfile -File scripts/windows/discover_apps.ps1 -DryRun > /tmp/discover.json
+          python3 scripts/ci/validate_discover_dryrun.py /tmp/discover.json
+
   audit:
     runs-on: ubuntu-latest
     steps:
