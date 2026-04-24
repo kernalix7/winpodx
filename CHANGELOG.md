@@ -13,6 +13,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **Dynamic Windows-app discovery.** A new `winpodx app refresh` CLI subcommand and a "Refresh Apps" button on the Qt GUI's Apps page now enumerate the apps actually installed on the Windows guest and register them alongside the 14 bundled profiles. Inside the container, `scripts/windows/discover_apps.ps1` scans Registry `App Paths` (HKLM + HKCU), Start Menu `.lnk` recursion, UWP/MSIX packages via `Get-AppxPackage` + `AppxManifest.xml`, and Chocolatey / Scoop shims, returning a JSON array with base64-encoded icons extracted from the real binaries / package logos. The host side (`winpodx.core.discovery`) copies the script via `podman cp`, executes it with `podman exec powershell`, and writes the results under `~/.local/share/winpodx/discovered/<slug>/` as TOML + PNG/SVG icon files. Bundled profiles, user-authored entries, and discovered entries live in three separate directories and merge at load time (user > discovered > bundled on slug collision) so a rediscovery run only touches the discovered tree.
 - **UWP RemoteApp launching.** `rdp.build_rdp_command` now accepts a `launch_uri` + strict-regex-validated AUMID (`<PackageFamilyName>!<AppId>`) and maps UWP apps to `/app:program:explorer.exe,cmd:shell:AppsFolder\<AUMID>`. Per-slug `winpodx-uwp-<aumid-slug>` fallback for `/wm-class` keeps Linux taskbar grouping distinct when two UWP apps share the same hint.
 - **PowerShell Core smoke test in CI.** A new `discover-apps-ps` job installs `pwsh` on the Ubuntu runner and runs `discover_apps.ps1 -DryRun` on every PR, validating that stdout parses as the JSON array shape `core.discovery` expects.
+- **Post-upgrade migration wizard.** A new `winpodx migrate` CLI subcommand shows per-version release notes for every version the user has skipped over and optionally runs `winpodx app refresh` so the Windows-app menu populates in one step. `install.sh` now invokes `winpodx migrate` automatically at the end of every upgrade (existing `~/.config/winpodx/winpodx.toml` detected); opt out with `WINPODX_NO_MIGRATE=1`. Flags `--no-refresh` (skip only the refresh prompt) and `--non-interactive` (disable all prompts) are available for automation. The wizard tracks installed version at `~/.config/winpodx/installed_version.txt`; pre-0.1.8 installs without that marker are treated as upgrading from `0.1.7`.
 
 ### Changed
 - `AppInfo` gains `source: "bundled" | "discovered" | "user"`, `args`, `wm_class_hint`, and `launch_uri` fields so the GUI can badge discovered entries and so RDP launches can target UWP apps.
@@ -75,65 +76,48 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   - RPM: openSUSE Tumbleweed, Leap 15.6, Leap 16.0, Slowroll, Fedora 42, Fedora 43.
   - `.deb`: Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10.
   - Source dist + wheel on PyPI-compatible artifacts.
-- README "Install" section with per-distro instructions.
+- README "Install" section now lists distro-specific commands.
 
 ### Changed
-- AppImage packaging dropped: the required Python + Qt + FreeRDP + Podman dependency surface made a portable single-file bundle impractical.
+- AppImage packaging removed: Python + Qt + FreeRDP + Podman dependencies reduce its single-file-distribution value to near zero.
 
 ### Fixed
-- Weekly upstream-update check now files a tracking Issue instead of failing with a repo-permission error.
+- Weekly upstream update checker creates a tracking Issue instead of failing on permission errors.
 
 ## [0.1.0] - 2026-04-21
 
-Initial public release.
+First public release.
 
 ### Added
-- **Zero-config auto-provisioning**: first app launch auto-creates config, generates the compose file, starts the container, and registers desktop entries.
-- **14 bundled app definitions**: Word, Excel, PowerPoint, Outlook, OneNote, Access, Notepad, Explorer, CMD, PowerShell, Paint, Calculator, VS Code, Teams.
-- **Auto suspend / resume**: container pauses when idle and auto-resumes on the next app launch; graceful shutdown on exit.
-- **Password auto-rotation**: cryptographically secure 20-char password, rotated every 7 days (configurable), with automatic rollback on failure.
+- **Zero-config auto-provisioning**: first app launch creates config, compose file, container, and desktop entries automatically.
+- **14 bundled app profiles**: Word, Excel, PowerPoint, Outlook, OneNote, Access, Notepad, Explorer, CMD, PowerShell, Paint, Calculator, VS Code, Teams.
+- **Auto suspend / resume**: container pauses on idle, resumes on next app launch; graceful shutdown on exit.
+- **Password auto-rotation**: 20-char cryptographic password, 7-day cycle (configurable), automatic rollback on failure.
 - **Manual password rotation**: `winpodx rotate-password`.
 - **Office lock-file cleanup**: `winpodx cleanup` removes `~$*.*` lock files from the home directory.
-- **Windows time sync**: `winpodx timesync` forces clock resync after host sleep/wake.
+- **Windows time sync**: `winpodx timesync` re-synchronizes the Windows clock after host sleep/wake.
 - **Windows debloat**: `winpodx debloat` disables telemetry, ads, Cortana, search indexing.
-- **Power management**: `winpodx power --suspend/--resume` for manual container pause/unpause.
-- **System diagnostics**: `winpodx info` shows display, dependency, and config status.
-- **Desktop notifications** on app launch (D-Bus / `notify-send`).
-- **Smart DPI scaling**: auto-detects scale from GNOME, KDE Plasma 5/6, Sway, Hyprland, Cinnamon, env vars, xrdb.
+- **Power management**: `winpodx power --suspend/--resume` manually pauses/resumes the container.
+- **System diagnostics**: `winpodx info` reports display, dependency, and configuration status.
+- **Desktop notifications** (D-Bus / `notify-send`) surface on app launch.
+- **Smart DPI scaling**: auto-detects scale from GNOME, KDE Plasma 5/6, Sway, Hyprland, Cinnamon, env vars, and xrdb.
 - **Qt system tray**: pod controls, app launchers, maintenance tools, idle monitor, auto-refresh.
 - **Multi-backend**: Podman (default), Docker, libvirt/KVM, manual RDP — unified interface.
-- **Compose file generation** for Podman/Docker backends, using the `dockur/windows` image.
-- **Per-app taskbar separation**: each app gets its own WM_CLASS / `StartupWMClass`.
-- **Windows build pinning**: feature updates blocked via `TargetReleaseVersion` policy; security updates still applied.
-- **Upstream update monitoring**: weekly CI check for new `dockur/windows` releases.
-- **Concurrent launch protection**: threading lock prevents simultaneous app-launch crashes.
-- **Windows Update toggle** in GUI (services + scheduled tasks + hosts-file block).
+- Auto-generated **compose files** for Podman/Docker backends (uses the `dockur/windows` image).
+- **Per-app taskbar separation**: each app gets a unique WM_CLASS / `StartupWMClass`.
+- **Windows build pinning**: `TargetReleaseVersion` policy blocks feature updates while leaving security updates on.
+- **Upstream update monitoring**: weekly check for new `dockur/windows` releases.
+- **Concurrency protection**: threading locks prevent crashes on simultaneous app launches.
+- GUI **Windows Update toggle** (services + scheduled tasks + hosts-file triple block).
 - **Sound + printer** redirection enabled by default.
-- **USB drive sharing** with hot-plug support (subfolders appear without reconnecting).
-- **USB device redirection** via FreeRDP `urbdrc` when available; graceful fallback to drive sharing.
-- **USB auto drive-letter mapping** on the Windows side (event-driven, no polling).
+- **USB drive sharing** with hot-plug (reconnect-free sub-folder exposure).
+- **USB device redirection** via FreeRDP `urbdrc` when available, graceful fallback to drive sharing.
+- Windows-side **USB drive-letter auto-mapping** (event-based, no polling).
 - Desktop integration: `.desktop` entries, hicolor icons, MIME registration, icon-cache refresh.
-- TOML configuration with restrictive (`0600`) file permissions for credentials.
-- FreeRDP session management with process tracking and a zombie reaper.
-- `winapps.conf` import for migrating from existing winapps setups.
+- Restricted-permission (`0600`) TOML configuration file for credential protection.
+- FreeRDP session management with process tracking and zombie reaping.
+- `winapps.conf` import for migrating existing winapps installs.
 
 ### Security
-- RDP bound to **127.0.0.1** only; not exposed to the network.
-- **TLS-only** RDP channel (SecurityLayer=2); NLA disabled only because RDP is loopback-bound.
-- Input validation for container names, app names, and imported RDP flags (strict allowlists).
-- Symlink / path-traversal guards on icon install and bundled-data lookups.
-- Atomic config writes with `fsync` to prevent torn writes on power loss.
-- Password redacted from log output; log-record args cleared to prevent late-formatting leaks.
-- Cert policy: `/cert:ignore` only on localhost, `/cert:tofu` on remote connections.
-- Exclusive file locking (PID files) to prevent races on concurrent launches.
-- Subprocess timeouts on desktop-integration helpers to prevent indefinite hangs.
-- Imported `winapps.conf` RDP flag sets are filtered all-or-nothing; partial acceptance is never silent.
-- Username escaping on PowerShell invocations to prevent command injection.
-
-### Changed
-- Default RDP port: **3390** (avoids collision with other containers on 3389).
-- Default VNC port: **8007** (avoids collision with LinOffice on 8006).
-- FreeRDP search order: `xfreerdp3 → xfreerdp → sdl-freerdp3 → sdl-freerdp → flatpak`.
-- Uninstall always removes the container (previously `--purge` only).
-- RemoteApp / RAIL enabled for seamless app windows (no full desktop).
-- Per-app desktop notification removed (was noisy on every launch).
+- RDP bound to **127.0.0.1 only** — no network exposure.
+- **TLS-only** RDP channel (SecurityLayer=2); NLA disabled only in the loopback-bound setup.

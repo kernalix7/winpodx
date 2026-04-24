@@ -298,6 +298,16 @@ _install_bundled_apps_if_needed()
 _ensure_desktop_entries()
 " 2>/dev/null || true
 
+# --- Post-upgrade migration wizard ---
+# If an existing config is present this is an upgrade, not a fresh
+# install. Run the migrate wizard so the user sees new-version release
+# notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
+# `|| true` keeps install.sh's exit code clean if migrate fails.
+if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
+    log "Running post-upgrade migration wizard..."
+    "$HOME/.local/bin/winpodx" migrate || true
+fi
+
 # --- Done ---
 echo ""
 echo " Location: $INSTALL_DIR"
