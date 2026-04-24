@@ -15,6 +15,15 @@
 #     "source": "win32" | "uwp", "wm_class_hint": str,
 #     "launch_uri": str, "icon_b64": str }
 #
+# Semantic contract for `launch_uri`:
+#   - source == "uwp"   : bare AUMID of the form `PackageFamilyName!AppId`
+#                         (NO `shell:AppsFolder\` prefix — the host prepends
+#                         that when building the FreeRDP `/app-cmd`). The
+#                         host-side regex `_AUMID_RE` in
+#                         `src/winpodx/core/rdp.py` rejects any value that
+#                         already carries the prefix.
+#   - source == "win32" : empty string.
+#
 # An optional trailing element `{"_truncated": true}` signals that the
 # guest clipped its own output.
 #
@@ -202,7 +211,12 @@ try { $wsh = New-Object -ComObject WScript.Shell } catch { }
 foreach ($d in $startDirs) {
     if (-not $wsh) { break }
     try {
-        Get-ChildItem -Path $d -Recurse -Filter '*.lnk' -ErrorAction SilentlyContinue |
+        # L3 hardening: bound recursion depth. Start Menu\Programs layouts
+        # with symlink loops or pathologically deep nesting could otherwise
+        # stall the guest until the host-side 120s timeout fires. PowerShell
+        # 5.1+ honors -Depth on Get-ChildItem. The MAX_APPS post-filter
+        # still caps absolute output size.
+        Get-ChildItem -Path $d -Recurse -Depth 8 -Filter '*.lnk' -ErrorAction SilentlyContinue |
             ForEach-Object {
                 try {
                     if ($_.Name -match '(?i)uninstall|readme|license|eula') { return }
@@ -249,8 +263,11 @@ try {
                 try {
                     $appId = [string]$appNode.Id
                     if (-not $appId) { continue }
+                    # Emit bare AUMID only. The host-side FreeRDP command
+                    # builder (src/winpodx/core/rdp.py) prepends
+                    # `shell:AppsFolder\` itself; duplicating the prefix
+                    # here would produce `shell:AppsFolder\shell:AppsFolder\...`.
                     $aumid = "$($pkg.PackageFamilyName)!$appId"
-                    $launchUri = "shell:AppsFolder\$aumid"
 
                     $ve = $null
                     foreach ($probe in 'VisualElements', 'uap:VisualElements') {

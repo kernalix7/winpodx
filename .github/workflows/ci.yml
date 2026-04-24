@@ -41,6 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Defense in depth: the DryRun path is read-only, but we still
+          # do not want the job's GITHUB_TOKEN left persisted in
+          # .git/config where any subsequent step (including the pwsh
+          # smoke test) could observe it.
+          persist-credentials: false
       - name: Ensure PowerShell Core is available
         run: |
           if command -v pwsh >/dev/null 2>&1; then
