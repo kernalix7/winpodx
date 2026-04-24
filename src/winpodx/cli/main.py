@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from winpodx import __version__
 
@@ -110,6 +111,21 @@ def cli(argv: list[str] | None = None) -> None:
     power_p.add_argument("--suspend", action="store_true", help="Suspend (pause) the pod")
     power_p.add_argument("--resume", action="store_true", help="Resume the pod")
 
+    migrate_p = sub.add_parser(
+        "migrate",
+        help="Post-upgrade wizard — show release notes and populate discovered apps",
+    )
+    migrate_p.add_argument(
+        "--no-refresh",
+        action="store_true",
+        help="Skip the app-discovery prompt (still updates the version marker)",
+    )
+    migrate_p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Disable all prompts (for automation / CI)",
+    )
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -166,6 +182,10 @@ def _dispatch(args: argparse.Namespace) -> None:
         _cmd_uninstall(args)
     elif cmd == "power":
         _cmd_power(args)
+    elif cmd == "migrate":
+        from winpodx.cli.migrate import run_migrate
+
+        sys.exit(run_migrate(args))
 
 
 def _cmd_info() -> None:

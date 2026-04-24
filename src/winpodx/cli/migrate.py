@@ -1,0 +1,245 @@
+"""Post-upgrade migration wizard for winpodx.
+
+Invoked automatically by ``install.sh`` when an existing winpodx
+installation is detected, or manually via ``winpodx migrate``. Shows
+version-specific release notes for versions the user has skipped over
+and optionally triggers app discovery so the new dynamic-discovery
+feature (v0.1.8+) populates the menu immediately.
+
+Version tracking lives in ``~/.config/winpodx/installed_version.txt``.
+The first install after v0.1.8 writes that file; earlier installs had
+no tracker, so a missing file combined with an existing
+``winpodx.toml`` is treated as a pre-tracker upgrade (baseline 0.1.7).
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+from typing import Optional
+
+from winpodx import __version__
+from winpodx.utils.paths import config_dir
+
+# Per-version release highlights shown to users upgrading from an earlier
+# version. Add new entries at the top when cutting a release. Keep each
+# note user-facing, not developer-facing — three to six bullets max.
+_VERSION_NOTES: dict[str, list[str]] = {
+    "0.1.8": [
+        "Dynamic Windows-app discovery (scan + register apps installed on the container).",
+        "New CLI: `winpodx app refresh`",
+        "New GUI: 'Refresh Apps' button on the Apps page",
+        "UWP / MSIX apps supported via RemoteApp (launch via AUMID)",
+        "Migration wizard: `winpodx migrate` (this command)",
+    ],
+}
+
+_VERSION_FILE = "installed_version.txt"
+# Pre-tracker installs (0.1.7 and earlier) are assumed to be on this
+# version when an existing config is present but no marker file exists.
+_PRETRACKER_BASELINE = "0.1.7"
+
+
+def run_migrate(args: argparse.Namespace) -> int:
+    """Entry point for ``winpodx migrate``. Returns the process exit code."""
+    current = __version__
+    installed = _detect_installed_version()
+
+    if installed is None:
+        _write_installed_version(current)
+        print(f"winpodx {current}: fresh install recorded. No migration needed.")
+        return 0
+
+    cur_cmp = _version_tuple(current)[:3]
+    inst_cmp = _version_tuple(installed)[:3]
+
+    if inst_cmp >= cur_cmp:
+        _write_installed_version(current)
+        print(f"winpodx {current}: already current. Nothing to migrate.")
+        return 0
+
+    print(f"winpodx: {installed} -> {current} detected\n")
+    _print_whats_new(installed, current)
+
+    non_interactive = bool(getattr(args, "non_interactive", False))
+    skip_refresh = bool(getattr(args, "no_refresh", False))
+
+    if skip_refresh:
+        print("\nSkipping app discovery (--no-refresh).")
+    elif non_interactive:
+        print("\nSkipping app discovery (--non-interactive).")
+    elif _prompt_yes("\nRun app discovery now? (scans Windows pod for installed apps)"):
+        _attempt_refresh()
+
+    _write_installed_version(current)
+    print(f"\nMigration complete. Marker updated to {current}.")
+    print("Re-run this wizard any time with: winpodx migrate")
+    return 0
+
+
+def _detect_installed_version() -> Optional[str]:
+    """Return the recorded installed version, 'pre-tracker baseline', or None.
+
+    Priority:
+    1. ``installed_version.txt`` if readable.
+    2. If ``winpodx.toml`` exists (pre-tracker upgrade), return the
+       baseline (``0.1.7``).
+    3. Otherwise return ``None`` — treated as a fresh install.
+    """
+    marker = _read_installed_version()
+    if marker:
+        return marker
+
+    from winpodx.core.config import Config
+
+    if Config.path().exists():
+        return _PRETRACKER_BASELINE
+    return None
+
+
+def _read_installed_version() -> Optional[str]:
+    """Return the version string from the marker file, or None if absent/unreadable."""
+    path = config_dir() / _VERSION_FILE
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        return None
+    return content or None
+
+
+def _write_installed_version(version: str) -> None:
+    """Write ``version`` to the marker file, 0644 permissions."""
+    path = config_dir() / _VERSION_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(version + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o644)
+    except OSError:
+        # Non-fatal; file already exists on POSIX with umask defaults.
+        pass
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Parse ``'0.1.8'`` -> ``(0, 1, 8)``.
+
+    Stops at the first non-integer segment so a pre-release suffix like
+    ``0.1.8rc1`` still compares correctly against ``0.1.8``.
+    """
+    out: list[int] = []
+    for segment in v.strip().split("."):
+        try:
+            out.append(int(segment))
+        except ValueError:
+            break
+    return tuple(out)
+
+
+def _print_whats_new(installed: str, current: str) -> None:
+    """Print per-version notes for every version in ``(installed, current]``."""
+    inst = _version_tuple(installed)[:3]
+    cur = _version_tuple(current)[:3]
+
+    relevant: list[tuple[tuple[int, ...], str, list[str]]] = []
+    for ver, notes in _VERSION_NOTES.items():
+        v = _version_tuple(ver)[:3]
+        if inst < v <= cur:
+            relevant.append((v, ver, notes))
+    relevant.sort()
+
+    if not relevant:
+        print("(No user-facing release notes for the versions between installed and current.)")
+        return
+
+    for _, ver, notes in relevant:
+        print(f"What's new in {ver}:")
+        for note in notes:
+            print(f"  - {note}")
+        print()
+
+
+def _prompt_yes(question: str, default: bool = True) -> bool:
+    """Interactive yes/no prompt. Returns True on accept, False on decline/EOF.
+
+    Empty input returns ``default``.
+    """
+    suffix = "[Y/n]" if default else "[y/N]"
+    try:
+        response = input(f"{question} {suffix}: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    if not response:
+        return default
+    return response in ("y", "yes")
+
+
+def _attempt_refresh() -> None:
+    """Run discovery; optionally start the pod first if the backend supports it."""
+    from winpodx.core.config import Config
+
+    cfg = Config.load()
+
+    try:
+        from winpodx.core.discovery import (
+            DiscoveryError,
+            discover_apps,
+            persist_discovered,
+        )
+    except ImportError:
+        print("\n  Discovery unavailable in this build. Skipping.")
+        return
+
+    if not _pod_is_running(cfg):
+        if not _prompt_yes("  Pod is not running. Start it first? (first boot can take ~1 minute)"):
+            print("\n  Skipping refresh. Later: `winpodx pod start --wait && winpodx app refresh`")
+            return
+        try:
+            from winpodx.core.provisioner import ProvisionError, ensure_ready
+
+            print("\n  Starting pod...")
+            ensure_ready(cfg)
+        except ProvisionError as exc:
+            print(f"\n  Could not start pod: {exc}")
+            print("  Run `winpodx pod start --wait` manually and try again.")
+            return
+        except Exception as exc:  # noqa: BLE001 — surface any startup failure
+            print(f"\n  Could not start pod: {exc}")
+            return
+
+    try:
+        print("\n  Scanning Windows pod for installed apps...")
+        apps = discover_apps(cfg)
+        written = persist_discovered(apps)
+        print(f"  Discovered {len(apps)} app(s); wrote {len(written)} profile(s).")
+    except DiscoveryError as exc:
+        print(f"\n  Discovery failed: {exc}")
+        print("  Retry later with: winpodx app refresh")
+
+
+def _pod_is_running(cfg) -> bool:
+    """Lightweight ``{runtime} ps --filter name=...`` check.
+
+    Returns ``False`` for libvirt/manual backends — those don't support
+    discovery yet (v0.2.0 guest-agent work), so migrate just surfaces
+    whatever error ``core.discovery`` emits when called.
+    """
+    runtime = cfg.pod.backend
+    if runtime not in ("podman", "docker"):
+        return False
+    try:
+        result = subprocess.run(  # noqa: S603 — args is a fixed list
+            [
+                runtime,
+                "ps",
+                "--filter",
+                f"name={cfg.pod.container_name}",
+                "--format",
+                "{{.State}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+    return "running" in result.stdout.lower()

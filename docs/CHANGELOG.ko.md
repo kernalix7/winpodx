@@ -13,6 +13,7 @@
 - **Windows 앱 동적 발견.** 새 CLI `winpodx app refresh` 서브커맨드와 Qt GUI Apps 페이지의 "Refresh Apps" 버튼이 Windows 게스트에 실제 설치된 앱을 열거하고 기본 번들 14개 프로필과 함께 등록합니다. 컨테이너 내부에서 `scripts/windows/discover_apps.ps1` 이 Registry `App Paths` (HKLM + HKCU), Start Menu `.lnk` 재귀, UWP/MSIX (`Get-AppxPackage` + `AppxManifest.xml`), Chocolatey / Scoop shim 4개 소스를 스캔하고 실제 바이너리/패키지 로고에서 추출한 base64 아이콘을 포함한 JSON 배열을 반환합니다. Linux 호스트 (`winpodx.core.discovery`) 는 `podman cp` 로 스크립트를 복사하고 `podman exec powershell` 로 실행한 뒤, 결과를 `~/.local/share/winpodx/discovered/<slug>/` 아래 TOML + PNG/SVG 아이콘 파일로 저장합니다. 번들 / 사용자 직접 추가 / 발견 앱은 세 디렉토리로 분리 관리되며 로딩 시 "사용자 > 발견 > 번들" 우선순위로 병합됩니다 — 재발견 실행은 발견 트리만 건드립니다.
 - **UWP RemoteApp 실행.** `rdp.build_rdp_command` 가 `launch_uri` + 엄격 정규식 검증된 AUMID (`<PackageFamilyName>!<AppId>`) 를 받아 UWP 앱을 `/app:program:explorer.exe,cmd:shell:AppsFolder\<AUMID>` 로 매핑합니다. `/wm-class` fallback 이 `winpodx-uwp-<aumid-slug>` 로 슬러그당 고유하게 지정되어 두 UWP 앱이 같은 힌트를 공유할 때도 Linux 태스크바 그루핑이 분리됩니다.
 - **CI PowerShell Core smoke 테스트.** 새 `discover-apps-ps` 잡이 Ubuntu runner 에 `pwsh` 를 설치하고 모든 PR 에서 `discover_apps.ps1 -DryRun` 을 실행해 `core.discovery` 가 기대하는 JSON 배열 shape 을 stdout 이 파싱 가능한지 검증합니다.
+- **업그레이드 후 마이그레이션 위자드.** 새 CLI `winpodx migrate` 가 사용자가 건너뛴 모든 버전의 릴리즈 노트를 순차적으로 보여주고, 원하면 `winpodx app refresh` 를 바로 실행해 Windows 앱 메뉴를 한 번에 채워 줍니다. `install.sh` 는 업그레이드 감지 시 (`~/.config/winpodx/winpodx.toml` 존재) `winpodx migrate` 를 자동 호출합니다 — 건너뛰려면 `WINPODX_NO_MIGRATE=1` 설정. 자동화용 플래그: `--no-refresh` (discovery 만 스킵), `--non-interactive` (모든 프롬프트 비활성화). 위자드는 `~/.config/winpodx/installed_version.txt` 에 현재 버전을 기록하며, 이 파일이 없는 사전-0.1.8 설치는 `0.1.7` 에서 업그레이드하는 것으로 간주합니다.
 
 ### 변경
 - `AppInfo` 에 `source: "bundled" | "discovered" | "user"`, `args`, `wm_class_hint`, `launch_uri` 필드 추가. GUI 가 발견 엔트리를 뱃지로 구분할 수 있고 RDP 실행이 UWP 앱을 타겟팅할 수 있게 됩니다.
@@ -120,20 +121,3 @@
 ### 보안
 - RDP 를 **127.0.0.1** 에만 바인딩; 네트워크 노출 없음.
 - **TLS 전용** RDP 채널 (SecurityLayer=2); NLA 는 loopback 바인딩 환경에서만 비활성화.
-- 컨테이너 이름, 앱 이름, 임포트된 RDP 플래그에 엄격한 allowlist 기반 입력 검증.
-- 아이콘 설치 및 번들 데이터 조회 시 심볼릭 링크 / path traversal 차단.
-- 정전 시 torn write 방지를 위한 원자적 쓰기 (`fsync` 포함).
-- 패스워드 로그 출력 시 자동 마스킹; 로그 record args 도 초기화하여 지연 포맷팅 누출 방지.
-- 인증서 정책: 로컬호스트에서만 `/cert:ignore`, 원격 연결에는 `/cert:tofu`.
-- 동시 실행 레이스 방지를 위한 파일 배타 락 (PID 파일).
-- 데스크탑 통합 헬퍼에 서브프로세스 타임아웃 적용 (무한 hang 방지).
-- 임포트된 `winapps.conf` 의 RDP 플래그는 all-or-nothing 필터링; 부분 적용은 발생하지 않음.
-- PowerShell 호출 시 사용자명 이스케이핑 (command injection 방지).
-
-### 변경
-- 기본 RDP 포트: **3390** (3389 에서 다른 컨테이너와 충돌 방지).
-- 기본 VNC 포트: **8007** (LinOffice 8006 과 충돌 방지).
-- FreeRDP 탐색 순서: `xfreerdp3 → xfreerdp → sdl-freerdp3 → sdl-freerdp → flatpak`.
-- 언인스톨 시 항상 컨테이너 제거 (기존에는 `--purge` 에만 제거).
-- 전체 데스크탑 없이 앱 창만 보이도록 RemoteApp / RAIL 활성화.
-- 앱 실행마다 나오던 데스크탑 알림 제거 (너무 잦아서).
