@@ -480,3 +480,124 @@ class TestComposeNetworkKey:
         content = (tmp_path / "winpodx" / "compose.yaml").read_text()
         assert "NETWORK" not in content
         assert "slirp" not in content
+
+
+# --- v0.1.8 audit I1/I2: winpodx app refresh cfg-loading + kind routing ---
+
+
+class TestRefreshAppsCli:
+    def _import(self):
+        from winpodx.cli.app import _refresh_apps
+
+        return _refresh_apps
+
+    def test_refresh_passes_cfg_to_discover_apps(self):
+        from winpodx.core.config import Config
+
+        fake_cfg = Config()
+        with (
+            patch("winpodx.core.config.Config.load", return_value=fake_cfg),
+            patch("winpodx.core.discovery.discover_apps", return_value=[]) as mock_da,
+            patch("winpodx.core.discovery.persist_discovered", return_value=[]),
+        ):
+            refresh = self._import()
+            refresh(as_json=False, timeout=30)
+            mock_da.assert_called_once()
+            args, kwargs = mock_da.call_args
+            # cfg must be first positional arg (matches discover_apps signature).
+            assert args[0] is fake_cfg
+            assert kwargs.get("timeout", None) == 30
+
+    def test_refresh_pod_not_running_exits_2(self):
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DiscoveryError
+
+        with (
+            patch("winpodx.core.config.Config.load", return_value=Config()),
+            patch(
+                "winpodx.core.discovery.discover_apps",
+                side_effect=DiscoveryError("pod is down", kind="pod_not_running"),
+            ),
+            pytest.raises(SystemExit) as excinfo,
+        ):
+            refresh = self._import()
+            refresh(as_json=False, timeout=30)
+        assert excinfo.value.code == 2
+
+    def test_refresh_unsupported_backend_exits_2(self):
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DiscoveryError
+
+        with (
+            patch("winpodx.core.config.Config.load", return_value=Config()),
+            patch(
+                "winpodx.core.discovery.discover_apps",
+                side_effect=DiscoveryError("libvirt not supported", kind="unsupported_backend"),
+            ),
+            pytest.raises(SystemExit) as excinfo,
+        ):
+            refresh = self._import()
+            refresh(as_json=False, timeout=30)
+        assert excinfo.value.code == 2
+
+    def test_refresh_timeout_exits_4(self):
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DiscoveryError
+
+        with (
+            patch("winpodx.core.config.Config.load", return_value=Config()),
+            patch(
+                "winpodx.core.discovery.discover_apps",
+                side_effect=DiscoveryError("timed out", kind="timeout"),
+            ),
+            pytest.raises(SystemExit) as excinfo,
+        ):
+            refresh = self._import()
+            refresh(as_json=False, timeout=30)
+        assert excinfo.value.code == 4
+
+    def test_refresh_unknown_kind_defaults_to_3(self):
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DiscoveryError
+
+        with (
+            patch("winpodx.core.config.Config.load", return_value=Config()),
+            patch(
+                "winpodx.core.discovery.discover_apps",
+                side_effect=DiscoveryError("weird thing happened"),
+            ),
+            pytest.raises(SystemExit) as excinfo,
+        ):
+            refresh = self._import()
+            refresh(as_json=False, timeout=30)
+        assert excinfo.value.code == 3
+
+    def test_refresh_json_emits_slug_and_icon_path(self, capsys):
+        import json
+
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DiscoveredApp
+
+        app = DiscoveredApp(
+            name="myapp",
+            full_name="My App",
+            executable="C:\\\\App\\\\my.exe",
+            source="win32",
+            slug="myapp",
+            icon_path="/home/u/.local/share/icons/hicolor/32x32/apps/winpodx-myapp.png",
+        )
+        with (
+            patch("winpodx.core.config.Config.load", return_value=Config()),
+            patch("winpodx.core.discovery.discover_apps", return_value=[app]),
+            patch("winpodx.core.discovery.persist_discovered", return_value=[app]),
+        ):
+            refresh = self._import()
+            refresh(as_json=True, timeout=30)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert len(data) == 1
+        assert data[0]["name"] == "myapp"
+        assert data[0]["slug"] == "myapp"
+        assert data[0]["icon_path"].endswith("winpodx-myapp.png")
+        assert "discovered 1 app" in captured.err
