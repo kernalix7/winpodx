@@ -60,6 +60,12 @@ class PodConfig:
     image: str = "ghcr.io/dockur/windows:latest"
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
+    # Maximum concurrent RemoteApp sessions. Writes HKLM:\...\Terminal
+    # Server\MaxInstanceCount + clears fSingleSessionPerUser in the guest
+    # so rdprrap can hand out up to N parallel sessions. Clamped to the
+    # range [1, 50] — 50 is the practical ceiling verified against
+    # rdprrap; above that responsiveness degrades regardless of ram_gb.
+    max_sessions: int = 10
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -69,6 +75,7 @@ class PodConfig:
         self.vnc_port = max(1, min(65535, int(self.vnc_port)))
         self.idle_timeout = max(0, int(self.idle_timeout))
         self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
+        self.max_sessions = max(1, min(50, int(self.max_sessions)))
         if not isinstance(self.container_name, str) or not _CONTAINER_NAME_RE.match(
             self.container_name
         ):
@@ -144,6 +151,7 @@ class Config:
                 "boot_timeout": self.pod.boot_timeout,
                 "image": self.pod.image,
                 "disk_size": self.pod.disk_size,
+                "max_sessions": self.pod.max_sessions,
             },
         }
 
@@ -202,3 +210,34 @@ def _apply(obj: Any, data: dict[str, Any]) -> None:
                 )
                 continue
         setattr(obj, key, val)
+
+
+def estimate_session_memory(max_sessions: int) -> float:
+    """Rough memory footprint estimate (GB) for N concurrent RemoteApp sessions.
+
+    Captures the **fixed** cost of running the guest + RAIL overhead
+    per session (~100 MB per session for the RDP channel and session
+    process). Per-app working set (Word, Chrome, etc.) is explicitly
+    NOT counted — that's the user's responsibility and varies wildly.
+    """
+    return 2.0 + (max_sessions * 0.1)
+
+
+def check_session_budget(cfg: Config) -> str | None:
+    """Return a human-readable warning when max_sessions over-runs ram_gb, else None.
+
+    Quiet by default: only fires when the rough estimate exceeds the
+    pod's advertised RAM budget. The default config (10 sessions, 4 GB)
+    is silent; a 30-session bump on 4 GB fires; a 30-session bump on
+    8 GB is silent.
+    """
+    est = estimate_session_memory(cfg.pod.max_sessions)
+    if est <= cfg.pod.ram_gb:
+        return None
+    deficit = est - cfg.pod.ram_gb
+    rec = int(est) + 1
+    return (
+        f"max_sessions={cfg.pod.max_sessions} is estimated to need ~{est:.1f} GB "
+        f"(RAIL + guest base); pod has ram_gb={cfg.pod.ram_gb} "
+        f"({deficit:.1f} GB short). Consider raising pod.ram_gb to at least {rec}."
+    )

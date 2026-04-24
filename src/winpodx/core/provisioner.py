@@ -50,6 +50,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     ensure_pod_awake(cfg)
 
     _ensure_pod_running(cfg, timeout)
+    _apply_max_sessions(cfg)
     _install_bundled_apps_if_needed()
     _ensure_desktop_entries()
 
@@ -93,6 +94,92 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
         result.stderr.strip(),
     )
     return False
+
+
+def _apply_max_sessions(cfg: Config) -> None:
+    """Sync the guest's MaxInstanceCount registry value with cfg.pod.max_sessions.
+
+    Reads the current value first and only rewrites + restarts TermService
+    when the value differs, so active RemoteApp sessions aren't dropped
+    every time ensure_ready() runs.
+
+    Only runs for container backends (podman/docker). libvirt + manual
+    backends are a v0.2.0 guest-agent concern.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    # Clamped at __post_init__; re-assert defensively so the integer
+    # interpolated into the PS command is always within [1, 50].
+    desired = max(1, min(50, int(cfg.pod.max_sessions)))
+    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
+    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+    reg_path = r"HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
+
+    read_cmd = [
+        runtime,
+        "exec",
+        cfg.pod.container_name,
+        ps_exe,
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        f"(Get-ItemProperty '{reg_path}' -Name MaxInstanceCount "
+        f"-ErrorAction SilentlyContinue).MaxInstanceCount",
+    ]
+    try:
+        read_result = subprocess.run(read_cmd, capture_output=True, text=True, timeout=15)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("max_sessions: failed to read current value: %s", e)
+        return
+
+    current: int | None
+    stdout = read_result.stdout.strip()
+    try:
+        current = int(stdout) if stdout else None
+    except ValueError:
+        current = None
+
+    if current == desired:
+        log.debug("max_sessions: already %d on guest, no apply needed", desired)
+        return
+
+    apply_script = (
+        f"$p = '{reg_path}'; "
+        f"Set-ItemProperty -Path $p -Name MaxInstanceCount -Value {desired} "
+        f"-Type DWord -Force; "
+        f"Set-ItemProperty -Path $p -Name fSingleSessionPerUser -Value 0 "
+        f"-Type DWord -Force; "
+        f"Restart-Service -Force TermService"
+    )
+    apply_cmd = [
+        runtime,
+        "exec",
+        cfg.pod.container_name,
+        ps_exe,
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        apply_script,
+    ]
+    try:
+        result = subprocess.run(apply_cmd, capture_output=True, text=True, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("max_sessions: apply failed: %s", e)
+        return
+
+    if result.returncode == 0:
+        log.info(
+            "max_sessions: guest registry updated %s -> %d (TermService restarted)",
+            current if current is not None else "<unset>",
+            desired,
+        )
+    else:
+        log.warning(
+            "max_sessions: apply rc=%d stderr=%s",
+            result.returncode,
+            result.stderr.strip(),
+        )
 
 
 def _auto_rotate_password(cfg: Config) -> Config:
