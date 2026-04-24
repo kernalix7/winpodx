@@ -27,6 +27,19 @@ def cli(argv: list[str] | None = None) -> None:
 
     app_sub.add_parser("list", help="List available apps")
 
+    refresh_p = app_sub.add_parser("refresh", help="Discover apps installed on the Windows pod")
+    refresh_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Print discovered apps as JSON to stdout (human text to stderr)",
+    )
+    refresh_p.add_argument(
+        "--timeout",
+        type=int,
+        default=30,
+        help="Discovery timeout in seconds (default: 30)",
+    )
+
     run_p = app_sub.add_parser("run", help="Run a Windows application")
     run_p.add_argument("name", help="App name or 'desktop'")
     run_p.add_argument("file", nargs="?", help="File to open")
