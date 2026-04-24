@@ -6,20 +6,100 @@ set -euo pipefail
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-#   or: ./install.sh
+#   or: ./install.sh [--source PATH] [--image-tar PATH] [--skip-deps] [--help]
 #
-# Installs winpodx to ~/.local/bin/winpodx/ and creates launcher script.
+# Installs winpodx to ~/.local/bin/winpodx-app/ and creates launcher script.
 # No pip, no venv, no root required.
+#
+# Local-path options (for offline / air-gapped installs):
+#   --source PATH      Copy winpodx from PATH instead of git clone.
+#                      (env: WINPODX_SOURCE)
+#   --image-tar PATH   Preload Windows container image from PATH via
+#                      `podman load -i` (or `docker load -i`).
+#                      (env: WINPODX_IMAGE_TAR)
+#   --skip-deps        Skip the distro dependency install phase.
+#                      Fails early if required tools aren't already present.
+#                      (env: WINPODX_SKIP_DEPS=1)
 ###############################################################################
 
 INSTALL_DIR="$HOME/.local/bin/winpodx-app"
 LAUNCHER="$HOME/.local/bin/winpodx-run"
 REPO_URL="https://github.com/kernalix7/winpodx.git"
 
+# Local-path overrides (env or flag). Flags take precedence over env.
+WINPODX_SOURCE="${WINPODX_SOURCE:-}"
+WINPODX_IMAGE_TAR="${WINPODX_IMAGE_TAR:-}"
+WINPODX_SKIP_DEPS="${WINPODX_SKIP_DEPS:-}"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
 warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 err()  { echo -e "${RED}[error]${NC} $*" >&2; }
+
+usage() {
+    sed -n '4,22p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || cat <<'USAGE_EOF'
+winpodx installer — see install.sh header for full usage.
+
+Flags:
+  --source PATH       Copy from local repo instead of git clone
+  --image-tar PATH    Load container image from local tar
+  --skip-deps         Skip distro dependency install
+  -h, --help          Print this help and exit
+USAGE_EOF
+}
+
+# --- Parse flags (must precede any work) ---
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --source)
+            WINPODX_SOURCE="${2:-}"
+            shift 2
+            ;;
+        --image-tar)
+            WINPODX_IMAGE_TAR="${2:-}"
+            shift 2
+            ;;
+        --skip-deps)
+            WINPODX_SKIP_DEPS=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            err "Unknown argument: $1"
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Validate --source
+if [ -n "$WINPODX_SOURCE" ]; then
+    if [ ! -d "$WINPODX_SOURCE" ]; then
+        err "--source path does not exist or is not a directory: $WINPODX_SOURCE"
+        exit 1
+    fi
+    if [ ! -f "$WINPODX_SOURCE/pyproject.toml" ] || [ ! -d "$WINPODX_SOURCE/src/winpodx" ]; then
+        err "--source path does not look like a winpodx repo (missing pyproject.toml or src/winpodx/): $WINPODX_SOURCE"
+        exit 1
+    fi
+    log "Using local source: $WINPODX_SOURCE"
+fi
+
+# Validate --image-tar
+if [ -n "$WINPODX_IMAGE_TAR" ]; then
+    if [ ! -f "$WINPODX_IMAGE_TAR" ]; then
+        err "--image-tar file does not exist: $WINPODX_IMAGE_TAR"
+        exit 1
+    fi
+    log "Using local image tar: $WINPODX_IMAGE_TAR"
+fi
+
+if [ -n "$WINPODX_SKIP_DEPS" ]; then
+    log "Skipping distro dependency install (--skip-deps)"
+fi
 
 # --- Detect distro & package manager ---
 detect_distro() {
@@ -132,6 +212,11 @@ if [ ! -e /dev/kvm ]; then
 fi
 
 if [ ${#MISSING[@]} -gt 0 ]; then
+    if [ -n "$WINPODX_SKIP_DEPS" ]; then
+        err "--skip-deps is set but required tools are missing: ${MISSING[*]}"
+        err "Install them manually and re-run, or drop --skip-deps."
+        exit 1
+    fi
     log "Missing: ${MISSING[*]}"
     echo ""
     echo "  The following will be installed via $(command -v zypper || command -v dnf || command -v apt-get || command -v pacman):"
@@ -176,6 +261,11 @@ fi
 # manager if available so the winpodx runtime import doesn't fail.
 if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; then
     if ! python3 -c "import tomli" >/dev/null 2>&1; then
+        if [ -n "$WINPODX_SKIP_DEPS" ]; then
+            err "Python $PY_VERSION needs tomli but --skip-deps is set and it's missing."
+            err "Install tomli manually (e.g., 'pip install tomli') and re-run."
+            exit 1
+        fi
         log "Python $PY_VERSION needs tomli (stdlib tomllib arrived in 3.11). Installing..."
         if command -v zypper >/dev/null 2>&1; then
             sudo zypper install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
@@ -190,17 +280,30 @@ if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; then
 fi
 log "Python $PY_VERSION OK"
 
-# --- Clone or update winpodx ---
+# --- Clone, update, or copy winpodx source ---
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
-if [ -d "$INSTALL_DIR/.git" ]; then
-    log "Updating existing installation..."
-    git -C "$INSTALL_DIR" pull --quiet
-else
+copy_from_local() {
+    local src="$1"
     if [ -d "$INSTALL_DIR" ]; then
         rm -rf "$INSTALL_DIR"
     fi
+    mkdir -p "$INSTALL_DIR"
+    for item in src data config scripts install.sh uninstall.sh pyproject.toml README.md LICENSE; do
+        if [ -e "$src/$item" ]; then
+            cp -r "$src/$item" "$INSTALL_DIR/"
+        fi
+    done
+}
 
+if [ -n "$WINPODX_SOURCE" ]; then
+    # --source wins over every other path; no git at all.
+    log "Copying winpodx from --source: $WINPODX_SOURCE"
+    copy_from_local "$WINPODX_SOURCE"
+elif [ -d "$INSTALL_DIR/.git" ]; then
+    log "Updating existing installation..."
+    git -C "$INSTALL_DIR" pull --quiet
+else
     # If running from repo, copy only needed files (skip .venv, .git, etc.).
     # When piped via `curl ... | bash`, bash reads from stdin and BASH_SOURCE[0]
     # is unset — `set -u` would abort here without the default expansion. Fall
@@ -213,19 +316,32 @@ else
     fi
     if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/src/winpodx/__init__.py" ]; then
         log "Installing from local repository..."
-        mkdir -p "$INSTALL_DIR"
-        for item in src data config scripts install.sh uninstall.sh pyproject.toml README.md LICENSE; do
-            if [ -e "$SCRIPT_DIR/$item" ]; then
-                cp -r "$SCRIPT_DIR/$item" "$INSTALL_DIR/"
-            fi
-        done
+        copy_from_local "$SCRIPT_DIR"
     else
         if ! command -v git >/dev/null 2>&1; then
             err "git is required for remote install. Install git first or run from the repository."
             exit 1
         fi
         log "Cloning from GitHub..."
+        if [ -d "$INSTALL_DIR" ]; then
+            rm -rf "$INSTALL_DIR"
+        fi
         git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+    fi
+fi
+
+# --- Load Windows container image from local tar (--image-tar) ---
+# Runs AFTER the winpodx source is in place so the rest of the install
+# can still proceed if the load fails (first-boot would pull from the
+# registry as a fallback — warn but don't abort).
+if [ -n "$WINPODX_IMAGE_TAR" ]; then
+    log "Loading Windows container image from $WINPODX_IMAGE_TAR..."
+    if command -v podman >/dev/null 2>&1; then
+        podman load -i "$WINPODX_IMAGE_TAR" || warn "image load failed; first boot may try the registry"
+    elif command -v docker >/dev/null 2>&1; then
+        docker load -i "$WINPODX_IMAGE_TAR" || warn "image load failed; first boot may try the registry"
+    else
+        warn "neither podman nor docker found; cannot load image tar"
     fi
 fi
 

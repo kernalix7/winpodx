@@ -160,6 +160,26 @@ KVM, Python 3.9+) with your confirmation, drops winpodx into
 menu. No root required except for the dependency install step. Works on
 openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
 
+**Offline / air-gapped install** — the installer takes three optional flags
+for machines with no registry / package-repo access:
+
+```bash
+# Copy winpodx from a local clone instead of git clone (also env: WINPODX_SOURCE)
+./install.sh --source /media/usb/winpodx
+
+# Preload the Windows image tar instead of fetching at first boot (env: WINPODX_IMAGE_TAR)
+./install.sh --image-tar /media/usb/windows-image.tar
+
+# Skip distro package install (env: WINPODX_SKIP_DEPS=1) — fails early if deps aren't present
+./install.sh --skip-deps
+
+# Everything at once:
+./install.sh --source /media/usb/winpodx --image-tar /media/usb/windows-image.tar --skip-deps
+```
+
+Env vars are honored even under `curl | bash`, so
+`WINPODX_SKIP_DEPS=1 curl ... | bash` works.
+
 **One-line uninstall** — `--confirm` or `--purge` is required under pipe
 (the interactive prompts can't read from a terminal while bash consumes
 stdin from curl):

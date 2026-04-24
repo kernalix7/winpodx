@@ -159,6 +159,26 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 Windows 앱을 데스크탑 메뉴에 등록. 의존성 설치 단계 외에는 root 권한 불필요.
 openSUSE, Fedora, Debian/Ubuntu, RHEL 계열, Arch 지원.
 
+**오프라인 / 에어갭 설치** — 레지스트리 / 패키지 레포 접근이 없는 환경을 위해
+3개 플래그 제공:
+
+```bash
+# git clone 대신 로컬 클론 경로 사용 (환경변수: WINPODX_SOURCE)
+./install.sh --source /media/usb/winpodx
+
+# 첫 부팅 시 registry pull 없이 Windows 이미지 tar 미리 로드 (환경변수: WINPODX_IMAGE_TAR)
+./install.sh --image-tar /media/usb/windows-image.tar
+
+# 배포판 의존성 설치 단계 스킵 (환경변수: WINPODX_SKIP_DEPS=1) — 필수 도구 부재 시 즉시 실패
+./install.sh --skip-deps
+
+# 셋 다 조합:
+./install.sh --source /media/usb/winpodx --image-tar /media/usb/windows-image.tar --skip-deps
+```
+
+환경변수는 `curl | bash` 에서도 동작하므로
+`WINPODX_SKIP_DEPS=1 curl ... | bash` 형태 사용 가능.
+
 **원 라인 삭제** — 파이프 실행에서는 `--confirm` 또는 `--purge` 플래그가 필수입니다
 (bash 가 curl 의 stdin 을 소비 중이라 대화형 프롬프트가 터미널을 읽을 수 없음):
 
