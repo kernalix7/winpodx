@@ -189,7 +189,7 @@ def _dispatch(args: argparse.Namespace) -> None:
 
 
 def _cmd_info() -> None:
-    from winpodx.core.config import Config
+    from winpodx.core.config import Config, check_session_budget
     from winpodx.display.detector import display_info
     from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
     from winpodx.utils.deps import check_all
@@ -215,12 +215,19 @@ def _cmd_info() -> None:
 
     cfg = Config.load()
     print("[Config]")
-    print(f"  Path:     {Config.path()}")
-    print(f"  Backend:  {cfg.pod.backend}")
-    print(f"  IP:       {cfg.rdp.ip}:{cfg.rdp.port}")
-    print(f"  User:     {cfg.rdp.user}")
-    print(f"  Scale:    {cfg.rdp.scale}%")
-    print(f"  Idle:     {cfg.pod.idle_timeout}s")
+    print(f"  Path:          {Config.path()}")
+    print(f"  Backend:       {cfg.pod.backend}")
+    print(f"  IP:            {cfg.rdp.ip}:{cfg.rdp.port}")
+    print(f"  User:          {cfg.rdp.user}")
+    print(f"  Scale:         {cfg.rdp.scale}%")
+    print(f"  Idle:          {cfg.pod.idle_timeout}s")
+    print(f"  Max sessions:  {cfg.pod.max_sessions}")
+    print(f"  RAM (GB):      {cfg.pod.ram_gb}")
+
+    warning = check_session_budget(cfg)
+    if warning:
+        print()
+        print(f"WARNING: {warning}", file=sys.stderr)
 
 
 def _cmd_cleanup() -> None:
