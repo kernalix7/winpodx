@@ -15,11 +15,19 @@ no tracker, so a missing file combined with an existing
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
+import sys
 from typing import Optional
 
 from winpodx import __version__
 from winpodx.utils.paths import config_dir
+
+# Marker-file hardening (Wave 2 audit L2): cap read size and regex-validate
+# content so a crafted or corrupted ``installed_version.txt`` cannot hang
+# the wizard or inject garbage into the version-comparison path.
+_MAX_MARKER_BYTES = 64
+_MARKER_VERSION_RE = re.compile(r"^\d+(\.\d+){0,3}[a-z0-9]*$")
 
 # Per-version release highlights shown to users upgrading from an earlier
 # version. Add new entries at the top when cutting a release. Keep each
@@ -98,13 +106,43 @@ def _detect_installed_version() -> Optional[str]:
 
 
 def _read_installed_version() -> Optional[str]:
-    """Return the version string from the marker file, or None if absent/unreadable."""
+    """Return the version string from the marker file, or None if absent/invalid.
+
+    Reads at most ``_MAX_MARKER_BYTES`` and requires the stripped content
+    to match ``_MARKER_VERSION_RE``. An oversized or malformed marker is
+    treated as absent so the caller falls through to the pre-tracker
+    baseline path; a warning is emitted to stderr so the user can clean
+    up the file.
+    """
     path = config_dir() / _VERSION_FILE
     try:
-        content = path.read_text(encoding="utf-8").strip()
+        with path.open("rb") as fh:
+            raw = fh.read(_MAX_MARKER_BYTES + 1)
     except (FileNotFoundError, OSError):
         return None
-    return content or None
+
+    if len(raw) > _MAX_MARKER_BYTES:
+        print(
+            f"warning: {path} exceeds {_MAX_MARKER_BYTES} bytes; ignoring marker.",
+            file=sys.stderr,
+        )
+        return None
+
+    try:
+        content = raw.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError:
+        print(f"warning: {path} is not valid UTF-8; ignoring marker.", file=sys.stderr)
+        return None
+
+    if not content:
+        return None
+    if not _MARKER_VERSION_RE.fullmatch(content):
+        print(
+            f"warning: {path} content {content!r} is not a valid version; ignoring marker.",
+            file=sys.stderr,
+        )
+        return None
+    return content
 
 
 def _write_installed_version(version: str) -> None:

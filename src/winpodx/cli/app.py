@@ -62,21 +62,31 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
         print(msg, file=sys.stderr)
         sys.exit(1)
 
+    from winpodx.core.config import Config
+
     _KIND_TO_CODE = {
         "pod_not_running": 2,
+        "unsupported_backend": 2,
+        "script_missing": 3,
         "script_failed": 3,
         "bad_json": 3,
         "truncated": 3,
         "timeout": 4,
     }
 
+    cfg = Config.load()
     try:
-        apps = discover_apps(timeout=timeout)
+        apps = discover_apps(cfg, timeout=timeout)
     except DiscoveryError as exc:
         kind = getattr(exc, "kind", "")
         code = _KIND_TO_CODE.get(kind, 3)
         if kind == "pod_not_running":
             print("Pod is not running. Run 'winpodx pod start --wait' first.", file=sys.stderr)
+        elif kind == "unsupported_backend":
+            print(
+                "Discovery requires podman or docker backend. Check 'winpodx config show'.",
+                file=sys.stderr,
+            )
         else:
             print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(code)
@@ -90,11 +100,13 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
             {
                 "name": a.name,
                 "slug": a.slug,
-                "executable": a.executable,
-                "launch_uri": a.launch_uri,
-                "source": a.source,
-                "icon_path": a.icon_path,
                 "full_name": a.full_name,
+                "executable": a.executable,
+                "args": a.args,
+                "source": a.source,
+                "launch_uri": a.launch_uri,
+                "wm_class_hint": a.wm_class_hint,
+                "icon_path": a.icon_path,
             }
             for a in apps
         ]

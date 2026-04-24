@@ -211,3 +211,55 @@ def test_run_migrate_non_interactive_skips_prompt(tmp_path, monkeypatch, capsys)
     assert called == []  # input() must never have been called
     out = capsys.readouterr().out.lower()
     assert "--non-interactive" in out
+
+
+# --- L2: marker-file size cap + strict semver regex ---
+
+
+def test_read_installed_version_accepts_valid(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "installed_version.txt").write_text("0.1.8\n", encoding="utf-8")
+    assert _read_installed_version() == "0.1.8"
+
+
+def test_read_installed_version_accepts_prerelease_suffix(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "installed_version.txt").write_text("1.2.3rc1\n", encoding="utf-8")
+    assert _read_installed_version() == "1.2.3rc1"
+
+
+def test_read_installed_version_rejects_oversized(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "installed_version.txt").write_bytes(b"0.1.8" + b"X" * 1024)
+    assert _read_installed_version() is None
+    err = capsys.readouterr().err
+    assert "exceeds" in err
+
+
+def test_read_installed_version_rejects_binary_garbage(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "installed_version.txt").write_bytes(b"\xff\xfe\x00bad\x01")
+    assert _read_installed_version() is None
+    err = capsys.readouterr().err
+    assert "not valid UTF-8" in err or "not a valid version" in err
+
+
+def test_read_installed_version_rejects_shell_metachars(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "installed_version.txt").write_text("0.1.8; rm -rf /\n", encoding="utf-8")
+    assert _read_installed_version() is None
+    err = capsys.readouterr().err
+    assert "not a valid version" in err
+
+
+def test_read_installed_version_falls_back_when_invalid(tmp_path, monkeypatch):
+    """Invalid marker -> _detect_installed_version returns the pre-tracker baseline
+    when a winpodx.toml exists, so the upgrade path still runs."""
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "installed_version.txt").write_text("not-a-version\n", encoding="utf-8")
+    # Also create a winpodx.toml so the pre-tracker fallback triggers.
+    import winpodx.core.config as cfgmod
+
+    monkeypatch.setattr(cfgmod.Config, "path", classmethod(lambda c: tmp_path / "winpodx.toml"))
+    (tmp_path / "winpodx.toml").write_text("[rdp]\nuser = 'x'\n", encoding="utf-8")
+    assert _detect_installed_version() == "0.1.7"
