@@ -404,15 +404,11 @@ gtk-update-icon-cache -f -t "$ICON_BASE" 2>/dev/null || true
 kbuildsycoca6 --noincremental 2>/dev/null || kbuildsycoca5 --noincremental 2>/dev/null || true
 log "Installed winpodx GUI launcher and icon"
 
-# --- Register app desktop entries ---
-log "Registering apps in desktop menu..."
-python3 -c "
-import sys
-sys.path.insert(0, '$INSTALL_DIR/src')
-from winpodx.core.provisioner import _install_bundled_apps_if_needed, _ensure_desktop_entries
-_install_bundled_apps_if_needed()
-_ensure_desktop_entries()
-" 2>/dev/null || true
+# v0.1.9: bundled app profiles were dropped. The app menu now populates
+# automatically the first time the Windows pod boots — `winpodx app run
+# desktop` starts the pod, the provisioner auto-fires discovery, and the
+# discovered apps + their real Windows-extracted icons land in the menu.
+# Manual trigger any time: `winpodx app refresh`.
 
 # --- Post-upgrade migration wizard ---
 # If an existing config is present this is an upgrade, not a fresh
@@ -430,11 +426,12 @@ echo " Location: $INSTALL_DIR"
 echo " Command:  winpodx"
 echo ""
 echo " Usage:"
-echo "   winpodx app run word           # Launch Word"
-echo "   winpodx app run excel          # Launch Excel"
-echo "   winpodx app run desktop        # Full Windows desktop"
+echo "   winpodx app run desktop        # Start the Windows pod (first run takes ~5-10 min)"
+echo "   winpodx app refresh            # Scan the pod for installed apps + icons"
+echo "   winpodx info                   # System / pod / dependency snapshot"
 echo "   winpodx setup                  # Reconfigure"
 echo ""
-echo " Apps are in your application menu. Just click and go."
+echo " On first pod boot the menu auto-populates with the apps actually"
+echo " installed in your Windows guest — no curated list, real icons."
 echo ""
 log "Installation complete!"

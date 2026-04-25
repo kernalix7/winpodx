@@ -1,7 +1,0 @@
-name = "onenote"
-full_name = "Microsoft OneNote"
-executable = "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE"
-categories = ["Office"]
-mime_types = [
-    "application/onenote",
-]

@@ -9,6 +9,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-04-25
+
+### Changed
+- **Discovery-first refactor.** The 14 bundled app profiles (`word-o365`, `excel-o365`, ..., `notepad`, `cmd`, ...) shipped under `data/apps/` were removed. The Linux app menu now populates exclusively via `winpodx app refresh`, which is fired automatically by `provisioner.ensure_ready` the first time the Windows pod is reachable and the discovered tree is empty. Manual rescan stays the same: `winpodx app refresh` from the CLI or the "Refresh Apps" button on the GUI Apps page. `AppInfo.source` drops the `"bundled"` enum value — only `"discovered"` and `"user"` remain. `winpodx migrate` upgrading from any 0.1.x &lt; 0.1.9 prompts to remove legacy `~/.local/share/applications/winpodx-{14-bundled-slugs}.desktop` files (skipped automatically under `--non-interactive`).
+
+### Added
+- **Info page (CLI + GUI).** New `core.info.gather_info(cfg)` returns a 5-section snapshot — System (winpodx version, OEM bundle version, rdprrap version, distro, kernel), Display, Dependencies, Pod (state, uptime, RDP/VNC reachability probes, active session count), Config (with the existing budget warning). `winpodx info` is rewritten to print all five sections. The Qt main window grows a 5th tab ("Info") with one card per section and an explicit "Refresh Info" button that re-runs `gather_info` on a `QThread`. All probes are hard-bounded so a sick pod can't block the panel.
+
+### Fixed
+- **Bug A: `winpodx app refresh` on Windows.** v0.1.8 used `podman cp host:discover_apps.ps1 container:C:/winpodx-discover.ps1`, which fails because dockur/windows is a Linux container running the actual Windows guest inside QEMU — the C: drive lives in a virtual disk that `podman cp` cannot write. The script body is now piped via `podman exec -i container powershell -NoProfile -ExecutionPolicy Bypass -Command -` over stdin, removing the staging step entirely. Stderr containing recognizable runtime strings ("no such container", "is not running", etc.) is reclassified to `kind="pod_not_running"` so the cli still routes to exit code 2 + the "run `winpodx pod start --wait`" hint.
+- **Bug B: RDP unreachable after host suspend / long idle.** Symptom: VNC port 8007 still works but RDP port 3390 doesn't accept connections — Windows TermService stalls and the virtual NIC enters power-save. New `core.pod.recover_rdp_if_needed(cfg)` detects the asymmetry, runs `podman exec powershell Restart-Service -Force TermService; w32tm /resync /force`, and re-probes RDP up to three times with backoff. Wired into `provisioner.ensure_ready` post-`_ensure_pod_running`. OEM bundle bumps 6 → 7 so `install.bat` adds preventive `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false` plus `sc.exe failure TermService reset=86400 actions=restart/5000/restart/5000/restart/5000` for Windows-side self-recovery.
+
 ## [0.1.8] - 2026-04-25
 
 ### Added

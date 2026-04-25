@@ -1,3 +1,28 @@
+winpodx (0.1.9) unstable; urgency=medium
+
+  * Fixed: `winpodx app refresh` on Windows. The 0.1.8 implementation
+    used `podman cp host:discover_apps.ps1 container:C:/...`, which
+    fails because dockur/windows is a Linux container running the
+    Windows guest inside QEMU and the C: drive lives in a virtual disk
+    that `podman cp` cannot reach. The script body is now piped via
+    `podman exec -i container powershell -Command -` over stdin.
+  * Fixed: RDP unreachable after host suspend / long idle. When VNC is
+    alive but RDP is not, winpodx now runs `Restart-Service -Force
+    TermService` + `w32tm /resync` and re-probes RDP. OEM bundle bumps
+    to 7 with preventive `Set-NetAdapterPowerManagement` + `sc.exe
+    failure TermService` actions for Windows-side self-recovery.
+  * Added: 5-section Info panel for both `winpodx info` and the GUI
+    main window — System, Display, Dependencies, Pod (state, uptime,
+    RDP/VNC reachability, active session count), Config.
+  * Changed: discovery-first refactor — the 14 bundled app profiles
+    were dropped. The Linux app menu now populates exclusively from
+    `winpodx app refresh`, which `provisioner.ensure_ready` fires
+    automatically on first pod boot when the discovered tree is empty.
+    Upgrading users get a `winpodx migrate` prompt to remove legacy
+    `winpodx-{14-bundled-slugs}.desktop` entries.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sat, 25 Apr 2026 00:00:00 +0900
+
 winpodx (0.1.8) unstable; urgency=medium
 
   * Dynamic Windows-app discovery: new `winpodx app refresh` CLI subcommand

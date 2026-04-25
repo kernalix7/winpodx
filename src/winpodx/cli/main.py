@@ -189,42 +189,67 @@ def _dispatch(args: argparse.Namespace) -> None:
 
 
 def _cmd_info() -> None:
-    from winpodx.core.config import Config, check_session_budget
-    from winpodx.display.detector import display_info
-    from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
-    from winpodx.utils.deps import check_all
+    from winpodx.core.config import Config
+    from winpodx.core.info import gather_info
 
     print("=== winpodx system info ===\n")
 
-    di = display_info()
+    cfg = Config.load()
+    info = gather_info(cfg)
+
+    sys_ = info["system"]
+    print("[System]")
+    print(f"  winpodx:        {sys_['winpodx']}")
+    print(f"  OEM bundle:     {sys_['oem_bundle']}")
+    print(f"  rdprrap:        {sys_['rdprrap']}")
+    print(f"  Distro:         {sys_['distro']}")
+    print(f"  Kernel:         {sys_['kernel']}")
+    print()
+
+    disp = info["display"]
     print("[Display]")
-    print(f"  Session type:       {di['session_type']}")
-    print(f"  Desktop env:        {di['desktop_environment']}")
-    print(f"  Wayland FreeRDP:    {di['wayland_freerdp']}")
-    print(f"  Raw scale factor:   {detect_raw_scale():.2f}")
-    print(f"  RDP scale:          {detect_scale_factor()}%")
+    print(f"  Session type:       {disp['session_type']}")
+    print(f"  Desktop env:        {disp['desktop_environment']}")
+    print(f"  Wayland FreeRDP:    {disp['wayland_freerdp']}")
+    print(f"  Raw scale factor:   {disp['raw_scale']}")
+    print(f"  RDP scale:          {disp['rdp_scale']}")
     print()
 
     print("[Dependencies]")
-    deps = check_all()
-    for name, dep in deps.items():
-        status = "OK" if dep.found else "MISSING"
-        path_info = f" ({dep.path})" if dep.path else ""
+    for name, dep in info["dependencies"].items():
+        status = "OK" if dep["found"] == "true" else "MISSING"
+        path_info = f" ({dep['path']})" if dep["path"] else ""
         print(f"  {name:<15} [{status}]{path_info}")
     print()
 
-    cfg = Config.load()
-    print("[Config]")
-    print(f"  Path:          {Config.path()}")
-    print(f"  Backend:       {cfg.pod.backend}")
-    print(f"  IP:            {cfg.rdp.ip}:{cfg.rdp.port}")
-    print(f"  User:          {cfg.rdp.user}")
-    print(f"  Scale:         {cfg.rdp.scale}%")
-    print(f"  Idle:          {cfg.pod.idle_timeout}s")
-    print(f"  Max sessions:  {cfg.pod.max_sessions}")
-    print(f"  RAM (GB):      {cfg.pod.ram_gb}")
+    pod = info["pod"]
+    print("[Pod]")
+    print(f"  State:              {pod['state']}")
+    if pod["uptime"]:
+        print(f"  Started at:         {pod['uptime']}")
+    print(
+        f"  RDP {pod['rdp_port']:<5}        "
+        f"{'reachable' if pod['rdp_reachable'] else 'unreachable'}"
+    )
+    print(
+        f"  VNC {pod['vnc_port']:<5}        "
+        f"{'reachable' if pod['vnc_reachable'] else 'unreachable'}"
+    )
+    print(f"  Active sessions:    {pod['active_sessions']}")
+    print()
 
-    warning = check_session_budget(cfg)
+    conf = info["config"]
+    print("[Config]")
+    print(f"  Path:          {conf['path']}")
+    print(f"  Backend:       {conf['backend']}")
+    print(f"  IP:            {conf['ip']}:{conf['port']}")
+    print(f"  User:          {conf['user']}")
+    print(f"  Scale:         {conf['scale']}%")
+    print(f"  Idle:          {conf['idle_timeout']}s")
+    print(f"  Max sessions:  {conf['max_sessions']}")
+    print(f"  RAM (GB):      {conf['ram_gb']}")
+
+    warning = conf.get("budget_warning") or ""
     if warning:
         print()
         print(f"WARNING: {warning}", file=sys.stderr)

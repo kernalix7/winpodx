@@ -18,6 +18,7 @@ import argparse
 import re
 import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 from winpodx import __version__
@@ -33,6 +34,19 @@ _MARKER_VERSION_RE = re.compile(r"^\d+(\.\d+){0,3}[a-z0-9]*$")
 # version. Add new entries at the top when cutting a release. Keep each
 # note user-facing, not developer-facing — three to six bullets max.
 _VERSION_NOTES: dict[str, list[str]] = {
+    "0.1.9": [
+        "The 14 bundled app profiles were dropped — the app menu now populates "
+        "from the apps actually installed in your Windows guest.",
+        "First pod boot auto-fires `winpodx app refresh` so the menu fills in "
+        "without user intervention.",
+        "New `Info` page in the GUI + expanded `winpodx info` CLI showing "
+        "System / Display / Dependencies / Pod / Config in one snapshot.",
+        "Fixed: `winpodx app refresh` on Windows (script transport rewritten "
+        "from `podman cp C:/...` — which can't reach the Windows VM's virtual "
+        "disk — to a stdin pipe into `powershell -Command -`).",
+        "Fixed: RDP unreachable after host suspend / long idle. winpodx now "
+        "auto-restarts TermService when VNC is alive but RDP isn't.",
+    ],
     "0.1.8": [
         "Dynamic Windows-app discovery (scan + register apps installed on the container).",
         "New CLI: `winpodx app refresh`",
@@ -41,6 +55,27 @@ _VERSION_NOTES: dict[str, list[str]] = {
         "Migration wizard: `winpodx migrate` (this command)",
     ],
 }
+
+# v0.1.9 dropped these 14 bundled profiles. Their .desktop entries from
+# 0.1.7/0.1.8 installs are still on disk under
+# ~/.local/share/applications/ — migrate offers (prompts, never auto)
+# to remove them so the menu stays clean.
+_LEGACY_BUNDLED_SLUGS = (
+    "access-o365",
+    "calc",
+    "cmd",
+    "excel-o365",
+    "explorer",
+    "mspaint",
+    "notepad",
+    "onenote-o365",
+    "outlook-o365",
+    "powerpoint-o365",
+    "powershell",
+    "teams",
+    "vscode",
+    "word-o365",
+)
 
 _VERSION_FILE = "installed_version.txt"
 # Pre-tracker installs (0.1.7 and earlier) are assumed to be on this
@@ -72,6 +107,12 @@ def run_migrate(args: argparse.Namespace) -> int:
     non_interactive = bool(getattr(args, "non_interactive", False))
     skip_refresh = bool(getattr(args, "no_refresh", False))
 
+    # v0.1.8 -> 0.1.9: the 14 bundled .desktop entries are now stale.
+    # Offer to clean them up (only when we're crossing the 0.1.9 boundary
+    # so we don't keep prompting forever).
+    if inst_cmp < (0, 1, 9) <= cur_cmp:
+        _maybe_cleanup_legacy_bundled(non_interactive)
+
     if skip_refresh:
         print("\nSkipping app discovery (--no-refresh).")
     elif non_interactive:
@@ -83,6 +124,66 @@ def run_migrate(args: argparse.Namespace) -> int:
     print(f"\nMigration complete. Marker updated to {current}.")
     print("Re-run this wizard any time with: winpodx migrate")
     return 0
+
+
+def _maybe_cleanup_legacy_bundled(non_interactive: bool) -> None:
+    """Find pre-0.1.9 winpodx-<bundled-slug>.desktop files and offer to remove them.
+
+    Non-interactive mode lists what would be removed but does NOT delete —
+    silent destructive ops in automation paths are bad. The user can re-run
+    `winpodx migrate` interactively when ready.
+    """
+    from winpodx.utils.paths import applications_dir, icons_dir
+
+    apps_dir = applications_dir()
+    if not apps_dir.exists():
+        return
+
+    stale_desktop: list[Path] = []
+    for slug in _LEGACY_BUNDLED_SLUGS:
+        candidate = apps_dir / f"winpodx-{slug}.desktop"
+        if candidate.exists():
+            stale_desktop.append(candidate)
+
+    if not stale_desktop:
+        return
+
+    print(
+        f"\nFound {len(stale_desktop)} legacy bundled-app entries from a previous "
+        "winpodx version (these were removed in 0.1.9):"
+    )
+    for d in stale_desktop:
+        print(f"  - {d.name}")
+
+    if non_interactive:
+        print(
+            "  (--non-interactive set — skipping cleanup. "
+            "Re-run `winpodx migrate` interactively to remove.)"
+        )
+        return
+
+    if not _prompt_yes("Remove them now?", default=True):
+        print("  Skipped — entries left in place.")
+        return
+
+    icon_root = icons_dir()
+    removed = 0
+    for desktop in stale_desktop:
+        try:
+            desktop.unlink()
+            removed += 1
+        except OSError as e:
+            print(f"  warning: could not remove {desktop}: {e}")
+            continue
+        # Best-effort matching icon cleanup (won't error if absent).
+        for ext_dir in ("scalable/apps", "32x32/apps"):
+            for ext in ("svg", "png"):
+                icon_file = icon_root / ext_dir / f"{desktop.stem}.{ext}"
+                try:
+                    icon_file.unlink()
+                except OSError:
+                    pass
+    print(f"  Removed {removed} of {len(stale_desktop)} legacy entries.")
 
 
 def _detect_installed_version() -> Optional[str]:

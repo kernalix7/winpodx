@@ -1,8 +1,0 @@
-name = "outlook"
-full_name = "Microsoft Outlook"
-executable = "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
-categories = ["Office", "Email"]
-mime_types = [
-    "application/vnd.ms-outlook",
-    "message/rfc822",
-]

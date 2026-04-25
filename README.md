@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 225 passed](https://img.shields.io/badge/Tests-225%20passed-brightgreen.svg)](#testing)
+[![Tests: 363 passed](https://img.shields.io/badge/Tests-363%20passed-brightgreen.svg)](#testing)
 
 **English** | [한국어](docs/README.ko.md)
 
@@ -56,8 +56,8 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 **Zero-Config Launch**
 - First app click auto-provisions everything: config, container, desktop entries
-- 14 bundled app profiles (Office, VS Code, built-in Windows tools)
-- Add any Windows app via simple TOML definition
+- **Auto-discovery on first boot** — winpodx scans the running Windows guest and registers every installed app (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) with the real binary's icon
+- Manual rescan any time via `winpodx app refresh` or the GUI Refresh button
 - Interactive setup wizard for advanced configuration
 
 </td></tr>
@@ -156,8 +156,10 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 
 Detects your distro, installs missing system dependencies (Podman, FreeRDP,
 KVM, Python 3.9+) with your confirmation, drops winpodx into
-`~/.local/bin/winpodx-app/`, and registers all 14 Windows apps in your desktop
-menu. No root required except for the dependency install step. Works on
+`~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically
+the first time the pod boots — discovery scans your running Windows guest
+and registers every installed app with its real icon. No root required
+except for the dependency install step. Works on
 openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
 
 **Offline / air-gapped install** — the installer takes three optional flags
@@ -261,9 +263,9 @@ cd winpodx
 The source installer automatically:
 1. Detects your distro (openSUSE, Fedora, Ubuntu, Arch, ...)
 2. Installs missing dependencies (Podman, FreeRDP, KVM), asks before installing
-3. Copies winpodx to `~/.local/bin/winpodx/`
+3. Copies winpodx to `~/.local/bin/winpodx-app/`
 4. Creates config and compose.yaml
-5. Registers all 14 apps in your desktop menu
+5. Auto-discovery (`winpodx app refresh`) fires on first pod boot to populate the menu
 
 ### Launch
 
@@ -394,23 +396,32 @@ disk_size = "64G"                                # Virtual disk size passed to d
 
 ## App Profiles
 
-App profiles are **metadata only**: they define where a Windows app lives, not the app itself. The actual Windows application must be installed inside the Windows container.
+App profiles are **metadata only**: they describe where a Windows app lives so winpodx can launch it through FreeRDP RemoteApp. The actual Windows application must be installed inside the Windows container.
 
-### Bundled Profiles (14 apps)
+### Auto-discovery (default)
 
-| Profile | Requires Installation? |
-|---------|----------------------|
-| Notepad, Explorer, CMD, PowerShell, Paint, Calculator | No (built into Windows) |
-| Word, Excel, PowerPoint, Outlook, OneNote, Access | Yes (install Office in the container) |
-| VS Code | Yes (install VS Code in the container) |
-| Teams | Yes (install Teams in the container) |
+Starting from v0.1.9 winpodx ships **no curated profile list**. The first time the Windows pod boots, the provisioner runs `winpodx app refresh` and that scans the running guest:
 
-<details>
-<summary><b>Adding custom app profiles</b></summary>
+- Registry `App Paths` (`HKLM` + `HKCU`)
+- Start Menu `.lnk` recursion (depth-capped)
+- UWP / MSIX packages via `Get-AppxPackage` + `AppxManifest.xml`
+- Chocolatey + Scoop shims
+
+For each result it extracts the icon directly from the binary (or the package's logo asset for UWP) and writes the entry to `~/.local/share/winpodx/discovered/<slug>/`. Re-run any time:
 
 ```bash
-mkdir -p data/apps/myapp
-cat > data/apps/myapp/app.toml << 'EOF'
+winpodx app refresh        # CLI
+# or click "Refresh Apps" on the GUI Apps page
+```
+
+<details>
+<summary><b>Adding a custom app profile manually</b></summary>
+
+User-authored profiles live under `~/.local/share/winpodx/apps/` and override anything discovery finds with the same `name`:
+
+```bash
+mkdir -p ~/.local/share/winpodx/apps/myapp
+cat > ~/.local/share/winpodx/apps/myapp/app.toml << 'EOF'
 name = "myapp"
 full_name = "My Application"
 executable = "C:\\Program Files\\MyApp\\myapp.exe"
@@ -495,11 +506,11 @@ winpodx/
 │   ├── display/           # X11/Wayland detection, DPI scaling
 │   ├── gui/               # Qt6 main window, app dialog, theme
 │   └── utils/             # XDG paths, deps, TOML writer, winapps compat
-├── data/apps/             # 14 bundled app definitions (TOML)
+├── data/                  # winpodx GUI desktop entry + icon + config example
 ├── config/oem/            # Windows OEM scripts (post-install)
-├── scripts/windows/       # PowerShell scripts (debloat, time sync, USB mapping)
+├── scripts/windows/       # PowerShell scripts (debloat, time sync, USB mapping, app discovery)
 ├── .github/workflows/     # CI: lint + test + upstream update checker
-└── tests/                 # pytest test suite (225 tests)
+└── tests/                 # pytest test suite (363 tests)
 ```
 
 ## Supported Distros

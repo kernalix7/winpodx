@@ -1,9 +1,0 @@
-name = "excel"
-full_name = "Microsoft Excel"
-executable = "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
-categories = ["Office", "Spreadsheet"]
-mime_types = [
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv",
-]

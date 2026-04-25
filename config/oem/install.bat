@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=6
+set WINPODX_OEM_VERSION=7
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -23,6 +23,18 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSApp
 REM Without fInheritInitialProgram, Windows ignores /shell: and /app: from the RDP client.
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fInheritInitialProgram /t REG_DWORD /d 1 /f
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 10 /f
+
+REM Bug B (v0.1.9 / OEM v7): host suspend / long idle commonly leaves Windows
+REM with TermService stalled or the virtual NIC in power-save, breaking RDP
+REM while VNC keeps working. Two preventive measures so the host-side
+REM recover_rdp_if_needed() helper has less to do.
+echo [winpodx] Disabling NIC power-save...
+powershell -NoProfile -Command "Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {$_.Status -ne 'Disabled'} | Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false -ErrorAction SilentlyContinue" >nul 2>&1
+
+echo [winpodx] Configuring TermService recovery actions...
+REM 3 attempts at 5s spacing, 24h reset window — Windows itself recovers
+REM TermService crashes without needing host intervention.
+sc.exe failure TermService reset= 86400 actions= restart/5000/restart/5000/restart/5000 >nul 2>&1
 
 echo [winpodx] Configuring firewall...
 REM Delete-then-add keeps the rule idempotent; plain add creates duplicates on re-run.
