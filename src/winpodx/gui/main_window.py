@@ -221,6 +221,7 @@ class WinpodxWindow(QMainWindow):
         self.pages.addWidget(self._build_settings_page())
         self.pages.addWidget(self._build_maintenance_page())
         self.pages.addWidget(self._build_logs_page())
+        self.pages.addWidget(self._build_info_page())
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())
@@ -273,6 +274,7 @@ class WinpodxWindow(QMainWindow):
             ("Settings", 1),
             ("Tools", 2),
             ("Terminal", 3),
+            ("Info", 4),
         ]:
             btn = QPushButton(label)
             btn.setCheckable(True)
@@ -1256,6 +1258,227 @@ class WinpodxWindow(QMainWindow):
 
         layout.addLayout(cmd_row)
         return page
+
+    def _build_info_page(self) -> QWidget:
+        """5-section system snapshot: System / Display / Dependencies / Pod / Config.
+
+        Mirrors `winpodx info` via the shared `core.info.gather_info` helper.
+        Pod section probes RDP/VNC ports + queries podman inspect, so the
+        initial paint is async via QThread and the user can re-run on demand
+        with the Refresh button.
+        """
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(SCROLL_AREA)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(32, 28, 32, 32)
+        layout.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Info")
+        title.setStyleSheet(
+            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
+        )
+        header.addWidget(title)
+        header.addStretch()
+
+        refresh_btn = QPushButton("Refresh Info")
+        refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
+        refresh_btn.setStyleSheet(BTN_GHOST)
+        refresh_btn.clicked.connect(self._refresh_info)
+        header.addWidget(refresh_btn)
+        layout.addLayout(header)
+
+        # Containers for the 5 cards. Initial population goes through
+        # _refresh_info which dispatches a worker thread; until that thread
+        # returns, each card shows "Loading...".
+        self._info_cards: dict[str, QFrame] = {}
+        self._info_card_bodies: dict[str, QVBoxLayout] = {}
+        for key, label in [
+            ("system", "System"),
+            ("display", "Display"),
+            ("dependencies", "Dependencies"),
+            ("pod", "Pod"),
+            ("config", "Config"),
+        ]:
+            card = self._info_card(label)
+            self._info_cards[key] = card
+            layout.addWidget(card)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+        # Kick off first fetch so the page isn't permanently "Loading...".
+        self._refresh_info()
+        return page
+
+    def _info_card(self, title: str) -> QFrame:
+        """Card scaffold with a title bar + an empty body layout we mutate later."""
+        card = QFrame()
+        card.setObjectName("infoSection")
+        card.setStyleSheet(
+            SETTINGS_SECTION
+            + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
+        )
+        self._add_shadow(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(6)
+
+        header = QLabel(title)
+        header.setStyleSheet(
+            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
+        )
+        layout.addWidget(header)
+
+        accent = QFrame()
+        accent.setFixedHeight(1)
+        accent.setStyleSheet(f"background: {C.SURFACE1};")
+        layout.addWidget(accent)
+        layout.addSpacing(8)
+
+        body = QVBoxLayout()
+        body.setSpacing(4)
+        layout.addLayout(body)
+
+        # Stash the body layout on the frame for later population.
+        card.setProperty("info_body", body)
+        self._info_card_bodies[title.lower()] = body
+        # Initial placeholder
+        loading = QLabel("Loading...")
+        loading.setStyleSheet(f"color: {C.OVERLAY0};")
+        body.addWidget(loading)
+        return card
+
+    def _set_info_card_rows(self, key: str, rows: list[tuple[str, str]]) -> None:
+        """Replace the body of an info card with label/value rows."""
+        body = self._info_card_bodies.get(key)
+        if body is None:
+            return
+        # Clear existing children.
+        while body.count():
+            item = body.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        for label, value in rows:
+            row = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px;")
+            val = QLabel(value)
+            val.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
+            val.setWordWrap(True)
+            row.addWidget(lbl, 0)
+            row.addStretch()
+            row.addWidget(val, 1)
+            holder = QWidget()
+            holder.setLayout(row)
+            body.addWidget(holder)
+
+    def _refresh_info(self) -> None:
+        """Re-run gather_info on a worker thread; populate cards on completion."""
+        from PySide6.QtCore import QObject, QThread, Signal
+
+        class _InfoWorker(QObject):
+            done = Signal(dict)
+            failed = Signal(str)
+
+            def __init__(self, cfg) -> None:
+                super().__init__()
+                self.cfg = cfg
+
+            def run(self) -> None:
+                try:
+                    from winpodx.core.info import gather_info
+
+                    self.done.emit(gather_info(self.cfg))
+                except Exception as e:  # noqa: BLE001
+                    self.failed.emit(str(e))
+
+        self._info_thread = QThread(self)
+        self._info_worker = _InfoWorker(self.cfg)
+        self._info_worker.moveToThread(self._info_thread)
+        self._info_thread.started.connect(self._info_worker.run)
+        self._info_worker.done.connect(self._apply_info_snapshot)
+        self._info_worker.done.connect(self._info_thread.quit)
+        self._info_worker.failed.connect(self._info_thread.quit)
+        self._info_thread.finished.connect(self._info_thread.deleteLater)
+        self._info_thread.start()
+
+    def _apply_info_snapshot(self, info: dict) -> None:
+        """Map gather_info output into per-card row pairs."""
+        sys_ = info.get("system", {})
+        self._set_info_card_rows(
+            "system",
+            [
+                ("winpodx", sys_.get("winpodx", "")),
+                ("OEM bundle", sys_.get("oem_bundle", "")),
+                ("rdprrap", sys_.get("rdprrap", "")),
+                ("Distro", sys_.get("distro", "")),
+                ("Kernel", sys_.get("kernel", "")),
+            ],
+        )
+        disp = info.get("display", {})
+        self._set_info_card_rows(
+            "display",
+            [
+                ("Session type", disp.get("session_type", "")),
+                ("Desktop env", disp.get("desktop_environment", "")),
+                ("Wayland FreeRDP", disp.get("wayland_freerdp", "")),
+                ("Raw scale", disp.get("raw_scale", "")),
+                ("RDP scale", disp.get("rdp_scale", "")),
+            ],
+        )
+        deps_rows = []
+        for name, dep in info.get("dependencies", {}).items():
+            ok = dep.get("found") == "true"
+            path = dep.get("path") or ""
+            value = ("OK " + path).strip() if ok else "MISSING"
+            deps_rows.append((name, value))
+        self._set_info_card_rows("dependencies", deps_rows)
+
+        pod = info.get("pod", {})
+        rdp_label = "reachable" if pod.get("rdp_reachable") else "unreachable"
+        vnc_label = "reachable" if pod.get("vnc_reachable") else "unreachable"
+        pod_rows = [
+            ("State", str(pod.get("state", ""))),
+        ]
+        if pod.get("uptime"):
+            pod_rows.append(("Started at", str(pod["uptime"])))
+        pod_rows.extend(
+            [
+                (f"RDP {pod.get('rdp_port', '')}", rdp_label),
+                (f"VNC {pod.get('vnc_port', '')}", vnc_label),
+                ("Active sessions", str(pod.get("active_sessions", 0))),
+            ]
+        )
+        self._set_info_card_rows("pod", pod_rows)
+
+        conf = info.get("config", {})
+        cfg_rows = [
+            ("Path", str(conf.get("path", ""))),
+            ("Backend", str(conf.get("backend", ""))),
+            ("IP", f"{conf.get('ip', '')}:{conf.get('port', '')}"),
+            ("User", str(conf.get("user", ""))),
+            ("Scale", f"{conf.get('scale', '')}%"),
+            ("Idle", f"{conf.get('idle_timeout', 0)}s"),
+            ("Max sessions", str(conf.get("max_sessions", 0))),
+            ("RAM (GB)", str(conf.get("ram_gb", 0))),
+        ]
+        warning = conf.get("budget_warning") or ""
+        if warning:
+            cfg_rows.append(("WARNING", warning))
+        self._set_info_card_rows("config", cfg_rows)
 
     def _log_append(self, text: str, color: str = C.SUBTEXT1) -> None:
         """Append colored text to the log output."""
