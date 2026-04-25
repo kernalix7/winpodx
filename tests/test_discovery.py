@@ -113,6 +113,13 @@ def _fake_popen(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0) -
 
     proc.stdout = stdout_file
     proc.stderr = stderr_file
+    # Bug A fix: discover_apps now pipes the script body to powershell -Command -
+    # via stdin instead of `podman cp`. The Popen mock therefore needs a stdin
+    # attribute that accepts .write() + .close() without errors.
+    stdin_file = MagicMock()
+    stdin_file.write.return_value = None
+    stdin_file.close.return_value = None
+    proc.stdin = stdin_file
     proc.returncode = returncode
     proc.poll.return_value = returncode
     proc.wait.return_value = returncode
@@ -569,29 +576,30 @@ def test_discover_requires_script_file():
 
 
 def test_discover_surfaces_pod_not_running(tmp_path):
+    """Bug A: stderr containing 'no such container' is reclassified to pod_not_running."""
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
-    cp_err = subprocess.CalledProcessError(
-        1, ["podman", "cp"], output="", stderr="no such container"
-    )
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.run", side_effect=cp_err),
+        patch(
+            "winpodx.core.discovery.subprocess.Popen",
+            return_value=_fake_popen(
+                stdout=b"", stderr=b"Error: no such container winpodx-windows", returncode=125
+            ),
+        ),
     ):
-        with pytest.raises(DiscoveryError, match="Failed to copy"):
+        with pytest.raises(DiscoveryError, match="Pod not running") as excinfo:
             discover_apps(cfg)
+        assert excinfo.value.kind == "pod_not_running"
 
 
 def test_discover_surfaces_timeout(tmp_path):
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
-
-    def cp_ok(*args, **kwargs):
-        return subprocess.CompletedProcess(args[0], 0, "", "")
 
     # Simulate a child that never naturally terminates. The bounded
     # loop in _run_bounded must kill it once the deadline elapses.
@@ -601,7 +609,6 @@ def test_discover_surfaces_timeout(tmp_path):
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.run", side_effect=cp_ok),
         patch("winpodx.core.discovery.subprocess.Popen", return_value=stuck),
     ):
         with pytest.raises(DiscoveryError, match="timed out") as excinfo:
@@ -616,13 +623,9 @@ def test_discover_happy_path_roundtrip(tmp_path):
 
     payload = json.dumps([_valid_entry(name="Calculator")]).encode("utf-8")
 
-    def cp_ok(*args, **kwargs):
-        return subprocess.CompletedProcess(args[0], 0, "", "")
-
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.run", side_effect=cp_ok),
         patch(
             "winpodx.core.discovery.subprocess.Popen",
             return_value=_fake_popen(stdout=payload, returncode=0),
@@ -639,13 +642,9 @@ def test_discover_nonzero_exit_raises(tmp_path):
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
-    def cp_ok(*args, **kwargs):
-        return subprocess.CompletedProcess(args[0], 0, "", "")
-
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.run", side_effect=cp_ok),
         patch(
             "winpodx.core.discovery.subprocess.Popen",
             return_value=_fake_popen(stdout=b"", stderr=b"Get-AppxPackage failed", returncode=42),
@@ -654,6 +653,37 @@ def test_discover_nonzero_exit_raises(tmp_path):
         with pytest.raises(DiscoveryError, match="rc=42") as excinfo:
             discover_apps(cfg)
         assert excinfo.value.kind == "script_failed"
+
+
+def test_discover_pipes_script_via_stdin(tmp_path):
+    """Bug A: the script body must be piped via stdin, not staged via podman cp."""
+    cfg = _make_cfg(backend="podman")
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# the actual ps1 body that should travel over stdin")
+
+    captured = _fake_popen(stdout=b"[]", returncode=0)
+
+    with (
+        patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
+        patch("winpodx.core.discovery._ps_script_path", return_value=script),
+        patch(
+            "winpodx.core.discovery.subprocess.Popen", return_value=captured
+        ) as popen_mock,
+    ):
+        discover_apps(cfg)
+
+    # The single Popen invocation must use `exec -i ... powershell ... -Command -`.
+    assert popen_mock.call_count == 1
+    cmd = popen_mock.call_args.args[0]
+    assert "exec" in cmd
+    assert "-i" in cmd  # stdin must be open
+    assert "-Command" in cmd
+    assert cmd[-1] == "-"  # final arg = stdin marker
+    # And the script body must have been written to stdin then closed.
+    captured.stdin.write.assert_called_once()
+    written = captured.stdin.write.call_args.args[0]
+    assert b"the actual ps1 body" in written
+    captured.stdin.close.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -798,9 +828,6 @@ def test_discovery_stdout_cap_triggers_truncated_error(tmp_path):
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
-    def cp_ok(*args, **kwargs):
-        return subprocess.CompletedProcess(args[0], 0, "", "")
-
     from winpodx.core.discovery import HARD_STDOUT_CAP
 
     # Flood ~65 MiB so the drain loop trips the cap well before completion.
@@ -841,6 +868,10 @@ def test_discovery_stdout_cap_triggers_truncated_error(tmp_path):
             self.stdout.fileno.return_value = self._stdout_r
             self.stderr = MagicMock()
             self.stderr.fileno.return_value = self._stderr_r
+            # Bug A: discover_apps now writes the PS script to stdin.
+            self.stdin = MagicMock()
+            self.stdin.write.return_value = None
+            self.stdin.close.return_value = None
 
         def poll(self):
             # Never naturally finishes — the drain cap must be what stops us.
@@ -862,10 +893,14 @@ def test_discovery_stdout_cap_triggers_truncated_error(tmp_path):
 
     flooding = _FloodingProc()
 
+    # _FloodingProc must also expose stdin so the new pipe path works.
+    flooding.stdin = MagicMock()
+    flooding.stdin.write.return_value = None
+    flooding.stdin.close.return_value = None
+
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.run", side_effect=cp_ok),
         patch("winpodx.core.discovery.subprocess.Popen", return_value=flooding),
     ):
         with pytest.raises(DiscoveryError) as excinfo:

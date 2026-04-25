@@ -172,42 +172,56 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
         raise DiscoveryError(f"Discovery script not found: {script}", kind="script_missing")
 
     container = cfg.pod.container_name
-    guest_path = "C:/winpodx-discover.ps1"
 
+    # Why we don't use `podman cp host:script container:C:\path`:
+    # dockur/windows is a Linux container that runs the actual Windows guest
+    # inside QEMU; the Windows C: drive lives inside that VM's virtual disk,
+    # *not* on the container's own filesystem. `podman cp` interprets the
+    # destination as a path *on the container* — so it tries to write to a
+    # nonexistent `/C:/...` path and fails with "could not be found on
+    # container". The reliable transport is to feed the script body to the
+    # guest's powershell.exe via stdin: `powershell -Command -` reads the
+    # full script from stdin and executes it, no staging file required.
     try:
-        subprocess.run(  # noqa: S603
-            [runtime, "cp", str(script), f"{container}:{guest_path}"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except FileNotFoundError as e:
-        raise DiscoveryError(f"{runtime!r} binary vanished: {e}", kind="pod_not_running") from e
-    except subprocess.TimeoutExpired as e:
-        raise DiscoveryError("Timed out copying discovery script to guest.", kind="timeout") from e
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or "").strip()
+        script_body = script.read_text(encoding="utf-8")
+    except OSError as e:
         raise DiscoveryError(
-            f"Failed to copy discovery script (is the pod running?): {stderr}",
-            kind="pod_not_running",
+            f"Cannot read discovery script {script}: {e}", kind="script_missing"
         ) from e
 
     cmd = [
         runtime,
         "exec",
+        "-i",
         container,
         "powershell",
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
-        "-File",
-        guest_path.replace("/", "\\"),
+        "-Command",
+        "-",
     ]
-    stdout_bytes, stderr_bytes, returncode = _run_bounded(cmd, timeout=timeout, runtime=runtime)
+    stdout_bytes, stderr_bytes, returncode = _run_bounded(
+        cmd, timeout=timeout, runtime=runtime, stdin_bytes=script_body.encode("utf-8")
+    )
 
     if returncode != 0:
         stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+        # podman/docker emit recognizable strings when the container is stopped
+        # or missing; surface these as pod_not_running so the cli routes to
+        # exit code 2 + the "run `winpodx pod start --wait`" hint instead of
+        # generic script-failure code 3. Bug A: with the cp dropped, this is
+        # the only place we still distinguish the two error classes.
+        stderr_lower = stderr.lower()
+        if (
+            "no such container" in stderr_lower
+            or "is not running" in stderr_lower
+            or "container not running" in stderr_lower
+            or "no such object" in stderr_lower
+        ):
+            raise DiscoveryError(
+                f"Pod not running (rc={returncode}): {stderr}", kind="pod_not_running"
+            )
         raise DiscoveryError(
             f"Discovery script failed (rc={returncode}): {stderr}", kind="script_failed"
         )
@@ -215,7 +229,13 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
     return _parse_discovery_output(stdout_bytes.decode("utf-8", errors="replace"))
 
 
-def _run_bounded(cmd: list[str], *, timeout: int, runtime: str) -> tuple[bytes, bytes, int]:
+def _run_bounded(
+    cmd: list[str],
+    *,
+    timeout: int,
+    runtime: str,
+    stdin_bytes: bytes | None = None,
+) -> tuple[bytes, bytes, int]:
     """Run ``cmd`` and return ``(stdout, stderr, returncode)`` with a hard cap.
 
     Spawns the process via ``Popen`` and drains stdout / stderr via
@@ -225,21 +245,41 @@ def _run_bounded(cmd: list[str], *, timeout: int, runtime: str) -> tuple[bytes, 
     does not finish within ``timeout`` seconds it is killed and a
     ``DiscoveryError(kind="timeout")`` is raised.
 
+    When ``stdin_bytes`` is provided the bytes are written to the
+    child's stdin and the pipe is closed before draining begins
+    (Bug A fix: ``powershell -Command -`` reads the script body from
+    stdin so the host doesn't need to ``podman cp`` into the Windows
+    VM's virtual disk).
+
     Returns raw bytes so the caller decodes exactly once with an
     error-replace codec — this avoids UTF-8 decode exceptions on
     malformed guest output.
     """
+    popen_kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": False,
+    }
+    if stdin_bytes is not None:
+        popen_kwargs["stdin"] = subprocess.PIPE
+
     try:
-        proc = subprocess.Popen(  # noqa: S603
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-        )
+        proc = subprocess.Popen(cmd, **popen_kwargs)  # noqa: S603
     except FileNotFoundError as e:
         raise DiscoveryError(
             f"{runtime!r} binary vanished mid-run: {e}", kind="pod_not_running"
         ) from e
+
+    if stdin_bytes is not None and proc.stdin is not None:
+        try:
+            proc.stdin.write(stdin_bytes)
+        except (BrokenPipeError, OSError) as err:
+            log.debug("discovery: stdin write failed (%s); continuing", err)
+        finally:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
 
     stdout_chunks: list[bytes] = []
     stderr_chunks: list[bytes] = []
