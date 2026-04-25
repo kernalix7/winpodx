@@ -51,6 +51,15 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
     _ensure_pod_running(cfg, timeout)
     _apply_max_sessions(cfg)
+    # Bug B: after host suspend / long idle the pod can be running but RDP
+    # itself is dead while VNC is fine. Probe and try to revive TermService
+    # before handing the cfg to the caller — the alternative is the FreeRDP
+    # launch failing with a connection-refused that the user has to debug.
+    from winpodx.core.pod import recover_rdp_if_needed
+
+    if not check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
+        recover_rdp_if_needed(cfg)
+
     _install_bundled_apps_if_needed()
     _ensure_desktop_entries()
 
