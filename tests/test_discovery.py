@@ -666,9 +666,7 @@ def test_discover_pipes_script_via_stdin(tmp_path):
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch(
-            "winpodx.core.discovery.subprocess.Popen", return_value=captured
-        ) as popen_mock,
+        patch("winpodx.core.discovery.subprocess.Popen", return_value=captured) as popen_mock,
     ):
         discover_apps(cfg)
 

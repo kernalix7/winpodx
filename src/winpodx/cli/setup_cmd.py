@@ -170,9 +170,10 @@ def handle_setup(args: argparse.Namespace) -> None:
     cfg.save()
     print(f"\nConfig saved to {Config.path()}")
 
-    from winpodx.core.provisioner import _install_bundled_apps_if_needed
-
-    _install_bundled_apps_if_needed()
+    # v0.1.9: bundled profiles were removed. Desktop entries are now created
+    # by `winpodx app refresh` (auto-fired on first pod boot via
+    # provisioner.ensure_ready). Until the user's first launch, only the
+    # winpodx GUI itself appears in the menu.
     _register_all_desktop_entries()
 
     print("\n" + "=" * 40)

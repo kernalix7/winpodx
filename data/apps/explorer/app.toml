@@ -1,5 +1,0 @@
-name = "explorer"
-full_name = "Windows Explorer"
-executable = "C:\\Windows\\explorer.exe"
-categories = ["FileTools", "System", "Utility"]
-mime_types = []

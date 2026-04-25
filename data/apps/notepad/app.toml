@@ -1,7 +1,0 @@
-name = "notepad"
-full_name = "Windows Notepad"
-executable = "C:\\Windows\\notepad.exe"
-categories = ["Utility", "TextEditor"]
-mime_types = [
-    "text/plain",
-]

@@ -13,7 +13,7 @@ from pathlib import Path
 from winpodx.core.compose import generate_compose, generate_password
 from winpodx.core.config import Config
 from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
-from winpodx.utils.paths import config_dir, data_dir
+from winpodx.utils.paths import config_dir
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,10 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     if not check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
         recover_rdp_if_needed(cfg)
 
-    _install_bundled_apps_if_needed()
+    # v0.1.9: bundled profile set was removed; auto-discover on first boot
+    # so the user's menu is populated without them having to know about
+    # `winpodx app refresh`.
+    _auto_discover_if_empty(cfg)
     _ensure_desktop_entries()
 
     return cfg
@@ -410,22 +413,32 @@ def _ensure_desktop_entries() -> None:
         update_icon_cache()
 
 
-def _install_bundled_apps_if_needed() -> None:
-    """Copy bundled app definitions to user data dir if not present."""
-    from winpodx.core.app import bundled_apps_dir
+def _auto_discover_if_empty(cfg: Config) -> None:
+    """Fire `winpodx app refresh` once when the discovered tree is empty.
 
-    src = bundled_apps_dir()
-    if not src.exists():
-        return
+    v0.1.9 dropped the 14 bundled profiles, so on first pod boot the
+    user's app menu is empty until discovery runs. We trigger it here —
+    after the pod is reachable and TermService recovery has had a chance
+    — so the menu populates without the user having to know about
+    `winpodx app refresh`. Failure is non-fatal: the user-clicked app
+    launch continues regardless and the next ensure_ready will retry.
+    """
+    try:
+        from winpodx.core.app import discovered_apps_dir
+        from winpodx.core.discovery import discover_apps, persist_discovered
 
-    dest = data_dir() / "apps"
-    dest.mkdir(parents=True, exist_ok=True)
+        discovered_dir = discovered_apps_dir()
+        if discovered_dir.exists() and any(discovered_dir.iterdir()):
+            return  # already discovered before; user-triggered refresh stays in their hands.
 
-    for app_dir in src.iterdir():
-        if app_dir.is_dir():
-            target = dest / app_dir.name
-            if not target.exists():
-                shutil.copytree(app_dir, target)
+        log.info("First boot detected; auto-running discovery to populate the app menu...")
+        apps = discover_apps(cfg)
+        persist_discovered(apps)
+        log.info("Auto-discovery wrote %d app(s) to %s", len(apps), discovered_dir)
+    except Exception as e:  # noqa: BLE001
+        # Discovery failure must not block app launch. The user can retry
+        # manually via `winpodx app refresh` or the GUI Refresh button.
+        log.warning("Auto-discovery failed (non-fatal — run `winpodx app refresh` to retry): %s", e)
 
 
 def terminate_tracked_sessions(timeout: float = 3.0) -> int:

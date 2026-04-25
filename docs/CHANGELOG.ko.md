@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-04-25
+
+### 변경
+- **Discovery-first 리팩터.** `data/apps/` 아래 14개 번들 앱 프로필 (`word-o365`, `excel-o365`, ..., `notepad`, `cmd`, ...) 을 전부 제거. 이제 Linux 앱 메뉴는 `winpodx app refresh` 결과로만 채워지며, 첫 부팅 시 발견 트리가 비어 있을 때 `provisioner.ensure_ready` 가 자동 실행. 수동 재실행은 동일: CLI 의 `winpodx app refresh` 또는 GUI Apps 페이지의 "Refresh Apps" 버튼. `AppInfo.source` 에서 `"bundled"` enum 값 제거 — `"discovered"` 와 `"user"` 만 남음. 0.1.x &lt; 0.1.9 에서 업그레이드 시 `winpodx migrate` 가 기존 `~/.local/share/applications/winpodx-{14-bundled-slug}.desktop` 파일 정리 여부를 물음 (`--non-interactive` 에서는 자동 스킵).
+
+### 추가
+- **Info 페이지 (CLI + GUI).** 새 `core.info.gather_info(cfg)` 가 5섹션 스냅샷 반환 — System (winpodx 버전, OEM 번들 버전, rdprrap 버전, 배포판, 커널), Display, Dependencies, Pod (상태, 실행 시작 시각, RDP/VNC 도달성 probe, 활성 세션 수), Config (기존 budget 경고 포함). `winpodx info` 가 5개 섹션 모두 출력하도록 재작성. Qt 메인 윈도우에 5번째 탭 "Info" 추가 — 섹션당 카드 + "Refresh Info" 버튼이 `QThread` 로 `gather_info` 재실행. 모든 probe 가 하드 타임아웃되어 아픈 pod 가 패널을 멈추지 않음.
+
+### 수정
+- **Bug A: Windows 게스트 대상 `winpodx app refresh`.** v0.1.8 에서 `podman cp host:discover_apps.ps1 container:C:/winpodx-discover.ps1` 가 실패 — dockur/windows 는 QEMU 안에서 실제 Windows 게스트를 돌리는 Linux 컨테이너이고, C: 드라이브는 가상 디스크 안에 있어 `podman cp` 로는 도달 불가. 이제 스크립트 본문을 `podman exec -i container powershell -NoProfile -ExecutionPolicy Bypass -Command -` 의 stdin 으로 파이핑하므로 staging 단계 자체가 사라짐. 컨테이너 런타임 stderr 에 "no such container", "is not running" 등이 보이면 `kind="pod_not_running"` 으로 재분류 — cli 는 exit code 2 + "run `winpodx pod start --wait`" 힌트로 라우팅 유지.
+- **Bug B: 호스트 suspend / 장기 유휴 후 RDP 도달 불가.** 증상: VNC 포트 8007 은 살아있는데 RDP 포트 3390 만 응답 없음 — Windows TermService 가 멈추거나 가상 NIC 가 절전으로 빠짐. 새 `core.pod.recover_rdp_if_needed(cfg)` 가 이 비대칭을 감지하고 `podman exec powershell Restart-Service -Force TermService; w32tm /resync /force` 실행 후 RDP 재 probe (최대 3회, 백오프). `provisioner.ensure_ready` 의 `_ensure_pod_running` 직후에 와이어. OEM 번들 6 → 7 — `install.bat` 에 예방 조치 추가: `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false` 와 `sc.exe failure TermService reset=86400 actions=restart/5000/restart/5000/restart/5000` 로 Windows 자체 복구.
+
 ## [0.1.8] - 2026-04-25
 
 ### 추가

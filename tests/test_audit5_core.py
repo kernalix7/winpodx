@@ -232,9 +232,12 @@ def test_list_available_apps_rejects_symlink_escape(tmp_path, monkeypatch):
     (outside / "app.toml").write_text('name = "evil"\nexecutable = "evil.exe"\n')
     (user_apps / "evil").symlink_to(outside, target_is_directory=True)
 
-    empty = tmp_path / "bundled"
+    # v0.1.9 dropped bundled_apps_dir from list_available_apps; only
+    # discovered + user dirs are sourced. Stub discovered_apps_dir to a
+    # non-existent path so the symlink-escape test isolates user-dir behavior.
+    empty = tmp_path / "discovered"
     empty.mkdir()
-    monkeypatch.setattr(app_mod, "bundled_apps_dir", lambda: empty)
+    monkeypatch.setattr(app_mod, "discovered_apps_dir", lambda: empty)
     monkeypatch.setattr(app_mod, "user_apps_dir", lambda: user_apps)
 
     names = [a.name for a in app_mod.list_available_apps()]

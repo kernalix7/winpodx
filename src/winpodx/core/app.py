@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,39 +29,15 @@ class AppInfo:
     categories: list[str] = field(default_factory=list)
     mime_types: list[str] = field(default_factory=list)
     installed: bool = False
-    # Provenance: "bundled" (shipped in data/apps), "discovered" (auto
-    # from guest enumerator), "user" (manually placed in
-    # ~/.local/share/winpodx/apps). Surfaces a Detected/Bundled badge
-    # in the GUI and lets tooling decide what it can safely overwrite
-    # on a rediscovery pass.
-    source: str = "bundled"
-    # Optional extras populated by discovery; blank for bundled entries.
+    # Provenance: "discovered" (auto from guest enumerator) or "user"
+    # (manually placed in ~/.local/share/winpodx/apps). Surfaces a
+    # Detected badge in the GUI. v0.1.9 dropped the "bundled" source
+    # entirely — discovery is the only path that populates the menu.
+    source: str = "user"
+    # Optional extras populated by discovery; blank for user entries.
     args: str = ""
     wm_class_hint: str = ""
     launch_uri: str = ""  # UWP AUMID (shell:AppsFolder\<AUMID>)
-
-
-def bundled_apps_dir() -> Path:
-    """Path to bundled app definitions shipped with winpodx.
-
-    Tries locations in order and returns the first that exists:
-      1. Source / editable install: ``<repo>/data/apps`` (4 levels above)
-      2. pip wheel install: ``<sys.prefix>/share/winpodx/data/apps``
-      3. User install: ``~/.local/share/winpodx/data/apps``
-
-    Mirrors ``winpodx.desktop.icons.bundled_data_path`` (inlined to avoid
-    a core -> desktop dependency). If none exist, returns the source-layout
-    path so callers see a non-existent Path rather than None.
-    """
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent / "data" / "apps",
-        Path(sys.prefix) / "share" / "winpodx" / "data" / "apps",
-        Path.home() / ".local" / "share" / "winpodx" / "data" / "apps",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
 
 
 def user_apps_dir() -> Path:
@@ -75,10 +50,10 @@ def discovered_apps_dir() -> Path:
     return data_dir() / "discovered"
 
 
-_VALID_APP_SOURCES = frozenset({"bundled", "discovered", "user"})
+_VALID_APP_SOURCES = frozenset({"discovered", "user"})
 
 
-def load_app(app_dir: Path, default_source: str = "bundled") -> AppInfo | None:
+def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
     """Load an app definition from a directory containing app.toml.
 
     ``default_source`` is used when the TOML does not declare a
@@ -146,18 +121,18 @@ def _is_within(candidate: Path, root: Path) -> bool:
 
 
 def list_available_apps() -> list[AppInfo]:
-    """List all available app definitions (bundled + discovered + user).
+    """List all available app definitions (discovered + user).
 
-    Entries found under the discovered dir are loaded with
-    ``source="discovered"``; the user dir defaults to ``"user"``.
-    If two dirs define the same ``name`` the later one wins in the
-    search order ``bundled -> discovered -> user`` so a user-authored
-    override beats both. Skips any entry that resolves outside its
-    containing dir so a malicious symlink cannot cause us to load
-    attacker-controlled TOML.
+    v0.1.9 dropped the bundled-profile set; the menu is now populated
+    entirely by `winpodx app refresh` (auto-fired on first pod boot)
+    and any manually-authored entries the user drops into
+    ``~/.local/share/winpodx/apps``. Entries found under the discovered
+    dir are loaded with ``source="discovered"``; the user dir defaults
+    to ``"user"``. If two dirs define the same ``name`` the user dir
+    wins. Skips any entry that resolves outside its containing dir so a
+    malicious symlink cannot cause us to load attacker-controlled TOML.
     """
     sources: list[tuple[Path, str]] = [
-        (bundled_apps_dir(), "bundled"),
         (discovered_apps_dir(), "discovered"),
         (user_apps_dir(), "user"),
     ]
