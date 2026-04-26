@@ -390,3 +390,85 @@ def test_apply_windows_runtime_fixes_records_individual_failures(monkeypatch):
     assert result["max_sessions"].startswith("failed: ")
     assert result["rdp_timeouts"] == "ok"
     assert result["oem_runtime_fixes"] == "ok"
+
+
+# --- v0.2.0.6: wait_for_windows_responsive retry loop ---
+
+
+class TestWaitForWindowsResponsiveRetries:
+    """v0.2.0.6: probe must retry until deadline, not bail on first failure.
+
+    Reproduces the v0.2.0.5 bug where _wait_ready phase 3 returned FAIL at
+    elapsed=00:00 because wait_for_windows_responsive ran exactly one
+    FreeRDP probe and returned False on the first WindowsExecError.
+    """
+
+    def _cfg(self):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.rdp.ip = "127.0.0.1"
+        cfg.rdp.port = 3389
+        cfg.rdp.password = "abc123"
+        return cfg
+
+    def test_returns_true_when_probe_eventually_succeeds(self, monkeypatch):
+        """First N probes raise WindowsExecError; eventually one returns rc=0
+        and the helper must return True instead of bailing on probe #1."""
+        from winpodx.core.provisioner import wait_for_windows_responsive
+        from winpodx.core.windows_exec import WindowsExecError, WindowsExecResult
+
+        cfg = self._cfg()
+        monkeypatch.setattr(
+            "winpodx.core.provisioner.check_rdp_port",
+            lambda ip, port, timeout=1.0: True,
+        )
+        # Compress the inter-probe sleep so the test is fast.
+        monkeypatch.setattr("winpodx.core.provisioner.time.sleep", lambda _: None)
+
+        attempts: list[int] = []
+
+        def fake_run(cfg_inner, payload, *, description, timeout):
+            attempts.append(len(attempts))
+            if len(attempts) < 4:
+                raise WindowsExecError("FreeRDP rc=147 connection reset by peer")
+            return WindowsExecResult(rc=0, stdout="ping\n", stderr="")
+
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
+        assert wait_for_windows_responsive(cfg, timeout=60) is True
+        assert len(attempts) >= 4, "must keep probing past first failure"
+
+    def test_returns_false_only_after_deadline(self, monkeypatch):
+        """If every probe fails for the full timeout, helper must take roughly
+        `timeout` seconds — not return False after the first attempt."""
+
+        from winpodx.core.provisioner import wait_for_windows_responsive
+        from winpodx.core.windows_exec import WindowsExecError
+
+        cfg = self._cfg()
+        monkeypatch.setattr(
+            "winpodx.core.provisioner.check_rdp_port",
+            lambda ip, port, timeout=1.0: True,
+        )
+        # Use a virtual clock so we don't really wait.
+        clock = {"t": 0.0}
+        monkeypatch.setattr("winpodx.core.provisioner.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "winpodx.core.provisioner.time.sleep",
+            lambda s: clock.update(t=clock["t"] + s),
+        )
+
+        attempts: list[int] = []
+
+        def fake_run(cfg_inner, payload, *, description, timeout):
+            attempts.append(timeout)
+            # Each probe consumes ~5s of virtual time.
+            clock["t"] += 5
+            raise WindowsExecError("FreeRDP rc=147 connection reset")
+
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
+
+        result = wait_for_windows_responsive(cfg, timeout=30)
+        assert result is False
+        assert len(attempts) >= 2, "must retry rather than bail on first failure"

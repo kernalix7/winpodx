@@ -9,7 +9,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.5] - 2026-04-27
+## [0.2.0.6] - 2026-04-27
+
+### Fixed
+- **`wait_for_windows_responsive` collapsed in <1s on a still-booting guest, defeating the entire `pod wait-ready` UX.** The helper waited correctly for the RDP TCP port to open, then fired exactly **one** FreeRDP RemoteApp probe — a single failure (which is what every still-booting guest produces, rc=147 connection-reset) returned False immediately and the caller's 600s timeout was effectively ignored. v0.2.0.6 turns the probe into a retry loop that fires repeated 5-20s probes until either one succeeds or the overall `timeout` expires (paced 3s between attempts so we don't pin a CPU spinning FreeRDP). Now `pod wait-ready --timeout 600` actually waits up to 10 minutes — observable in the elapsed-time stamp incrementing during phase 3.
+
+
 
 ### Added
 - **`winpodx pod wait-ready [--timeout SEC] [--logs]`** — multi-phase wait gate for Windows VM first-boot. Polls three checkpoints with elapsed-time stamps so the user actually sees progress instead of a silent multi-minute hang:
