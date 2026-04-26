@@ -457,10 +457,10 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
     # FreeRDP RemoteApp before firing applies.
     from winpodx.core.provisioner import wait_for_windows_responsive
 
-    print("  Waiting for Windows guest to finish booting (up to 90s)...")
-    if not wait_for_windows_responsive(cfg, timeout=90):
+    print("  Waiting for Windows guest to finish booting (up to 180s)...")
+    if not wait_for_windows_responsive(cfg, timeout=180):
         print(
-            "  Windows guest still booting after 90s — skipping runtime apply.\n"
+            "  Windows guest still booting after 180s — skipping runtime apply.\n"
             "  Run `winpodx pod apply-fixes` once `winpodx pod status` reports "
             "the pod is fully up, or just launch any app and the apply will "
             "fire automatically."
@@ -526,6 +526,21 @@ def _attempt_refresh() -> None:
         except Exception as exc:  # noqa: BLE001 — surface any startup failure
             print(f"\n  Could not start pod: {exc}")
             return
+
+    # v0.2.0.3: discovery hits the same FreeRDP RemoteApp channel as the
+    # apply path, so it suffers the same race when Windows VM inside QEMU
+    # is still booting. Wait until the guest is responsive (or skip with
+    # a useful message) before running the scan; otherwise the user just
+    # sees rc=147 connection-reset right after a fresh install.
+    from winpodx.core.provisioner import wait_for_windows_responsive
+
+    print("\n  Waiting for Windows guest to be ready (up to 180s)...")
+    if not wait_for_windows_responsive(cfg, timeout=180):
+        print(
+            "  Windows guest still booting — skipping discovery for now.\n"
+            "  Re-run later with: winpodx app refresh"
+        )
+        return
 
     try:
         print("\n  Scanning Windows pod for installed apps...")
