@@ -76,6 +76,14 @@ def cli(argv: list[str] | None = None) -> None:
     pod_sub.add_parser("stop", help="Stop the pod")
     pod_sub.add_parser("status", help="Show pod status")
     pod_sub.add_parser("restart", help="Restart the pod")
+    pod_sub.add_parser(
+        "apply-fixes",
+        help=(
+            "Apply Windows-side runtime fixes (RDP timeouts, NIC power-save, "
+            "TermService recovery, MaxSessions) to the existing pod. "
+            "Idempotent — safe to run any time."
+        ),
+    )
 
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")

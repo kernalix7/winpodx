@@ -9,6 +9,17 @@
 
 ## [Unreleased]
 
+## [0.1.9.3] - 2026-04-26
+
+### 수정
+- **Patch 버전 migrate 가 Windows-측 apply 를 건너뛰던 "already current" 트랩.** kernalix7 이 0.1.9.x 에서 0.1.9.2 로 업그레이드 후 `winpodx 0.1.9.2: already current. Nothing to migrate.` 만 보고 실제 Windows 게스트엔 v0.1.9.1 RDP-timeout / v0.1.9.2 OEM v7-baseline runtime 수정이 들어가지 않음. 원인: `_version_tuple(...)[:3]` 이 `0.1.9.1` 과 `0.1.9.2` 를 같은 `(0, 1, 9)` 튜플로 자르므로 `inst_cmp >= cur_cmp` 가 runtime apply 단계 **앞에서** early-return 시킴. 이제 "already current" 경로에서도 idempotent runtime apply 가 항상 실행됨.
+
+### 추가
+- **`winpodx pod apply-fixes`** 독립 CLI 명령. Idempotent — `_apply_max_sessions`, `_apply_rdp_timeouts`, `_apply_oem_runtime_fixes` 를 실행 중인 pod 에 호출하고 헬퍼별 OK/FAIL 테이블 출력. 성공 시 exit 0, pod 미실행/백엔드 미지원 시 2, 헬퍼 실패 시 3. 언제든 재실행 안전.
+- **GUI Tools 페이지 "Apply Windows Fixes" 버튼.** 동일한 runtime apply 를 Qt GUI 에서 트리거 — worker thread 에서 헬퍼 호출, 기존 toast/info-label 채널로 성공/실패 표시. CLI 안 쓰고 GUI 만으로 적용 가능.
+- **install.sh 가 매 설치 마지막에 `winpodx pod apply-fixes` 자동 호출.** migrate 위자드 다음 단계로 실행. `|| true` 로 실패 무해 — pod 안 켜져 있으면 silent skip. `curl | bash` 한 번이면 항상 최신 Windows-측 수정사항이 기존 게스트에 적용됨, migrate 의 버전 비교가 "진짜" 업그레이드를 봤는지와 무관.
+- **공개 API `provisioner.apply_windows_runtime_fixes(cfg)`** — `{helper_name: "ok" | "failed: ..."}` 맵 반환. CLI / GUI / migrate 경로가 단일 진입점 공유.
+
 ## [0.1.9.2] - 2026-04-26
 
 ### 수정
