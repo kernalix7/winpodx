@@ -308,6 +308,7 @@ winpodx pod apply-fixes           # Windows 런타임 수정 재적용 (멱등)
 winpodx pod sync-password         # 비밀번호 drift 복구 (cfg ↔ Windows)
 winpodx pod multi-session on      # 번들 rdprrap 다중 세션 RDP 토글
 winpodx pod multi-session status
+winpodx pod wait-ready --logs     # Windows 첫 부팅 대기 (진행 + 컨테이너 로그)
 
 # 전원 관리
 winpodx power --suspend           # 일시정지 (CPU 해제, 메모리 유지)

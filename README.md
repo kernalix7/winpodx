@@ -312,6 +312,7 @@ winpodx pod apply-fixes           # Re-apply Windows-side runtime fixes (idempot
 winpodx pod sync-password         # Recover from password drift (cfg ↔ Windows)
 winpodx pod multi-session on      # Toggle bundled rdprrap multi-session RDP
 winpodx pod multi-session status
+winpodx pod wait-ready --logs     # Wait for Windows first-boot with progress + container logs
 
 # Power management
 winpodx power --suspend           # Pause container (free CPU, keep memory)

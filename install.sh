@@ -410,21 +410,48 @@ log "Installed winpodx GUI launcher and icon"
 # discovered apps + their real Windows-extracted icons land in the menu.
 # Manual trigger any time: `winpodx app refresh`.
 
+# --- Wait for Windows VM to finish first-boot setup ---
+# v0.2.0.5: dockur Windows first-boot can take 5-10 minutes (Sysprep,
+# OEM apply, account password set, RDP listener up). Without this gate
+# the user just saw "Installation complete!" while Windows was still
+# silently booting in the background, then had to wait again the first
+# time they tried to launch an app. wait-ready surfaces the same wait
+# up-front with [1/3] container → [2/3] RDP port → [3/3] activation
+# progress + tailed container logs so the user can see what's happening.
+# Skip with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
+if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
+    log "Waiting for Windows VM to finish first-boot (up to 10 min)..."
+    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 600 --logs || {
+        warn "Windows first-boot didn't complete in 10 minutes."
+        warn "You can re-run \`winpodx pod wait-ready --logs\` to keep waiting,"
+        warn "or just launch any app from the menu — the apply / discovery will fire automatically."
+    }
+fi
+
 # --- Post-upgrade migration wizard ---
 # If an existing config is present this is an upgrade, not a fresh
 # install. Run the migrate wizard so the user sees new-version release
 # notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
 # `|| true` keeps install.sh's exit code clean if migrate fails.
+#
+# v0.2.0.5: now that wait-ready ran first, migrate's apply step
+# completes quickly (the wait gate inside migrate is a no-op since the
+# guest is already responsive) instead of blocking 180s only to skip.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
     "$HOME/.local/bin/winpodx" migrate || true
-    # v0.1.9.3: also fire the standalone apply-fixes command. migrate's
-    # version-comparison can short-circuit ("already current") if the
-    # marker matches — but the Windows-side apply still needs to run,
-    # because patch-version bumps collapse to the same (X,Y,Z) tuple.
-    # `pod apply-fixes` is idempotent and self-skips when the pod is
-    # stopped, so this is safe to call unconditionally.
-    "$HOME/.local/bin/winpodx" pod apply-fixes 2>/dev/null || true
+fi
+
+# --- Auto-discover apps ---
+# v0.2.0.5: trigger discovery so the menu populates before install.sh
+# exits. Same logic as auto_discover_if_empty in ensure_ready, but on
+# the install path so the user gets a populated app menu the first
+# time they look. Best-effort — if discovery fails (channel error,
+# Windows still warming up), the next ensure_ready picks it up.
+if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
+    log "Discovering installed Windows apps..."
+    "$HOME/.local/bin/winpodx" app refresh 2>/dev/null || \
+        warn "Discovery did not complete; run \`winpodx app refresh\` later."
 fi
 
 # --- Done ---

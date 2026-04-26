@@ -9,7 +9,20 @@
 
 ## [Unreleased]
 
-## [0.2.0.4] - 2026-04-27
+## [0.2.0.5] - 2026-04-27
+
+### 추가
+- **`winpodx pod wait-ready [--timeout SEC] [--logs]`** — Windows VM 첫 부팅 다단계 wait gate. 세 체크포인트를 elapsed time 과 함께 표시해서 사용자가 침묵 속 몇 분간 hang 대신 실제 진행 상황을 봄:
+  - `[1/3] Container running` (~5초)
+  - `[2/3] RDP port open` (보통 30-90초)
+  - `[3/3] Windows ready (RemoteApp probes OK)` (첫 부팅 시 보통 2-8분)
+  `--logs` 옵션 시 컨테이너 stdout 을 백그라운드 스레드로 tail 해서 `[container] ...` 라인으로 surfacing — Windows 가 실제로 뭐 하는지 (Sysprep, OEM apply 등) 보임. 블랙박스 → 가시성.
+
+### 변경
+- **`install.sh` 가 진짜 single-shot 으로 바뀜 — 설치 정말 끝났을 때 exit, 컨테이너 시작했다고 거짓말 안 함.** 새 흐름: `setup` → `pod wait-ready --logs` (최대 10분, progress + 컨테이너 로그) → `migrate` (게스트 ready 라 apply 깔끔히 통과) → `app refresh` (디스커버리 즉시 통과). 기존에는 Windows 가 아직 부팅 중인데 `Installation complete!` 표시 후, 사용자가 첫 앱 실행 시 또 기다리는 구조였음. CI / 비대화형 환경에서는 `WINPODX_NO_WAIT=1` 로 wait 우회, `WINPODX_NO_DISCOVERY=1` 로 디스커버리 우회.
+- install.sh 의 중복 `winpodx pod apply-fixes` 호출 제거 — v0.1.9.3 이후 `migrate` 의 "always-apply" 경로가 이미 apply 를 돌리므로 한 번 더 부르면 wait 만 두 배가 됨.
+
+
 
 ### 수정
 - **신규 `--purge` 설치마다 가짜 "cfg.password does not match Windows" 경고.** v0.1.9.5 가 추가한 `_probe_password_sync` (cfg/Windows 비밀번호 drift 사전 감지) 의 에러 분류기가 FreeRDP 에러 문자열에 `"no result file"` 또는 `"auth"` 가 들어있으면 drift 로 판정. 하지만 부팅 중 게스트 (모든 신규 설치가 거치는 상태) 는 FreeRDP 가 rc=147 `ERRCONNECT_CONNECT_TRANSPORT_FAILED` (connection reset) 반환 → host wrapper 가 `"No result file written"` 으로 감쌈 → 분류기가 `"no result file"` 매칭 → 가짜 drift 경고 발화. v0.2.0.4 가 두 방향으로 수정:

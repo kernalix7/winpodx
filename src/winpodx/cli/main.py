@@ -112,6 +112,25 @@ def cli(argv: list[str] | None = None) -> None:
         choices=("on", "off", "status"),
         help="on = enable multi-session, off = disable, status = report current state",
     )
+    wait_p = pod_sub.add_parser(
+        "wait-ready",
+        help=(
+            "Wait until the Windows VM has finished first-boot setup and "
+            "the FreeRDP RemoteApp channel is responsive. Used by install.sh "
+            "and useful after a cold `pod start`."
+        ),
+    )
+    wait_p.add_argument(
+        "--timeout",
+        type=int,
+        default=600,
+        help="Maximum seconds to wait (default 600 = 10 minutes).",
+    )
+    wait_p.add_argument(
+        "--logs",
+        action="store_true",
+        help="Tail container logs while waiting so the user sees Windows boot progress.",
+    )
 
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")

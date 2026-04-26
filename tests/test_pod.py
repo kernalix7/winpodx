@@ -154,3 +154,66 @@ def test_recover_rdp_succeeds_even_when_exec_returns_nonzero(monkeypatch):
         lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "service stuck"),
     )
     assert recover_rdp_if_needed(cfg) is True
+
+
+# --- v0.2.0.5: pod wait-ready ---
+
+
+class TestWaitReady:
+    """Multi-phase wait gate: container -> RDP port -> activation."""
+
+    def _patch_cfg(self, monkeypatch):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.container_name = "winpodx-windows"
+        cfg.rdp.ip = "127.0.0.1"
+        cfg.rdp.port = 3389
+        monkeypatch.setattr("winpodx.core.config.Config.load", classmethod(lambda cls: cfg))
+        return cfg
+
+    def test_rejects_unsupported_backend(self, monkeypatch, capsys):
+        import pytest
+
+        from winpodx.cli.pod import _wait_ready
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "libvirt"
+        monkeypatch.setattr("winpodx.core.config.Config.load", classmethod(lambda cls: cfg))
+
+        with pytest.raises(SystemExit) as excinfo:
+            _wait_ready(timeout=10, show_logs=False)
+        assert excinfo.value.code == 2
+        assert "wait-ready not supported" in capsys.readouterr().out
+
+    def test_happy_path_traverses_three_phases(self, monkeypatch, capsys):
+        from unittest.mock import MagicMock
+
+        from winpodx.cli.pod import _wait_ready
+        from winpodx.core.pod import PodState
+
+        self._patch_cfg(monkeypatch)
+        # Phase 1: container running immediately.
+        monkeypatch.setattr(
+            "winpodx.core.pod.pod_status",
+            lambda cfg: MagicMock(state=PodState.RUNNING),
+        )
+        # Phase 2: RDP port immediately reachable.
+        monkeypatch.setattr(
+            "winpodx.core.pod.check_rdp_port",
+            lambda ip, port, timeout=1.0: True,
+        )
+        # Phase 3: activation probe succeeds.
+        monkeypatch.setattr(
+            "winpodx.core.provisioner.wait_for_windows_responsive",
+            lambda cfg, timeout=180: True,
+        )
+
+        _wait_ready(timeout=30, show_logs=False)
+        out = capsys.readouterr().out
+        assert "[1/3]" in out
+        assert "[2/3]" in out
+        assert "[3/3]" in out
+        assert "Windows ready" in out

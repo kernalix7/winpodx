@@ -1,3 +1,22 @@
+winpodx (0.2.0.5) unstable; urgency=medium
+
+  * Added: `winpodx pod wait-ready [--timeout SEC] [--logs]` —
+    multi-phase wait gate for Windows VM first-boot. Three checkpoints
+    with elapsed-time stamps: container running, RDP port open,
+    Windows ready (RemoteApp probes OK). With --logs, container
+    stdout is tailed in a background thread so the user sees Windows
+    Sysprep / OEM apply progress instead of a silent multi-minute
+    hang.
+  * Changed: install.sh is now single-shot. Flow: setup -> pod
+    wait-ready --logs -> migrate -> app refresh. install.sh exits
+    when the install is actually finished, not when the container
+    started. WINPODX_NO_WAIT=1 / WINPODX_NO_DISCOVERY=1 skip the
+    waits in CI / non-interactive setups.
+  * Removed redundant `winpodx pod apply-fixes` call from install.sh
+    (migrate's always-apply path already runs the apply).
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 13:00:00 +0900
+
 winpodx (0.2.0.4) unstable; urgency=high
 
   * Fixed: bogus "cfg.password does not match Windows" warning on

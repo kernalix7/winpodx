@@ -9,7 +9,20 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.4] - 2026-04-27
+## [0.2.0.5] - 2026-04-27
+
+### Added
+- **`winpodx pod wait-ready [--timeout SEC] [--logs]`** — multi-phase wait gate for Windows VM first-boot. Polls three checkpoints with elapsed-time stamps so the user actually sees progress instead of a silent multi-minute hang:
+  - `[1/3] Container running` (~5s)
+  - `[2/3] RDP port open` (typically 30-90s)
+  - `[3/3] Windows ready (RemoteApp probes OK)` (typically 2-8 min on first boot)
+  With `--logs`, container stdout is tailed in a background thread and surfaced as `[container] ...` lines so the user can see Windows actually doing work (Sysprep, OEM apply, etc.) instead of a black box.
+
+### Changed
+- **`install.sh` is now single-shot — install.sh exits when the install is actually finished, not when the container started.** The flow is now `setup` → `pod wait-ready --logs` (up to 10 min with progress + container logs) → `migrate` (apply runs cleanly since guest is now ready) → `app refresh` (discovery runs cleanly). Previously the user saw `Installation complete!` while Windows was still silently booting and had to wait again on first app launch. Skip the wait with `WINPODX_NO_WAIT=1` for CI / non-interactive setups; skip discovery with `WINPODX_NO_DISCOVERY=1`.
+- Removed the redundant `winpodx pod apply-fixes` call from install.sh — `migrate`'s "always-apply" path (since v0.1.9.3) already runs the apply, so calling it again just doubled the wait.
+
+
 
 ### Fixed
 - **Bogus "cfg.password does not match Windows" warning on every fresh `--purge` install.** v0.1.9.5 added `_probe_password_sync` to detect cfg/Windows password drift before apply, but its error classifier matched on `"no result file"` OR `"auth"` in the FreeRDP error string. On a still-booting guest (which is exactly what every fresh install hits), FreeRDP returns rc=147 `ERRCONNECT_CONNECT_TRANSPORT_FAILED` (connection reset by peer) wrapped in the host's `"No result file written"` envelope — and the classifier saw `"no result file"` and yelled drift. v0.2.0.4 fixes this two ways:
