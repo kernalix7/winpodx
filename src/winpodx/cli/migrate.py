@@ -106,6 +106,11 @@ def run_migrate(args: argparse.Namespace) -> int:
         # — exactly the bug kernalix7 hit. Helpers are idempotent so a
         # no-op run is harmless if everything was already applied.
         non_interactive = bool(getattr(args, "non_interactive", False))
+        # v0.1.9.5: probe for password drift before attempting apply.
+        # If FreeRDP auth fails, point the user at `winpodx pod sync-password`
+        # rather than letting them watch all three applies fail in confusing
+        # ways.
+        _probe_password_sync(non_interactive)
         _apply_runtime_fixes_to_existing_guest(non_interactive)
         return 0
 
@@ -327,6 +332,61 @@ def _prompt_yes(question: str, default: bool = True) -> bool:
     if not response:
         return default
     return response in ("y", "yes")
+
+
+def _probe_password_sync(non_interactive: bool) -> None:
+    """v0.1.9.5: detect cfg/Windows password drift before apply.
+
+    Fires a tiny no-op PS payload through the FreeRDP RemoteApp channel.
+    If the channel returns a parseable result, auth worked and the
+    password is in sync. If it raises a "no result file" or auth-flavored
+    error, we know cfg.password no longer matches Windows. In that case
+    we surface the recovery instructions and let the apply fall through
+    naturally (it will fail the same way and the user has the context).
+    """
+    try:
+        from winpodx.core.config import Config
+        from winpodx.core.pod import PodState, pod_status
+        from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    except ImportError as e:
+        print(f"  (skipping password-sync probe: {e})")
+        return
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+    try:
+        if pod_status(cfg).state != PodState.RUNNING:
+            return
+    except Exception:  # noqa: BLE001
+        return
+
+    print("\nProbing Windows-side authentication...")
+    try:
+        run_in_windows(
+            cfg,
+            "Write-Output 'sync-check'",
+            description="probe-password-sync",
+            timeout=20,
+        )
+    except WindowsExecError as e:
+        msg = str(e).lower()
+        if "no result file" in msg or "auth" in msg:
+            print(
+                "  WARNING: cfg.password does not match Windows guest's account "
+                "password (FreeRDP authentication failed).\n"
+                "  This usually means password rotation has been silently failing "
+                "for prior winpodx versions (the runtime apply path was broken).\n"
+                "\n"
+                "  To fix: run `winpodx pod sync-password` and provide the "
+                "password Windows currently accepts (typically the original "
+                "from your initial setup). The Windows-side apply step below "
+                "will fail until you do this."
+            )
+        else:
+            print(f"  (probe inconclusive: {e})")
+    else:
+        print("  Password sync OK.")
 
 
 def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:

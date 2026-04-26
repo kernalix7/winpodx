@@ -94,18 +94,26 @@ def test_is_pod_paused_uses_configured_container_name():
     assert "winpodx-windows" not in cmd
 
 
-def test_sync_windows_time_uses_configured_container_name():
+def test_sync_windows_time_uses_windows_exec_channel(monkeypatch):
+    """v0.1.9.5: sync_windows_time migrated from podman exec to FreeRDP RemoteApp."""
+    from winpodx.core.windows_exec import WindowsExecResult
+
     cfg = Config()
     cfg.pod.backend = "podman"
     cfg.pod.container_name = "alt-winpod"
+    cfg.rdp.password = "secret"
 
-    with patch("winpodx.core.daemon.subprocess.run", return_value=_mock_run_ok()) as mr:
-        assert sync_windows_time(cfg) is True
+    captured: dict[str, str] = {}
 
-    cmd = mr.call_args.args[0]
-    assert cmd[0] == "podman"
-    assert cmd[1] == "exec"
-    assert cmd[2] == "alt-winpod"
+    def fake(cfg_inner, payload, *, timeout=60, description="windows-exec"):
+        captured["payload"] = payload
+        captured["description"] = description
+        return WindowsExecResult(rc=0, stdout="time synced", stderr="")
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+    assert sync_windows_time(cfg) is True
+    assert "w32tm" in captured["payload"]
+    assert captured["description"] == "sync-time"
 
 
 def test_cleanup_ignores_symlinks(tmp_path):

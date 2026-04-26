@@ -9,6 +9,33 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.9.5] - 2026-04-26
+
+### Fixed
+- **BOM in result file caused fake "fail" reports.** v0.1.9.4 routed runtime applies through FreeRDP RemoteApp PowerShell, but the wrapper used `Out-File -Encoding utf8` which (in Windows PowerShell 5.1) writes a UTF-8 BOM. The host then `json.loads`'d the file with the default `utf-8` codec which rejected the BOM and reported "result file unparseable: Unexpected UTF-8 BOM". The registry changes from rdp_timeouts and oem_runtime_fixes had **actually applied successfully** — only the parse step failed, leaving the user thinking nothing worked. `windows_exec.run_in_windows` now reads with `utf-8-sig` so the BOM is consumed transparently.
+- **`_apply_max_sessions` killed its own RDP session.** The payload included `Restart-Service -Force TermService` to make the new MaxInstanceCount take effect immediately — but TermService is exactly what's hosting the FreeRDP RemoteApp session running the script. The restart killed the session before the wrapper could write its result file, the host saw `ERRINFO_RPC_INITIATED_DISCONNECT [0x00010001]`, and the apply was incorrectly classified as a channel failure even when the registry write itself had landed. v0.1.9.5 removes the in-script `Restart-Service`; the registry write alone is enough, and TermService picks up the new value on its next natural cycle (next pod boot or `winpodx pod restart`).
+
+### Changed (architectural)
+- **Migrated every remaining host-to-Windows command path off the broken `podman exec ... powershell.exe` channel** onto `windows_exec.run_in_windows`. Six functions had been silently no-op'ing for releases 0.1.0 through 0.1.9.4 — `podman exec` only reaches the Linux container that hosts QEMU, not the Windows VM running inside, so any call to `powershell.exe` returned `rc=127 executable file not found in $PATH` and the helpers logged a warning then returned. v0.1.9.5 ports them all:
+  - `provisioner._change_windows_password` (password rotation — silent for years)
+  - `pod.recover_rdp_if_needed` (Bug B TermService restart — never worked; replaced with a container restart since FreeRDP can't authenticate against a dead RDP listener anyway)
+  - `daemon.sync_windows_time` (w32tm)
+  - `core.updates._exec_toggle` (Windows Update enable/disable/status)
+  - `cli/main._cmd_debloat` and `gui/main_window._on_debloat` (debloat.ps1 — was double-broken: `podman cp` to copy the script + `podman exec` to run it)
+  - `core/discovery.discover_apps` (Bug A's "fix" via stdin pipe was on the same broken path; now actually goes via FreeRDP RemoteApp)
+
+### Added
+- **`winpodx pod sync-password`** CLI command to recover from password drift accumulated under prior releases. Prompts for the "last known working" password (typically the one from initial setup, or the value still in `compose.yml`'s `PASSWORD` env var), authenticates FreeRDP with it, then runs `net user` inside Windows to set the account password to the current cfg.password value. Once the sync completes, password rotation works normally going forward.
+- **migrate auto-detects password drift.** When `winpodx migrate` runs and the user is on the "already current" path, it now fires a no-op `Write-Output 'sync-check'` payload through the FreeRDP channel first. If FreeRDP fails with auth/no-result-file, migrate prints a clear "run `winpodx pod sync-password`" pointer instead of letting all three subsequent applies fail with confusing channel errors.
+- **Lint test `tests/test_no_broken_podman_exec.py`** — fails CI if any future code under `src/winpodx/` (other than `windows_exec.py` itself) reintroduces the `podman exec ... powershell.exe` pattern. Single canonical channel for Windows-side commands going forward.
+
+### Tests
+- `tests/test_provisioner.py` updated to mock `windows_exec.run_in_windows` for `_apply_max_sessions` and assert that `Restart-Service` is no longer in the payload.
+- `tests/test_security.py::TestPowerShellEscape` rewritten — `_change_windows_password` now goes through `windows_exec`, so the test inspects the payload string instead of subprocess argv.
+- `tests/test_pod.py::test_recover_rdp_*` updated — recover-rdp now restarts the container instead of attempting an exec-based TermService restart.
+- `tests/test_daemon.py::test_sync_windows_time_uses_windows_exec_channel` rewritten for the new transport.
+- `tests/test_discovery.py` — five tests rewritten to mock `windows_exec.run_in_windows` instead of `subprocess.Popen` + stdin pipe. The `HARD_STDOUT_CAP` flooding test was removed; the cap was specific to the `_run_bounded` path that discovery no longer uses.
+
 ## [0.1.9.4] - 2026-04-26
 
 ### Fixed

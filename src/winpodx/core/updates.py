@@ -1,49 +1,43 @@
-r"""Windows Update toggle via container exec."""
+r"""Windows Update toggle via FreeRDP RemoteApp PowerShell.
+
+The actual toggle logic lives in ``config/oem/toggle_updates.ps1`` which
+dockur stages into ``C:\OEM\`` during unattended install. v0.1.9.5
+migrated this off the broken ``podman exec ... powershell.exe`` path
+(which never reached the Windows VM) onto ``windows_exec.run_in_windows``.
+"""
 
 from __future__ import annotations
 
 import logging
-import subprocess
 
 from winpodx.core.config import Config
 
 log = logging.getLogger(__name__)
 
-_SCRIPT = r"C:\OEM\toggle_updates.ps1"
-_PS = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-
 
 def _exec_toggle(cfg: Config, action: str) -> tuple[bool, str]:
-    """Run toggle_updates.ps1 with the given action."""
-    backend = cfg.pod.backend
-    if backend not in ("podman", "docker"):
+    """Run ``toggle_updates.ps1 -Action <action>`` inside the Windows VM."""
+    if cfg.pod.backend not in ("podman", "docker"):
         return False, "Only supported for podman/docker backends"
 
-    runtime = "podman" if backend == "podman" else "docker"
-    cmd = [
-        runtime,
-        "exec",
-        cfg.pod.container_name,
-        _PS,
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        _SCRIPT,
-        "-Action",
-        action,
-    ]
+    if action not in ("enable", "disable", "status"):
+        return False, f"unknown action {action!r}"
+
+    payload = (
+        f"& 'C:\\OEM\\toggle_updates.ps1' -Action '{action}'\n"
+        "if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n"
+    )
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except FileNotFoundError:
-        return False, f"{runtime} not found"
-    except subprocess.TimeoutExpired:
-        return False, "Command timed out"
+        result = run_in_windows(cfg, payload, description=f"updates-{action}", timeout=45)
+    except WindowsExecError as e:
+        return False, str(e)
 
-    output = result.stdout.strip()
-    if result.returncode == 0:
+    output = (result.stdout or "").strip()
+    if result.rc == 0:
         return True, output
-    return False, result.stderr.strip() or output
+    return False, (result.stderr.strip() or output) or f"rc={result.rc}"
 
 
 def disable_updates(cfg: Config) -> bool:

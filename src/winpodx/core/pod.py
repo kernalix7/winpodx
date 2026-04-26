@@ -101,21 +101,24 @@ def stop_pod(cfg: Config) -> PodStatus:
 
 
 def recover_rdp_if_needed(cfg: Config, *, max_attempts: int = 3) -> bool:
-    """Bug B: kick TermService when RDP is dead but VNC is alive.
+    """Detect "RDP dead but VNC alive" and recover by restarting the container.
 
-    After host suspend / long idle, Windows TermService can hang and
-    the virtual NIC can drop into power-save and stop accepting RDP
-    traffic — VNC keeps working because it talks to the QEMU display
-    directly. We detect the asymmetry and force a TermService restart
-    plus a w32tm resync, then re-probe RDP up to ``max_attempts`` times
-    with simple linear backoff.
+    After host suspend / long idle, Windows TermService can hang or the
+    virtual NIC can drop into power-save while VNC keeps working (VNC
+    talks to the QEMU display, not Windows). The fundamental constraint
+    here is that any host-driven Windows-side recovery (TermService
+    restart, w32tm resync) needs RDP itself to authenticate via
+    ``windows_exec.run_in_windows`` — and RDP is exactly what's broken.
 
-    Returns True if RDP is reachable when this function returns (either
-    because it was already up, or recovery succeeded). Returns False if
-    recovery couldn't bring it back, or if VNC was also dead (whole pod
-    is sick — caller should surface a different error). Backends other
-    than podman / docker skip silently with True so libvirt + manual
-    users aren't blocked by a no-op.
+    v0.1.9.5: previous releases tried ``podman exec`` which doesn't
+    actually reach the Windows VM (rc=127), so this function has been
+    silently no-op'ing since it was added. The honest fix is to restart
+    the container — dockur respawns the VM cleanly, OEM hardening
+    re-applies on boot, and RDP comes back. Cost is ~30 s pod restart
+    vs. some unknown hung-state.
+
+    Returns True if RDP is reachable on return, False if recovery failed.
+    Skips silently for libvirt / manual backends.
     """
     backend = cfg.pod.backend
     if backend not in ("podman", "docker"):
@@ -126,9 +129,7 @@ def recover_rdp_if_needed(cfg: Config, *, max_attempts: int = 3) -> bool:
 
     # Whole pod sick? Don't try to bandage RDP.
     if not check_rdp_port(cfg.rdp.ip, cfg.pod.vnc_port, timeout=2.0):
-        log.warning(
-            "RDP and VNC both unreachable; skipping TermService recovery (pod likely down)."
-        )
+        log.warning("RDP and VNC both unreachable; skipping recovery (pod likely down).")
         return False
 
     container = cfg.pod.container_name
@@ -136,39 +137,27 @@ def recover_rdp_if_needed(cfg: Config, *, max_attempts: int = 3) -> bool:
         log.warning("Refusing to recover RDP on non-conforming container name: %r", container)
         return False
 
-    runtime = "podman" if backend == "podman" else "docker"
-    ps_recover = (
-        "Restart-Service -Force TermService; "
-        "Start-Sleep -Seconds 2; "
-        "w32tm /resync /force | Out-Null"
+    log.info(
+        "RDP unreachable while VNC is alive; restarting the pod to recover "
+        "(no host-driven TermService restart channel exists for an unauthenticated session)."
     )
-    cmd = [
-        runtime,
-        "exec",
-        container,
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        ps_recover,
-    ]
+    runtime = "podman" if backend == "podman" else "docker"
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        subprocess.run(
+            [runtime, "restart", "--time", "10", container],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("RDP recovery: TermService restart command failed: %s", e)
+        log.warning("RDP recovery: pod restart failed: %s", e)
         return False
 
-    if result.returncode != 0:
-        log.warning("RDP recovery: rc=%d stderr=%s", result.returncode, result.stderr.strip())
-        # Even on rc!=0 retry the probe — TermService may already be
-        # back from a Windows-side `sc.exe failure` action.
-
-    backoff = 2.0
+    backoff = 3.0
     for _attempt in range(max(1, max_attempts)):
         time.sleep(backoff)
         if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=3.0):
-            log.info("RDP recovery succeeded after TermService restart.")
+            log.info("RDP recovery succeeded after pod restart.")
             return True
         backoff *= 2
 

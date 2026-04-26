@@ -199,7 +199,14 @@ def run_in_windows(
         )
 
     try:
-        data = json.loads(result_path.read_text(encoding="utf-8"))
+        # PowerShell's `Out-File -Encoding utf8` writes a UTF-8 BOM (the
+        # 5.1 / Windows-PowerShell behavior; PS Core 7+ doesn't). Use
+        # `utf-8-sig` so the BOM is consumed transparently. v0.1.9.5
+        # caught this — kernalix7's apply-fixes returned "result file
+        # unparseable: Unexpected UTF-8 BOM" when the wrapper actually
+        # *had* succeeded.
+        raw = result_path.read_text(encoding="utf-8-sig")
+        data = json.loads(raw)
     except (json.JSONDecodeError, OSError) as e:
         raise WindowsExecError(f"result file unparseable: {e}") from e
     finally:

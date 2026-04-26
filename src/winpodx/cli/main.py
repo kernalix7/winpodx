@@ -84,6 +84,20 @@ def cli(argv: list[str] | None = None) -> None:
             "Idempotent — safe to run any time."
         ),
     )
+    sync_p = pod_sub.add_parser(
+        "sync-password",
+        help=(
+            "Re-sync the Windows guest's account password to the value in "
+            "winpodx config. Use when password rotation has drifted (cfg "
+            "and Windows disagree). Prompts for the last-known-working "
+            "password to authenticate one final time."
+        ),
+    )
+    sync_p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Read the recovery password from $WINPODX_RECOVERY_PASSWORD env var.",
+    )
 
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")
@@ -287,60 +301,50 @@ def _cmd_timesync() -> None:
 
 
 def _cmd_debloat() -> None:
-    import subprocess
+    """Run debloat.ps1 inside the Windows VM via FreeRDP RemoteApp.
+
+    v0.1.9.5: was on the broken `podman cp + podman exec` path which
+    couldn't reach the Windows VM. Now reads the script body locally
+    and pipes it through ``windows_exec.run_in_windows``.
+    """
     from pathlib import Path
 
     from winpodx.core.config import Config
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
         print("Debloat only supported for Podman/Docker backends.")
         return
 
-    script = Path(__file__).parent.parent.parent.parent / "scripts" / "windows" / "debloat.ps1"
-    if not script.exists():
-        print(f"Debloat script not found: {script}")
+    candidates = [
+        Path(__file__).parent.parent.parent.parent / "scripts" / "windows" / "debloat.ps1",
+        Path.home() / ".local" / "bin" / "winpodx-app" / "scripts" / "windows" / "debloat.ps1",
+    ]
+    script = next((p for p in candidates if p.exists()), None)
+    if script is None:
+        print(f"Debloat script not found in any of: {[str(p) for p in candidates]}")
         return
 
-    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-    container = cfg.pod.container_name
-
-    print("Copying debloat script to Windows...")
     try:
-        subprocess.run([runtime, "cp", str(script), f"{container}:C:/debloat.ps1"], check=True)
-    except subprocess.CalledProcessError:
-        print("Failed to copy script. Is the pod running? Try: winpodx pod start")
-        return
-    except FileNotFoundError:
-        print(f"'{runtime}' not found. Is {cfg.pod.backend} installed?")
+        payload = script.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"Cannot read debloat script {script}: {e}")
         return
 
     print("Running debloat (this may take a minute)...")
     try:
-        result = subprocess.run(
-            [
-                runtime,
-                "exec",
-                container,
-                "powershell",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "C:\\debloat.ps1",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired:
-        print("Debloat timed out after 120 seconds.")
+        result = run_in_windows(cfg, payload, description="debloat", timeout=180)
+    except WindowsExecError as e:
+        print(f"Debloat channel failure: {e}")
         return
 
-    if result.returncode == 0:
-        print(result.stdout)
+    if result.rc == 0:
+        if result.stdout.strip():
+            print(result.stdout.rstrip())
         print("Debloat complete.")
     else:
-        print(f"Debloat failed: {result.stderr}")
+        print(f"Debloat failed (rc={result.rc}): {result.stderr.strip() or result.stdout.strip()}")
 
 
 def _cmd_power(args: argparse.Namespace) -> None:

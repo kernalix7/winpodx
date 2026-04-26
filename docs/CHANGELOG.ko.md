@@ -9,6 +9,26 @@
 
 ## [Unreleased]
 
+## [0.1.9.5] - 2026-04-26
+
+### 수정
+- **결과 파일의 BOM 으로 인한 거짓 "fail" 보고.** v0.1.9.4 가 runtime apply 를 FreeRDP RemoteApp PowerShell 로 라우팅했는데, wrapper 가 `Out-File -Encoding utf8` 사용 → Windows PowerShell 5.1 은 UTF-8 BOM 을 붙임 → 호스트가 기본 utf-8 코덱으로 `json.loads` 시 BOM 거부 → "result file unparseable: Unexpected UTF-8 BOM". 사실 rdp_timeouts 와 oem_runtime_fixes 의 레지스트리 변경은 **실제 적용 성공**했고, 파싱만 실패해서 사용자가 "안 됐다" 고 본 것. `windows_exec.run_in_windows` 가 이제 `utf-8-sig` 로 읽어 BOM 자동 흡수.
+- **`_apply_max_sessions` 가 자기 RDP 세션을 죽이던 문제.** payload 가 `Restart-Service -Force TermService` 호출했는데, TermService 가 바로 그 FreeRDP RemoteApp 세션 호스팅 중. 재기동 → 세션 강제 종료 → wrapper 가 결과 파일 쓰기 전 죽음 → 호스트는 `ERRINFO_RPC_INITIATED_DISCONNECT [0x00010001]` 봄. 레지스트리 쓰기는 됐을 수도 있지만 채널 실패로 잘못 분류. v0.1.9.5 는 in-script `Restart-Service` 제거; 레지스트리만 쓰면 충분, TermService 가 다음 자연 사이클 (다음 부팅 / 사용자 수동 `winpodx pod restart`) 때 새 값 반영.
+
+### 변경 (아키텍처)
+- **모든 host→Windows 명령 경로를 깨진 `podman exec ... powershell.exe` 에서 `windows_exec.run_in_windows` 로 마이그레이션**. 6개 함수가 0.1.0 ~ 0.1.9.4 동안 silent no-op 이었음 — `podman exec` 는 QEMU 호스팅하는 Linux 컨테이너만 도달, 그 안 Windows VM 에는 못 가서 `powershell.exe` 호출이 모두 `rc=127 executable file not found in $PATH` 로 실패하는데 헬퍼들이 warning 만 로그하고 return 했음. v0.1.9.5 는 모두 마이그레이션:
+  - `provisioner._change_windows_password` (비밀번호 회전 — 수년간 silent fail)
+  - `pod.recover_rdp_if_needed` (Bug B TermService 재기동 — 작동 안 했음; FreeRDP 도 죽은 RDP 리스너 인증 못하므로 컨테이너 재시작으로 대체)
+  - `daemon.sync_windows_time` (w32tm)
+  - `core.updates._exec_toggle` (Windows Update 활성화/비활성화/상태)
+  - `cli/main._cmd_debloat` 와 `gui/main_window._on_debloat` (debloat.ps1 — `podman cp` + `podman exec` 둘 다 깨졌었음)
+  - `core/discovery.discover_apps` (Bug A 의 stdin pipe "수정" 도 같은 깨진 경로; 이제 FreeRDP RemoteApp 로 진짜 적용)
+
+### 추가
+- **`winpodx pod sync-password`** CLI — 이전 릴리즈에서 누적된 비번 drift 복구. "마지막으로 작동한" 비번 (보통 초기 설치 시 또는 `compose.yml` 의 `PASSWORD` env var 값) 을 입력받아 FreeRDP 인증 → Windows 안에서 `net user` 실행 → 계정 비번을 현재 cfg.password 로 설정. 동기화 완료 후 비번 회전이 정상 작동.
+- **migrate 자동 drift 감지.** `winpodx migrate` 가 "already current" 경로에서 작은 `Write-Output 'sync-check'` payload 를 FreeRDP 채널로 먼저 발사. auth/no-result-file 로 실패하면 "`winpodx pod sync-password` 실행" 안내 메시지 출력 → 그 이후 3개 apply 가 혼란스러운 채널 에러로 실패하는 것 방지.
+- **Lint 테스트 `tests/test_no_broken_podman_exec.py`** — 향후 `src/winpodx/` 아래 (`windows_exec.py` 자체 제외) 에 `podman exec ... powershell.exe` 패턴 재도입 시 CI 실패. Windows-측 명령은 단일 채널로 강제.
+
 ## [0.1.9.4] - 2026-04-26
 
 ### 수정

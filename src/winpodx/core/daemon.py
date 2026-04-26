@@ -145,36 +145,30 @@ def cleanup_lock_files(search_dirs: list[Path] | None = None) -> list[Path]:
 
 
 def sync_windows_time(cfg: Config) -> bool:
-    """Force Windows time resync via RDP command execution.
+    """Force Windows time resync via FreeRDP RemoteApp PowerShell.
 
-    Uses podman/docker exec to run w32tm inside the container.
+    v0.1.9.5: was on the broken `podman exec ... cmd /c w32tm` path —
+    podman exec only reaches the Linux container, not the Windows VM
+    inside, so this never actually ran. Migrated to
+    ``windows_exec.run_in_windows`` along with the rest of the Windows-
+    side helpers.
     """
-    backend = cfg.pod.backend
-    container = cfg.pod.container_name
-
-    if backend not in ("podman", "docker"):
+    if cfg.pod.backend not in ("podman", "docker"):
         return False
 
-    runtime = "podman" if backend == "podman" else "docker"
-    cmd = [
-        runtime,
-        "exec",
-        container,
-        "cmd",
-        "/c",
-        "w32tm /resync /force",
-    ]
+    payload = "& w32tm /resync /force | Out-Null\nWrite-Output 'time synced'\n"
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        result = run_in_windows(cfg, payload, description="sync-time", timeout=30)
+    except WindowsExecError as e:
+        log.warning("Time sync channel failure: %s", e)
         return False
-    if result.returncode == 0:
-        log.info("Windows time synced")
-        return True
-
-    log.warning("Time sync failed: %s", result.stderr.strip())
-    return False
+    if result.rc != 0:
+        log.warning("Time sync failed (rc=%d): %s", result.rc, result.stderr.strip())
+        return False
+    log.info("Windows time synced")
+    return True
 
 
 # --- Idle Monitor ---

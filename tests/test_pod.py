@@ -100,13 +100,12 @@ def test_recover_rdp_fires_termservice_when_vnc_alive(monkeypatch):
     assert recover_rdp_if_needed(cfg) is True
     assert len(captured_cmds) == 1
     cmd = captured_cmds[0]
+    # v0.1.9.5: recovery now restarts the *container* (the TermService
+    # path was on the broken podman exec channel and never worked). The
+    # restart subcommand is what the test should verify.
     assert cmd[0] == "podman"
-    assert "exec" in cmd
-    assert cmd[2] == cfg.pod.container_name  # container name is third arg, no shell=True
-    last_arg = cmd[-1]
-    assert "Restart-Service" in last_arg
-    assert "TermService" in last_arg
-    assert "w32tm" in last_arg
+    assert "restart" in cmd
+    assert cfg.pod.container_name in cmd
 
 
 def test_recover_rdp_returns_false_after_max_attempts(monkeypatch):
