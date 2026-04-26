@@ -37,6 +37,19 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     _check_rotation_pending()
     cfg = _auto_rotate_password(cfg)
 
+    # v0.1.9.2: probe pod state once and run idempotent runtime fixes BEFORE
+    # the RDP-port early-return. install.bat changes only land on first boot
+    # of a new container; without this block, existing 0.1.x guests would
+    # never pick up OEM v7/v8 changes (NIC power-save, TermService failure
+    # recovery, RDP timeouts, max_sessions sync) until they recreated their
+    # container. Each apply is idempotent — `Set-ItemProperty -Force` is a
+    # no-op when the value already matches — so running them on every
+    # ensure_ready is cheap (~1.5s overhead) and self-healing.
+    if cfg.pod.backend in ("podman", "docker") and pod_status(cfg).state == PodState.RUNNING:
+        _apply_max_sessions(cfg)
+        _apply_rdp_timeouts(cfg)
+        _apply_oem_runtime_fixes(cfg)
+
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
         return cfg
 
@@ -50,8 +63,12 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     ensure_pod_awake(cfg)
 
     _ensure_pod_running(cfg, timeout)
+    # Re-apply once more after starting (cold-pod path); same idempotency
+    # guarantees mean this only does work the first time after a fresh
+    # start. The earlier branch handles the warm-pod case.
     _apply_max_sessions(cfg)
     _apply_rdp_timeouts(cfg)
+    _apply_oem_runtime_fixes(cfg)
     # Bug B: after host suspend / long idle the pod can be running but RDP
     # itself is dead while VNC is fine. Probe and try to revive TermService
     # before handing the cfg to the caller — the alternative is the FreeRDP
@@ -190,6 +207,60 @@ def _apply_max_sessions(cfg: Config) -> None:
     else:
         log.warning(
             "max_sessions: apply rc=%d stderr=%s",
+            result.returncode,
+            result.stderr.strip(),
+        )
+
+
+def _apply_oem_runtime_fixes(cfg: Config) -> None:
+    """v0.1.9.2: bring existing 0.1.x guests up to OEM v7+ baseline at runtime.
+
+    install.bat only runs at dockur's unattended first boot. Users who
+    installed under OEM v6 (winpodx 0.1.6) don't get the v7 NIC
+    power-save off + TermService failure-recovery actions, and v8 RDP
+    timeouts (those are covered by ``_apply_rdp_timeouts``). Without
+    this helper they'd have to recreate the container to get any
+    Windows-side fix shipped after their first install.
+
+    Stays idempotent — Set-NetAdapterPowerManagement / sc.exe failure
+    are no-op when state already matches. Failure is non-fatal:
+    log warning + return so a flaky exec doesn't block ensure_ready.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
+    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+    apply_script = (
+        # v0.1.9 OEM v7: stop Windows from putting the virtual NIC to sleep.
+        "$ErrorActionPreference = 'SilentlyContinue'; "
+        "Get-NetAdapter | Where-Object { $_.Status -ne 'Disabled' } | "
+        "Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false; "
+        # v0.1.9 OEM v7: TermService recovery actions (3 attempts at 5s, 24h reset).
+        # `sc.exe failure` is non-PowerShell but we can shell to it.
+        "& sc.exe failure TermService reset= 86400 "
+        "actions= restart/5000/restart/5000/restart/5000 | Out-Null"
+    )
+    cmd = [
+        runtime,
+        "exec",
+        cfg.pod.container_name,
+        ps_exe,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        apply_script,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("oem_runtime_fixes: apply failed: %s", e)
+        return
+    if result.returncode != 0:
+        log.warning(
+            "oem_runtime_fixes: rc=%d stderr=%s",
             result.returncode,
             result.stderr.strip(),
         )

@@ -306,3 +306,118 @@ def test_apply_rdp_timeouts_tolerates_timeout(monkeypatch):
     monkeypatch.setattr(provisioner.subprocess, "run", boom)
     # Must swallow the exception.
     provisioner._apply_rdp_timeouts(cfg)
+
+
+# --- v0.1.9.2: _apply_oem_runtime_fixes + ensure_ready early-apply path ---
+
+
+def test_apply_oem_runtime_fixes_skips_libvirt():
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "libvirt"
+    provisioner._apply_oem_runtime_fixes(cfg)  # must not raise / not subprocess
+
+
+def test_apply_oem_runtime_fixes_writes_nic_and_termservice(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    captured = []
+
+    def fake_run(cmd, **kw):
+        captured.append(cmd)
+        m = MagicMock()
+        m.returncode = 0
+        m.stderr = ""
+        return m
+
+    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
+    provisioner._apply_oem_runtime_fixes(cfg)
+    assert len(captured) == 1
+    script = captured[0][-1]
+    assert "Set-NetAdapterPowerManagement" in script
+    assert "AllowComputerToTurnOffDevice" in script
+    assert "sc.exe failure TermService" in script
+    assert "restart/5000/restart/5000/restart/5000" in script
+
+
+def test_apply_oem_runtime_fixes_tolerates_timeout(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+
+    def boom(cmd, **kw):
+        raise provisioner.subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
+
+    monkeypatch.setattr(provisioner.subprocess, "run", boom)
+    provisioner._apply_oem_runtime_fixes(cfg)
+
+
+def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch):
+    """v0.1.9.2: existing healthy pods must still get runtime fixes applied."""
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+    from winpodx.core.pod import PodState, PodStatus
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: None)
+    monkeypatch.setattr(provisioner, "_auto_rotate_password", lambda c: c)
+    monkeypatch.setattr(provisioner, "_ensure_config", lambda: cfg)
+    monkeypatch.setattr(provisioner, "pod_status", lambda c: PodStatus(state=PodState.RUNNING))
+    # RDP alive -> must trigger early return AFTER runtime apply.
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *a, **k: True)
+
+    calls = {"max_sessions": 0, "rdp_timeouts": 0, "oem_runtime_fixes": 0}
+
+    def make_recorder(name):
+        def f(c):
+            calls[name] += 1
+
+        return f
+
+    monkeypatch.setattr(provisioner, "_apply_max_sessions", make_recorder("max_sessions"))
+    monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", make_recorder("rdp_timeouts"))
+    monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", make_recorder("oem_runtime_fixes"))
+
+    result = provisioner.ensure_ready(cfg, timeout=1)
+    assert result is cfg
+    # All three idempotent applies fired exactly once even though the
+    # function early-returned at the RDP-port check.
+    assert calls == {"max_sessions": 1, "rdp_timeouts": 1, "oem_runtime_fixes": 1}
+
+
+def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
+    """When pod isn't running, the early-apply branch is skipped (later branch handles)."""
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+    from winpodx.core.pod import PodState, PodStatus
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: None)
+    monkeypatch.setattr(provisioner, "_auto_rotate_password", lambda c: c)
+    monkeypatch.setattr(provisioner, "_ensure_config", lambda: cfg)
+    monkeypatch.setattr(provisioner, "pod_status", lambda c: PodStatus(state=PodState.STOPPED))
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *a, **k: True)
+    early_calls = {"n": 0}
+
+    def recorder(c):
+        early_calls["n"] += 1
+
+    monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", recorder)
+    monkeypatch.setattr(provisioner, "_apply_max_sessions", recorder)
+    monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", recorder)
+
+    provisioner.ensure_ready(cfg, timeout=1)
+    # Stopped pod -> the early-branch `pod_status==RUNNING` guard prevents
+    # the apply calls from firing on the early return path.
+    assert early_calls["n"] == 0

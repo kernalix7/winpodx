@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+## [0.1.9.2] - 2026-04-26
+
+### 수정
+- **v0.1.9 / v0.1.9.1 의 Windows-측 수정사항이 기존 게스트에 적용 안 되던 버그.** kernalix7 보고: "마이그레이션 잘 되는거 맞아? 윈도에 적용 안되는거같은데" — 사실이었음. install.bat (OEM 스크립트) 은 dockur 무인 설치 첫 부팅 시에만 도므로, 0.1.6 / 0.1.7 / 0.1.8 / 0.1.9 / 0.1.9.1 사용자는 컨테이너 재생성 없이 NIC power-save off (OEM v7), TermService failure-recovery (OEM v7), RDP timeout 비활성 + KeepAlive (OEM v8) 를 받을 수 없었음. 추가로, v0.1.9.1 의 `_apply_rdp_timeouts` runtime 헬퍼가 `provisioner.ensure_ready` 의 `check_rdp_port` early-return **뒤에** 와이어돼 있어서 이미 정상 동작 중인 포드에는 절대 도달하지 못했음.
+  - `provisioner.ensure_ready`: 함수 상단에서 `pod_status` 한 번 probe 해서 idempotent runtime apply 들 (`_apply_max_sessions`, `_apply_rdp_timeouts`, 신규 `_apply_oem_runtime_fixes`) 을 RDP early-return **앞에서** 실행. cold-pod 경로에서는 pod 시작 후 재적용. 호출당 약 1.5s 오버헤드, 재실행은 모두 no-op.
+  - 신규 `provisioner._apply_oem_runtime_fixes(cfg)`: OEM v7 baseline (NIC `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false`, `sc.exe failure TermService` recovery 액션) 을 기존 게스트에 `podman exec powershell` 로 적용 — `discover_apps.ps1` 가 쓰는 stdin-pipe transport 재사용.
+  - `winpodx migrate`: 0.1.9 boundary 를 넘는 업그레이드 감지 시 세 apply 헬퍼를 proactive 호출 (pod 상태 probe + stopped 시 interactive 시작 옵션). 헬퍼별 성공/실패 출력 — 컨테이너 재생성 없이 어떤 게 적용됐는지 사용자가 직접 확인 가능.
+
 ## [0.1.9.1] - 2026-04-26
 
 ### 수정
