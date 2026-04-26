@@ -111,6 +111,77 @@ class TestAskHelper:
 
             handle_setup(args)
 
+    def test_setup_stamps_install_marker_on_fresh_run(self, tmp_path, monkeypatch):
+        """v0.2.0.2: setup must write installed_version.txt so a follow-up
+        `winpodx migrate` doesn't misclassify a fresh --purge install as a
+        pre-tracker upgrade from 0.1.7."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+
+        args = argparse.Namespace(backend="manual", non_interactive=True)
+
+        freerdp_dep = MagicMock()
+        freerdp_dep.found = True
+        freerdp_dep.note = ""
+
+        with (
+            patch(
+                "winpodx.cli.setup_cmd.check_all",
+                return_value={"freerdp": freerdp_dep},
+            ),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._generate_compose"),
+            patch("winpodx.cli.setup_cmd._recreate_container"),
+            patch("winpodx.cli.setup_cmd._register_all_desktop_entries"),
+            patch("winpodx.display.scaling.detect_scale_factor", return_value=100),
+            patch("winpodx.display.scaling.detect_raw_scale", return_value=1.0),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(args)
+
+        from winpodx import __version__
+
+        marker = tmp_path / "winpodx" / "installed_version.txt"
+        assert marker.exists(), "setup must stamp installed_version.txt"
+        assert marker.read_text(encoding="utf-8").strip() == __version__
+
+    def test_setup_does_not_overwrite_existing_marker(self, tmp_path, monkeypatch):
+        """An older marker (e.g. mid-upgrade) must not be silently bumped to
+        the current version by re-running setup. Migrate is the only thing
+        that should advance the marker."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+
+        cfg_dir = tmp_path / "winpodx"
+        cfg_dir.mkdir(parents=True)
+        marker = cfg_dir / "installed_version.txt"
+        marker.write_text("0.1.8\n", encoding="utf-8")
+
+        args = argparse.Namespace(backend="manual", non_interactive=True)
+
+        freerdp_dep = MagicMock()
+        freerdp_dep.found = True
+        freerdp_dep.note = ""
+
+        with (
+            patch(
+                "winpodx.cli.setup_cmd.check_all",
+                return_value={"freerdp": freerdp_dep},
+            ),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._generate_compose"),
+            patch("winpodx.cli.setup_cmd._recreate_container"),
+            patch("winpodx.cli.setup_cmd._register_all_desktop_entries"),
+            patch("winpodx.display.scaling.detect_scale_factor", return_value=100),
+            patch("winpodx.display.scaling.detect_raw_scale", return_value=1.0),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(args)
+
+        assert marker.read_text(encoding="utf-8").strip() == "0.1.8"
+
 
 # Issue 8: password rotation split-brain
 
