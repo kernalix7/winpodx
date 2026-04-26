@@ -212,6 +212,36 @@ def _apply_max_sessions(cfg: Config) -> None:
         )
 
 
+def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
+    """Public entry point: run all idempotent Windows-side runtime applies.
+
+    Used by the standalone ``winpodx pod apply-fixes`` CLI command, the
+    GUI Tools-page button, and v0.1.9.3+ migrate (which always invokes
+    this regardless of version comparison so users on a "already current"
+    marker still receive fixes that landed in patch releases).
+
+    Returns a per-helper result map: ``{helper_name: "ok" | "failed: ..."}``
+    so the caller can render success/failure rows. Backend gating returns
+    ``{"backend": "skipped (libvirt/manual not supported)"}`` so the caller
+    knows nothing was attempted.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
+
+    results: dict[str, str] = {}
+    for name, fn in (
+        ("max_sessions", _apply_max_sessions),
+        ("rdp_timeouts", _apply_rdp_timeouts),
+        ("oem_runtime_fixes", _apply_oem_runtime_fixes),
+    ):
+        try:
+            fn(cfg)
+            results[name] = "ok"
+        except Exception as e:  # noqa: BLE001
+            results[name] = f"failed: {e}"
+    return results
+
+
 def _apply_oem_runtime_fixes(cfg: Config) -> None:
     """v0.1.9.2: bring existing 0.1.x guests up to OEM v7+ baseline at runtime.
 

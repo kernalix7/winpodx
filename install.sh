@@ -418,6 +418,13 @@ log "Installed winpodx GUI launcher and icon"
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
     "$HOME/.local/bin/winpodx" migrate || true
+    # v0.1.9.3: also fire the standalone apply-fixes command. migrate's
+    # version-comparison can short-circuit ("already current") if the
+    # marker matches — but the Windows-side apply still needs to run,
+    # because patch-version bumps collapse to the same (X,Y,Z) tuple.
+    # `pod apply-fixes` is idempotent and self-skips when the pod is
+    # stopped, so this is safe to call unconditionally.
+    "$HOME/.local/bin/winpodx" pod apply-fixes 2>/dev/null || true
 fi
 
 # --- Done ---

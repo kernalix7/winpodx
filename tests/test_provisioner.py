@@ -421,3 +421,53 @@ def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
     # Stopped pod -> the early-branch `pod_status==RUNNING` guard prevents
     # the apply calls from firing on the early return path.
     assert early_calls["n"] == 0
+
+
+# --- v0.1.9.3: apply_windows_runtime_fixes public API ---
+
+
+def test_apply_windows_runtime_fixes_skips_libvirt():
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "libvirt"
+    result = provisioner.apply_windows_runtime_fixes(cfg)
+    assert "backend" in result
+    assert "skipped" in result["backend"]
+
+
+def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    monkeypatch.setattr(
+        provisioner.subprocess,
+        "run",
+        lambda *a, **k: MagicMock(returncode=0, stdout="", stderr=""),
+    )
+    result = provisioner.apply_windows_runtime_fixes(cfg)
+    assert set(result.keys()) == {"max_sessions", "rdp_timeouts", "oem_runtime_fixes"}
+    for v in result.values():
+        assert v == "ok"
+
+
+def test_apply_windows_runtime_fixes_records_individual_failures(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+
+    def fake_max_sessions(c):
+        raise RuntimeError("boom max_sessions")
+
+    monkeypatch.setattr(provisioner, "_apply_max_sessions", fake_max_sessions)
+    monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", lambda c: None)
+    monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", lambda c: None)
+    result = provisioner.apply_windows_runtime_fixes(cfg)
+    assert result["max_sessions"].startswith("failed: ")
+    assert result["rdp_timeouts"] == "ok"
+    assert result["oem_runtime_fixes"] == "ok"

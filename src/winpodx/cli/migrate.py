@@ -98,7 +98,15 @@ def run_migrate(args: argparse.Namespace) -> int:
 
     if inst_cmp >= cur_cmp:
         _write_installed_version(current)
-        print(f"winpodx {current}: already current. Nothing to migrate.")
+        print(f"winpodx {current}: already current.")
+        # v0.1.9.3: even on "already current" still run the idempotent
+        # Windows-side apply. Patch versions (0.1.9.x) collapse to the
+        # same (0,1,9) tuple under [:3] truncation, so without this an
+        # upgrade from 0.1.9.0 -> 0.1.9.2 would skip the apply entirely
+        # — exactly the bug kernalix7 hit. Helpers are idempotent so a
+        # no-op run is harmless if everything was already applied.
+        non_interactive = bool(getattr(args, "non_interactive", False))
+        _apply_runtime_fixes_to_existing_guest(non_interactive)
         return 0
 
     print(f"winpodx: {installed} -> {current} detected\n")

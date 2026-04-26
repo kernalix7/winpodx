@@ -9,6 +9,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.9.3] - 2026-04-26
+
+### Fixed
+- **Patch-version migrate skipped Windows-side apply ("already current" trap).** kernalix7 upgraded from 0.1.9.x to 0.1.9.2 and got `winpodx 0.1.9.2: already current. Nothing to migrate.` — but the actual Windows guest never received the v0.1.9.1 RDP-timeout / v0.1.9.2 OEM v7-baseline runtime fixes. Root cause: `_version_tuple(...)[:3]` truncated `0.1.9.1` and `0.1.9.2` to the same `(0, 1, 9)` tuple, so `inst_cmp >= cur_cmp` triggered the early-return BEFORE the runtime apply step ran. Migrate now still runs the idempotent runtime apply on the "already current" path so patch-version users still receive Windows-side fixes shipped after their last successful migrate.
+
+### Added
+- **`winpodx pod apply-fixes`** standalone CLI command. Idempotent — calls `_apply_max_sessions`, `_apply_rdp_timeouts`, `_apply_oem_runtime_fixes` against the running pod and prints a per-helper OK/FAIL table. Exit code 0 on full success, 2 if pod isn't running / backend unsupported, 3 if any helper failed. Safe to re-run any time.
+- **GUI Tools-page "Apply Windows Fixes" button.** Same runtime apply triggered from the Qt GUI — fires the helpers on a worker thread, surfaces success / failure via the existing toast/info-label channel. Useful for users who want the fixes applied without dropping to the CLI.
+- **install.sh auto-fires `winpodx pod apply-fixes`** at the end of every install, after the migrate wizard. Failure-tolerant (`|| true`) — silent skip if the pod isn't running. This guarantees a fresh `curl | bash` always lands the latest Windows-side fixes on existing guests, regardless of whether migrate's version comparison saw a "real" upgrade.
+- **Public `provisioner.apply_windows_runtime_fixes(cfg)` API** returning a `{helper_name: "ok" | "failed: ..."}` map so the CLI / GUI / migrate paths share a single entry point and surface uniform per-helper status.
+
 ## [0.1.9.2] - 2026-04-26
 
 ### Fixed

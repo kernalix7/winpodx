@@ -1,3 +1,28 @@
+winpodx (0.1.9.3) unstable; urgency=high
+
+  * Fixed: patch-version migrate skipped the Windows-side apply.
+    `_version_tuple(...)[:3]` truncated 0.1.9.1 and 0.1.9.2 to the same
+    (0, 1, 9) tuple, so migrate exited with "already current" before
+    the runtime apply step. Now runs the idempotent apply even on the
+    "already current" path so patch-version users still receive fixes
+    shipped after their last successful migrate.
+  * Added: standalone `winpodx pod apply-fixes` CLI command.
+    Idempotent runtime apply with per-helper OK/FAIL output. Exits 0
+    on full success, 2 on pod-not-running / backend unsupported, 3 on
+    helper failure.
+  * Added: "Apply Windows Fixes" button on the GUI Tools page —
+    fires the same runtime apply on a worker thread.
+  * Added: install.sh auto-invokes `winpodx pod apply-fixes` at the
+    end of every install (after migrate). Failure-tolerant; silent
+    skip if pod isn't running. Guarantees `curl | bash` always
+    delivers the latest Windows-side fixes regardless of migrate's
+    version comparison verdict.
+  * Added: public `provisioner.apply_windows_runtime_fixes(cfg)` API
+    returning a per-helper status dict — single entry point shared by
+    CLI / GUI / migrate paths.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 05:30:00 +0900
+
 winpodx (0.1.9.2) unstable; urgency=high
 
   * Fixed: Windows-side fixes from v0.1.9 / v0.1.9.1 (NIC power-save off,

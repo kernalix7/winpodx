@@ -1094,6 +1094,12 @@ class WinpodxWindow(QMainWindow):
                 "Disable telemetry & ads",
                 self._on_debloat,
             ),
+            (
+                "\u2699",  # gear
+                "Apply Windows Fixes",
+                "Re-apply RDP timeout / NIC / TermService recovery to existing pod",
+                self._on_apply_fixes,
+            ),
         ]
         for i, (icon, label, desc, handler) in enumerate(sys_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
@@ -2081,6 +2087,51 @@ class WinpodxWindow(QMainWindow):
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     pass
             self.pod_status_updated.emit("running", cfg.rdp.ip)
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_apply_fixes(self) -> None:
+        """v0.1.9.3: Apply Windows-side runtime fixes to the existing pod.
+
+        Same idempotent helpers fired by `winpodx pod apply-fixes` and by
+        `provisioner.ensure_ready` — but on demand from the GUI for users
+        whose migrate short-circuited with "already current" so the
+        Windows VM never received the OEM v7+v8 fixes.
+        """
+        self.info_label.setText("Applying Windows-side fixes...")
+
+        def _do() -> None:
+            from winpodx.core.pod import PodState, pod_status
+            from winpodx.core.provisioner import apply_windows_runtime_fixes
+
+            cfg = Config.load()
+            try:
+                state = pod_status(cfg).state
+            except Exception as e:  # noqa: BLE001
+                self.app_launch_failed.emit(f"Apply fixes failed (pod probe): {e}")
+                return
+
+            if state != PodState.RUNNING:
+                self.app_launch_failed.emit(
+                    "Pod is not running — start it first via the Apps page or "
+                    "`winpodx pod start --wait`."
+                )
+                return
+
+            try:
+                results = apply_windows_runtime_fixes(cfg)
+            except Exception as e:  # noqa: BLE001
+                self.app_launch_failed.emit(f"Apply fixes raised: {e}")
+                return
+
+            ok_count = sum(1 for v in results.values() if v == "ok")
+            total = len(results)
+            failed = [k for k, v in results.items() if v != "ok"]
+            if failed:
+                detail = ", ".join(failed)
+                self.app_launch_failed.emit(f"Apply fixes: {ok_count}/{total} OK; failed: {detail}")
+            else:
+                self.app_launched.emit(f"Windows-side fixes applied ({ok_count}/{total} OK)")
 
         threading.Thread(target=_do, daemon=True).start()
 

@@ -17,8 +17,10 @@ def handle_pod(args: argparse.Namespace) -> None:
         _status()
     elif cmd == "restart":
         _restart()
+    elif cmd == "apply-fixes":
+        _apply_fixes()
     else:
-        print("Usage: winpodx pod {start|stop|status|restart}")
+        print("Usage: winpodx pod {start|stop|status|restart|apply-fixes}")
         sys.exit(1)
 
 
@@ -98,6 +100,53 @@ def _status() -> None:
 
     if s.error:
         print(f"Error:    {s.error}")
+
+
+def _apply_fixes() -> None:
+    """v0.1.9.3: standalone idempotent runtime apply for existing guests.
+
+    Use case: user upgraded from 0.1.6/0.1.7/0.1.8/0.1.9.x but migrate
+    short-circuited with "already current" so the OEM v7+v8 runtime
+    fixes never landed on their actual Windows VM. This command pushes
+    them all in one shot. Safe to re-run any time — every helper is
+    idempotent.
+    """
+    from winpodx.core.config import Config
+    from winpodx.core.pod import PodState, pod_status
+    from winpodx.core.provisioner import apply_windows_runtime_fixes
+
+    cfg = Config.load()
+
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(
+            f"Backend {cfg.pod.backend!r} doesn't support runtime apply. "
+            "Recreate your container after upgrading to pick up Windows-side fixes."
+        )
+        sys.exit(2)
+
+    state = pod_status(cfg).state
+    if state != PodState.RUNNING:
+        print(f"Pod is {state.value}, not running.")
+        print("Start the pod first with: winpodx pod start --wait")
+        sys.exit(2)
+
+    print("Applying Windows-side runtime fixes...")
+    results = apply_windows_runtime_fixes(cfg)
+
+    failures = []
+    for name, status_str in results.items():
+        marker = "OK" if status_str == "ok" else "FAIL"
+        print(f"  [{marker}] {name}: {status_str}")
+        if status_str != "ok":
+            failures.append(name)
+
+    if failures:
+        print(
+            f"\n{len(failures)} of {len(results)} apply(s) failed. "
+            "Check `winpodx info` and try again, or recreate the container."
+        )
+        sys.exit(3)
+    print("\nAll fixes applied to existing guest (no container recreate needed).")
 
 
 def _restart() -> None:
