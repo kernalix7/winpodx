@@ -9,6 +9,22 @@
 
 ## [Unreleased]
 
+## [0.1.9.4] - 2026-04-26
+
+### 수정
+- **Runtime apply 가 드디어 실제로 적용됨.** kernalix7 이 2026-04-26 에 v0.1.9.1 / v0.1.9.2 / v0.1.9.3 의 runtime apply 가 silently 실패하고 있다고 보고: `podman exec winpodx-windows ...\powershell.exe` 가 `rc=127 executable file not found in $PATH` 반환. 근본 원인: `podman exec` 는 QEMU 를 호스팅하는 **Linux 컨테이너 안**에서 명령을 실행하지, QEMU 안에서 도는 **Windows VM** 에선 안 돈다. Linux 컨테이너엔 `powershell.exe` 가 없음. 헬퍼들 (`_apply_max_sessions`, `_apply_rdp_timeouts`, `_apply_oem_runtime_fixes`, `_change_windows_password`) 이 모두 warning 만 로그하고 return 하는데, 공개 `apply_windows_runtime_fixes` 는 헬퍼가 raise 안 하니까 "ok" 로 보고. → 3개 릴리즈가 silent no-op 을 ship 했음. 3개 변경:
+  1. **신규 `core/windows_exec.py`** — `run_in_windows(cfg, ps_payload)` 가 FreeRDP RemoteApp 으로 PowerShell 을 띄우고 기존 `\\tsclient\home` 리다이렉션으로 스크립트 파이핑. wrapper 가 `{rc, stdout, stderr}` JSON 을 같은 share 로 다시 씀. 호스트가 파싱해서 `WindowsExecResult` 반환. 채널 실패 (FreeRDP missing / auth fail / timeout / no result file) 는 `WindowsExecError` raise; 스크립트 non-zero rc 는 `WindowsExecResult.rc` 로 표면화.
+  2. **`_apply_max_sessions`, `_apply_rdp_timeouts`, `_apply_oem_runtime_fixes` 재작성** — 각각 PS payload 빌드 → `run_in_windows` 호출 → `rc != 0` 시 `RuntimeError` raise 해서 실패가 진짜 전파됨.
+  3. **`apply_windows_runtime_fixes` 정직한 보고** — `try/except` 구조 동일하지만, Windows VM 내부 rc가 실제로 fake `ok` 대신 `failed: rc=2 ...` 로 보고.
+
+  비용: 호출당 ~5–10 초 (RDP handshake + auth + script + disconnect) + `-WindowStyle Hidden` 으로 최소화한 PowerShell 창 깜박임. 대신 기존 pod 에서 작동 (재생성 불필요) + rc 체크가 진짜 의미 있음.
+
+  **주의사항**: `cfg.rdp.password` 가 Windows 게스트 실제 비밀번호와 일치해야 함. 이전 릴리즈에서 password rotation 이 같은 `podman exec` 원인으로 silently 실패해 왔다면, 첫 호출이 auth error 로 실패. 사용자가 `winpodx app run desktop` 으로 Windows 들어가서 `net user User <config-비밀번호>` 로 동기화 필요.
+
+### 테스트
+- `tests/test_windows_exec.py` 에 9개 신규 테스트 — FreeRDP missing / 비번 missing / timeout / no-result-file (auth fail) / happy path / non-zero rc propagation / FreeRDP `/app:program:` cmd 형태 검증 / flatpak 바이너리 splitting / unparseable JSON.
+- `tests/test_provisioner.py` 재작성 — `subprocess.run` 대신 `windows_exec.run_in_windows` mock. 신규 테스트가 `rc != 0` 에서 `RuntimeError` raise + 채널 실패에서 `WindowsExecError` raise 검증.
+
 ## [0.1.9.3] - 2026-04-26
 
 ### 수정

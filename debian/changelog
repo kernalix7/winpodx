@@ -1,3 +1,32 @@
+winpodx (0.1.9.4) unstable; urgency=high
+
+  * Fixed: runtime applies were silent no-ops in v0.1.9.1, v0.1.9.2, and
+    v0.1.9.3. `podman exec winpodx-windows ...\powershell.exe` returns
+    rc=127 because podman exec runs in the Linux container that hosts
+    QEMU, not the Windows VM inside. The helpers logged warnings and
+    returned, while `apply_windows_runtime_fixes` reported "ok" because
+    the helpers didn't raise. Three previous releases shipped fake
+    success.
+    - New `core/windows_exec.py`: `run_in_windows(cfg, ps_payload)`
+      launches PowerShell as a FreeRDP RemoteApp and pipes the script
+      through the `\\tsclient\home` redirection. Wrapper writes
+      {rc,stdout,stderr} JSON back via the same share. Channel
+      failures (FreeRDP missing, auth fail, timeout, no result file)
+      raise WindowsExecError; non-zero script rc surfaces via
+      WindowsExecResult.rc.
+    - `_apply_max_sessions`, `_apply_rdp_timeouts`, and
+      `_apply_oem_runtime_fixes` rewritten to call run_in_windows and
+      raise RuntimeError on rc != 0.
+    - `apply_windows_runtime_fixes` honest reporting: an actual rc != 0
+      now produces "failed: rc=2 ..." instead of fake "ok".
+
+  Cost: ~5-10s per call. Trade-off: works on existing pods (no
+  container recreate). Caveat: requires cfg.rdp.password to match the
+  Windows guest's actual password — auth fail on first call means user
+  has to manually sync via `winpodx app run desktop` + `net user`.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 14:30:00 +0900
+
 winpodx (0.1.9.3) unstable; urgency=high
 
   * Fixed: patch-version migrate skipped the Windows-side apply.
