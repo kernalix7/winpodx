@@ -1,3 +1,19 @@
+winpodx (0.2.0.4) unstable; urgency=high
+
+  * Fixed: bogus "cfg.password does not match Windows" warning on
+    every fresh --purge install. _probe_password_sync's error
+    classifier matched on "no result file" OR "auth" — but on a
+    still-booting guest FreeRDP returns rc=147 connection-reset
+    wrapped in the host's "No result file written" envelope, which
+    matched the first pattern and surfaced as a phantom drift
+    warning. v0.2.0.4 gates the probe on wait_for_windows_responsive
+    (skip if guest isn't ready) AND tightens the classifier to
+    distinguish transport-level failures (rc=131, rc=147,
+    transport_failed, connection reset) from genuine auth failures
+    (logon_failure, STATUS_LOGON_FAILURE).
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 11:00:00 +0900
+
 winpodx (0.2.0.3) unstable; urgency=high
 
   * Fixed: discovery hit the same boot race the apply path used to.

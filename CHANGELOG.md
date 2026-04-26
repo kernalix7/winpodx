@@ -9,7 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.3] - 2026-04-27
+## [0.2.0.4] - 2026-04-27
+
+### Fixed
+- **Bogus "cfg.password does not match Windows" warning on every fresh `--purge` install.** v0.1.9.5 added `_probe_password_sync` to detect cfg/Windows password drift before apply, but its error classifier matched on `"no result file"` OR `"auth"` in the FreeRDP error string. On a still-booting guest (which is exactly what every fresh install hits), FreeRDP returns rc=147 `ERRCONNECT_CONNECT_TRANSPORT_FAILED` (connection reset by peer) wrapped in the host's `"No result file written"` envelope — and the classifier saw `"no result file"` and yelled drift. v0.2.0.4 fixes this two ways:
+  1. The probe now waits on `wait_for_windows_responsive(timeout=180)` first; if the guest isn't ready, it skips with `(probe deferred — guest still booting; will retry on next ensure_ready)` instead of misfiring.
+  2. The classifier now distinguishes transport-level failures (`rc=131`, `rc=147`, `transport_failed`, `connection reset`) from genuine auth failures (`logon_failure`, `STATUS_LOGON_FAILURE`, etc.) — only the latter trigger the "run sync-password" warning.
+
+
 
 ### Fixed
 - **Discovery hit the same boot race the apply path used to.** v0.2.0.1 gated `_apply_*` and `pod apply-fixes` on `wait_for_windows_responsive`, but `winpodx migrate`'s "Run app discovery now?" prompt and `provisioner._auto_discover_if_empty` (fired by ensure_ready on first pod boot) still launched the FreeRDP RemoteApp channel without a probe. On a fresh `--purge` reinstall the Windows VM was still booting inside QEMU when discovery fired, so the scan collapsed with `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, connection reset by peer) and the user ended up with an empty app menu. v0.2.0.3 wires the same probe into both discovery call sites — discovery now waits, then either scans or skips with a "Re-run later with: winpodx app refresh" pointer.

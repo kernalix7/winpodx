@@ -361,7 +361,22 @@ def _probe_password_sync(non_interactive: bool) -> None:
     except Exception:  # noqa: BLE001
         return
 
+    # v0.2.0.4: gate the probe on wait_for_windows_responsive. Without
+    # this, a fresh --purge install (where Windows VM inside QEMU is
+    # still booting in the background) makes the probe fire too early,
+    # FreeRDP returns rc=147 ERRCONNECT_CONNECT_TRANSPORT_FAILED with a
+    # "no result file written" wrapper message, the matcher saw "no
+    # result file" and falsely classified it as auth failure → surfaced
+    # a bogus "cfg.password does not match Windows" warning on every
+    # fresh install. The probe only makes sense when we can actually
+    # reach the guest; if not, skip silently and let the apply step
+    # (which has its own wait gate) decide.
+    from winpodx.core.provisioner import wait_for_windows_responsive
+
     print("\nProbing Windows-side authentication...")
+    if not wait_for_windows_responsive(cfg, timeout=180):
+        print("  (probe deferred — guest still booting; will retry on next ensure_ready)")
+        return
     try:
         run_in_windows(
             cfg,
@@ -375,7 +390,27 @@ def _probe_password_sync(non_interactive: bool) -> None:
         )
     except WindowsExecError as e:
         msg = str(e).lower()
-        if "no result file" in msg or "auth" in msg:
+        # v0.2.0.4: tighten error classification. Transport-level
+        # failures (rc=131 activation timeout, rc=147 connection reset,
+        # "transport_failed", etc.) mean the guest isn't ready — they
+        # do NOT mean the password is wrong. Only treat "auth"-flavored
+        # FreeRDP errors as drift indicators.
+        is_transport_error = (
+            "rc=131" in msg
+            or "rc=147" in msg
+            or "errconnect_connect_transport_failed" in msg
+            or "errconnect_activation_timeout" in msg
+            or "transport_read_layer" in msg
+            or "connection reset" in msg
+            or "transport failed" in msg
+        )
+        is_auth_error = (
+            "auth" in msg
+            or "logon_failure" in msg
+            or "errconnect_logon" in msg
+            or "0xc000006d" in msg  # STATUS_LOGON_FAILURE
+        )
+        if is_auth_error and not is_transport_error:
             print(
                 "  WARNING: cfg.password does not match Windows guest's account "
                 "password (FreeRDP authentication failed).\n"

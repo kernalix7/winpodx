@@ -9,7 +9,14 @@
 
 ## [Unreleased]
 
-## [0.2.0.3] - 2026-04-27
+## [0.2.0.4] - 2026-04-27
+
+### 수정
+- **신규 `--purge` 설치마다 가짜 "cfg.password does not match Windows" 경고.** v0.1.9.5 가 추가한 `_probe_password_sync` (cfg/Windows 비밀번호 drift 사전 감지) 의 에러 분류기가 FreeRDP 에러 문자열에 `"no result file"` 또는 `"auth"` 가 들어있으면 drift 로 판정. 하지만 부팅 중 게스트 (모든 신규 설치가 거치는 상태) 는 FreeRDP 가 rc=147 `ERRCONNECT_CONNECT_TRANSPORT_FAILED` (connection reset) 반환 → host wrapper 가 `"No result file written"` 으로 감쌈 → 분류기가 `"no result file"` 매칭 → 가짜 drift 경고 발화. v0.2.0.4 가 두 방향으로 수정:
+  1. probe 가 `wait_for_windows_responsive(timeout=180)` 로 먼저 대기. 게스트 미준비면 `(probe deferred — guest still booting; will retry on next ensure_ready)` 메시지로 skip.
+  2. 분류기가 transport-level 실패 (`rc=131`, `rc=147`, `transport_failed`, `connection reset`) 와 실제 auth 실패 (`logon_failure`, `STATUS_LOGON_FAILURE` 등) 를 구분. 후자만 sync-password 경고 발화.
+
+
 
 ### 수정
 - **Discovery 가 apply path 와 동일한 부팅 race 에 노출.** v0.2.0.1 이 `_apply_*` 와 `pod apply-fixes` 만 `wait_for_windows_responsive` 로 게이팅하고, `winpodx migrate` 의 "Run app discovery now?" 프롬프트와 `provisioner._auto_discover_if_empty` (첫 부팅 시 ensure_ready 가 발화) 는 probe 없이 FreeRDP RemoteApp 채널 호출. 신규 `--purge` 설치 시 QEMU 안 Windows VM 이 여전히 부팅 중인데 discovery 가 떠서 `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, connection reset) 으로 무너지고 사용자는 빈 앱 메뉴로 끝남. v0.2.0.3 이 두 discovery 호출 지점 모두에 동일 probe 적용 — wait 후 scan 또는 "Re-run later with: winpodx app refresh" 안내로 skip.

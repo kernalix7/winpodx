@@ -9,7 +9,7 @@ flow through ``run_migrate`` with refresh skipped.
 from __future__ import annotations
 
 import argparse
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from winpodx.cli.migrate import (
     _VERSION_NOTES,
@@ -100,6 +100,93 @@ def test_detect_prefers_marker_over_baseline(tmp_path, monkeypatch):
     cfg_path.write_text("[rdp]\n", encoding="utf-8")
     with patch("winpodx.core.config.Config.path", return_value=cfg_path):
         assert _detect_installed_version() == "0.1.9"
+
+
+# --- _probe_password_sync (v0.2.0.4 false-positive fix) ---
+
+
+class TestProbePasswordSync:
+    """v0.2.0.4: probe must NOT classify boot-time transport errors as drift."""
+
+    def _setup_cfg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.rdp.password = "abc123"
+        cfg.rdp.user = "User"
+        cfg.save()
+
+    def test_transport_reset_not_classified_as_drift(self, tmp_path, monkeypatch, capsys):
+        """rc=147 ERRCONNECT_CONNECT_TRANSPORT_FAILED on still-booting guest must
+        produce 'probe inconclusive', not the 'cfg.password does not match'
+        warning. Reproduces the v0.2.0.3 bogus-warning bug."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _probe_password_sync
+        from winpodx.core.pod import PodState
+        from winpodx.core.windows_exec import WindowsExecError
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+            patch("winpodx.core.windows_exec.run_in_windows") as mock_run,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_run.side_effect = WindowsExecError(
+                "No result file written (FreeRDP rc=147). stderr tail: "
+                "'ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D] ... "
+                "Connection reset by peer'"
+            )
+
+            _probe_password_sync(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "does not match" not in out, "transport reset must not surface drift warning"
+        assert "probe inconclusive" in out
+
+    def test_genuine_auth_failure_classified_as_drift(self, tmp_path, monkeypatch, capsys):
+        """An auth-flavored failure must still trigger the sync-password warning."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _probe_password_sync
+        from winpodx.core.pod import PodState
+        from winpodx.core.windows_exec import WindowsExecError
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+            patch("winpodx.core.windows_exec.run_in_windows") as mock_run,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_run.side_effect = WindowsExecError(
+                "FreeRDP authentication failed: STATUS_LOGON_FAILURE 0xC000006D"
+            )
+
+            _probe_password_sync(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "does not match" in out, "real auth failure must surface drift warning"
+        assert "sync-password" in out
+
+    def test_probe_skipped_when_guest_not_responsive(self, tmp_path, monkeypatch, capsys):
+        """Guest still booting → probe deferred, no false alarm."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _probe_password_sync
+        from winpodx.core.pod import PodState
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=False),
+            patch("winpodx.core.windows_exec.run_in_windows") as mock_run,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+
+            _probe_password_sync(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "probe deferred" in out
+        assert "does not match" not in out
+        mock_run.assert_not_called()
 
 
 # --- _print_whats_new ---
