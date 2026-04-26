@@ -127,89 +127,44 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
 
 def _apply_max_sessions(cfg: Config) -> None:
-    """Sync the guest's MaxInstanceCount registry value with cfg.pod.max_sessions.
+    """Sync the guest's MaxInstanceCount with cfg.pod.max_sessions.
 
-    Reads the current value first and only rewrites + restarts TermService
-    when the value differs, so active RemoteApp sessions aren't dropped
-    every time ensure_ready() runs.
-
-    Only runs for container backends (podman/docker). libvirt + manual
-    backends are a v0.2.0 guest-agent concern.
+    Idempotent — if the registry already matches, the wrapper short-
+    circuits and skips the TermService restart so active sessions don't
+    drop. Runs via FreeRDP RemoteApp (see ``windows_exec.run_in_windows``)
+    because podman exec can't reach the Windows VM inside the dockur
+    Linux container.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
-    # Clamped at __post_init__; re-assert defensively so the integer
-    # interpolated into the PS command is always within [1, 50].
     desired = max(1, min(50, int(cfg.pod.max_sessions)))
-    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-    reg_path = r"HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
-
-    read_cmd = [
-        runtime,
-        "exec",
-        cfg.pod.container_name,
-        ps_exe,
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        f"(Get-ItemProperty '{reg_path}' -Name MaxInstanceCount "
-        f"-ErrorAction SilentlyContinue).MaxInstanceCount",
-    ]
-    try:
-        read_result = subprocess.run(read_cmd, capture_output=True, text=True, timeout=15)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("max_sessions: failed to read current value: %s", e)
-        return
-
-    current: int | None
-    stdout = read_result.stdout.strip()
-    try:
-        current = int(stdout) if stdout else None
-    except ValueError:
-        current = None
-
-    if current == desired:
-        log.debug("max_sessions: already %d on guest, no apply needed", desired)
-        return
-
-    apply_script = (
-        f"$p = '{reg_path}'; "
-        f"Set-ItemProperty -Path $p -Name MaxInstanceCount -Value {desired} "
-        f"-Type DWord -Force; "
-        f"Set-ItemProperty -Path $p -Name fSingleSessionPerUser -Value 0 "
-        f"-Type DWord -Force; "
-        f"Restart-Service -Force TermService"
+    payload = (
+        f"$p = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server'\n"
+        f"$desired = {desired}\n"
+        "$current = (Get-ItemProperty $p -Name MaxInstanceCount "
+        "-ErrorAction SilentlyContinue).MaxInstanceCount\n"
+        "if ($current -eq $desired) {\n"
+        '    Write-Output "max_sessions already $desired"\n'
+        "    return\n"
+        "}\n"
+        "Set-ItemProperty -Path $p -Name MaxInstanceCount -Value $desired -Type DWord -Force\n"
+        "Set-ItemProperty -Path $p -Name fSingleSessionPerUser -Value 0 -Type DWord -Force\n"
+        "Restart-Service -Force TermService\n"
+        'Write-Output "max_sessions: $current -> $desired"\n'
     )
-    apply_cmd = [
-        runtime,
-        "exec",
-        cfg.pod.container_name,
-        ps_exe,
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        apply_script,
-    ]
-    try:
-        result = subprocess.run(apply_cmd, capture_output=True, text=True, timeout=60)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("max_sessions: apply failed: %s", e)
-        return
 
-    if result.returncode == 0:
-        log.info(
-            "max_sessions: guest registry updated %s -> %d (TermService restarted)",
-            current if current is not None else "<unset>",
-            desired,
-        )
-    else:
-        log.warning(
-            "max_sessions: apply rc=%d stderr=%s",
-            result.returncode,
-            result.stderr.strip(),
-        )
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    try:
+        result = run_in_windows(cfg, payload, description="apply-max-sessions")
+    except WindowsExecError as e:
+        log.warning("max_sessions: channel failure: %s", e)
+        raise
+    if result.rc != 0:
+        log.warning("max_sessions: rc=%d stderr=%s", result.rc, result.stderr.strip())
+        raise RuntimeError(f"max_sessions apply failed (rc={result.rc}): {result.stderr.strip()}")
+    log.info("max_sessions: %s", result.stdout.strip())
 
 
 def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
@@ -243,115 +198,89 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
 
 
 def _apply_oem_runtime_fixes(cfg: Config) -> None:
-    """v0.1.9.2: bring existing 0.1.x guests up to OEM v7+ baseline at runtime.
+    """OEM v7 baseline (NIC power-save, TermService failure recovery) at runtime.
 
-    install.bat only runs at dockur's unattended first boot. Users who
-    installed under OEM v6 (winpodx 0.1.6) don't get the v7 NIC
-    power-save off + TermService failure-recovery actions, and v8 RDP
-    timeouts (those are covered by ``_apply_rdp_timeouts``). Without
-    this helper they'd have to recreate the container to get any
-    Windows-side fix shipped after their first install.
+    install.bat only runs at dockur's unattended first boot, so existing
+    0.1.6 / 0.1.7 / 0.1.8 / 0.1.9 / 0.1.9.x guests never picked up the v7
+    fixes shipped after their initial install. This pushes them via
+    FreeRDP RemoteApp so users don't have to recreate the container.
 
-    Stays idempotent — Set-NetAdapterPowerManagement / sc.exe failure
-    are no-op when state already matches. Failure is non-fatal:
-    log warning + return so a flaky exec doesn't block ensure_ready.
+    Idempotent — Set-NetAdapterPowerManagement / sc.exe failure are
+    no-ops when state already matches.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
-    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-
-    apply_script = (
-        # v0.1.9 OEM v7: stop Windows from putting the virtual NIC to sleep.
-        "$ErrorActionPreference = 'SilentlyContinue'; "
+    payload = (
+        "$ErrorActionPreference = 'SilentlyContinue'\n"
         "Get-NetAdapter | Where-Object { $_.Status -ne 'Disabled' } | "
-        "Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false; "
-        # v0.1.9 OEM v7: TermService recovery actions (3 attempts at 5s, 24h reset).
-        # `sc.exe failure` is non-PowerShell but we can shell to it.
+        "Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false\n"
         "& sc.exe failure TermService reset= 86400 "
-        "actions= restart/5000/restart/5000/restart/5000 | Out-Null"
+        "actions= restart/5000/restart/5000/restart/5000 | Out-Null\n"
+        "Write-Output 'oem v7 baseline applied'\n"
     )
-    cmd = [
-        runtime,
-        "exec",
-        cfg.pod.container_name,
-        ps_exe,
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        apply_script,
-    ]
+
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("oem_runtime_fixes: apply failed: %s", e)
-        return
-    if result.returncode != 0:
-        log.warning(
-            "oem_runtime_fixes: rc=%d stderr=%s",
-            result.returncode,
-            result.stderr.strip(),
+        result = run_in_windows(cfg, payload, description="apply-oem")
+    except WindowsExecError as e:
+        log.warning("oem_runtime_fixes: channel failure: %s", e)
+        raise
+    if result.rc != 0:
+        log.warning("oem_runtime_fixes: rc=%d stderr=%s", result.rc, result.stderr.strip())
+        raise RuntimeError(
+            f"oem_runtime_fixes apply failed (rc={result.rc}): {result.stderr.strip()}"
         )
+    log.info("oem_runtime_fixes: %s", result.stdout.strip())
 
 
 def _apply_rdp_timeouts(cfg: Config) -> None:
-    """v0.1.9.1: disable RDP idle/disconnect/connection timeouts + enable keep-alive.
+    """Disable RDP idle/disconnect/connection timeouts + enable keep-alive.
 
-    Without this Windows will drop active RemoteApp sessions after its
-    default timeouts (1h idle), and NAT/firewall keep-alive cleanup can
-    kill the underlying TCP. Idempotent: writes the same key set every
-    provision; reg add is no-op when value already matches.
-
-    Mirrors the OEM v8 install.bat changes for guests that were
-    provisioned under an older OEM version (so users don't have to
-    recreate their container to pick this up).
+    Without this Windows drops active RemoteApp sessions after the 1h
+    default idle, and NAT/firewall idle-cleanup can kill the underlying
+    TCP. Idempotent: ``Set-ItemProperty -Force`` with the same value is
+    a no-op. Mirrors install.bat OEM v8 for guests provisioned under
+    older OEM versions.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
-    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-
-    apply_script = (
-        # Machine policy keys (override per-user / per-WinStation defaults).
-        r"$mp = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'; "
-        r"if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }; "
-        r"Set-ItemProperty -Path $mp -Name MaxIdleTime -Value 0 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $mp -Name MaxDisconnectionTime -Value 0 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $mp -Name MaxConnectionTime -Value 0 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $mp -Name KeepAliveEnable -Value 1 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $mp -Name KeepAliveInterval -Value 1 -Type DWord -Force; "
-        # Per-WinStation keys (the actual TermService consults these).
-        r"$ws = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'; "
-        r"Set-ItemProperty -Path $ws -Name MaxIdleTime -Value 0 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $ws -Name MaxDisconnectionTime -Value 0 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $ws -Name MaxConnectionTime -Value 0 -Type DWord -Force; "
-        r"Set-ItemProperty -Path $ws -Name KeepAliveTimeout -Value 1 -Type DWord -Force"
+    payload = (
+        # Machine policy (overrides per-user defaults).
+        "$mp = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services'\n"
+        "if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }\n"
+        "Set-ItemProperty -Path $mp -Name MaxIdleTime -Value 0 -Type DWord -Force\n"
+        "Set-ItemProperty -Path $mp -Name MaxDisconnectionTime -Value 0 "
+        "-Type DWord -Force\n"
+        "Set-ItemProperty -Path $mp -Name MaxConnectionTime -Value 0 "
+        "-Type DWord -Force\n"
+        "Set-ItemProperty -Path $mp -Name KeepAliveEnable -Value 1 -Type DWord -Force\n"
+        "Set-ItemProperty -Path $mp -Name KeepAliveInterval -Value 1 -Type DWord -Force\n"
+        # Per-WinStation (TermService actually consults these).
+        "$ws = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\"
+        "WinStations\\RDP-Tcp'\n"
+        "Set-ItemProperty -Path $ws -Name MaxIdleTime -Value 0 -Type DWord -Force\n"
+        "Set-ItemProperty -Path $ws -Name MaxDisconnectionTime -Value 0 "
+        "-Type DWord -Force\n"
+        "Set-ItemProperty -Path $ws -Name MaxConnectionTime -Value 0 "
+        "-Type DWord -Force\n"
+        "Set-ItemProperty -Path $ws -Name KeepAliveTimeout -Value 1 -Type DWord -Force\n"
+        "Write-Output 'rdp_timeouts applied'\n"
     )
-    cmd = [
-        runtime,
-        "exec",
-        cfg.pod.container_name,
-        ps_exe,
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        apply_script,
-    ]
+
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("rdp_timeouts: apply failed: %s", e)
-        return
-    if result.returncode != 0:
-        log.warning(
-            "rdp_timeouts: rc=%d stderr=%s",
-            result.returncode,
-            result.stderr.strip(),
-        )
+        result = run_in_windows(cfg, payload, description="apply-rdp-timeouts")
+    except WindowsExecError as e:
+        log.warning("rdp_timeouts: channel failure: %s", e)
+        raise
+    if result.rc != 0:
+        log.warning("rdp_timeouts: rc=%d stderr=%s", result.rc, result.stderr.strip())
+        raise RuntimeError(f"rdp_timeouts apply failed (rc={result.rc}): {result.stderr.strip()}")
+    log.info("rdp_timeouts: %s", result.stdout.strip())
 
 
 def _auto_rotate_password(cfg: Config) -> Config:

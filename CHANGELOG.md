@@ -9,6 +9,22 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.9.4] - 2026-04-26
+
+### Fixed
+- **Runtime apply finally actually applies.** kernalix7 reported on 2026-04-26 that v0.1.9.1 / v0.1.9.2 / v0.1.9.3 runtime apply paths were silently failing — `podman exec winpodx-windows ...\powershell.exe` returned `rc=127 executable file not found in $PATH`. Root cause: `podman exec` runs commands in the **Linux container** that hosts QEMU, not in the **Windows VM** running inside QEMU; the Linux container has no `powershell.exe`. The helpers (`_apply_max_sessions`, `_apply_rdp_timeouts`, `_apply_oem_runtime_fixes`, `_change_windows_password`) all logged a warning and returned, while the public-facing `apply_windows_runtime_fixes` reported per-helper "ok" because the helpers didn't `raise`. So three previous releases shipped silent no-ops. Three changes:
+  1. **New `core/windows_exec.py`** — `run_in_windows(cfg, ps_payload)` launches PowerShell as a FreeRDP RemoteApp and pipes the script through the existing `\\tsclient\home` redirection. Wrapper writes `{rc, stdout, stderr}` JSON back via the same share. The host parses it and returns `WindowsExecResult`. Channel failures (FreeRDP missing, auth fail, timeout, no result file) raise `WindowsExecError`; non-zero script rc surfaces via `WindowsExecResult.rc`.
+  2. **`_apply_max_sessions`, `_apply_rdp_timeouts`, `_apply_oem_runtime_fixes` rewritten** — each builds a PS payload, calls `run_in_windows`, and now `raise RuntimeError` on `rc != 0` so failures actually propagate.
+  3. **`apply_windows_runtime_fixes` honest reporting** — `try/except` on each helper still works the same way, but now an actual `rc != 0` from inside the Windows VM produces `failed: rc=2 ...` instead of fake `ok`.
+
+  Cost: ~5–10 s per call (RDP handshake + auth + script + disconnect) plus a brief PowerShell window flash that `-WindowStyle Hidden` minimizes. Trade-off: works on existing pods (no container recreate) and the rc check actually means something.
+
+  **Caveat**: requires `cfg.rdp.password` to match the Windows guest's actual password. If password rotation has been silently failing for previous releases (same `podman exec` root cause), the first call here will fail with auth error and the user has to reset the Windows-side password (open `winpodx app run desktop`, run `net user User <password-from-config>`).
+
+### Tests
+- 9 new tests in `tests/test_windows_exec.py` covering the full lifecycle: FreeRDP missing, password missing, timeout, no-result-file (auth fail), happy path with result-file roundtrip, non-zero rc propagation, FreeRDP `/app:program:` cmd shape verification, flatpak-style binary splitting, unparseable result JSON.
+- `tests/test_provisioner.py` rewritten to mock `windows_exec.run_in_windows` instead of `subprocess.run`. New tests assert each helper raises `RuntimeError` on `rc != 0` and `WindowsExecError` on channel failure.
+
 ## [0.1.9.3] - 2026-04-26
 
 ### Fixed

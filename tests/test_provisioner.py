@@ -130,157 +130,112 @@ def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
     assert not marker.exists()
 
 
-# --- v0.1.8: _apply_max_sessions runtime registry sync ---
+# --- v0.1.9.4: runtime applies via FreeRDP RemoteApp (windows_exec.run_in_windows) ---
+#
+# The v0.1.9.0-v0.1.9.3 versions of these tests mocked podman-exec subprocess
+# calls — but podman exec can't reach the Windows VM inside the dockur Linux
+# container, so the helpers never actually applied anything (they just logged
+# warnings). v0.1.9.4 routes them through windows_exec.run_in_windows, which
+# launches PowerShell as a FreeRDP RemoteApp. These tests mock that helper.
 
 
-def test_apply_max_sessions_skips_libvirt_backend():
+def _mock_run_in_windows(monkeypatch, *, rc: int = 0, stdout: str = "", stderr: str = ""):
+    """Return a list that captures every (description, payload) call."""
+    from winpodx.core.windows_exec import WindowsExecResult
+
+    captured: list[tuple[str, str]] = []
+
+    def fake(cfg, payload, *, timeout=60, description="windows-exec"):
+        captured.append((description, payload))
+        return WindowsExecResult(rc=rc, stdout=stdout, stderr=stderr)
+
+    import winpodx.core.provisioner as prov
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+    # Make sure the lazy-imported reference inside provisioner picks up the patched fn.
+    monkeypatch.setattr(prov, "_apply_max_sessions", prov._apply_max_sessions)
+    return captured
+
+
+def test_apply_max_sessions_skips_libvirt_backend(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
     cfg.pod.backend = "libvirt"
-    # Must return without raising and without calling subprocess.
+    captured = _mock_run_in_windows(monkeypatch)
     provisioner._apply_max_sessions(cfg)
+    assert captured == []
 
 
-def test_apply_max_sessions_noop_when_registry_matches(monkeypatch):
-    from unittest.mock import MagicMock
-
-    from winpodx.core import provisioner
-    from winpodx.core.config import Config
-
-    cfg = Config()
-    cfg.pod.max_sessions = 20
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        # First call = read; stdout says current value is already 20.
-        result = MagicMock()
-        result.stdout = "20\n"
-        result.stderr = ""
-        result.returncode = 0
-        return result
-
-    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
-    provisioner._apply_max_sessions(cfg)
-
-    # Only the read call should have fired — no write, no TermService restart.
-    assert len(calls) == 1
-    assert "-Command" in calls[0]
-    assert "Get-ItemProperty" in calls[0][-1]
-
-
-def test_apply_max_sessions_writes_and_restarts_when_differs(monkeypatch):
-    from unittest.mock import MagicMock
-
+def test_apply_max_sessions_runs_via_windows_exec(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
     cfg.pod.max_sessions = 25
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        result = MagicMock()
-        if "Get-ItemProperty" in cmd[-1]:
-            result.stdout = "10\n"  # guest is still at install.bat's default
-        else:
-            result.stdout = ""
-        result.stderr = ""
-        result.returncode = 0
-        return result
-
-    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
+    captured = _mock_run_in_windows(monkeypatch, rc=0, stdout="max_sessions: 10 -> 25")
     provisioner._apply_max_sessions(cfg)
-
-    # Two subprocess calls: read, then apply.
-    assert len(calls) == 2
-    apply_cmd = calls[1][-1]
-    assert "Set-ItemProperty" in apply_cmd
-    assert "MaxInstanceCount" in apply_cmd
-    assert "-Value 25" in apply_cmd
-    assert "fSingleSessionPerUser" in apply_cmd
-    assert "Restart-Service" in apply_cmd
-    assert "TermService" in apply_cmd
+    assert len(captured) == 1
+    description, payload = captured[0]
+    assert description == "apply-max-sessions"
+    assert "MaxInstanceCount" in payload
+    assert "$desired = 25" in payload
+    assert "fSingleSessionPerUser" in payload
+    assert "Restart-Service" in payload
 
 
-def test_apply_max_sessions_survives_missing_registry_key(monkeypatch):
-    """When the read returns empty stdout (key missing), apply still fires."""
-    from unittest.mock import MagicMock
+def test_apply_max_sessions_raises_on_nonzero_rc(monkeypatch):
+    """v0.1.9.4: helpers no longer silently swallow non-zero rc."""
+    import pytest
 
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    cfg.pod.max_sessions = 15
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        result = MagicMock()
-        result.stdout = "" if "Get-ItemProperty" in cmd[-1] else ""
-        result.stderr = ""
-        result.returncode = 0
-        return result
-
-    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
-    provisioner._apply_max_sessions(cfg)
-
-    # Missing key -> current == None, which != desired, so apply fires.
-    assert len(calls) == 2
+    _mock_run_in_windows(monkeypatch, rc=2, stderr="permission denied")
+    with pytest.raises(RuntimeError, match="rc=2"):
+        provisioner._apply_max_sessions(cfg)
 
 
-def test_apply_max_sessions_tolerates_timeout(monkeypatch):
+def test_apply_max_sessions_propagates_channel_error(monkeypatch):
+    import pytest
+
     from winpodx.core import provisioner
     from winpodx.core.config import Config
+    from winpodx.core.windows_exec import WindowsExecError
 
     cfg = Config()
 
-    def fake_run(cmd, **kwargs):
-        raise provisioner.subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 0))
+    def fake(*a, **k):
+        raise WindowsExecError("FreeRDP not found")
 
-    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
-    # Must not raise — timeout just logs and returns.
-    provisioner._apply_max_sessions(cfg)
-
-
-# --- v0.1.9.1: _apply_rdp_timeouts ---
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+    with pytest.raises(WindowsExecError, match="FreeRDP not found"):
+        provisioner._apply_max_sessions(cfg)
 
 
-def test_apply_rdp_timeouts_skips_libvirt():
+def test_apply_rdp_timeouts_skips_libvirt(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
     cfg.pod.backend = "libvirt"
-    provisioner._apply_rdp_timeouts(cfg)  # must not raise / not subprocess
+    captured = _mock_run_in_windows(monkeypatch)
+    provisioner._apply_rdp_timeouts(cfg)
+    assert captured == []
 
 
-def test_apply_rdp_timeouts_writes_all_keys(monkeypatch):
-    from unittest.mock import MagicMock
-
+def test_apply_rdp_timeouts_payload_contains_all_keys(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    captured = []
-
-    def fake_run(cmd, **kw):
-        captured.append(cmd)
-        m = MagicMock()
-        m.returncode = 0
-        m.stderr = ""
-        return m
-
-    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
+    captured = _mock_run_in_windows(monkeypatch, rc=0, stdout="rdp_timeouts applied")
     provisioner._apply_rdp_timeouts(cfg)
     assert len(captured) == 1
-    script = captured[0][-1]
+    description, payload = captured[0]
+    assert description == "apply-rdp-timeouts"
     for token in (
         "MaxIdleTime",
         "MaxDisconnectionTime",
@@ -291,72 +246,34 @@ def test_apply_rdp_timeouts_writes_all_keys(monkeypatch):
         "RDP-Tcp",
         "Terminal Services",
     ):
-        assert token in script
+        assert token in payload, f"missing {token!r} in payload"
 
 
-def test_apply_rdp_timeouts_tolerates_timeout(monkeypatch):
-    from winpodx.core import provisioner
-    from winpodx.core.config import Config
-
-    cfg = Config()
-
-    def boom(cmd, **kw):
-        raise provisioner.subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
-
-    monkeypatch.setattr(provisioner.subprocess, "run", boom)
-    # Must swallow the exception.
-    provisioner._apply_rdp_timeouts(cfg)
-
-
-# --- v0.1.9.2: _apply_oem_runtime_fixes + ensure_ready early-apply path ---
-
-
-def test_apply_oem_runtime_fixes_skips_libvirt():
+def test_apply_oem_runtime_fixes_skips_libvirt(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
     cfg.pod.backend = "libvirt"
-    provisioner._apply_oem_runtime_fixes(cfg)  # must not raise / not subprocess
+    captured = _mock_run_in_windows(monkeypatch)
+    provisioner._apply_oem_runtime_fixes(cfg)
+    assert captured == []
 
 
-def test_apply_oem_runtime_fixes_writes_nic_and_termservice(monkeypatch):
-    from unittest.mock import MagicMock
-
+def test_apply_oem_runtime_fixes_payload_contains_nic_and_termservice(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    captured = []
-
-    def fake_run(cmd, **kw):
-        captured.append(cmd)
-        m = MagicMock()
-        m.returncode = 0
-        m.stderr = ""
-        return m
-
-    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
+    captured = _mock_run_in_windows(monkeypatch, rc=0, stdout="oem v7 baseline applied")
     provisioner._apply_oem_runtime_fixes(cfg)
     assert len(captured) == 1
-    script = captured[0][-1]
-    assert "Set-NetAdapterPowerManagement" in script
-    assert "AllowComputerToTurnOffDevice" in script
-    assert "sc.exe failure TermService" in script
-    assert "restart/5000/restart/5000/restart/5000" in script
-
-
-def test_apply_oem_runtime_fixes_tolerates_timeout(monkeypatch):
-    from winpodx.core import provisioner
-    from winpodx.core.config import Config
-
-    cfg = Config()
-
-    def boom(cmd, **kw):
-        raise provisioner.subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
-
-    monkeypatch.setattr(provisioner.subprocess, "run", boom)
-    provisioner._apply_oem_runtime_fixes(cfg)
+    description, payload = captured[0]
+    assert description == "apply-oem"
+    assert "Set-NetAdapterPowerManagement" in payload
+    assert "AllowComputerToTurnOffDevice" in payload
+    assert "sc.exe failure TermService" in payload
+    assert "restart/5000/restart/5000/restart/5000" in payload
 
 
 def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch):
@@ -438,17 +355,16 @@ def test_apply_windows_runtime_fixes_skips_libvirt():
 
 
 def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
-    from unittest.mock import MagicMock
-
     from winpodx.core import provisioner
     from winpodx.core.config import Config
+    from winpodx.core.windows_exec import WindowsExecResult
 
     cfg = Config()
-    monkeypatch.setattr(
-        provisioner.subprocess,
-        "run",
-        lambda *a, **k: MagicMock(returncode=0, stdout="", stderr=""),
-    )
+
+    def fake(cfg_inner, payload, *, timeout=60, description="windows-exec"):
+        return WindowsExecResult(rc=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
     result = provisioner.apply_windows_runtime_fixes(cfg)
     assert set(result.keys()) == {"max_sessions", "rdp_timeouts", "oem_runtime_fixes"}
     for v in result.values():
