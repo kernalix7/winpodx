@@ -23,9 +23,12 @@ def handle_pod(args: argparse.Namespace) -> None:
         _sync_password(getattr(args, "non_interactive", False))
     elif cmd == "multi-session":
         _multi_session(args.action)
+    elif cmd == "wait-ready":
+        _wait_ready(args.timeout, getattr(args, "logs", False))
     else:
         print(
-            "Usage: winpodx pod {start|stop|status|restart|apply-fixes|sync-password|multi-session}"
+            "Usage: winpodx pod {start|stop|status|restart|apply-fixes|"
+            "sync-password|multi-session|wait-ready}"
         )
         sys.exit(1)
 
@@ -341,3 +344,116 @@ def _restart() -> None:
     else:
         print(f"Failed to restart: {status.error}", file=sys.stderr)
         sys.exit(1)
+
+
+def _wait_ready(timeout: int, show_logs: bool) -> None:
+    """v0.2.0.5: multi-phase wait for the Windows VM to finish first-boot.
+
+    Polls three checkpoints with elapsed-time stamps so the user sees
+    progress instead of a silent multi-minute hang on `curl install.sh`:
+
+      [1/3] Container running                  (e.g. 5s)
+      [2/3] RDP port open                      (typically 30-90s)
+      [3/3] Windows ready (RemoteApp probes OK) (typically 2-8min on first boot)
+
+    With ``--logs``, container stdout is tailed in a background thread
+    and surfaced as ``[container] ...`` lines so the user can see Windows
+    actually doing work (Sysprep, OEM apply, etc.) instead of a black
+    box.
+    """
+    import threading
+    import time as _time
+    from subprocess import PIPE, Popen
+
+    from winpodx.core.config import Config
+    from winpodx.core.pod import PodState, check_rdp_port, pod_status
+    from winpodx.core.provisioner import wait_for_windows_responsive
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(f"wait-ready not supported for backend {cfg.pod.backend!r} (podman/docker only).")
+        sys.exit(2)
+
+    timeout = max(60, min(7200, int(timeout)))
+    start = _time.monotonic()
+
+    def elapsed() -> str:
+        s = int(_time.monotonic() - start)
+        return f"{s // 60:02d}:{s % 60:02d}"
+
+    log_proc: Popen | None = None
+    log_stop = threading.Event()
+    if show_logs:
+        try:
+            log_proc = Popen(
+                [cfg.pod.backend, "logs", "-f", "--tail", "0", cfg.pod.container_name],
+                stdout=PIPE,
+                stderr=PIPE,
+                text=True,
+                bufsize=1,
+            )
+
+            def _drain() -> None:
+                assert log_proc is not None and log_proc.stdout is not None
+                for line in log_proc.stdout:
+                    if log_stop.is_set():
+                        break
+                    line = line.rstrip()
+                    if line:
+                        print(f"       [container] {line}")
+
+            threading.Thread(target=_drain, daemon=True).start()
+        except (FileNotFoundError, OSError) as e:
+            print(f"       (could not tail container logs: {e})")
+            log_proc = None
+
+    try:
+        # --- [1/3] Container running ---
+        print(f"[1/3] Waiting for container to start...      ({elapsed()})")
+        deadline = start + timeout
+        while _time.monotonic() < deadline:
+            try:
+                if pod_status(cfg).state == PodState.RUNNING:
+                    print(f"      OK Container running                   ({elapsed()})")
+                    break
+            except Exception:  # noqa: BLE001
+                pass
+            _time.sleep(2)
+        else:
+            print(f"      FAIL Timeout waiting for container       ({elapsed()})")
+            sys.exit(3)
+
+        # --- [2/3] RDP port open ---
+        print(f"[2/3] Waiting for Windows RDP service...     ({elapsed()})")
+        while _time.monotonic() < deadline:
+            if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
+                print(f"      OK RDP port {cfg.rdp.port} open                  ({elapsed()})")
+                break
+            _time.sleep(3)
+        else:
+            print(f"      FAIL Timeout waiting for RDP port        ({elapsed()})")
+            sys.exit(3)
+
+        # --- [3/3] FreeRDP RemoteApp activation ---
+        print(f"[3/3] Waiting for Windows activation...      ({elapsed()})")
+        remaining = max(60, int(deadline - _time.monotonic()))
+        if wait_for_windows_responsive(cfg, timeout=remaining):
+            print(f"      OK Windows ready                         ({elapsed()})")
+        else:
+            print(
+                f"      FAIL Timeout waiting for Windows ready   ({elapsed()})\n"
+                "      Run `winpodx pod status` later and re-run "
+                "`winpodx pod wait-ready` once the container is fully up."
+            )
+            sys.exit(3)
+    finally:
+        log_stop.set()
+        if log_proc is not None:
+            try:
+                log_proc.terminate()
+                log_proc.wait(timeout=3)
+            except Exception:  # noqa: BLE001
+                try:
+                    log_proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
