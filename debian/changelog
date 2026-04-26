@@ -1,3 +1,24 @@
+winpodx (0.1.9.1) unstable; urgency=high
+
+  * Fixed: GUI SEGV when clicking "Refresh Apps" against a pod that
+    isn't running. The failure path's QMessageBox construction is now
+    deferred via QTimer.singleShot(0, ...) so the queued-signal handler
+    frame unwinds before Qt's font-inheritance lookup walks the parent.
+    Info page first-fetch deferred out of __init__ for the same reason.
+    Info worker class hoisted to module level, busy-state reentrancy
+    guard added, worker + QThread both deleteLater'd on completion.
+  * Fixed: RDP sessions drop mid-use after host suspend / long idle.
+    v0.1.9 Bug B fix only handled "RDP unreachable"; this release
+    disables Windows TermService timeouts (MaxIdleTime / Max
+    DisconnectionTime / MaxConnectionTime = 0), enables KeepAlive
+    every 1 minute, and writes the keys to both the machine-policy
+    path and the RDP-Tcp WinStation. install.bat OEM bumps 7 -> 8;
+    existing 0.1.x guests get a runtime apply via a new
+    `_apply_rdp_timeouts` step in provisioner.ensure_ready (no
+    container recreate needed).
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 00:00:00 +0900
+
 winpodx (0.1.9) unstable; urgency=medium
 
   * Fixed: `winpodx app refresh` on Windows. The 0.1.8 implementation

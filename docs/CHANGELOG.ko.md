@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+## [0.1.9.1] - 2026-04-26
+
+### 수정
+- **Apps "Refresh Apps" 버튼 누르면 GUI SEGV (pod 안 켜진 상태).** kernalix7 보고: `_on_refresh_failed` 가 queued-signal 콜백 프레임 안에서 `QMessageBox(self)` 를 바로 생성했는데 PySide6 + Qt 6.x 가 dialog 의 폰트 상속 경로 (`QApplication::font(parentWidget)` → `QMetaObject::className()`) 에서 부모 metaObject 가 콜백 중에 조회되며 SEGV. 이제 `QTimer.singleShot(0, ...)` 으로 dialog 생성을 다음 이벤트 루프 틱으로 미뤄서 signal handler 프레임이 먼저 풀림. Info 페이지의 첫 fetch 도 같은 이유로 `__init__` 에서 빠져나간 뒤 실행. Info worker 클래스를 모듈 레벨로 hoisting (refresh 마다 재정의되던 것), 재진입 busy guard 추가, worker + QThread 모두 정상 `deleteLater`.
+- **호스트 suspend / 장기 유휴 후에도 RDP 세션이 사용 중에 끊기던 문제.** v0.1.9 Bug B 수정은 "RDP 도달 불가" 경로만 다뤘는데, Windows TermService 의 1시간 `MaxIdleTime` 기본값 등으로 활성 세션 자체가 종료될 수 있었음. install.bat (OEM v7 → v8) 와 새 `_apply_rdp_timeouts` provisioner 단계가 `MaxIdleTime=0`, `MaxDisconnectionTime=0`, `MaxConnectionTime=0`, `KeepAliveEnable=1` + `KeepAliveInterval=1` 을 `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` 와 `RDP-Tcp` WinStation 양쪽에 기록 + WinStation 에 `KeepAliveTimeout=1` (TCP keep-alive 1분 간격). 기존 0.1.x 게스트도 다음 `ensure_ready` 에서 자동 적용 — 컨테이너 재생성 불필요.
+
 ## [0.1.9] - 2026-04-25
 
 ### 변경
