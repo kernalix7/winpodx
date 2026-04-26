@@ -385,24 +385,32 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     log_stop = threading.Event()
     if show_logs:
         try:
+            # v0.2.0.7: --tail 100 so the user sees recent context (Windows
+            # ISO download, current boot stage) instead of nothing — dockur
+            # may have already printed minutes of progress before wait-ready
+            # runs. Both stdout and stderr are drained because dockur's
+            # progress output is split across both streams (download
+            # bytes/sec on one, boot phase on the other).
             log_proc = Popen(
-                [cfg.pod.backend, "logs", "-f", "--tail", "0", cfg.pod.container_name],
+                [cfg.pod.backend, "logs", "-f", "--tail", "100", cfg.pod.container_name],
                 stdout=PIPE,
                 stderr=PIPE,
                 text=True,
                 bufsize=1,
             )
 
-            def _drain() -> None:
-                assert log_proc is not None and log_proc.stdout is not None
-                for line in log_proc.stdout:
+            def _drain(stream) -> None:  # type: ignore[no-untyped-def]
+                if stream is None:
+                    return
+                for line in stream:
                     if log_stop.is_set():
                         break
                     line = line.rstrip()
                     if line:
                         print(f"       [container] {line}")
 
-            threading.Thread(target=_drain, daemon=True).start()
+            threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
+            threading.Thread(target=_drain, args=(log_proc.stderr,), daemon=True).start()
         except (FileNotFoundError, OSError) as e:
             print(f"       (could not tail container logs: {e})")
             log_proc = None

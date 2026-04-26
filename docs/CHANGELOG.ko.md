@@ -9,7 +9,12 @@
 
 ## [Unreleased]
 
-## [0.2.0.6] - 2026-04-27
+## [0.2.0.7] - 2026-04-27
+
+### 수정
+- **빠른 컨테이너에서 `pod wait-ready --logs` 가 `[container]` 라인 하나도 안 띄움.** 두 가지 문제: (1) tail 을 `--tail 0` 으로 시작했는데 이건 "지금부터의 로그만 표시" 의미. 하지만 dockur 는 Windows ISO 다운로드 / 부팅 단계 메시지를 wait-ready 실행 *전에* 이미 출력 → 사용자에게 아무것도 안 보임. (2) `stdout` 만 drain. dockur 는 진행 메시지를 stdout (다운로드 byte/s) 과 stderr (부팅 단계) 로 나눠 출력해서 절반이 사라짐. v0.2.0.7 에서 `--tail 100` 으로 최근 컨텍스트 즉시 표시 + stdout/stderr 둘 다 병렬 스레드로 drain.
+
+
 
 ### 수정
 - **`wait_for_windows_responsive` 가 부팅 중 게스트에서 1초도 안 되어 무너져 `pod wait-ready` UX 가 통째로 망가짐.** 헬퍼가 RDP TCP 포트 열림은 제대로 대기했지만, 그 다음 FreeRDP RemoteApp probe 를 **단 한 번만** 발화. 한 번 실패하면 (부팅 중 게스트는 항상 rc=147 connection-reset 반환) 즉시 False return → 호출자가 넘긴 600초 timeout 이 무시됨. v0.2.0.6 에서 probe 를 retry loop 로 변경: 5-20초짜리 probe 를 deadline 까지 반복 (FreeRDP 프로세스 CPU 점유 막기 위해 3초 간격). 이제 `pod wait-ready --timeout 600` 이 진짜 10분까지 기다림 — phase 3 의 elapsed time 이 증가하는 게 보임.
