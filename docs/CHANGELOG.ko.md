@@ -9,7 +9,12 @@
 
 ## [Unreleased]
 
-## [0.2.0.5] - 2026-04-27
+## [0.2.0.6] - 2026-04-27
+
+### 수정
+- **`wait_for_windows_responsive` 가 부팅 중 게스트에서 1초도 안 되어 무너져 `pod wait-ready` UX 가 통째로 망가짐.** 헬퍼가 RDP TCP 포트 열림은 제대로 대기했지만, 그 다음 FreeRDP RemoteApp probe 를 **단 한 번만** 발화. 한 번 실패하면 (부팅 중 게스트는 항상 rc=147 connection-reset 반환) 즉시 False return → 호출자가 넘긴 600초 timeout 이 무시됨. v0.2.0.6 에서 probe 를 retry loop 로 변경: 5-20초짜리 probe 를 deadline 까지 반복 (FreeRDP 프로세스 CPU 점유 막기 위해 3초 간격). 이제 `pod wait-ready --timeout 600` 이 진짜 10분까지 기다림 — phase 3 의 elapsed time 이 증가하는 게 보임.
+
+
 
 ### 추가
 - **`winpodx pod wait-ready [--timeout SEC] [--logs]`** — Windows VM 첫 부팅 다단계 wait gate. 세 체크포인트를 elapsed time 과 함께 표시해서 사용자가 침묵 속 몇 분간 hang 대신 실제 진행 상황을 봄:

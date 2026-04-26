@@ -1,3 +1,18 @@
+winpodx (0.2.0.6) unstable; urgency=high
+
+  * Fixed: wait_for_windows_responsive collapsed in <1s on a still-
+    booting guest. The helper fired exactly ONE FreeRDP RemoteApp
+    probe after the RDP port opened — a single failure (which is what
+    every still-booting guest produces, rc=147 connection-reset)
+    returned False immediately and the caller's 600s timeout was
+    effectively ignored. v0.2.0.6 turns the probe into a retry loop
+    that fires repeated 5-20s probes until one succeeds or the
+    overall timeout expires (3s pacing between attempts). pod
+    wait-ready --timeout 600 now actually waits up to 10 minutes
+    instead of bailing in the first second.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 14:00:00 +0900
+
 winpodx (0.2.0.5) unstable; urgency=medium
 
   * Added: `winpodx pod wait-ready [--timeout SEC] [--logs]` —

@@ -194,11 +194,15 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     - ``ERRCONNECT_ACTIVATION_TIMEOUT`` (rc=131, FreeRDP connected but
       activation phase didn't complete in time)
 
-    This helper waits for the RDP port first, then fires a tiny
-    no-op probe (`Write-Output 'ping'`) with a 15s budget to confirm
-    the FreeRDP RemoteApp channel is actually live. Returns True on
-    success, False if the guest is still booting after ``timeout``
-    seconds — caller decides whether to skip / retry / surface to user.
+    This helper waits for the RDP port first, then fires repeated tiny
+    no-op probes (`Write-Output 'ping'`) until either one succeeds or
+    the overall timeout expires. v0.2.0.6 added the retry loop after
+    v0.2.0.5 shipped a one-shot probe — on a still-booting guest the
+    first probe always hits rc=147 connection-reset and the entire
+    wait collapsed in <1s regardless of the timeout the caller passed.
+    Returns True once a probe succeeds, False if the guest is still
+    booting at ``timeout`` seconds — caller decides whether to skip /
+    retry / surface to user.
     """
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
@@ -210,17 +214,32 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     else:
         return False
 
-    # Port is open — confirm activation works with a short probe.
-    try:
-        result = run_in_windows(
-            cfg,
-            "Write-Output 'ping'\n",
-            description="responsive-probe",
-            timeout=20,
-        )
-        return result.rc == 0
-    except WindowsExecError:
-        return False
+    # Port is open — keep firing the activation probe until one succeeds
+    # or the deadline expires. On first boot the guest can refuse FreeRDP
+    # for several minutes (Windows still in mid-Sysprep / OEM apply) even
+    # though the RDP listener answers TCP, so a one-shot probe here is
+    # the wrong primitive — the user already passed `timeout` to express
+    # "try this hard, for this long".
+    while time.monotonic() < deadline:
+        per_probe_budget = max(5, min(20, int(deadline - time.monotonic())))
+        try:
+            result = run_in_windows(
+                cfg,
+                "Write-Output 'ping'\n",
+                description="responsive-probe",
+                timeout=per_probe_budget,
+            )
+            if result.rc == 0:
+                return True
+        except WindowsExecError:
+            # Transient — Windows likely still booting / Sysprep running.
+            pass
+        # Pace retries so we don't pin a CPU spinning FreeRDP processes.
+        if time.monotonic() < deadline - 3:
+            time.sleep(3)
+        else:
+            break
+    return False
 
 
 def _self_heal_apply(cfg: Config) -> None:
