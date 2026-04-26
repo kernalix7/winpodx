@@ -123,6 +123,32 @@ def _looks_like_pod_down(exc: BaseException) -> bool:
     return any(tok in text for tok in ("pod", "container", "connection refused", "not running"))
 
 
+class _InfoWorker(QObject):
+    """Background worker for the Info page's gather_info() call.
+
+    Hoisted to module level (was nested inside _refresh_info) so PySide6
+    doesn't re-create the QObject metaclass on every refresh — repeated
+    nested-class definition has been observed to interact badly with
+    Qt's metaobject cache, contributing to the v0.1.9 SEGV path.
+    """
+
+    done = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        self.cfg = cfg
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from winpodx.core.info import gather_info
+
+            self.done.emit(gather_info(self.cfg))
+        except Exception as e:  # noqa: BLE001 — surface to UI via signal
+            self.failed.emit(str(e))
+
+
 class WinpodxWindow(QMainWindow):
     """Main window with horizontal top navigation bar."""
 
@@ -1317,8 +1343,12 @@ class WinpodxWindow(QMainWindow):
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
-        # Kick off first fetch so the page isn't permanently "Loading...".
-        self._refresh_info()
+        # v0.1.9.1: Defer the first fetch out of __init__. Calling
+        # _refresh_info() synchronously here can race with the rest of
+        # the main-window construction — the worker thread fires its
+        # `done` signal back into a partially-built window and hits the
+        # same QMessageBox font-lookup SEGV the Apps refresh path saw.
+        QTimer.singleShot(0, self._refresh_info)
         return page
 
     def _info_card(self, title: str) -> QFrame:
@@ -1387,33 +1417,38 @@ class WinpodxWindow(QMainWindow):
 
     def _refresh_info(self) -> None:
         """Re-run gather_info on a worker thread; populate cards on completion."""
-        from PySide6.QtCore import QObject, QThread, Signal
+        # Reentrancy guard: ignore rapid re-clicks while a previous worker
+        # is still in flight. The previous worker's `done` will land first
+        # and then the user can refresh again. Without this guard, a fast
+        # double-click leaks a QThread + worker pair and races the
+        # _info_card_bodies mutation in _apply_info_snapshot.
+        if getattr(self, "_info_busy", False):
+            return
+        self._info_busy = True
 
-        class _InfoWorker(QObject):
-            done = Signal(dict)
-            failed = Signal(str)
+        thread = QThread(self)
+        worker = _InfoWorker(self.cfg)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.done.connect(self._apply_info_snapshot)
+        # done/failed both end the worker — chain quit + deleteLater on
+        # both worker and thread so neither leaks across refreshes.
+        worker.done.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.done.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        # Clear the busy flag whichever way the worker finishes.
+        worker.done.connect(self._on_info_done)
+        worker.failed.connect(self._on_info_done)
+        self._info_thread = thread
+        self._info_worker = worker
+        thread.start()
 
-            def __init__(self, cfg) -> None:
-                super().__init__()
-                self.cfg = cfg
-
-            def run(self) -> None:
-                try:
-                    from winpodx.core.info import gather_info
-
-                    self.done.emit(gather_info(self.cfg))
-                except Exception as e:  # noqa: BLE001
-                    self.failed.emit(str(e))
-
-        self._info_thread = QThread(self)
-        self._info_worker = _InfoWorker(self.cfg)
-        self._info_worker.moveToThread(self._info_thread)
-        self._info_thread.started.connect(self._info_worker.run)
-        self._info_worker.done.connect(self._apply_info_snapshot)
-        self._info_worker.done.connect(self._info_thread.quit)
-        self._info_worker.failed.connect(self._info_thread.quit)
-        self._info_thread.finished.connect(self._info_thread.deleteLater)
-        self._info_thread.start()
+    @Slot()
+    def _on_info_done(self, *_args) -> None:
+        """Slot fired when the info worker finishes (success or failure)."""
+        self._info_busy = False
 
     def _apply_info_snapshot(self, info: dict) -> None:
         """Map gather_info output into per-card row pairs."""
@@ -1665,6 +1700,16 @@ class WinpodxWindow(QMainWindow):
         self._refresh_worker = None
         self.info_label.setText("App discovery failed")
 
+        # v0.1.9.1: defer the QMessageBox creation to a clean event-loop tick.
+        # PySide6 + Qt 6.x can SEGV in QMessageBox's font-inheritance lookup
+        # when the dialog is constructed inside the queued-signal callback
+        # frame — kernalix7 hit this on `_on_refresh_failed` after a
+        # pod-not-running discovery failure. Re-dispatching via QTimer
+        # unwinds the signal handler stack first.
+        QTimer.singleShot(0, lambda: self._show_refresh_failure_dialog(kind, detail))
+
+    def _show_refresh_failure_dialog(self, kind: str, detail: str) -> None:
+        """Build the failure QMessageBox after the signal handler has unwound."""
         if kind == "pod_not_running":
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)

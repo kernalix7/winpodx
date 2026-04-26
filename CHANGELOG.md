@@ -9,6 +9,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.9.1] - 2026-04-26
+
+### Fixed
+- **GUI SEGV when clicking the Apps "Refresh Apps" button on a pod-not-running guest.** Reported by kernalix7 against 0.1.9: `_on_refresh_failed` constructed a `QMessageBox(self)` directly inside the queued-signal callback frame, and PySide6 + Qt 6.x can SEGV deep in the dialog's font-inheritance path (`QApplication::font(parentWidget)` -> `QMetaObject::className()`) when the parent's metaobject is queried mid-callback. The QMessageBox build is now deferred via `QTimer.singleShot(0, ...)` so the signal handler frame unwinds first. The Info page's first-fetch is also deferred out of `__init__` for the same reason. The Info page worker class was hoisted to module level (was redefined every refresh), gains a busy-state reentrancy guard, and now properly `deleteLater`s both the worker and the QThread on completion.
+- **RDP sessions still drop mid-use after host suspend / long idle.** v0.1.9 Bug B fix only handled the "RDP unreachable" path; sessions could still be terminated by the Windows-side TermService timeouts (1h `MaxIdleTime` default). install.bat (OEM v7 -> v8) and a new `_apply_rdp_timeouts` provisioner step now write `MaxIdleTime=0`, `MaxDisconnectionTime=0`, `MaxConnectionTime=0`, `KeepAliveEnable=1` + `KeepAliveInterval=1` to both `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` and the `RDP-Tcp` WinStation, plus `KeepAliveTimeout=1` on the WinStation so TCP keep-alive fires every minute. Existing 0.1.x guests get the runtime apply on the next `ensure_ready` without needing container recreation.
+
 ## [0.1.9] - 2026-04-25
 
 ### Changed

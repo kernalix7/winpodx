@@ -51,6 +51,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
     _ensure_pod_running(cfg, timeout)
     _apply_max_sessions(cfg)
+    _apply_rdp_timeouts(cfg)
     # Bug B: after host suspend / long idle the pod can be running but RDP
     # itself is dead while VNC is fine. Probe and try to revive TermService
     # before handing the cfg to the caller — the alternative is the FreeRDP
@@ -189,6 +190,64 @@ def _apply_max_sessions(cfg: Config) -> None:
     else:
         log.warning(
             "max_sessions: apply rc=%d stderr=%s",
+            result.returncode,
+            result.stderr.strip(),
+        )
+
+
+def _apply_rdp_timeouts(cfg: Config) -> None:
+    """v0.1.9.1: disable RDP idle/disconnect/connection timeouts + enable keep-alive.
+
+    Without this Windows will drop active RemoteApp sessions after its
+    default timeouts (1h idle), and NAT/firewall keep-alive cleanup can
+    kill the underlying TCP. Idempotent: writes the same key set every
+    provision; reg add is no-op when value already matches.
+
+    Mirrors the OEM v8 install.bat changes for guests that were
+    provisioned under an older OEM version (so users don't have to
+    recreate their container to pick this up).
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    runtime = "podman" if cfg.pod.backend == "podman" else "docker"
+    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+    apply_script = (
+        # Machine policy keys (override per-user / per-WinStation defaults).
+        r"$mp = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'; "
+        r"if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }; "
+        r"Set-ItemProperty -Path $mp -Name MaxIdleTime -Value 0 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $mp -Name MaxDisconnectionTime -Value 0 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $mp -Name MaxConnectionTime -Value 0 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $mp -Name KeepAliveEnable -Value 1 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $mp -Name KeepAliveInterval -Value 1 -Type DWord -Force; "
+        # Per-WinStation keys (the actual TermService consults these).
+        r"$ws = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'; "
+        r"Set-ItemProperty -Path $ws -Name MaxIdleTime -Value 0 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $ws -Name MaxDisconnectionTime -Value 0 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $ws -Name MaxConnectionTime -Value 0 -Type DWord -Force; "
+        r"Set-ItemProperty -Path $ws -Name KeepAliveTimeout -Value 1 -Type DWord -Force"
+    )
+    cmd = [
+        runtime,
+        "exec",
+        cfg.pod.container_name,
+        ps_exe,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        apply_script,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("rdp_timeouts: apply failed: %s", e)
+        return
+    if result.returncode != 0:
+        log.warning(
+            "rdp_timeouts: rc=%d stderr=%s",
             result.returncode,
             result.stderr.strip(),
         )

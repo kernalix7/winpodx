@@ -247,3 +247,62 @@ def test_apply_max_sessions_tolerates_timeout(monkeypatch):
     monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
     # Must not raise — timeout just logs and returns.
     provisioner._apply_max_sessions(cfg)
+
+
+# --- v0.1.9.1: _apply_rdp_timeouts ---
+
+
+def test_apply_rdp_timeouts_skips_libvirt():
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "libvirt"
+    provisioner._apply_rdp_timeouts(cfg)  # must not raise / not subprocess
+
+
+def test_apply_rdp_timeouts_writes_all_keys(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    captured = []
+
+    def fake_run(cmd, **kw):
+        captured.append(cmd)
+        m = MagicMock()
+        m.returncode = 0
+        m.stderr = ""
+        return m
+
+    monkeypatch.setattr(provisioner.subprocess, "run", fake_run)
+    provisioner._apply_rdp_timeouts(cfg)
+    assert len(captured) == 1
+    script = captured[0][-1]
+    for token in (
+        "MaxIdleTime",
+        "MaxDisconnectionTime",
+        "MaxConnectionTime",
+        "KeepAliveEnable",
+        "KeepAliveInterval",
+        "KeepAliveTimeout",
+        "RDP-Tcp",
+        "Terminal Services",
+    ):
+        assert token in script
+
+
+def test_apply_rdp_timeouts_tolerates_timeout(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+
+    def boom(cmd, **kw):
+        raise provisioner.subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
+
+    monkeypatch.setattr(provisioner.subprocess, "run", boom)
+    # Must swallow the exception.
+    provisioner._apply_rdp_timeouts(cfg)
