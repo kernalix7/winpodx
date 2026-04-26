@@ -9,7 +9,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.1] - 2026-04-26
+## [0.2.0.2] - 2026-04-26
+
+### Fixed
+- **Fresh `--purge` reinstall reported a bogus "0.1.7 -> X detected" upgrade.** `winpodx setup` saved `winpodx.toml` but never stamped `installed_version.txt`, so the follow-up `winpodx migrate` (which `install.sh` chains automatically) saw the config + missing marker and hit the pre-tracker fallback that assumes baseline 0.1.7. The fallback is correct for genuine upgrades from before the marker existed, but for a fresh install it ran every migration step needlessly and printed a confusing "What's new in 0.1.8 / 0.1.9 / …" wall. v0.2.0.2 has setup write the current version to `installed_version.txt` if it doesn't already exist, so a fresh install reports as the current version (no migration steps fire) while a real upgrade flow still works as before.
+
+
 
 ### Fixed
 - **Apply cascade collapsed on cold container.** v0.2.0 fired the three idempotent runtime applies (`max_sessions`, `rdp_timeouts`, `oem_runtime_fixes`) the moment `pod_status` reported `RUNNING`. The dockur Linux container reaches `RUNNING` in seconds, but the Windows VM inside QEMU needs another 30–90s before its RDP listener can accept FreeRDP RemoteApp activation. Within that window every apply collapsed with either `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, RDP socket open but server not initialized — connection reset by peer) on a fresh install, or `ERRCONNECT_ACTIVATION_TIMEOUT [0x0002001C]` (rc=131, FreeRDP connected but activation phase didn't complete) on `winpodx pod restart`. Each apply waited the full 60s timeout, so the cascade ran 3min before surfacing as a Launch Error dialog or "3 of 3 applies failed" panic message during `winpodx setup` → `winpodx migrate`.

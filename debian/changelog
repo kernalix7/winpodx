@@ -1,3 +1,16 @@
+winpodx (0.2.0.2) unstable; urgency=medium
+
+  * Fixed: fresh --purge reinstall reported a bogus "0.1.7 -> X
+    detected" upgrade. winpodx setup saved winpodx.toml but never
+    stamped installed_version.txt, so the follow-up `winpodx migrate`
+    chained by install.sh saw the config + missing marker and fell
+    through to the pre-tracker fallback that assumes baseline 0.1.7.
+    Setup now writes the current version to installed_version.txt
+    when absent, so a fresh install reports as the current version
+    (no migration steps fire) while real upgrades still work.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 23:00:00 +0900
+
 winpodx (0.2.0.1) unstable; urgency=high
 
   * Fixed: apply cascade collapsed on cold container. v0.2.0 fired the

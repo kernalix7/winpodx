@@ -170,6 +170,24 @@ def handle_setup(args: argparse.Namespace) -> None:
     cfg.save()
     print(f"\nConfig saved to {Config.path()}")
 
+    # v0.2.0.2: stamp installed_version.txt so a follow-up `winpodx migrate`
+    # doesn't misclassify this fresh install as a "pre-tracker upgrade from
+    # 0.1.7". Migrate's pre-tracker fallback (config exists but no marker
+    # → assume baseline 0.1.7) is only correct for actual upgrades from
+    # before the marker existed; for fresh `--purge` reinstalls it produces
+    # a bogus "0.1.7 -> X detected" run that re-applies all the migration
+    # steps unnecessarily. Only write if absent so an actual upgrade flow
+    # (where the user manually ran setup over an existing install) isn't
+    # downgraded.
+    from winpodx import __version__ as _winpodx_version
+
+    marker_path = config_dir() / "installed_version.txt"
+    if not marker_path.exists():
+        try:
+            marker_path.write_text(_winpodx_version + "\n", encoding="utf-8")
+        except OSError as e:
+            print(f"  warning: could not stamp install marker ({e})")
+
     # v0.1.9: bundled profiles were removed. Desktop entries are now created
     # by `winpodx app refresh` (auto-fired on first pod boot via
     # provisioner.ensure_ready). Until the user's first launch, only the

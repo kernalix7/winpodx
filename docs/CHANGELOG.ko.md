@@ -9,7 +9,12 @@
 
 ## [Unreleased]
 
-## [0.2.0.1] - 2026-04-26
+## [0.2.0.2] - 2026-04-26
+
+### 수정
+- **`--purge` 신규 설치가 가짜 "0.1.7 -> X detected" 업그레이드 메시지 표시.** `winpodx setup` 이 `winpodx.toml` 만 저장하고 `installed_version.txt` 마커는 안 써서, `install.sh` 가 자동으로 이어 호출하는 `winpodx migrate` 가 "config 있고 marker 없음" 상태 보고 pre-tracker fallback (baseline 0.1.7 가정) 발동. 실제 마커 도입 전 업그레이드에서는 맞는 동작이지만, 신규 설치에서는 모든 마이그레이션 스텝을 불필요하게 재실행하면서 "What's new in 0.1.8 / 0.1.9 / ..." 안내까지 띄움. v0.2.0.2 에서 setup 이 마커가 없을 때만 현재 버전을 `installed_version.txt` 에 기록하도록 수정 — 신규 설치는 현재 버전으로 보고되어 마이그레이션 스텝 발화 안 함, 실제 업그레이드 흐름은 그대로 동작.
+
+
 
 ### 수정
 - **차가운 컨테이너에서 apply cascade 가 무너짐.** v0.2.0 은 `pod_status` 가 `RUNNING` 이 되는 즉시 세 개 idempotent runtime apply (`max_sessions`, `rdp_timeouts`, `oem_runtime_fixes`) 를 발화. dockur Linux 컨테이너는 몇 초 안에 `RUNNING` 도달하지만, QEMU 안 Windows VM 은 RDP 리스너가 FreeRDP RemoteApp activation 받기까지 30~90초 더 필요. 그 윈도우 안에서 모든 apply 는:
