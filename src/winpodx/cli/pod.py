@@ -142,10 +142,10 @@ def _apply_fixes() -> None:
     # doesn't see 3×60s of timeout cascades.
     from winpodx.core.provisioner import wait_for_windows_responsive
 
-    print("Waiting for Windows guest to finish booting (up to 90s)...")
-    if not wait_for_windows_responsive(cfg, timeout=90):
+    print("Waiting for Windows guest to finish booting (up to 180s)...")
+    if not wait_for_windows_responsive(cfg, timeout=180):
         print(
-            "Windows guest still booting after 90s. Wait a bit longer, "
+            "Windows guest still booting after 180s. Wait a bit longer, "
             "then re-run `winpodx pod apply-fixes`."
         )
         sys.exit(2)

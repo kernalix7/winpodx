@@ -1,3 +1,18 @@
+winpodx (0.2.0.3) unstable; urgency=high
+
+  * Fixed: discovery hit the same boot race the apply path used to.
+    v0.2.0.1 gated _apply_* and pod apply-fixes on
+    wait_for_windows_responsive, but migrate's "Run app discovery now?"
+    prompt and provisioner._auto_discover_if_empty still launched the
+    FreeRDP RemoteApp channel without a probe. On fresh --purge
+    reinstalls the scan collapsed with rc=147 connection reset.
+    v0.2.0.3 wires the same probe into both discovery call sites.
+  * Bumped first-boot timeout 90s -> 180s on all three apply /
+    discovery probes so slower hardware completes the install on
+    the first try.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 10:00:00 +0900
+
 winpodx (0.2.0.2) unstable; urgency=medium
 
   * Fixed: fresh --purge reinstall reported a bogus "0.1.7 -> X

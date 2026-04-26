@@ -9,7 +9,13 @@
 
 ## [Unreleased]
 
-## [0.2.0.2] - 2026-04-26
+## [0.2.0.3] - 2026-04-27
+
+### 수정
+- **Discovery 가 apply path 와 동일한 부팅 race 에 노출.** v0.2.0.1 이 `_apply_*` 와 `pod apply-fixes` 만 `wait_for_windows_responsive` 로 게이팅하고, `winpodx migrate` 의 "Run app discovery now?" 프롬프트와 `provisioner._auto_discover_if_empty` (첫 부팅 시 ensure_ready 가 발화) 는 probe 없이 FreeRDP RemoteApp 채널 호출. 신규 `--purge` 설치 시 QEMU 안 Windows VM 이 여전히 부팅 중인데 discovery 가 떠서 `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, connection reset) 으로 무너지고 사용자는 빈 앱 메뉴로 끝남. v0.2.0.3 이 두 discovery 호출 지점 모두에 동일 probe 적용 — wait 후 scan 또는 "Re-run later with: winpodx app refresh" 안내로 skip.
+- **첫 부팅 timeout 90s → 180s.** 실제 환경의 신규 설치는 느린 하드웨어에서 Windows + RDP + activation 핸드셰이크에 90초 초과 가능. 세 개의 apply / discovery probe 의 wait 예산을 180초로 상향 — one-shot install 이 첫 시도에 apply round 까지 완료할 수 있게 함.
+
+
 
 ### 수정
 - **`--purge` 신규 설치가 가짜 "0.1.7 -> X detected" 업그레이드 메시지 표시.** `winpodx setup` 이 `winpodx.toml` 만 저장하고 `installed_version.txt` 마커는 안 써서, `install.sh` 가 자동으로 이어 호출하는 `winpodx migrate` 가 "config 있고 marker 없음" 상태 보고 pre-tracker fallback (baseline 0.1.7 가정) 발동. 실제 마커 도입 전 업그레이드에서는 맞는 동작이지만, 신규 설치에서는 모든 마이그레이션 스텝을 불필요하게 재실행하면서 "What's new in 0.1.8 / 0.1.9 / ..." 안내까지 띄움. v0.2.0.2 에서 setup 이 마커가 없을 때만 현재 버전을 `installed_version.txt` 에 기록하도록 수정 — 신규 설치는 현재 버전으로 보고되어 마이그레이션 스텝 발화 안 함, 실제 업그레이드 흐름은 그대로 동작.

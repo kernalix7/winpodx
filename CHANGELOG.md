@@ -9,7 +9,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.2] - 2026-04-26
+## [0.2.0.3] - 2026-04-27
+
+### Fixed
+- **Discovery hit the same boot race the apply path used to.** v0.2.0.1 gated `_apply_*` and `pod apply-fixes` on `wait_for_windows_responsive`, but `winpodx migrate`'s "Run app discovery now?" prompt and `provisioner._auto_discover_if_empty` (fired by ensure_ready on first pod boot) still launched the FreeRDP RemoteApp channel without a probe. On a fresh `--purge` reinstall the Windows VM was still booting inside QEMU when discovery fired, so the scan collapsed with `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, connection reset by peer) and the user ended up with an empty app menu. v0.2.0.3 wires the same probe into both discovery call sites — discovery now waits, then either scans or skips with a "Re-run later with: winpodx app refresh" pointer.
+- **First-boot timeout 90s → 180s.** Real-world fresh installs on slower hardware can take more than 90s for Windows + RDP + activation handshake. Bumped the wait budget on all three apply / discovery probes to 180s so a one-shot install actually completes the apply round on first try.
+
+
 
 ### Fixed
 - **Fresh `--purge` reinstall reported a bogus "0.1.7 -> X detected" upgrade.** `winpodx setup` saved `winpodx.toml` but never stamped `installed_version.txt`, so the follow-up `winpodx migrate` (which `install.sh` chains automatically) saw the config + missing marker and hit the pre-tracker fallback that assumes baseline 0.1.7. The fallback is correct for genuine upgrades from before the marker existed, but for a fresh install it ran every migration step needlessly and printed a confusing "What's new in 0.1.8 / 0.1.9 / …" wall. v0.2.0.2 has setup write the current version to `installed_version.txt` if it doesn't already exist, so a fresh install reports as the current version (no migration steps fire) while a real upgrade flow still works as before.

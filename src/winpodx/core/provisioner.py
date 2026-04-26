@@ -628,6 +628,15 @@ def _auto_discover_if_empty(cfg: Config) -> None:
             return  # already discovered before; user-triggered refresh stays in their hands.
 
         log.info("First boot detected; auto-running discovery to populate the app menu...")
+        # v0.2.0.3: discovery uses the same FreeRDP RemoteApp channel as
+        # the apply path; on first pod boot Windows VM may still be
+        # booting inside QEMU even though ensure_ready already passed
+        # check_rdp_port (port open != activation-ready). Wait for a
+        # responsive guest before scanning, otherwise rc=147 connection
+        # reset and the user's first install ends with an empty menu.
+        if not wait_for_windows_responsive(cfg, timeout=180):
+            log.info("Windows guest still booting; deferring auto-discovery to a later run.")
+            return
         apps = discover_apps(cfg)
         persist_discovered(apps)
         log.info("Auto-discovery wrote %d app(s) to %s", len(apps), discovered_dir)
