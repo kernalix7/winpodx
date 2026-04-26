@@ -75,8 +75,15 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
     }
 
     cfg = Config.load()
+
+    # v0.2.0: stream per-source progress lines to stderr so the user sees
+    # "Scanning Registry App Paths..." etc instead of a silent multi-second
+    # pause. JSON output (when --json) stays clean — progress goes to stderr.
+    def _on_progress(msg: str) -> None:
+        print(f"  ... {msg}", file=sys.stderr, flush=True)
+
     try:
-        apps = discover_apps(cfg, timeout=timeout)
+        apps = discover_apps(cfg, timeout=timeout, progress_callback=_on_progress)
     except DiscoveryError as exc:
         kind = getattr(exc, "kind", "")
         code = _KIND_TO_CODE.get(kind, 3)

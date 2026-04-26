@@ -161,8 +161,19 @@ function Add-Result {
     }) | Out-Null
 }
 
+# v0.2.0 streaming progress: when the host wraps this script via
+# windows_exec.run_in_windows with a progress_callback, the wrapper
+# defines `Write-WinpodxProgress`. When run standalone (or via a wrapper
+# that doesn't define it) the function is missing and the calls would
+# error — define a no-op shim that yields when the real one isn't
+# available.
+if (-not (Get-Command 'Write-WinpodxProgress' -ErrorAction SilentlyContinue)) {
+    function Write-WinpodxProgress($msg) { }
+}
+
 # --- Source 1: Registry App Paths ------------------------------------------
 
+Write-WinpodxProgress 'Scanning Registry App Paths...'
 foreach ($hive in 'HKLM:', 'HKCU:') {
     $root = Join-Path $hive 'Software\Microsoft\Windows\CurrentVersion\App Paths'
     if (-not (Test-Path $root)) { continue }
@@ -192,6 +203,7 @@ foreach ($hive in 'HKLM:', 'HKCU:') {
 
 # --- Source 2: Start Menu .lnk files ---------------------------------------
 
+Write-WinpodxProgress 'Scanning Start Menu shortcuts...'
 $startDirs = @()
 if ($env:ProgramData) {
     $startDirs += (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
@@ -242,6 +254,7 @@ foreach ($d in $startDirs) {
 
 # --- Source 3: UWP / MSIX packages -----------------------------------------
 
+Write-WinpodxProgress 'Scanning UWP / MSIX packages...'
 try {
     $pkgs = Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue
     foreach ($pkg in $pkgs) {
@@ -329,6 +342,7 @@ try {
 
 # --- Source 4: Chocolatey + Scoop shims ------------------------------------
 
+Write-WinpodxProgress 'Scanning Chocolatey + Scoop shims...'
 $shimDirs = @()
 if ($env:ProgramData) {
     $shimDirs += (Join-Path $env:ProgramData 'chocolatey\bin')

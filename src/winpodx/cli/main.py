@@ -98,6 +98,20 @@ def cli(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Read the recovery password from $WINPODX_RECOVERY_PASSWORD env var.",
     )
+    multi_p = pod_sub.add_parser(
+        "multi-session",
+        help=(
+            "Toggle the bundled rdprrap multi-session RDP patch. "
+            "{on|off|status} — enables/disables independent RemoteApp "
+            "sessions. Requires rdprrap-conf to be present in the guest "
+            "(installed by OEM bundle since v0.1.6)."
+        ),
+    )
+    multi_p.add_argument(
+        "action",
+        choices=("on", "off", "status"),
+        help="on = enable multi-session, off = disable, status = report current state",
+    )
 
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")

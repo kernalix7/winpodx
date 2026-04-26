@@ -367,7 +367,11 @@ def _probe_password_sync(non_interactive: bool) -> None:
             cfg,
             "Write-Output 'sync-check'",
             description="probe-password-sync",
-            timeout=20,
+            # FreeRDP handshake + RemoteApp launch + tsclient redirection
+            # negotiation can take 30+ seconds on first contact after a
+            # cold pod start. 20s was too aggressive and surfaced as
+            # "(probe inconclusive: ... timed out after 20s)".
+            timeout=60,
         )
     except WindowsExecError as e:
         msg = str(e).lower()

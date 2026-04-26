@@ -217,10 +217,29 @@ def _apply_oem_runtime_fixes(cfg: Config) -> None:
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
+    # NIC power-save off is preventive for physical adapters; virtual NICs
+    # (virtio, e1000) often don't expose the AllowComputerToTurnOffDevice
+    # parameter at all (kernalix7 saw "A parameter cannot be found ...").
+    # Two fixes: (1) the parameter expects the enum 'Disabled'/'Enabled',
+    # not $true/$false, and (2) wrap in try/catch since virtual adapters
+    # are common in our deployment and the cmdlet shape varies. Skip
+    # silently when not supported — sc.exe TermService recovery is the
+    # part that actually matters for the dockur VM.
     payload = (
-        "$ErrorActionPreference = 'SilentlyContinue'\n"
-        "Get-NetAdapter | Where-Object { $_.Status -ne 'Disabled' } | "
-        "Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false\n"
+        "$ErrorActionPreference = 'Continue'\n"
+        "try {\n"
+        "    Get-NetAdapter -ErrorAction Stop | "
+        "Where-Object { $_.Status -ne 'Disabled' } | ForEach-Object {\n"
+        "        try {\n"
+        "            Set-NetAdapterPowerManagement -Name $_.Name "
+        "-AllowComputerToTurnOffDevice 'Disabled' -ErrorAction Stop\n"
+        "        } catch {\n"
+        "            # Virtual NICs lack this parameter — that's fine.\n"
+        "        }\n"
+        "    }\n"
+        "} catch {\n"
+        "    # No NetAdapter module / API not available — skip preventive NIC fix.\n"
+        "}\n"
         "& sc.exe failure TermService reset= 86400 "
         "actions= restart/5000/restart/5000/restart/5000 | Out-Null\n"
         "Write-Output 'oem v7 baseline applied'\n"

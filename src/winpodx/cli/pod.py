@@ -21,8 +21,12 @@ def handle_pod(args: argparse.Namespace) -> None:
         _apply_fixes()
     elif cmd == "sync-password":
         _sync_password(getattr(args, "non_interactive", False))
+    elif cmd == "multi-session":
+        _multi_session(args.action)
     else:
-        print("Usage: winpodx pod {start|stop|status|restart|apply-fixes|sync-password}")
+        print(
+            "Usage: winpodx pod {start|stop|status|restart|apply-fixes|sync-password|multi-session}"
+        )
         sys.exit(1)
 
 
@@ -234,6 +238,79 @@ def _sync_password(non_interactive: bool) -> None:
 
     print("OK: Windows account password is now in sync with winpodx config.")
     print("Password rotation will now work normally.")
+
+
+def _multi_session(action: str) -> None:
+    """v0.2.0: toggle bundled rdprrap multi-session RDP at runtime.
+
+    The OEM bundle (since v0.1.6) installs rdprrap inside the Windows
+    guest. This command shells out to ``rdprrap-conf.exe`` via the
+    FreeRDP RemoteApp channel to enable / disable / inspect the patch
+    without recreating the container. ``rdprrap-conf`` ships with the
+    rdprrap zip and is staged into ``C:\\OEM\\`` during install.bat.
+    """
+    from winpodx.core.config import Config
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(f"multi-session not supported for backend {cfg.pod.backend!r}.")
+        sys.exit(2)
+
+    # rdprrap-conf paths to try, in order. Different OEM versions /
+    # extraction layouts have placed it differently.
+    candidates = [
+        r"C:\OEM\rdprrap\rdprrap-conf.exe",
+        r"C:\OEM\rdprrap-conf.exe",
+        r"C:\Program Files\rdprrap\rdprrap-conf.exe",
+    ]
+    args = {"on": "--enable", "off": "--disable", "status": "--status"}[action]
+    payload_lines = [
+        "$rdprrap = $null",
+    ]
+    for path in candidates:
+        payload_lines.append(
+            f"if (-not $rdprrap -and (Test-Path '{path}')) {{ $rdprrap = '{path}' }}"
+        )
+    payload_lines += [
+        "if (-not $rdprrap) {",
+        "    Write-Output 'rdprrap-conf not found in any expected path'",
+        "    exit 2",
+        "}",
+        f"& $rdprrap {args}",
+        "exit $LASTEXITCODE",
+    ]
+    payload = "\n".join(payload_lines) + "\n"
+
+    label = {"on": "Enabling", "off": "Disabling", "status": "Querying"}[action]
+    print(f"{label} multi-session RDP via rdprrap...")
+    try:
+        result = run_in_windows(cfg, payload, description=f"multi-session-{action}", timeout=45)
+    except WindowsExecError as e:
+        print(f"FAIL: channel failure: {e}")
+        sys.exit(3)
+
+    output = (result.stdout or "").strip()
+    if output:
+        print(output)
+    if result.rc == 0:
+        print(
+            {
+                "on": "OK: multi-session enabled.",
+                "off": "OK: multi-session disabled.",
+                "status": "OK",
+            }[action]
+        )
+    elif result.rc == 2:
+        print(
+            "rdprrap-conf was not found in the guest. The OEM v6+ bundle "
+            "installs it; older containers may need to be recreated to "
+            "pick up the install.bat staging step."
+        )
+        sys.exit(2)
+    else:
+        print(f"FAIL: rdprrap-conf rc={result.rc}: {result.stderr.strip()}")
+        sys.exit(3)
 
 
 def _restart() -> None:

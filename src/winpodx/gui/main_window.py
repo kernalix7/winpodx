@@ -201,6 +201,67 @@ class WinpodxWindow(QMainWindow):
         )
         return badge
 
+    @staticmethod
+    def _make_app_avatar(app: AppInfo, size: int, *, radius: int, font_size: int) -> QLabel:
+        """Build the avatar label for an app row/card.
+
+        When ``app.icon_path`` points at a real PNG / SVG, render the icon
+        scaled to ``size`` with a subtle surface background for contrast.
+        Otherwise fall back to the colored single-letter avatar (legacy
+        look for apps without a discovered icon).
+        """
+        avatar = QLabel()
+        avatar.setFixedSize(size, size)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        icon_path = (app.icon_path or "").strip()
+        pixmap: QPixmap | None = None
+        if icon_path and Path(icon_path).is_file():
+            pad = max(4, size // 7)
+            inner = size - pad * 2
+            try:
+                if icon_path.lower().endswith(".svg"):
+                    renderer = QSvgRenderer(icon_path)
+                    if renderer.isValid():
+                        pm = QPixmap(inner, inner)
+                        pm.fill(Qt.GlobalColor.transparent)
+                        from PySide6.QtGui import QPainter
+
+                        painter = QPainter(pm)
+                        renderer.render(painter)
+                        painter.end()
+                        pixmap = pm
+                else:
+                    pm = QPixmap(icon_path)
+                    if not pm.isNull():
+                        pixmap = pm.scaled(
+                            inner,
+                            inner,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+            except Exception:  # noqa: BLE001
+                pixmap = None
+
+        if pixmap is not None and not pixmap.isNull():
+            avatar.setPixmap(pixmap)
+            avatar.setStyleSheet(
+                f"background: {C.SURFACE1}; border-radius: {radius}px; padding: 0px;"
+            )
+            return avatar
+
+        # Fallback: legacy colored letter avatar.
+        color = avatar_color(app.name)
+        letter = app.full_name[0].upper() if app.full_name else "?"
+        avatar.setText(letter)
+        avatar.setStyleSheet(
+            f"background: {color};"
+            f" color: {C.CRUST};"
+            f" border-radius: {radius}px;"
+            f" font-size: {font_size}px; font-weight: bold;"
+        )
+        return avatar
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("winpodx")
@@ -620,9 +681,6 @@ class WinpodxWindow(QMainWindow):
 
     def _make_app_card(self, app: AppInfo) -> QWidget:
         """Grid card with large avatar, name, and launch."""
-        color = avatar_color(app.name)
-        letter = app.full_name[0].upper() if app.full_name else "?"
-
         card = QFrame()
         card.setObjectName("appCard")
         card.setStyleSheet(APP_CARD)
@@ -638,15 +696,7 @@ class WinpodxWindow(QMainWindow):
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(0)
 
-        avatar = QLabel(letter)
-        avatar.setFixedSize(52, 52)
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar.setStyleSheet(
-            f"background: {color};"
-            f" color: {C.CRUST};"
-            " border-radius: 14px;"
-            " font-size: 22px; font-weight: bold;"
-        )
+        avatar = self._make_app_avatar(app, size=52, radius=14, font_size=22)
         top_row.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
         top_row.addStretch()
 
@@ -719,7 +769,6 @@ class WinpodxWindow(QMainWindow):
     def _make_app_tile(self, app: AppInfo) -> QWidget:
         """Horizontal app tile with colored accent stripe."""
         color = avatar_color(app.name)
-        letter = app.full_name[0].upper() if app.full_name else "?"
 
         tile = QFrame()
         tile.setObjectName("appTile")
@@ -737,14 +786,7 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(stripe)
         layout.addSpacing(14)
 
-        avatar = QLabel(letter)
-        avatar.setFixedSize(40, 40)
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar.setStyleSheet(
-            f"background: {color};"
-            f" color: {C.CRUST};"
-            f" border-radius: 10px; font-size: 16px; font-weight: bold;"
-        )
+        avatar = self._make_app_avatar(app, size=40, radius=10, font_size=16)
         layout.addWidget(avatar)
         layout.addSpacing(14)
 

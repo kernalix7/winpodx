@@ -9,7 +9,23 @@
 
 ## [Unreleased]
 
-## [0.1.9.5] - 2026-04-26
+## [0.2.0] - 2026-04-26
+
+### 수정
+- **`oem_runtime_fixes` 가 `AllowComputerToTurnOffDevice` 파라미터 오류로 첫 적용 실패.** v0.1.9.5 가 runtime apply 를 FreeRDP RemoteApp PowerShell 로 넘겼지만 payload 는 여전히 `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false` 호출. 이 cmdlet 은 enum 문자열 `'Disabled'` / `'Enabled'` 를 요구하고, QEMU 안 가상 NIC (virtio) 는 이 파라미터 자체가 노출 안 되는 경우 잦음. v0.2.0 은 `try/catch` 로 감싸고 enum 형태로 전환, 미지원 어댑터는 건너뜀 — NIC 토폴로지 무관 apply 성공.
+- **migrate 의 password-drift 프로브가 20초에 timeout.** 차가운 pod 의 FreeRDP 첫 연결 (TLS + 인증 + RemoteApp 실행) 은 20초 자주 넘김. v0.2.0 은 프로브 예산 60초로 상향, cold-start 지연 때문에 실제 drift 가 가려지지 않게 함.
+
+### 추가
+- **Refresh 진행 상황 스트리밍.** 기존 `winpodx app refresh` 는 게스트 enumerator 가 Registry App Paths / Start Menu / UWP 패키지 / choco·scoop shim 을 30~90초 동안 도는 동안 침묵. v0.2.0 은 스트리밍 진행 채널 추가 — `windows_exec.run_in_windows` 가 `progress_callback` 받고, wrapper 가 `$Global:WinpodxProgressFile` + `Write-WinpodxProgress` 정의, `discover_apps.ps1` 가 소스별로 한 줄씩 출력. 호스트 CLI 는 stderr 로 `... Scanning Registry App Paths...` 식으로 표시 (JSON 출력은 그대로 깨끗).
+- **`winpodx pod multi-session {on|off|status}`** — 번들 rdprrap 다중 세션 RDP 패치 런타임 토글. FreeRDP RemoteApp 로 Windows 게스트 안에서 `rdprrap-conf.exe` 호출하므로 패치 enable/disable/inspect 위해 컨테이너 재생성 불필요. `C:\OEM\rdprrap\rdprrap-conf.exe`, `C:\OEM\rdprrap-conf.exe`, `C:\Program Files\rdprrap\rdprrap-conf.exe` 순으로 탐색.
+- **디스커버리 junk 필터.** Refresh 가 그동안 uninstaller (`unins000.exe`, "Uninstall …"), 재배포 패키지 (`vc_redist.x64.exe`, "Microsoft Visual C++ …"), 헬퍼 (`crashpad_handler.exe`), inbox 접근성 도구 (`narrator.exe`, `magnify.exe`, `osk.exe`), 시스템 plumbing (`ApplicationFrameHost.exe`, `RuntimeBroker.exe`), DisplayName 미해결 UWP fallback (예: `Microsoft.AAD.BrokerPlugin`) 을 모두 노출했음. v0.2.0 은 호스트측 denylist 패턴 + 실행 파일 basename 매칭 + UWP fallback 감지로 모두 drop. 디버깅 시 `WINPODX_DISCOVERY_INCLUDE_ALL=1` 로 우회 가능.
+- **GUI 앱 아이콘.** 디스커버리한 앱이 launcher 의 grid 카드와 리스트 타일에서 실제 Windows 아이콘 (PNG / SVG) 으로 렌더링됨 — 기존 색상+첫글자 avatar 대신. 아이콘은 v0.1.8 부터 `~/.local/share/winpodx/data/discovered/<slug>/icon.{png,svg}` 에 저장되어 있었고, GUI 가 이제 `QPixmap` (PNG, smooth scaled) + `QSvgRenderer` (SVG, 모든 크기 crisp) 로 읽음. 아이콘 없는 앱은 letter avatar 로 fallback.
+
+### 테스트
+- 스트리밍 progress wrapper: Popen 기반 테스트가 progress-file 쓰기 인터리브된 3-poll lifecycle 시뮬레이션.
+- Junk 필터: 11 가지 쓰레기 케이스 drop, 4 가지 실제 앱 보존, env-bypass 동작 검증.
+
+
 
 ### 수정
 - **결과 파일의 BOM 으로 인한 거짓 "fail" 보고.** v0.1.9.4 가 runtime apply 를 FreeRDP RemoteApp PowerShell 로 라우팅했는데, wrapper 가 `Out-File -Encoding utf8` 사용 → Windows PowerShell 5.1 은 UTF-8 BOM 을 붙임 → 호스트가 기본 utf-8 코덱으로 `json.loads` 시 BOM 거부 → "result file unparseable: Unexpected UTF-8 BOM". 사실 rdp_timeouts 와 oem_runtime_fixes 의 레지스트리 변경은 **실제 적용 성공**했고, 파싱만 실패해서 사용자가 "안 됐다" 고 본 것. `windows_exec.run_in_windows` 가 이제 `utf-8-sig` 로 읽어 BOM 자동 흡수.

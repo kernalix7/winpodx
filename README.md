@@ -308,6 +308,10 @@ winpodx pod start --wait          # Start and wait for RDP readiness
 winpodx pod stop                  # Stop (warns about active sessions)
 winpodx pod status                # Status with session count
 winpodx pod restart
+winpodx pod apply-fixes           # Re-apply Windows-side runtime fixes (idempotent)
+winpodx pod sync-password         # Recover from password drift (cfg ↔ Windows)
+winpodx pod multi-session on      # Toggle bundled rdprrap multi-session RDP
+winpodx pod multi-session status
 
 # Power management
 winpodx power --suspend           # Pause container (free CPU, keep memory)

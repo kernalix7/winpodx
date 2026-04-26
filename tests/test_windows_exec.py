@@ -241,3 +241,98 @@ def test_run_in_windows_handles_unparseable_result_file(monkeypatch, tmp_path):
     monkeypatch.setattr("winpodx.core.windows_exec.subprocess.run", fake_run)
     with pytest.raises(WindowsExecError, match="unparseable"):
         run_in_windows(_cfg(), "Write-Output 'hi'")
+
+
+# --- v0.2.0: streaming progress callback -----------------------------------
+
+
+def test_run_in_windows_streams_progress_lines(monkeypatch, tmp_path):
+    """Streaming path: payload writes lines to the progress file; host tails them."""
+    _, fake_data = _patch_data_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.find_freerdp", lambda: ("/usr/bin/xfreerdp", "xfreerdp")
+    )
+
+    work_dir = fake_data / "windows-exec"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    progress_path = work_dir / "stream-test-progress.log"
+    result_path = work_dir / "stream-test-result.json"
+
+    received: list[str] = []
+
+    # Simulate FreeRDP running for ~1s, writing progress lines mid-run, then
+    # completing normally with a result file.
+    def fake_popen(cmd, **kw):
+        # Pre-populate result so the post-loop drain succeeds.
+        progress_path.write_text("Stage A\nStage B\n", encoding="utf-8")
+
+        m = MagicMock()
+        m.stdout = MagicMock()
+        m.stderr = MagicMock()
+        # poll() returns None twice (still running), then 0 (done).
+        m._poll_count = 0
+
+        def _poll():
+            m._poll_count += 1
+            if m._poll_count <= 2:
+                # While "running", write more progress between polls.
+                if m._poll_count == 2:
+                    progress_path.write_text("Stage A\nStage B\nStage C\n", encoding="utf-8")
+                return None
+            return 0
+
+        m.poll.side_effect = _poll
+        m.returncode = 0
+        m.kill.return_value = None
+        m.wait.return_value = 0
+        m.communicate.return_value = ("", "")
+        # Write the JSON result so the post-popen parse succeeds.
+        result_path.write_text(
+            json.dumps({"rc": 0, "stdout": "done", "stderr": ""}), encoding="utf-8"
+        )
+        return m
+
+    monkeypatch.setattr("winpodx.core.windows_exec.subprocess.Popen", fake_popen)
+
+    # Speed up the polling loop.
+    monkeypatch.setattr("winpodx.core.windows_exec.time.sleep", lambda _x: None)
+
+    result = run_in_windows(
+        _cfg(),
+        "Write-WinpodxProgress 'Stage A'",
+        description="stream-test",
+        progress_callback=received.append,
+    )
+    assert result.rc == 0
+    assert "Stage A" in received
+    assert "Stage B" in received
+    assert "Stage C" in received
+
+
+def test_run_in_windows_progress_file_created_only_when_callback_set(monkeypatch, tmp_path):
+    """No progress_callback -> no progress file pre-created (we still cleanup it
+    in finally, but the simple path doesn't try to read it)."""
+    _, fake_data = _patch_data_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.find_freerdp", lambda: ("/usr/bin/xfreerdp", "xfreerdp")
+    )
+
+    work_dir = fake_data / "windows-exec"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    def fake_run(cmd, **kw):
+        (work_dir / "winpodx-exec-result.json").write_text(
+            json.dumps({"rc": 0, "stdout": "", "stderr": ""}), encoding="utf-8"
+        )
+        m = MagicMock()
+        m.returncode = 0
+        m.stdout = ""
+        m.stderr = ""
+        return m
+
+    monkeypatch.setattr("winpodx.core.windows_exec.subprocess.run", fake_run)
+    run_in_windows(_cfg(), "Write-Output 'hi'")
+    # Without callback, the synchronous subprocess.run path is taken; no
+    # progress file should remain (cleanup runs unconditionally).
+    progress_files = list(work_dir.glob("*-progress.log"))
+    assert progress_files == []

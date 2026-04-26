@@ -1,3 +1,32 @@
+winpodx (0.2.0) unstable; urgency=medium
+
+  * Fixed: oem_runtime_fixes failed on first apply with
+    AllowComputerToTurnOffDevice parameter error. v0.1.9.5 still passed
+    `$false` instead of the enum string 'Disabled', and virtual NICs
+    inside QEMU often don't expose the parameter at all. v0.2.0 wraps
+    the call in try/catch and uses the enum form so the apply succeeds
+    regardless of NIC topology.
+  * Fixed: migrate password-drift probe timed out at 20s. FreeRDP's
+    first-contact handshake on a cold pod regularly exceeds 20s; bumped
+    probe budget to 60s so genuine drift detection isn't masked by
+    cold-start latency.
+  * Added: streaming refresh progress. `winpodx app refresh` now emits
+    one stderr line per source ("Scanning Registry App Paths…",
+    "Scanning UWP / MSIX packages…", etc) instead of hanging silently
+    for 30–90s. JSON output stays clean.
+  * Added: `winpodx pod multi-session {on|off|status}` — runtime
+    toggle for the bundled rdprrap multi-session RDP patch via FreeRDP
+    RemoteApp. No container recreate needed.
+  * Added: discovery junk filter. Drops uninstallers, redistributables,
+    helpers, inbox accessibility tools, system plumbing, and unresolved
+    UWP entries (Microsoft.*.BrokerPlugin) from refresh output. Bypass
+    with WINPODX_DISCOVERY_INCLUDE_ALL=1 for debugging.
+  * Added: GUI app icons. Discovered apps now render their actual
+    Windows icon in launcher grid cards and list tiles instead of the
+    color+letter avatar. Letter avatar remains as fallback.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 22:00:00 +0900
+
 winpodx (0.1.9.5) unstable; urgency=high
 
   * Fixed: BOM in result file caused fake "fail" reports. v0.1.9.4

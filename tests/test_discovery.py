@@ -316,6 +316,56 @@ def test_entry_malformed_base64_yields_empty_icon():
     assert app.icon_bytes == b""
 
 
+@pytest.mark.parametrize(
+    "name,exe,src",
+    [
+        ("Uninstall Adobe Reader", "C:\\Program Files\\Adobe\\unins000.exe", "win32"),
+        ("Setup", "C:\\setup.exe", "win32"),
+        ("Microsoft Visual C++ 2019 Redistributable", "C:\\vc_redist.x64.exe", "win32"),
+        ("crashpad_handler", "C:\\Program Files\\Foo\\crashpad_handler.exe", "win32"),
+        ("ApplicationFrameHost", "C:\\Windows\\System32\\ApplicationFrameHost.exe", "win32"),
+        ("Microsoft.AAD.BrokerPlugin", "C:\\Program Files\\WindowsApps\\xxx", "uwp"),
+        ("Report a problem", "C:\\Program Files\\App\\report.exe", "win32"),
+        ("Send feedback", "C:\\Program Files\\App\\feedback.exe", "win32"),
+        ("ReadMe", "C:\\Program Files\\App\\readme.exe", "win32"),
+        ("Repair", "C:\\Program Files\\App\\repair.exe", "win32"),
+        (".NET Framework 4.8", "C:\\App\\dotnetfx.exe", "win32"),
+    ],
+)
+def test_entry_junk_filter_drops_known_garbage(name, exe, src):
+    """v0.2.0 junk filter: uninstallers, redistributables, unresolved UWP
+    plumbing must be dropped before they reach disk / GUI."""
+    entry = _valid_entry(
+        name=name,
+        path=exe,
+        source=src,
+        launch_uri="Foo_x!App" if src == "uwp" else "",
+    )
+    assert _entry_to_discovered(entry) is None
+
+
+@pytest.mark.parametrize(
+    "name,exe,src,uri",
+    [
+        ("Microsoft Word", "C:\\Program Files\\Microsoft\\Word.exe", "win32", ""),
+        ("Notepad++", "C:\\Program Files\\Notepad++\\notepad++.exe", "win32", ""),
+        ("Calculator", "C:\\WindowsApps\\xxx", "uwp", "Microsoft.WindowsCalculator_xx!App"),
+        ("Microsoft To Do", "C:\\WindowsApps\\xxx", "uwp", "Microsoft.Todos_xx!App"),
+    ],
+)
+def test_entry_junk_filter_keeps_real_apps(name, exe, src, uri):
+    """v0.2.0 junk filter must not nuke legitimate apps."""
+    entry = _valid_entry(name=name, path=exe, source=src, launch_uri=uri)
+    assert _entry_to_discovered(entry) is not None
+
+
+def test_entry_junk_filter_bypassed_via_env(monkeypatch):
+    """Setting WINPODX_DISCOVERY_INCLUDE_ALL=1 disables the filter for debugging."""
+    monkeypatch.setenv("WINPODX_DISCOVERY_INCLUDE_ALL", "1")
+    entry = _valid_entry(name="Uninstall Foo", path="C:\\Foo\\unins000.exe", source="win32")
+    assert _entry_to_discovered(entry) is not None
+
+
 def test_entry_oversized_icon_dropped():
     # >1 MiB decoded payload is silently dropped (entry still accepted).
     big = _TINY_PNG + b"\x00" * (1_048_576 + 1)
@@ -590,10 +640,11 @@ def _stub_run_in_windows(
 
     captured: dict[str, str] = {}
 
-    def fake(cfg_inner, payload, *, timeout=60, description="windows-exec"):
+    def fake(cfg_inner, payload, *, timeout=60, description="windows-exec", **kw):
         captured["description"] = description
         captured["payload"] = payload
         captured["timeout"] = timeout
+        captured["progress_callback"] = kw.get("progress_callback")
         if raise_exc is not None:
             raise raise_exc
         return WindowsExecResult(rc=rc, stdout=stdout, stderr=stderr)

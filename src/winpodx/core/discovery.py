@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,99 @@ _VALID_SOURCES = frozenset({"uwp", "win32", "steam"})
 # Matches AppInfo's _SAFE_NAME_RE contract so a discovered app loads cleanly.
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_-]+")
+
+# v0.2.0: junk filter. Discovery scans Registry App Paths, Start Menu
+# shortcuts, UWP packages, and shim dirs — that union surfaces a lot of
+# non-apps: uninstallers, helpers, redistributables, inbox UWP plumbing
+# whose display name failed to resolve. Drop these before they ever
+# reach the host's persisted layout / GUI. Set
+# ``WINPODX_DISCOVERY_INCLUDE_ALL=1`` in the environment to disable
+# filtering for debugging.
+_JUNK_NAME_PATTERNS = (
+    re.compile(r"(?i)\buninstall(er)?\b"),
+    re.compile(r"(?i)\bunins\b"),
+    re.compile(r"(?i)\b(setup|installer|install)\b"),
+    re.compile(r"(?i)\bupdater?\b"),
+    re.compile(r"(?i)\bupgrade\b"),
+    re.compile(r"(?i)\b(readme|release notes)\b"),
+    re.compile(r"(?i)\b(license|eula)\b"),
+    re.compile(r"(?i)\brepair\b"),
+    re.compile(r"(?i)\bcrash"),
+    re.compile(r"(?i)\bhelper\b"),
+    re.compile(r"(?i)redist(ributable)?"),
+    re.compile(r"(?i)bug ?report"),
+    re.compile(r"(?i)report a (bug|problem)"),
+    re.compile(r"(?i)send.+feedback"),
+    re.compile(r"(?i)visual c\+\+"),
+    re.compile(r"(?i)\bdotnet\b"),
+    re.compile(r"(?i)\.net (framework|runtime|core)"),
+)
+
+# Specific Windows binaries that are dependencies / runtimes / inbox
+# accessibility tools — never useful as integrated Linux apps.
+_JUNK_EXE_BASENAMES = frozenset(
+    {
+        "unins000.exe",
+        "unins001.exe",
+        "uninstall.exe",
+        "uninst.exe",
+        "uninst000.exe",
+        "setup.exe",
+        "install.exe",
+        "installer.exe",
+        "vc_redist.x64.exe",
+        "vc_redist.x86.exe",
+        "vcredist_x64.exe",
+        "vcredist_x86.exe",
+        "dotnetfx.exe",
+        "ndp48-x86-x64-allos-enu.exe",
+        "crashpad_handler.exe",
+        "crashreporter.exe",
+        "msedge_proxy.exe",
+        "msedgewebview2.exe",
+        "applicationframehost.exe",
+        "runtimebroker.exe",
+        "narrator.exe",
+        "magnify.exe",
+        "osk.exe",
+        "regedit.exe",
+        "powershell_ise.exe",
+    }
+)
+
+
+def _is_junk_entry(name: str, executable: str, source: str) -> bool:
+    """Return True when a discovered entry should be hidden as junk.
+
+    Filters by display-name patterns (uninstall / setup / redist / …),
+    by executable basename (vcredist, crashpad_handler, …), and — for
+    UWP — by detection of unresolved PackageFamilyName fallbacks where
+    the display name still looks like a dotted identifier
+    (``Microsoft.AAD.BrokerPlugin``) rather than a real human label.
+    """
+    name_stripped = name.strip()
+    if not name_stripped:
+        return True
+
+    for pattern in _JUNK_NAME_PATTERNS:
+        if pattern.search(name_stripped):
+            return True
+
+    # Windows paths use backslash separators, but discovery runs on Linux
+    # so os.path.basename treats the whole string as one component. Split
+    # on either separator manually.
+    base = executable.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if base in _JUNK_EXE_BASENAMES:
+        return True
+
+    # UWP entries whose DisplayName failed to resolve fall back to
+    # PackageFamilyName (e.g. "Microsoft.AAD.BrokerPlugin"). Real
+    # user-facing UWP apps almost always have spaces or non-dotted
+    # names ("Calculator", "Microsoft To Do").
+    if source == "uwp" and "." in name_stripped and " " not in name_stripped:
+        return True
+
+    return False
 
 
 class DiscoveryError(RuntimeError):
@@ -141,7 +235,12 @@ def _runtime_for(backend: str) -> str:
     )
 
 
-def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
+def discover_apps(
+    cfg: Config,
+    timeout: int = 120,
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+) -> list[DiscoveredApp]:
     """Run guest-side discovery and return the parsed apps.
 
     Copies ``discover_apps.ps1`` into the running Windows container and
@@ -186,7 +285,13 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
-        result = run_in_windows(cfg, script_body, description="discover-apps", timeout=timeout)
+        result = run_in_windows(
+            cfg,
+            script_body,
+            description="discover-apps",
+            timeout=timeout,
+            progress_callback=progress_callback,
+        )
     except WindowsExecError as e:
         msg = str(e).lower()
         # FreeRDP failed to connect at the channel level — most often
@@ -421,6 +526,13 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
 
     # UWP entries must have a launch_uri (AUMID); otherwise they are unlaunchable.
     if source == "uwp" and not launch_uri:
+        return None
+
+    # v0.2.0: drop common Windows junk (uninstallers, helpers, redistributables,
+    # unresolved UWP package fallbacks). Bypass with WINPODX_DISCOVERY_INCLUDE_ALL=1.
+    if not os.environ.get("WINPODX_DISCOVERY_INCLUDE_ALL") and _is_junk_entry(
+        raw_name, path, source
+    ):
         return None
 
     icon_b64 = entry.get("icon_b64", "")

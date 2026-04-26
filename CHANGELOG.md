@@ -9,7 +9,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.1.9.5] - 2026-04-26
+## [0.2.0] - 2026-04-26
+
+### Fixed
+- **`oem_runtime_fixes` failed on first apply with `AllowComputerToTurnOffDevice` parameter error.** v0.1.9.5 shipped the runtime apply through FreeRDP RemoteApp PowerShell, but the payload still passed `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false`. The cmdlet expects the enum string `'Disabled'` / `'Enabled'`, and on virtual NICs (virtio inside QEMU) the parameter often isn't exposed at all. v0.2.0 wraps the call in `try/catch`, switches to the enum form, and skips adapters that don't support it — apply now passes regardless of NIC topology.
+- **migrate password-drift probe timed out at 20s.** FreeRDP's first-contact handshake on a cold pod regularly exceeds 20s (TLS + auth + RemoteApp launch). v0.2.0 bumps the probe budget to 60s so genuine drift detection isn't masked by cold-start latency.
+
+### Added
+- **Streaming refresh progress.** `winpodx app refresh` previously hung silently for 30–90s while the guest enumerator walked Registry App Paths, Start Menu, UWP packages, and choco/scoop shims. v0.2.0 adds a streaming progress channel: `windows_exec.run_in_windows` accepts a `progress_callback`, the wrapper exports `$Global:WinpodxProgressFile` + `Write-WinpodxProgress`, and `discover_apps.ps1` emits one line per source. Host CLI surfaces them as `... Scanning Registry App Paths...` etc to stderr (JSON output stays clean).
+- **`winpodx pod multi-session {on|off|status}`** — runtime toggle for the bundled rdprrap multi-session RDP patch. Shells out to `rdprrap-conf.exe` inside the Windows guest via FreeRDP RemoteApp, so users no longer need to recreate the container to enable / disable / inspect the patch. Tries `C:\OEM\rdprrap\rdprrap-conf.exe`, `C:\OEM\rdprrap-conf.exe`, `C:\Program Files\rdprrap\rdprrap-conf.exe` in order.
+- **Discovery junk filter.** Refresh used to surface uninstallers (`unins000.exe`, "Uninstall …"), redistributables (`vc_redist.x64.exe`, "Microsoft Visual C++ …"), helpers (`crashpad_handler.exe`), inbox accessibility tools (`narrator.exe`, `magnify.exe`, `osk.exe`), system plumbing (`ApplicationFrameHost.exe`, `RuntimeBroker.exe`), and unresolved UWP entries whose DisplayName fell back to `PackageFamilyName` (e.g. `Microsoft.AAD.BrokerPlugin`). v0.2.0 drops these via host-side denylist patterns + executable basename matching + UWP fallback detection. Set `WINPODX_DISCOVERY_INCLUDE_ALL=1` to bypass for debugging.
+- **GUI app icons.** Discovered apps now render their actual Windows icon (PNG / SVG) in the launcher's grid cards and list tiles, instead of the colored single-letter avatar. Icons are stored next to `app.toml` under `~/.local/share/winpodx/data/discovered/<slug>/icon.{png,svg}` (already populated since v0.1.8); the GUI now reads them via `QPixmap` (PNG, smooth scaled) and `QSvgRenderer` (SVG, crisp at any size). The letter avatar remains as the fallback when no icon is available.
+
+### Tests
+- Streaming progress wrapper: Popen-based test simulates the 3-poll lifecycle with progress-file writes interleaved.
+- Junk filter: 11 garbage cases dropped, 4 real apps preserved, env-bypass honored.
+
+
 
 ### Fixed
 - **BOM in result file caused fake "fail" reports.** v0.1.9.4 routed runtime applies through FreeRDP RemoteApp PowerShell, but the wrapper used `Out-File -Encoding utf8` which (in Windows PowerShell 5.1) writes a UTF-8 BOM. The host then `json.loads`'d the file with the default `utf-8` codec which rejected the BOM and reported "result file unparseable: Unexpected UTF-8 BOM". The registry changes from rdp_timeouts and oem_runtime_fixes had **actually applied successfully** — only the parse step failed, leaving the user thinking nothing worked. `windows_exec.run_in_windows` now reads with `utf-8-sig` so the BOM is consumed transparently.

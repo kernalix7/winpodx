@@ -40,6 +40,8 @@ import shlex
 import shutil
 import subprocess
 import textwrap
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -78,6 +80,7 @@ def run_in_windows(
     *,
     timeout: int = 60,
     description: str = "winpodx-exec",
+    progress_callback: Callable[[str], None] | None = None,
 ) -> WindowsExecResult:
     r"""Run ``payload`` (PowerShell source) inside the Windows guest.
 
@@ -107,11 +110,13 @@ def run_in_windows(
     work_dir.mkdir(parents=True, exist_ok=True)
     script_path = work_dir / f"{description}.ps1"
     result_path = work_dir / f"{description}-result.json"
+    progress_path = work_dir / f"{description}-progress.log"
 
     home = Path.home().resolve()
     try:
         rel_script = script_path.resolve().relative_to(home)
         rel_result = result_path.resolve().relative_to(home)
+        rel_progress = progress_path.resolve().relative_to(home)
     except ValueError as e:
         raise WindowsExecError(
             f"work paths must be under $HOME for tsclient redirection: {e}"
@@ -119,16 +124,29 @@ def run_in_windows(
 
     win_script_unc = "\\\\tsclient\\home\\" + str(rel_script).replace("/", "\\")
     win_result_unc = "\\\\tsclient\\home\\" + str(rel_result).replace("/", "\\")
+    win_progress_unc = "\\\\tsclient\\home\\" + str(rel_progress).replace("/", "\\")
 
-    # The wrapper runs the user payload, captures combined output, and
-    # writes a JSON {rc,stdout,stderr} blob to the result path. Single
-    # quotes in the result path are escaped because we wrap it in single
-    # quotes inside the PowerShell string literal.
+    # v0.2.0 streaming: when progress_callback is supplied the wrapper
+    # exports $Global:WinpodxProgressFile pointing at a tsclient-shared
+    # path. Payloads that opt in (e.g. discover_apps.ps1) can call
+    # ``Write-WinpodxProgress 'message'`` and the host main thread will
+    # tail the file while the FreeRDP subprocess runs in a worker.
     indented_payload = textwrap.indent(payload.rstrip(), "                ")
     safe_result_path = win_result_unc.replace("'", "''")
+    safe_progress_path = win_progress_unc.replace("'", "''")
     wrapper = textwrap.dedent(
         f"""\
         $ErrorActionPreference = 'Continue'
+        # v0.2.0: optional streaming progress channel — payloads write
+        # one line per progress event via Write-WinpodxProgress; host
+        # tails the file and surfaces lines to the caller.
+        $Global:WinpodxProgressFile = '{safe_progress_path}'
+        function Write-WinpodxProgress($msg) {{
+            try {{
+                Add-Content -Path $Global:WinpodxProgressFile `
+                    -Value $msg -Encoding utf8 -ErrorAction SilentlyContinue
+            }} catch {{}}
+        }}
         $rc = 0
         $stdout = ''
         $stderr = ''
@@ -151,6 +169,11 @@ def run_in_windows(
     )
     script_path.write_text(wrapper, encoding="utf-8")
     result_path.unlink(missing_ok=True)
+    progress_path.unlink(missing_ok=True)
+    if progress_callback is not None:
+        # Pre-create the file so the host's tail thread doesn't race the
+        # guest's first Add-Content (which creates it lazily).
+        progress_path.write_text("", encoding="utf-8")
 
     # FreeRDP RemoteApp invocation. -WindowStyle Hidden keeps the PS
     # window from flashing; `cmd:` value is a single string passed as
@@ -173,12 +196,68 @@ def run_in_windows(
         cmd_parts.append(f"/d:{cfg.rdp.domain}")
 
     try:
-        proc = subprocess.run(
-            cmd_parts,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        if progress_callback is None:
+            # Simple synchronous path — no streaming.
+            proc = subprocess.run(
+                cmd_parts,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        else:
+            # v0.2.0 streaming: run FreeRDP in a worker and tail the
+            # progress file in the main thread, dispatching each new
+            # line to the callback. The progress file is read with
+            # utf-8-sig so PowerShell's BOM (when present) is ignored.
+            popen = subprocess.Popen(
+                cmd_parts,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            deadline = time.monotonic() + timeout
+            last_size = 0
+            try:
+                while popen.poll() is None:
+                    if time.monotonic() > deadline:
+                        popen.kill()
+                        popen.wait(timeout=5)
+                        raise WindowsExecError(
+                            f"FreeRDP timed out after {timeout}s waiting for the script to complete"
+                        )
+                    try:
+                        current = progress_path.read_text(encoding="utf-8-sig")
+                    except OSError:
+                        current = ""
+                    if len(current) > last_size:
+                        for raw_line in current[last_size:].splitlines():
+                            line = raw_line.strip()
+                            if line:
+                                try:
+                                    progress_callback(line)
+                                except Exception:  # noqa: BLE001
+                                    log.debug("progress_callback raised", exc_info=True)
+                        last_size = len(current)
+                    time.sleep(0.25)
+            finally:
+                if popen.poll() is None:
+                    popen.kill()
+                    popen.wait(timeout=5)
+            stdout, stderr = popen.communicate()
+            proc = subprocess.CompletedProcess(cmd_parts, popen.returncode, stdout, stderr)
+            # One final progress drain after the worker exits.
+            try:
+                final = progress_path.read_text(encoding="utf-8-sig")
+                if len(final) > last_size:
+                    for raw_line in final[last_size:].splitlines():
+                        line = raw_line.strip()
+                        if line:
+                            try:
+                                progress_callback(line)
+                            except Exception:  # noqa: BLE001
+                                pass
+            except OSError:
+                pass
     except FileNotFoundError as e:
         raise WindowsExecError(f"FreeRDP binary vanished: {e}") from e
     except subprocess.TimeoutExpired as e:
@@ -186,8 +265,10 @@ def run_in_windows(
             f"FreeRDP timed out after {timeout}s waiting for the script to complete"
         ) from e
     finally:
-        # Script file is no longer needed — the result, if any, is in the JSON.
+        # Script + progress files are no longer needed; the result (if
+        # any) is in the JSON.
         script_path.unlink(missing_ok=True)
+        progress_path.unlink(missing_ok=True)
 
     if not result_path.exists():
         # Nothing landed — likely auth failure, FreeRDP couldn't connect,
