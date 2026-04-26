@@ -9,7 +9,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-04-26
+## [0.2.0.1] - 2026-04-26
+
+### Fixed
+- **Apply cascade collapsed on cold container.** v0.2.0 fired the three idempotent runtime applies (`max_sessions`, `rdp_timeouts`, `oem_runtime_fixes`) the moment `pod_status` reported `RUNNING`. The dockur Linux container reaches `RUNNING` in seconds, but the Windows VM inside QEMU needs another 30–90s before its RDP listener can accept FreeRDP RemoteApp activation. Within that window every apply collapsed with either `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, RDP socket open but server not initialized — connection reset by peer) on a fresh install, or `ERRCONNECT_ACTIVATION_TIMEOUT [0x0002001C]` (rc=131, FreeRDP connected but activation phase didn't complete) on `winpodx pod restart`. Each apply waited the full 60s timeout, so the cascade ran 3min before surfacing as a Launch Error dialog or "3 of 3 applies failed" panic message during `winpodx setup` → `winpodx migrate`.
+- New `wait_for_windows_responsive(cfg, timeout=90)` helper: polls `check_rdp_port`, then fires a 20s no-op `Write-Output 'ping'` probe to confirm the FreeRDP RemoteApp channel is actually live. Used as a precondition by:
+  - `ensure_ready()` warm-pod path — skips the self-heal apply block entirely if the guest isn't responsive yet.
+  - `winpodx pod apply-fixes` CLI — explicit "Waiting for Windows guest to finish booting (up to 90s)…" message so users know it's not hung.
+  - `winpodx migrate` apply step — same wait, with a clear "guest still booting; run apply-fixes later, or just launch any app" message instead of three channel-failure stack traces.
+- `_self_heal_apply()` (new) — wraps the warm-pod ensure_ready apply block in `WindowsExecError` swallow so a transient channel failure logs a warning and stops further attempts in the same call instead of cascading. The next ensure_ready picks up where this one left off.
+
+
 
 ### Fixed
 - **`oem_runtime_fixes` failed on first apply with `AllowComputerToTurnOffDevice` parameter error.** v0.1.9.5 shipped the runtime apply through FreeRDP RemoteApp PowerShell, but the payload still passed `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false`. The cmdlet expects the enum string `'Disabled'` / `'Enabled'`, and on virtual NICs (virtio inside QEMU) the parameter often isn't exposed at all. v0.2.0 wraps the call in `try/catch`, switches to the enum form, and skips adapters that don't support it — apply now passes regardless of NIC topology.

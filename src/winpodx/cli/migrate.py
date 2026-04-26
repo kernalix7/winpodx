@@ -449,6 +449,24 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
             print(f"  warning: pod start failed ({e}). Try `winpodx pod start --wait`.")
         return
 
+    # v0.2.0.1: container can be RUNNING while the Windows VM inside
+    # QEMU is still booting — that's the fresh-install scenario where
+    # `setup` recreates the container then `migrate` runs immediately
+    # and every apply collapses with rc=147 connection-reset / rc=131
+    # activation-timeout. Wait for the RDP listener to actually accept
+    # FreeRDP RemoteApp before firing applies.
+    from winpodx.core.provisioner import wait_for_windows_responsive
+
+    print("  Waiting for Windows guest to finish booting (up to 90s)...")
+    if not wait_for_windows_responsive(cfg, timeout=90):
+        print(
+            "  Windows guest still booting after 90s — skipping runtime apply.\n"
+            "  Run `winpodx pod apply-fixes` once `winpodx pod status` reports "
+            "the pod is fully up, or just launch any app and the apply will "
+            "fire automatically."
+        )
+        return
+
     # Pod is running — three idempotent applies.
     failures: list[str] = []
     for name, fn in (

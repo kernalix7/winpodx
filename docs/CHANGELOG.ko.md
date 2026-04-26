@@ -9,7 +9,20 @@
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-04-26
+## [0.2.0.1] - 2026-04-26
+
+### 수정
+- **차가운 컨테이너에서 apply cascade 가 무너짐.** v0.2.0 은 `pod_status` 가 `RUNNING` 이 되는 즉시 세 개 idempotent runtime apply (`max_sessions`, `rdp_timeouts`, `oem_runtime_fixes`) 를 발화. dockur Linux 컨테이너는 몇 초 안에 `RUNNING` 도달하지만, QEMU 안 Windows VM 은 RDP 리스너가 FreeRDP RemoteApp activation 받기까지 30~90초 더 필요. 그 윈도우 안에서 모든 apply 는:
+  - 신규 설치 시: `ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]` (rc=147, RDP 소켓은 열렸지만 서버 미초기화 — connection reset by peer)
+  - `winpodx pod restart` 시: `ERRCONNECT_ACTIVATION_TIMEOUT [0x0002001C]` (rc=131, FreeRDP 연결됐지만 activation 단계 미완료)
+  로 무너짐. 각 apply 가 60초 timeout 풀로 대기 → cascade 3분 → 사용자가 앱 실행 시 Launch Error 다이얼로그 또는 `winpodx setup` → `winpodx migrate` 도중 "3 of 3 applies failed" 패닉 메시지로 표면화.
+- 새 헬퍼 `wait_for_windows_responsive(cfg, timeout=90)`: `check_rdp_port` 폴링 후 20초 no-op `Write-Output 'ping'` 프로브로 FreeRDP RemoteApp 채널이 실제로 살아있는지 확인. 다음 경로의 precondition 으로 사용:
+  - `ensure_ready()` warm-pod 경로 — 게스트가 미응답이면 self-heal apply 블록 통째로 skip.
+  - `winpodx pod apply-fixes` CLI — 명시적 "Waiting for Windows guest to finish booting (up to 90s)…" 메시지로 hang 아님을 표시.
+  - `winpodx migrate` apply 단계 — 같은 wait + 채널 실패 스택트레이스 3개 대신 "게스트 부팅 중; 나중에 apply-fixes 실행하거나 그냥 앱 실행해도 됨" 명확한 메시지.
+- `_self_heal_apply()` (신규) — warm-pod ensure_ready apply 블록을 `WindowsExecError` swallow 로 감싸서 transient 채널 실패가 cascade 안 되고 warning 만 로그 후 같은 호출 내 추가 시도 중단. 다음 ensure_ready 가 이어받음.
+
+
 
 ### 수정
 - **`oem_runtime_fixes` 가 `AllowComputerToTurnOffDevice` 파라미터 오류로 첫 적용 실패.** v0.1.9.5 가 runtime apply 를 FreeRDP RemoteApp PowerShell 로 넘겼지만 payload 는 여전히 `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false` 호출. 이 cmdlet 은 enum 문자열 `'Disabled'` / `'Enabled'` 를 요구하고, QEMU 안 가상 NIC (virtio) 는 이 파라미터 자체가 노출 안 되는 경우 잦음. v0.2.0 은 `try/catch` 로 감싸고 enum 형태로 전환, 미지원 어댑터는 건너뜀 — NIC 토폴로지 무관 apply 성공.
