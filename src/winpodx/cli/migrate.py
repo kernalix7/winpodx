@@ -113,6 +113,15 @@ def run_migrate(args: argparse.Namespace) -> int:
     if inst_cmp < (0, 1, 9) <= cur_cmp:
         _maybe_cleanup_legacy_bundled(non_interactive)
 
+    # v0.1.9.2: when upgrading TO v0.1.9 or later, proactively apply
+    # Windows-side fixes (OEM v7+v8 equivalents) to the existing guest
+    # so the user doesn't have to recreate their container. install.bat
+    # only runs on a fresh container, so without this step a 0.1.6 -> 0.1.9.2
+    # user would never see RDP-timeout / NIC-power / TermService-recovery
+    # fixes land on their actual Windows VM.
+    if inst_cmp < (0, 1, 9) <= cur_cmp:
+        _apply_runtime_fixes_to_existing_guest(non_interactive)
+
     if skip_refresh:
         print("\nSkipping app discovery (--no-refresh).")
     elif non_interactive:
@@ -310,6 +319,89 @@ def _prompt_yes(question: str, default: bool = True) -> bool:
     if not response:
         return default
     return response in ("y", "yes")
+
+
+def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
+    """v0.1.9.2: push OEM v7+v8 equivalents to the guest without recreating it.
+
+    install.bat only runs on dockur's first-boot unattended path — existing
+    containers from 0.1.6 / 0.1.7 / 0.1.8 / 0.1.9 / 0.1.9.1 never picked up
+    NIC-power, TermService-failure, max_sessions, or RDP-timeout fixes
+    shipped in later versions. We pipe the equivalent PowerShell to the
+    running guest via the same `podman exec` channel discovery uses.
+
+    Best-effort — log + skip on any failure (pod stopped, exec error, etc.)
+    so a transient problem doesn't block the rest of migrate.
+    """
+    print("\nApplying Windows-side fixes to your existing pod...")
+    try:
+        from winpodx.core.config import Config
+        from winpodx.core.pod import PodState, pod_status
+        from winpodx.core.provisioner import (
+            _apply_max_sessions,
+            _apply_oem_runtime_fixes,
+            _apply_rdp_timeouts,
+        )
+    except ImportError as e:
+        print(f"  warning: cannot load provisioner helpers ({e}); skipping.")
+        return
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(f"  Skipped: backend {cfg.pod.backend!r} doesn't support runtime apply.")
+        return
+
+    try:
+        state = pod_status(cfg).state
+    except Exception as e:  # noqa: BLE001
+        print(f"  warning: cannot probe pod state ({e}); skipping runtime apply.")
+        return
+
+    if state != PodState.RUNNING:
+        print(f"  Pod is {state.value if hasattr(state, 'value') else state}, not running.")
+        if non_interactive:
+            print(
+                "  Skipping (--non-interactive). "
+                "Run `winpodx app run desktop` later — apply fires automatically."
+            )
+            return
+        if not _prompt_yes("  Start the pod now and apply?", default=True):
+            print("  Skipped — apply will run automatically next time the pod starts.")
+            return
+        try:
+            from winpodx.core.provisioner import ensure_ready
+
+            ensure_ready(cfg)
+            print("  Pod started + Windows-side fixes applied.")
+        except Exception as e:  # noqa: BLE001
+            print(f"  warning: pod start failed ({e}). Try `winpodx pod start --wait`.")
+        return
+
+    # Pod is running — three idempotent applies.
+    failures: list[str] = []
+    for name, fn in (
+        ("max_sessions", _apply_max_sessions),
+        ("rdp_timeouts", _apply_rdp_timeouts),
+        ("oem_runtime_fixes", _apply_oem_runtime_fixes),
+    ):
+        try:
+            fn(cfg)
+        except Exception as e:  # noqa: BLE001
+            failures.append(f"{name}: {e}")
+
+    if failures:
+        print("  warning: some applies failed (others may have succeeded):")
+        for f in failures:
+            print(f"    - {f}")
+        print(
+            "  Re-run `winpodx migrate` after fixing the underlying issue, "
+            "or recreate the container as a last resort."
+        )
+    else:
+        print(
+            "  OK: applied to existing guest (no container recreate needed). "
+            "RDP timeouts / NIC power-save / TermService recovery now active."
+        )
 
 
 def _attempt_refresh() -> None:

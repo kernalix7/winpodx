@@ -1,3 +1,24 @@
+winpodx (0.1.9.2) unstable; urgency=high
+
+  * Fixed: Windows-side fixes from v0.1.9 / v0.1.9.1 (NIC power-save off,
+    TermService failure recovery, RDP timeout disable, KeepAlive) were
+    not reaching existing guests. install.bat only runs on a fresh
+    container, and v0.1.9.1's _apply_rdp_timeouts was wired AFTER the
+    check_rdp_port early-return in ensure_ready so it never fired on
+    healthy pods.
+    - ensure_ready now probes pod_status at the top and runs
+      _apply_max_sessions, _apply_rdp_timeouts, and the new
+      _apply_oem_runtime_fixes BEFORE the RDP early-return.
+    - New _apply_oem_runtime_fixes pipes the OEM v7 baseline (NIC
+      power-save off + sc.exe failure TermService) to existing guests
+      via the same `podman exec` stdin-pipe transport discovery uses.
+    - `winpodx migrate` proactively calls all three applies when
+      crossing the 0.1.9 version boundary, with pod-state probe and
+      an interactive offer to start a stopped pod. Per-helper
+      success/failure output so users see exactly what landed.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 02:30:00 +0900
+
 winpodx (0.1.9.1) unstable; urgency=high
 
   * Fixed: GUI SEGV when clicking "Refresh Apps" against a pod that

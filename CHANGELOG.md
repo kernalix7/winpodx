@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.9.2] - 2026-04-26
+
+### Fixed
+- **Windows-side fixes from v0.1.9 / v0.1.9.1 weren't reaching existing guests.** kernalix7 reported "마이그레이션 잘 되는거 맞아? 윈도에 적용 안되는거같은데" — and they were right. install.bat (the OEM script) only runs at dockur's first-boot unattended setup, so users on 0.1.6 / 0.1.7 / 0.1.8 / 0.1.9 / 0.1.9.1 never picked up NIC power-save off (OEM v7), TermService failure-recovery actions (OEM v7), or RDP timeout disable + KeepAlive (OEM v8) without recreating the container. Compounding this, the v0.1.9.1 `_apply_rdp_timeouts` runtime helper was wired into `provisioner.ensure_ready` AFTER its `check_rdp_port` early-return — so the helper never fired against an already-healthy pod.
+  - `provisioner.ensure_ready`: probe `pod_status` once at the top and run all idempotent runtime applies (`_apply_max_sessions`, `_apply_rdp_timeouts`, new `_apply_oem_runtime_fixes`) BEFORE the RDP early-return. Re-applied after pod-start in the cold-pod path. ~1.5s overhead per call; idempotent so re-runs are no-ops.
+  - new `provisioner._apply_oem_runtime_fixes(cfg)` pipes the OEM v7 baseline (NIC `Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false`, `sc.exe failure TermService` recovery actions) to existing guests via `podman exec powershell` — same stdin-pipe transport `discover_apps.ps1` uses.
+  - `winpodx migrate`: when crossing the 0.1.9 boundary, proactively call all three apply helpers (with pod-state probe + interactive offer to start a stopped pod). Output reports per-helper success / failure so users can see exactly what landed without recreating their container.
+
 ## [0.1.9.1] - 2026-04-26
 
 ### Fixed
