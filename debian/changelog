@@ -1,3 +1,15 @@
+winpodx (0.2.0.7) unstable; urgency=medium
+
+  * Fixed: pod wait-ready --logs showed no [container] lines.
+    The tail was started with --tail 0 (only logs from "now" onward,
+    so Windows ISO download + boot stage messages already printed
+    before wait-ready ran were invisible) AND only stdout was drained
+    while dockur splits progress between stdout and stderr.
+    v0.2.0.7 uses --tail 100 + drains both streams in parallel
+    threads, so the user actually sees what Windows is doing.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 15:00:00 +0900
+
 winpodx (0.2.0.6) unstable; urgency=high
 
   * Fixed: wait_for_windows_responsive collapsed in <1s on a still-

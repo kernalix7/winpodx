@@ -9,7 +9,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.6] - 2026-04-27
+## [0.2.0.7] - 2026-04-27
+
+### Fixed
+- **`pod wait-ready --logs` showed no `[container]` lines on a fast container.** Two issues: (1) the tail was started with `--tail 0` which means "show only logs emitted from now onwards", but dockur often prints Windows ISO download progress + boot stage transitions *before* wait-ready runs — so the user saw nothing. (2) Only `stdout` was being drained; dockur splits progress across stdout (download bytes/sec) and stderr (boot phase), so half the messages were silently dropped. v0.2.0.7 bumps `--tail 100` so the user sees recent context immediately, and drains both streams in parallel threads.
+
+
 
 ### Fixed
 - **`wait_for_windows_responsive` collapsed in <1s on a still-booting guest, defeating the entire `pod wait-ready` UX.** The helper waited correctly for the RDP TCP port to open, then fired exactly **one** FreeRDP RemoteApp probe — a single failure (which is what every still-booting guest produces, rc=147 connection-reset) returned False immediately and the caller's 600s timeout was effectively ignored. v0.2.0.6 turns the probe into a retry loop that fires repeated 5-20s probes until either one succeeds or the overall `timeout` expires (paced 3s between attempts so we don't pin a CPU spinning FreeRDP). Now `pod wait-ready --timeout 600` actually waits up to 10 minutes — observable in the elapsed-time stamp incrementing during phase 3.
