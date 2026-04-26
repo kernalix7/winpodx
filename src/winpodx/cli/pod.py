@@ -136,6 +136,20 @@ def _apply_fixes() -> None:
         print("Start the pod first with: winpodx pod start --wait")
         sys.exit(2)
 
+    # v0.2.0.1: container RUNNING != Windows VM accepting FreeRDP yet.
+    # Wait for the guest to finish booting before firing applies, so a
+    # user running `winpodx pod apply-fixes` right after a fresh start
+    # doesn't see 3×60s of timeout cascades.
+    from winpodx.core.provisioner import wait_for_windows_responsive
+
+    print("Waiting for Windows guest to finish booting (up to 90s)...")
+    if not wait_for_windows_responsive(cfg, timeout=90):
+        print(
+            "Windows guest still booting after 90s. Wait a bit longer, "
+            "then re-run `winpodx pod apply-fixes`."
+        )
+        sys.exit(2)
+
     print("Applying Windows-side runtime fixes...")
     results = apply_windows_runtime_fixes(cfg)
 

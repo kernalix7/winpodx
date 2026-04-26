@@ -45,10 +45,20 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # container. Each apply is idempotent — `Set-ItemProperty -Force` is a
     # no-op when the value already matches — so running them on every
     # ensure_ready is cheap (~1.5s overhead) and self-healing.
-    if cfg.pod.backend in ("podman", "docker") and pod_status(cfg).state == PodState.RUNNING:
-        _apply_max_sessions(cfg)
-        _apply_rdp_timeouts(cfg)
-        _apply_oem_runtime_fixes(cfg)
+    #
+    # v0.2.0.1: gate the warm-pod path on `check_rdp_port` so we don't
+    # fire FreeRDP RemoteApp at a container that's `RUNNING` but whose
+    # Windows VM is still booting. Without the gate, each apply hits
+    # ERRCONNECT_ACTIVATION_TIMEOUT (rc=131) or ERRCONNECT_CONNECT_TRANSPORT_FAILED
+    # (rc=147, connection reset) after up to 60s, and the cascade
+    # (3×60s) surfaces as a Launch Error dialog when the user tries
+    # to start an app right after `winpodx pod restart`.
+    if (
+        cfg.pod.backend in ("podman", "docker")
+        and pod_status(cfg).state == PodState.RUNNING
+        and check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0)
+    ):
+        _self_heal_apply(cfg)
 
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
         return cfg
@@ -66,9 +76,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # Re-apply once more after starting (cold-pod path); same idempotency
     # guarantees mean this only does work the first time after a fresh
     # start. The earlier branch handles the warm-pod case.
-    _apply_max_sessions(cfg)
-    _apply_rdp_timeouts(cfg)
-    _apply_oem_runtime_fixes(cfg)
+    _self_heal_apply(cfg)
     # Bug B: after host suspend / long idle the pod can be running but RDP
     # itself is dead while VNC is fine. Probe and try to revive TermService
     # before handing the cfg to the caller — the alternative is the FreeRDP
@@ -171,6 +179,80 @@ def _apply_max_sessions(cfg: Config) -> None:
         log.warning("max_sessions: rc=%d stderr=%s", result.rc, result.stderr.strip())
         raise RuntimeError(f"max_sessions apply failed (rc={result.rc}): {result.stderr.strip()}")
     log.info("max_sessions: %s", result.stdout.strip())
+
+
+def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
+    """Poll until the Windows guest can actually accept FreeRDP RemoteApp.
+
+    Container ``RUNNING`` state is not enough — dockur boots the Linux
+    container in seconds but the Windows VM inside QEMU needs another
+    30-90s before its RDP listener accepts activation. Firing an apply
+    inside that window means every call hits one of:
+
+    - ``ERRCONNECT_CONNECT_TRANSPORT_FAILED`` (rc=147, connection reset
+      by peer — RDP socket open but server not initialized)
+    - ``ERRCONNECT_ACTIVATION_TIMEOUT`` (rc=131, FreeRDP connected but
+      activation phase didn't complete in time)
+
+    This helper waits for the RDP port first, then fires a tiny
+    no-op probe (`Write-Output 'ping'`) with a 15s budget to confirm
+    the FreeRDP RemoteApp channel is actually live. Returns True on
+    success, False if the guest is still booting after ``timeout``
+    seconds — caller decides whether to skip / retry / surface to user.
+    """
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    deadline = time.monotonic() + max(1, int(timeout))
+    while time.monotonic() < deadline:
+        if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
+            break
+        time.sleep(2)
+    else:
+        return False
+
+    # Port is open — confirm activation works with a short probe.
+    try:
+        result = run_in_windows(
+            cfg,
+            "Write-Output 'ping'\n",
+            description="responsive-probe",
+            timeout=20,
+        )
+        return result.rc == 0
+    except WindowsExecError:
+        return False
+
+
+def _self_heal_apply(cfg: Config) -> None:
+    """Run the three idempotent runtime applies in self-healing mode.
+
+    Distinct from ``apply_windows_runtime_fixes`` which is called from
+    the explicit ``winpodx pod apply-fixes`` CLI / GUI button: that one
+    must surface failures in its result map. Self-healing mode is fired
+    from ``ensure_ready`` on every app launch, so any failure must be
+    swallowed — the user is trying to launch an app, not run an apply,
+    and a transient ERRCONNECT_ACTIVATION_TIMEOUT (Windows still
+    booting) must not cascade into a Launch Error dialog. The next
+    ensure_ready call picks up wherever this one left off.
+    """
+    from winpodx.core.windows_exec import WindowsExecError
+
+    for name, fn in (
+        ("max_sessions", _apply_max_sessions),
+        ("rdp_timeouts", _apply_rdp_timeouts),
+        ("oem_runtime_fixes", _apply_oem_runtime_fixes),
+    ):
+        try:
+            fn(cfg)
+        except WindowsExecError as e:
+            log.warning(
+                "%s: channel failure during self-heal (will retry next ensure_ready): %s",
+                name,
+                e,
+            )
+            return  # Don't waste 60s × 2 more on a still-booting guest.
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s: self-heal apply failed: %s", name, e)
 
 
 def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:

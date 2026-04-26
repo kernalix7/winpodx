@@ -1,3 +1,24 @@
+winpodx (0.2.0.1) unstable; urgency=high
+
+  * Fixed: apply cascade collapsed on cold container. v0.2.0 fired the
+    three runtime applies (max_sessions, rdp_timeouts, oem_runtime_fixes)
+    the moment the container reached RUNNING, but the Windows VM inside
+    QEMU needed another 30-90s before its RDP listener could accept
+    FreeRDP RemoteApp activation. Within that window every apply
+    collapsed: ERRCONNECT_CONNECT_TRANSPORT_FAILED (rc=147) on fresh
+    install, or ERRCONNECT_ACTIVATION_TIMEOUT (rc=131) on pod restart.
+    3min cascade surfaced as a Launch Error dialog or "3 of 3 applies
+    failed" panic during setup -> migrate.
+  * Added: wait_for_windows_responsive() helper polls check_rdp_port,
+    then fires a 20s no-op probe to confirm FreeRDP RemoteApp is live.
+    Used by ensure_ready warm path, winpodx pod apply-fixes, and
+    winpodx migrate apply step.
+  * Added: _self_heal_apply() wraps warm-pod ensure_ready applies in
+    WindowsExecError swallow so transient channel failures log a
+    warning and abort further attempts in the same call.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 22:30:00 +0900
+
 winpodx (0.2.0) unstable; urgency=medium
 
   * Fixed: oem_runtime_fixes failed on first apply with
