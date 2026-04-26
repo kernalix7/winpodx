@@ -2043,49 +2043,44 @@ class WinpodxWindow(QMainWindow):
         self.info_label.setText("Running debloat...")
 
         def _do() -> None:
-            import subprocess
+            from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
             cfg = Config.load()
-            runtime = "podman" if cfg.pod.backend == "podman" else "docker"
-            container = cfg.pod.container_name
             base = Path(__file__).parent.parent.parent.parent
-            script = base / "scripts" / "windows" / "debloat.ps1"
-            if script.exists():
-                try:
-                    subprocess.run(
-                        [
-                            runtime,
-                            "cp",
-                            str(script),
-                            f"{container}:C:/debloat.ps1",
-                        ],
-                        capture_output=True,
-                        check=True,
-                        timeout=30,
-                    )
-                except (
-                    subprocess.CalledProcessError,
-                    subprocess.TimeoutExpired,
-                    FileNotFoundError,
-                ):
-                    return
-                try:
-                    subprocess.run(
-                        [
-                            runtime,
-                            "exec",
-                            container,
-                            "powershell",
-                            "-ExecutionPolicy",
-                            "Bypass",
-                            "-File",
-                            "C:\\debloat.ps1",
-                        ],
-                        capture_output=True,
-                        timeout=120,
-                    )
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    pass
+            candidates = [
+                base / "scripts" / "windows" / "debloat.ps1",
+                Path.home()
+                / ".local"
+                / "bin"
+                / "winpodx-app"
+                / "scripts"
+                / "windows"
+                / "debloat.ps1",
+            ]
+            script = next((p for p in candidates if p.exists()), None)
+            if script is None:
+                self.app_launch_failed.emit("Debloat script not found")
+                return
+
+            try:
+                payload = script.read_text(encoding="utf-8")
+            except OSError as e:
+                self.app_launch_failed.emit(f"Cannot read debloat script: {e}")
+                return
+
+            try:
+                result = run_in_windows(cfg, payload, description="debloat", timeout=180)
+            except WindowsExecError as e:
+                self.app_launch_failed.emit(f"Debloat channel failure: {e}")
+                return
+
+            if result.rc == 0:
+                self.app_launched.emit("Debloat complete")
+            else:
+                self.app_launch_failed.emit(
+                    f"Debloat failed (rc={result.rc}): "
+                    f"{result.stderr.strip() or result.stdout.strip()[:200]}"
+                )
             self.pod_status_updated.emit("running", cfg.rdp.ip)
 
         threading.Thread(target=_do, daemon=True).start()

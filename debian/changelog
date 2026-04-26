@@ -1,3 +1,32 @@
+winpodx (0.1.9.5) unstable; urgency=high
+
+  * Fixed: BOM in result file caused fake "fail" reports. v0.1.9.4
+    PowerShell wrapper used Out-File -Encoding utf8 which writes a BOM;
+    host then json.loads with utf-8 codec rejected it. The actual
+    registry changes had landed; only the parse failed. Now read with
+    utf-8-sig.
+  * Fixed: _apply_max_sessions killed its own RDP session by calling
+    Restart-Service TermService — the very service hosting the
+    FreeRDP RemoteApp running the script. Removed the in-script
+    restart; registry write alone is enough, change picks up on next
+    natural service cycle.
+  * Migrated every remaining host-to-Windows command path off the
+    broken podman exec channel: _change_windows_password (password
+    rotation), recover_rdp_if_needed (now does container restart),
+    sync_windows_time, Windows Update toggle, debloat (CLI + GUI),
+    and discover_apps. All six were silent no-ops in releases 0.1.0
+    through 0.1.9.4.
+  * Added: `winpodx pod sync-password` CLI to recover from password
+    drift accumulated under the broken rotation path. Prompts for the
+    last-known-working password and resets Windows to match cfg.
+  * Added: migrate auto-detects password drift before attempting
+    apply, points users at sync-password instead of letting them
+    watch all three applies fail confusingly.
+  * Added: lint test that fails CI if any future code reintroduces
+    the podman-exec-to-powershell pattern outside windows_exec.py.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 26 Apr 2026 16:00:00 +0900
+
 winpodx (0.1.9.4) unstable; urgency=high
 
   * Fixed: runtime applies were silent no-ops in v0.1.9.1, v0.1.9.2, and

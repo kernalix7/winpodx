@@ -19,8 +19,10 @@ def handle_pod(args: argparse.Namespace) -> None:
         _restart()
     elif cmd == "apply-fixes":
         _apply_fixes()
+    elif cmd == "sync-password":
+        _sync_password(getattr(args, "non_interactive", False))
     else:
-        print("Usage: winpodx pod {start|stop|status|restart|apply-fixes}")
+        print("Usage: winpodx pod {start|stop|status|restart|apply-fixes|sync-password}")
         sys.exit(1)
 
 
@@ -147,6 +149,91 @@ def _apply_fixes() -> None:
         )
         sys.exit(3)
     print("\nAll fixes applied to existing guest (no container recreate needed).")
+
+
+def _sync_password(non_interactive: bool) -> None:
+    """v0.1.9.5: rescue path when cfg.password no longer matches Windows.
+
+    Use case: prior releases (0.1.0 through 0.1.9.4) ran password rotation
+    via a broken `podman exec ... powershell.exe net user` path that never
+    actually reached the Windows VM. Host-side cfg.password has drifted
+    while Windows still has whatever the original install.bat / OEM
+    unattend.xml set it to. Symptom: FreeRDP launches fail with auth
+    error.
+
+    This command authenticates ONCE with a user-supplied "last known
+    working" password (typically the original from initial setup, or the
+    value in compose.yml's PASSWORD env var), then runs `net user` inside
+    Windows to reset the account password to the current cfg.password.
+    On success, password rotation works normally going forward (now that
+    v0.1.9.5 has migrated `_change_windows_password` to FreeRDP RemoteApp).
+    """
+    import getpass
+    import os
+
+    from winpodx.core.config import Config
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(f"sync-password not supported for backend {cfg.pod.backend!r}.")
+        sys.exit(2)
+
+    if not cfg.rdp.password:
+        print("No password set in cfg — nothing to sync to.")
+        sys.exit(2)
+
+    if non_interactive:
+        recovery_pw = os.environ.get("WINPODX_RECOVERY_PASSWORD", "")
+        if not recovery_pw:
+            print("ERROR: --non-interactive requires WINPODX_RECOVERY_PASSWORD env var.")
+            sys.exit(2)
+    else:
+        print(
+            "winpodx will authenticate once with a recovery password (the password "
+            "Windows currently accepts), then reset the Windows account to the "
+            "value in your winpodx config."
+        )
+        print()
+        print("Common recovery passwords to try:")
+        print("  - The password from your original setup (compose.yml PASSWORD env)")
+        print("  - The first password you set when winpodx was installed")
+        print()
+        recovery_pw = getpass.getpass("Recovery password (input hidden): ")
+        if not recovery_pw:
+            print("Aborted.")
+            sys.exit(2)
+
+    # Build a temporary Config copy with the recovery password so
+    # run_in_windows uses the right credentials for FreeRDP auth.
+    rescue_cfg = Config.load()
+    rescue_cfg.rdp.password = recovery_pw
+
+    target_pw = cfg.rdp.password.replace("'", "''")
+    user = cfg.rdp.user.replace("'", "''")
+    payload = f"& net user '{user}' '{target_pw}' | Out-Null\nWrite-Output 'password reset'\n"
+
+    print("Authenticating with recovery password and resetting Windows account...")
+    try:
+        result = run_in_windows(rescue_cfg, payload, description="sync-password", timeout=45)
+    except WindowsExecError as e:
+        print(f"FAIL: channel failure with recovery password: {e}")
+        print(
+            "\nThe recovery password didn't authenticate either. Options:\n"
+            "  1. Try sync-password again with a different recovery password.\n"
+            "  2. Open `winpodx app run desktop` and reset manually:\n"
+            f"       net user {cfg.rdp.user} <password from `winpodx config show`>\n"
+            "  3. As a last resort, recreate the container with `podman rm -f` + "
+            "`winpodx pod start --wait`."
+        )
+        sys.exit(3)
+
+    if result.rc != 0:
+        print(f"FAIL: password reset script failed (rc={result.rc}): {result.stderr.strip()}")
+        sys.exit(3)
+
+    print("OK: Windows account password is now in sync with winpodx config.")
+    print("Password rotation will now work normally.")
 
 
 def _restart() -> None:

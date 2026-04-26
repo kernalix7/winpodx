@@ -339,39 +339,51 @@ class TestPasswordFilter:
 
 
 class TestPowerShellEscape:
-    def test_username_single_quote_escaped(self):
-        from unittest.mock import patch
+    """v0.1.9.5: _change_windows_password migrated from podman-exec to
+    windows_exec.run_in_windows. Tests now mock the new entry point and
+    inspect the payload string instead of subprocess argv."""
 
+    def test_username_single_quote_escaped(self, monkeypatch):
         from winpodx.core.config import Config
+        from winpodx.core.windows_exec import WindowsExecResult
 
         cfg = Config()
         cfg.rdp.user = "admin'; whoami; '"
+        cfg.rdp.password = "current-pw"
         cfg.pod.backend = "podman"
 
-        with patch("winpodx.core.provisioner.subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
-            from winpodx.core.provisioner import _change_windows_password
+        captured: dict[str, str] = {}
 
-            _change_windows_password(cfg, "newpass123")
-            ps_cmd = mock_run.call_args[0][0][7]
-            assert "admin''; whoami; ''" in ps_cmd
+        def fake(cfg_inner, payload, **_kw):
+            captured["payload"] = payload
+            return WindowsExecResult(rc=0, stdout="password set", stderr="")
 
-    def test_normal_username_unchanged(self):
-        from unittest.mock import patch
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+        from winpodx.core.provisioner import _change_windows_password
 
+        assert _change_windows_password(cfg, "newpass123") is True
+        assert "admin''; whoami; ''" in captured["payload"]
+
+    def test_normal_username_unchanged(self, monkeypatch):
         from winpodx.core.config import Config
+        from winpodx.core.windows_exec import WindowsExecResult
 
         cfg = Config()
         cfg.rdp.user = "User"
+        cfg.rdp.password = "current-pw"
         cfg.pod.backend = "podman"
 
-        with patch("winpodx.core.provisioner.subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
-            from winpodx.core.provisioner import _change_windows_password
+        captured: dict[str, str] = {}
 
-            _change_windows_password(cfg, "testpass")
-            ps_cmd = mock_run.call_args[0][0][7]
-            assert "net user 'User' 'testpass'" == ps_cmd
+        def fake(cfg_inner, payload, **_kw):
+            captured["payload"] = payload
+            return WindowsExecResult(rc=0, stdout="password set", stderr="")
+
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+        from winpodx.core.provisioner import _change_windows_password
+
+        assert _change_windows_password(cfg, "testpass") is True
+        assert "net user 'User' 'testpass'" in captured["payload"]
 
 
 class TestPasswordTimestamp:

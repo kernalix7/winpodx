@@ -171,17 +171,11 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
     if not script.exists():
         raise DiscoveryError(f"Discovery script not found: {script}", kind="script_missing")
 
-    container = cfg.pod.container_name
-
-    # Why we don't use `podman cp host:script container:C:\path`:
-    # dockur/windows is a Linux container that runs the actual Windows guest
-    # inside QEMU; the Windows C: drive lives inside that VM's virtual disk,
-    # *not* on the container's own filesystem. `podman cp` interprets the
-    # destination as a path *on the container* — so it tries to write to a
-    # nonexistent `/C:/...` path and fails with "could not be found on
-    # container". The reliable transport is to feed the script body to the
-    # guest's powershell.exe via stdin: `powershell -Command -` reads the
-    # full script from stdin and executes it, no staging file required.
+    # v0.1.9.5: was on the broken `podman exec -i ... powershell -Command -`
+    # path (kernalix7's machine showed rc=127 "powershell.exe not found in
+    # $PATH" because podman exec only reaches the dockur Linux container,
+    # not the Windows VM inside). Migrated to ``windows_exec.run_in_windows``
+    # alongside the rest of the host->Windows command paths.
     try:
         script_body = script.read_text(encoding="utf-8")
     except OSError as e:
@@ -189,44 +183,27 @@ def discover_apps(cfg: Config, timeout: int = 120) -> list[DiscoveredApp]:
             f"Cannot read discovery script {script}: {e}", kind="script_missing"
         ) from e
 
-    cmd = [
-        runtime,
-        "exec",
-        "-i",
-        container,
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "-",
-    ]
-    stdout_bytes, stderr_bytes, returncode = _run_bounded(
-        cmd, timeout=timeout, runtime=runtime, stdin_bytes=script_body.encode("utf-8")
-    )
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
-    if returncode != 0:
-        stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
-        # podman/docker emit recognizable strings when the container is stopped
-        # or missing; surface these as pod_not_running so the cli routes to
-        # exit code 2 + the "run `winpodx pod start --wait`" hint instead of
-        # generic script-failure code 3. Bug A: with the cp dropped, this is
-        # the only place we still distinguish the two error classes.
-        stderr_lower = stderr.lower()
-        if (
-            "no such container" in stderr_lower
-            or "is not running" in stderr_lower
-            or "container not running" in stderr_lower
-            or "no such object" in stderr_lower
-        ):
-            raise DiscoveryError(
-                f"Pod not running (rc={returncode}): {stderr}", kind="pod_not_running"
-            )
+    try:
+        result = run_in_windows(cfg, script_body, description="discover-apps", timeout=timeout)
+    except WindowsExecError as e:
+        msg = str(e).lower()
+        # FreeRDP failed to connect at the channel level — most often
+        # because the pod is stopped (no RDP listener) or the auth
+        # password drifted from cfg. Surface as pod_not_running so cli
+        # routes to exit code 2 + the helpful "run `winpodx pod start
+        # --wait` first" hint.
+        kind = "pod_not_running" if "no result file" in msg or "auth" in msg else "script_failed"
+        raise DiscoveryError(f"Discovery channel failure: {e}", kind=kind) from e
+
+    if result.rc != 0:
         raise DiscoveryError(
-            f"Discovery script failed (rc={returncode}): {stderr}", kind="script_failed"
+            f"Discovery script failed (rc={result.rc}): {result.stderr.strip()}",
+            kind="script_failed",
         )
 
-    return _parse_discovery_output(stdout_bytes.decode("utf-8", errors="replace"))
+    return _parse_discovery_output(result.stdout)
 
 
 def _run_bounded(

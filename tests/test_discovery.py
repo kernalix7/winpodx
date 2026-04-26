@@ -575,113 +575,109 @@ def test_discover_requires_script_file():
             discover_apps(cfg)
 
 
-def test_discover_surfaces_pod_not_running(tmp_path):
-    """Bug A: stderr containing 'no such container' is reclassified to pod_not_running."""
+def _stub_run_in_windows(
+    monkeypatch,
+    *,
+    rc: int = 0,
+    stdout: str = "[]",
+    stderr: str = "",
+    raise_exc: Exception | None = None,
+):
+    """v0.1.9.5: discover_apps now goes through windows_exec.run_in_windows.
+    Tests stub the new entry point and capture the (description, payload) pair.
+    """
+    from winpodx.core.windows_exec import WindowsExecResult
+
+    captured: dict[str, str] = {}
+
+    def fake(cfg_inner, payload, *, timeout=60, description="windows-exec"):
+        captured["description"] = description
+        captured["payload"] = payload
+        captured["timeout"] = timeout
+        if raise_exc is not None:
+            raise raise_exc
+        return WindowsExecResult(rc=rc, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+    return captured
+
+
+def test_discover_surfaces_pod_not_running(tmp_path, monkeypatch):
+    """v0.1.9.5: WindowsExecError with auth/no-result-file → pod_not_running kind."""
+    from winpodx.core.windows_exec import WindowsExecError
+
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
+    _stub_run_in_windows(
+        monkeypatch,
+        raise_exc=WindowsExecError(
+            "No result file written (FreeRDP rc=1). stderr tail: 'auth failure'"
+        ),
+    )
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch(
-            "winpodx.core.discovery.subprocess.Popen",
-            return_value=_fake_popen(
-                stdout=b"", stderr=b"Error: no such container winpodx-windows", returncode=125
-            ),
-        ),
     ):
-        with pytest.raises(DiscoveryError, match="Pod not running") as excinfo:
+        with pytest.raises(DiscoveryError, match="channel failure") as excinfo:
             discover_apps(cfg)
         assert excinfo.value.kind == "pod_not_running"
 
 
-def test_discover_surfaces_timeout(tmp_path):
+def test_discover_happy_path_roundtrip(tmp_path, monkeypatch):
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
-    # Simulate a child that never naturally terminates. The bounded
-    # loop in _run_bounded must kill it once the deadline elapses.
-    stuck = _fake_popen(stdout=b"", stderr=b"", returncode=-9)
-    stuck.poll.return_value = None  # never finishes on its own
+    payload = json.dumps([_valid_entry(name="Calculator")])
+    captured = _stub_run_in_windows(monkeypatch, rc=0, stdout=payload)
 
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.Popen", return_value=stuck),
-    ):
-        with pytest.raises(DiscoveryError, match="timed out") as excinfo:
-            discover_apps(cfg, timeout=1)
-        assert excinfo.value.kind == "timeout"
-
-
-def test_discover_happy_path_roundtrip(tmp_path):
-    cfg = _make_cfg(backend="podman")
-    script = tmp_path / "discover_apps.ps1"
-    script.write_text("# stub")
-
-    payload = json.dumps([_valid_entry(name="Calculator")]).encode("utf-8")
-
-    with (
-        patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
-        patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch(
-            "winpodx.core.discovery.subprocess.Popen",
-            return_value=_fake_popen(stdout=payload, returncode=0),
-        ),
     ):
         apps = discover_apps(cfg)
 
     assert len(apps) == 1
     assert apps[0].full_name == "Calculator"
+    assert captured["description"] == "discover-apps"
+    # Payload must be the script contents (windows_exec wraps it).
+    assert "# stub" in captured["payload"]
 
 
-def test_discover_nonzero_exit_raises(tmp_path):
+def test_discover_nonzero_exit_raises(tmp_path, monkeypatch):
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
+    _stub_run_in_windows(monkeypatch, rc=42, stderr="Get-AppxPackage failed")
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch(
-            "winpodx.core.discovery.subprocess.Popen",
-            return_value=_fake_popen(stdout=b"", stderr=b"Get-AppxPackage failed", returncode=42),
-        ),
     ):
         with pytest.raises(DiscoveryError, match="rc=42") as excinfo:
             discover_apps(cfg)
         assert excinfo.value.kind == "script_failed"
 
 
-def test_discover_pipes_script_via_stdin(tmp_path):
-    """Bug A: the script body must be piped via stdin, not staged via podman cp."""
+def test_discover_uses_windows_exec_channel(tmp_path, monkeypatch):
+    """v0.1.9.5: the discover_apps.ps1 body is forwarded to windows_exec, NOT
+    sent through podman exec (which only reaches the Linux container)."""
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
-    script.write_text("# the actual ps1 body that should travel over stdin")
+    script.write_text("# the actual ps1 body that should reach Windows")
 
-    captured = _fake_popen(stdout=b"[]", returncode=0)
+    captured = _stub_run_in_windows(monkeypatch, rc=0, stdout="[]")
 
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.Popen", return_value=captured) as popen_mock,
     ):
         discover_apps(cfg)
 
-    # The single Popen invocation must use `exec -i ... powershell ... -Command -`.
-    assert popen_mock.call_count == 1
-    cmd = popen_mock.call_args.args[0]
-    assert "exec" in cmd
-    assert "-i" in cmd  # stdin must be open
-    assert "-Command" in cmd
-    assert cmd[-1] == "-"  # final arg = stdin marker
-    # And the script body must have been written to stdin then closed.
-    captured.stdin.write.assert_called_once()
-    written = captured.stdin.write.call_args.args[0]
-    assert b"the actual ps1 body" in written
-    captured.stdin.close.assert_called_once()
+    assert "the actual ps1 body that should reach Windows" in captured["payload"]
+    assert captured["description"] == "discover-apps"
 
 
 # ---------------------------------------------------------------------------
@@ -820,87 +816,33 @@ def test_persist_rejects_malformed_png_but_persists_entry(tmp_path):
     assert app.icon_path == ""
 
 
-def test_discovery_stdout_cap_triggers_truncated_error(tmp_path):
-    """L1: child emitting >HARD_STDOUT_CAP bytes must raise kind=truncated."""
+# test_discovery_stdout_cap_triggers_truncated_error: removed in v0.1.9.5.
+# discover_apps used to drive subprocess.Popen via _run_bounded with a 64 MiB
+# stdout cap; the migration to windows_exec.run_in_windows replaces that
+# transport entirely (the FreeRDP RemoteApp wrapper writes a JSON file via
+# tsclient redirection, no streaming subprocess). The cap is no longer the
+# right invariant to test — the analogous L1-style guard would be a result-
+# file size limit, which can be added if real-world JSON gets unmanageable.
+
+
+def test_discover_surfaces_timeout(tmp_path, monkeypatch):
+    """v0.1.9.5: timeouts now surface from windows_exec, not _run_bounded."""
+    from winpodx.core.windows_exec import WindowsExecError
+
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
     script.write_text("# stub")
 
-    from winpodx.core.discovery import HARD_STDOUT_CAP
-
-    # Flood ~65 MiB so the drain loop trips the cap well before completion.
-    flood_size = HARD_STDOUT_CAP + (1 * 1024 * 1024)
-
-    class _FloodingProc:
-        """Stand-in for subprocess.Popen that floods stdout via an OS pipe."""
-
-        def __init__(self) -> None:
-            import threading as _t
-
-            self._stdout_r, self._stdout_w = os.pipe()
-            self._stderr_r, self._stderr_w = os.pipe()
-            os.close(self._stderr_w)  # no stderr output
-            self.returncode: int | None = None
-            self._stdout_closed = False
-
-            def _writer() -> None:
-                chunk = b"A" * (1024 * 1024)  # 1 MiB per write
-                written = 0
-                try:
-                    while written < flood_size:
-                        os.write(self._stdout_w, chunk)
-                        written += len(chunk)
-                except OSError:
-                    # Pipe closed by kill() — expected once the cap trips.
-                    return
-                finally:
-                    try:
-                        os.close(self._stdout_w)
-                    except OSError:
-                        pass
-
-            self._writer_thread = _t.Thread(target=_writer, daemon=True)
-            self._writer_thread.start()
-
-            self.stdout = MagicMock()
-            self.stdout.fileno.return_value = self._stdout_r
-            self.stderr = MagicMock()
-            self.stderr.fileno.return_value = self._stderr_r
-            # Bug A: discover_apps now writes the PS script to stdin.
-            self.stdin = MagicMock()
-            self.stdin.write.return_value = None
-            self.stdin.close.return_value = None
-
-        def poll(self):
-            # Never naturally finishes — the drain cap must be what stops us.
-            return None
-
-        def kill(self) -> None:
-            self.returncode = -9
-            if not self._stdout_closed:
-                self._stdout_closed = True
-                try:
-                    os.close(self._stdout_w)
-                except OSError:
-                    pass
-
-        def wait(self, timeout=None) -> int:
-            if self.returncode is None:
-                self.returncode = -9
-            return self.returncode
-
-    flooding = _FloodingProc()
-
-    # _FloodingProc must also expose stdin so the new pipe path works.
-    flooding.stdin = MagicMock()
-    flooding.stdin.write.return_value = None
-    flooding.stdin.close.return_value = None
-
+    _stub_run_in_windows(
+        monkeypatch,
+        raise_exc=WindowsExecError("FreeRDP timed out after 1s"),
+    )
     with (
         patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
         patch("winpodx.core.discovery._ps_script_path", return_value=script),
-        patch("winpodx.core.discovery.subprocess.Popen", return_value=flooding),
     ):
-        with pytest.raises(DiscoveryError) as excinfo:
-            discover_apps(cfg, timeout=60)
-        assert excinfo.value.kind == "truncated"
+        with pytest.raises(DiscoveryError, match="channel failure") as excinfo:
+            discover_apps(cfg, timeout=1)
+        # Timeout is a channel-level failure; classifies as script_failed
+        # since the script never got a chance to actually fail.
+        assert excinfo.value.kind == "script_failed"

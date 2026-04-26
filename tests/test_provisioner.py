@@ -182,7 +182,10 @@ def test_apply_max_sessions_runs_via_windows_exec(monkeypatch):
     assert "MaxInstanceCount" in payload
     assert "$desired = 25" in payload
     assert "fSingleSessionPerUser" in payload
-    assert "Restart-Service" in payload
+    # v0.1.9.5: Restart-Service intentionally removed — restarting the
+    # TermService that hosts our own RDP session kills the session
+    # before the wrapper can write its result file.
+    assert "Restart-Service" not in payload
 
 
 def test_apply_max_sessions_raises_on_nonzero_rc(monkeypatch):

@@ -88,42 +88,39 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
 
 def _change_windows_password(cfg: Config, new_password: str) -> bool:
-    """Change Windows user password inside the container via PowerShell."""
-    backend = cfg.pod.backend
-    if backend not in ("podman", "docker"):
+    """Change the Windows user account password via FreeRDP RemoteApp.
+
+    Uses the CURRENT cfg.password to authenticate FreeRDP, then runs
+    ``net user <User> <new>`` inside Windows. On success, the caller
+    updates cfg.password. The existing rotation rollback marker
+    (``_ROTATION_PENDING_MARKER``) handles the partial-failure window
+    where the host saved the new password to disk but the guest didn't
+    accept it — on next ensure_ready the marker is detected and the
+    cfg.password is reverted to whatever Windows actually accepts.
+
+    v0.1.9.5: was on the broken `podman exec ... powershell.exe` path
+    which silently failed for every release back to 0.1.0. Migrated to
+    the FreeRDP RemoteApp channel along with all the other Windows-
+    side commands.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
         return False
 
-    runtime = "podman" if backend == "podman" else "docker"
-    # Escape single quotes in username to prevent PowerShell injection.
     user = cfg.rdp.user.replace("'", "''")
     pw = new_password.replace("'", "''")
-    ps_cmd = f"net user '{user}' '{pw}'"
-    cmd = [
-        runtime,
-        "exec",
-        cfg.pod.container_name,
-        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        ps_cmd,
-    ]
+    payload = f"& net user '{user}' '{pw}' | Out-Null\nWrite-Output 'password set'\n"
+
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("Failed to exec password change: %s", e)
+        result = run_in_windows(cfg, payload, description="rotate-password", timeout=45)
+    except WindowsExecError as e:
+        log.warning("Password change channel failure: %s", e)
         return False
-
-    if result.returncode == 0:
-        return True
-
-    log.warning(
-        "Password change failed (rc=%d): %s",
-        result.returncode,
-        result.stderr.strip(),
-    )
-    return False
+    if result.rc != 0:
+        log.warning("Password change failed (rc=%d): %s", result.rc, result.stderr.strip())
+        return False
+    return True
 
 
 def _apply_max_sessions(cfg: Config) -> None:
@@ -139,6 +136,15 @@ def _apply_max_sessions(cfg: Config) -> None:
         return
 
     desired = max(1, min(50, int(cfg.pod.max_sessions)))
+    # v0.1.9.5: do NOT call `Restart-Service -Force TermService` here.
+    # The whole reason this script is running is that we're already inside
+    # an RDP session served by that very TermService — restarting it kills
+    # the session, the wrapper never gets to write its result file, and the
+    # host sees ERRINFO_RPC_INITIATED_DISCONNECT (kernalix7 saw exactly
+    # this on 2026-04-26). Registry write alone is enough; TermService
+    # picks up MaxInstanceCount on its next natural cycle (next pod boot
+    # or next manual `winpodx pod restart`). Idempotent so repeated runs
+    # eventually converge.
     payload = (
         f"$p = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server'\n"
         f"$desired = {desired}\n"
@@ -150,8 +156,8 @@ def _apply_max_sessions(cfg: Config) -> None:
         "}\n"
         "Set-ItemProperty -Path $p -Name MaxInstanceCount -Value $desired -Type DWord -Force\n"
         "Set-ItemProperty -Path $p -Name fSingleSessionPerUser -Value 0 -Type DWord -Force\n"
-        "Restart-Service -Force TermService\n"
-        'Write-Output "max_sessions: $current -> $desired"\n'
+        'Write-Output "max_sessions: $current -> $desired '
+        '(takes effect on next TermService restart)"\n'
     )
 
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
