@@ -9,7 +9,12 @@
 
 ## [Unreleased]
 
-## [0.2.0.10] - 2026-04-27
+## [0.2.0.11] - 2026-04-28
+
+### 수정
+- **GUI Refresh 두 번째 SEGV 경로 — Python ref / Qt deleteLater race.** v0.2.0.10 이 QImage-워커스레드 크래시는 잡았지만 두 번째 SEGV 가 남아있었음: `_on_refresh_succeeded` 와 `_on_refresh_failed` 슬롯이 즉시 `self._refresh_worker = None` 실행. Python 의 ref drop 이 Qt 의 queued `worker.deleteLater()` 이벤트와 race — 둘 중 나중에 실행되는 쪽이 free 된 `QObject` 만나서 worker 스레드의 `~QObject()` 에서 크래시. 2026-04-28 코어덤프로 확인: 워커 스레드 2282062 의 top frame 이 `QObject::~QObject`, 메인 스레드 2281803 은 슬롯의 PySide6 `callPythonMetaMethod` 디스패치 중. 수정: `_refresh_worker` / `_refresh_thread` Python ref drop 을 `_cleanup_refresh_worker` 로만 옮김, `thread.finished` 에 바인딩되어 Qt 객체 둘 다 완전 해제된 후 실행. Worker `deleteLater` 는 워커 스레드 자체 이벤트 루프에서 정상 처리 — Python GC 간섭 없음.
+
+
 
 ### 수정
 - **GUI Refresh 버튼 SEGV.** `_DiscoveryWorker.run()` (Qt 워커 스레드) 가 `persist_discovered` → `_validate_png_bytes` → `QImage.loadFromData` 호출. Wayland 의 Qt + libgallium / Mesa state 가 메인 스레드 외에서 QImage 만지면 race → `Signal: 11 (SEGV)` 코어 덤프. v0.2.0.10 에서 `_validate_png_bytes` 가 `threading.current_thread() is not threading.main_thread()` 일 때 stdlib 청크 워커로 단축 회귀. 워커도 여전히 CRC + 크기 캡 + IEND terminator 강제하므로 off-main-thread 호출자는 약간 느리지만 크래시 없는 경로.

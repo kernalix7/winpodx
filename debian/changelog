@@ -1,3 +1,15 @@
+winpodx (0.2.0.11) unstable; urgency=high
+
+  * Fixed: second SEGV path on GUI Refresh. v0.2.0.10 fixed the
+    QImage-on-worker-thread race, but the success/failure slots
+    immediately nulled out self._refresh_worker. Python's ref drop
+    raced Qt's queued worker.deleteLater event -> ~QObject() on a
+    half-freed pointer -> Signal 11. Now Python refs are dropped
+    only via thread.finished after both Qt objects have been torn
+    down properly.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 28 Apr 2026 08:00:00 +0900
+
 winpodx (0.2.0.10) unstable; urgency=high
 
   * Fixed: GUI Refresh button SEGV. _DiscoveryWorker.run() called

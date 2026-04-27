@@ -1891,7 +1891,18 @@ class WinpodxWindow(QMainWindow):
         worker.succeeded.connect(self._on_refresh_succeeded)
         worker.failed.connect(self._on_refresh_failed)
         worker.finished.connect(thread.quit)
+        # v0.2.0.11: keep Qt's canonical cleanup chain (worker.deleteLater
+        # processed by the worker thread's event loop *before* it exits,
+        # then thread.deleteLater after the thread dies) BUT do not also
+        # null out `self._refresh_worker` from the success/failure slots.
+        # The previous code raced Python's ref drop with Qt's queued
+        # deleteLater event → QObject destructor ran on a half-freed
+        # pointer → Signal 11. Now Python refs are dropped only via
+        # `_cleanup_refresh_worker`, bound to `thread.finished` which
+        # fires after both worker and thread have been fully torn down
+        # by Qt.
         worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._cleanup_refresh_worker)
         thread.finished.connect(thread.deleteLater)
         # Keep references so the QThread+QObject aren't garbage-collected mid-run.
         self._refresh_thread = thread
@@ -1910,19 +1921,33 @@ class WinpodxWindow(QMainWindow):
     @Slot(int)
     def _on_refresh_succeeded(self, count: int) -> None:
         self._set_refresh_state("idle")
-        self._refresh_thread = None
-        self._refresh_worker = None
+        # NOTE: don't null out _refresh_worker / _refresh_thread here —
+        # see v0.2.0.11 comment in `_on_refresh_apps`. Cleanup happens
+        # via `_cleanup_refresh_worker` once the thread.finished signal
+        # fires (i.e. after Qt has drained the event loop and processed
+        # any pending deleteLater on the worker).
         self._reload_apps()
         if count:
             self.info_label.setText(f"Discovery complete: {count} app(s) updated")
         else:
             self.info_label.setText("Discovery complete: no new apps found")
 
+    @Slot()
+    def _cleanup_refresh_worker(self) -> None:
+        """Drop Python refs to the worker + thread once Qt has finished
+        with them. Bound to ``thread.finished`` so it runs after the
+        worker's event loop has drained — racing the ref drop with Qt's
+        deleteLater is what crashed v0.2.0.10."""
+        # `worker.deleteLater()` is implicit — once we drop the last
+        # Python ref AND the thread is done, Qt collects the QObject on
+        # the next event-loop tick of its owning thread (which is now
+        # the main thread since the worker thread has exited).
+        self._refresh_worker = None
+        self._refresh_thread = None
+
     @Slot(str, str)
     def _on_refresh_failed(self, kind: str, detail: str) -> None:
         self._set_refresh_state("idle")
-        self._refresh_thread = None
-        self._refresh_worker = None
         self.info_label.setText("App discovery failed")
 
         # v0.1.9.1: defer the QMessageBox creation to a clean event-loop tick.
