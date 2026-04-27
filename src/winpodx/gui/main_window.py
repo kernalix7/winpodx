@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 from pathlib import Path
@@ -60,6 +61,8 @@ from winpodx.gui.theme import (
     avatar_color,
 )
 
+log = logging.getLogger(__name__)
+
 
 class _DiscoveryWorker(QObject):
     """Background worker that runs core.discovery scan and persist off the UI thread.
@@ -103,6 +106,16 @@ class _DiscoveryWorker(QObject):
             self.finished.emit()
             return
 
+        # v0.2.0.10: parity with CLI's `_refresh_apps` — install .desktop
+        # entries inline so the GUI Refresh button registers DE menu
+        # entries the same way as `winpodx app refresh`. Bidirectional
+        # sync (drop entries that no longer match a discovered app) is
+        # handled by `_sync_desktop_entries`.
+        try:
+            _sync_desktop_entries(apps)
+        except Exception:  # noqa: BLE001 — best-effort
+            log.debug("GUI refresh: desktop-entry sync failed", exc_info=True)
+
         try:
             from winpodx.desktop.icons import refresh_icon_cache
 
@@ -116,6 +129,41 @@ class _DiscoveryWorker(QObject):
             count = len(apps)
         self.succeeded.emit(count)
         self.finished.emit()
+
+
+def _sync_desktop_entries(discovered) -> None:
+    """v0.2.0.10: bidirectional .desktop entry sync used by the GUI
+    refresh worker. Mirrors `cli/app._register_desktop_entries` but
+    safe to run from a worker thread (no Qt GUI calls)."""
+    from winpodx.core.app import list_available_apps
+    from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
+    from winpodx.utils.paths import applications_dir
+
+    discovered_slugs = {d.slug or d.name for d in discovered}
+    available = {a.name: a for a in list_available_apps()}
+    for slug in discovered_slugs:
+        info = available.get(slug)
+        if info is not None:
+            try:
+                install_desktop_entry(info)
+            except Exception:  # noqa: BLE001
+                log.debug("install_desktop_entry failed for %s", slug, exc_info=True)
+
+    apps_dir = applications_dir()
+    if apps_dir.exists():
+        for entry in apps_dir.glob("winpodx-*.desktop"):
+            stem = entry.stem
+            if not stem.startswith("winpodx-"):
+                continue
+            slug = stem[len("winpodx-") :]
+            if slug in {"", "gui", "launcher"}:
+                continue
+            if slug in available:
+                continue
+            try:
+                remove_desktop_entry(slug)
+            except Exception:  # noqa: BLE001
+                log.debug("remove_desktop_entry failed for %s", slug, exc_info=True)
 
 
 def _looks_like_pod_down(exc: BaseException) -> bool:
@@ -1275,9 +1323,13 @@ class WinpodxWindow(QMainWindow):
         container = self.cfg.pod.container_name
         quick = [
             ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
-            ("Logs", ["podman", "logs", "--tail", "50", container]),
+            ("Pod logs", ["podman", "logs", "--tail", "100", container]),
+            ("Live (pod)", "follow_pod"),
+            ("App log", "tail_app_log"),
+            ("Live (app)", "follow_app_log"),
             ("Inspect", ["podman", "inspect", container]),
             ("RDP Test", None),
+            ("Stop tail", "stop_tail"),
             ("Clear", None),
         ]
         for label, cmd in quick:
@@ -1287,6 +1339,14 @@ class WinpodxWindow(QMainWindow):
                 btn.clicked.connect(lambda: self.log_output.clear())
             elif label == "RDP Test":
                 btn.clicked.connect(self._on_rdp_test)
+            elif cmd == "follow_pod":
+                btn.clicked.connect(self._on_follow_pod_log)
+            elif cmd == "tail_app_log":
+                btn.clicked.connect(self._on_tail_app_log)
+            elif cmd == "follow_app_log":
+                btn.clicked.connect(self._on_follow_app_log)
+            elif cmd == "stop_tail":
+                btn.clicked.connect(self._on_stop_tail)
             else:
                 btn.clicked.connect(lambda _, c=cmd: self._run_log_cmd(c))
             header.addWidget(btn)
@@ -1593,6 +1653,123 @@ class WinpodxWindow(QMainWindow):
                 self.log_signal.emit(f"Command not found: {cmd[0]}", C.RED)
 
         threading.Thread(target=_do, daemon=True).start()
+
+    # v0.2.0.10: live log streaming. The Pod logs button shows the last
+    # 100 lines, but for first-install / debug the user wants to watch
+    # the container output as Windows downloads / Sysprep / boots, and
+    # also see winpodx's own application log (under XDG state) so they
+    # can correlate guest events with host actions.
+    def _on_follow_pod_log(self) -> None:
+        import subprocess
+
+        self._on_stop_tail()
+        self._log_append(
+            f"$ podman logs -f --tail 50 {self.cfg.pod.container_name} (Stop tail to end)",
+            C.BLUE,
+        )
+        try:
+            self._tail_proc = subprocess.Popen(
+                [
+                    self.cfg.pod.backend,
+                    "logs",
+                    "-f",
+                    "--tail",
+                    "50",
+                    self.cfg.pod.container_name,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except (FileNotFoundError, OSError) as e:
+            self._log_append(f"Could not start tail: {e}", C.RED)
+            return
+        self._tail_stop = threading.Event()
+        threading.Thread(target=self._drain_tail, args=(self._tail_proc,), daemon=True).start()
+
+    def _on_tail_app_log(self) -> None:
+        from winpodx.utils.paths import config_dir
+
+        log_path = config_dir() / "winpodx.log"
+        self._log_append(f"$ tail {log_path}", C.BLUE)
+        if not log_path.exists():
+            self._log_append(
+                "(no app log file yet — winpodx writes to it after the next CLI / GUI action)",
+                C.OVERLAY0,
+            )
+            return
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            self._log_append(f"Could not read app log: {e}", C.RED)
+            return
+        # Show only the last ~200 lines so we don't drown the view.
+        lines = content.splitlines()[-200:]
+        for line in lines:
+            self._log_append(line, C.SUBTEXT1)
+
+    def _on_follow_app_log(self) -> None:
+        import subprocess
+
+        from winpodx.utils.paths import config_dir
+
+        log_path = config_dir() / "winpodx.log"
+        self._on_stop_tail()
+        self._log_append(f"$ tail -F {log_path} (Stop tail to end)", C.BLUE)
+        # Pre-create the file so `tail -F` doesn't loop on FileNotFoundError.
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.touch(exist_ok=True)
+        try:
+            self._tail_proc = subprocess.Popen(
+                ["tail", "-F", "-n", "50", str(log_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except (FileNotFoundError, OSError) as e:
+            self._log_append(f"Could not start tail: {e}", C.RED)
+            return
+        self._tail_stop = threading.Event()
+        threading.Thread(target=self._drain_tail, args=(self._tail_proc,), daemon=True).start()
+
+    def _drain_tail(self, proc) -> None:  # type: ignore[no-untyped-def]
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                if self._tail_stop.is_set():
+                    break
+                line = line.rstrip()
+                if line:
+                    self.log_signal.emit(line, C.SUBTEXT1)
+        except Exception:  # noqa: BLE001
+            log.debug("tail drain crashed", exc_info=True)
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _on_stop_tail(self) -> None:
+        proc = getattr(self, "_tail_proc", None)
+        stop = getattr(self, "_tail_stop", None)
+        if proc is None:
+            return
+        if stop is not None:
+            stop.set()
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+        self._log_append("(tail stopped)", C.OVERLAY0)
+        self._tail_proc = None
 
     _ALLOWED_COMMANDS = {
         "podman",
@@ -2207,6 +2384,20 @@ class WinpodxWindow(QMainWindow):
 
     @Slot(str, str)
     def _on_pod_status(self, state: str, ip: str) -> None:
+        # v0.2.0.10: trigger auto-discovery once when pod transitions
+        # to running AND the app list is empty. Solves the
+        # fresh-install case where install.sh's wait-ready timed out
+        # before Windows finished Sysprep — once GUI sees the pod
+        # come up, kick off a scan in the background.
+        if (
+            state == "running"
+            and self._pod_state != "running"
+            and not self.apps
+            and self._refresh_state == "idle"
+        ):
+            log.info("pod is now running and app list is empty — auto-firing discovery")
+            QTimer.singleShot(2000, self._on_refresh_apps)
+
         self._pod_state = state
         colors = {
             "running": C.GREEN,

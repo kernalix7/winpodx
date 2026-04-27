@@ -9,7 +9,18 @@
 
 ## [Unreleased]
 
-## [0.2.0.9] - 2026-04-27
+## [0.2.0.10] - 2026-04-27
+
+### 수정
+- **GUI Refresh 버튼 SEGV.** `_DiscoveryWorker.run()` (Qt 워커 스레드) 가 `persist_discovered` → `_validate_png_bytes` → `QImage.loadFromData` 호출. Wayland 의 Qt + libgallium / Mesa state 가 메인 스레드 외에서 QImage 만지면 race → `Signal: 11 (SEGV)` 코어 덤프. v0.2.0.10 에서 `_validate_png_bytes` 가 `threading.current_thread() is not threading.main_thread()` 일 때 stdlib 청크 워커로 단축 회귀. 워커도 여전히 CRC + 크기 캡 + IEND terminator 강제하므로 off-main-thread 호출자는 약간 느리지만 크래시 없는 경로.
+- **install.sh wait-ready 600s → 1800s.** 신규 설치 (`uninstall --purge` 후 재설치) 는 ~7.5GB Windows ISO 다운로드 + 추출 + Sysprep + OEM apply + 최종 재부팅 = 첫 실행 15~30분. 600초 timeout 이 Windows VM 부팅 전에 발화 → `[FAIL] Timeout waiting for Windows ready (09:56)` 로 끝남. 1800초 예산이 일반적 환경에서 신규 설치 커버; 후속 설치는 캐시된 ISO 재사용해서 2~5분.
+- **GUI Refresh 가 `.desktop` 엔트리 자동 설치** (`winpodx app refresh` CLI 와 parity). 기존엔 CLI 경로만 인라인 등록했고 GUI Refresh 는 discovered 트리만 갱신, `~/.local/share/applications/` 는 안 건드림. v0.2.0.10 의 `_DiscoveryWorker` 가 `_sync_desktop_entries` 호출 — `cli/app._register_desktop_entries` 의 워커-스레드-안전 형제 함수.
+
+### 추가
+- **첫 부팅 GUI 자동 디스커버리.** Pod 가 `running` 으로 전이 + 앱 리스트 비어있을 때, 메인 윈도가 2초 settle 후 Refresh 워커 자동 발화. install.sh 의 wait-ready 가 Sysprep 끝나기 전에 timeout 한 케이스 해결 — 사용자가 나중에 GUI 열면 pod 살아있는 거 확인 후 디스커버리가 알아서 발화.
+- **GUI 실시간 로그 스트리밍.** Tools/Terminal 페이지에 4개 버튼 추가: `Live (pod)` 와 `Live (app)` 가 컨테이너 또는 `~/.config/winpodx/winpodx.log` 에 `tail -F` 걸어 새 라인을 패널로 스트리밍; `App log` 는 winpodx 자체 앱 로그 마지막 200줄 표시; `Stop tail` 은 활성 streamer 종료. 기존엔 pod 로그 100줄 one-shot 스냅샷만 있었음.
+
+
 
 ### 수정
 - **두 번째 앱 실행 시 독립 윈도 대신 Windows "Select a session to reconnect to" 다이얼로그 발생.** Windows 기본값이 사용자당 동시 FreeRDP RemoteApp 세션 거부 → 첫 앱 이후의 모든 launch 가 기존 세션에 묻히거나 reconnect 다이얼로그 띄움. v0.2.0.9 에서 self-heal apply 체인에 `_apply_multi_session` 추가 — 게스트 안에서 `rdprrap-conf --enable` 호출해 termsrv.dll 패치 활성화 → launch 마다 독립 세션. 멱등 (이미 활성화돼있으면 no-op), 구 OEM 번들에 rdprrap-conf 없으면 best-effort skip.

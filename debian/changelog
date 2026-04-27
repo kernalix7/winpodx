@@ -1,3 +1,27 @@
+winpodx (0.2.0.10) unstable; urgency=high
+
+  * Fixed: GUI Refresh button SEGV. _DiscoveryWorker.run() called
+    persist_discovered -> _validate_png_bytes which used QImage on a
+    Qt worker thread; Mesa/libgallium state owned by the main GUI
+    thread raced and dropped a Signal 11 core. _validate_png_bytes
+    now short-circuits to the stdlib chunk walker when off the main
+    thread.
+  * Fixed: install.sh wait-ready timeout 600s -> 1800s. A fresh
+    install downloads the ~7.5GB Windows ISO + Sysprep + OEM apply,
+    which takes 15-30 minutes on first run. The previous 600s timeout
+    fired before the Windows VM had even booted.
+  * Added: GUI Refresh now installs .desktop entries (parity with
+    CLI). Bidirectional sync via worker-thread-safe
+    _sync_desktop_entries.
+  * Added: GUI auto-fires discovery when the pod transitions to
+    running and the app list is empty (covers the case where install
+    timeout hit before Sysprep finished).
+  * Added: GUI live log streaming. New buttons on Tools/Terminal:
+    `Live (pod)`, `Live (app)`, `App log`, `Stop tail` — tail -F the
+    container or ~/.config/winpodx/winpodx.log into the panel.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 18:00:00 +0900
+
 winpodx (0.2.0.9) unstable; urgency=medium
 
   * Fixed: 2nd app launch triggered Windows "Select a session to
