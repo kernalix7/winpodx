@@ -60,6 +60,25 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 | 시스템 트레이 | 없음 | 없음 | **Qt6 트레이** |
 | 라이선스 | MIT | AGPL-3.0 | **MIT** |
 
+## winpodx vs Wine
+
+**winpodx 는 Wine 대체재가 아닙니다.** Wine 은 Windows API 호출을 Linux 로 번역하고, winpodx 는 실제 Windows OS 를 컨테이너에서 돌립니다. 두 도구는 다른 문제를 풉니다 — 많은 사용자가 둘 다 설치합니다.
+
+| 필요한 게... | 사용 |
+|---|---|
+| 오래된 Win32 앱, 인디 게임, 가벼운 유틸 | **Wine / Bottles / Lutris** |
+| Outlook + Teams + OneDrive 풀 통합된 Microsoft 365 | **winpodx** |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | **winpodx** |
+| 안티치트 게임 (Valorant, EAC, BattlEye 계열) | **winpodx** |
+| DRM 무거운 소프트웨어 / 하드웨어 동글 앱 | **winpodx** |
+| 커널 모드 드라이버 동반 앱 (일부 VPN, 보안 소프트웨어) | **winpodx** |
+| 지역 인증서 필요한 은행 / 세무 / 공공기관 도구 | **winpodx** |
+| Visual Studio, WinUI 3 / WinRT, Wine 이 못 따라가는 .NET 기능 | **winpodx** |
+| IE 전용 레거시 사내 웹앱 | **winpodx** |
+| "대충 됨" 이 허용 안 되는 모든 경우 | **winpodx** |
+
+Wine 은 동작할 때 빠르고 가볍습니다. winpodx 는 **100% Windows 기능 호환성** 으로 이깁니다 — 진짜 Windows 커널 위에서 앱이 돌고, FreeRDP RemoteApp 으로 Linux 데스크톱에 네이티브 윈도로 렌더링될 뿐입니다.
+
 ## 주요 기능
 
 <table>

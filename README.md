@@ -60,6 +60,25 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | System tray | No | No | **Qt6 tray** |
 | License | MIT | AGPL-3.0 | **MIT** |
 
+## winpodx vs Wine
+
+**winpodx is not a Wine replacement.** Wine translates Windows API calls; winpodx runs the actual Windows OS in a container. The two solve different problems and many users have both installed.
+
+| When you need... | Use |
+|---|---|
+| Older Win32 apps, indie games, lightweight utilities | **Wine / Bottles / Lutris** |
+| Microsoft 365 with full Outlook + Teams + OneDrive integration | **winpodx** |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | **winpodx** |
+| Anti-cheat games (Valorant, EAC titles, BattlEye) | **winpodx** |
+| DRM-heavy software / hardware dongle apps | **winpodx** |
+| Apps that ship kernel-mode drivers (some VPNs, security suites) | **winpodx** |
+| Banking / tax / government tools with regional certificates | **winpodx** |
+| Visual Studio, WinUI 3 / WinRT, .NET features Wine hasn't caught up to | **winpodx** |
+| IE-only legacy enterprise web apps | **winpodx** |
+| Anything where "mostly works" isn't acceptable | **winpodx** |
+
+Wine wins on speed and lightness when it works. winpodx wins on **100% Windows feature parity** because it *is* Windows — every app is running on a real Windows kernel, just rendered into your Linux desktop as a native window via FreeRDP RemoteApp.
+
 ## Key Features
 
 <table>
