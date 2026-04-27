@@ -130,7 +130,7 @@ Wine 은 속도와 GPU (DXVK/VKD3D 가 깔끔히 번역해줄 때) 에서 이깁
 - Qt6 시스템 트레이 + 전체 Qt6 메인 윈도우 (Apps / Settings / Tools / Terminal)
 - 멀티 백엔드: Podman (기본), Docker, libvirt/KVM, 수동 RDP
 - Windows 빌드 고정: 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365일 기능 업데이트 연기)
-- Windows 디블로트: 텔레메트리, 광고, Cortana, 검색 인덱싱 및 서비스 (WSearch / SysMain / WerSvc / DiagTrack) 비활성화
+- Windows 디블로트: 텔레메트리, 광고, Cortana, 검색 인덱싱 및 서비스 (DiagTrack / dmwappushservice / WSearch / SysMain) 비활성화
 - 고성능 전원 관리 + 최대 절전 해제 + tzutil UTC + Cloudflare DNS 기본값
 - 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 재동기화
 - FreeRDP `extra_flags` 허용 목록 (정규식 검증) — 사용자 입력 안전 경계
@@ -160,7 +160,7 @@ Wine 은 속도와 GPU (DXVK/VKD3D 가 깔끔히 번역해줄 때) 에서 이깁
                      │   Windows 컨테이너 (Podman)   │
                      │   ┌──────────────────────┐   │
                      │   │  Word  Excel  PPT ... │   │
-                     │   │  (단일세션 RDP)         │   │
+                     │   │ rdprrap 멀티세션       │   │
                      │   └──────────────────────┘   │
                      │   127.0.0.1:3390 (TLS)       │
                      └─────────────────────────────┘
@@ -270,7 +270,7 @@ sudo dnf install winpodx
 본인 배포판에 맞는 `.deb` 를 다운받아 설치:
 
 ```bash
-sudo apt install ./winpodx_0.1.7_all_debian13.deb   # 배포판에 맞게 선택
+sudo apt install ./winpodx_<version>_all_debian13.deb   # 배포판에 맞게 선택
 ```
 
 **AlmaLinux / Rocky / RHEL 9 & 10**
@@ -281,7 +281,7 @@ el9 에서는 `python3-tomli` 때문에 EPEL 이 필요합니다.
 
 ```bash
 sudo dnf install epel-release                     # el9 만 필요
-sudo dnf install ./winpodx-0.1.7-1.noarch.el9.rpm   # 또는 .el10.rpm
+sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm   # 또는 .el10.rpm
 ```
 
 **Arch Linux (AUR)**

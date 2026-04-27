@@ -130,7 +130,7 @@ Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. winpodx wins on
 - Qt6 system tray + full Qt6 main window (Apps / Settings / Tools / Terminal pages)
 - Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
 - Windows build pinned to 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365-day feature-update defer)
-- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (WSearch / SysMain / WerSvc / DiagTrack)
+- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (DiagTrack / dmwappushservice / WSearch / SysMain)
 - High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS
 - Time sync: force Windows clock resync after host sleep/wake
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
@@ -160,7 +160,7 @@ Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. winpodx wins on
                      │   Windows Container (Podman) │
                      │   ┌──────────────────────┐   │
                      │   │  Word  Excel  PPT ... │   │
-                     │   │  (single-session RDP)  │   │
+                     │   │ multi-session/rdprrap │   │
                      │   └──────────────────────┘   │
                      │   127.0.0.1:3390 (TLS)       │
                      └─────────────────────────────┘
@@ -275,7 +275,7 @@ Download the matching `.deb` from the
 install:
 
 ```bash
-sudo apt install ./winpodx_0.1.7_all_debian13.deb   # pick your flavor
+sudo apt install ./winpodx_<version>_all_debian13.deb   # pick your flavor
 ```
 
 **AlmaLinux / Rocky / RHEL 9 & 10**
@@ -286,7 +286,7 @@ and install:
 
 ```bash
 sudo dnf install epel-release                     # el9 only
-sudo dnf install ./winpodx-0.1.7-1.noarch.el9.rpm   # or .el10.rpm
+sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm   # or .el10.rpm
 ```
 
 **Arch Linux (AUR)**
