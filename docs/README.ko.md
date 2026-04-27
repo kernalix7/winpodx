@@ -14,32 +14,24 @@ Windows 앱마다 네이티브 Linux 윈도 — 진짜 아이콘, 진짜 `WM_CLA
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange?style=for-the-badge)](#상태-베타)
 [![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=informational)](https://github.com/kernalix7/winpodx/releases)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
-[![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Language: Python](https://img.shields.io/badge/Language-Python%20100%25-yellow.svg)](https://www.python.org/)
-[![Tests: 411 passed](https://img.shields.io/badge/Tests-411%20passed-brightgreen.svg)](#테스트)
-[![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square)](../LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-411%20passed-brightgreen?style=flat-square)](#테스트)
+[![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 
-[![GitHub stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/network/members)
-[![GitHub watchers](https://img.shields.io/github/watchers/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/watchers)
+[![Stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&logo=github)](https://github.com/kernalix7/winpodx/stargazers)
+[![Pull requests](https://img.shields.io/github/issues-pr/kernalix7/winpodx?style=flat-square&label=pulls&color=blueviolet)](https://github.com/kernalix7/winpodx/pulls)
+[![Downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=brightgreen)](https://github.com/kernalix7/winpodx/releases)
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=kernalix7.winpodx&left_text=visitors)](https://github.com/kernalix7/winpodx)
-
-[![Issues](https://img.shields.io/github/issues/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/issues)
-[![Pull requests](https://img.shields.io/github/issues-pr/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/pulls)
-[![Downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?label=downloads&color=brightgreen)](https://github.com/kernalix7/winpodx/releases)
-[![Last commit](https://img.shields.io/github/last-commit/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/commits/main)
-[![Code size](https://img.shields.io/github/languages/code-size/kernalix7/winpodx)](https://github.com/kernalix7/winpodx)
 
 **Works on**
 
-[![openSUSE](https://img.shields.io/badge/openSUSE-Tumbleweed%20%7C%20Leap%2015.6%20%7C%20Leap%2016.0%20%7C%20Slowroll-73BA25?logo=opensuse&logoColor=white)](https://www.opensuse.org/)
-[![Fedora](https://img.shields.io/badge/Fedora-42%20%7C%2043-294172?logo=fedora&logoColor=white)](https://fedoraproject.org/)
-[![Debian](https://img.shields.io/badge/Debian-12%20%7C%2013-A81D33?logo=debian&logoColor=white)](https://www.debian.org/)
-[![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20%7C%2025.04%20%7C%2025.10-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
-[![RHEL family](https://img.shields.io/badge/RHEL%2FAlma%2FRocky-9%20%7C%2010-EE0000?logo=redhat&logoColor=white)](https://www.redhat.com/)
-[![Arch](https://img.shields.io/badge/Arch-AUR-1793D1?logo=archlinux&logoColor=white)](https://archlinux.org/)
+[![openSUSE](https://img.shields.io/badge/openSUSE-Tumbleweed%20%7C%20Leap%2015.6%20%7C%20Leap%2016.0%20%7C%20Slowroll-73BA25?style=flat-square&logo=opensuse&logoColor=white)](https://www.opensuse.org/)
+[![Fedora](https://img.shields.io/badge/Fedora-42%20%7C%2043-294172?style=flat-square&logo=fedora&logoColor=white)](https://fedoraproject.org/)
+[![Debian](https://img.shields.io/badge/Debian-12%20%7C%2013-A81D33?style=flat-square&logo=debian&logoColor=white)](https://www.debian.org/)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20%7C%2025.04%20%7C%2025.10-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![RHEL family](https://img.shields.io/badge/RHEL%2FAlma%2FRocky-9%20%7C%2010-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
+[![Arch](https://img.shields.io/badge/Arch-AUR-1793D1?style=flat-square&logo=archlinux&logoColor=white)](https://archlinux.org/)
 
 [English](../README.md) | **한국어**
 
