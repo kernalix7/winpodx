@@ -9,7 +9,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 363 passed](https://img.shields.io/badge/Tests-363%20passed-brightgreen.svg)](#테스트)
+[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#상태)
+[![Tests: 407 passed](https://img.shields.io/badge/Tests-407%20passed-brightgreen.svg)](#테스트)
 
 [English](../README.md) | **한국어**
 
@@ -18,6 +19,9 @@
 </div>
 
 ---
+
+> ### 상태: 베타 (v0.2.0.x)
+> winpodx는 아직 활발히 개발 중입니다. 설치 경로, FreeRDP RemoteApp 통합, Windows-side runtime apply, discovery 흐름이 v0.1.9 → v0.2.0.x 동안 많이 개선됐지만, 여전히 거친 부분이 남아있을 수 있습니다 — 특히 첫 설치 시 (Windows VM 첫 부팅에 5~10분 소요; 진행 상황은 `winpodx pod wait-ready --logs` 로 확인). 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
 
