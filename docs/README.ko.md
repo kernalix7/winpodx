@@ -45,20 +45,26 @@ winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://g
 
 Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있습니다:
 
-| | winapps | LinOffice | winpodx |
-|---|---------|-----------|---------|
-| 핵심 기술 | dockur/windows + FreeRDP | dockur/windows + FreeRDP | dockur/windows + FreeRDP |
-| 설정 | 수동 (셸 스크립트, 설정 파일, RDP 테스트) | 원라인 스크립트 | **제로 설정** (첫 실행 시 자동) |
-| 앱 범위 | 모든 Windows 앱 | Office 전용 | **모든 Windows 앱** |
-| 언어 | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
-| 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.9+ (3.11+ 는 stdlib; 3.9/3.10 은 `tomli`)** |
-| 자동 일시정지 | 없음 | 없음 | **있음** |
-| 비밀번호 로테이션 | 없음 | 없음 | **있음 (7일 주기)** |
-| HiDPI | 없음 | 없음 | **자동 감지** |
-| 사운드 / 프린터 | 없음 | 없음 | **있음 (기본 활성화)** |
-| USB 공유 | 없음 | 없음 | **있음 (자동 드라이브 매핑)** |
-| 시스템 트레이 | 없음 | 없음 | **Qt6 트레이** |
-| 라이선스 | MIT | AGPL-3.0 | **MIT** |
+| | winapps | LinOffice | winboat | winpodx |
+|---|---|---|---|---|
+| 핵심 기술 | dockur + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur + FreeRDP |
+| 설정 | 수동 (셸 + 설정 파일 + RDP 테스트) | 원라인 스크립트 | 원클릭 GUI 설치 | **제로 설정** (첫 실행 시 자동) |
+| 인터페이스 | CLI 만 | CLI 만 | Electron GUI | **Qt6 GUI + CLI + 트레이** |
+| 앱 범위 | 모든 Windows 앱 | Office 전용 | 모든 Windows 앱 | 모든 Windows 앱 |
+| 언어 | Shell (86%) | Shell + Python | TypeScript / Vue / Go | **Python (100%)** |
+| 런타임 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP, Podman** |
+| 자동 일시정지 / 재개 | 없음 | 없음 | 명시 안됨 | **있음 (idle timeout)** |
+| 비밀번호 회전 | 없음 | 없음 | 명시 안됨 | **있음 (7일, 원자적)** |
+| HiDPI 자동 감지 | 없음 | 없음 | 명시 안됨 | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |
+| 사운드 기본 | 없음 | 없음 | 있음 (FreeRDP) | 있음 (FreeRDP) |
+| 프린터 리다이렉션 기본 | 없음 | 없음 | 명시 안됨 | 있음 (FreeRDP) |
+| USB 드라이브 자동 매핑 | 없음 | 없음 | 스마트카드 패스스루 | **드라이브 서브폴더 → 드라이브 문자 (FileSystemWatcher)** |
+| 디스커버리 (설치된 앱 자동 스캔) | 없음 | 없음 | 있음 | **있음 (Registry + Start Menu + UWP + choco/scoop)** |
+| 멀티 세션 RDP | 없음 | 없음 | 명시 안됨 | **있음 (번들 rdprrap, 최대 10)** |
+| 오프라인 / 에어갭 설치 | 없음 | 없음 | 없음 | **있음 (`--source` + `--image-tar`)** |
+| 라이선스 | MIT | AGPL-3.0 | MIT | MIT |
+
+> winboat 가 가장 가까운 동급 프로젝트이고 영감 중 하나입니다. winpodx 는 다른 조합을 추구합니다 — Electron 대신 stdlib 중심 Python + Qt6, 더 깊은 자동 설정 (auto suspend, 7일 비밀번호 회전, 다중 DE HiDPI), 명시적 에어갭 설치 경로. 두 프로젝트 모두 dockur/windows 위에 빌드되어 있고, 그 생태계는 어떤 한 앱보다도 큽니다.
 
 ## winpodx vs Wine
 
@@ -67,8 +73,9 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 | 필요한 게... | 사용 |
 |---|---|
 | 오래된 Win32 앱, 인디 게임, 가벼운 유틸 | **Wine / Bottles / Lutris** |
+| GPU 가속 게임 / 3D 앱 (DirectX 9 ~ 12) | **Wine** — DXVK / VKD3D 가 거의 네이티브 프레임 레이트. winpodx 는 GPU 패스스루 기본 미지원, QEMU CPU 렌더링은 훨씬 느림. (VFIO 기반 GPU 패스스루는 가능하지만 별도 수동 설정 필요, 패키징 안 됨.) |
 | Outlook + Teams + OneDrive 풀 통합된 Microsoft 365 | **winpodx** |
-| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | **winpodx** |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | winpodx — 단 무거운 GPU 효과는 CPU bound (위 GPU 행 참조) |
 | 안티치트 게임 (Valorant, EAC, BattlEye 계열) | **TBD** — 안티치트마다 VM 감지 정책 다름 (Vanguard 는 TPM 2.0 + 하이퍼바이저 없음 요구, EAC 는 대부분 VM 차단, VAC 는 관대). 본격 사용 전 테스트 필요. |
 | DRM 무거운 소프트웨어 / 하드웨어 동글 앱 | **winpodx** |
 | 커널 모드 드라이버 동반 앱 (일부 VPN, 보안 소프트웨어) | **winpodx** |
@@ -77,7 +84,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 | IE 전용 레거시 사내 웹앱 | **winpodx** |
 | "대충 됨" 이 허용 안 되는 모든 경우 | **winpodx** |
 
-Wine 은 동작할 때 빠르고 가볍습니다. winpodx 는 **100% Windows 기능 호환성** 으로 이깁니다 — 진짜 Windows 커널 위에서 앱이 돌고, FreeRDP RemoteApp 으로 Linux 데스크톱에 네이티브 윈도로 렌더링될 뿐입니다.
+Wine 은 속도와 GPU (DXVK/VKD3D 가 깔끔히 번역해줄 때) 에서 이깁니다. winpodx 는 **그 외 모든 경우에서 100% Windows 기능 호환성** 으로 이깁니다 — 진짜 Windows 커널 위에서 앱이 돌고, FreeRDP RemoteApp 으로 Linux 데스크톱에 네이티브 윈도로 렌더링될 뿐입니다.
 
 ## 주요 기능
 
@@ -105,12 +112,14 @@ Wine 은 동작할 때 빠르고 가볍습니다. winpodx 는 **100% Windows 기
 **주변기기 및 공유**
 - **클립보드**: 양방향 복사-붙여넣기 (텍스트 + 이미지) 기본 활성화
 - **사운드**: RDP 오디오 스트리밍 (`/sound:sys:alsa`) 기본 활성화
-- **프린터**: Linux 프린터를 RDP 리다이렉션으로 Windows에 공유
-- **USB 드라이브**: `/drive:media`로 자동 공유, 세션 시작 후 꽂은 USB도 접근 가능
-- **USB 장치**: FreeRDP urbdrc 플러그인 사용 가능 시 네이티브 USB 리다이렉션 (`/usb:auto`)
-- **USB 자동 드라이브 매핑**: Windows 측 FileSystemWatcher 스크립트가 USB 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑
-- **홈 디렉토리**: `\\tsclient\home`으로 파일 접근 공유
-- **데스크탑 바로가기**: Windows 바탕화면에 `\\tsclient\home` ("Home"), `\\tsclient\media` ("USB") 바로가기를 최초 부팅 시 자동 생성
+- **프린터**: Linux 프린터를 Windows 로 RDP 리다이렉션 (기본)
+- **USB 드라이브**: Linux 마운트 트리가 `\\tsclient\media` 로 공유; 세션 시작 후 꽂힌 드라이브도 서브폴더로 접근 가능
+- **USB 드라이브 자동 매핑**: Windows 측 FileSystemWatcher 스크립트가 `\\tsclient\media\<USB>` 서브폴더를 드라이브 문자 (E:, F:, ...) 로 자동 매핑
+- **USB 장치 패스스루**: `/usb:auto` 가 allowlist 에 있지만 **기본 비활성화** — FreeRDP 빌드에 urbdrc 플러그인 있으면 `extra_flags` 로 opt-in
+- **홈 디렉토리**: `\\tsclient\home` 으로 공유 (기본)
+- **데스크탑 바로가기**: 첫 부팅 시 Windows 바탕화면에 `\\tsclient\home` ("Home"), `\\tsclient\media` ("USB") 바로가기 자동 생성
+
+**GPU 가속:** 아직 미지원. dockur/windows 가 QEMU/KVM + 소프트웨어 그래픽으로 동작 — DirectX 무거운 게임 / 3D 앱은 CPU bound. VFIO 기반 GPU 패스스루는 가능하지만 패키징 안 됨. (GPU 필요한 경우 [winpodx vs Wine](#winpodx-vs-wine) 참조 — Wine + DXVK 가 정답.)
 
 </td><td width="50%">
 
@@ -384,7 +393,7 @@ winpodx config import             # 기존 winapps.conf 가져오기
 | **프린터** | Linux 프린터를 Windows에 공유 (`/printer`) | 활성화 |
 | **홈 디렉토리** | `\\tsclient\home`으로 공유 (`+home-drive`) | 활성화 |
 | **USB 드라이브** | 미디어 폴더를 `\\tsclient\media`로 공유 (`/drive:media`); 세션 시작 후 꽂은 USB도 하위 폴더로 접근 가능 | 활성화 |
-| **USB 장치** | 네이티브 USB 리다이렉션 (`/usb:auto`); FreeRDP urbdrc 플러그인 필요 | 활성화 (드라이브 공유로 폴백) |
+| **USB 장치 패스스루** | 네이티브 USB 리다이렉션 (`/usb:auto`) — FreeRDP urbdrc 플러그인 필요 | **opt-in** (`extra_flags` 로 활성화) |
 | **USB 드라이브 매핑** | Windows 측 스크립트가 USB 하위 폴더를 드라이브 문자(E:, F:, ...)로 자동 매핑 (FileSystemWatcher) | 활성화 |
 
 ### USB 드라이브 흐름

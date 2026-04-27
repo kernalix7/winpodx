@@ -45,20 +45,26 @@ winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur
 
 Existing tools for running Windows apps on Linux all have trade-offs:
 
-| | winapps | LinOffice | winpodx |
-|---|---------|-----------|---------|
-| Core tech | dockur/windows + FreeRDP | dockur/windows + FreeRDP | dockur/windows + FreeRDP |
-| Setup | Manual (shell scripts, config files, RDP testing) | One-liner script | **Zero-config** (auto on first launch) |
-| App scope | Any Windows app | Office only | **Any Windows app** |
-| Language | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
-| Dependencies | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.9+ (stdlib on 3.11+; `tomli` on 3.9/3.10)** |
-| Auto suspend | No | No | **Yes** |
-| Password rotation | No | No | **Yes (7-day cycle)** |
-| HiDPI | No | No | **Auto-detect** |
-| Sound / Printer | No | No | **Yes (default)** |
-| USB sharing | No | No | **Yes (auto drive mapping)** |
-| System tray | No | No | **Qt6 tray** |
-| License | MIT | AGPL-3.0 | **MIT** |
+| | winapps | LinOffice | winboat | winpodx |
+|---|---|---|---|---|
+| Core tech | dockur + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur + FreeRDP |
+| Setup | Manual (shell + config + RDP testing) | One-liner script | One-click GUI installer | **Zero-config** (auto on first launch) |
+| Interface | CLI only | CLI only | Electron GUI | **Qt6 GUI + CLI + tray** |
+| App scope | Any Windows app | Office only | Any Windows app | Any Windows app |
+| Language | Shell (86%) | Shell + Python | TypeScript / Vue / Go | **Python (100%)** |
+| Runtime deps | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP, Podman** |
+| Auto suspend / resume | No | No | Not documented | **Yes (idle timeout)** |
+| Password rotation | No | No | Not documented | **Yes (7-day, atomic)** |
+| HiDPI auto-detect | No | No | Not documented | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |
+| Sound default | No | No | Yes (FreeRDP) | Yes (FreeRDP) |
+| Printer redirection default | No | No | Not documented | Yes (FreeRDP) |
+| USB drive auto-mapping | No | No | Smartcard passthrough | **Drive subfolders → drive letters via FileSystemWatcher** |
+| Discovery (auto-scan installed apps) | No | No | Yes | **Yes (Registry + Start Menu + UWP + choco/scoop)** |
+| Multi-session RDP | No | No | Not documented | **Yes (bundled rdprrap, up to 10)** |
+| Offline / air-gapped install | No | No | No | **Yes (`--source` + `--image-tar`)** |
+| License | MIT | AGPL-3.0 | MIT | MIT |
+
+> winboat is the closest peer in scope and was an inspiration. We focus on a different mix — stdlib-leaning Python + Qt6 instead of Electron, deeper auto-config (auto suspend, 7-day password rotation, multi-DE HiDPI), and an explicit air-gapped install path. Both projects build on dockur/windows; that ecosystem is bigger than any one app.
 
 ## winpodx vs Wine
 
@@ -67,9 +73,10 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | When you need... | Use |
 |---|---|
 | Older Win32 apps, indie games, lightweight utilities | **Wine / Bottles / Lutris** |
+| GPU-accelerated games / 3D apps (DirectX 9 – 12) | **Wine** — DXVK / VKD3D give near-native frame rates. winpodx has no GPU passthrough by default; QEMU CPU rendering is much slower. (GPU passthrough via VFIO is a manual bring-your-own setup — not yet packaged.) |
 | Microsoft 365 with full Outlook + Teams + OneDrive integration | **winpodx** |
-| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | **winpodx** |
-| Anti-cheat games (Valorant, EAC, BattlEye) | **TBD** — anti-cheats vary by VM-detection policy (Vanguard requires TPM 2.0 + no hypervisor, EAC mostly blocks VMs, VAC is lenient). Test before committing. |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | winpodx — but heavy GPU effects will be CPU-bound (see GPU row above) |
+| Anti-cheat games (Valorant, EAC, BattlEye) | **TBD** — anti-cheats vary by VM-detection policy (Vanguard needs TPM 2.0 + no hypervisor, EAC mostly blocks VMs, VAC is lenient). Test before committing. |
 | DRM-heavy software / hardware dongle apps | **winpodx** |
 | Apps that ship kernel-mode drivers (some VPNs, security suites) | **winpodx** |
 | Banking / tax / government tools with regional certificates | **winpodx** |
@@ -77,7 +84,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | IE-only legacy enterprise web apps | **winpodx** |
 | Anything where "mostly works" isn't acceptable | **winpodx** |
 
-Wine wins on speed and lightness when it works. winpodx wins on **100% Windows feature parity** because it *is* Windows — every app is running on a real Windows kernel, just rendered into your Linux desktop as a native window via FreeRDP RemoteApp.
+Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. winpodx wins on **100% Windows feature parity** for everything else — every app runs on a real Windows kernel, rendered into your Linux desktop as a native window via FreeRDP RemoteApp.
 
 ## Key Features
 
@@ -105,12 +112,14 @@ Wine wins on speed and lightness when it works. winpodx wins on **100% Windows f
 **Peripherals & Sharing**
 - **Clipboard**: Bidirectional copy-paste (text + images) enabled by default
 - **Sound**: RDP audio streaming (`/sound:sys:alsa`) enabled by default
-- **Printer**: Linux printers shared to Windows via RDP redirection
-- **USB drives**: Auto-shared via `/drive:media`; plugged after session start still accessible
-- **USB devices**: Native USB redirection (`/usb:auto`) when FreeRDP urbdrc plugin is available
-- **USB auto drive mapping**: Windows-side FileSystemWatcher script maps USB folders to drive letters (E:, F:, ...) automatically
-- **Home directory**: Shared as `\\tsclient\home` for file access
+- **Printer**: Linux printers shared to Windows via RDP redirection (default)
+- **USB drives**: Linux mount tree shared as `\\tsclient\media`; drives plugged after session start are still accessible as subfolders
+- **USB drive auto-mapping**: Windows-side FileSystemWatcher script auto-maps `\\tsclient\media\<USB>` subfolders to drive letters (E:, F:, ...)
+- **USB device passthrough**: `/usb:auto` is allowlisted but **not enabled by default** — opt in via `extra_flags` if your FreeRDP build ships the urbdrc plugin
+- **Home directory**: Shared as `\\tsclient\home` (default)
 - **Desktop shortcuts**: Windows desktop auto-populated with `\\tsclient\home` ("Home") and `\\tsclient\media` ("USB") shortcuts during first boot
+
+**GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [winpodx vs Wine](#winpodx-vs-wine) — Wine + DXVK is the right tool when you need GPU.)
 
 </td><td width="50%">
 
@@ -388,7 +397,7 @@ winpodx config import             # Import existing winapps.conf
 | **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
 | **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
 | **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders | Enabled |
-| **USB devices** | Native USB redirection (`/usb:auto`); requires FreeRDP urbdrc plugin | Enabled (fallback to drive sharing) |
+| **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
 | **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
 
 ### USB Drive Flow
