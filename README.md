@@ -1,33 +1,27 @@
 <div align="center">
 
-<img src="data/winpodx-icon.svg" alt="winpodx" width="128">
+<img src="CI.png" alt="winpodx" width="220">
 
 # winpodx
 
 ### Click an app. Word opens. That's it.
 
-Native Linux windows for every Windows app — real icons, real `WM_CLASS`,
-pin-to-taskbar. Powered by FreeRDP RemoteApp + dockur/windows. Zero config.
+<p>Native Linux windows for every Windows app — real icons, real <code>WM_CLASS</code>,<br>
+pin-to-taskbar. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
 <pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
 
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange?style=for-the-badge)](#status-beta)
-[![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=blue)](https://github.com/kernalix7/winpodx/releases)
+[![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#status-beta)
+[![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
 
-<br>
-
-[![License](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-411%20passed-2EA44F?style=flat-square)](#testing)
+[![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![tests](https://img.shields.io/badge/tests-411-2EA44F?style=flat-square)](#testing)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
+[![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
+[![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
 
-[![Stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&logo=github&color=yellow)](https://github.com/kernalix7/winpodx/stargazers)
-[![Pulls](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&label=pulls&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
-[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=kernalix7.winpodx&left_text=visitors)](https://github.com/kernalix7/winpodx)
-
-<br>
-
-**Works on**
+###### Works on
 
 [![openSUSE](https://img.shields.io/badge/openSUSE-73BA25?style=flat-square&logo=opensuse&logoColor=white)](https://www.opensuse.org/)
 [![Fedora](https://img.shields.io/badge/Fedora-294172?style=flat-square&logo=fedora&logoColor=white)](https://fedoraproject.org/)
@@ -36,18 +30,16 @@ pin-to-taskbar. Powered by FreeRDP RemoteApp + dockur/windows. Zero config.
 [![RHEL family](https://img.shields.io/badge/RHEL%20%2F%20Alma%20%2F%20Rocky-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
 [![Arch (AUR pending)](https://img.shields.io/badge/Arch%20(AUR)-pending-lightgrey?style=flat-square&logo=archlinux&logoColor=white)](packaging/aur/README.md)
 
-<br>
-
-**English** | [한국어](docs/README.ko.md)
+<sub>**English** &nbsp;·&nbsp; [한국어](docs/README.ko.md) &nbsp;·&nbsp; [Quick start](#quick-start) &nbsp;·&nbsp; [Features](#key-features) &nbsp;·&nbsp; [CLI](#cli-reference) &nbsp;·&nbsp; [Multi-session](#multi-session-rdp)</sub>
 
 </div>
 
 ---
 
-> **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
-
 > ### Status: Beta
 > winpodx is in active development (v0.2.0.x). The install path, FreeRDP RemoteApp integration, Windows-side runtime applies, and discovery flow have all been hardened across the v0.1.9 → v0.2.0.x line, but you should still expect rough edges — especially on first install (Windows VM first-boot can take 5–10 minutes; see `winpodx pod wait-ready --logs` for live progress). Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+
+**No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
 winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 

@@ -1,33 +1,27 @@
 <div align="center">
 
-<img src="../data/winpodx-icon.svg" alt="winpodx" width="128">
+<img src="../CI.png" alt="winpodx" width="220">
 
 # winpodx
 
 ### 앱 클릭하면 Word 가 뜬다. 끝.
 
-Windows 앱마다 네이티브 Linux 윈도 — 진짜 아이콘, 진짜 `WM_CLASS`,
-태스크바 핀 가능. FreeRDP RemoteApp + dockur/windows. Zero config.
+<p>Windows 앱마다 네이티브 Linux 윈도 — 진짜 아이콘, 진짜 <code>WM_CLASS</code>,<br>
+태스크바 핀 가능. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
 <pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
 
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange?style=for-the-badge)](#상태-베타)
-[![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=blue)](https://github.com/kernalix7/winpodx/releases)
+[![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#상태-베타)
+[![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
 
-<br>
-
-[![License](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](../LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-411%20passed-2EA44F?style=flat-square)](#테스트)
+[![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](../LICENSE)
+[![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![tests](https://img.shields.io/badge/tests-411-2EA44F?style=flat-square)](#테스트)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
+[![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
+[![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
 
-[![Stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&logo=github&color=yellow)](https://github.com/kernalix7/winpodx/stargazers)
-[![Pulls](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&label=pulls&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
-[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=kernalix7.winpodx&left_text=visitors)](https://github.com/kernalix7/winpodx)
-
-<br>
-
-**Works on**
+###### Works on
 
 [![openSUSE](https://img.shields.io/badge/openSUSE-73BA25?style=flat-square&logo=opensuse&logoColor=white)](https://www.opensuse.org/)
 [![Fedora](https://img.shields.io/badge/Fedora-294172?style=flat-square&logo=fedora&logoColor=white)](https://fedoraproject.org/)
@@ -36,18 +30,16 @@ Windows 앱마다 네이티브 Linux 윈도 — 진짜 아이콘, 진짜 `WM_CLA
 [![RHEL family](https://img.shields.io/badge/RHEL%20%2F%20Alma%20%2F%20Rocky-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
 [![Arch (AUR pending)](https://img.shields.io/badge/Arch%20(AUR)-pending-lightgrey?style=flat-square&logo=archlinux&logoColor=white)](../packaging/aur/README.md)
 
-<br>
-
-[English](../README.md) | **한국어**
+<sub>[English](../README.md) &nbsp;·&nbsp; **한국어** &nbsp;·&nbsp; [빠른 시작](#빠른-시작) &nbsp;·&nbsp; [기능](#주요-기능) &nbsp;·&nbsp; [CLI](#cli-레퍼런스) &nbsp;·&nbsp; [멀티세션](#multi-session-rdp)</sub>
 
 </div>
 
 ---
 
-> **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — pin 가능, alt-tab 됨, 파일 연결 동작. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
-
 > ### 상태: 베타
 > winpodx는 활발히 개발 중입니다 (v0.2.0.x). 설치 경로, FreeRDP RemoteApp 통합, Windows-side runtime apply, discovery 흐름이 v0.1.9 → v0.2.0.x 동안 많이 개선됐지만, 여전히 거친 부분이 남아있을 수 있습니다 — 특히 첫 설치 시 (Windows VM 첫 부팅에 5~10분 소요; 진행 상황은 `winpodx pod wait-ready --logs` 로 확인). 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+
+**Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — pin 가능, alt-tab 됨, 파일 연결 동작. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
 winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
 
