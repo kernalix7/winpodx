@@ -9,7 +9,16 @@
 
 ## [Unreleased]
 
-## [0.2.0.8] - 2026-04-27
+## [0.2.0.9] - 2026-04-27
+
+### 수정
+- **두 번째 앱 실행 시 독립 윈도 대신 Windows "Select a session to reconnect to" 다이얼로그 발생.** Windows 기본값이 사용자당 동시 FreeRDP RemoteApp 세션 거부 → 첫 앱 이후의 모든 launch 가 기존 세션에 묻히거나 reconnect 다이얼로그 띄움. v0.2.0.9 에서 self-heal apply 체인에 `_apply_multi_session` 추가 — 게스트 안에서 `rdprrap-conf --enable` 호출해 termsrv.dll 패치 활성화 → launch 마다 독립 세션. 멱등 (이미 활성화돼있으면 no-op), 구 OEM 번들에 rdprrap-conf 없으면 best-effort skip.
+- **앱이 Windows 에서 삭제됐는데 DE 메뉴에 `.desktop` 엔트리가 계속 남음.** v0.2.0.8 이 refresh 자동 설치는 추가했지만 사라진 앱의 엔트리 제거는 안 했음. v0.2.0.9 에서 refresh 진짜 양방향 동기화: `list_available_apps()` 에 없는 모든 `winpodx-*.desktop` 파일이 (해당 아이콘과 함께) 제거됨 → Windows 에서 Office 지우면 다음 refresh 때 launcher 에서도 Word/Excel/PowerPoint 사라짐. `~/.local/share/winpodx/data/apps/` 의 사용자 작성 엔트리는 보존.
+
+### 변경
+- **README 정보량 강화.** 상단에 `for-the-badge` 스타일 "Status: Beta" + "Latest release" 배지. 그 아래 표준 shields (license, Python, backend, language, tests, CI). 소셜 행 (stars, forks, watchers, unique visitors). 활동 행 (issues, PRs, last commit, code size). EN + KO 동기화.
+
+
 
 ### 수정
 - **`winpodx app refresh` 가 앱 발견은 하지만 데스크톱 메뉴에는 등록 안 함.** refresh 경로는 `app.toml` + 아이콘을 `~/.local/share/winpodx/discovered/` 에 저장만 하고, 실제 `.desktop` 엔트리는 별도 `winpodx app install-all` 명령으로만 생성됐음 → 사용자가 "Discovered N app(s)" 메시지 본 후 DE 메뉴에 앱이 안 떠서 혼란. v0.2.0.8 부터 refresh 가 발견된 앱들의 .desktop 엔트리를 자동 설치 (best-effort, 실패는 warn 만 하고 refresh 자체는 계속) + 아이콘 캐시 갱신.

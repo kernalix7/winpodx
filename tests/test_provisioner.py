@@ -295,7 +295,7 @@ def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch)
     # RDP alive -> must trigger early return AFTER runtime apply.
     monkeypatch.setattr(provisioner, "check_rdp_port", lambda *a, **k: True)
 
-    calls = {"max_sessions": 0, "rdp_timeouts": 0, "oem_runtime_fixes": 0}
+    calls = {"max_sessions": 0, "rdp_timeouts": 0, "oem_runtime_fixes": 0, "multi_session": 0}
 
     def make_recorder(name):
         def f(c):
@@ -306,12 +306,21 @@ def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch)
     monkeypatch.setattr(provisioner, "_apply_max_sessions", make_recorder("max_sessions"))
     monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", make_recorder("rdp_timeouts"))
     monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", make_recorder("oem_runtime_fixes"))
+    monkeypatch.setattr(provisioner, "_apply_multi_session", make_recorder("multi_session"))
+    # Force the stamp short-circuit to be a no-op so the actual applies fire.
+    monkeypatch.setattr(provisioner, "_self_heal_already_done", lambda c: False)
+    monkeypatch.setattr(provisioner, "_record_self_heal_done", lambda c: None)
 
     result = provisioner.ensure_ready(cfg, timeout=1)
     assert result is cfg
-    # All three idempotent applies fired exactly once even though the
+    # All four idempotent applies fired exactly once even though the
     # function early-returned at the RDP-port check.
-    assert calls == {"max_sessions": 1, "rdp_timeouts": 1, "oem_runtime_fixes": 1}
+    assert calls == {
+        "max_sessions": 1,
+        "rdp_timeouts": 1,
+        "oem_runtime_fixes": 1,
+        "multi_session": 1,
+    }
 
 
 def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
@@ -336,6 +345,7 @@ def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
     monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", recorder)
     monkeypatch.setattr(provisioner, "_apply_max_sessions", recorder)
     monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", recorder)
+    monkeypatch.setattr(provisioner, "_apply_multi_session", recorder)
 
     provisioner.ensure_ready(cfg, timeout=1)
     # Stopped pod -> the early-branch `pod_status==RUNNING` guard prevents
@@ -369,7 +379,12 @@ def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
 
     monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
     result = provisioner.apply_windows_runtime_fixes(cfg)
-    assert set(result.keys()) == {"max_sessions", "rdp_timeouts", "oem_runtime_fixes"}
+    assert set(result.keys()) == {
+        "max_sessions",
+        "rdp_timeouts",
+        "oem_runtime_fixes",
+        "multi_session",
+    }
     for v in result.values():
         assert v == "ok"
 
@@ -514,9 +529,13 @@ class TestSelfHealStamp:
             "winpodx.core.provisioner._apply_oem_runtime_fixes",
             lambda cfg: called.append("oem"),
         )
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._apply_multi_session",
+            lambda cfg: called.append("multi"),
+        )
 
         _self_heal_apply(self._cfg())
-        assert called == [], "stamp must short-circuit all three applies"
+        assert called == [], "stamp must short-circuit all four applies"
 
     def test_runs_apply_when_stamp_missing(self, tmp_path, monkeypatch):
         from winpodx.core.provisioner import _self_heal_apply
@@ -531,6 +550,7 @@ class TestSelfHealStamp:
             ("_apply_max_sessions", "max"),
             ("_apply_rdp_timeouts", "rdp"),
             ("_apply_oem_runtime_fixes", "oem"),
+            ("_apply_multi_session", "multi"),
         ):
 
             def make(m):
@@ -542,7 +562,7 @@ class TestSelfHealStamp:
             monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", make(marker))
 
         _self_heal_apply(self._cfg())
-        assert called == ["max", "rdp", "oem"]
+        assert called == ["max", "rdp", "oem", "multi"]
 
     def test_runs_apply_when_pod_restarted(self, tmp_path, monkeypatch):
         """Stamp is from a previous container start; current StartedAt differs
@@ -565,6 +585,7 @@ class TestSelfHealStamp:
             ("_apply_max_sessions", "max"),
             ("_apply_rdp_timeouts", "rdp"),
             ("_apply_oem_runtime_fixes", "oem"),
+            ("_apply_multi_session", "multi"),
         ):
 
             def make(m):
@@ -576,7 +597,7 @@ class TestSelfHealStamp:
             monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", make(marker))
 
         _self_heal_apply(self._cfg())
-        assert called == ["max", "rdp", "oem"], "pod restart must invalidate stamp"
+        assert called == ["max", "rdp", "oem", "multi"], "pod restart must invalidate stamp"
 
     def test_stamp_written_after_three_successes(self, tmp_path, monkeypatch):
         from winpodx import __version__
@@ -591,6 +612,7 @@ class TestSelfHealStamp:
             "_apply_max_sessions",
             "_apply_rdp_timeouts",
             "_apply_oem_runtime_fixes",
+            "_apply_multi_session",
         ):
             monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", lambda cfg: None)
 

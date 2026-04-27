@@ -317,8 +317,62 @@ def _record_self_heal_done(cfg: Config) -> None:
         log.debug("could not write self-heal stamp: %s", e)
 
 
+def _apply_multi_session(cfg: Config) -> None:
+    """v0.2.0.9: enable rdprrap multi-session by default.
+
+    Without this, the 2nd FreeRDP RemoteApp launch against the same
+    Windows account triggers a "Select a session to reconnect to"
+    dialog (Windows refuses concurrent sessions per user by default)
+    instead of giving the user an independent app window. rdprrap
+    patches termsrv.dll so each connection becomes its own session.
+
+    Idempotent — rdprrap-conf --enable is a no-op when already enabled.
+    Tolerates rdprrap-conf missing (e.g. older OEM builds) by treating
+    the apply as a successful skip rather than a hard failure, since
+    the rest of the self-heal block is more important than this UX
+    nicety.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    candidates = [
+        r"C:\OEM\rdprrap\rdprrap-conf.exe",
+        r"C:\OEM\rdprrap-conf.exe",
+        r"C:\Program Files\rdprrap\rdprrap-conf.exe",
+    ]
+    payload_lines = ["$rdprrap = $null"]
+    for path in candidates:
+        payload_lines.append(
+            f"if (-not $rdprrap -and (Test-Path '{path}')) {{ $rdprrap = '{path}' }}"
+        )
+    payload_lines += [
+        "if (-not $rdprrap) {",
+        "    Write-Output 'rdprrap-conf not found; multi-session left disabled'",
+        "    exit 0",  # treat missing rdprrap as best-effort skip, not failure
+        "}",
+        "& $rdprrap --enable | Out-Null",
+        "Write-Output 'multi-session enabled'",
+        "exit 0",
+    ]
+    payload = "\n".join(payload_lines) + "\n"
+
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    try:
+        result = run_in_windows(cfg, payload, description="apply-multi-session")
+    except WindowsExecError as e:
+        log.warning("multi_session: channel failure: %s", e)
+        raise
+    if result.rc != 0:
+        log.warning("multi_session: rc=%d stderr=%s", result.rc, result.stderr.strip())
+        # Non-fatal — log and continue. rdprrap not being patched
+        # doesn't break winpodx, just means each app share a session.
+        return
+    log.info("multi_session: %s", result.stdout.strip())
+
+
 def _self_heal_apply(cfg: Config) -> None:
-    """Run the three idempotent runtime applies in self-healing mode.
+    """Run the four idempotent runtime applies in self-healing mode.
 
     Distinct from ``apply_windows_runtime_fixes`` which is called from
     the explicit ``winpodx pod apply-fixes`` CLI / GUI button: that one
@@ -345,12 +399,14 @@ def _self_heal_apply(cfg: Config) -> None:
 
     from winpodx.core.windows_exec import WindowsExecError
 
-    succeeded = 0
-    for name, fn in (
+    applies = (
         ("max_sessions", _apply_max_sessions),
         ("rdp_timeouts", _apply_rdp_timeouts),
         ("oem_runtime_fixes", _apply_oem_runtime_fixes),
-    ):
+        ("multi_session", _apply_multi_session),
+    )
+    succeeded = 0
+    for name, fn in applies:
         try:
             fn(cfg)
             succeeded += 1
@@ -360,11 +416,11 @@ def _self_heal_apply(cfg: Config) -> None:
                 name,
                 e,
             )
-            return  # Don't waste 60s × 2 more on a still-booting guest.
+            return  # Don't waste FreeRDP retries on a still-booting guest.
         except Exception as e:  # noqa: BLE001
             log.warning("%s: self-heal apply failed: %s", name, e)
 
-    if succeeded == 3:
+    if succeeded == len(applies):
         _record_self_heal_done(cfg)
 
 
@@ -389,6 +445,7 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
         ("max_sessions", _apply_max_sessions),
         ("rdp_timeouts", _apply_rdp_timeouts),
         ("oem_runtime_fixes", _apply_oem_runtime_fixes),
+        ("multi_session", _apply_multi_session),
     ):
         try:
             fn(cfg)

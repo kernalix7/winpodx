@@ -141,17 +141,21 @@ def _register_desktop_entries(discovered) -> None:
     apps so they appear in the user's DE menu without a separate
     ``winpodx app install-all`` step.
 
-    Loads the merged AppInfo list (so user-authored entries survive) and
-    installs entries for any discovered slug. Keeps the legacy bundled-app
-    behavior of ``_install_all`` in setup_cmd / cli/app, but scoped to the
-    discovered set so we don't re-install unrelated entries on every refresh.
+    v0.2.0.9: bidirectional sync — also remove stale `winpodx-*.desktop`
+    entries that no longer correspond to any app on disk. Without this,
+    apps uninstalled from the Windows guest stayed in the user's DE
+    menu indefinitely (kernalix7 reported on 2026-04-27: "예전에
+    만들었다고 해서 없어졌는데 계속 남아있으면 안돼"). User-authored
+    entries (under ~/.local/share/winpodx/apps/) are preserved.
     """
     from winpodx.core.app import list_available_apps
-    from winpodx.desktop.entry import install_desktop_entry
+    from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
     from winpodx.desktop.icons import update_icon_cache
+    from winpodx.utils.paths import applications_dir
 
     discovered_slugs = {d.slug or d.name for d in discovered}
     available = {a.name: a for a in list_available_apps()}
+    available_slugs = set(available)
     installed = 0
     for slug in discovered_slugs:
         info = available.get(slug)
@@ -166,12 +170,41 @@ def _register_desktop_entries(discovered) -> None:
                 file=sys.stderr,
             )
 
-    if installed:
+    # v0.2.0.9: prune any winpodx-*.desktop file whose slug is not in the
+    # current AppInfo set (covers both vanished discoveries and old
+    # bundled / removed entries).
+    removed = 0
+    apps_dir = applications_dir()
+    if apps_dir.exists():
+        for entry in apps_dir.glob("winpodx-*.desktop"):
+            stem = entry.stem  # winpodx-<slug>
+            if not stem.startswith("winpodx-"):
+                continue
+            slug = stem[len("winpodx-") :]
+            # Don't touch the GUI launcher itself or any winpodx-internal entry.
+            if slug in {"", "gui", "launcher"}:
+                continue
+            if slug in available_slugs:
+                continue
+            try:
+                remove_desktop_entry(slug)
+                removed += 1
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"  warning: could not remove stale entry {slug}: {e}",
+                    file=sys.stderr,
+                )
+
+    if installed or removed:
         try:
             update_icon_cache()
         except Exception as e:  # noqa: BLE001
             print(f"  warning: icon cache refresh failed: {e}", file=sys.stderr)
+    if installed:
         print(f"  Registered {installed} app(s) in your desktop menu.", file=sys.stderr)
+    if removed:
+        suffix = "y" if removed == 1 else "ies"
+        print(f"  Removed {removed} stale desktop entr{suffix}.", file=sys.stderr)
 
 
 def _run_app(name: str, file: str | None, wait: bool) -> None:
