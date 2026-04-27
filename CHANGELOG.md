@@ -9,7 +9,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.10] - 2026-04-27
+## [0.2.0.11] - 2026-04-28
+
+### Fixed
+- **Second SEGV path on GUI Refresh — Python ref / Qt deleteLater race.** v0.2.0.10 fixed the QImage-on-worker-thread crash, but a second SEGV remained: `_on_refresh_succeeded` and `_on_refresh_failed` slots both did `self._refresh_worker = None` immediately. Python's reference drop raced with Qt's queued `worker.deleteLater()` event — whichever ran second hit a freed/being-freed `QObject` and crashed in `~QObject()` on the worker thread. Coredump on 2026-04-28 confirmed: top frame `QObject::~QObject` on worker thread 2282062, while main thread 2281803 was inside the slot's PySide6 `callPythonMetaMethod` dispatch. Fix: drop `_refresh_worker` / `_refresh_thread` Python refs only via `_cleanup_refresh_worker`, bound to `thread.finished` which fires after both Qt objects are fully torn down. Worker `deleteLater` keeps running on the worker thread's own event loop as Qt intends — no Python GC interference.
+
+
 
 ### Fixed
 - **GUI Refresh button SEGV.** `_DiscoveryWorker.run()` (Qt worker thread) calls `persist_discovered` which calls `_validate_png_bytes`, which used `QImage.loadFromData` — but Qt + libgallium / Mesa state on Wayland race when `QImage` is touched off the main thread, dropping a `Signal: 11 (SEGV)` core. v0.2.0.10 has `_validate_png_bytes` short-circuit to the stdlib chunk walker when `threading.current_thread() is not threading.main_thread()`. The walker still enforces CRC + dimension caps + IEND terminator, so off-main-thread callers get a slightly slower but crash-free path.
