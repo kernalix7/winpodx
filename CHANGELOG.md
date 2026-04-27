@@ -9,7 +9,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.9] - 2026-04-27
+## [0.2.0.10] - 2026-04-27
+
+### Fixed
+- **GUI Refresh button SEGV.** `_DiscoveryWorker.run()` (Qt worker thread) calls `persist_discovered` which calls `_validate_png_bytes`, which used `QImage.loadFromData` — but Qt + libgallium / Mesa state on Wayland race when `QImage` is touched off the main thread, dropping a `Signal: 11 (SEGV)` core. v0.2.0.10 has `_validate_png_bytes` short-circuit to the stdlib chunk walker when `threading.current_thread() is not threading.main_thread()`. The walker still enforces CRC + dimension caps + IEND terminator, so off-main-thread callers get a slightly slower but crash-free path.
+- **install.sh wait-ready 600s → 1800s.** A fresh install (`uninstall --purge` then re-install) downloads the ~7.5 GB Windows ISO + extracts + Sysprep + OEM apply + final reboot — that's 15–30 min on first run, way past 600s. The previous timeout fired before the Windows VM had even booted, leaving the user with `[FAIL] Timeout waiting for Windows ready (09:56)`. The 1800s budget covers a fresh install on typical hardware; subsequent installs reuse the cached ISO and finish in 2–5 min.
+- **GUI Refresh now installs `.desktop` entries** (parity with `winpodx app refresh` CLI). Previously only the CLI path inline-registered entries — clicking Refresh in the GUI updated the discovered tree but left `~/.local/share/applications/` untouched. v0.2.0.10's `_DiscoveryWorker` runs `_sync_desktop_entries` which is the worker-thread-safe sibling of `cli/app._register_desktop_entries`.
+
+### Added
+- **GUI auto-discovery on first boot.** When the pod transitions to `running` AND the app list is empty, the main window auto-fires the Refresh worker after a 2s settle. Solves the case where install.sh's wait-ready timed out before Sysprep finished — the user opens the GUI later, sees the pod running, and discovery just happens.
+- **GUI live log streaming.** The Tools/Terminal page gained four new buttons: `Live (pod)` and `Live (app)` start a `tail -F` against the container or `~/.config/winpodx/winpodx.log` and stream new lines into the panel as they appear; `App log` shows the last 200 lines of winpodx's own application log; `Stop tail` kills the active streamer. Previously the page only showed the last 100 pod logs as a one-shot snapshot.
+
+
 
 ### Fixed
 - **2nd app launch triggered Windows "Select a session to reconnect to" dialog instead of showing an independent app window.** Default Windows refuses concurrent FreeRDP RemoteApp sessions per user, so every app launched after the first one was either embedded in the existing session or popped a reconnect dialog. v0.2.0.9 adds `_apply_multi_session` to the self-heal apply chain — it shells out to `rdprrap-conf --enable` inside the guest so termsrv.dll allows independent per-launch sessions. Idempotent (no-op when already enabled), tolerates rdprrap-conf missing on older OEM bundles by treating it as a best-effort skip.

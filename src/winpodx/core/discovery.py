@@ -702,6 +702,17 @@ def _validate_png_bytes(data: bytes) -> bool:
     if not data or not data.startswith(b"\x89PNG\r\n\x1a\n"):
         return False
 
+    # v0.2.0.10: only use QImage on the main thread. From a Qt worker
+    # thread (e.g. the GUI Refresh button's _DiscoveryWorker), creating
+    # a QImage races with libgallium / Mesa state owned by the main
+    # GUI thread and segfaults the whole process — observed on
+    # openSUSE Tumbleweed Wayland 2026-04-27. The stdlib walker is
+    # strict enough on its own (CRC + dimension caps + IEND
+    # terminator), so off-main-thread callers get a slightly slower
+    # but crash-free path.
+    if threading.current_thread() is not threading.main_thread():
+        return _validate_png_stdlib(data)
+
     # Fast path: PySide6 is already a GUI-team dependency, and QImage
     # is strict about truncated/corrupt streams.
     try:

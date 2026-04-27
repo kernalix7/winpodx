@@ -420,11 +420,14 @@ log "Installed winpodx GUI launcher and icon"
 # progress + tailed container logs so the user can see what's happening.
 # Skip with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
-    log "Waiting for Windows VM to finish first-boot (up to 10 min)..."
-    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 600 --logs || {
-        warn "Windows first-boot didn't complete in 10 minutes."
+    log "Waiting for Windows VM to finish first-boot (up to 30 min)..."
+    log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply."
+    log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
+    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 1800 --logs || {
+        warn "Windows first-boot didn't complete in 30 minutes."
         warn "You can re-run \`winpodx pod wait-ready --logs\` to keep waiting,"
-        warn "or just launch any app from the menu — the apply / discovery will fire automatically."
+        warn "or just launch any app from the menu once \`winpodx pod status\`"
+        warn "reports the pod is fully up — the apply / discovery will fire automatically."
     }
 fi
 
