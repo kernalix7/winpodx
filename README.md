@@ -1,34 +1,34 @@
 <div align="center">
 
-<img src="data/winpodx-icon.svg" alt="winpodx" width="128">
+<img src="CI.svg" alt="winpodx" width="320">
 
-# winpodx
+### Click an app. Word opens. That's it.
 
-**Run Windows applications seamlessly on Linux**
+<p>Native Linux windows for every Windows app — real icons, real <code>WM_CLASS</code>,<br>
+pin-to-taskbar. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange?style=for-the-badge)](#status-beta)
-[![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=informational)](https://github.com/kernalix7/winpodx/releases)
+<pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
-[![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Language: Python](https://img.shields.io/badge/Language-Python%20100%25-yellow.svg)](https://www.python.org/)
-[![Tests: 411 passed](https://img.shields.io/badge/Tests-411%20passed-brightgreen.svg)](#testing)
-[![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
+[![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#status-beta)
+[![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
 
-[![GitHub stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/network/members)
-[![GitHub watchers](https://img.shields.io/github/watchers/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/watchers)
-[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=kernalix7.winpodx&left_text=visitors)](https://github.com/kernalix7/winpodx)
+[![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![tests](https://img.shields.io/badge/tests-411-2EA44F?style=flat-square)](#testing)
+[![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
+[![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
+[![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
 
-[![Issues](https://img.shields.io/github/issues/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/issues)
-[![Pull requests](https://img.shields.io/github/issues-pr/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/pulls)
-[![Last commit](https://img.shields.io/github/last-commit/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/commits/main)
-[![Code size](https://img.shields.io/github/languages/code-size/kernalix7/winpodx)](https://github.com/kernalix7/winpodx)
+###### Works on
 
-**English** | [한국어](docs/README.ko.md)
+[![openSUSE](https://img.shields.io/badge/openSUSE-73BA25?style=flat-square&logo=opensuse&logoColor=white)](https://www.opensuse.org/)
+[![Fedora](https://img.shields.io/badge/Fedora-294172?style=flat-square&logo=fedora&logoColor=white)](https://fedoraproject.org/)
+[![Debian](https://img.shields.io/badge/Debian-A81D33?style=flat-square&logo=debian&logoColor=white)](https://www.debian.org/)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![RHEL family](https://img.shields.io/badge/RHEL%20%2F%20Alma%20%2F%20Rocky-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
+[![Arch (AUR pending)](https://img.shields.io/badge/Arch%20(AUR)-pending-lightgrey?style=flat-square&logo=archlinux&logoColor=white)](packaging/aur/README.md)
 
-*Click an app icon in your Linux menu. Word opens. That's it.*
+<sub>**English** &nbsp;·&nbsp; [한국어](docs/README.ko.md) &nbsp;·&nbsp; [Quick start](#quick-start) &nbsp;·&nbsp; [Features](#key-features) &nbsp;·&nbsp; [CLI](#cli-reference) &nbsp;·&nbsp; [Multi-session](#multi-session-rdp)</sub>
 
 </div>
 
@@ -37,26 +37,54 @@
 > ### Status: Beta
 > winpodx is in active development (v0.2.0.x). The install path, FreeRDP RemoteApp integration, Windows-side runtime applies, and discovery flow have all been hardened across the v0.1.9 → v0.2.0.x line, but you should still expect rough edges — especially on first install (Windows VM first-boot can take 5–10 minutes; see `winpodx pod wait-ready --logs` for live progress). Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
+**No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
+
 winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 
 ## Why winpodx?
 
 Existing tools for running Windows apps on Linux all have trade-offs:
 
-| | winapps | LinOffice | winpodx |
-|---|---------|-----------|---------|
-| Core tech | dockur/windows + FreeRDP | dockur/windows + FreeRDP | dockur/windows + FreeRDP |
-| Setup | Manual (shell scripts, config files, RDP testing) | One-liner script | **Zero-config** (auto on first launch) |
-| App scope | Any Windows app | Office only | **Any Windows app** |
-| Language | Shell (86%) | Shell (61%) + Python | **Python (100%)** |
-| Dependencies | curl, dialog, git, netcat | Podman, FreeRDP | **Python 3.9+ (stdlib on 3.11+; `tomli` on 3.9/3.10)** |
-| Auto suspend | No | No | **Yes** |
-| Password rotation | No | No | **Yes (7-day cycle)** |
-| HiDPI | No | No | **Auto-detect** |
-| Sound / Printer | No | No | **Yes (default)** |
-| USB sharing | No | No | **Yes (auto drive mapping)** |
-| System tray | No | No | **Qt6 tray** |
-| License | MIT | AGPL-3.0 | **MIT** |
+| | winapps | LinOffice | winboat | winpodx |
+|---|---|---|---|---|
+| Core tech | dockur + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur + FreeRDP |
+| Setup | Manual (shell + config + RDP testing) | One-liner script | One-click GUI installer | **Zero-config** (auto on first launch) |
+| Interface | CLI only | CLI only | Electron GUI | **Qt6 GUI + CLI + tray** |
+| App scope | Any Windows app | Office only | Any Windows app | Any Windows app |
+| Language | Shell (86%) | Shell + Python | TypeScript / Vue / Go | **Python (100%)** |
+| Runtime deps | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP, Podman** |
+| Auto suspend / resume | No | No | Not documented | **Yes (idle timeout)** |
+| Password rotation | No | No | Not documented | **Yes (7-day, atomic)** |
+| HiDPI auto-detect | No | No | Not documented | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |
+| Sound default | No | No | Yes (FreeRDP) | Yes (FreeRDP) |
+| Printer redirection default | No | No | Not documented | Yes (FreeRDP) |
+| USB drive auto-mapping | No | No | Smartcard passthrough | **Drive subfolders → drive letters via FileSystemWatcher** |
+| Discovery (auto-scan installed apps) | No | No | Yes | **Yes (Registry + Start Menu + UWP + choco/scoop)** |
+| Multi-session RDP | No | No | Not documented | **Yes (bundled rdprrap, up to 10)** |
+| Offline / air-gapped install | No | No | No | **Yes (`--source` + `--image-tar`)** |
+| License | MIT | AGPL-3.0 | MIT | MIT |
+
+> winboat is the closest peer in scope and was an inspiration. We focus on a different mix — stdlib-leaning Python + Qt6 instead of Electron, deeper auto-config (auto suspend, 7-day password rotation, multi-DE HiDPI), and an explicit air-gapped install path. Both projects build on dockur/windows; that ecosystem is bigger than any one app.
+
+## winpodx vs Wine
+
+**winpodx is not a Wine replacement.** Wine translates Windows API calls; winpodx runs the actual Windows OS in a container. The two solve different problems and many users have both installed.
+
+| When you need... | Use |
+|---|---|
+| Older Win32 apps, indie games, lightweight utilities | **Wine / Bottles / Lutris** |
+| GPU-accelerated games / 3D apps (DirectX 9 – 12) | **Wine** — DXVK / VKD3D give near-native frame rates. winpodx has no GPU passthrough by default; QEMU CPU rendering is much slower. (GPU passthrough via VFIO is a manual bring-your-own setup — not yet packaged.) |
+| Microsoft 365 with full Outlook + Teams + OneDrive integration | **winpodx** |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | winpodx — but heavy GPU effects will be CPU-bound (see GPU row above) |
+| Anti-cheat games (Valorant, EAC, BattlEye) | **TBD** — anti-cheats vary by VM-detection policy (Vanguard needs TPM 2.0 + no hypervisor, EAC mostly blocks VMs, VAC is lenient). Test before committing. |
+| DRM-heavy software / hardware dongle apps | **winpodx** |
+| Apps that ship kernel-mode drivers (some VPNs, security suites) | **winpodx** |
+| Banking / tax / government tools with regional certificates | **winpodx** |
+| Visual Studio, WinUI 3 / WinRT, .NET features Wine hasn't caught up to | **winpodx** |
+| IE-only legacy enterprise web apps | **winpodx** |
+| Anything where "mostly works" isn't acceptable | **winpodx** |
+
+Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. winpodx wins on **100% Windows feature parity** for everything else — every app runs on a real Windows kernel, rendered into your Linux desktop as a native window via FreeRDP RemoteApp.
 
 ## Key Features
 
@@ -84,12 +112,14 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 **Peripherals & Sharing**
 - **Clipboard**: Bidirectional copy-paste (text + images) enabled by default
 - **Sound**: RDP audio streaming (`/sound:sys:alsa`) enabled by default
-- **Printer**: Linux printers shared to Windows via RDP redirection
-- **USB drives**: Auto-shared via `/drive:media`; plugged after session start still accessible
-- **USB devices**: Native USB redirection (`/usb:auto`) when FreeRDP urbdrc plugin is available
-- **USB auto drive mapping**: Windows-side FileSystemWatcher script maps USB folders to drive letters (E:, F:, ...) automatically
-- **Home directory**: Shared as `\\tsclient\home` for file access
+- **Printer**: Linux printers shared to Windows via RDP redirection (default)
+- **USB drives**: Linux mount tree shared as `\\tsclient\media`; drives plugged after session start are still accessible as subfolders
+- **USB drive auto-mapping**: Windows-side FileSystemWatcher script auto-maps `\\tsclient\media\<USB>` subfolders to drive letters (E:, F:, ...)
+- **USB device passthrough**: `/usb:auto` is allowlisted but **not enabled by default** — opt in via `extra_flags` if your FreeRDP build ships the urbdrc plugin
+- **Home directory**: Shared as `\\tsclient\home` (default)
 - **Desktop shortcuts**: Windows desktop auto-populated with `\\tsclient\home` ("Home") and `\\tsclient\media` ("USB") shortcuts during first boot
+
+**GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [winpodx vs Wine](#winpodx-vs-wine) — Wine + DXVK is the right tool when you need GPU.)
 
 </td><td width="50%">
 
@@ -100,7 +130,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 - Qt6 system tray + full Qt6 main window (Apps / Settings / Tools / Terminal pages)
 - Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
 - Windows build pinned to 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365-day feature-update defer)
-- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (WSearch / SysMain / WerSvc / DiagTrack)
+- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (DiagTrack / dmwappushservice / WSearch / SysMain)
 - High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS
 - Time sync: force Windows clock resync after host sleep/wake
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
@@ -130,7 +160,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
                      │   Windows Container (Podman) │
                      │   ┌──────────────────────┐   │
                      │   │  Word  Excel  PPT ... │   │
-                     │   │  (single-session RDP)  │   │
+                     │   │ multi-session/rdprrap │   │
                      │   └──────────────────────┘   │
                      │   127.0.0.1:3390 (TLS)       │
                      └─────────────────────────────┘
@@ -245,7 +275,7 @@ Download the matching `.deb` from the
 install:
 
 ```bash
-sudo apt install ./winpodx_0.1.7_all_debian13.deb   # pick your flavor
+sudo apt install ./winpodx_<version>_all_debian13.deb   # pick your flavor
 ```
 
 **AlmaLinux / Rocky / RHEL 9 & 10**
@@ -256,7 +286,7 @@ and install:
 
 ```bash
 sudo dnf install epel-release                     # el9 only
-sudo dnf install ./winpodx-0.1.7-1.noarch.el9.rpm   # or .el10.rpm
+sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm   # or .el10.rpm
 ```
 
 **Arch Linux (AUR)**
@@ -367,7 +397,7 @@ winpodx config import             # Import existing winapps.conf
 | **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
 | **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
 | **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders | Enabled |
-| **USB devices** | Native USB redirection (`/usb:auto`); requires FreeRDP urbdrc plugin | Enabled (fallback to drive sharing) |
+| **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
 | **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
 
 ### USB Drive Flow
@@ -533,7 +563,7 @@ winpodx/
 ├── config/oem/            # Windows OEM scripts (post-install)
 ├── scripts/windows/       # PowerShell scripts (debloat, time sync, USB mapping, app discovery)
 ├── .github/workflows/     # CI: lint + test + upstream update checker
-└── tests/                 # pytest test suite (363 tests)
+└── tests/                 # pytest test suite (411 tests)
 ```
 
 ## Supported Distros
@@ -550,7 +580,7 @@ winpodx/
 ```bash
 # From repo root (no install needed)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/ -v    # 225 tests
+python3 -m pytest tests/ -v    # 411 tests
 ruff check src/ tests/         # Lint
 ```
 
