@@ -9,7 +9,13 @@
 
 ## [Unreleased]
 
-## [0.2.0.7] - 2026-04-27
+## [0.2.0.8] - 2026-04-27
+
+### 수정
+- **`winpodx app refresh` 가 앱 발견은 하지만 데스크톱 메뉴에는 등록 안 함.** refresh 경로는 `app.toml` + 아이콘을 `~/.local/share/winpodx/discovered/` 에 저장만 하고, 실제 `.desktop` 엔트리는 별도 `winpodx app install-all` 명령으로만 생성됐음 → 사용자가 "Discovered N app(s)" 메시지 본 후 DE 메뉴에 앱이 안 떠서 혼란. v0.2.0.8 부터 refresh 가 발견된 앱들의 .desktop 엔트리를 자동 설치 (best-effort, 실패는 warn 만 하고 refresh 자체는 계속) + 아이콘 캐시 갱신.
+- **앱 실행할 때마다 PowerShell 창 깜빡임.** `ensure_ready` 의 self-heal apply 경로가 매 앱 실행마다 FreeRDP RemoteApp PowerShell payload 3개 발화. `-WindowStyle Hidden` 으로 작아져도 여전히 매번 눈에 띄게 깜빡임. apply 자체는 레지스트리 멱등이라 warm pod 에서 재실행해도 가시적 효과 없음 — 순수 노이즈. v0.2.0.8 부터 self-heal 성공 후 `~/.config/winpodx/.applies_stamp` 에 `<winpodx_version>:<container_StartedAt>` 기록 → 이후 launch 는 단축 회귀, pod 재시작 (TermService / NIC 설정 재적용 필요) 또는 winpodx 업그레이드 시에만 다시 발화.
+
+
 
 ### 수정
 - **빠른 컨테이너에서 `pod wait-ready --logs` 가 `[container]` 라인 하나도 안 띄움.** 두 가지 문제: (1) tail 을 `--tail 0` 으로 시작했는데 이건 "지금부터의 로그만 표시" 의미. 하지만 dockur 는 Windows ISO 다운로드 / 부팅 단계 메시지를 wait-ready 실행 *전에* 이미 출력 → 사용자에게 아무것도 안 보임. (2) `stdout` 만 drain. dockur 는 진행 메시지를 stdout (다운로드 byte/s) 과 stderr (부팅 단계) 로 나눠 출력해서 절반이 사라짐. v0.2.0.7 에서 `--tail 100` 으로 최근 컨텍스트 즉시 표시 + stdout/stderr 둘 다 병렬 스레드로 drain.

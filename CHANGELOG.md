@@ -9,7 +9,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.7] - 2026-04-27
+## [0.2.0.8] - 2026-04-27
+
+### Fixed
+- **`winpodx app refresh` discovered apps but never registered them in the desktop menu.** The refresh path persisted `app.toml` + icons under `~/.local/share/winpodx/discovered/` but the actual `.desktop` entries were only created by the separate `winpodx app install-all` command — so users saw "Discovered N app(s)" then had no apps in their DE menu. v0.2.0.8 has refresh auto-install entries for the discovered set inline (best-effort: failures are warned but don't abort the refresh) and refresh the icon cache afterwards.
+- **PowerShell window flashed on every app launch.** `ensure_ready`'s self-heal apply path fired three FreeRDP RemoteApp PowerShell payloads on every single app launch — even though `-WindowStyle Hidden` makes them tiny, they still flashed visibly each time, which got annoying fast. The applies are idempotent on the registry side, so re-running them on warm pods accomplished nothing visible. v0.2.0.8 stamps `~/.config/winpodx/.applies_stamp` with `<winpodx_version>:<container_StartedAt>` after a successful self-heal — subsequent launches short-circuit until the pod restarts (so TermService / NIC settings re-apply after a Windows reboot) or winpodx upgrades.
+
+
 
 ### Fixed
 - **`pod wait-ready --logs` showed no `[container]` lines on a fast container.** Two issues: (1) the tail was started with `--tail 0` which means "show only logs emitted from now onwards", but dockur often prints Windows ISO download progress + boot stage transitions *before* wait-ready runs — so the user saw nothing. (2) Only `stdout` was being drained; dockur splits progress across stdout (download bytes/sec) and stderr (boot phase), so half the messages were silently dropped. v0.2.0.7 bumps `--tail 100` so the user sees recent context immediately, and drains both streams in parallel threads.

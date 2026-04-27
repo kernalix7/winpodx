@@ -472,3 +472,128 @@ class TestWaitForWindowsResponsiveRetries:
         result = wait_for_windows_responsive(cfg, timeout=30)
         assert result is False
         assert len(attempts) >= 2, "must retry rather than bail on first failure"
+
+
+# --- v0.2.0.8: self-heal stamp prevents PS flash on every launch ---
+
+
+class TestSelfHealStamp:
+    """v0.2.0.8: _self_heal_apply must short-circuit when a stamp records the
+    same (winpodx version, container StartedAt) tuple already succeeded."""
+
+    def _cfg(self):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.container_name = "winpodx-windows"
+        return cfg
+
+    def test_skips_apply_when_stamp_matches(self, tmp_path, monkeypatch):
+        from winpodx import __version__
+        from winpodx.core.provisioner import _self_heal_apply
+
+        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._container_started_at", lambda cfg: "2026-04-27T10:00Z"
+        )
+        (tmp_path / ".applies_stamp").write_text(
+            f"{__version__}:2026-04-27T10:00Z\n", encoding="utf-8"
+        )
+
+        called: list[str] = []
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._apply_max_sessions",
+            lambda cfg: called.append("max"),
+        )
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._apply_rdp_timeouts",
+            lambda cfg: called.append("rdp"),
+        )
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._apply_oem_runtime_fixes",
+            lambda cfg: called.append("oem"),
+        )
+
+        _self_heal_apply(self._cfg())
+        assert called == [], "stamp must short-circuit all three applies"
+
+    def test_runs_apply_when_stamp_missing(self, tmp_path, monkeypatch):
+        from winpodx.core.provisioner import _self_heal_apply
+
+        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._container_started_at", lambda cfg: "2026-04-27T10:00Z"
+        )
+
+        called: list[str] = []
+        for fn_name, marker in (
+            ("_apply_max_sessions", "max"),
+            ("_apply_rdp_timeouts", "rdp"),
+            ("_apply_oem_runtime_fixes", "oem"),
+        ):
+
+            def make(m):
+                def _stub(cfg, _m=m):
+                    called.append(_m)
+
+                return _stub
+
+            monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", make(marker))
+
+        _self_heal_apply(self._cfg())
+        assert called == ["max", "rdp", "oem"]
+
+    def test_runs_apply_when_pod_restarted(self, tmp_path, monkeypatch):
+        """Stamp is from a previous container start; current StartedAt differs
+        → must re-run apply (TermService settings need to relaunch on
+        every Windows reboot)."""
+        from winpodx import __version__
+        from winpodx.core.provisioner import _self_heal_apply
+
+        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._container_started_at",
+            lambda cfg: "2026-04-27T11:00Z",  # different time
+        )
+        (tmp_path / ".applies_stamp").write_text(
+            f"{__version__}:2026-04-27T10:00Z\n", encoding="utf-8"
+        )
+
+        called: list[str] = []
+        for fn_name, marker in (
+            ("_apply_max_sessions", "max"),
+            ("_apply_rdp_timeouts", "rdp"),
+            ("_apply_oem_runtime_fixes", "oem"),
+        ):
+
+            def make(m):
+                def _stub(cfg, _m=m):
+                    called.append(_m)
+
+                return _stub
+
+            monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", make(marker))
+
+        _self_heal_apply(self._cfg())
+        assert called == ["max", "rdp", "oem"], "pod restart must invalidate stamp"
+
+    def test_stamp_written_after_three_successes(self, tmp_path, monkeypatch):
+        from winpodx import __version__
+        from winpodx.core.provisioner import _self_heal_apply
+
+        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "winpodx.core.provisioner._container_started_at",
+            lambda cfg: "2026-04-27T12:00Z",
+        )
+        for fn_name in (
+            "_apply_max_sessions",
+            "_apply_rdp_timeouts",
+            "_apply_oem_runtime_fixes",
+        ):
+            monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", lambda cfg: None)
+
+        _self_heal_apply(self._cfg())
+        stamp = (tmp_path / ".applies_stamp").read_text(encoding="utf-8").strip()
+        assert stamp == f"{__version__}:2026-04-27T12:00Z"
