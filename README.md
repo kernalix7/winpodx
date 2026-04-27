@@ -19,7 +19,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/network/members)
 [![GitHub watchers](https://img.shields.io/github/watchers/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/watchers)
-[![Visitors](https://hits.dwyl.com/kernalix7/winpodx.svg?style=flat&show=unique)](https://github.com/kernalix7/winpodx)
+[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=kernalix7.winpodx&left_text=visitors)](https://github.com/kernalix7/winpodx)
 
 [![Issues](https://img.shields.io/github/issues/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/issues)
 [![Pull requests](https://img.shields.io/github/issues-pr/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/pulls)
