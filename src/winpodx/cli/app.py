@@ -100,6 +100,14 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
 
     persist_discovered(apps)
 
+    # v0.2.0.8: auto-register .desktop entries so discovered apps land in
+    # the DE menu without a separate `winpodx app install-all` step.
+    # Previous releases persisted app.toml + icons but never created the
+    # XDG entries, so users saw "Discovered N apps" then no apps in the
+    # menu. Best-effort — failures are logged but don't abort refresh.
+    if apps:
+        _register_desktop_entries(apps)
+
     if as_json:
         import json
 
@@ -126,6 +134,44 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
                 print(f"  {a.name:<20} {a.full_name}")
         else:
             print("No apps discovered.")
+
+
+def _register_desktop_entries(discovered) -> None:
+    """v0.2.0.8: install .desktop + icon-cache entries for freshly-discovered
+    apps so they appear in the user's DE menu without a separate
+    ``winpodx app install-all`` step.
+
+    Loads the merged AppInfo list (so user-authored entries survive) and
+    installs entries for any discovered slug. Keeps the legacy bundled-app
+    behavior of ``_install_all`` in setup_cmd / cli/app, but scoped to the
+    discovered set so we don't re-install unrelated entries on every refresh.
+    """
+    from winpodx.core.app import list_available_apps
+    from winpodx.desktop.entry import install_desktop_entry
+    from winpodx.desktop.icons import update_icon_cache
+
+    discovered_slugs = {d.slug or d.name for d in discovered}
+    available = {a.name: a for a in list_available_apps()}
+    installed = 0
+    for slug in discovered_slugs:
+        info = available.get(slug)
+        if info is None:
+            continue
+        try:
+            install_desktop_entry(info)
+            installed += 1
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"  warning: could not install desktop entry for {slug}: {e}",
+                file=sys.stderr,
+            )
+
+    if installed:
+        try:
+            update_icon_cache()
+        except Exception as e:  # noqa: BLE001
+            print(f"  warning: icon cache refresh failed: {e}", file=sys.stderr)
+        print(f"  Registered {installed} app(s) in your desktop menu.", file=sys.stderr)
 
 
 def _run_app(name: str, file: str | None, wait: bool) -> None:

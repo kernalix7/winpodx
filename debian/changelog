@@ -1,3 +1,18 @@
+winpodx (0.2.0.8) unstable; urgency=medium
+
+  * Fixed: `winpodx app refresh` discovered apps but never registered
+    them in the desktop menu. Refresh now auto-installs .desktop
+    entries for discovered apps (best-effort) + refreshes the icon
+    cache.
+  * Fixed: PowerShell window flashed on every app launch because
+    ensure_ready's self-heal apply re-fired three FreeRDP RemoteApp
+    PowerShell payloads on every click. Self-heal now stamps
+    .applies_stamp with <winpodx_version>:<container_StartedAt>
+    and short-circuits on subsequent launches until pod restart or
+    winpodx upgrade.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 16:00:00 +0900
+
 winpodx (0.2.0.7) unstable; urgency=medium
 
   * Fixed: pod wait-ready --logs showed no [container] lines.
