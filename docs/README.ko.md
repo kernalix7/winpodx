@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../CI.png" alt="winpodx" width="220">
+<img src="../CI.svg" alt="winpodx" width="280">
 
 # winpodx
 
