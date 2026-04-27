@@ -9,7 +9,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Tests: 363 passed](https://img.shields.io/badge/Tests-363%20passed-brightgreen.svg)](#testing)
+[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#status)
+[![Tests: 407 passed](https://img.shields.io/badge/Tests-407%20passed-brightgreen.svg)](#testing)
 
 **English** | [한국어](docs/README.ko.md)
 
@@ -18,6 +19,9 @@
 </div>
 
 ---
+
+> ### Status: Beta (v0.2.0.x)
+> winpodx is under active development. The install path, FreeRDP RemoteApp integration, Windows-side runtime applies, and discovery flow have all been hardened across the v0.1.9 → v0.2.0.x line, but you should still expect rough edges — especially on first install (Windows VM first-boot can take 5–10 minutes; see `winpodx pod wait-ready --logs` for live progress). Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 
