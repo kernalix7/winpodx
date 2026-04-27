@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "winpodx"
-version = "0.2.0.8"
+version = "0.2.0.9"
 description = "Windows app integration for Linux desktop"
 readme = "README.md"
 license = "MIT"

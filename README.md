@@ -6,11 +6,25 @@
 
 **Run Windows applications seamlessly on Linux**
 
+[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange?style=for-the-badge)](#status-beta)
+[![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=informational)](https://github.com/kernalix7/winpodx/releases)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
 [![Backend: Podman](https://img.shields.io/badge/Backend-Podman-purple.svg)](https://podman.io/)
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#status)
-[![Tests: 407 passed](https://img.shields.io/badge/Tests-407%20passed-brightgreen.svg)](#testing)
+[![Language: Python](https://img.shields.io/badge/Language-Python%20100%25-yellow.svg)](https://www.python.org/)
+[![Tests: 411 passed](https://img.shields.io/badge/Tests-411%20passed-brightgreen.svg)](#testing)
+[![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
+
+[![GitHub stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/network/members)
+[![GitHub watchers](https://img.shields.io/github/watchers/kernalix7/winpodx?style=social)](https://github.com/kernalix7/winpodx/watchers)
+[![Visitors](https://hits.dwyl.com/kernalix7/winpodx.svg?style=flat&show=unique)](https://github.com/kernalix7/winpodx)
+
+[![Issues](https://img.shields.io/github/issues/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/pulls)
+[![Last commit](https://img.shields.io/github/last-commit/kernalix7/winpodx)](https://github.com/kernalix7/winpodx/commits/main)
+[![Code size](https://img.shields.io/github/languages/code-size/kernalix7/winpodx)](https://github.com/kernalix7/winpodx)
 
 **English** | [한국어](docs/README.ko.md)
 
@@ -20,8 +34,8 @@
 
 ---
 
-> ### Status: Beta (v0.2.0.x)
-> winpodx is under active development. The install path, FreeRDP RemoteApp integration, Windows-side runtime applies, and discovery flow have all been hardened across the v0.1.9 → v0.2.0.x line, but you should still expect rough edges — especially on first install (Windows VM first-boot can take 5–10 minutes; see `winpodx pod wait-ready --logs` for live progress). Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> ### Status: Beta
+> winpodx is in active development (v0.2.0.x). The install path, FreeRDP RemoteApp integration, Windows-side runtime applies, and discovery flow have all been hardened across the v0.1.9 → v0.2.0.x line, but you should still expect rough edges — especially on first install (Windows VM first-boot can take 5–10 minutes; see `winpodx pod wait-ready --logs` for live progress). Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 

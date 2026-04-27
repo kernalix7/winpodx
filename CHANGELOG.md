@@ -9,7 +9,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.8] - 2026-04-27
+## [0.2.0.9] - 2026-04-27
+
+### Fixed
+- **2nd app launch triggered Windows "Select a session to reconnect to" dialog instead of showing an independent app window.** Default Windows refuses concurrent FreeRDP RemoteApp sessions per user, so every app launched after the first one was either embedded in the existing session or popped a reconnect dialog. v0.2.0.9 adds `_apply_multi_session` to the self-heal apply chain — it shells out to `rdprrap-conf --enable` inside the guest so termsrv.dll allows independent per-launch sessions. Idempotent (no-op when already enabled), tolerates rdprrap-conf missing on older OEM bundles by treating it as a best-effort skip.
+- **Stale `.desktop` entries lingered in the user's DE menu after apps were removed from the Windows guest.** v0.2.0.8 added auto-install on refresh but never removed entries that no longer matched a discovered app. v0.2.0.9 makes refresh truly bidirectional: any `winpodx-*.desktop` not corresponding to an entry in `list_available_apps()` is removed (along with its icons), so uninstalling Office on the Windows side actually drops Word/Excel/PowerPoint from the launcher on next refresh. User-authored entries under `~/.local/share/winpodx/data/apps/` are preserved.
+
+### Changed
+- **README is more informative.** Big "Status: Beta" + "Latest release" badges at the top in `for-the-badge` style. Standard shields row (license, Python, backend, language, tests, CI) below. Social row (stars, forks, watchers, unique visitors). Activity row (issues, PRs, last commit, code size). EN + KO mirrored.
+
+
 
 ### Fixed
 - **`winpodx app refresh` discovered apps but never registered them in the desktop menu.** The refresh path persisted `app.toml` + icons under `~/.local/share/winpodx/discovered/` but the actual `.desktop` entries were only created by the separate `winpodx app install-all` command — so users saw "Discovered N app(s)" then had no apps in their DE menu. v0.2.0.8 has refresh auto-install entries for the discovered set inline (best-effort: failures are warned but don't abort the refresh) and refresh the icon cache afterwards.

@@ -1,3 +1,20 @@
+winpodx (0.2.0.9) unstable; urgency=medium
+
+  * Fixed: 2nd app launch triggered Windows "Select a session to
+    reconnect to" dialog. Default Windows refuses concurrent
+    RemoteApp sessions per user. Self-heal apply now also runs
+    rdprrap-conf --enable so each launch gets its own session.
+    Idempotent; tolerates missing rdprrap-conf as best-effort skip.
+  * Fixed: stale .desktop entries lingered after apps removed from
+    the Windows guest. Refresh now bidirectionally syncs — any
+    winpodx-*.desktop not corresponding to an entry in
+    list_available_apps() is removed (along with its icons).
+    User-authored entries are preserved.
+  * Changed: README more informative — prominent Beta + Latest
+    release badges at top, plus social/activity shields rows.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Apr 2026 17:00:00 +0900
+
 winpodx (0.2.0.8) unstable; urgency=medium
 
   * Fixed: `winpodx app refresh` discovered apps but never registered
