@@ -12,26 +12,31 @@ pin-to-taskbar. Powered by FreeRDP RemoteApp + dockur/windows. Zero config.
 <pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
 
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange?style=for-the-badge)](#status-beta)
-[![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=informational)](https://github.com/kernalix7/winpodx/releases)
+[![Latest release](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&color=blue)](https://github.com/kernalix7/winpodx/releases)
 
-[![License](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-411%20passed-brightgreen?style=flat-square)](#testing)
+<br>
+
+[![License](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-411%20passed-2EA44F?style=flat-square)](#testing)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 
-[![Stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&logo=github)](https://github.com/kernalix7/winpodx/stargazers)
-[![Pull requests](https://img.shields.io/github/issues-pr/kernalix7/winpodx?style=flat-square&label=pulls&color=blueviolet)](https://github.com/kernalix7/winpodx/pulls)
-[![Downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=brightgreen)](https://github.com/kernalix7/winpodx/releases)
+[![Stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&logo=github&color=yellow)](https://github.com/kernalix7/winpodx/stargazers)
+[![Pulls](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&label=pulls&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=kernalix7.winpodx&left_text=visitors)](https://github.com/kernalix7/winpodx)
+
+<br>
 
 **Works on**
 
-[![openSUSE](https://img.shields.io/badge/openSUSE-Tumbleweed%20%7C%20Leap%2015.6%20%7C%20Leap%2016.0%20%7C%20Slowroll-73BA25?style=flat-square&logo=opensuse&logoColor=white)](https://www.opensuse.org/)
-[![Fedora](https://img.shields.io/badge/Fedora-42%20%7C%2043-294172?style=flat-square&logo=fedora&logoColor=white)](https://fedoraproject.org/)
-[![Debian](https://img.shields.io/badge/Debian-12%20%7C%2013-A81D33?style=flat-square&logo=debian&logoColor=white)](https://www.debian.org/)
-[![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20%7C%2025.04%20%7C%2025.10-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
-[![RHEL family](https://img.shields.io/badge/RHEL%2FAlma%2FRocky-9%20%7C%2010-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
-[![Arch](https://img.shields.io/badge/Arch-AUR-1793D1?style=flat-square&logo=archlinux&logoColor=white)](https://archlinux.org/)
+[![openSUSE](https://img.shields.io/badge/openSUSE-73BA25?style=flat-square&logo=opensuse&logoColor=white)](https://www.opensuse.org/)
+[![Fedora](https://img.shields.io/badge/Fedora-294172?style=flat-square&logo=fedora&logoColor=white)](https://fedoraproject.org/)
+[![Debian](https://img.shields.io/badge/Debian-A81D33?style=flat-square&logo=debian&logoColor=white)](https://www.debian.org/)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![RHEL family](https://img.shields.io/badge/RHEL%20%2F%20Alma%20%2F%20Rocky-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
+[![Arch (AUR pending)](https://img.shields.io/badge/Arch%20(AUR)-pending-lightgrey?style=flat-square&logo=archlinux&logoColor=white)](packaging/aur/README.md)
+
+<br>
 
 **English** | [한국어](docs/README.ko.md)
 
