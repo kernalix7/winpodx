@@ -69,7 +69,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 | 오래된 Win32 앱, 인디 게임, 가벼운 유틸 | **Wine / Bottles / Lutris** |
 | Outlook + Teams + OneDrive 풀 통합된 Microsoft 365 | **winpodx** |
 | Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | **winpodx** |
-| 안티치트 게임 (Valorant, EAC, BattlEye 계열) | **winpodx** |
+| 안티치트 게임 (Valorant, EAC, BattlEye 계열) | **TBD** — 안티치트마다 VM 감지 정책 다름 (Vanguard 는 TPM 2.0 + 하이퍼바이저 없음 요구, EAC 는 대부분 VM 차단, VAC 는 관대). 본격 사용 전 테스트 필요. |
 | DRM 무거운 소프트웨어 / 하드웨어 동글 앱 | **winpodx** |
 | 커널 모드 드라이버 동반 앱 (일부 VPN, 보안 소프트웨어) | **winpodx** |
 | 지역 인증서 필요한 은행 / 세무 / 공공기관 도구 | **winpodx** |

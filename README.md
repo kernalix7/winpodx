@@ -69,7 +69,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | Older Win32 apps, indie games, lightweight utilities | **Wine / Bottles / Lutris** |
 | Microsoft 365 with full Outlook + Teams + OneDrive integration | **winpodx** |
 | Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | **winpodx** |
-| Anti-cheat games (Valorant, EAC titles, BattlEye) | **winpodx** |
+| Anti-cheat games (Valorant, EAC, BattlEye) | **TBD** — anti-cheats vary by VM-detection policy (Vanguard requires TPM 2.0 + no hypervisor, EAC mostly blocks VMs, VAC is lenient). Test before committing. |
 | DRM-heavy software / hardware dongle apps | **winpodx** |
 | Apps that ship kernel-mode drivers (some VPNs, security suites) | **winpodx** |
 | Banking / tax / government tools with regional certificates | **winpodx** |
