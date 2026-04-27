@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="CI.svg" alt="winpodx" width="280">
-
-# winpodx
+<img src="CI.svg" alt="winpodx" width="320">
 
 ### Click an app. Word opens. That's it.
 
