@@ -33,11 +33,18 @@ class TestHasPending:
 class TestListPending:
     def test_returns_canonical_order(self, patched_config_dir):
         # Even if the file has them in random order, list_pending returns
-        # them in the canonical (wait_ready, migrate, discovery) order.
+        # them in the canonical (wait_ready, migrate, apply_fixes,
+        # discovery) order. v0.2.2.1 added apply_fixes between migrate
+        # and discovery.
         (patched_config_dir / ".pending_setup").write_text(
-            "discovery\nwait_ready\nmigrate\n", encoding="utf-8"
+            "discovery\napply_fixes\nwait_ready\nmigrate\n", encoding="utf-8"
         )
-        assert pending.list_pending() == ["wait_ready", "migrate", "discovery"]
+        assert pending.list_pending() == [
+            "wait_ready",
+            "migrate",
+            "apply_fixes",
+            "discovery",
+        ]
 
     def test_filters_unknown_steps(self, patched_config_dir):
         (patched_config_dir / ".pending_setup").write_text(
