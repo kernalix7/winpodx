@@ -1,3 +1,40 @@
+winpodx (0.2.1) unstable; urgency=medium
+
+  * Added: utils.pending resume system. New
+    ~/.config/winpodx/.pending_setup marker tracks install.sh steps
+    that couldn't complete (wait_ready / migrate / discovery). Next
+    CLI invocation and every GUI startup picks up the marker and
+    runs the missing steps in canonical order. Each step removes
+    itself on success; file deleted once empty. 10 unit tests.
+  * Added: GUI Quick Start dialog on first launch. Shows backend /
+    FreeRDP / pod / RDP listener / app count snapshot. Dismiss
+    writes .welcomed marker.
+  * Added: GUI Logs page auto-tails winpodx app log on navigate.
+    `tail -F ~/.config/winpodx/winpodx.log` streams internal logs
+    alongside the existing container-log buttons; auto-stop on
+    leaving the page.
+  * Changed: install.sh wait-ready timeout 1800s -> 3600s (1 hour).
+    Slow first installs can complete in-line instead of bailing
+    out; anything past the hour is picked up by the resume hook.
+  * Changed: pod.max_sessions default 10 -> 25, pod.ram_gb default
+    4 -> 6 GB. 10 was tight for real-world simultaneous app use.
+    Setup wizard tier auto-detect tunes both per machine.
+  * Added: utils.specs auto-tier detector. Host CPU + RAM determine
+    one of three presets (low/mid/high) for VM cpu_cores + ram_gb.
+    Interactive setup pre-fills the recommendation.
+  * Fixed: zombie disconnected sessions caused "Select a session to
+    reconnect to" dialog every launch. MaxDisconnectionTime was 0
+    (no timeout = sessions never logoff). v0.2.1 sets it to 30000
+    (30 sec) in both install.bat and _apply_rdp_timeouts so closed
+    sessions auto-clean.
+  * Fixed: _apply_max_sessions wrote to the wrong registry key
+    (Terminal Server\MaxInstanceCount, no \WinStations\RDP-Tcp).
+    Windows reads the WinStations subkey, so cfg changes since
+    session-cap shipping silently no-op'd. Now writes the correct
+    key and bumps install.bat OEM-time ceiling 10 -> 50 to match.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 28 Apr 2026 09:30:00 +0900
+
 winpodx (0.2.0.11) unstable; urgency=high
 
   * Fixed: second SEGV path on GUI Refresh. v0.2.0.10 fixed the

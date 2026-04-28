@@ -134,19 +134,35 @@ def handle_setup(args: argparse.Namespace) -> None:
             cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
 
     if cfg.pod.backend in ("podman", "docker"):
-        if not non_interactive:
-            cpu_input = _ask("CPU cores [4]: ")
+        # v0.2.1: detect host specs and pick a tier preset (low/mid/high)
+        # so defaults match the user's machine instead of always being
+        # 4-core / 4 GB. Non-interactive mode applies the recommendation
+        # directly; interactive mode shows it as the suggested default.
+        from winpodx.utils.specs import detect_host_specs, recommend_tier
+
+        host = detect_host_specs()
+        tier = recommend_tier(host)
+        if non_interactive:
+            cfg.pod.cpu_cores = tier.cpu_cores
+            cfg.pod.ram_gb = tier.ram_gb
+        else:
+            print(
+                f"\nHost specs: {host.cpu_threads} CPU threads, "
+                f"{host.ram_gb} GB RAM. Recommended tier: {tier.label} "
+                f"(VM: {tier.cpu_cores} cores, {tier.ram_gb} GB)."
+            )
+            cpu_input = _ask(f"CPU cores [{tier.cpu_cores}]: ")
             try:
-                cfg.pod.cpu_cores = int(cpu_input) if cpu_input else 4
+                cfg.pod.cpu_cores = int(cpu_input) if cpu_input else tier.cpu_cores
             except ValueError:
-                print("Invalid number, using default: 4")
-                cfg.pod.cpu_cores = 4
-            ram_input = _ask("RAM (GB) [4]: ")
+                print(f"Invalid number, using default: {tier.cpu_cores}")
+                cfg.pod.cpu_cores = tier.cpu_cores
+            ram_input = _ask(f"RAM (GB) [{tier.ram_gb}]: ")
             try:
-                cfg.pod.ram_gb = int(ram_input) if ram_input else 4
+                cfg.pod.ram_gb = int(ram_input) if ram_input else tier.ram_gb
             except ValueError:
-                print("Invalid number, using default: 4")
-                cfg.pod.ram_gb = 4
+                print(f"Invalid number, using default: {tier.ram_gb}")
+                cfg.pod.ram_gb = tier.ram_gb
 
         _generate_compose(cfg)
         _recreate_container(cfg)

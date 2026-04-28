@@ -153,17 +153,29 @@ def _apply_max_sessions(cfg: Config) -> None:
     # picks up MaxInstanceCount on its next natural cycle (next pod boot
     # or next manual `winpodx pod restart`). Idempotent so repeated runs
     # eventually converge.
+    # v0.2.1: MaxInstanceCount lives under \WinStations\RDP-Tcp — NOT
+    # at Terminal Server root. Previous releases wrote the value to
+    # the wrong subkey, which Windows silently ignored, so changing
+    # cfg.max_sessions had no effect (only install.bat's initial cap
+    # at OEM time was authoritative). Now both keys are written:
+    # WinStations\RDP-Tcp\MaxInstanceCount (the one Windows actually
+    # reads) and Terminal Server\fSingleSessionPerUser (single-user
+    # gate, separate key, lives at Terminal Server root).
     payload = (
-        f"$p = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server'\n"
+        "$pTs   = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server'\n"
+        "$pTcp  = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\"
+        "Terminal Server\\WinStations\\RDP-Tcp'\n"
         f"$desired = {desired}\n"
-        "$current = (Get-ItemProperty $p -Name MaxInstanceCount "
+        "$current = (Get-ItemProperty $pTcp -Name MaxInstanceCount "
         "-ErrorAction SilentlyContinue).MaxInstanceCount\n"
         "if ($current -eq $desired) {\n"
         '    Write-Output "max_sessions already $desired"\n'
         "    return\n"
         "}\n"
-        "Set-ItemProperty -Path $p -Name MaxInstanceCount -Value $desired -Type DWord -Force\n"
-        "Set-ItemProperty -Path $p -Name fSingleSessionPerUser -Value 0 -Type DWord -Force\n"
+        "Set-ItemProperty -Path $pTcp -Name MaxInstanceCount "
+        "-Value $desired -Type DWord -Force\n"
+        "Set-ItemProperty -Path $pTs  -Name fSingleSessionPerUser "
+        "-Value 0 -Type DWord -Force\n"
         'Write-Output "max_sessions: $current -> $desired '
         '(takes effect on next TermService restart)"\n'
     )
@@ -529,7 +541,7 @@ def _apply_rdp_timeouts(cfg: Config) -> None:
         "$mp = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services'\n"
         "if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }\n"
         "Set-ItemProperty -Path $mp -Name MaxIdleTime -Value 0 -Type DWord -Force\n"
-        "Set-ItemProperty -Path $mp -Name MaxDisconnectionTime -Value 0 "
+        "Set-ItemProperty -Path $mp -Name MaxDisconnectionTime -Value 30000 "
         "-Type DWord -Force\n"
         "Set-ItemProperty -Path $mp -Name MaxConnectionTime -Value 0 "
         "-Type DWord -Force\n"
@@ -539,7 +551,7 @@ def _apply_rdp_timeouts(cfg: Config) -> None:
         "$ws = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\"
         "WinStations\\RDP-Tcp'\n"
         "Set-ItemProperty -Path $ws -Name MaxIdleTime -Value 0 -Type DWord -Force\n"
-        "Set-ItemProperty -Path $ws -Name MaxDisconnectionTime -Value 0 "
+        "Set-ItemProperty -Path $ws -Name MaxDisconnectionTime -Value 30000 "
         "-Type DWord -Force\n"
         "Set-ItemProperty -Path $ws -Name MaxConnectionTime -Value 0 "
         "-Type DWord -Force\n"

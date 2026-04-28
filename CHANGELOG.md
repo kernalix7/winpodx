@@ -9,7 +9,34 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.11] - 2026-04-28
+## [0.2.1] - 2026-04-28
+
+Minor bump (0.2.0.x → 0.2.1) — bundled UX work: install never abandons partial state, GUI logs surface winpodx's own log live, GUI greets first-time users with a system check.
+
+### Added
+- **`utils.pending` resume system.** New `~/.config/winpodx/.pending_setup` marker tracks which install.sh steps couldn't complete (`wait_ready` / `migrate` / `discovery`). The next CLI invocation (any subcommand other than `version`/`help`/`uninstall`/`config`/`info`) and every GUI startup picks up the marker and runs the missing steps in canonical order. Each step removes itself from the marker on success; the file is deleted once empty. 10 unit tests cover ordering, idempotency, partial completion, and the "guest still booting → don't waste retries on later steps" guard.
+- **GUI Quick Start dialog on first launch.** A one-shot welcome modal shows a 5-bullet snapshot — backend / FreeRDP / pod state / RDP listener / discovered apps count — and notes whether resume is running in the background. Dismiss writes `~/.config/winpodx/.welcomed` so returning users aren't pestered.
+- **GUI Logs page auto-tails the winpodx app log.** Navigating to Tools/Terminal now starts a `tail -F ~/.config/winpodx/winpodx.log` stream by default so users see internal program logs (apply / probe / refresh / pod state transitions) alongside the existing on-demand container log buttons. The streamer is killed automatically when leaving the page.
+
+### Changed
+- **install.sh wait-ready timeout 1800s → 3600s.** Extends the budget to one hour so a fresh install on slow hardware (Windows ISO download + Sysprep + OEM apply on first run) can finish in-line instead of bailing out and leaving work for the resume hook. The resume hook still picks up anything that exceeds the hour.
+- **Default `pod.max_sessions` 10 → 25 and `pod.ram_gb` 4 → 6.** 10 was tight for a real-world setup (Office + Teams + Edge + a couple side apps simultaneously). The new RAM default keeps the session-budget warning silent at 25 sessions (2.0 base + 25 × 0.1 ≈ 4.5 GB needed). Setup wizard's tier auto-detect (below) further tunes both per machine.
+
+### Added (additional)
+- **Host-spec auto-tier in setup.** New `utils.specs.detect_host_specs` reads `/proc/meminfo` + `os.cpu_count()` and `recommend_tier` maps to one of three presets:
+
+      Host RAM      Host CPU      Tier   VM CPU   VM RAM
+      >=32 GB       >=12 thr      high     8       12 GB
+      16-32 GB       6-12 thr     mid      4        6 GB
+      <16 GB         <6 thr       low      2        4 GB
+
+  Both axes must clear the threshold to move up — a 64 GB / 4-core host still gets "low" since CPU is the bottleneck for the VM workload. Interactive setup pre-fills the suggested values; non-interactive applies them directly. 10 unit tests cover both-axis-clear, single-axis-poor, threshold edges.
+
+### Fixed (additional)
+- **`_apply_max_sessions` wrote to the wrong registry key.** The runtime apply targeted `HKLM\...\Terminal Server\MaxInstanceCount` but Windows actually reads `HKLM\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount`. Result: every release since session-cap shipping silently no-op'd cfg changes — only `install.bat`'s OEM-time value was authoritative. v0.2.1 writes the correct subkey (with `fSingleSessionPerUser` still at the Terminal Server root, where it actually lives) and bumps the OEM-time install.bat ceiling 10 → 50 so cfg values up to the [1, 50] clamp aren't silently capped at install time.
+- **Zombie disconnected sessions caused "Select a session to reconnect to" dialog every launch.** `MaxDisconnectionTime` was set to `0` in both `install.bat` and `_apply_rdp_timeouts`. In RDP semantics that means **no timeout** — disconnected sessions stay alive forever. Each FreeRDP window the user closed left a session in `Disc` state, so the next launch triggered Windows' built-in reconnect prompt with all prior sessions listed. rdprrap multi-session lets sessions coexist but **doesn't** suppress that prompt. v0.2.1 changes the value to `30000` (30 seconds) — disconnected sessions auto-logoff after 30 s, so the user can close and reopen apps freely without accumulating zombies. Patched in `install.bat` (for fresh containers) and `_apply_rdp_timeouts` (for existing containers via the runtime apply).
+
+
 
 ### Fixed
 - **Second SEGV path on GUI Refresh — Python ref / Qt deleteLater race.** v0.2.0.10 fixed the QImage-on-worker-thread crash, but a second SEGV remained: `_on_refresh_succeeded` and `_on_refresh_failed` slots both did `self._refresh_worker = None` immediately. Python's reference drop raced with Qt's queued `worker.deleteLater()` event — whichever ran second hit a freed/being-freed `QObject` and crashed in `~QObject()` on the worker thread. Coredump on 2026-04-28 confirmed: top frame `QObject::~QObject` on worker thread 2282062, while main thread 2281803 was inside the slot's PySide6 `callPythonMetaMethod` dispatch. Fix: drop `_refresh_worker` / `_refresh_thread` Python refs only via `_cleanup_refresh_worker`, bound to `thread.finished` which fires after both Qt objects are fully torn down. Worker `deleteLater` keeps running on the worker thread's own event loop as Qt intends — no Python GC interference.

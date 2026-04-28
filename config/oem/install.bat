@@ -22,7 +22,10 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSApp
 
 REM Without fInheritInitialProgram, Windows ignores /shell: and /app: from the RDP client.
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fInheritInitialProgram /t REG_DWORD /d 1 /f
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 10 /f
+REM v0.2.1: cap bumped 10 -> 50. cfg.pod.max_sessions still controls the
+REM actual desired count via _apply_max_sessions; this is just the
+REM ceiling so the cfg value isn't silently clamped at OEM time.
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 50 /f
 
 REM Bug B (v0.1.9 / OEM v7): host suspend / long idle commonly leaves Windows
 REM with TermService stalled or the virtual NIC in power-save, breaking RDP
@@ -36,20 +39,28 @@ REM 3 attempts at 5s spacing, 24h reset window — Windows itself recovers
 REM TermService crashes without needing host intervention.
 sc.exe failure TermService reset= 86400 actions= restart/5000/restart/5000/restart/5000 >nul 2>&1
 
-REM v0.1.9.1: RDP session timeout + keep-alive (kernalix7 reported sessions
-REM dropping mid-use even after the v0.1.9 Bug B reachability fix). All four
-REM timeout limits go to "no limit" (0) and TCP keep-alive fires every minute
-REM so NAT/firewall idle-cleanup doesn't kill the connection either. Both the
-REM machine policy and the RDP-Tcp WinStation keys are set; whichever Windows
-REM consults first finds a saner default.
+REM v0.1.9.1: RDP session timeout + keep-alive. v0.2.1 adjusts the
+REM disconnection-time semantics:
+REM   * MaxIdleTime          0 = no idle timeout (active sessions never auto-disconnect)
+REM   * MaxConnectionTime    0 = no max session duration
+REM   * MaxDisconnectionTime 30000 ms = 30 sec — disconnected sessions
+REM     auto-LOGOFF after 30 s. Previously this was 0 ("never logoff"),
+REM     which left zombie disconnected sessions accumulating every time
+REM     the user closed a FreeRDP window. The next launch then triggered
+REM     "Select a session to reconnect to" dialog because Windows saw
+REM     the user had N old disconnected sessions. rdprrap allows
+REM     concurrent sessions but doesn't suppress that prompt — only
+REM     auto-logoff does.
+REM Both the machine policy and the RDP-Tcp WinStation keys are set;
+REM whichever Windows consults first finds the saner default.
 echo [winpodx] Disabling RDP session timeouts + enabling keep-alive...
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxIdleTime /t REG_DWORD /d 0 /f >nul 2>&1
-reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxDisconnectionTime /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxDisconnectionTime /t REG_DWORD /d 30000 /f >nul 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxConnectionTime /t REG_DWORD /d 0 /f >nul 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v KeepAliveEnable /t REG_DWORD /d 1 /f >nul 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v KeepAliveInterval /t REG_DWORD /d 1 /f >nul 2>&1
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxIdleTime /t REG_DWORD /d 0 /f >nul 2>&1
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxDisconnectionTime /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxDisconnectionTime /t REG_DWORD /d 30000 /f >nul 2>&1
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxConnectionTime /t REG_DWORD /d 0 /f >nul 2>&1
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v KeepAliveTimeout /t REG_DWORD /d 1 /f >nul 2>&1
 

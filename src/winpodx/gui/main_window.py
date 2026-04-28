@@ -332,6 +332,11 @@ class WinpodxWindow(QMainWindow):
         self._build_ui()
         self._start_status_timer()
 
+        # v0.2.1: pending-setup resume + first-run quick start. Fired
+        # asynchronously after the window paints so the user sees the
+        # app immediately rather than blocking on a network probe.
+        QTimer.singleShot(800, self._maybe_run_first_launch_checks)
+
     def _setup_signals(self) -> None:
         self.pod_status_updated.connect(self._on_pod_status)
         self.app_launched.connect(self._on_app_launched)
@@ -1992,6 +1997,16 @@ class WinpodxWindow(QMainWindow):
         self.pages.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
+        # v0.2.1: auto-start the winpodx app-log tail when the user
+        # navigates to the Tools/Terminal page so they see live program
+        # logs by default rather than just an empty terminal. Stops on
+        # leaving so we don't leak `tail -F` processes.
+        logs_index = 3  # _build_logs_page is the 4th page (Apps/Settings/Tools/Logs/Info)
+        if index == logs_index:
+            if getattr(self, "_tail_proc", None) is None:
+                self._on_follow_app_log()
+        else:
+            self._on_stop_tail()
 
     # Serializes ensure_ready + Popen spawn so concurrent launches don't race.
     _launch_lock = threading.Lock()
@@ -2389,6 +2404,74 @@ class WinpodxWindow(QMainWindow):
                 self.app_launch_failed.emit(str(e))
 
         threading.Thread(target=_do, daemon=True).start()
+
+    def _maybe_run_first_launch_checks(self) -> None:
+        """v0.2.1: on GUI startup, resume any pending install steps and —
+        if this is genuinely a first run (no apps registered yet) —
+        surface a one-shot Quick Start dialog summarising system state.
+        Both branches are best-effort and silent on success."""
+        from winpodx.utils.pending import has_pending
+
+        if has_pending():
+
+            def _stream(line: str) -> None:
+                self.log_signal.emit(line, C.SUBTEXT1)
+
+            def _do() -> None:
+                from winpodx.utils.pending import resume
+
+                resume(printer=_stream)
+                # After resume, refresh the GUI's app list so any newly-
+                # registered entries appear without manual refresh.
+                self.apps = list_available_apps()
+                self.log_signal.emit(
+                    "[winpodx] Pending setup resume finished — app list refreshed.",
+                    C.GREEN,
+                )
+
+            threading.Thread(target=_do, daemon=True).start()
+
+        # First-launch wizard: only show when no apps have ever been
+        # discovered AND the welcome marker is missing. After dismiss
+        # the marker is written so we don't pester returning users.
+        marker = Path(self.cfg.path()).parent / ".welcomed"
+        if not marker.exists() and not self.apps:
+            QTimer.singleShot(1500, self._show_quick_start)
+
+    def _show_quick_start(self) -> None:
+        """First-run welcome dialog: brief checklist of what's set up,
+        what's pending, and a 'Run checks now' button that fires the
+        same resume() pipeline used after a partial install.
+
+        Safe to dismiss — writing the .welcomed marker prevents repeat.
+        """
+        from winpodx.core.deps_quickcheck import collect_first_run_checks
+        from winpodx.utils.pending import has_pending
+
+        snapshot = collect_first_run_checks(self.cfg)
+        lines = [
+            "Welcome to winpodx!",
+            "",
+            "First-run quick check:",
+            f"  · Container backend ({self.cfg.pod.backend}): {snapshot['backend']}",
+            f"  · FreeRDP: {snapshot['freerdp']}",
+            f"  · Pod state: {snapshot['pod_state']}",
+            f"  · RDP listener: {snapshot['rdp_port']}",
+            f"  · Discovered apps: {snapshot['apps_count']}",
+        ]
+        if has_pending():
+            lines.append("")
+            lines.append("Pending setup steps detected — running them in the background.")
+        lines.append("")
+        lines.append("Tip: Tools → Live (app) tails the winpodx log in real time.")
+
+        marker = Path(self.cfg.path()).parent / ".welcomed"
+        try:
+            marker.touch(exist_ok=True)
+        except OSError:
+            pass
+
+        QMessageBox.information(self, "winpodx — Quick Start", "\n".join(lines))
 
     def _start_status_timer(self) -> None:
         self._refresh_pod_status()
