@@ -409,6 +409,16 @@ def _self_heal_apply(cfg: Config) -> None:
     if _self_heal_already_done(cfg):
         return
 
+    # v0.2.2: route each apply through the HTTP guest agent first,
+    # falling back to the FreeRDP RemoteApp PowerShell payload when
+    # the agent isn't available (older containers without agent.ps1,
+    # fresh installs where the Task Scheduler trigger hasn't fired
+    # yet, or the agent is being upgraded). The fallback path is
+    # exactly what v0.2.1 used — same registry payloads, same
+    # outcomes — just the channel differs. Apply payloads land
+    # ~50× faster via the agent (~50ms HTTP vs ~5-10s FreeRDP per
+    # call) and crucially don't flash a PowerShell window.
+    from winpodx.core.agent import AgentError, run_apply_via_agent_or_freerdp
     from winpodx.core.windows_exec import WindowsExecError
 
     applies = (
@@ -420,7 +430,7 @@ def _self_heal_apply(cfg: Config) -> None:
     succeeded = 0
     for name, fn in applies:
         try:
-            fn(cfg)
+            run_apply_via_agent_or_freerdp(cfg, name, fn)
             succeeded += 1
         except WindowsExecError as e:
             log.warning(
@@ -428,7 +438,9 @@ def _self_heal_apply(cfg: Config) -> None:
                 name,
                 e,
             )
-            return  # Don't waste FreeRDP retries on a still-booting guest.
+            return  # Don't waste retries on a still-booting guest.
+        except AgentError as e:
+            log.warning("%s: agent reported failure: %s", name, e)
         except Exception as e:  # noqa: BLE001
             log.warning("%s: self-heal apply failed: %s", name, e)
 
@@ -452,6 +464,11 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
     if cfg.pod.backend not in ("podman", "docker"):
         return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
 
+    # v0.2.2: route through the HTTP guest agent when available with
+    # FreeRDP RemoteApp fallback. Same as _self_heal_apply but reports
+    # per-step status to the caller (CLI / GUI render the result map).
+    from winpodx.core.agent import run_apply_via_agent_or_freerdp
+
     results: dict[str, str] = {}
     for name, fn in (
         ("max_sessions", _apply_max_sessions),
@@ -460,7 +477,7 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
         ("multi_session", _apply_multi_session),
     ):
         try:
-            fn(cfg)
+            run_apply_via_agent_or_freerdp(cfg, name, fn)
             results[name] = "ok"
         except Exception as e:  # noqa: BLE001
             results[name] = f"failed: {e}"
