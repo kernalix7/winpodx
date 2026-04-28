@@ -14,6 +14,13 @@ def cli(argv: list[str] | None = None) -> None:
 
     setup_logging()
 
+    # v0.2.1: pick up any pending setup steps from a partial install.sh
+    # run BEFORE we route into the user's command. Skip on the
+    # uninstall path so a half-installed system can still be torn
+    # down cleanly. Skip on `--version` / no-arg help so quick
+    # introspection isn't blocked behind a network probe.
+    _maybe_resume_pending(argv)
+
     parser = argparse.ArgumentParser(
         prog="winpodx",
         description="Windows app integration for Linux desktop",
@@ -450,3 +457,26 @@ def _cmd_uninstall(args: argparse.Namespace) -> None:
     print(f"\nUninstall complete ({removed} items removed).")
     print(f"Container '{_container}' was NOT removed.")
     print(f"To remove it: podman stop {_container} && podman rm {_container}")
+
+
+def _maybe_resume_pending(argv: list[str] | None) -> None:
+    """v0.2.1: detect a partial install (`.pending_setup` marker present)
+    and resume the missing steps before the user's command runs.
+
+    Skipped when the user is invoking `uninstall` / `--version` / `--help`
+    so basic introspection and recovery aren't blocked behind a network
+    probe. Best-effort; never raises.
+    """
+    args = argv if argv is not None else sys.argv[1:]
+    if not args:
+        return
+    skip_first = args[0].lstrip("-") in {"version", "help", "uninstall", "config", "info"}
+    if skip_first:
+        return
+    try:
+        from winpodx.utils.pending import has_pending, resume
+
+        if has_pending():
+            resume()
+    except Exception:  # noqa: BLE001 — never block the user's command
+        pass

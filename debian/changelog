@@ -1,3 +1,24 @@
+winpodx (0.2.1) unstable; urgency=medium
+
+  * Added: utils.pending resume system. New
+    ~/.config/winpodx/.pending_setup marker tracks install.sh steps
+    that couldn't complete (wait_ready / migrate / discovery). Next
+    CLI invocation and every GUI startup picks up the marker and
+    runs the missing steps in canonical order. Each step removes
+    itself on success; file deleted once empty. 10 unit tests.
+  * Added: GUI Quick Start dialog on first launch. Shows backend /
+    FreeRDP / pod / RDP listener / app count snapshot. Dismiss
+    writes .welcomed marker.
+  * Added: GUI Logs page auto-tails winpodx app log on navigate.
+    `tail -F ~/.config/winpodx/winpodx.log` streams internal logs
+    alongside the existing container-log buttons; auto-stop on
+    leaving the page.
+  * Changed: install.sh wait-ready timeout 1800s -> 3600s (1 hour).
+    Slow first installs can complete in-line instead of bailing
+    out; anything past the hour is picked up by the resume hook.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 28 Apr 2026 09:30:00 +0900
+
 winpodx (0.2.0.11) unstable; urgency=high
 
   * Fixed: second SEGV path on GUI Refresh. v0.2.0.10 fixed the

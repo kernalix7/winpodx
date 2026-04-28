@@ -9,7 +9,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.0.11] - 2026-04-28
+## [0.2.1] - 2026-04-28
+
+Minor bump (0.2.0.x → 0.2.1) — bundled UX work: install never abandons partial state, GUI logs surface winpodx's own log live, GUI greets first-time users with a system check.
+
+### Added
+- **`utils.pending` resume system.** New `~/.config/winpodx/.pending_setup` marker tracks which install.sh steps couldn't complete (`wait_ready` / `migrate` / `discovery`). The next CLI invocation (any subcommand other than `version`/`help`/`uninstall`/`config`/`info`) and every GUI startup picks up the marker and runs the missing steps in canonical order. Each step removes itself from the marker on success; the file is deleted once empty. 10 unit tests cover ordering, idempotency, partial completion, and the "guest still booting → don't waste retries on later steps" guard.
+- **GUI Quick Start dialog on first launch.** A one-shot welcome modal shows a 5-bullet snapshot — backend / FreeRDP / pod state / RDP listener / discovered apps count — and notes whether resume is running in the background. Dismiss writes `~/.config/winpodx/.welcomed` so returning users aren't pestered.
+- **GUI Logs page auto-tails the winpodx app log.** Navigating to Tools/Terminal now starts a `tail -F ~/.config/winpodx/winpodx.log` stream by default so users see internal program logs (apply / probe / refresh / pod state transitions) alongside the existing on-demand container log buttons. The streamer is killed automatically when leaving the page.
+
+### Changed
+- **install.sh wait-ready timeout 1800s → 3600s.** Extends the budget to one hour so a fresh install on slow hardware (Windows ISO download + Sysprep + OEM apply on first run) can finish in-line instead of bailing out and leaving work for the resume hook. The resume hook still picks up anything that exceeds the hour.
+
+
 
 ### Fixed
 - **Second SEGV path on GUI Refresh — Python ref / Qt deleteLater race.** v0.2.0.10 fixed the QImage-on-worker-thread crash, but a second SEGV remained: `_on_refresh_succeeded` and `_on_refresh_failed` slots both did `self._refresh_worker = None` immediately. Python's reference drop raced with Qt's queued `worker.deleteLater()` event — whichever ran second hit a freed/being-freed `QObject` and crashed in `~QObject()` on the worker thread. Coredump on 2026-04-28 confirmed: top frame `QObject::~QObject` on worker thread 2282062, while main thread 2281803 was inside the slot's PySide6 `callPythonMetaMethod` dispatch. Fix: drop `_refresh_worker` / `_refresh_thread` Python refs only via `_cleanup_refresh_worker`, bound to `thread.finished` which fires after both Qt objects are fully torn down. Worker `deleteLater` keeps running on the worker thread's own event loop as Qt intends — no Python GC interference.

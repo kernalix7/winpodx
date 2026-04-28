@@ -9,7 +9,19 @@
 
 ## [Unreleased]
 
-## [0.2.0.11] - 2026-04-28
+## [0.2.1] - 2026-04-28
+
+마이너 버전 (0.2.0.x → 0.2.1) — UX 개선 묶음: install 이 부분 완료 상태로 끝나도 다음 실행 시 자동 재개, GUI 로그가 winpodx 자체 로그를 실시간으로 표시, GUI 첫 실행 시 시스템 체크 안내.
+
+### 추가
+- **`utils.pending` 재개 시스템.** 새 `~/.config/winpodx/.pending_setup` 마커가 install.sh 가 못 끝낸 단계 (`wait_ready` / `migrate` / `discovery`) 추적. 다음 CLI 호출 (version/help/uninstall/config/info 외 모든 서브커맨드) 과 GUI 시작 시 마커 픽업해서 미완료 단계를 canonical 순서로 실행. 각 단계는 성공 시 마커에서 자체 제거; 빈 상태 되면 파일 삭제. 10개 단위 테스트가 순서, 멱등성, 부분 완료, "게스트 부팅 중 → 후속 단계 시도 안 함" 가드 커버.
+- **GUI 첫 실행 Quick Start 다이얼로그.** 최초 launch 시 5-bullet 스냅샷 표시 — backend / FreeRDP / pod 상태 / RDP listener / 디스커버리된 앱 수 — 백그라운드 resume 진행 여부도 안내. dismiss 시 `~/.config/winpodx/.welcomed` 작성하여 재방문 사용자에게는 안 띄움.
+- **GUI 로그 페이지가 winpodx 앱 로그 자동 tail.** Tools/Terminal 페이지로 이동하면 기본으로 `tail -F ~/.config/winpodx/winpodx.log` 스트림 시작 — 사용자가 내부 프로그램 로그 (apply / probe / refresh / pod 상태 전이) 를 기존 on-demand 컨테이너 로그 버튼과 함께 봄. 페이지 떠나면 streamer 자동 종료.
+
+### 변경
+- **install.sh wait-ready timeout 1800s → 3600s.** 예산을 1시간으로 늘려, 느린 하드웨어 신규 설치 (Windows ISO 다운로드 + Sysprep + OEM apply 첫 실행) 가 인라인으로 완료될 수 있게 함 (이전엔 timeout 후 resume 훅에 미룸). 1시간 초과 작업은 여전히 resume 훅이 picking up.
+
+
 
 ### 수정
 - **GUI Refresh 두 번째 SEGV 경로 — Python ref / Qt deleteLater race.** v0.2.0.10 이 QImage-워커스레드 크래시는 잡았지만 두 번째 SEGV 가 남아있었음: `_on_refresh_succeeded` 와 `_on_refresh_failed` 슬롯이 즉시 `self._refresh_worker = None` 실행. Python 의 ref drop 이 Qt 의 queued `worker.deleteLater()` 이벤트와 race — 둘 중 나중에 실행되는 쪽이 free 된 `QObject` 만나서 worker 스레드의 `~QObject()` 에서 크래시. 2026-04-28 코어덤프로 확인: 워커 스레드 2282062 의 top frame 이 `QObject::~QObject`, 메인 스레드 2281803 은 슬롯의 PySide6 `callPythonMetaMethod` 디스패치 중. 수정: `_refresh_worker` / `_refresh_thread` Python ref drop 을 `_cleanup_refresh_worker` 로만 옮김, `thread.finished` 에 바인딩되어 Qt 객체 둘 다 완전 해제된 후 실행. Worker `deleteLater` 는 워커 스레드 자체 이벤트 루프에서 정상 처리 — Python GC 간섭 없음.

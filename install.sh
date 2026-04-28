@@ -419,15 +419,26 @@ log "Installed winpodx GUI launcher and icon"
 # up-front with [1/3] container → [2/3] RDP port → [3/3] activation
 # progress + tailed container logs so the user can see what's happening.
 # Skip with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
+# v0.2.1: track which steps haven't completed so the next CLI / GUI
+# launch can auto-resume them. .pending_setup is a newline-separated
+# list of step IDs (wait_ready, migrate, discovery). Empty / missing =
+# install fully finished.
+PENDING_FILE="$HOME/.config/winpodx/.pending_setup"
+PENDING_STEPS=""
+mark_pending() {
+    PENDING_STEPS="${PENDING_STEPS}${1}
+"
+}
+
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
-    log "Waiting for Windows VM to finish first-boot (up to 30 min)..."
+    log "Waiting for Windows VM to finish first-boot (up to 60 min)..."
     log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply."
     log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
-    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 1800 --logs || {
-        warn "Windows first-boot didn't complete in 30 minutes."
-        warn "You can re-run \`winpodx pod wait-ready --logs\` to keep waiting,"
-        warn "or just launch any app from the menu once \`winpodx pod status\`"
-        warn "reports the pod is fully up — the apply / discovery will fire automatically."
+    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 3600 --logs || {
+        warn "Windows first-boot didn't complete in 60 minutes."
+        warn "Marking remaining steps as pending — they will auto-resume on next"
+        warn "\`winpodx\` CLI invocation or when you open \`winpodx gui\`."
+        mark_pending "wait_ready"
     }
 fi
 
@@ -436,25 +447,28 @@ fi
 # install. Run the migrate wizard so the user sees new-version release
 # notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
 # `|| true` keeps install.sh's exit code clean if migrate fails.
-#
-# v0.2.0.5: now that wait-ready ran first, migrate's apply step
-# completes quickly (the wait gate inside migrate is a no-op since the
-# guest is already responsive) instead of blocking 180s only to skip.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
-    "$HOME/.local/bin/winpodx" migrate || true
+    "$HOME/.local/bin/winpodx" migrate || mark_pending "migrate"
 fi
 
 # --- Auto-discover apps ---
 # v0.2.0.5: trigger discovery so the menu populates before install.sh
-# exits. Same logic as auto_discover_if_empty in ensure_ready, but on
-# the install path so the user gets a populated app menu the first
-# time they look. Best-effort — if discovery fails (channel error,
-# Windows still warming up), the next ensure_ready picks it up.
+# exits. Best-effort — if discovery fails (channel error, Windows still
+# warming up), the pending marker tells the next CLI / GUI launch to
+# retry automatically.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
     log "Discovering installed Windows apps..."
-    "$HOME/.local/bin/winpodx" app refresh 2>/dev/null || \
-        warn "Discovery did not complete; run \`winpodx app refresh\` later."
+    "$HOME/.local/bin/winpodx" app refresh 2>/dev/null || mark_pending "discovery"
+fi
+
+# Persist the pending list so resume_install_work() can pick it up.
+if [ -n "$PENDING_STEPS" ]; then
+    mkdir -p "$HOME/.config/winpodx"
+    printf '%s' "$PENDING_STEPS" > "$PENDING_FILE"
+    warn "Pending steps recorded at $PENDING_FILE — auto-resume will run on next winpodx invocation."
+else
+    rm -f "$PENDING_FILE"
 fi
 
 # --- Done ---
