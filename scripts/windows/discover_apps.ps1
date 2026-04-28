@@ -34,7 +34,14 @@
 
 [CmdletBinding()]
 param(
-    [switch]$DryRun
+    [switch]$DryRun,
+    # v0.2.2: when set, write the final JSON array to this path INSTEAD of
+    # stdout. The host-side guest agent passes a per-run path
+    # (C:\OEM\agent-runs\discover-<timestamp>.json) so it can stream stdout
+    # progress lines independently and read the parsed JSON afterwards.
+    # When unset, JSON still goes to stdout (legacy contract used by the
+    # FreeRDP RemoteApp PowerShell channel).
+    [string]$OutFile = ''
 )
 
 $ErrorActionPreference = 'Continue'
@@ -387,4 +394,14 @@ if ($results.Count -ge $MAX_APPS) {
 
 # @(...) forces array encoding on PowerShell 5.1 even if the array has
 # exactly one element (Compress otherwise emits a bare object).
-ConvertTo-Json -InputObject @($output) -Depth 6 -Compress
+$json = ConvertTo-Json -InputObject @($output) -Depth 6 -Compress
+
+# v0.2.2: when -OutFile is set (guest agent invocation), write JSON to
+# the file instead of stdout so the agent can stream stdout progress
+# lines independently. Otherwise emit to stdout (legacy contract used
+# by the FreeRDP RemoteApp PowerShell channel before the agent existed).
+if ($OutFile) {
+    $json | Out-File -FilePath $OutFile -Encoding utf8 -Force
+} else {
+    $json
+}

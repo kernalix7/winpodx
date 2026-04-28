@@ -204,6 +204,19 @@ def handle_setup(args: argparse.Namespace) -> None:
         except OSError as e:
             print(f"  warning: could not stamp install marker ({e})")
 
+    # v0.2.2: ensure the shared agent token exists.  On first install we
+    # generate it silently; on subsequent setups (re-run over an existing
+    # install) we leave the existing token in place so the guest agent
+    # doesn't need to be re-enrolled.
+    from winpodx.utils.agent_token import ensure_agent_token, token_path
+
+    _tok_path = token_path()
+    if _tok_path.exists():
+        print(f"Agent token already present at {_tok_path} — keeping existing token.")
+    else:
+        ensure_agent_token()
+        print(f"Agent token generated at {_tok_path} (mode 0600).")
+
     # v0.1.9: bundled profiles were removed. Desktop entries are now created
     # by `winpodx app refresh` (auto-fired on first pod boot via
     # provisioner.ensure_ready). Until the user's first launch, only the

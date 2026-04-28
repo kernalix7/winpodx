@@ -247,6 +247,29 @@ goto :rdprrap_done
 echo [winpodx] rdprrap_version.txt not found or incomplete; staying single-session.
 :rdprrap_done
 
+REM -----------------------------------------------------------------------
+REM v0.2.2: winpodx guest HTTP agent
+REM -----------------------------------------------------------------------
+echo [winpodx] Installing winpodx guest agent...
+mkdir C:\OEM 2>nul
+REM agent.ps1 is staged next to install.bat inside the OEM bundle.
+copy /Y "%~dp0agent.ps1" "C:\OEM\agent.ps1" 2>nul
+mkdir C:\OEM\agent-runs 2>nul
+
+REM Pull the shared token from the host home share.
+REM \\tsclient\home is mounted via FreeRDP +home-drive at install time.
+REM The token is written by `winpodx setup` on the Linux host side.
+REM If absent (e.g. the share isn't up yet), the copy is skipped silently;
+REM the agent will pick up the token later once the share is available.
+copy /Y "\\tsclient\home\.config\winpodx\agent_token.txt" "C:\OEM\agent_token.txt" 2>nul
+
+REM Register a logon Task Scheduler entry.  /F overwrites if already present
+REM so re-runs are idempotent.
+schtasks /Create /SC ONLOGON /TN winpodx-agent /RU User /RL HIGHEST ^
+  /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1" /F >nul 2>&1
+
+echo [winpodx] Guest agent installed (C:\OEM\agent.ps1, task: winpodx-agent).
+
 REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stage.
 (echo done)>C:\winpodx\setup_done.txt
 

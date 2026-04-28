@@ -31,6 +31,7 @@ services:
       REGION: "en-001"
       KEYBOARD: "en-US"
       ARGUMENTS: "-cpu host,arch_capabilities=off"
+      USER_PORTS: "8765"
     volumes:
       - winpodx-data:/storage:Z
       - {oem_dir}:/oem:Z
