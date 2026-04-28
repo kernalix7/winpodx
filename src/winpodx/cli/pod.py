@@ -433,10 +433,27 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
 
         # --- [2/3] RDP port open ---
         print(f"[2/3] Waiting for Windows RDP service...     ({elapsed()})")
+        print(
+            "      Tip: see Windows install progress at "
+            f"http://{cfg.rdp.ip}:{cfg.pod.vnc_port}/"
+        )
+        # v0.2.2.2: heartbeat every 30s during the silent Windows-installer
+        # phase. Once QEMU starts the OS, container stdout goes quiet for
+        # 5-15 min while OOBE / Sysprep run. Without periodic feedback the
+        # user thinks the install hung. The heartbeat surfaces elapsed
+        # time + a "still waiting" reassurance.
+        last_beat = _time.monotonic()
         while _time.monotonic() < deadline:
             if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
                 print(f"      OK RDP port {cfg.rdp.port} open                  ({elapsed()})")
                 break
+            now = _time.monotonic()
+            if now - last_beat >= 30:
+                print(
+                    f"      ... still waiting for Windows installer / Sysprep "
+                    f"({elapsed()})"
+                )
+                last_beat = now
             _time.sleep(3)
         else:
             print(f"      FAIL Timeout waiting for RDP port        ({elapsed()})")
@@ -445,7 +462,30 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         # --- [3/3] FreeRDP RemoteApp activation ---
         print(f"[3/3] Waiting for Windows activation...      ({elapsed()})")
         remaining = max(60, int(deadline - _time.monotonic()))
-        if wait_for_windows_responsive(cfg, timeout=remaining):
+        # Phase 3 calls wait_for_windows_responsive which has its own
+        # tight 3s polling loop; pass a per-callback heartbeat through
+        # the existing `progress_callback` plumbing isn't straightforward,
+        # so we just emit one mid-phase reminder if it stays silent for
+        # 60s+.
+        beat_thread_stop = threading.Event()
+
+        def _phase3_heartbeat() -> None:
+            t0 = _time.monotonic()
+            while not beat_thread_stop.wait(60):
+                el_s = int(_time.monotonic() - t0)
+                print(
+                    f"      ... still waiting for FreeRDP activation "
+                    f"(phase 3 elapsed: {el_s // 60:02d}:{el_s % 60:02d})"
+                )
+
+        beat = threading.Thread(target=_phase3_heartbeat, daemon=True)
+        beat.start()
+        try:
+            ok = wait_for_windows_responsive(cfg, timeout=remaining)
+        finally:
+            beat_thread_stop.set()
+
+        if ok:
             print(f"      OK Windows ready                         ({elapsed()})")
         else:
             print(

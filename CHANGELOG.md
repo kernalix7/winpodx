@@ -9,7 +9,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.2.1] - 2026-04-28
+## [0.2.2.2] - 2026-04-28
+
+### Fixed
+- **`USER_PORTS=8765` (v0.2.2 compose change) suspected of breaking dockur's default RDP port forward.** Multiple users reported FreeRDP rc=147 `ERRCONNECT_CONNECT_TRANSPORT_FAILED` (Connection reset by peer) on previously-working setups after the v0.2.2 install. Removed the `USER_PORTS` line from the compose template; the guest agent loses host reachability (its only port-forward mechanism) and the existing `AgentUnavailableError` → FreeRDP RemoteApp fallback path takes over for all apply / discovery operations. Net effect: revert to the v0.2.1 RDP behavior. Re-introducing the agent port will require confirming dockur's USER_PORTS parsing isn't interfering with the 3389/8006 default forwards.
+- **`winpodx gui` blocked for up to 5 minutes on CLI startup.** v0.2.1's `_maybe_resume_pending` hook fired synchronously before the GUI process started, calling `wait_for_windows_responsive(timeout=300)` — when the agent / RDP wasn't ready it just sat there. Added `gui` and `tray` (and `migrate`, since migrate is the canonical resume) to the skip list. The GUI runs its own non-blocking resume on `QTimer.singleShot` after the window paints.
+- **`wait_for_windows_responsive` surfaces the last FreeRDP error on timeout.** Previously it returned bare `False` after up to 60 minutes of silent retries; the user just saw `[3/3] FAIL Timeout` with no clue why every probe failed. Now logs the last `WindowsExecError` / non-zero rc + stderr at WARNING level so the install.sh / GUI can show actionable info (auth fail vs RemoteApp not published vs TLS handshake fail).
+
+### Added
+- **`pod wait-ready` heartbeat.** Phases 2 and 3 emit a `still waiting...` line every 30 / 60 seconds with elapsed time. During the silent Windows-installer phase (container stdout goes quiet for 5–15 min while OOBE / Sysprep run) the user no longer thinks the script hung.
+- **VNC URL hint at the start of phase 2.** `Tip: see Windows install progress at http://127.0.0.1:8006/`. Lets users watch the actual installer in parallel instead of staring at a stuck-looking terminal.
+
+
 
 ### Changed
 - **install.sh chains `pod apply-fixes` after `migrate`.** v0.2.0.5 had removed the explicit apply-fixes call because migrate's always-apply path covers it. But when migrate itself gets deferred via the pending marker (Windows still booting, etc.) the apply never fires, leaving the user to launch the next app against an unconfigured Windows side. v0.2.2.1 re-adds it as a defensive belt-and-suspenders step. On a warm pod it's a no-op via the v0.2.0.8 stamp short-circuit; on a cold pod it now uses the v0.2.2 HTTP guest agent (~200ms) instead of the slow FreeRDP RemoteApp PowerShell channel. New `WINPODX_NO_APPLY_FIXES=1` env var to skip.

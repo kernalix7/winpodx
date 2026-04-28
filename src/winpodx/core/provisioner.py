@@ -224,6 +224,10 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
             break
         time.sleep(2)
     else:
+        log.warning(
+            "wait_for_windows_responsive: timed out before RDP port "
+            "%s:%d came up", cfg.rdp.ip, cfg.rdp.port,
+        )
         return False
 
     # Port is open — keep firing the activation probe until one succeeds
@@ -232,6 +236,10 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     # though the RDP listener answers TCP, so a one-shot probe here is
     # the wrong primitive — the user already passed `timeout` to express
     # "try this hard, for this long".
+    last_error: str | None = None
+    last_rc: int | None = None
+    last_stderr: str | None = None
+    probes = 0
     while time.monotonic() < deadline:
         per_probe_budget = max(5, min(20, int(deadline - time.monotonic())))
         try:
@@ -241,16 +249,40 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
                 description="responsive-probe",
                 timeout=per_probe_budget,
             )
+            probes += 1
             if result.rc == 0:
                 return True
-        except WindowsExecError:
-            # Transient — Windows likely still booting / Sysprep running.
-            pass
+            last_rc = result.rc
+            last_stderr = (result.stderr or "")[-400:]
+        except WindowsExecError as e:
+            probes += 1
+            last_error = str(e)[-400:]
         # Pace retries so we don't pin a CPU spinning FreeRDP processes.
         if time.monotonic() < deadline - 3:
             time.sleep(3)
         else:
             break
+    # v0.2.2.2: surface diagnostic context on timeout. Without this, the
+    # caller (winpodx pod wait-ready or _self_heal_apply) just sees False
+    # and the user is left with "FAIL Timeout" after 60 minutes with no
+    # idea why every probe failed. Now the last channel error makes it
+    # into the host log so we can distinguish auth mismatch from
+    # RemoteApp-not-published from TLS-handshake-failed.
+    if last_error is not None:
+        log.warning(
+            "wait_for_windows_responsive: %d probes failed, last channel "
+            "error: %s", probes, last_error,
+        )
+    elif last_rc is not None:
+        log.warning(
+            "wait_for_windows_responsive: %d probes returned rc=%d, "
+            "last stderr: %s", probes, last_rc, last_stderr,
+        )
+    else:
+        log.warning(
+            "wait_for_windows_responsive: %d probes ran but produced no "
+            "diagnostic — check FreeRDP binary on PATH", probes,
+        )
     return False
 
 

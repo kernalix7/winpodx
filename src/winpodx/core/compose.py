@@ -31,7 +31,14 @@ services:
       REGION: "en-001"
       KEYBOARD: "en-US"
       ARGUMENTS: "-cpu host,arch_capabilities=off"
-      USER_PORTS: "8765"
+      # v0.2.2.2: USER_PORTS removed pending root-cause investigation —
+      # v0.2.2 added USER_PORTS=8765 for the guest agent, but multiple
+      # users reported FreeRDP rc=147 (transport reset) on what had
+      # been a working setup. Until we confirm dockur's USER_PORTS
+      # parsing isn't interfering with the default 3389/8006 hostfwds,
+      # the agent runs without the QEMU NAT publish (so it's
+      # unreachable from host — agent code falls back to FreeRDP
+      # RemoteApp via the existing AgentUnavailableError path).
     volumes:
       - winpodx-data:/storage:Z
       - {oem_dir}:/oem:Z

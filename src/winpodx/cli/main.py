@@ -463,14 +463,27 @@ def _maybe_resume_pending(argv: list[str] | None) -> None:
     """v0.2.1: detect a partial install (`.pending_setup` marker present)
     and resume the missing steps before the user's command runs.
 
-    Skipped when the user is invoking `uninstall` / `--version` / `--help`
-    so basic introspection and recovery aren't blocked behind a network
-    probe. Best-effort; never raises.
+    v0.2.2.2: skip on commands that have their own async resume path
+    (gui / tray / migrate) or that are read-only / recovery (version /
+    help / uninstall / config / info / status) — running the resume
+    synchronously here would block the user's command for up to 5 min
+    on `wait_for_windows_responsive`, defeating the point of GUI's
+    own non-blocking startup. The GUI fires its own resume on
+    QTimer.singleShot in a background thread.
     """
     args = argv if argv is not None else sys.argv[1:]
     if not args:
         return
-    skip_first = args[0].lstrip("-") in {"version", "help", "uninstall", "config", "info"}
+    skip_first = args[0].lstrip("-") in {
+        "version",
+        "help",
+        "uninstall",
+        "config",
+        "info",
+        "gui",  # GUI has its own async resume in _maybe_run_first_launch_checks
+        "tray",  # Same
+        "migrate",  # migrate is the canonical resume; let it own its flow
+    }
     if skip_first:
         return
     try:
