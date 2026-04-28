@@ -446,10 +446,24 @@ fi
 # If an existing config is present this is an upgrade, not a fresh
 # install. Run the migrate wizard so the user sees new-version release
 # notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
-# `|| true` keeps install.sh's exit code clean if migrate fails.
+# `|| mark_pending` records the step so the next CLI / GUI launch retries.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
     "$HOME/.local/bin/winpodx" migrate || mark_pending "migrate"
+fi
+
+# --- Apply Windows-side runtime fixes ---
+# v0.2.2.1: explicit apply-fixes after migrate even though migrate's
+# always-apply path also runs the four applies. Reason: if migrate
+# itself was skipped or deferred via the pending marker, apply
+# wouldn't fire and the user would launch the next app against an
+# unconfigured Windows side. Calling apply-fixes here is cheap on a
+# warm pod (the v0.2.0.8 stamp short-circuit makes it a no-op when
+# already done) and now goes through the v0.2.2 HTTP guest agent
+# (~200ms total) instead of the slow FreeRDP RemoteApp channel.
+if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_APPLY_FIXES:-}" != "1" ]; then
+    log "Applying Windows-side runtime fixes (idempotent)..."
+    "$HOME/.local/bin/winpodx" pod apply-fixes 2>/dev/null || mark_pending "apply_fixes"
 fi
 
 # --- Auto-discover apps ---

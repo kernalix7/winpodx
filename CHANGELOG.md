@@ -9,7 +9,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.2] - 2026-04-28
+## [0.2.2.1] - 2026-04-28
+
+### Changed
+- **install.sh chains `pod apply-fixes` after `migrate`.** v0.2.0.5 had removed the explicit apply-fixes call because migrate's always-apply path covers it. But when migrate itself gets deferred via the pending marker (Windows still booting, etc.) the apply never fires, leaving the user to launch the next app against an unconfigured Windows side. v0.2.2.1 re-adds it as a defensive belt-and-suspenders step. On a warm pod it's a no-op via the v0.2.0.8 stamp short-circuit; on a cold pod it now uses the v0.2.2 HTTP guest agent (~200ms) instead of the slow FreeRDP RemoteApp PowerShell channel. New `WINPODX_NO_APPLY_FIXES=1` env var to skip.
+- **`utils.pending` adds `apply_fixes` step.** Recognized by `_VALID_STEPS`, ordered between `migrate` and `discovery` in the canonical resume sequence, has its own resume handler that re-runs `apply_windows_runtime_fixes` and removes the step on success.
+
+
 
 Major: introduces a long-running **Windows guest HTTP agent** that replaces the per-call FreeRDP RemoteApp PowerShell channel for non-secret operations. Result: runtime applies are ~50× faster (50ms HTTP vs 5–10s FreeRDP) and the PowerShell window flash on every app launch is gone.
 

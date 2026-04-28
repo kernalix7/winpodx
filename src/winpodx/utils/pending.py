@@ -26,7 +26,7 @@ from winpodx.utils.paths import config_dir
 log = logging.getLogger(__name__)
 
 _PENDING_FILE = ".pending_setup"
-_VALID_STEPS = frozenset({"wait_ready", "migrate", "discovery"})
+_VALID_STEPS = frozenset({"wait_ready", "migrate", "apply_fixes", "discovery"})
 
 
 def _path() -> Path:
@@ -55,8 +55,10 @@ def list_pending() -> list[str]:
         return []
     seen = set()
     ordered = []
-    # Canonical order: wait_ready first, then migrate, then discovery.
-    for step in ("wait_ready", "migrate", "discovery"):
+    # Canonical order: wait_ready first, then migrate, then apply_fixes,
+    # then discovery. apply_fixes added in v0.2.2.1 — install.sh now
+    # explicitly invokes `pod apply-fixes` after migrate.
+    for step in ("wait_ready", "migrate", "apply_fixes", "discovery"):
         if step in raw and step in _VALID_STEPS and step not in seen:
             ordered.append(step)
             seen.add(step)
@@ -140,6 +142,24 @@ def resume(printer=print) -> None:
                 printer(f"[winpodx] Apply partial: {results} — leaving pending.")
         except Exception as e:  # noqa: BLE001
             printer(f"[winpodx] migrate resume failed: {e}")
+
+    if "apply_fixes" in pending:
+        # v0.2.2.1: install.sh explicitly invokes `pod apply-fixes` so it
+        # can be marked pending separately from migrate. Resume runs the
+        # same apply path; the v0.2.0.8 stamp short-circuits if migrate
+        # already covered it on this pod lifetime.
+        try:
+            from winpodx.core.provisioner import apply_windows_runtime_fixes
+
+            printer("[winpodx] Re-running explicit apply-fixes...")
+            results = apply_windows_runtime_fixes(cfg)
+            if all(v == "ok" for v in results.values()):
+                remove_step("apply_fixes")
+                printer("[winpodx] apply-fixes complete.")
+            else:
+                printer(f"[winpodx] apply-fixes partial: {results} — leaving pending.")
+        except Exception as e:  # noqa: BLE001
+            printer(f"[winpodx] apply_fixes resume failed: {e}")
 
     if "discovery" in pending:
         try:
