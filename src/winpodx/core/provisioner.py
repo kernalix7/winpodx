@@ -329,6 +329,131 @@ def _record_self_heal_done(cfg: Config) -> None:
         log.debug("could not write self-heal stamp: %s", e)
 
 
+# v0.2.2.2: agent-token staging stamp. Independent of the self-heal stamp
+# because the trigger is different — this one invalidates on token rotation
+# (host-side mtime changes) AND on container restart, while self-heal
+# invalidates on winpodx version bump AND container restart.
+_AGENT_TOKEN_STAMP_FILENAME = ".agent_token_stamp"
+
+
+def _agent_token_stamp_path() -> Path:
+    return Path(config_dir()) / _AGENT_TOKEN_STAMP_FILENAME
+
+
+def _agent_token_already_staged(cfg: Config) -> bool:
+    """Return True when the host's agent token has already been pushed
+    into ``C:\\OEM\\agent_token.txt`` for the current container start.
+
+    Stamp content is ``<container_started_at>:<host_token_mtime>`` so a
+    pod restart (Windows VM reboot drops C:\\OEM contents on a fresh
+    container) or a token rotation forces a re-push.
+    """
+    started = _container_started_at(cfg)
+    if not started:
+        return False
+    from winpodx.utils.agent_token import token_path
+
+    try:
+        token_mtime = int(token_path().stat().st_mtime)
+    except OSError:
+        return False
+    expected = f"{started}:{token_mtime}"
+    try:
+        return _agent_token_stamp_path().read_text(encoding="utf-8").strip() == expected
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def _record_agent_token_staged(cfg: Config) -> None:
+    """Write the agent-token stamp once the push has succeeded."""
+    started = _container_started_at(cfg)
+    if not started:
+        return
+    from winpodx.utils.agent_token import token_path
+
+    try:
+        token_mtime = int(token_path().stat().st_mtime)
+    except OSError:
+        return
+    try:
+        path = _agent_token_stamp_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{started}:{token_mtime}\n", encoding="utf-8")
+    except OSError as e:
+        log.debug("could not write agent-token stamp: %s", e)
+
+
+def _ensure_agent_token_in_guest(cfg: Config) -> None:
+    r"""Push the host's agent token into the Windows guest at
+    ``C:\OEM\agent_token.txt``.
+
+    install.bat tries to copy the same file from ``\\tsclient\home`` at
+    OOBE time, but no FreeRDP session exists yet at install — the OEM
+    stage runs before any RDP connect — so that copy fails silently
+    every time. Without this push, ``agent.ps1`` sits in its
+    ``Wait-Token`` polling loop forever, the HTTP listener never binds,
+    and every host -> guest call falls back to slow FreeRDP RemoteApp.
+
+    This helper runs from inside ``_self_heal_apply`` (which fires from
+    ensure_ready on warm + cold paths). At that point the pod is
+    RDP-reachable, and ``run_in_windows`` uses ``+home-drive`` so
+    ``\\tsclient\home`` is visible inside Windows for the duration of
+    the call. The token is staged via a Copy-Item against that share.
+
+    Idempotent via ``_agent_token_already_staged`` — runs at most once
+    per (container start, host-token mtime) tuple.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+    from winpodx.utils.agent_token import token_path
+
+    if not token_path().exists():
+        return  # Setup hasn't run, or token was deleted; nothing to push.
+
+    if _agent_token_already_staged(cfg):
+        return
+
+    # The token contents never appear in the script source: PowerShell
+    # reads them from \\tsclient\home inside Windows. The host-side
+    # script body is therefore safe to log / leak; only the redirected
+    # share carries the secret, and that path is already used by
+    # run_in_windows for every other privileged exec.
+    payload = (
+        "$ErrorActionPreference = 'Stop'\n"
+        "$src = '\\\\tsclient\\home\\.config\\winpodx\\agent_token.txt'\n"
+        "$dst = 'C:\\OEM\\agent_token.txt'\n"
+        "if (-not (Test-Path $src)) {\n"
+        '    throw "source $src not visible from inside Windows '
+        '(home-drive not forwarded?)"\n'
+        "}\n"
+        "New-Item -ItemType Directory -Path 'C:\\OEM' -Force | Out-Null\n"
+        "Copy-Item -Path $src -Destination $dst -Force\n"
+        "Write-Output 'agent token staged'\n"
+    )
+
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    try:
+        result = run_in_windows(
+            cfg, payload, description="stage-agent-token", timeout=30
+        )
+    except WindowsExecError as e:
+        log.warning(
+            "agent_token_stage: channel failure (will retry next ensure_ready): %s",
+            e,
+        )
+        return
+    if result.rc != 0:
+        log.warning(
+            "agent_token_stage: rc=%d stderr=%s",
+            result.rc,
+            result.stderr.strip(),
+        )
+        return
+    log.info("agent token staged into guest C:\\OEM\\agent_token.txt")
+    _record_agent_token_staged(cfg)
+
+
 def _apply_multi_session(cfg: Config) -> None:
     """v0.2.0.9: enable rdprrap multi-session by default.
 
@@ -406,6 +531,13 @@ def _self_heal_apply(cfg: Config) -> None:
     upgrade (so a patch-version bump still gets a chance to apply
     new payloads).
     """
+    # v0.2.2.2: stage the agent token into the guest before probing
+    # the agent. This call has its own per-(container, token-mtime)
+    # stamp so it doesn't fire FreeRDP every launch — but it must
+    # run before the self-heal short-circuit below, since the
+    # self-heal stamp doesn't track token state.
+    _ensure_agent_token_in_guest(cfg)
+
     if _self_heal_already_done(cfg):
         return
 

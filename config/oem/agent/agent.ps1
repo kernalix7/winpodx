@@ -65,12 +65,30 @@ $script:EventQueue   = [System.Collections.Concurrent.ConcurrentQueue[string]]::
 if (-not (Test-Path $script:RunsDir)) { New-Item -ItemType Directory -Path $script:RunsDir -Force | Out-Null }
 
 function Read-Token {
-    if (-not (Test-Path $script:TokenPath)) { throw "agent_token.txt missing at $($script:TokenPath)" }
-    $t = (Get-Content -Path $script:TokenPath -TotalCount 1 -ErrorAction Stop).Trim()
-    if (-not $t) { throw "agent_token.txt is empty" }
+    if (-not (Test-Path $script:TokenPath)) { return $null }
+    try {
+        $t = (Get-Content -Path $script:TokenPath -TotalCount 1 -ErrorAction Stop).Trim()
+    } catch { return $null }
+    if (-not $t) { return $null }
     return $t
 }
-$script:Token = Read-Token
+
+# Wait for the token file to appear. install.bat tries to copy it from
+# \\tsclient\home at OOBE time but the FreeRDP session isn't connected yet,
+# so the token only lands once the host first connects with home-drive
+# forwarded. Poll up to 24h with backoff so the agent stays alive across
+# reboots and the first FreeRDP connect — without throwing and dying on a
+# transient miss.
+function Wait-Token {
+    $delay = 2
+    while ($true) {
+        $t = Read-Token
+        if ($t) { return $t }
+        Start-Sleep -Seconds $delay
+        if ($delay -lt 30) { $delay = [Math]::Min(30, $delay * 2) }
+    }
+}
+$script:Token = Wait-Token
 
 function Compare-Constant([string]$a, [string]$b) {
     if ($null -eq $a -or $null -eq $b) { return $false }
