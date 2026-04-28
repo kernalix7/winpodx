@@ -20,6 +20,20 @@ Minor bump (0.2.0.x → 0.2.1) — bundled UX work: install never abandons parti
 
 ### Changed
 - **install.sh wait-ready timeout 1800s → 3600s.** Extends the budget to one hour so a fresh install on slow hardware (Windows ISO download + Sysprep + OEM apply on first run) can finish in-line instead of bailing out and leaving work for the resume hook. The resume hook still picks up anything that exceeds the hour.
+- **Default `pod.max_sessions` 10 → 25 and `pod.ram_gb` 4 → 6.** 10 was tight for a real-world setup (Office + Teams + Edge + a couple side apps simultaneously). The new RAM default keeps the session-budget warning silent at 25 sessions (2.0 base + 25 × 0.1 ≈ 4.5 GB needed). Setup wizard's tier auto-detect (below) further tunes both per machine.
+
+### Added (additional)
+- **Host-spec auto-tier in setup.** New `utils.specs.detect_host_specs` reads `/proc/meminfo` + `os.cpu_count()` and `recommend_tier` maps to one of three presets:
+
+      Host RAM      Host CPU      Tier   VM CPU   VM RAM
+      >=32 GB       >=12 thr      high     8       12 GB
+      16-32 GB       6-12 thr     mid      4        6 GB
+      <16 GB         <6 thr       low      2        4 GB
+
+  Both axes must clear the threshold to move up — a 64 GB / 4-core host still gets "low" since CPU is the bottleneck for the VM workload. Interactive setup pre-fills the suggested values; non-interactive applies them directly. 10 unit tests cover both-axis-clear, single-axis-poor, threshold edges.
+
+### Fixed (additional)
+- **`_apply_max_sessions` wrote to the wrong registry key.** The runtime apply targeted `HKLM\...\Terminal Server\MaxInstanceCount` but Windows actually reads `HKLM\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount`. Result: every release since session-cap shipping silently no-op'd cfg changes — only `install.bat`'s OEM-time value was authoritative. v0.2.1 writes the correct subkey (with `fSingleSessionPerUser` still at the Terminal Server root, where it actually lives) and bumps the OEM-time install.bat ceiling 10 → 50 so cfg values up to the [1, 50] clamp aren't silently capped at install time.
 
 
 

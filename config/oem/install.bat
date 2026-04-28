@@ -22,7 +22,10 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSApp
 
 REM Without fInheritInitialProgram, Windows ignores /shell: and /app: from the RDP client.
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fInheritInitialProgram /t REG_DWORD /d 1 /f
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 10 /f
+REM v0.2.1: cap bumped 10 -> 50. cfg.pod.max_sessions still controls the
+REM actual desired count via _apply_max_sessions; this is just the
+REM ceiling so the cfg value isn't silently clamped at OEM time.
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxInstanceCount /t REG_DWORD /d 50 /f
 
 REM Bug B (v0.1.9 / OEM v7): host suspend / long idle commonly leaves Windows
 REM with TermService stalled or the virtual NIC in power-save, breaking RDP

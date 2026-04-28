@@ -20,6 +20,20 @@
 
 ### 변경
 - **install.sh wait-ready timeout 1800s → 3600s.** 예산을 1시간으로 늘려, 느린 하드웨어 신규 설치 (Windows ISO 다운로드 + Sysprep + OEM apply 첫 실행) 가 인라인으로 완료될 수 있게 함 (이전엔 timeout 후 resume 훅에 미룸). 1시간 초과 작업은 여전히 resume 훅이 picking up.
+- **`pod.max_sessions` 기본값 10 → 25, `pod.ram_gb` 기본값 4 → 6.** 10은 실제 사용 (Office + Teams + Edge + 사이드 앱 몇 개 동시) 에 빡빡함. 새 RAM 기본값이 25 sessions 에서 session-budget 경고 안 띄움 (2.0 + 25 × 0.1 ≈ 4.5 GB 필요). 아래 tier auto-detect 가 머신별로 추가 조정.
+
+### 추가 (보충)
+- **Setup 의 호스트 스펙 auto-tier.** 새 `utils.specs.detect_host_specs` 가 `/proc/meminfo` + `os.cpu_count()` 읽고 `recommend_tier` 가 3개 preset 중 하나 매핑:
+
+      호스트 RAM    호스트 CPU    티어    VM CPU   VM RAM
+      ≥32 GB        ≥12 thr      상       8       12 GB
+      16-32 GB       6-12 thr    중       4        6 GB
+      <16 GB         <6 thr      하       2        4 GB
+
+  두 축 모두 임계값 통과해야 상위 티어 — 64 GB / 4-core 호스트는 CPU 가 병목이라 "하" 받음. 대화형 setup 은 추천값을 기본으로 표시, 비대화형은 즉시 적용. 10개 단위 테스트가 양축-통과, 단축-부족, 임계 경계 커버.
+
+### 수정 (보충)
+- **`_apply_max_sessions` 가 틀린 레지스트리 키에 씀.** 런타임 apply 가 `HKLM\...\Terminal Server\MaxInstanceCount` 에 썼지만 Windows 는 실제로 `HKLM\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount` 를 읽음. 결과: session-cap 도입 이후 모든 릴리스가 cfg 변경 시 silent no-op — `install.bat` 의 OEM 시점 값만 authoritative 였음. v0.2.1 이 올바른 subkey 에 쓰고 (`fSingleSessionPerUser` 는 Terminal Server root 에 있는 게 맞음, 그대로 유지), OEM 시점 install.bat 천장도 10 → 50 으로 상향해서 cfg 값이 [1, 50] clamp 안에서 install time 에 silent cap 안 되게.
 
 
 

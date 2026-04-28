@@ -155,7 +155,8 @@ def test_parse_winapps_conf(tmp_path):
 
 
 def test_pod_config_max_sessions_default():
-    assert PodConfig().max_sessions == 10
+    # v0.2.1: bumped from 10 to 25.
+    assert PodConfig().max_sessions == 25
 
 
 def test_pod_config_max_sessions_clamping():
@@ -186,12 +187,16 @@ def test_estimate_session_memory_shape():
 
 
 def test_check_session_budget_silent_on_default():
-    """Default config (10 sessions, 4 GB) must NOT produce a warning."""
+    """Default config (25 sessions, 6 GB) must NOT produce a warning.
+
+    v0.2.1: defaults bumped 10/4 -> 25/6 so a real-world setup with
+    Office + Teams + Edge + a couple side apps fits without warning.
+    """
     from winpodx.core.config import Config, check_session_budget
 
     cfg = Config()
-    assert cfg.pod.max_sessions == 10
-    assert cfg.pod.ram_gb == 4
+    assert cfg.pod.max_sessions == 25
+    assert cfg.pod.ram_gb == 6
     assert check_session_budget(cfg) is None
 
 

@@ -50,7 +50,11 @@ class PodConfig:
     container_name: str = "winpodx-windows"
     win_version: str = "11"  # 11 | 10 | ltsc10 | tiny11 | tiny10
     cpu_cores: int = 4
-    ram_gb: int = 4
+    # v0.2.1: default bumped 4 -> 6 GB so the new 25-session default
+    # doesn't trip the session-budget warning (2.0 base + 25 × 0.1 ≈
+    # 4.5 GB needed). Setup wizard detects host RAM and may override
+    # via the auto-tier (low/mid/high) presets.
+    ram_gb: int = 6
     vnc_port: int = 8007
     auto_start: bool = True
     idle_timeout: int = 0  # 0 = disabled
@@ -60,12 +64,15 @@ class PodConfig:
     image: str = "ghcr.io/dockur/windows:latest"
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
-    # Maximum concurrent RemoteApp sessions. Writes HKLM:\...\Terminal
-    # Server\MaxInstanceCount + clears fSingleSessionPerUser in the guest
-    # so rdprrap can hand out up to N parallel sessions. Clamped to the
-    # range [1, 50] — 50 is the practical ceiling verified against
-    # rdprrap; above that responsiveness degrades regardless of ram_gb.
-    max_sessions: int = 10
+    # Maximum concurrent RemoteApp sessions. Writes
+    # HKLM:\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount
+    # + clears fSingleSessionPerUser in the guest so rdprrap can hand
+    # out up to N parallel sessions. Clamped to [1, 50] — 50 is the
+    # practical ceiling verified against rdprrap; above that
+    # responsiveness degrades regardless of ram_gb.
+    # v0.2.1: default bumped 10 → 25. 10 was tight for users running
+    # Office + Teams + Edge + a couple side apps simultaneously.
+    max_sessions: int = 25
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
