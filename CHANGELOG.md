@@ -34,6 +34,7 @@ Minor bump (0.2.0.x → 0.2.1) — bundled UX work: install never abandons parti
 
 ### Fixed (additional)
 - **`_apply_max_sessions` wrote to the wrong registry key.** The runtime apply targeted `HKLM\...\Terminal Server\MaxInstanceCount` but Windows actually reads `HKLM\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount`. Result: every release since session-cap shipping silently no-op'd cfg changes — only `install.bat`'s OEM-time value was authoritative. v0.2.1 writes the correct subkey (with `fSingleSessionPerUser` still at the Terminal Server root, where it actually lives) and bumps the OEM-time install.bat ceiling 10 → 50 so cfg values up to the [1, 50] clamp aren't silently capped at install time.
+- **Zombie disconnected sessions caused "Select a session to reconnect to" dialog every launch.** `MaxDisconnectionTime` was set to `0` in both `install.bat` and `_apply_rdp_timeouts`. In RDP semantics that means **no timeout** — disconnected sessions stay alive forever. Each FreeRDP window the user closed left a session in `Disc` state, so the next launch triggered Windows' built-in reconnect prompt with all prior sessions listed. rdprrap multi-session lets sessions coexist but **doesn't** suppress that prompt. v0.2.1 changes the value to `30000` (30 seconds) — disconnected sessions auto-logoff after 30 s, so the user can close and reopen apps freely without accumulating zombies. Patched in `install.bat` (for fresh containers) and `_apply_rdp_timeouts` (for existing containers via the runtime apply).
 
 
 

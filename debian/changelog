@@ -22,6 +22,11 @@ winpodx (0.2.1) unstable; urgency=medium
   * Added: utils.specs auto-tier detector. Host CPU + RAM determine
     one of three presets (low/mid/high) for VM cpu_cores + ram_gb.
     Interactive setup pre-fills the recommendation.
+  * Fixed: zombie disconnected sessions caused "Select a session to
+    reconnect to" dialog every launch. MaxDisconnectionTime was 0
+    (no timeout = sessions never logoff). v0.2.1 sets it to 30000
+    (30 sec) in both install.bat and _apply_rdp_timeouts so closed
+    sessions auto-clean.
   * Fixed: _apply_max_sessions wrote to the wrong registry key
     (Terminal Server\MaxInstanceCount, no \WinStations\RDP-Tcp).
     Windows reads the WinStations subkey, so cfg changes since

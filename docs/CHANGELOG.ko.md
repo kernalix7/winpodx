@@ -33,6 +33,7 @@
   두 축 모두 임계값 통과해야 상위 티어 — 64 GB / 4-core 호스트는 CPU 가 병목이라 "하" 받음. 대화형 setup 은 추천값을 기본으로 표시, 비대화형은 즉시 적용. 10개 단위 테스트가 양축-통과, 단축-부족, 임계 경계 커버.
 
 ### 수정 (보충)
+- **앱 실행할 때마다 "Select a session to reconnect to" 다이얼로그 발생 — zombie disconnected 세션 누적 원인.** `install.bat` 와 `_apply_rdp_timeouts` 양쪽이 `MaxDisconnectionTime` 을 `0` 으로 설정. RDP 의미론에서 `0` = **timeout 없음** = disconnect 된 세션이 영원히 살아있음. 사용자가 FreeRDP 창 닫을 때마다 `Disc` 상태 세션 누적 → 다음 launch 시 Windows 가 그동안 쌓인 세션 리스트로 재연결 다이얼로그 띄움. rdprrap 멀티세션은 세션 동시 실행은 허용하지만 이 prompt 는 못 막음 — auto-logoff 만이 답. v0.2.1 에서 `30000` (30초) 으로 변경 — disconnect 후 30초 뒤 자동 logoff, 사용자가 앱 닫고 다시 열어도 zombie 누적 안 됨. `install.bat` (신규 컨테이너) + `_apply_rdp_timeouts` (런타임 apply 로 기존 컨테이너 패치) 양쪽 수정.
 - **`_apply_max_sessions` 가 틀린 레지스트리 키에 씀.** 런타임 apply 가 `HKLM\...\Terminal Server\MaxInstanceCount` 에 썼지만 Windows 는 실제로 `HKLM\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount` 를 읽음. 결과: session-cap 도입 이후 모든 릴리스가 cfg 변경 시 silent no-op — `install.bat` 의 OEM 시점 값만 authoritative 였음. v0.2.1 이 올바른 subkey 에 쓰고 (`fSingleSessionPerUser` 는 Terminal Server root 에 있는 게 맞음, 그대로 유지), OEM 시점 install.bat 천장도 10 → 50 으로 상향해서 cfg 값이 [1, 50] clamp 안에서 install time 에 silent cap 안 되게.
 
 
