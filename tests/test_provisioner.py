@@ -680,9 +680,7 @@ class TestOemInstallDoneGate:
         provisioner._OEM_DONE_CACHE.clear()
         # Container started ~3 min ago — past the 120s buffer.
         old = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
-        monkeypatch.setattr(
-            provisioner, "_container_started_at", lambda c: old
-        )
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old)
 
         def fake_run(*args, **kwargs):
             return subprocess.CompletedProcess(
@@ -706,9 +704,7 @@ class TestOemInstallDoneGate:
         provisioner._OEM_DONE_CACHE.clear()
         # Container started just now.
         now = datetime.now(timezone.utc).isoformat()
-        monkeypatch.setattr(
-            provisioner, "_container_started_at", lambda c: now
-        )
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: now)
 
         def fake_run(*args, **kwargs):
             return subprocess.CompletedProcess(
@@ -731,9 +727,7 @@ class TestOemInstallDoneGate:
 
         provisioner._OEM_DONE_CACHE.clear()
         old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-        monkeypatch.setattr(
-            provisioner, "_container_started_at", lambda c: old
-        )
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old)
 
         def fake_run(*args, **kwargs):
             raise subprocess.SubprocessError("boom")
@@ -753,14 +747,10 @@ class TestOemInstallDoneGate:
         # Construct a 1-hour-ago timestamp WITH nanoseconds (9 digits).
         old_dt = datetime.now(timezone.utc) - timedelta(hours=1)
         old_ns = old_dt.strftime("%Y-%m-%dT%H:%M:%S") + ".123456789Z"
-        monkeypatch.setattr(
-            provisioner, "_container_started_at", lambda c: old_ns
-        )
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old_ns)
 
         def fake_run(*args, **kwargs):
-            return subprocess.CompletedProcess(
-                args=args[0], returncode=0, stdout="", stderr=""
-            )
+            return subprocess.CompletedProcess(args=args[0], returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
         assert provisioner._oem_install_done(self._cfg()) is True
@@ -781,14 +771,10 @@ class TestOemInstallDoneGate:
             "_apply_multi_session",
             "_ensure_agent_token_in_guest",
         ):
-            monkeypatch.setattr(
-                provisioner, fn_name, lambda c, _n=fn_name: called.append(_n)
-            )
+            monkeypatch.setattr(provisioner, fn_name, lambda c, _n=fn_name: called.append(_n))
 
         provisioner._self_heal_apply(self._cfg())
-        assert called == [], (
-            "no FreeRDP-firing helper may run while install.bat is in flight"
-        )
+        assert called == [], "no FreeRDP-firing helper may run while install.bat is in flight"
 
     def test_apply_windows_runtime_fixes_defers_when_gate_closed(self, monkeypatch):
         """The public apply-fixes path returns a 'deferred' status when the

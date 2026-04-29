@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -368,7 +369,14 @@ def _oem_install_done(cfg: Config) -> bool:
     try:
         from datetime import datetime
 
-        started_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        # Python 3.10's datetime.fromisoformat rejects fractional seconds
+        # beyond 6 digits; podman returns nanosecond precision (9 digits)
+        # like "2026-04-29T08:30:00.123456789Z". Truncate before parsing.
+        normalised = started.replace("Z", "+00:00")
+        match = re.search(r"\.(\d{7,})", normalised)
+        if match:
+            normalised = normalised.replace(match.group(0), "." + match.group(1)[:6])
+        started_dt = datetime.fromisoformat(normalised)
         now_dt = datetime.now(started_dt.tzinfo)
         age_seconds = (now_dt - started_dt).total_seconds()
     except (ValueError, TypeError, AttributeError) as e:
@@ -393,7 +401,8 @@ def _oem_install_done(cfg: Config) -> bool:
                 return True
             log.debug(
                 "oem_install_done: dockur ready but buffer not elapsed (%.0fs/%ds)",
-                age_seconds, _OEM_DONE_DOCKUR_BUFFER_SECONDS,
+                age_seconds,
+                _OEM_DONE_DOCKUR_BUFFER_SECONDS,
             )
     except (FileNotFoundError, subprocess.SubprocessError) as e:
         log.debug("oem_install_done: container logs read failed: %s", e)
@@ -556,9 +565,7 @@ def _ensure_agent_token_in_guest(cfg: Config) -> None:
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
-        result = run_in_windows(
-            cfg, payload, description="stage-agent-token", timeout=30
-        )
+        result = run_in_windows(cfg, payload, description="stage-agent-token", timeout=30)
     except WindowsExecError as e:
         log.warning(
             "agent_token_stage: channel failure (will retry next ensure_ready): %s",
@@ -733,9 +740,7 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
     # report the skip and retry later instead of triggering the
     # "Another user is signed in" dialog.
     if not _oem_install_done(cfg):
-        return {
-            "oem": "deferred (install.bat still running — will run on next attempt)"
-        }
+        return {"oem": "deferred (install.bat still running — will run on next attempt)"}
 
     # v0.2.2: route through the HTTP guest agent when available with
     # FreeRDP RemoteApp fallback. Same as _self_heal_apply but reports
