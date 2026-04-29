@@ -669,71 +669,92 @@ class TestOemInstallDoneGate:
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: "")
         assert provisioner._oem_install_done(self._cfg()) is False
 
-    def test_returns_true_when_log_sentinel_present(self, monkeypatch):
-        """When `<runtime> logs` contains the install.bat completion string,
-        the gate immediately allows FreeRDP."""
+    def test_dockur_ready_with_buffer_opens_gate(self, monkeypatch):
+        """When dockur's "Windows started successfully" appears in container
+        logs AND the buffer has elapsed, the gate opens."""
         import subprocess
+        from datetime import datetime, timedelta, timezone
 
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
+        # Container started ~3 min ago — past the 120s buffer.
+        old = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
         monkeypatch.setattr(
-            provisioner, "_container_started_at", lambda c: "2026-04-29T08:00Z"
+            provisioner, "_container_started_at", lambda c: old
         )
 
         def fake_run(*args, **kwargs):
             return subprocess.CompletedProcess(
                 args=args[0],
                 returncode=0,
-                stdout="...\n[winpodx] Post-install configuration complete (version 9)!\n",
+                stdout="❯ Windows started successfully, visit ...\n",
                 stderr="",
             )
 
         monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
         assert provisioner._oem_install_done(self._cfg()) is True
 
-    def test_returns_false_when_logs_lack_sentinel_and_container_young(
-        self, monkeypatch
-    ):
-        """Gate stays closed while install.bat is still running and no log
-        sentinel appears yet."""
+    def test_dockur_ready_without_buffer_keeps_gate_closed(self, monkeypatch):
+        """Sentinel appeared but buffer hasn't elapsed yet — gate stays
+        closed so FreeRDP doesn't fire mid-install.bat."""
         import subprocess
         from datetime import datetime, timezone
 
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
-        # Container started 10 seconds ago — well within the install window.
-        recent = datetime.now(timezone.utc).isoformat()
+        # Container started just now.
+        now = datetime.now(timezone.utc).isoformat()
         monkeypatch.setattr(
-            provisioner, "_container_started_at", lambda c: recent
+            provisioner, "_container_started_at", lambda c: now
         )
 
         def fake_run(*args, **kwargs):
             return subprocess.CompletedProcess(
                 args=args[0],
                 returncode=0,
-                stdout="dockur boot output without sentinel\n",
+                stdout="❯ Windows started successfully, visit ...\n",
                 stderr="",
             )
 
         monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
         assert provisioner._oem_install_done(self._cfg()) is False
 
-    def test_time_based_fallback_after_5min(self, monkeypatch):
-        """If neither sentinel nor cache, but the container is older than the
-        5-min fallback window, the gate opens — install.bat is bounded."""
+    def test_time_based_fallback_when_logs_unreadable(self, monkeypatch):
+        """If `<runtime> logs` fails entirely but the container is older
+        than _OEM_DONE_FALLBACK_AGE_SECONDS, the gate opens anyway."""
         import subprocess
+        from datetime import datetime, timedelta, timezone
 
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
-        # 1 hour ago.
-        from datetime import datetime, timedelta, timezone
-
-        old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         monkeypatch.setattr(
             provisioner, "_container_started_at", lambda c: old
+        )
+
+        def fake_run(*args, **kwargs):
+            raise subprocess.SubprocessError("boom")
+
+        monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
+        assert provisioner._oem_install_done(self._cfg()) is True
+
+    def test_handles_nanosecond_timestamps(self, monkeypatch):
+        """podman's StartedAt has nanosecond precision — the parser
+        must not choke on 9-digit fractional seconds."""
+        import subprocess
+        from datetime import datetime, timedelta, timezone
+
+        from winpodx.core import provisioner
+
+        provisioner._OEM_DONE_CACHE.clear()
+        # Construct a 1-hour-ago timestamp WITH nanoseconds (9 digits).
+        old_dt = datetime.now(timezone.utc) - timedelta(hours=1)
+        old_ns = old_dt.strftime("%Y-%m-%dT%H:%M:%S") + ".123456789Z"
+        monkeypatch.setattr(
+            provisioner, "_container_started_at", lambda c: old_ns
         )
 
         def fake_run(*args, **kwargs):

@@ -280,13 +280,23 @@ _APPLIES_STAMP_FILENAME = ".applies_stamp"
 # install — the dialog flashes repeatedly as wait_for_windows_responsive
 # probes every 3s).
 #
-# We detect completion by tailing the dockur container's logs for the
-# sentinel install.bat prints at the end. Cached per (container_name,
-# started_at) so we don't re-spawn `<runtime> logs` on every call.
-# Falls back to a generous time-based threshold (5 min) so a logless
-# environment doesn't gate forever.
-_OEM_INSTALL_DONE_SENTINEL = "[winpodx] Post-install configuration complete"
-_OEM_DONE_FALLBACK_AGE_SECONDS = 300
+# Detection priority:
+#   1. Cache hit for this (container, started_at).
+#   2. dockur prints "Windows started successfully" once QEMU has fully
+#      booted Windows; install.bat then runs as part of OOBE. Once we see
+#      that message AND _OEM_DONE_DOCKUR_BUFFER_SECONDS have passed, the
+#      OEM stage is overwhelmingly likely done (install.bat is bounded
+#      to ~1-3 min).
+#   3. Time-based fallback at _OEM_DONE_FALLBACK_AGE_SECONDS for the
+#      pathological case where dockur logs aren't readable at all.
+#
+# install.bat's own `echo [winpodx] Post-install configuration complete`
+# does NOT appear in `<runtime> logs`: dockur exposes its own status
+# messages and QEMU's serial output, not Windows console output (which
+# only the user sees via VNC at :8006).
+_OEM_DOCKUR_READY_SENTINEL = "Windows started successfully"
+_OEM_DONE_DOCKUR_BUFFER_SECONDS = 120
+_OEM_DONE_FALLBACK_AGE_SECONDS = 180
 _OEM_DONE_CACHE: dict[str, str] = {}  # container_name -> known-good started_at
 
 
@@ -329,13 +339,14 @@ def _oem_install_done(cfg: Config) -> bool:
     per-user. Any host-fired FreeRDP RemoteApp in that window surfaces
     the "Another user is signed in" dialog visibly to the user.
 
-    Detection order:
-      1. Cache hit — already confirmed for this (container, started_at).
-      2. Tail the dockur container's logs for the install.bat sentinel.
-      3. Time-based fallback — if the container has been up at least
-         _OEM_DONE_FALLBACK_AGE_SECONDS, assume install is done so we
-         don't gate forever in environments where dockur doesn't
-         forward Windows console output to container stdout.
+    Detection priority (see module-level constants for the rationale):
+      1. Cache hit for this (container, started_at).
+      2. dockur's "Windows started successfully" appears in container
+         logs AND _OEM_DONE_DOCKUR_BUFFER_SECONDS have elapsed since
+         the container started — by then install.bat is almost
+         certainly done (it's bounded to a few minutes).
+      3. Time-based fallback at _OEM_DONE_FALLBACK_AGE_SECONDS for
+         the pathological case where dockur logs are unreadable.
 
     Returns True for non-dockur backends (libvirt / manual) since the
     race only exists when dockur autologons a User session before host
@@ -346,12 +357,24 @@ def _oem_install_done(cfg: Config) -> bool:
 
     started = _container_started_at(cfg)
     if not started:
-        return False  # Pod not inspectable — assume not ready.
+        log.debug("oem_install_done: container_started_at empty — pod not inspectable")
+        return False
 
     name = cfg.pod.container_name
     if _OEM_DONE_CACHE.get(name) == started:
         return True
 
+    age_seconds: float | None = None
+    try:
+        from datetime import datetime
+
+        started_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        now_dt = datetime.now(started_dt.tzinfo)
+        age_seconds = (now_dt - started_dt).total_seconds()
+    except (ValueError, TypeError, AttributeError) as e:
+        log.debug("oem_install_done: failed to parse started_at %r: %s", started, e)
+
+    # Path 2: dockur sentinel + buffer.
     try:
         proc = subprocess.run(  # noqa: S603
             [cfg.pod.backend, "logs", "--tail", "200", name],
@@ -360,24 +383,29 @@ def _oem_install_done(cfg: Config) -> bool:
             timeout=10,
         )
         haystack = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        if _OEM_INSTALL_DONE_SENTINEL in haystack:
-            _OEM_DONE_CACHE[name] = started
-            return True
-    except (FileNotFoundError, subprocess.SubprocessError):
-        pass
+        if _OEM_DOCKUR_READY_SENTINEL in haystack:
+            if age_seconds is None or age_seconds >= _OEM_DONE_DOCKUR_BUFFER_SECONDS:
+                log.info(
+                    "oem_install_done: dockur ready + %.0fs buffer — gate open",
+                    age_seconds or 0,
+                )
+                _OEM_DONE_CACHE[name] = started
+                return True
+            log.debug(
+                "oem_install_done: dockur ready but buffer not elapsed (%.0fs/%ds)",
+                age_seconds, _OEM_DONE_DOCKUR_BUFFER_SECONDS,
+            )
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        log.debug("oem_install_done: container logs read failed: %s", e)
 
-    # Time-based fallback. install.bat is bounded; beyond 5 min it has
-    # almost certainly finished even on slow systems.
-    try:
-        from datetime import datetime
-
-        started_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
-        now_dt = datetime.now(started_dt.tzinfo)
-        if (now_dt - started_dt).total_seconds() >= _OEM_DONE_FALLBACK_AGE_SECONDS:
-            _OEM_DONE_CACHE[name] = started
-            return True
-    except (ValueError, TypeError, AttributeError):
-        pass
+    # Path 3: pure time-based fallback.
+    if age_seconds is not None and age_seconds >= _OEM_DONE_FALLBACK_AGE_SECONDS:
+        log.info(
+            "oem_install_done: time-based fallback after %.0fs — gate open",
+            age_seconds,
+        )
+        _OEM_DONE_CACHE[name] = started
+        return True
 
     return False
 
