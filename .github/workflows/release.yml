@@ -1,8 +1,15 @@
 name: Release
 on:
   push:
+    # Only RTM-marked tags create a public release. Plain version tags
+    # (v0.1.9, v0.2.0 etc.) are kept as repository markers but no longer
+    # auto-publish — kernalix7 found that rapid-iteration tags between
+    # v0.1.9 and v0.2.2.1 shipped unverified releases that broke users'
+    # working installs (2026-04-29). The "RTM" suffix is the explicit
+    # opt-in: e.g. `v0.2.3-RTM`, `v0.3.0-RTM1`. Manual workflow_dispatch
+    # still works for emergency one-offs.
     tags:
-      - "v*.*.*"
+      - "*RTM*"
   workflow_dispatch:
 
 permissions:
@@ -30,7 +37,10 @@ jobs:
       - name: Verify tag matches pyproject version
         if: github.event_name == 'push'
         run: |
+          # Strip leading 'v' and trailing '-RTM*' so 'v0.2.3-RTM' compares
+          # against pyproject's '0.2.3'.
           tag="${GITHUB_REF_NAME#v}"
+          tag="${tag%%-RTM*}"
           pyver=$(python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
           if [ "$tag" != "$pyver" ]; then
             echo "Tag version ($tag) does not match pyproject.toml version ($pyver)" >&2
@@ -68,6 +78,7 @@ jobs:
         id: changelog
         run: |
           tag="${GITHUB_REF_NAME#v}"
+          tag="${tag%%-RTM*}"
           notes=$(awk -v ver="$tag" '
             $0 ~ "^## \\[" ver "\\]" { flag=1; next }
             flag && /^## \[/ { exit }
