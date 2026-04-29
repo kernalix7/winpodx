@@ -217,6 +217,24 @@ def handle_setup(args: argparse.Namespace) -> None:
         ensure_agent_token()
         print(f"Agent token generated at {_tok_path} (mode 0600).")
 
+    # v0.2.2.2: stage the agent token into the OEM bundle BEFORE container
+    # creation. dockur copies the OEM directory contents into C:\OEM\ at
+    # first boot, so this delivers the token to the guest without
+    # depending on a host-fired FreeRDP RemoteApp (the previous flow's
+    # `_ensure_agent_token_in_guest` had to fight the rdprrap-not-active
+    # dialog window). The agent reads it on its first logon and binds
+    # the HTTP listener immediately — no chicken-and-egg.
+    try:
+        _oem_dir = Path(_find_oem_dir())
+        _oem_token = _oem_dir / "agent_token.txt"
+        # Read host token (already exists at this point) and copy with 0600.
+        _oem_token.write_text(_tok_path.read_text(encoding="ascii"), encoding="ascii")
+        _oem_token.chmod(0o600)
+    except OSError as e:
+        # Non-fatal: install.bat's \\tsclient\home fallback + provisioner's
+        # _ensure_agent_token_in_guest still cover this case, just slower.
+        print(f"  warning: could not stage agent token to OEM bundle ({e})")
+
     # v0.1.9: bundled profiles were removed. Desktop entries are now created
     # by `winpodx app refresh` (auto-fired on first pod boot via
     # provisioner.ensure_ready). Until the user's first launch, only the

@@ -296,8 +296,16 @@ _APPLIES_STAMP_FILENAME = ".applies_stamp"
 # messages and QEMU's serial output, not Windows console output (which
 # only the user sees via VNC at :8006).
 _OEM_DOCKUR_READY_SENTINEL = "Windows started successfully"
-_OEM_DONE_DOCKUR_BUFFER_SECONDS = 120
-_OEM_DONE_FALLBACK_AGE_SECONDS = 180
+# dockur prints "Windows started successfully" the moment QEMU finishes
+# booting Windows — BEFORE Windows OOBE / install.bat actually run. On a
+# fresh install, OOBE+install.bat take ~5-15 minutes after that line
+# appears (kernalix7 saw OOBE not finishing within 60-min wait-ready on
+# 2026-04-29 with both 19-min and 40-min ISO downloads). Set the buffer
+# high enough that we don't open the gate mid-install.bat. Subsequent
+# (warm) boots skip OOBE entirely and the agent /health path opens the
+# gate within seconds — the time path is the cold-install fallback.
+_OEM_DONE_DOCKUR_BUFFER_SECONDS = 600
+_OEM_DONE_FALLBACK_AGE_SECONDS = 1200
 _OEM_DONE_CACHE: dict[str, str] = {}  # container_name -> known-good started_at
 
 
@@ -342,12 +350,19 @@ def _oem_install_done(cfg: Config) -> bool:
 
     Detection priority (see module-level constants for the rationale):
       1. Cache hit for this (container, started_at).
-      2. dockur's "Windows started successfully" appears in container
+      2. Agent /health responds — the strongest signal. The HTTP
+         listener only binds AFTER agent.ps1 reads the token, AFTER
+         user logon, AFTER install.bat (which registers the agent in
+         HKCU\\Run AND restarts TermService for rdprrap). If /health
+         answers, install is unambiguously done. v0.2.2.2 stages the
+         token via the OEM bind mount at setup time so the agent
+         comes up at first logon without waiting for a host-fired
+         FreeRDP token-push — breaking the chicken-and-egg.
+      3. dockur's "Windows started successfully" appears in container
          logs AND _OEM_DONE_DOCKUR_BUFFER_SECONDS have elapsed since
-         the container started — by then install.bat is almost
-         certainly done (it's bounded to a few minutes).
-      3. Time-based fallback at _OEM_DONE_FALLBACK_AGE_SECONDS for
-         the pathological case where dockur logs are unreadable.
+         the container started.
+      4. Time-based fallback at _OEM_DONE_FALLBACK_AGE_SECONDS for
+         the pathological case where everything else fails.
 
     Returns True for non-dockur backends (libvirt / manual) since the
     race only exists when dockur autologons a User session before host
@@ -364,6 +379,21 @@ def _oem_install_done(cfg: Config) -> bool:
     name = cfg.pod.container_name
     if _OEM_DONE_CACHE.get(name) == started:
         return True
+
+    # Path 2: agent /health is the most reliable signal. Cheap (~50ms
+    # localhost probe with a 2s budget). If it answers, the entire OEM
+    # stage is done — full stop.
+    try:
+        from winpodx.core.agent import AgentClient, AgentUnavailableError
+
+        AgentClient(cfg).health()
+        log.info("oem_install_done: agent /health responded — gate open")
+        _OEM_DONE_CACHE[name] = started
+        return True
+    except AgentUnavailableError:
+        pass
+    except Exception as e:  # noqa: BLE001 — defensive, never block on probe glitches
+        log.debug("oem_install_done: agent health probe error: %s", e)
 
     age_seconds: float | None = None
     try:

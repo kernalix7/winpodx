@@ -662,12 +662,42 @@ class TestOemInstallDoneGate:
         cfg.pod.backend = "libvirt"
         assert provisioner._oem_install_done(cfg) is True
 
+    def _patch_health_unavailable(self, monkeypatch):
+        """Default agent /health probe to "unavailable" so tests exercise
+        the dockur-sentinel / time-fallback paths without hitting the
+        real network. Tests that want the /health-open path patch
+        AgentClient.health themselves."""
+        from winpodx.core.agent import AgentUnavailableError
+
+        def _raise(self):
+            raise AgentUnavailableError("test-stub: agent down")
+
+        monkeypatch.setattr("winpodx.core.agent.AgentClient.health", _raise)
+
     def test_returns_false_when_started_at_unknown(self, monkeypatch):
         """No started_at -> pod isn't even inspectable; conservatively defer."""
         from winpodx.core import provisioner
 
+        self._patch_health_unavailable(monkeypatch)
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: "")
         assert provisioner._oem_install_done(self._cfg()) is False
+
+    def test_agent_health_opens_gate_immediately(self, monkeypatch):
+        """v0.2.2.2: agent /health is the most reliable signal — the
+        listener only binds AFTER install.bat finishes (post-Sysprep,
+        post-rdprrap-restart). One successful probe opens the gate."""
+        from winpodx.core import provisioner
+
+        provisioner._OEM_DONE_CACHE.clear()
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: "2026-04-29T08:00Z")
+
+        # Even with "started just now" timestamp (no time fallback) and
+        # no log sentinel, /health opening returns True.
+        monkeypatch.setattr(
+            "winpodx.core.agent.AgentClient.health",
+            lambda self: {"version": "0.2.2", "ok": True},
+        )
+        assert provisioner._oem_install_done(self._cfg()) is True
 
     def test_dockur_ready_with_buffer_opens_gate(self, monkeypatch):
         """When dockur's "Windows started successfully" appears in container
@@ -678,8 +708,9 @@ class TestOemInstallDoneGate:
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
-        # Container started ~3 min ago — past the 120s buffer.
-        old = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+        self._patch_health_unavailable(monkeypatch)
+        # Container started ~12 min ago — past the 600s (10 min) buffer.
+        old = (datetime.now(timezone.utc) - timedelta(minutes=12)).isoformat()
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old)
 
         def fake_run(*args, **kwargs):
@@ -702,6 +733,7 @@ class TestOemInstallDoneGate:
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
+        self._patch_health_unavailable(monkeypatch)
         # Container started just now.
         now = datetime.now(timezone.utc).isoformat()
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: now)
@@ -719,14 +751,16 @@ class TestOemInstallDoneGate:
 
     def test_time_based_fallback_when_logs_unreadable(self, monkeypatch):
         """If `<runtime> logs` fails entirely but the container is older
-        than _OEM_DONE_FALLBACK_AGE_SECONDS, the gate opens anyway."""
+        than _OEM_DONE_FALLBACK_AGE_SECONDS (20 min), the gate opens anyway."""
         import subprocess
         from datetime import datetime, timedelta, timezone
 
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
-        old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        self._patch_health_unavailable(monkeypatch)
+        # 25 min ago — past the 1200s (20 min) fallback.
+        old = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old)
 
         def fake_run(*args, **kwargs):
@@ -744,8 +778,9 @@ class TestOemInstallDoneGate:
         from winpodx.core import provisioner
 
         provisioner._OEM_DONE_CACHE.clear()
-        # Construct a 1-hour-ago timestamp WITH nanoseconds (9 digits).
-        old_dt = datetime.now(timezone.utc) - timedelta(hours=1)
+        self._patch_health_unavailable(monkeypatch)
+        # 25 min ago WITH nanoseconds (9 digits) — past time fallback.
+        old_dt = datetime.now(timezone.utc) - timedelta(minutes=25)
         old_ns = old_dt.strftime("%Y-%m-%dT%H:%M:%S") + ".123456789Z"
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old_ns)
 
