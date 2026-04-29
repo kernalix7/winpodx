@@ -41,6 +41,44 @@ def _ask(prompt: str, default: str = "") -> str:
         return default
 
 
+def _ensure_oem_token_staged(*, announce: bool = False) -> None:
+    """Generate the host agent token (if absent) and copy it into the
+    OEM bundle so dockur lays it directly at C:\\OEM\\agent_token.txt
+    on first boot.
+
+    v0.2.2.2: this fixes the chicken-and-egg where the guest agent
+    needed FreeRDP to land its token, but FreeRDP needed rdprrap (set
+    up by install.bat) to avoid the "Another user is signed in" dialog
+    storm. Staging via the existing :{oem_dir}:/oem:Z mount delivers
+    the token before install.bat ever runs.
+
+    Idempotent — safe to call from both the full-setup path and the
+    "existing config, skipping setup" non-interactive shortcut. The
+    OEM file is rewritten on every call so a host-side token rotation
+    propagates on the next setup invocation.
+    """
+    from winpodx.utils.agent_token import ensure_agent_token, token_path
+
+    tok_path = token_path()
+    if tok_path.exists():
+        if announce:
+            print(f"Agent token already present at {tok_path} — keeping existing token.")
+    else:
+        ensure_agent_token()
+        if announce:
+            print(f"Agent token generated at {tok_path} (mode 0600).")
+
+    try:
+        oem_dir = Path(_find_oem_dir())
+        oem_token = oem_dir / "agent_token.txt"
+        oem_token.write_text(tok_path.read_text(encoding="ascii"), encoding="ascii")
+        oem_token.chmod(0o600)
+    except OSError as e:
+        # Non-fatal: install.bat's \\tsclient\home fallback + provisioner's
+        # _ensure_agent_token_in_guest still cover this case, just slower.
+        print(f"  warning: could not stage agent token to OEM bundle ({e})")
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
     import sys
@@ -82,6 +120,11 @@ def handle_setup(args: argparse.Namespace) -> None:
         cfg = Config.load()
         if non_interactive:
             print(f"Existing config found at {Config.path()}, skipping setup.")
+            # v0.2.2.2: even when skipping setup, the OEM bundle must
+            # carry the agent token so a future container recreation
+            # picks it up. This is idempotent — if the file is already
+            # present and matches, nothing changes.
+            _ensure_oem_token_staged()
             return
     else:
         cfg = Config()
@@ -204,36 +247,13 @@ def handle_setup(args: argparse.Namespace) -> None:
         except OSError as e:
             print(f"  warning: could not stamp install marker ({e})")
 
-    # v0.2.2: ensure the shared agent token exists.  On first install we
+    # v0.2.2: ensure the shared agent token exists. On first install we
     # generate it silently; on subsequent setups (re-run over an existing
     # install) we leave the existing token in place so the guest agent
-    # doesn't need to be re-enrolled.
-    from winpodx.utils.agent_token import ensure_agent_token, token_path
-
-    _tok_path = token_path()
-    if _tok_path.exists():
-        print(f"Agent token already present at {_tok_path} — keeping existing token.")
-    else:
-        ensure_agent_token()
-        print(f"Agent token generated at {_tok_path} (mode 0600).")
-
-    # v0.2.2.2: stage the agent token into the OEM bundle BEFORE container
-    # creation. dockur copies the OEM directory contents into C:\OEM\ at
-    # first boot, so this delivers the token to the guest without
-    # depending on a host-fired FreeRDP RemoteApp (the previous flow's
-    # `_ensure_agent_token_in_guest` had to fight the rdprrap-not-active
-    # dialog window). The agent reads it on its first logon and binds
-    # the HTTP listener immediately — no chicken-and-egg.
-    try:
-        _oem_dir = Path(_find_oem_dir())
-        _oem_token = _oem_dir / "agent_token.txt"
-        # Read host token (already exists at this point) and copy with 0600.
-        _oem_token.write_text(_tok_path.read_text(encoding="ascii"), encoding="ascii")
-        _oem_token.chmod(0o600)
-    except OSError as e:
-        # Non-fatal: install.bat's \\tsclient\home fallback + provisioner's
-        # _ensure_agent_token_in_guest still cover this case, just slower.
-        print(f"  warning: could not stage agent token to OEM bundle ({e})")
+    # doesn't need to be re-enrolled. v0.2.2.2 also stages it into the
+    # OEM bundle so dockur lays it directly into C:\OEM\agent_token.txt
+    # at first boot — see _ensure_oem_token_staged.
+    _ensure_oem_token_staged(announce=True)
 
     # v0.1.9: bundled profiles were removed. Desktop entries are now created
     # by `winpodx app refresh` (auto-fired on first pod boot via
