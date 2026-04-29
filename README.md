@@ -210,6 +210,27 @@ and registers every installed app with its real icon. No root required
 except for the dependency install step. Works on
 openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
 
+By default the installer pins to the **latest published GitHub release**
+(currently `v0.1.9`). Pre-release / development versions stay opt-in.
+
+**Choose a version** — pass `--main` (or `--ref TAG`) for development
+builds, otherwise stick with the default release:
+
+```bash
+# Install the latest stable release (default)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+
+# Install the latest main HEAD (development; may be unstable)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main
+
+# Install a specific tag, branch, or commit
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --ref v0.1.9
+
+# Env-var equivalent (works under curl | bash without -s --)
+WINPODX_REF=main  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+WINPODX_REF=v0.1.9 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
 **Offline / air-gapped install** — the installer takes three optional flags
 for machines with no registry / package-repo access:
 
