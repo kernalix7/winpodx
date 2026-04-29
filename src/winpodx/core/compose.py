@@ -39,6 +39,16 @@ services:
       - "127.0.0.1:{rdp_port}:3389/tcp"
       - "127.0.0.1:{rdp_port}:3389/udp"
       - "127.0.0.1:{vnc_port}:8006"
+      # v0.2.2.2: agent HTTP listener bound at 127.0.0.1:8765 INSIDE
+      # Windows. dockur's USER_PORTS=8765 sets up the QEMU hostfwd from
+      # Windows VM:8765 to container:8765, but without this compose port
+      # mapping, container:8765 never reaches the host — every
+      # `curl 127.0.0.1:8765/health` from the host got connection-
+      # refused. The agent feature shipped in v0.2.2 was effectively
+      # dead-on-arrival for this reason; v0.2.2.2 fixes it. Two-stage
+      # forwarding: USER_PORTS handles QEMU NAT, this line handles the
+      # container-to-host bind.
+      - "127.0.0.1:8765:8765/tcp"
     devices:
       - /dev/kvm
       - /dev/net/tun

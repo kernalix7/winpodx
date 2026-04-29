@@ -320,6 +320,30 @@ class TestYamlEscape:
                 assert "\\n" in line or "\\r" in line
                 break
 
+    def test_agent_http_port_exposed_to_host(self, tmp_path, monkeypatch):
+        """v0.2.2.2: the agent's HTTP listener at 127.0.0.1:8765 inside
+        Windows must be reachable from the host. dockur's USER_PORTS=8765
+        only handles the QEMU-NAT side (Windows VM -> Linux container);
+        the compose port mapping is what brings it out to the host. The
+        agent feature shipped in v0.2.2/v0.2.2.1 was effectively dead-on-
+        arrival because this line was missing — every `curl 127.0.0.1:8765`
+        from the host returned connection-refused, /health never answered,
+        and every host->guest call fell back to slow FreeRDP RemoteApp
+        (the source of the PowerShell-window flash storms kernalix7
+        reported on 2026-04-29).
+        """
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        _generate_compose(cfg)
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        # Both stages of the forwarding chain must be present.
+        assert 'USER_PORTS: "8765"' in compose, "QEMU-NAT side missing"
+        assert "127.0.0.1:8765:8765/tcp" in compose, "host bind missing"
+
 
 # --- Password filter ---
 
