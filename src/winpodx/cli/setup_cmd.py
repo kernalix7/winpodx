@@ -16,6 +16,7 @@ from winpodx.core.compose import generate_compose as _generate_compose
 from winpodx.core.compose import generate_compose_to as _generate_compose_to
 from winpodx.core.compose import generate_password as _generate_password
 from winpodx.core.config import Config
+from winpodx.utils.agent_token import ensure_agent_token, stage_token_to_oem
 from winpodx.utils.compat import import_winapps_config
 from winpodx.utils.deps import check_all
 from winpodx.utils.paths import config_dir
@@ -23,6 +24,7 @@ from winpodx.utils.paths import config_dir
 __all__ = [
     "_build_compose_content",
     "_build_compose_template",
+    "_ensure_oem_token_staged",
     "_find_oem_dir",
     "_generate_compose",
     "_generate_compose_to",
@@ -31,6 +33,27 @@ __all__ = [
     "handle_rotate_password",
     "handle_setup",
 ]
+
+
+def _ensure_oem_token_staged() -> None:
+    """Generate the host token and stage it into the OEM bind mount.
+
+    Both the host-side ``~/.config/winpodx/agent_token.txt`` and the
+    container-side ``<oem_dir>/agent_token.txt`` are written with mode
+    0600. dockur copies ``/oem/*`` into ``C:\\OEM\\`` at first boot;
+    ``agent.ps1`` then reads ``C:\\OEM\\agent_token.txt`` to bind its
+    listener with bearer auth.
+
+    Errors during OEM staging are non-fatal: the host token is still
+    generated, and a warning is printed so the user can investigate.
+    """
+    ensure_agent_token()
+    try:
+        oem_dir = Path(_find_oem_dir())
+        if oem_dir.exists():
+            stage_token_to_oem(oem_dir)
+    except OSError as e:
+        print(f"  warning: could not stage agent token to OEM dir ({e})")
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -82,6 +105,7 @@ def handle_setup(args: argparse.Namespace) -> None:
         cfg = Config.load()
         if non_interactive:
             print(f"Existing config found at {Config.path()}, skipping setup.")
+            _ensure_oem_token_staged()
             return
     else:
         cfg = Config()
@@ -185,6 +209,8 @@ def handle_setup(args: argparse.Namespace) -> None:
 
     cfg.save()
     print(f"\nConfig saved to {Config.path()}")
+
+    _ensure_oem_token_staged()
 
     # v0.2.0.2: stamp installed_version.txt so a follow-up `winpodx migrate`
     # doesn't misclassify this fresh install as a "pre-tracker upgrade from
