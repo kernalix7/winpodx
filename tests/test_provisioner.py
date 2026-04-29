@@ -666,6 +666,51 @@ class TestOemInstallDoneGate:
         cfg.pod.backend = "libvirt"
         assert provisioner._oem_install_done(cfg) is True
 
+    def test_parse_container_started_at_iso8601(self):
+        """ISO 8601 / RFC 3339 — what `{{.State.StartedAt}}` is documented
+        to return."""
+        from winpodx.core.provisioner import _parse_container_started_at
+
+        # Z suffix
+        dt = _parse_container_started_at("2026-04-29T08:30:00.123456789Z")
+        assert dt is not None
+        assert dt.tzinfo is not None
+
+        # Offset with colon
+        dt = _parse_container_started_at("2026-04-29T08:30:00.123456+05:00")
+        assert dt is not None
+
+        # No fractional seconds
+        dt = _parse_container_started_at("2026-04-29T08:30:00Z")
+        assert dt is not None
+
+    def test_parse_container_started_at_go_default(self):
+        """Go's default time.Time.String() — what podman ACTUALLY returns.
+        Regression for kernalix7's 2026-04-29 install which logged:
+            failed to parse started_at '2026-04-29 17:25:31.72798439 +0900 KST'
+        every 3 seconds while the GUI status timer ticked."""
+        from winpodx.core.provisioner import _parse_container_started_at
+
+        # The exact format from kernalix7's log.
+        dt = _parse_container_started_at("2026-04-29 17:25:31.72798439 +0900 KST")
+        assert dt is not None, "must accept Go's default time.String() format"
+        assert dt.tzinfo is not None
+
+        # Same shape, UTC.
+        dt = _parse_container_started_at("2026-04-29 17:25:31.123 +0000 UTC")
+        assert dt is not None
+
+        # No timezone abbreviation
+        dt = _parse_container_started_at("2026-04-29 17:25:31.123456 +0900")
+        assert dt is not None
+
+    def test_parse_container_started_at_returns_none_on_garbage(self):
+        from winpodx.core.provisioner import _parse_container_started_at
+
+        assert _parse_container_started_at("") is None
+        assert _parse_container_started_at("not-a-timestamp") is None
+        assert _parse_container_started_at("2026-99-99T99:99:99Z") is None
+
     def _patch_health_unavailable(self, monkeypatch):
         """Default agent /health probe to "unavailable" so tests exercise
         the dockur-sentinel / time-fallback paths without hitting the

@@ -333,6 +333,66 @@ _OEM_DOCKUR_READY_SENTINEL = "Windows started successfully"
 _OEM_DONE_DOCKUR_BUFFER_SECONDS = 1800  # 30 min after sentinel
 _OEM_DONE_FALLBACK_AGE_SECONDS = 1800  # 30 min container age
 _OEM_DONE_CACHE: dict[str, str] = {}  # container_name -> known-good started_at
+# Track started_at strings we've already warned about so the warning
+# doesn't spam the log every time GUI's status timer ticks.
+_OEM_PARSE_WARNED: set[str] = set()
+
+
+def _parse_container_started_at(s: str):
+    """Parse a container's StartedAt string into a tz-aware datetime.
+
+    Handles two formats kernalix7 saw on 2026-04-29:
+
+    1. ISO 8601 / RFC 3339 — what `--format '{{.State.StartedAt}}'` is
+       documented to return:
+           2026-04-29T08:30:00.123456789Z
+           2026-04-29T08:30:00.123456789+05:00
+
+    2. Go's default `time.Time.String()` — what podman ACTUALLY returns
+       when the State.StartedAt field is exposed as a Go time.Time:
+           2026-04-29 17:25:31.72798439 +0900 KST
+
+    Python's `datetime.fromisoformat` rejects (2): space instead of T,
+    8-9 digit fractional seconds, no colon in the offset, trailing
+    timezone abbreviation. We normalise it to ISO 8601 first.
+
+    Returns ``None`` on any unrecognised format.
+    """
+    s = s.strip()
+    if not s:
+        return None
+
+    from datetime import datetime
+
+    # Form 1: ISO 8601 (with optional nanosecond truncation).
+    iso = s.replace("Z", "+00:00")
+    iso = re.sub(r"\.(\d{7,})", lambda m: "." + m.group(1)[:6], iso)
+    try:
+        return datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        pass
+
+    # Form 2: Go default — `YYYY-MM-DD HH:MM:SS[.fff…] ±HHMM[:MM] [TZ]`.
+    m = re.match(
+        r"^(\d{4}-\d{2}-\d{2})\s+"
+        r"(\d{2}:\d{2}:\d{2})"
+        r"(?:\.(\d+))?\s+"
+        r"([+-]\d{2}):?(\d{2})"
+        r"(?:\s+\S+)?$",
+        s,
+    )
+    if m:
+        date, hms, frac, off_h, off_m = m.groups()
+        if frac:
+            frac = frac[:6]
+            hms = f"{hms}.{frac}"
+        iso = f"{date}T{hms}{off_h}:{off_m}"
+        try:
+            return datetime.fromisoformat(iso)
+        except (ValueError, TypeError):
+            pass
+
+    return None
 
 
 def _container_started_at(cfg: Config) -> str:
@@ -422,25 +482,27 @@ def _oem_install_done(cfg: Config) -> bool:
         log.debug("oem_install_done: agent health probe error: %s", e)
 
     age_seconds: float | None = None
-    try:
+    started_dt = _parse_container_started_at(started)
+    if started_dt is not None:
         from datetime import datetime
 
-        # Python 3.10's datetime.fromisoformat rejects fractional seconds
-        # beyond 6 digits; podman returns nanosecond precision (9 digits)
-        # like "2026-04-29T08:30:00.123456789Z". Truncate before parsing.
-        normalised = started.replace("Z", "+00:00")
-        match = re.search(r"\.(\d{7,})", normalised)
-        if match:
-            normalised = normalised.replace(match.group(0), "." + match.group(1)[:6])
-        started_dt = datetime.fromisoformat(normalised)
-        now_dt = datetime.now(started_dt.tzinfo)
-        age_seconds = (now_dt - started_dt).total_seconds()
-    except (ValueError, TypeError, AttributeError) as e:
-        # Bumped to WARNING from DEBUG (kernalix7's 2026-04-29 logs showed
-        # the parse silently failing → age_seconds=None → path 3 below
-        # opening the gate prematurely with "0s buffer"). User-visible at
-        # default log level so the failure is debuggable.
-        log.warning("oem_install_done: failed to parse started_at %r: %s", started, e)
+        try:
+            now_dt = datetime.now(started_dt.tzinfo)
+            age_seconds = (now_dt - started_dt).total_seconds()
+        except (ValueError, TypeError, AttributeError):
+            age_seconds = None
+    elif started not in _OEM_PARSE_WARNED:
+        # Throttle the warning so GUI's 3s status timer doesn't flood
+        # the log with the same "failed to parse" message hundreds of
+        # times per session (kernalix7's 2026-04-29 log showed exactly
+        # this spam). Each distinct started_at value gets one warning.
+        log.warning(
+            "oem_install_done: cannot parse started_at %r — gate stays "
+            "closed until agent /health responds. File an issue if this "
+            "is reproducible: the format is unrecognised.",
+            started,
+        )
+        _OEM_PARSE_WARNED.add(started)
 
     # Path 3: dockur sentinel + buffer. Requires age_seconds — without
     # a real age figure we can't tell if the buffer has elapsed. The
