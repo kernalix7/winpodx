@@ -23,7 +23,3 @@ WORK_STATUS.md
 
 # Backup toolkit (generic, not project-specific)
 tmp-igbkp/
-
-# v0.2.2.2: per-install agent token staged into the OEM bundle by
-# `winpodx setup`. Contains a 32-byte hex secret — never commit.
-config/oem/agent_token.txt

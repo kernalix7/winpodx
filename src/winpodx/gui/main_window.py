@@ -205,9 +205,6 @@ class WinpodxWindow(QMainWindow):
     app_launched = Signal(str)
     app_launch_failed = Signal(str)
     log_signal = Signal(str, str)
-    # Emitted by the agent health probe spawned from _refresh_pod_status:
-    # True == /health responded ok, False == down / unreachable / token missing.
-    agent_status_updated = Signal(bool)
 
     @staticmethod
     def _add_shadow(
@@ -345,7 +342,6 @@ class WinpodxWindow(QMainWindow):
         self.app_launched.connect(self._on_app_launched)
         self.app_launch_failed.connect(self._on_app_launch_failed)
         self.log_signal.connect(self._log_append)
-        self.agent_status_updated.connect(self._on_agent_status)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -1336,7 +1332,6 @@ class WinpodxWindow(QMainWindow):
             ("Live (pod)", "follow_pod"),
             ("App log", "tail_app_log"),
             ("Live (app)", "follow_app_log"),
-            ("Live (guest)", "follow_guest"),
             ("Inspect", ["podman", "inspect", container]),
             ("RDP Test", None),
             ("Stop tail", "stop_tail"),
@@ -1355,8 +1350,6 @@ class WinpodxWindow(QMainWindow):
                 btn.clicked.connect(self._on_tail_app_log)
             elif cmd == "follow_app_log":
                 btn.clicked.connect(self._on_follow_app_log)
-            elif cmd == "follow_guest":
-                btn.clicked.connect(self._on_follow_guest_events)
             elif cmd == "stop_tail":
                 btn.clicked.connect(self._on_stop_tail)
             else:
@@ -1364,27 +1357,7 @@ class WinpodxWindow(QMainWindow):
             header.addWidget(btn)
 
         layout.addLayout(header)
-
-        # Agent status row — small muted indicator under the header so the
-        # user can see at a glance whether the guest agent is reachable
-        # before clicking Live (guest). Updated by the same 15s timer that
-        # refreshes pod state, off the GUI thread.
-        agent_row = QHBoxLayout()
-        agent_row.setContentsMargins(2, 4, 2, 0)
-        agent_row.setSpacing(6)
-        self.agent_dot = QLabel("●")
-        self.agent_dot.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: 10px;"
-        )
-        agent_row.addWidget(self.agent_dot)
-        self.agent_status_label = QLabel("Guest agent: unknown")
-        self.agent_status_label.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;"
-        )
-        agent_row.addWidget(self.agent_status_label)
-        agent_row.addStretch()
-        layout.addLayout(agent_row)
-        layout.addSpacing(6)
+        layout.addSpacing(10)
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
@@ -1766,108 +1739,10 @@ class WinpodxWindow(QMainWindow):
         self._tail_stop = threading.Event()
         threading.Thread(target=self._drain_tail, args=(self._tail_proc,), daemon=True).start()
 
-    def _on_follow_guest_events(self) -> None:
-        """Stream the Windows guest agent's SSE event feed into the panel.
-
-        Symmetric with ``_on_follow_pod_log`` / ``_on_follow_app_log``:
-        any active tail is stopped, then we probe the agent on a worker
-        thread (so the GUI never blocks on the 2s health timeout) and
-        only start the streaming worker if /health succeeds. ``stop`` is
-        a ``threading.Event`` shared with ``_on_stop_tail`` which knows
-        how to cancel either a Popen or an SSE connection.
-        """
-        self._on_stop_tail()
-        self._log_append(
-            "$ agent /events (Stop tail to end)",
-            C.BLUE,
-        )
-
-        stop_event = threading.Event()
-        self._tail_stop = stop_event
-        self._tail_proc = None  # SSE path has no Popen.
-
-        def _probe_then_stream() -> None:
-            # Breadcrumb in the winpodx app log so the user (and bug
-            # reports) can correlate "I clicked Live (guest) at 12:03"
-            # with whatever the agent did or didn't return. Done off the
-            # GUI thread so disk IO doesn't stutter the UI.
-            try:
-                from winpodx.utils.paths import config_dir
-
-                log_path = config_dir() / "winpodx.log"
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(log_path, "a", encoding="utf-8") as fh:
-                    fh.write("[agent] connecting to guest...\n")
-            except OSError:
-                log.debug(
-                    "could not append agent breadcrumb to winpodx.log",
-                    exc_info=True,
-                )
-
-            try:
-                from winpodx.core.agent import AgentClient, AgentUnavailableError
-            except ImportError as exc:
-                self.log_signal.emit(
-                    f"[agent] client unavailable: {exc}",
-                    C.RED,
-                )
-                return
-
-            client = AgentClient(self.cfg)
-            try:
-                client.health()
-            except AgentUnavailableError:
-                self.log_signal.emit(
-                    "[agent] not reachable — guest agent likely not running yet "
-                    "(fresh install / pod restart)",
-                    C.YELLOW,
-                )
-                return
-            except Exception as exc:  # noqa: BLE001 — unexpected errors shouldn't crash
-                self.log_signal.emit(f"[agent] health probe failed: {exc}", C.RED)
-                return
-
-            if stop_event.is_set():
-                # User clicked Stop tail before health() returned.
-                return
-
-            self.log_signal.emit("[agent] connected — streaming events", C.GREEN)
-
-            def _on_line(d: dict) -> None:
-                ts = str(d.get("ts", "")).strip()
-                level = str(d.get("level", "info")).strip()
-                msg = str(d.get("msg", "")).strip()
-                # Pick a colour that mirrors the Pod / app-log convention:
-                # info / debug = subtext, warn = yellow, error = red.
-                lvl_lower = level.lower()
-                if lvl_lower in ("error", "err", "fatal"):
-                    color = C.RED
-                elif lvl_lower in ("warn", "warning"):
-                    color = C.YELLOW
-                else:
-                    color = C.SUBTEXT1
-                prefix = f"[guest] {ts} {level}:" if ts else f"[guest] {level}:"
-                self.log_signal.emit(f"{prefix} {msg}", color)
-
-            try:
-                client.stream_events(_on_line, stop=stop_event)
-            except AgentUnavailableError as exc:
-                self.log_signal.emit(f"[agent] stream dropped: {exc}", C.YELLOW)
-            except Exception as exc:  # noqa: BLE001
-                self.log_signal.emit(f"[agent] stream error: {exc}", C.RED)
-
-        thread = threading.Thread(target=_probe_then_stream, daemon=True)
-        self._tail_thread = thread
-        thread.start()
-
     def _drain_tail(self, proc) -> None:  # type: ignore[no-untyped-def]
         try:
             for line in iter(proc.stdout.readline, ""):
-                # _tail_stop may have been cleared to None by _on_stop_tail
-                # already (we now reset both slots on cancel). Treat that
-                # the same as 'stop': bail and let the proc cleanup run.
-                stop = getattr(self, "_tail_stop", None)
-                if stop is None or stop.is_set():
+                if self._tail_stop.is_set():
                     break
                 line = line.rstrip()
                 if line:
@@ -1884,51 +1759,22 @@ class WinpodxWindow(QMainWindow):
                 pass
 
     def _on_stop_tail(self) -> None:
-        """Cancel whichever tail is running.
-
-        Two distinct tail kinds share these slots:
-
-        * Popen-based (`tail -F` / `podman logs -f`): ``_tail_proc`` is the
-          subprocess; ``_tail_stop`` is a ``threading.Event`` used by the
-          drainer loop to bail.
-        * AgentClient SSE: ``_tail_proc`` is None; ``_tail_stop`` is the
-          ``threading.Event`` passed to ``stream_events``. The worker
-          thread (``_tail_thread``) exits on its own once the event fires
-          plus whatever socket I/O has to unwind.
-
-        We tolerate any combination of None / Popen / Event so calling
-        this when nothing is running is a safe no-op.
-        """
         proc = getattr(self, "_tail_proc", None)
         stop = getattr(self, "_tail_stop", None)
-        thread = getattr(self, "_tail_thread", None)
-
-        if proc is None and stop is None and thread is None:
+        if proc is None:
             return
-
-        # Signal cancellation first so SSE / drain loops see the flag
-        # before we start tearing down the underlying socket / process.
         if stop is not None:
+            stop.set()
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
             try:
-                stop.set()
-            except Exception:  # noqa: BLE001 — defensive; a stale ref is fine
-                pass
-
-        # Popen path: terminate / kill as before.
-        if proc is not None:
-            try:
-                proc.terminate()
-                proc.wait(timeout=2)
+                proc.kill()
             except Exception:  # noqa: BLE001
-                try:
-                    proc.kill()
-                except Exception:  # noqa: BLE001
-                    pass
-
+                pass
         self._log_append("(tail stopped)", C.OVERLAY0)
         self._tail_proc = None
-        self._tail_stop = None
-        self._tail_thread = None
 
     _ALLOWED_COMMANDS = {
         "podman",
@@ -2639,55 +2485,10 @@ class WinpodxWindow(QMainWindow):
                 cfg = Config.load()
                 s = pod_status(cfg)
                 self.pod_status_updated.emit(s.state.value, s.ip)
-                state = s.state.value
             except Exception:
                 self.pod_status_updated.emit("error", "")
-                state = "error"
-
-            # Only probe the agent when the pod is actually running.
-            # Hitting /health while the pod is stopped just guarantees a
-            # connection-refused every 15s — pointless noise.
-            if state == "running":
-                try:
-                    from winpodx.core.agent import AgentClient, AgentUnavailableError
-
-                    client = AgentClient(Config.load())
-                    try:
-                        client.health()
-                        self.agent_status_updated.emit(True)
-                    except AgentUnavailableError:
-                        self.agent_status_updated.emit(False)
-                    except Exception:  # noqa: BLE001
-                        self.agent_status_updated.emit(False)
-                except ImportError:
-                    # Older install w/o AgentClient — quietly leave the
-                    # indicator at its previous value.
-                    pass
-            else:
-                self.agent_status_updated.emit(False)
 
         threading.Thread(target=_do, daemon=True).start()
-
-    @Slot(bool)
-    def _on_agent_status(self, ok: bool) -> None:
-        """Update the Logs-page agent indicator.
-
-        Reuses the same dot-styling pattern as ``pod_dot``: green when
-        reachable, muted when not. Only paints if the Logs page has
-        actually been built (the row only exists after that page renders).
-        """
-        label = getattr(self, "agent_status_label", None)
-        dot = getattr(self, "agent_dot", None)
-        if label is None or dot is None:
-            return
-        if ok:
-            label.setText("Guest agent: OK")
-            label.setStyleSheet(f"background: transparent; color: {C.GREEN}; font-size: 11px;")
-            dot.setStyleSheet(f"background: transparent; color: {C.GREEN}; font-size: 10px;")
-        else:
-            label.setText("Guest agent: down")
-            label.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-            dot.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 10px;")
 
     @Slot(str, str)
     def _on_pod_status(self, state: str, ip: str) -> None:

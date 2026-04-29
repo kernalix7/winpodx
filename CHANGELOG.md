@@ -9,46 +9,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.2.2.1] - 2026-04-28
-
-### Changed
-- **install.sh chains `pod apply-fixes` after `migrate`.** v0.2.0.5 had removed the explicit apply-fixes call because migrate's always-apply path covers it. But when migrate itself gets deferred via the pending marker (Windows still booting, etc.) the apply never fires, leaving the user to launch the next app against an unconfigured Windows side. v0.2.2.1 re-adds it as a defensive belt-and-suspenders step. On a warm pod it's a no-op via the v0.2.0.8 stamp short-circuit; on a cold pod it now uses the v0.2.2 HTTP guest agent (~200ms) instead of the slow FreeRDP RemoteApp PowerShell channel. New `WINPODX_NO_APPLY_FIXES=1` env var to skip.
-- **`utils.pending` adds `apply_fixes` step.** Recognized by `_VALID_STEPS`, ordered between `migrate` and `discovery` in the canonical resume sequence, has its own resume handler that re-runs `apply_windows_runtime_fixes` and removes the step on success.
-
-
-
-Major: introduces a long-running **Windows guest HTTP agent** that replaces the per-call FreeRDP RemoteApp PowerShell channel for non-secret operations. Result: runtime applies are ~50× faster (50ms HTTP vs 5–10s FreeRDP) and the PowerShell window flash on every app launch is gone.
-
-Built in parallel by 4 teams (core / cli / desktop / platform-qa) using TeamCreate orchestration for the first time.
-
-### Added
-- **Windows guest HTTP agent (`config/oem/agent/agent.ps1`).** PowerShell 5.1 stdlib `[System.Net.HttpListener]` on `127.0.0.1:8765`. Endpoints:
-  - `GET /health` (no auth) — `{version, started, uptime}`. Used for liveness probe before any other call.
-  - `POST /exec` (Bearer token) — runs base64-encoded PS1, returns `{rc, stdout, stderr}`. 60 s timeout.
-  - `GET /events` (Bearer token, SSE) — server-sent event stream of agent log + apply transcripts. 15 s keep-alive.
-  - `POST /apply/{step}` (Bearer token, SSE) — `{max_sessions, rdp_timeouts, oem, multi_session}`. Streams progress lines + ends with `event: done` + final rc.
-  - `POST /discover` (Bearer token, SSE) — runs `discover_apps.ps1`, streams progress, returns JSON file path on completion.
-- **Python `AgentClient` (`src/winpodx/core/agent.py`).** urllib only. `health()` / `exec()` / `stream_events(on_line)` / `post_apply(step, on_progress)` / `post_discover(on_progress)`. Plus exceptions (`AgentError`, `AgentUnavailableError`, `AgentAuthError`, `AgentTimeoutError`) and the `run_via_agent_or_freerdp` + `run_apply_via_agent_or_freerdp` helpers that probe `/health` first and fall back to `windows_exec.run_in_windows` on `AgentUnavailableError`.
-- **dockur port publish.** `compose.py` template adds `USER_PORTS: "8765"` so dockur's user-mode QEMU NAT publishes the agent port to the host's `127.0.0.1:8765` (loopback only, never `0.0.0.0`).
-- **Shared agent token.** `winpodx setup` generates a `secrets.token_hex(32)` value at `~/.config/winpodx/agent_token.txt` (mode 0600) on first run; subsequent setups leave the existing token in place. The Windows guest reads it via the `\\tsclient\home` RDP home-drive redirection during OEM setup and copies it to `C:\OEM\agent_token.txt` so the agent can read it locally.
-- **`utils.agent_token.ensure_agent_token()`** — stdlib-only helper that generates / writes the token atomically with 0600 perms.
-- **`install.bat` agent wiring.** After existing OEM steps the script copies `agent.ps1` to `C:\OEM\`, creates `C:\OEM\agent-runs\`, copies the token from the tsclient share (silent skip if absent), and registers a `winpodx-agent` `ONLOGON` Task Scheduler entry. All steps idempotent.
-- **GUI Tools/Terminal page — `Live (guest)` button + agent-status indicator.** New SSE consumer streams the agent's `/events` feed inline with the existing pod / app-log streams. A small `Guest agent: OK / down` indicator (refreshed by the existing 15 s status timer) shows reachability without exposing the URL or token.
-
-### Changed
-- **`_self_heal_apply` and `apply_windows_runtime_fixes` now route through the agent first.** Each step (`max_sessions`, `rdp_timeouts`, `oem_runtime_fixes`, `multi_session`) hits `POST /apply/{step}` over HTTP; the existing FreeRDP RemoteApp PowerShell payload remains as a fallback when the agent isn't reachable (older containers, pre-Task-Scheduler-fire fresh installs, or upgrade window). Apply latency drops from ~5-10 s × 4 PowerShell-flashing FreeRDP launches to ~50 ms × 4 silent HTTP calls. The `_self_heal_already_done` stamp short-circuit (v0.2.0.8) is unchanged — once stamped, applies don't fire on every launch regardless of channel.
-
-### Security model
-- HTTP, not HTTPS. Threat model: agent binds 127.0.0.1 inside the VM; dockur user-mode QEMU NAT exposes only on host's 127.0.0.1; no external network surface. Bearer-token auth for every endpoint except `/health` (liveness only).
-- **Sensitive operations (password rotation, sync-password) deliberately KEEP using FreeRDP RemoteApp** — `windows_exec.run_in_windows` / `_change_windows_password` are unchanged. The agent only handles non-secret traffic (registry applies, apply progress, log streaming). This means a token leak limits damage to "attacker can read agent logs and re-run idempotent registry writes."
-
-### Tests
-449 passed + 1 skipped (the skip is `pwsh` parser test on Linux CI without PowerShell installed). New: `tests/test_agent.py` (12 tests covering happy path, token rejection, timeout, SSE streaming, fallback semantics) and `tests/test_agent_ps1_syntax.py` (7 structural checks: endpoints present, loopback-only bind, `[System.Net.HttpListener]`, balanced braces, no `0.0.0.0`).
-
-### Deferred to v0.2.3
-- **Discovery agent migration.** The `/discover` endpoint streams progress fine, but the agent writes the JSON output to `C:\OEM\agent-runs\<ts>.json` *inside* the Windows VM and the host can't read that without a `C:\` → host-volume path translation (or a follow-up `GET /discover/result` endpoint that returns the bytes). Discovery continues to use the FreeRDP RemoteApp channel; non-blocking for v0.2.2.
-- **Verbose log bundle endpoint** (`GET /logs/bundle`) — collect Windows Event Log + agent transcript + recent apply logs into a single zip. Mentioned in agent.ps1 design but not yet exposed.
-
 ## [0.2.1] - 2026-04-28
 
 Minor bump (0.2.0.x → 0.2.1) — bundled UX work: install never abandons partial state, GUI logs surface winpodx's own log live, GUI greets first-time users with a system check.

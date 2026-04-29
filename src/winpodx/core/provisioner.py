@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
 import subprocess
 import time
@@ -220,19 +219,6 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     deadline = time.monotonic() + max(1, int(timeout))
-
-    # v0.2.2.2: poll the OEM-install-done sentinel BEFORE firing any
-    # FreeRDP RemoteApp probe. install.bat enables RDP early (line
-    # ~13) but only activates rdprrap multi-session at the end (line
-    # ~239); probing FreeRDP in between makes Windows surface the
-    # "Another user is signed in" dialog inside the guest.
-    while time.monotonic() < deadline:
-        if _oem_install_done(cfg):
-            break
-        time.sleep(3)
-    else:
-        return False
-
     while time.monotonic() < deadline:
         if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
             break
@@ -246,31 +232,7 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     # though the RDP listener answers TCP, so a one-shot probe here is
     # the wrong primitive — the user already passed `timeout` to express
     # "try this hard, for this long".
-    #
-    # v0.2.2.2: short-circuit via agent /health BEFORE each FreeRDP probe.
-    # If agent is up, Windows is already responsive (the agent only binds
-    # its listener AFTER user logon completes), so we can return without
-    # spawning a single PowerShell-RemoteApp window. Fall through to the
-    # FreeRDP probe only when /health is silent.
-    #
-    # Probe pacing widened from 3s to 30s and capped to 6 attempts so that
-    # a worst-case stuck-install scenario produces at most ~6 PS window
-    # flashes instead of ~100 (kernalix7 reported this storm on
-    # 2026-04-29). The /health short-circuit means a healthy guest still
-    # returns within seconds.
-    from winpodx.core.agent import AgentClient as _AgentClient
-    from winpodx.core.agent import AgentUnavailableError as _AgentUnavailableError
-
-    max_freerdp_probes = 6
-    probes_fired = 0
-    while time.monotonic() < deadline and probes_fired < max_freerdp_probes:
-        try:
-            _AgentClient(cfg).health()
-            return True
-        except _AgentUnavailableError:
-            pass
-        except Exception:  # noqa: BLE001 — defensive, never block on probe glitches
-            pass
+    while time.monotonic() < deadline:
         per_probe_budget = max(5, min(20, int(deadline - time.monotonic())))
         try:
             result = run_in_windows(
@@ -279,120 +241,20 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
                 description="responsive-probe",
                 timeout=per_probe_budget,
             )
-            probes_fired += 1
             if result.rc == 0:
                 return True
         except WindowsExecError:
             # Transient — Windows likely still booting / Sysprep running.
-            probes_fired += 1
-        if time.monotonic() < deadline - 30:
-            time.sleep(30)
+            pass
+        # Pace retries so we don't pin a CPU spinning FreeRDP processes.
+        if time.monotonic() < deadline - 3:
+            time.sleep(3)
         else:
             break
     return False
 
 
 _APPLIES_STAMP_FILENAME = ".applies_stamp"
-
-
-# v0.2.2.2: install.bat completion gate.
-#
-# Between RDP-port-up (line 12-18 of install.bat) and the TermService
-# restart that activates rdprrap (line 239-240), Windows enforces
-# single-session-per-user. Any host-fired FreeRDP RemoteApp attempt in
-# that window surfaces the "Another user is signed in" dialog visibly
-# inside the guest (kernalix7 reported on 2026-04-29 during a fresh
-# install — the dialog flashes repeatedly as wait_for_windows_responsive
-# probes every 3s).
-#
-# Detection priority:
-#   1. Cache hit for this (container, started_at).
-#   2. dockur prints "Windows started successfully" once QEMU has fully
-#      booted Windows; install.bat then runs as part of OOBE. Once we see
-#      that message AND _OEM_DONE_DOCKUR_BUFFER_SECONDS have passed, the
-#      OEM stage is overwhelmingly likely done (install.bat is bounded
-#      to ~1-3 min).
-#   3. Time-based fallback at _OEM_DONE_FALLBACK_AGE_SECONDS for the
-#      pathological case where dockur logs aren't readable at all.
-#
-# install.bat's own `echo [winpodx] Post-install configuration complete`
-# does NOT appear in `<runtime> logs`: dockur exposes its own status
-# messages and QEMU's serial output, not Windows console output (which
-# only the user sees via VNC at :8006).
-_OEM_DOCKUR_READY_SENTINEL = "Windows started successfully"
-# dockur prints "Windows started successfully" the moment QEMU finishes
-# booting Windows — BEFORE Windows OOBE / install.bat actually run. On a
-# fresh install, OOBE+install.bat take ~5-15 minutes after that line
-# appears (kernalix7 saw OOBE not finishing within 60-min wait-ready on
-# 2026-04-29 with both 19-min and 40-min ISO downloads). The heuristic
-# fallbacks below are a SAFETY NET only — the primary signal is agent
-# /health, which only answers AFTER install.bat has fully completed
-# (post-rdprrap-restart, post-token-read). When that's silent we hold
-# the gate closed for a full 30 minutes per signal so a FreeRDP probe
-# storm doesn't fire mid-install.bat.
-_OEM_DONE_DOCKUR_BUFFER_SECONDS = 1800  # 30 min after sentinel
-_OEM_DONE_FALLBACK_AGE_SECONDS = 1800  # 30 min container age
-_OEM_DONE_CACHE: dict[str, str] = {}  # container_name -> known-good started_at
-# Track started_at strings we've already warned about so the warning
-# doesn't spam the log every time GUI's status timer ticks.
-_OEM_PARSE_WARNED: set[str] = set()
-
-
-def _parse_container_started_at(s: str):
-    """Parse a container's StartedAt string into a tz-aware datetime.
-
-    Handles two formats kernalix7 saw on 2026-04-29:
-
-    1. ISO 8601 / RFC 3339 — what `--format '{{.State.StartedAt}}'` is
-       documented to return:
-           2026-04-29T08:30:00.123456789Z
-           2026-04-29T08:30:00.123456789+05:00
-
-    2. Go's default `time.Time.String()` — what podman ACTUALLY returns
-       when the State.StartedAt field is exposed as a Go time.Time:
-           2026-04-29 17:25:31.72798439 +0900 KST
-
-    Python's `datetime.fromisoformat` rejects (2): space instead of T,
-    8-9 digit fractional seconds, no colon in the offset, trailing
-    timezone abbreviation. We normalise it to ISO 8601 first.
-
-    Returns ``None`` on any unrecognised format.
-    """
-    s = s.strip()
-    if not s:
-        return None
-
-    from datetime import datetime
-
-    # Form 1: ISO 8601 (with optional nanosecond truncation).
-    iso = s.replace("Z", "+00:00")
-    iso = re.sub(r"\.(\d{7,})", lambda m: "." + m.group(1)[:6], iso)
-    try:
-        return datetime.fromisoformat(iso)
-    except (ValueError, TypeError):
-        pass
-
-    # Form 2: Go default — `YYYY-MM-DD HH:MM:SS[.fff…] ±HHMM[:MM] [TZ]`.
-    m = re.match(
-        r"^(\d{4}-\d{2}-\d{2})\s+"
-        r"(\d{2}:\d{2}:\d{2})"
-        r"(?:\.(\d+))?\s+"
-        r"([+-]\d{2}):?(\d{2})"
-        r"(?:\s+\S+)?$",
-        s,
-    )
-    if m:
-        date, hms, frac, off_h, off_m = m.groups()
-        if frac:
-            frac = frac[:6]
-            hms = f"{hms}.{frac}"
-        iso = f"{date}T{hms}{off_h}:{off_m}"
-        try:
-            return datetime.fromisoformat(iso)
-        except (ValueError, TypeError):
-            pass
-
-    return None
 
 
 def _container_started_at(cfg: Config) -> str:
@@ -424,120 +286,6 @@ def _container_started_at(cfg: Config) -> str:
     if proc.returncode != 0:
         return ""
     return proc.stdout.strip()
-
-
-def _oem_install_done(cfg: Config) -> bool:
-    """Return True when install.bat's first-boot OEM stage has finished.
-
-    Until install.bat reaches its TermService restart line (which
-    activates rdprrap multi-session), Windows enforces single-session-
-    per-user. Any host-fired FreeRDP RemoteApp in that window surfaces
-    the "Another user is signed in" dialog visibly to the user.
-
-    Detection priority (see module-level constants for the rationale):
-      1. Cache hit for this (container, started_at).
-      2. Agent /health responds — the strongest signal. The HTTP
-         listener only binds AFTER agent.ps1 reads the token, AFTER
-         user logon, AFTER install.bat (which registers the agent in
-         HKCU\\Run AND restarts TermService for rdprrap). If /health
-         answers, install is unambiguously done. v0.2.2.2 stages the
-         token via the OEM bind mount at setup time so the agent
-         comes up at first logon without waiting for a host-fired
-         FreeRDP token-push — breaking the chicken-and-egg.
-      3. dockur's "Windows started successfully" appears in container
-         logs AND _OEM_DONE_DOCKUR_BUFFER_SECONDS have elapsed since
-         the container started.
-      4. Time-based fallback at _OEM_DONE_FALLBACK_AGE_SECONDS for
-         the pathological case where everything else fails.
-
-    Returns True for non-dockur backends (libvirt / manual) since the
-    race only exists when dockur autologons a User session before host
-    FreeRDP runs.
-    """
-    if cfg.pod.backend not in ("podman", "docker"):
-        return True
-
-    started = _container_started_at(cfg)
-    if not started:
-        log.debug("oem_install_done: container_started_at empty — pod not inspectable")
-        return False
-
-    name = cfg.pod.container_name
-    if _OEM_DONE_CACHE.get(name) == started:
-        return True
-
-    # Path 2: agent /health is the most reliable signal. Cheap (~50ms
-    # localhost probe with a 2s budget). If it answers, the entire OEM
-    # stage is done — full stop.
-    try:
-        from winpodx.core.agent import AgentClient, AgentUnavailableError
-
-        AgentClient(cfg).health()
-        log.info("oem_install_done: agent /health responded — gate open")
-        _OEM_DONE_CACHE[name] = started
-        return True
-    except AgentUnavailableError:
-        pass
-    except Exception as e:  # noqa: BLE001 — defensive, never block on probe glitches
-        log.debug("oem_install_done: agent health probe error: %s", e)
-
-    age_seconds: float | None = None
-    started_dt = _parse_container_started_at(started)
-    if started_dt is not None:
-        from datetime import datetime
-
-        try:
-            now_dt = datetime.now(started_dt.tzinfo)
-            age_seconds = (now_dt - started_dt).total_seconds()
-        except (ValueError, TypeError, AttributeError):
-            age_seconds = None
-    elif started not in _OEM_PARSE_WARNED:
-        # Throttle the warning so GUI's 3s status timer doesn't flood
-        # the log with the same "failed to parse" message hundreds of
-        # times per session (kernalix7's 2026-04-29 log showed exactly
-        # this spam). Each distinct started_at value gets one warning.
-        log.warning(
-            "oem_install_done: cannot parse started_at %r — gate stays "
-            "closed until agent /health responds. File an issue if this "
-            "is reproducible: the format is unrecognised.",
-            started,
-        )
-        _OEM_PARSE_WARNED.add(started)
-
-    # Path 3: dockur sentinel + buffer. Requires age_seconds — without
-    # a real age figure we can't tell if the buffer has elapsed. The
-    # 0s-buffer "gate open" bug from earlier today (`age_seconds is None`
-    # treated as "buffer satisfied") is fixed by the explicit not-None
-    # check below.
-    if age_seconds is not None and age_seconds >= _OEM_DONE_DOCKUR_BUFFER_SECONDS:
-        try:
-            proc = subprocess.run(  # noqa: S603
-                [cfg.pod.backend, "logs", "--tail", "200", name],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            haystack = (proc.stdout or "") + "\n" + (proc.stderr or "")
-            if _OEM_DOCKUR_READY_SENTINEL in haystack:
-                log.info(
-                    "oem_install_done: dockur ready + %.0fs buffer — gate open",
-                    age_seconds,
-                )
-                _OEM_DONE_CACHE[name] = started
-                return True
-        except (FileNotFoundError, subprocess.SubprocessError) as e:
-            log.debug("oem_install_done: container logs read failed: %s", e)
-
-    # Path 4: pure time-based fallback. Same not-None gate.
-    if age_seconds is not None and age_seconds >= _OEM_DONE_FALLBACK_AGE_SECONDS:
-        log.info(
-            "oem_install_done: time-based fallback after %.0fs — gate open",
-            age_seconds,
-        )
-        _OEM_DONE_CACHE[name] = started
-        return True
-
-    return False
 
 
 def _applies_stamp_path() -> Path:
@@ -579,129 +327,6 @@ def _record_self_heal_done(cfg: Config) -> None:
         path.write_text(f"{__version__}:{started}\n", encoding="utf-8")
     except OSError as e:
         log.debug("could not write self-heal stamp: %s", e)
-
-
-# v0.2.2.2: agent-token staging stamp. Independent of the self-heal stamp
-# because the trigger is different — this one invalidates on token rotation
-# (host-side mtime changes) AND on container restart, while self-heal
-# invalidates on winpodx version bump AND container restart.
-_AGENT_TOKEN_STAMP_FILENAME = ".agent_token_stamp"
-
-
-def _agent_token_stamp_path() -> Path:
-    return Path(config_dir()) / _AGENT_TOKEN_STAMP_FILENAME
-
-
-def _agent_token_already_staged(cfg: Config) -> bool:
-    """Return True when the host's agent token has already been pushed
-    into ``C:\\OEM\\agent_token.txt`` for the current container start.
-
-    Stamp content is ``<container_started_at>:<host_token_mtime>`` so a
-    pod restart (Windows VM reboot drops C:\\OEM contents on a fresh
-    container) or a token rotation forces a re-push.
-    """
-    started = _container_started_at(cfg)
-    if not started:
-        return False
-    from winpodx.utils.agent_token import token_path
-
-    try:
-        token_mtime = int(token_path().stat().st_mtime)
-    except OSError:
-        return False
-    expected = f"{started}:{token_mtime}"
-    try:
-        return _agent_token_stamp_path().read_text(encoding="utf-8").strip() == expected
-    except (FileNotFoundError, OSError):
-        return False
-
-
-def _record_agent_token_staged(cfg: Config) -> None:
-    """Write the agent-token stamp once the push has succeeded."""
-    started = _container_started_at(cfg)
-    if not started:
-        return
-    from winpodx.utils.agent_token import token_path
-
-    try:
-        token_mtime = int(token_path().stat().st_mtime)
-    except OSError:
-        return
-    try:
-        path = _agent_token_stamp_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"{started}:{token_mtime}\n", encoding="utf-8")
-    except OSError as e:
-        log.debug("could not write agent-token stamp: %s", e)
-
-
-def _ensure_agent_token_in_guest(cfg: Config) -> None:
-    r"""Push the host's agent token into the Windows guest at
-    ``C:\OEM\agent_token.txt``.
-
-    install.bat tries to copy the same file from ``\\tsclient\home`` at
-    OOBE time, but no FreeRDP session exists yet at install — the OEM
-    stage runs before any RDP connect — so that copy fails silently
-    every time. Without this push, ``agent.ps1`` sits in its
-    ``Wait-Token`` polling loop forever, the HTTP listener never binds,
-    and every host -> guest call falls back to slow FreeRDP RemoteApp.
-
-    This helper runs from inside ``_self_heal_apply`` (which fires from
-    ensure_ready on warm + cold paths). At that point the pod is
-    RDP-reachable, and ``run_in_windows`` uses ``+home-drive`` so
-    ``\\tsclient\home`` is visible inside Windows for the duration of
-    the call. The token is staged via a Copy-Item against that share.
-
-    Idempotent via ``_agent_token_already_staged`` — runs at most once
-    per (container start, host-token mtime) tuple.
-    """
-    if cfg.pod.backend not in ("podman", "docker"):
-        return
-    from winpodx.utils.agent_token import token_path
-
-    if not token_path().exists():
-        return  # Setup hasn't run, or token was deleted; nothing to push.
-
-    if _agent_token_already_staged(cfg):
-        return
-
-    # The token contents never appear in the script source: PowerShell
-    # reads them from \\tsclient\home inside Windows. The host-side
-    # script body is therefore safe to log / leak; only the redirected
-    # share carries the secret, and that path is already used by
-    # run_in_windows for every other privileged exec.
-    payload = (
-        "$ErrorActionPreference = 'Stop'\n"
-        "$src = '\\\\tsclient\\home\\.config\\winpodx\\agent_token.txt'\n"
-        "$dst = 'C:\\OEM\\agent_token.txt'\n"
-        "if (-not (Test-Path $src)) {\n"
-        '    throw "source $src not visible from inside Windows '
-        '(home-drive not forwarded?)"\n'
-        "}\n"
-        "New-Item -ItemType Directory -Path 'C:\\OEM' -Force | Out-Null\n"
-        "Copy-Item -Path $src -Destination $dst -Force\n"
-        "Write-Output 'agent token staged'\n"
-    )
-
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
-
-    try:
-        result = run_in_windows(cfg, payload, description="stage-agent-token", timeout=30)
-    except WindowsExecError as e:
-        log.warning(
-            "agent_token_stage: channel failure (will retry next ensure_ready): %s",
-            e,
-        )
-        return
-    if result.rc != 0:
-        log.warning(
-            "agent_token_stage: rc=%d stderr=%s",
-            result.rc,
-            result.stderr.strip(),
-        )
-        return
-    log.info("agent token staged into guest C:\\OEM\\agent_token.txt")
-    _record_agent_token_staged(cfg)
 
 
 def _apply_multi_session(cfg: Config) -> None:
@@ -781,35 +406,9 @@ def _self_heal_apply(cfg: Config) -> None:
     upgrade (so a patch-version bump still gets a chance to apply
     new payloads).
     """
-    # v0.2.2.2: don't fire any FreeRDP RemoteApp until install.bat has
-    # finished. Between RDP-port-up and rdprrap-active the guest
-    # rejects concurrent sessions visibly via the "Another user is
-    # signed in" dialog. Skip silently and let the next ensure_ready
-    # retry once the OEM stage completes.
-    if not _oem_install_done(cfg):
-        log.debug("self_heal_apply deferred: OEM install not yet complete")
-        return
-
-    # v0.2.2.2: stage the agent token into the guest before probing
-    # the agent. This call has its own per-(container, token-mtime)
-    # stamp so it doesn't fire FreeRDP every launch — but it must
-    # run before the self-heal short-circuit below, since the
-    # self-heal stamp doesn't track token state.
-    _ensure_agent_token_in_guest(cfg)
-
     if _self_heal_already_done(cfg):
         return
 
-    # v0.2.2: route each apply through the HTTP guest agent first,
-    # falling back to the FreeRDP RemoteApp PowerShell payload when
-    # the agent isn't available (older containers without agent.ps1,
-    # fresh installs where the Task Scheduler trigger hasn't fired
-    # yet, or the agent is being upgraded). The fallback path is
-    # exactly what v0.2.1 used — same registry payloads, same
-    # outcomes — just the channel differs. Apply payloads land
-    # ~50× faster via the agent (~50ms HTTP vs ~5-10s FreeRDP per
-    # call) and crucially don't flash a PowerShell window.
-    from winpodx.core.agent import AgentError, run_apply_via_agent_or_freerdp
     from winpodx.core.windows_exec import WindowsExecError
 
     applies = (
@@ -821,7 +420,7 @@ def _self_heal_apply(cfg: Config) -> None:
     succeeded = 0
     for name, fn in applies:
         try:
-            run_apply_via_agent_or_freerdp(cfg, name, fn)
+            fn(cfg)
             succeeded += 1
         except WindowsExecError as e:
             log.warning(
@@ -829,9 +428,7 @@ def _self_heal_apply(cfg: Config) -> None:
                 name,
                 e,
             )
-            return  # Don't waste retries on a still-booting guest.
-        except AgentError as e:
-            log.warning("%s: agent reported failure: %s", name, e)
+            return  # Don't waste FreeRDP retries on a still-booting guest.
         except Exception as e:  # noqa: BLE001
             log.warning("%s: self-heal apply failed: %s", name, e)
 
@@ -855,19 +452,6 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
     if cfg.pod.backend not in ("podman", "docker"):
         return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
 
-    # v0.2.2.2: defer if install.bat hasn't finished yet — same dialog
-    # race as _self_heal_apply. Surfaces a "deferred" status so the
-    # caller (CLI apply-fixes / GUI button / pending.resume) can
-    # report the skip and retry later instead of triggering the
-    # "Another user is signed in" dialog.
-    if not _oem_install_done(cfg):
-        return {"oem": "deferred (install.bat still running — will run on next attempt)"}
-
-    # v0.2.2: route through the HTTP guest agent when available with
-    # FreeRDP RemoteApp fallback. Same as _self_heal_apply but reports
-    # per-step status to the caller (CLI / GUI render the result map).
-    from winpodx.core.agent import run_apply_via_agent_or_freerdp
-
     results: dict[str, str] = {}
     for name, fn in (
         ("max_sessions", _apply_max_sessions),
@@ -876,7 +460,7 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
         ("multi_session", _apply_multi_session),
     ):
         try:
-            run_apply_via_agent_or_freerdp(cfg, name, fn)
+            fn(cfg)
             results[name] = "ok"
         except Exception as e:  # noqa: BLE001
             results[name] = f"failed: {e}"

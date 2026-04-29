@@ -466,25 +466,11 @@ def _maybe_resume_pending(argv: list[str] | None) -> None:
     Skipped when the user is invoking `uninstall` / `--version` / `--help`
     so basic introspection and recovery aren't blocked behind a network
     probe. Best-effort; never raises.
-
-    v0.2.2.2: also skip for ``gui`` and ``tray``. Both have their own
-    threaded first-launch resume (see GUI ``_maybe_run_first_launch_checks``)
-    that runs AFTER the window paints, so doing the synchronous resume
-    here would just block the launcher for up to 5 min while the user
-    stares at a blank desktop wondering why ``winpodx gui`` hung.
     """
     args = argv if argv is not None else sys.argv[1:]
     if not args:
         return
-    skip_first = args[0].lstrip("-") in {
-        "version",
-        "help",
-        "uninstall",
-        "config",
-        "info",
-        "gui",
-        "tray",
-    }
+    skip_first = args[0].lstrip("-") in {"version", "help", "uninstall", "config", "info"}
     if skip_first:
         return
     try:

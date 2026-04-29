@@ -6,17 +6,10 @@ set -euo pipefail
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-#   or: ./install.sh [--main] [--ref TAG] [--source PATH] [--image-tar PATH]
-#                    [--skip-deps] [--help]
+#   or: ./install.sh [--source PATH] [--image-tar PATH] [--skip-deps] [--help]
 #
 # Installs winpodx to ~/.local/bin/winpodx-app/ and creates launcher script.
 # No pip, no venv, no root required.
-#
-# Version selection (default: latest GitHub release):
-#   --main             Install from git main HEAD (development, may be unstable).
-#                      (env: WINPODX_REF=main)
-#   --ref TAG          Install a specific tag/branch/commit.
-#                      (env: WINPODX_REF=<ref>)
 #
 # Local-path options (for offline / air-gapped installs):
 #   --source PATH      Copy winpodx from PATH instead of git clone.
@@ -32,15 +25,11 @@ set -euo pipefail
 INSTALL_DIR="$HOME/.local/bin/winpodx-app"
 LAUNCHER="$HOME/.local/bin/winpodx-run"
 REPO_URL="https://github.com/kernalix7/winpodx.git"
-REPO_API="https://api.github.com/repos/kernalix7/winpodx"
 
 # Local-path overrides (env or flag). Flags take precedence over env.
 WINPODX_SOURCE="${WINPODX_SOURCE:-}"
 WINPODX_IMAGE_TAR="${WINPODX_IMAGE_TAR:-}"
 WINPODX_SKIP_DEPS="${WINPODX_SKIP_DEPS:-}"
-# v0.2.2.2: explicit ref selection. Empty -> auto-detect latest release tag
-# at install time. Set to "main" via --main flag for development builds.
-WINPODX_REF="${WINPODX_REF:-}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
@@ -48,12 +37,10 @@ warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 err()  { echo -e "${RED}[error]${NC} $*" >&2; }
 
 usage() {
-    sed -n '4,28p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || cat <<'USAGE_EOF'
+    sed -n '4,22p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || cat <<'USAGE_EOF'
 winpodx installer — see install.sh header for full usage.
 
 Flags:
-  --main              Install from git main HEAD (development)
-  --ref TAG           Install a specific tag/branch/commit
   --source PATH       Copy from local repo instead of git clone
   --image-tar PATH    Load container image from local tar
   --skip-deps         Skip distro dependency install
@@ -64,14 +51,6 @@ USAGE_EOF
 # --- Parse flags (must precede any work) ---
 while [ $# -gt 0 ]; do
     case "$1" in
-        --main|--dev)
-            WINPODX_REF="main"
-            shift
-            ;;
-        --ref)
-            WINPODX_REF="${2:-}"
-            shift 2
-            ;;
         --source)
             WINPODX_SOURCE="${2:-}"
             shift 2
@@ -317,84 +296,37 @@ copy_from_local() {
     done
 }
 
-# Resolve the install ref. Default (empty WINPODX_REF) -> latest release.
-# `--main` / WINPODX_REF=main bypasses the API call so an unreachable
-# api.github.com still lets dev installs proceed.
-resolve_ref() {
-    if [ -n "$WINPODX_REF" ]; then
-        echo "$WINPODX_REF"
-        return
-    fi
-    if ! command -v curl >/dev/null 2>&1; then
-        # Fall back to main if we can't query for the latest release.
-        echo "main"
-        return
-    fi
-    local latest
-    latest=$(curl -fsSL "$REPO_API/releases/latest" 2>/dev/null \
-        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-        | head -n1)
-    if [ -n "$latest" ]; then
-        echo "$latest"
-    else
-        echo "main"
-    fi
-}
-
 if [ -n "$WINPODX_SOURCE" ]; then
     # --source wins over every other path; no git at all.
     log "Copying winpodx from --source: $WINPODX_SOURCE"
     copy_from_local "$WINPODX_SOURCE"
+elif [ -d "$INSTALL_DIR/.git" ]; then
+    log "Updating existing installation..."
+    git -C "$INSTALL_DIR" pull --quiet
 else
-    INSTALL_REF="$(resolve_ref)"
-    if [ "$INSTALL_REF" = "main" ]; then
-        log "Installing from git main (development)"
+    # If running from repo, copy only needed files (skip .venv, .git, etc.).
+    # When piped via `curl ... | bash`, bash reads from stdin and BASH_SOURCE[0]
+    # is unset — `set -u` would abort here without the default expansion. Fall
+    # through to the git-clone path when there is no local source tree.
+    _src="${BASH_SOURCE[0]:-}"
+    if [ -n "$_src" ]; then
+        SCRIPT_DIR="$(cd "$(dirname "$_src")" && pwd)"
     else
-        log "Installing release: $INSTALL_REF (use --main for development build)"
+        SCRIPT_DIR=""
     fi
-
-    if [ -d "$INSTALL_DIR/.git" ]; then
-        log "Updating existing installation to $INSTALL_REF..."
-        # Fetch tags + branches so checkout works for any ref.
-        git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
-        # Detach safely; works for tags, branches, and SHAs alike.
-        git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" \
-            || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
-        # If we're on a branch (e.g. main), pull to fast-forward.
-        if [ "$INSTALL_REF" = "main" ]; then
-            git -C "$INSTALL_DIR" reset --hard --quiet "origin/$INSTALL_REF"
-        fi
+    if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/src/winpodx/__init__.py" ]; then
+        log "Installing from local repository..."
+        copy_from_local "$SCRIPT_DIR"
     else
-        # If running from repo, copy only needed files (skip .venv, .git, etc.).
-        # When piped via `curl ... | bash`, bash reads from stdin and
-        # BASH_SOURCE[0] is unset — `set -u` would abort here without the
-        # default expansion. Fall through to git-clone when there's no local tree.
-        _src="${BASH_SOURCE[0]:-}"
-        if [ -n "$_src" ]; then
-            SCRIPT_DIR="$(cd "$(dirname "$_src")" && pwd)"
-        else
-            SCRIPT_DIR=""
+        if ! command -v git >/dev/null 2>&1; then
+            err "git is required for remote install. Install git first or run from the repository."
+            exit 1
         fi
-        if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/src/winpodx/__init__.py" ]; then
-            log "Installing from local repository..."
-            copy_from_local "$SCRIPT_DIR"
-        else
-            if ! command -v git >/dev/null 2>&1; then
-                err "git is required for remote install. Install git first or run from the repository."
-                exit 1
-            fi
-            log "Cloning from GitHub..."
-            if [ -d "$INSTALL_DIR" ]; then
-                rm -rf "$INSTALL_DIR"
-            fi
-            git clone --quiet "$REPO_URL" "$INSTALL_DIR"
-            git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
-            git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" \
-                || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
-            if [ "$INSTALL_REF" = "main" ]; then
-                git -C "$INSTALL_DIR" reset --hard --quiet "origin/$INSTALL_REF"
-            fi
+        log "Cloning from GitHub..."
+        if [ -d "$INSTALL_DIR" ]; then
+            rm -rf "$INSTALL_DIR"
         fi
+        git clone --quiet "$REPO_URL" "$INSTALL_DIR"
     fi
 fi
 
@@ -514,24 +446,10 @@ fi
 # If an existing config is present this is an upgrade, not a fresh
 # install. Run the migrate wizard so the user sees new-version release
 # notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
-# `|| mark_pending` records the step so the next CLI / GUI launch retries.
+# `|| true` keeps install.sh's exit code clean if migrate fails.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
     "$HOME/.local/bin/winpodx" migrate || mark_pending "migrate"
-fi
-
-# --- Apply Windows-side runtime fixes ---
-# v0.2.2.1: explicit apply-fixes after migrate even though migrate's
-# always-apply path also runs the four applies. Reason: if migrate
-# itself was skipped or deferred via the pending marker, apply
-# wouldn't fire and the user would launch the next app against an
-# unconfigured Windows side. Calling apply-fixes here is cheap on a
-# warm pod (the v0.2.0.8 stamp short-circuit makes it a no-op when
-# already done) and now goes through the v0.2.2 HTTP guest agent
-# (~200ms total) instead of the slow FreeRDP RemoteApp channel.
-if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_APPLY_FIXES:-}" != "1" ]; then
-    log "Applying Windows-side runtime fixes (idempotent)..."
-    "$HOME/.local/bin/winpodx" pod apply-fixes 2>/dev/null || mark_pending "apply_fixes"
 fi
 
 # --- Auto-discover apps ---

@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=9
+set WINPODX_OEM_VERSION=8
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -246,40 +246,6 @@ goto :rdprrap_done
 :rdprrap_skip
 echo [winpodx] rdprrap_version.txt not found or incomplete; staying single-session.
 :rdprrap_done
-
-REM -----------------------------------------------------------------------
-REM v0.2.2: winpodx guest HTTP agent
-REM v0.2.2.2: fix install — agent.ps1 lives under config/oem/agent/, register
-REM           via HKCU\Run (mirrors WinpodxMedia approach) instead of schtasks
-REM           with a hardcoded /RU principal that may not exist.
-REM -----------------------------------------------------------------------
-echo [winpodx] Installing winpodx guest agent...
-mkdir C:\OEM 2>nul
-REM agent.ps1 is staged at config/oem/agent/agent.ps1 in the source tree, which
-REM dockur lays down at C:\OEM\agent\agent.ps1 inside the guest. Copy it to a
-REM stable top-level path so the Run-key/scheduled-task target stays simple.
-copy /Y "%~dp0agent\agent.ps1" "C:\OEM\agent.ps1" 2>nul
-mkdir C:\OEM\agent-runs 2>nul
-
-REM Pull the shared token from the host home share.
-REM \\tsclient\home is only mounted while a FreeRDP session with +home-drive
-REM is active; install.bat runs at OOBE before any RDP session has connected,
-REM so this copy WILL fail at first install — that is expected. The agent has
-REM a retry/wait loop around its token read so once the host first connects
-REM with home-drive forwarded, the agent picks the token up.
-copy /Y "\\tsclient\home\.config\winpodx\agent_token.txt" "C:\OEM\agent_token.txt" 2>nul
-
-REM Register the agent to start at user logon. We use HKCU\...\Run (same as
-REM the WinpodxMedia entry above) instead of schtasks /SC ONLOGON because
-REM schtasks /RU requires a principal name that we can't resolve at OEM time
-REM (cfg.rdp.user is dynamic; "User" is not a real account on most installs)
-REM and /RL HIGHEST triggers UAC at logon which races dockur's autologon flow.
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxAgent /t REG_SZ /d "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1" /f >nul 2>&1
-
-REM Clean up any leftover schtasks entry from v0.2.2 / v0.2.2.1 installs.
-schtasks /Delete /TN winpodx-agent /F >nul 2>&1
-
-echo [winpodx] Guest agent installed (C:\OEM\agent.ps1, run-key: WinpodxAgent).
 
 REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stage.
 (echo done)>C:\winpodx\setup_done.txt

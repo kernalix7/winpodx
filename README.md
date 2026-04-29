@@ -7,11 +7,7 @@
 <p>Native Linux windows for every Windows app — real icons, real <code>WM_CLASS</code>,<br>
 pin-to-taskbar. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
-<pre><code># Latest stable release (default)
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-
-# Latest main (development)
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main</code></pre>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
 
 [![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#status-beta)
 [![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
@@ -213,27 +209,6 @@ the first time the pod boots — discovery scans your running Windows guest
 and registers every installed app with its real icon. No root required
 except for the dependency install step. Works on
 openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
-
-By default the installer pins to the **latest published GitHub release**
-(currently `v0.1.9`). Pre-release / development versions stay opt-in.
-
-**Choose a version** — pass `--main` (or `--ref TAG`) for development
-builds, otherwise stick with the default release:
-
-```bash
-# Install the latest stable release (default)
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-
-# Install the latest main HEAD (development; may be unstable)
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main
-
-# Install a specific tag, branch, or commit
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --ref v0.1.9
-
-# Env-var equivalent (works under curl | bash without -s --)
-WINPODX_REF=main  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-WINPODX_REF=v0.1.9 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-```
 
 **Offline / air-gapped install** — the installer takes three optional flags
 for machines with no registry / package-repo access:
