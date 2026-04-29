@@ -219,6 +219,19 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     deadline = time.monotonic() + max(1, int(timeout))
+
+    # v0.2.2.2: poll the OEM-install-done sentinel BEFORE firing any
+    # FreeRDP RemoteApp probe. install.bat enables RDP early (line
+    # ~13) but only activates rdprrap multi-session at the end (line
+    # ~239); probing FreeRDP in between makes Windows surface the
+    # "Another user is signed in" dialog inside the guest.
+    while time.monotonic() < deadline:
+        if _oem_install_done(cfg):
+            break
+        time.sleep(3)
+    else:
+        return False
+
     while time.monotonic() < deadline:
         if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
             break
@@ -257,6 +270,26 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
 _APPLIES_STAMP_FILENAME = ".applies_stamp"
 
 
+# v0.2.2.2: install.bat completion gate.
+#
+# Between RDP-port-up (line 12-18 of install.bat) and the TermService
+# restart that activates rdprrap (line 239-240), Windows enforces
+# single-session-per-user. Any host-fired FreeRDP RemoteApp attempt in
+# that window surfaces the "Another user is signed in" dialog visibly
+# inside the guest (kernalix7 reported on 2026-04-29 during a fresh
+# install — the dialog flashes repeatedly as wait_for_windows_responsive
+# probes every 3s).
+#
+# We detect completion by tailing the dockur container's logs for the
+# sentinel install.bat prints at the end. Cached per (container_name,
+# started_at) so we don't re-spawn `<runtime> logs` on every call.
+# Falls back to a generous time-based threshold (5 min) so a logless
+# environment doesn't gate forever.
+_OEM_INSTALL_DONE_SENTINEL = "[winpodx] Post-install configuration complete"
+_OEM_DONE_FALLBACK_AGE_SECONDS = 300
+_OEM_DONE_CACHE: dict[str, str] = {}  # container_name -> known-good started_at
+
+
 def _container_started_at(cfg: Config) -> str:
     """Read the container's StartedAt timestamp via {runtime} inspect.
 
@@ -286,6 +319,67 @@ def _container_started_at(cfg: Config) -> str:
     if proc.returncode != 0:
         return ""
     return proc.stdout.strip()
+
+
+def _oem_install_done(cfg: Config) -> bool:
+    """Return True when install.bat's first-boot OEM stage has finished.
+
+    Until install.bat reaches its TermService restart line (which
+    activates rdprrap multi-session), Windows enforces single-session-
+    per-user. Any host-fired FreeRDP RemoteApp in that window surfaces
+    the "Another user is signed in" dialog visibly to the user.
+
+    Detection order:
+      1. Cache hit — already confirmed for this (container, started_at).
+      2. Tail the dockur container's logs for the install.bat sentinel.
+      3. Time-based fallback — if the container has been up at least
+         _OEM_DONE_FALLBACK_AGE_SECONDS, assume install is done so we
+         don't gate forever in environments where dockur doesn't
+         forward Windows console output to container stdout.
+
+    Returns True for non-dockur backends (libvirt / manual) since the
+    race only exists when dockur autologons a User session before host
+    FreeRDP runs.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return True
+
+    started = _container_started_at(cfg)
+    if not started:
+        return False  # Pod not inspectable — assume not ready.
+
+    name = cfg.pod.container_name
+    if _OEM_DONE_CACHE.get(name) == started:
+        return True
+
+    try:
+        proc = subprocess.run(  # noqa: S603
+            [cfg.pod.backend, "logs", "--tail", "200", name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        haystack = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        if _OEM_INSTALL_DONE_SENTINEL in haystack:
+            _OEM_DONE_CACHE[name] = started
+            return True
+    except (FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+    # Time-based fallback. install.bat is bounded; beyond 5 min it has
+    # almost certainly finished even on slow systems.
+    try:
+        from datetime import datetime
+
+        started_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        now_dt = datetime.now(started_dt.tzinfo)
+        if (now_dt - started_dt).total_seconds() >= _OEM_DONE_FALLBACK_AGE_SECONDS:
+            _OEM_DONE_CACHE[name] = started
+            return True
+    except (ValueError, TypeError, AttributeError):
+        pass
+
+    return False
 
 
 def _applies_stamp_path() -> Path:
@@ -531,6 +625,15 @@ def _self_heal_apply(cfg: Config) -> None:
     upgrade (so a patch-version bump still gets a chance to apply
     new payloads).
     """
+    # v0.2.2.2: don't fire any FreeRDP RemoteApp until install.bat has
+    # finished. Between RDP-port-up and rdprrap-active the guest
+    # rejects concurrent sessions visibly via the "Another user is
+    # signed in" dialog. Skip silently and let the next ensure_ready
+    # retry once the OEM stage completes.
+    if not _oem_install_done(cfg):
+        log.debug("self_heal_apply deferred: OEM install not yet complete")
+        return
+
     # v0.2.2.2: stage the agent token into the guest before probing
     # the agent. This call has its own per-(container, token-mtime)
     # stamp so it doesn't fire FreeRDP every launch — but it must
@@ -595,6 +698,16 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
+
+    # v0.2.2.2: defer if install.bat hasn't finished yet — same dialog
+    # race as _self_heal_apply. Surfaces a "deferred" status so the
+    # caller (CLI apply-fixes / GUI button / pending.resume) can
+    # report the skip and retry later instead of triggering the
+    # "Another user is signed in" dialog.
+    if not _oem_install_done(cfg):
+        return {
+            "oem": "deferred (install.bat still running — will run on next attempt)"
+        }
 
     # v0.2.2: route through the HTTP guest agent when available with
     # FreeRDP RemoteApp fallback. Same as _self_heal_apply but reports

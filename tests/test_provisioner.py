@@ -310,6 +310,9 @@ def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch)
     # Force the stamp short-circuit to be a no-op so the actual applies fire.
     monkeypatch.setattr(provisioner, "_self_heal_already_done", lambda c: False)
     monkeypatch.setattr(provisioner, "_record_self_heal_done", lambda c: None)
+    # v0.2.2.2: bypass the OEM-install-done gate (no real container in tests).
+    monkeypatch.setattr(provisioner, "_oem_install_done", lambda c: True)
+    monkeypatch.setattr(provisioner, "_ensure_agent_token_in_guest", lambda c: None)
 
     result = provisioner.ensure_ready(cfg, timeout=1)
     assert result is cfg
@@ -378,6 +381,7 @@ def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
         return WindowsExecResult(rc=0, stdout="ok", stderr="")
 
     monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
+    monkeypatch.setattr(provisioner, "_oem_install_done", lambda c: True)
     result = provisioner.apply_windows_runtime_fixes(cfg)
     assert set(result.keys()) == {
         "max_sessions",
@@ -401,6 +405,7 @@ def test_apply_windows_runtime_fixes_records_individual_failures(monkeypatch):
     monkeypatch.setattr(provisioner, "_apply_max_sessions", fake_max_sessions)
     monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", lambda c: None)
     monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", lambda c: None)
+    monkeypatch.setattr(provisioner, "_oem_install_done", lambda c: True)
     result = provisioner.apply_windows_runtime_fixes(cfg)
     assert result["max_sessions"].startswith("failed: ")
     assert result["rdp_timeouts"] == "ok"
@@ -439,6 +444,8 @@ class TestWaitForWindowsResponsiveRetries:
             "winpodx.core.provisioner.check_rdp_port",
             lambda ip, port, timeout=1.0: True,
         )
+        # v0.2.2.2: bypass OEM-done gate (no real container in tests).
+        monkeypatch.setattr("winpodx.core.provisioner._oem_install_done", lambda c: True)
         # Compress the inter-probe sleep so the test is fast.
         monkeypatch.setattr("winpodx.core.provisioner.time.sleep", lambda _: None)
 
@@ -466,6 +473,7 @@ class TestWaitForWindowsResponsiveRetries:
             "winpodx.core.provisioner.check_rdp_port",
             lambda ip, port, timeout=1.0: True,
         )
+        monkeypatch.setattr("winpodx.core.provisioner._oem_install_done", lambda c: True)
         # Use a virtual clock so we don't really wait.
         clock = {"t": 0.0}
         monkeypatch.setattr("winpodx.core.provisioner.time.monotonic", lambda: clock["t"])
@@ -512,6 +520,8 @@ class TestSelfHealStamp:
         monkeypatch.setattr(
             "winpodx.core.provisioner._container_started_at", lambda cfg: "2026-04-27T10:00Z"
         )
+        monkeypatch.setattr("winpodx.core.provisioner._oem_install_done", lambda c: True)
+        monkeypatch.setattr("winpodx.core.provisioner._ensure_agent_token_in_guest", lambda c: None)
         (tmp_path / ".applies_stamp").write_text(
             f"{__version__}:2026-04-27T10:00Z\n", encoding="utf-8"
         )
@@ -544,6 +554,8 @@ class TestSelfHealStamp:
         monkeypatch.setattr(
             "winpodx.core.provisioner._container_started_at", lambda cfg: "2026-04-27T10:00Z"
         )
+        monkeypatch.setattr("winpodx.core.provisioner._oem_install_done", lambda c: True)
+        monkeypatch.setattr("winpodx.core.provisioner._ensure_agent_token_in_guest", lambda c: None)
 
         called: list[str] = []
         for fn_name, marker in (
@@ -576,6 +588,8 @@ class TestSelfHealStamp:
             "winpodx.core.provisioner._container_started_at",
             lambda cfg: "2026-04-27T11:00Z",  # different time
         )
+        monkeypatch.setattr("winpodx.core.provisioner._oem_install_done", lambda c: True)
+        monkeypatch.setattr("winpodx.core.provisioner._ensure_agent_token_in_guest", lambda c: None)
         (tmp_path / ".applies_stamp").write_text(
             f"{__version__}:2026-04-27T10:00Z\n", encoding="utf-8"
         )
@@ -608,6 +622,8 @@ class TestSelfHealStamp:
             "winpodx.core.provisioner._container_started_at",
             lambda cfg: "2026-04-27T12:00Z",
         )
+        monkeypatch.setattr("winpodx.core.provisioner._oem_install_done", lambda c: True)
+        monkeypatch.setattr("winpodx.core.provisioner._ensure_agent_token_in_guest", lambda c: None)
         for fn_name in (
             "_apply_max_sessions",
             "_apply_rdp_timeouts",
@@ -619,3 +635,146 @@ class TestSelfHealStamp:
         _self_heal_apply(self._cfg())
         stamp = (tmp_path / ".applies_stamp").read_text(encoding="utf-8").strip()
         assert stamp == f"{__version__}:2026-04-27T12:00Z"
+
+
+# --- v0.2.2.2: OEM-install-done gate ---
+
+
+class TestOemInstallDoneGate:
+    """v0.2.2.2: install.bat-completion gate suppresses the "Another user is
+    signed in" dialog by deferring all FreeRDP RemoteApp until rdprrap
+    has activated."""
+
+    def _cfg(self):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.container_name = "winpodx-windows"
+        return cfg
+
+    def test_returns_true_for_libvirt_backend(self):
+        """Non-dockur backends never run install.bat — gate is vacuous."""
+        from winpodx.core import provisioner
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "libvirt"
+        assert provisioner._oem_install_done(cfg) is True
+
+    def test_returns_false_when_started_at_unknown(self, monkeypatch):
+        """No started_at -> pod isn't even inspectable; conservatively defer."""
+        from winpodx.core import provisioner
+
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: "")
+        assert provisioner._oem_install_done(self._cfg()) is False
+
+    def test_returns_true_when_log_sentinel_present(self, monkeypatch):
+        """When `<runtime> logs` contains the install.bat completion string,
+        the gate immediately allows FreeRDP."""
+        import subprocess
+
+        from winpodx.core import provisioner
+
+        provisioner._OEM_DONE_CACHE.clear()
+        monkeypatch.setattr(
+            provisioner, "_container_started_at", lambda c: "2026-04-29T08:00Z"
+        )
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout="...\n[winpodx] Post-install configuration complete (version 9)!\n",
+                stderr="",
+            )
+
+        monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
+        assert provisioner._oem_install_done(self._cfg()) is True
+
+    def test_returns_false_when_logs_lack_sentinel_and_container_young(
+        self, monkeypatch
+    ):
+        """Gate stays closed while install.bat is still running and no log
+        sentinel appears yet."""
+        import subprocess
+        from datetime import datetime, timezone
+
+        from winpodx.core import provisioner
+
+        provisioner._OEM_DONE_CACHE.clear()
+        # Container started 10 seconds ago — well within the install window.
+        recent = datetime.now(timezone.utc).isoformat()
+        monkeypatch.setattr(
+            provisioner, "_container_started_at", lambda c: recent
+        )
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout="dockur boot output without sentinel\n",
+                stderr="",
+            )
+
+        monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
+        assert provisioner._oem_install_done(self._cfg()) is False
+
+    def test_time_based_fallback_after_5min(self, monkeypatch):
+        """If neither sentinel nor cache, but the container is older than the
+        5-min fallback window, the gate opens — install.bat is bounded."""
+        import subprocess
+
+        from winpodx.core import provisioner
+
+        provisioner._OEM_DONE_CACHE.clear()
+        # 1 hour ago.
+        from datetime import datetime, timedelta, timezone
+
+        old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        monkeypatch.setattr(
+            provisioner, "_container_started_at", lambda c: old
+        )
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0], returncode=0, stdout="", stderr=""
+            )
+
+        monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
+        assert provisioner._oem_install_done(self._cfg()) is True
+
+    def test_self_heal_apply_defers_when_gate_closed(self, monkeypatch, tmp_path):
+        """_self_heal_apply must short-circuit silently before firing any
+        FreeRDP RemoteApp when the OEM install hasn't finished yet."""
+        from winpodx.core import provisioner
+
+        monkeypatch.setattr(provisioner, "config_dir", lambda: tmp_path)
+        monkeypatch.setattr(provisioner, "_oem_install_done", lambda c: False)
+
+        called: list[str] = []
+        for fn_name in (
+            "_apply_max_sessions",
+            "_apply_rdp_timeouts",
+            "_apply_oem_runtime_fixes",
+            "_apply_multi_session",
+            "_ensure_agent_token_in_guest",
+        ):
+            monkeypatch.setattr(
+                provisioner, fn_name, lambda c, _n=fn_name: called.append(_n)
+            )
+
+        provisioner._self_heal_apply(self._cfg())
+        assert called == [], (
+            "no FreeRDP-firing helper may run while install.bat is in flight"
+        )
+
+    def test_apply_windows_runtime_fixes_defers_when_gate_closed(self, monkeypatch):
+        """The public apply-fixes path returns a 'deferred' status when the
+        OEM install is still running, surfacing it to CLI/GUI."""
+        from winpodx.core import provisioner
+
+        monkeypatch.setattr(provisioner, "_oem_install_done", lambda c: False)
+        result = provisioner.apply_windows_runtime_fixes(self._cfg())
+        assert "oem" in result
+        assert "deferred" in result["oem"]
