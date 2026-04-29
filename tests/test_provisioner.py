@@ -492,7 +492,11 @@ class TestWaitForWindowsResponsiveRetries:
 
         monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
 
-        result = wait_for_windows_responsive(cfg, timeout=30)
+        # v0.2.2.2: Phase 3 sleeps 30s between probes (was 3s, kernalix7
+        # reported PS-window flash storms on 2026-04-29 caused by 100+
+        # probes over 5 min). Bump test timeout to 120s so multiple
+        # attempts still fit under the new pacing.
+        result = wait_for_windows_responsive(cfg, timeout=120)
         assert result is False
         assert len(attempts) >= 2, "must retry rather than bail on first failure"
 

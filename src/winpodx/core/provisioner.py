@@ -246,7 +246,31 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     # though the RDP listener answers TCP, so a one-shot probe here is
     # the wrong primitive — the user already passed `timeout` to express
     # "try this hard, for this long".
-    while time.monotonic() < deadline:
+    #
+    # v0.2.2.2: short-circuit via agent /health BEFORE each FreeRDP probe.
+    # If agent is up, Windows is already responsive (the agent only binds
+    # its listener AFTER user logon completes), so we can return without
+    # spawning a single PowerShell-RemoteApp window. Fall through to the
+    # FreeRDP probe only when /health is silent.
+    #
+    # Probe pacing widened from 3s to 30s and capped to 6 attempts so that
+    # a worst-case stuck-install scenario produces at most ~6 PS window
+    # flashes instead of ~100 (kernalix7 reported this storm on
+    # 2026-04-29). The /health short-circuit means a healthy guest still
+    # returns within seconds.
+    from winpodx.core.agent import AgentClient as _AgentClient
+    from winpodx.core.agent import AgentUnavailableError as _AgentUnavailableError
+
+    max_freerdp_probes = 6
+    probes_fired = 0
+    while time.monotonic() < deadline and probes_fired < max_freerdp_probes:
+        try:
+            _AgentClient(cfg).health()
+            return True
+        except _AgentUnavailableError:
+            pass
+        except Exception:  # noqa: BLE001 — defensive, never block on probe glitches
+            pass
         per_probe_budget = max(5, min(20, int(deadline - time.monotonic())))
         try:
             result = run_in_windows(
@@ -255,14 +279,14 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
                 description="responsive-probe",
                 timeout=per_probe_budget,
             )
+            probes_fired += 1
             if result.rc == 0:
                 return True
         except WindowsExecError:
             # Transient — Windows likely still booting / Sysprep running.
-            pass
-        # Pace retries so we don't pin a CPU spinning FreeRDP processes.
-        if time.monotonic() < deadline - 3:
-            time.sleep(3)
+            probes_fired += 1
+        if time.monotonic() < deadline - 30:
+            time.sleep(30)
         else:
             break
     return False
