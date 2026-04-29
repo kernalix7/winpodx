@@ -321,6 +321,44 @@ class TestYamlEscape:
                 break
 
 
+class TestAgentPortMapping:
+    """Phase 1 agent: both forwarding-chain legs must be present in compose."""
+
+    def test_compose_includes_user_ports_env(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert 'USER_PORTS: "8765"' in compose
+
+    def test_compose_includes_host_port_mapping(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert "127.0.0.1:8765:8765/tcp" in compose
+
+    def test_compose_port_mapping_loopback_only(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert "0.0.0.0:8765" not in compose
+        assert ":8765:8765" not in compose.replace("127.0.0.1:8765:8765", "")
+
+
 # --- Password filter ---
 
 
