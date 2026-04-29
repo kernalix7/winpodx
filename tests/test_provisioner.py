@@ -714,7 +714,7 @@ class TestOemInstallDoneGate:
         provisioner._OEM_DONE_CACHE.clear()
         self._patch_health_unavailable(monkeypatch)
         # Container started ~12 min ago — past the 600s (10 min) buffer.
-        old = (datetime.now(timezone.utc) - timedelta(minutes=12)).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(minutes=35)).isoformat()
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old)
 
         def fake_run(*args, **kwargs):
@@ -727,6 +727,37 @@ class TestOemInstallDoneGate:
 
         monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
         assert provisioner._oem_install_done(self._cfg()) is True
+
+    def test_unparseable_started_at_keeps_gate_closed(self, monkeypatch):
+        """Regression: kernalix7 saw `dockur ready + 0s buffer — gate open`
+        on 2026-04-29 because the path-2 condition was
+        `age_seconds is None or age_seconds >= buffer` — when timestamp
+        parsing failed (age_seconds=None) the OR short-circuited True
+        and the gate opened immediately, before install.bat had a chance
+        to finish. The fix requires age_seconds to be a real number AND
+        past the threshold; if parsing fails we defer."""
+        import subprocess
+
+        from winpodx.core import provisioner
+
+        provisioner._OEM_DONE_CACHE.clear()
+        self._patch_health_unavailable(monkeypatch)
+        # Garbage that fromisoformat can't parse — emulates a podman
+        # template that returned an unexpected format.
+        monkeypatch.setattr(provisioner, "_container_started_at", lambda c: "not-an-iso-timestamp")
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout="❯ Windows started successfully, visit ...\n",
+                stderr="",
+            )
+
+        monkeypatch.setattr("winpodx.core.provisioner.subprocess.run", fake_run)
+        # Even with the dockur sentinel present in logs, the gate must
+        # stay closed because we cannot verify the buffer elapsed.
+        assert provisioner._oem_install_done(self._cfg()) is False
 
     def test_dockur_ready_without_buffer_keeps_gate_closed(self, monkeypatch):
         """Sentinel appeared but buffer hasn't elapsed yet — gate stays
@@ -755,7 +786,7 @@ class TestOemInstallDoneGate:
 
     def test_time_based_fallback_when_logs_unreadable(self, monkeypatch):
         """If `<runtime> logs` fails entirely but the container is older
-        than _OEM_DONE_FALLBACK_AGE_SECONDS (20 min), the gate opens anyway."""
+        than _OEM_DONE_FALLBACK_AGE_SECONDS (30 min), the gate opens anyway."""
         import subprocess
         from datetime import datetime, timedelta, timezone
 
@@ -763,8 +794,8 @@ class TestOemInstallDoneGate:
 
         provisioner._OEM_DONE_CACHE.clear()
         self._patch_health_unavailable(monkeypatch)
-        # 25 min ago — past the 1200s (20 min) fallback.
-        old = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+        # 35 min ago — past the 1800s (30 min) fallback.
+        old = (datetime.now(timezone.utc) - timedelta(minutes=35)).isoformat()
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old)
 
         def fake_run(*args, **kwargs):
@@ -783,8 +814,8 @@ class TestOemInstallDoneGate:
 
         provisioner._OEM_DONE_CACHE.clear()
         self._patch_health_unavailable(monkeypatch)
-        # 25 min ago WITH nanoseconds (9 digits) — past time fallback.
-        old_dt = datetime.now(timezone.utc) - timedelta(minutes=25)
+        # 35 min ago WITH nanoseconds (9 digits) — past 30 min time fallback.
+        old_dt = datetime.now(timezone.utc) - timedelta(minutes=35)
         old_ns = old_dt.strftime("%Y-%m-%dT%H:%M:%S") + ".123456789Z"
         monkeypatch.setattr(provisioner, "_container_started_at", lambda c: old_ns)
 

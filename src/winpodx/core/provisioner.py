@@ -324,12 +324,14 @@ _OEM_DOCKUR_READY_SENTINEL = "Windows started successfully"
 # booting Windows — BEFORE Windows OOBE / install.bat actually run. On a
 # fresh install, OOBE+install.bat take ~5-15 minutes after that line
 # appears (kernalix7 saw OOBE not finishing within 60-min wait-ready on
-# 2026-04-29 with both 19-min and 40-min ISO downloads). Set the buffer
-# high enough that we don't open the gate mid-install.bat. Subsequent
-# (warm) boots skip OOBE entirely and the agent /health path opens the
-# gate within seconds — the time path is the cold-install fallback.
-_OEM_DONE_DOCKUR_BUFFER_SECONDS = 600
-_OEM_DONE_FALLBACK_AGE_SECONDS = 1200
+# 2026-04-29 with both 19-min and 40-min ISO downloads). The heuristic
+# fallbacks below are a SAFETY NET only — the primary signal is agent
+# /health, which only answers AFTER install.bat has fully completed
+# (post-rdprrap-restart, post-token-read). When that's silent we hold
+# the gate closed for a full 30 minutes per signal so a FreeRDP probe
+# storm doesn't fire mid-install.bat.
+_OEM_DONE_DOCKUR_BUFFER_SECONDS = 1800  # 30 min after sentinel
+_OEM_DONE_FALLBACK_AGE_SECONDS = 1800  # 30 min container age
 _OEM_DONE_CACHE: dict[str, str] = {}  # container_name -> known-good started_at
 
 
@@ -434,34 +436,37 @@ def _oem_install_done(cfg: Config) -> bool:
         now_dt = datetime.now(started_dt.tzinfo)
         age_seconds = (now_dt - started_dt).total_seconds()
     except (ValueError, TypeError, AttributeError) as e:
-        log.debug("oem_install_done: failed to parse started_at %r: %s", started, e)
+        # Bumped to WARNING from DEBUG (kernalix7's 2026-04-29 logs showed
+        # the parse silently failing → age_seconds=None → path 3 below
+        # opening the gate prematurely with "0s buffer"). User-visible at
+        # default log level so the failure is debuggable.
+        log.warning("oem_install_done: failed to parse started_at %r: %s", started, e)
 
-    # Path 2: dockur sentinel + buffer.
-    try:
-        proc = subprocess.run(  # noqa: S603
-            [cfg.pod.backend, "logs", "--tail", "200", name],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        haystack = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        if _OEM_DOCKUR_READY_SENTINEL in haystack:
-            if age_seconds is None or age_seconds >= _OEM_DONE_DOCKUR_BUFFER_SECONDS:
+    # Path 3: dockur sentinel + buffer. Requires age_seconds — without
+    # a real age figure we can't tell if the buffer has elapsed. The
+    # 0s-buffer "gate open" bug from earlier today (`age_seconds is None`
+    # treated as "buffer satisfied") is fixed by the explicit not-None
+    # check below.
+    if age_seconds is not None and age_seconds >= _OEM_DONE_DOCKUR_BUFFER_SECONDS:
+        try:
+            proc = subprocess.run(  # noqa: S603
+                [cfg.pod.backend, "logs", "--tail", "200", name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            haystack = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            if _OEM_DOCKUR_READY_SENTINEL in haystack:
                 log.info(
                     "oem_install_done: dockur ready + %.0fs buffer — gate open",
-                    age_seconds or 0,
+                    age_seconds,
                 )
                 _OEM_DONE_CACHE[name] = started
                 return True
-            log.debug(
-                "oem_install_done: dockur ready but buffer not elapsed (%.0fs/%ds)",
-                age_seconds,
-                _OEM_DONE_DOCKUR_BUFFER_SECONDS,
-            )
-    except (FileNotFoundError, subprocess.SubprocessError) as e:
-        log.debug("oem_install_done: container logs read failed: %s", e)
+        except (FileNotFoundError, subprocess.SubprocessError) as e:
+            log.debug("oem_install_done: container logs read failed: %s", e)
 
-    # Path 3: pure time-based fallback.
+    # Path 4: pure time-based fallback. Same not-None gate.
     if age_seconds is not None and age_seconds >= _OEM_DONE_FALLBACK_AGE_SECONDS:
         log.info(
             "oem_install_done: time-based fallback after %.0fs — gate open",
