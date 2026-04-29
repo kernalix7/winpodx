@@ -7,7 +7,11 @@
 <p>Native Linux windows for every Windows app — real icons, real <code>WM_CLASS</code>,<br>
 pin-to-taskbar. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
-<pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
+<pre><code># Latest stable release (default)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+
+# Latest main (development)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main</code></pre>
 
 [![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#status-beta)
 [![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
