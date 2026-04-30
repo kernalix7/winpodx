@@ -72,6 +72,15 @@ netsh advfirewall firewall delete rule name="RDP UDP" >nul 2>&1
 netsh advfirewall firewall add rule name="RDP TCP" dir=in action=allow protocol=tcp localport=3389 2>nul
 netsh advfirewall firewall add rule name="RDP UDP" dir=in action=allow protocol=udp localport=3389 2>nul
 
+REM Allow inbound on the winpodx agent port. QEMU's user-mode NAT forwards
+REM container:8765 -> Windows VM 10.0.2.15:8765, which Windows Firewall
+REM blocks by default — kernalix7 saw curl timeout from the host on
+REM 2026-04-30 even with agent.ps1 bound to 0.0.0.0:8765 because the SYN
+REM never made it past the firewall. RDP got auto-allowed via the
+REM "Remote Desktop" group rule above; 8765 needs an explicit rule.
+netsh advfirewall firewall delete rule name="winpodx-agent" >nul 2>&1
+netsh advfirewall firewall add rule name="winpodx-agent" dir=in action=allow protocol=tcp localport=8765 2>nul
+
 echo [winpodx] Optimizing for RDP...
 reg add "HKCU\Control Panel\Desktop" /v DragFullWindows /t REG_SZ /d 0 /f
 reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
