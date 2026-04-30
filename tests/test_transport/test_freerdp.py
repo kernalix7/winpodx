@@ -87,7 +87,9 @@ class TestExec:
     def test_happy_path_returns_exec_result(self, transport, monkeypatch):
         captured: dict = {}
 
-        def fake_run(cfg, script, *, timeout=60, description="winpodx-exec", progress_callback=None):
+        def fake_run(
+            cfg, script, *, timeout=60, description="winpodx-exec", progress_callback=None,
+        ):
             captured["script"] = script
             captured["timeout"] = timeout
             captured["description"] = description
@@ -171,7 +173,9 @@ class TestStream:
     def test_passes_progress_callback_through(self, transport, monkeypatch):
         captured: dict = {}
 
-        def fake_run(cfg, script, *, timeout=60, description="winpodx-stream", progress_callback=None):
+        def fake_run(
+            cfg, script, *, timeout=60, description="winpodx-stream", progress_callback=None,
+        ):
             captured["progress_callback"] = progress_callback
             captured["timeout"] = timeout
             captured["description"] = description
