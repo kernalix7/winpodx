@@ -470,7 +470,18 @@ def _maybe_resume_pending(argv: list[str] | None) -> None:
     args = argv if argv is not None else sys.argv[1:]
     if not args:
         return
-    skip_first = args[0].lstrip("-") in {"version", "help", "uninstall", "config", "info"}
+    # gui / tray have their own threaded resume in `_maybe_run_first_launch_checks`
+    # — running it synchronously here would block the launcher for up to 5 min
+    # while the user stares at no window. Skip-list them.
+    skip_first = args[0].lstrip("-") in {
+        "version",
+        "help",
+        "uninstall",
+        "config",
+        "info",
+        "gui",
+        "tray",
+    }
     if skip_first:
         return
     try:
