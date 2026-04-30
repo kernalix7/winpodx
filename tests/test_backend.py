@@ -39,7 +39,7 @@ def test_start_pod_waits_for_ready_and_returns_running():
     fake_backend.start.return_value = None
     fake_backend.wait_for_ready.return_value = True
 
-    with patch("winpodx.core.pod.get_backend", return_value=fake_backend):
+    with patch("winpodx.core.pod.lifecycle.get_backend", return_value=fake_backend):
         status = start_pod(cfg)
 
     fake_backend.start.assert_called_once()
@@ -54,7 +54,7 @@ def test_start_pod_timeout_returns_starting():
     fake_backend.start.return_value = None
     fake_backend.wait_for_ready.return_value = False
 
-    with patch("winpodx.core.pod.get_backend", return_value=fake_backend):
+    with patch("winpodx.core.pod.lifecycle.get_backend", return_value=fake_backend):
         status = start_pod(cfg)
 
     fake_backend.wait_for_ready.assert_called_once()
@@ -67,7 +67,7 @@ def test_start_pod_start_failure_returns_error():
     fake_backend = MagicMock()
     fake_backend.start.side_effect = RuntimeError("boom")
 
-    with patch("winpodx.core.pod.get_backend", return_value=fake_backend):
+    with patch("winpodx.core.pod.lifecycle.get_backend", return_value=fake_backend):
         status = start_pod(cfg)
 
     fake_backend.wait_for_ready.assert_not_called()
