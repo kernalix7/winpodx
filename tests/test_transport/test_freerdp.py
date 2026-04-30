@@ -88,7 +88,12 @@ class TestExec:
         captured: dict = {}
 
         def fake_run(
-            cfg, script, *, timeout=60, description="winpodx-exec", progress_callback=None,
+            cfg,
+            script,
+            *,
+            timeout=60,
+            description="winpodx-exec",
+            progress_callback=None,
         ):
             captured["script"] = script
             captured["timeout"] = timeout
@@ -124,9 +129,7 @@ class TestExec:
 
     def test_timeout_maps_to_transport_timeout_error(self, transport, monkeypatch):
         def raise_timeout(*a, **k):
-            raise WindowsExecError(
-                "FreeRDP timed out after 60s waiting for the script to complete"
-            )
+            raise WindowsExecError("FreeRDP timed out after 60s waiting for the script to complete")
 
         monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_timeout)
         with pytest.raises(TransportTimeoutError):
@@ -174,7 +177,12 @@ class TestStream:
         captured: dict = {}
 
         def fake_run(
-            cfg, script, *, timeout=60, description="winpodx-stream", progress_callback=None,
+            cfg,
+            script,
+            *,
+            timeout=60,
+            description="winpodx-stream",
+            progress_callback=None,
         ):
             captured["progress_callback"] = progress_callback
             captured["timeout"] = timeout
