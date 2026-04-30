@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from winpodx.core import checks
@@ -74,7 +72,6 @@ def test_run_all_returns_one_probe_per_registered_function(monkeypatch):
         Probe(f"p{i}", "ok", f"detail-{i}", i) for i, _ in enumerate(checks.PROBES)
     ]
 
-    iter_results = iter(fake_probes)
     monkeypatch.setattr(checks, "PROBES", tuple(lambda _cfg, n=p: n for p in fake_probes))
     out = checks.run_all(fake_cfg)
     assert len(out) == len(fake_probes)
