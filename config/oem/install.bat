@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=9
+set WINPODX_OEM_VERSION=10
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -253,6 +253,29 @@ REM ---------------------------------------------------------------------
 echo [winpodx] Installing winpodx guest agent...
 copy /Y "%~dp0agent\agent.ps1" "C:\OEM\agent.ps1" 2>nul
 mkdir C:\OEM\agent-runs 2>nul
+
+REM Pre-register the URL ACL for agent.ps1's HttpListener prefix.
+REM
+REM agent.ps1 binds ``http://+:8765/`` (all interfaces inside the
+REM Windows VM) — NOT 127.0.0.1. dockur's user-mode QEMU NAT forwards
+REM from container:8765 to the VM's slirp interface (10.0.2.15:8765,
+REM NOT 127.0.0.1:8765); a 127.0.0.1-only listener would mean slirp's
+REM forwarded packets hit a closed port (kernalix7 saw "Connection
+REM reset by peer" on 2026-04-30 from exactly this). Binding to + is
+REM safe because the agent stays externally unreachable: compose's
+REM 127.0.0.1:8765:8765/tcp mapping is loopback on the host, and the
+REM QEMU slirp net is private to the container.
+REM
+REM HttpListener.Start() needs a urlacl entry to bind ``+``; without
+REM it the bind fails with "conflicts with an existing registration".
+REM listen=yes + user=Everyone gives the autologon User permission to
+REM listen on this prefix. Delete-then-add keeps it idempotent across
+REM reinstalls (clears any stale registration from a previous SDDL).
+REM Also clean up the old loopback-only ACL that pre-2026-04-30 builds
+REM may have left.
+netsh http delete urlacl url=http://127.0.0.1:8765/ >nul 2>&1
+netsh http delete urlacl url=http://+:8765/ >nul 2>&1
+netsh http add urlacl url=http://+:8765/ user=Everyone listen=yes >nul 2>&1
 
 REM Register agent at user logon. HKCU\Run mirrors the existing WinpodxMedia
 REM entry above — fires for whichever account dockur autologons. We do NOT

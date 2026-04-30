@@ -350,9 +350,7 @@ class TestWaitForWindowsResponsiveRetries:
                 return HealthStatus(available=False, detail="agent still booting")
             return HealthStatus(available=True, version="0.2.2-rev1")
 
-        monkeypatch.setattr(
-            "winpodx.core.transport.agent.AgentTransport.health", fake_health
-        )
+        monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport.health", fake_health)
         assert wait_for_windows_responsive(cfg, timeout=60) is True
         assert len(attempts) >= 4, "must keep polling past first unavailable"
 
@@ -384,9 +382,7 @@ class TestWaitForWindowsResponsiveRetries:
             clock["t"] += 2
             return HealthStatus(available=False, detail="connection refused")
 
-        monkeypatch.setattr(
-            "winpodx.core.transport.agent.AgentTransport.health", fake_health
-        )
+        monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport.health", fake_health)
 
         result = wait_for_windows_responsive(cfg, timeout=30)
         assert result is False

@@ -139,13 +139,27 @@ def test_agent_ps1_sets_401_status_code(agent_source: str):
     )
 
 
-def test_agent_ps1_binds_loopback_only(agent_source: str):
-    """Prefix must be the literal http://127.0.0.1:8765/ — never 0.0.0.0 or +."""
-    assert "http://127.0.0.1:8765/" in agent_source
-    # Three non-loopback shapes that HttpListener.Prefixes.Add accepts
-    # for "all interfaces" — all must be absent from the source.
-    assert "0.0.0.0" not in agent_source
-    assert "http://+:" not in agent_source
+def test_agent_ps1_bind_prefix(agent_source: str):
+    """Prefix must be ``http://+:8765/`` (all interfaces, port 8765).
+
+    Why all-interfaces (``+``) and not ``127.0.0.1``: dockur's user-mode
+    QEMU NAT delivers forwarded packets to the VM's slirp interface
+    (10.0.2.15:8765), NOT to the VM's 127.0.0.1. A 127.0.0.1-only
+    listener inside Windows means slirp's forwarded packets hit a
+    closed port — kernalix7 saw "Connection reset by peer" on
+    2026-04-30 from exactly this. The agent stays externally
+    unreachable because compose's ``127.0.0.1:8765:8765/tcp`` mapping
+    is host-loopback-only and the QEMU slirp net is private to the
+    container.
+
+    Wildcard ``0.0.0.0`` and ``*`` aren't accepted by HttpListener
+    syntax for this purpose; ``+`` is the canonical "all interfaces"
+    prefix.
+    """
+    assert "http://+:8765/" in agent_source
+    # Mistakes that have shipped before — guard against regression.
+    assert "http://127.0.0.1:8765/" not in agent_source
+    assert "http://0.0.0.0:" not in agent_source
     assert "http://*:" not in agent_source
 
 
@@ -173,13 +187,46 @@ def test_agent_ps1_health_is_unauthenticated(agent_source: str):
 
 
 def test_agent_ps1_no_throw_on_missing_token(agent_source: str):
-    """Wait-Token / Read-Token must never raise. anti-goal #6 in
-    AGENT_V2_DESIGN. Phase 2 still has no legitimate `throw` either —
-    auth failure / exec timeout return HTTP status codes, not throws.
+    """Wait-Token / Read-Token must never raise. Anti-goal #6 in
+    AGENT_V2_DESIGN: throwing kills the process and HKCU\\Run does
+    NOT auto-restart, so a transient missing-token would brick the
+    agent until next user logon.
+
+    The only legitimate throw in agent.ps1 is the HttpListener.Start()
+    re-throw — that's a fatal binding failure with nothing left to do
+    (urlacl missing / port already in use / etc), and the catch block
+    writes the error to agent.log first so the user can see WHY.
     """
     stripped = _strip_comments_and_strings(agent_source)
-    # `throw` is not a substring of any identifier we ship.
-    assert "throw" not in stripped, "agent.ps1 must not contain `throw`"
+
+    # Locate the Read-Token + Wait-Token bodies and assert no `throw`.
+    for fn_name in ("Read-Token", "Wait-Token"):
+        m = re.search(rf"function\s+{fn_name}\s*\{{", stripped)
+        assert m is not None, f"function {fn_name} not found"
+        # Walk the brace nesting to find the matching close brace.
+        depth = 0
+        body_start = m.end() - 1  # the `{` itself
+        body_end = None
+        for i in range(body_start, len(stripped)):
+            ch = stripped[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    body_end = i
+                    break
+        assert body_end is not None, f"unterminated {fn_name} body"
+        body = stripped[body_start:body_end]
+        assert "throw" not in body, f"{fn_name} must not throw — anti-goal #6 in AGENT_V2_DESIGN"
+
+    # Assert at most one throw in the whole file (the listener-Start fallback).
+    assert stripped.count("throw") <= 1, (
+        "more throws than expected — Wait-Token / Read-Token / request "
+        "loop must all stay catch-and-continue. The single tolerated "
+        "throw is the HttpListener.Start() failure re-throw, which is "
+        "logged before exit."
+    )
 
 
 def test_agent_ps1_token_not_logged(agent_source: str):

@@ -13,11 +13,16 @@
 #
 # Invariants
 # ----------
-#   * Bind: 127.0.0.1:8765 ONLY (loopback inside the Windows VM).
-#     dockur's user-mode QEMU NAT forwards this to the Linux container's
-#     loopback 8765, and compose's `127.0.0.1:8765:8765/tcp` forwards
-#     that to the host's loopback. Reachable ONLY from the host that
-#     owns the pod — see docs/AGENT_V2_DESIGN.md "Architecture".
+#   * Bind: ``http://+:8765/`` (all interfaces inside the Windows VM).
+#     QEMU's user-mode NAT forwards from the container to the VM's
+#     slirp interface (10.0.2.15:8765, NOT 127.0.0.1:8765 — slirp
+#     hostfwd targets the VM's main NIC, not loopback). Binding only
+#     to 127.0.0.1 inside Windows would mean slirp's forwarded packets
+#     hit a closed port — kernalix7 saw "Connection reset by peer" on
+#     2026-04-30 from exactly this. Binding to ``+`` covers all
+#     interfaces. The agent is still externally unreachable: compose's
+#     ``127.0.0.1:8765:8765/tcp`` mapping is loopback-only on the host,
+#     and QEMU slirp is private to the container.
 #   * /health takes NO authentication. It is the readiness signal; the
 #     host may probe it before the token has even been delivered.
 #   * Every other endpoint requires `Authorization: Bearer <token>`.
@@ -41,7 +46,7 @@ $script:OemDir       = 'C:\OEM'
 $script:TokenPath    = 'C:\OEM\agent_token.txt'
 $script:LogPath      = 'C:\OEM\agent.log'
 $script:RunsDir      = 'C:\OEM\agent-runs'
-$script:Prefix       = 'http://127.0.0.1:8765/'
+$script:Prefix       = 'http://+:8765/'
 $script:ExecDefaultTimeoutSec = 60
 $script:ExecMaxTimeoutSec     = 300
 
@@ -207,7 +212,25 @@ $script:Token = Wait-Token
 
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add($script:Prefix)
-$listener.Start()
+try {
+    $listener.Start()
+} catch {
+    # HttpListener.Start() fails with "Failed to listen on prefix ...
+    # because it conflicts with an existing registration on the machine"
+    # when the URL ACL is owned by a different user (stale registration
+    # from a previous install / different SDDL). install.bat pre-registers
+    # the URL ACL with user=Everyone for exactly this reason — but if
+    # someone deleted that or the install.bat block didn't run, we want
+    # the failure visible in agent.log instead of a silent process exit.
+    $err = "HttpListener.Start() failed: $($_.Exception.Message)"
+    try {
+        Add-Content -Path $script:LogPath -Value (
+            "$((Get-Date).ToUniversalTime().ToString('o')) FATAL $err" +
+            "  hint: run 'netsh http add urlacl url=$($script:Prefix) user=Everyone listen=yes' as admin"
+        ) -ErrorAction SilentlyContinue
+    } catch { }
+    throw
+}
 
 try {
     while ($listener.IsListening) {
