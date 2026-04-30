@@ -180,8 +180,29 @@ Launch with `winpodx gui`. The Qt6 main window has four pages:
 | **Settings** | RDP (user / IP / port / scale / DPI / password rotation) and Container (backend / CPU / RAM / idle timeout) in one screen |
 | **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, and a one-click Windows Update **enable / disable** toggle |
 | **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `virsh`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
+| **Info** | Live **Health** card (pod / RDP / agent / OEM / disk / password age / app count) + System / Display / Dependencies / Pod / Config snapshot |
 
 The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), maintenance submenu (Clean Locks / Sync Time / Suspend), and an optional idle-monitor thread.
+
+### Health checks
+
+`winpodx check` runs every probe used by the GUI Health card and prints a one-line verdict for each:
+
+```
+=== winpodx check ===
+
+  [OK  ] pod_running        running (ip=127.0.0.1)  (58ms)
+  [OK  ] rdp_port           127.0.0.1:3390 reachable  (0ms)
+  [OK  ] agent_health       version=0.2.2-rev4  (63ms)
+  [OK  ] oem_version        bundle=12  (3ms)
+  [OK  ] password_age       7d remaining (max_age=7d)  (0ms)
+  [OK  ] apps_discovered    41 app(s) in /home/.../discovered  (3ms)
+  [OK  ] disk_free          401.0/3725 GiB free  (0ms)
+
+Overall: OK
+```
+
+Status legend: `OK` (green) / `WARN` (yellow — informational, exit 0) / `FAIL` (red — exit 1) / `SKIP` (grey — disabled by config). Use `--json` for machine-readable output.
 
 ## Tech Stack
 
@@ -404,6 +425,8 @@ winpodx uninstall --purge         # Remove everything including config
 # System
 winpodx setup                     # Interactive setup wizard
 winpodx info                      # Display, dependencies, config diagnostics
+winpodx check                     # Run all health probes (pod / RDP / agent / disk / …)
+winpodx check --json              # Same probes, machine-readable JSON
 winpodx gui                       # Launch Qt6 main window (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config

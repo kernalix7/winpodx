@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+### 추가
+- **`winpodx check` 헬스 프로브.** 새 CLI 명령어가 멀티 소스 헬스 점검 (pod 동작 / RDP 포트 / agent /health / OEM 번들 버전 / 비밀번호 회전 만료 / 디스커버리된 앱 수 / 호스트 디스크 여유) 을 한 번에 실행하고 각 프로브를 `OK` / `WARN` / `FAIL` / `SKIP` 와 측정 시간으로 출력. `--json` 로 머신 판독용 출력. exit code 는 어떤 프로브든 `FAIL` 일 때만 `1`.
+- **GUI Info 페이지에 Health 카드 추가.** Info 페이지 최상단에 새 "Health" 섹션이 `winpodx check` 와 동일한 프로브를 실행하고 각각 색깔 있는 상태 배지 + 전체 verdict 으로 렌더링. Refresh Info 클릭 시 갱신.
+
+### 수정
+- **discovery 스크립트 경로 한 단계 어긋남.** `_ps_script_path` 가 `.parent` 를 4번 거슬러 `<root>/src/scripts/windows/discover_apps.ps1` 를 만들었는데 어떤 layout 에도 없는 경로. 5번 거슬러 실제 `<root>/scripts/windows/` 로 resolve 되게 수정 — 이제 GUI Refresh 가 pod 정상일 때 "Pod Not Running" dialog 를 띄우지 않음.
+- **GUI 가 `script_missing` 을 `pod_not_running` 으로 오분류.** `_looks_like_pod_down` 가 `winpodx-app/...` 같은 install path 의 "pod" 부분 substring 에 매칭돼서 path 가 들어간 모든 DiscoveryError 가 잘못된 dialog 로 라우팅. RefreshWorker 가 이제 명시적인 `DiscoveryError.kind` 를 먼저 읽고, kind 없을 때만 substring 휴리스틱 폴백.
+- **Agent `/exec` 가 child clean exit 후에도 `rc:null` 반환.** PowerShell `Start-Process -PassThru` + `WaitForExit(timeout)` 가 child 가 정상 종료해도 `$proc.ExitCode` 를 `$null` 로 둘 수 있는 알려진 동작. agent (rev4) 가 이제 source 에서 null → 0 강제, 호스트 `AgentClient` 도 `rc:null` 을 0 으로 처리해서 rev2 / rev3 가 baked-in 된 기존 pod 도 동작.
+- **Agent 가 `/exec` 마다 PowerShell 창을 깜빡임.** `Start-Process -NoNewWindow` 가 hidden parent (HKCU\Run 의 `-WindowStyle Hidden`) 에서 fast-exit child 의 콘솔을 새로 띄우는 동작. agent.ps1 (rev4) 가 이제 `[Diagnostics.Process]` + `ProcessStartInfo` 로 `CreateNoWindow=$true` 와 `UseShellExecute=$false` 로 spawn; stdio 는 비동기 `ReadToEndAsync` 로 drain (pipe buffer deadlock 방지). `WINPODX_OEM_VERSION 11 → 12` — 다음 pod recreate 시 새 agent 가 install path 에 들어감.
+
 ## [0.2.1] - 2026-04-28
 
 마이너 버전 (0.2.0.x → 0.2.1) — UX 개선 묶음: install 이 부분 완료 상태로 끝나도 다음 실행 시 자동 재개, GUI 로그가 winpodx 자체 로그를 실시간으로 표시, GUI 첫 실행 시 시스템 체크 안내.

@@ -9,6 +9,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+- **`winpodx check` health probes.** New CLI command runs a fast multi-source health audit (pod running, RDP port, agent /health, OEM bundle version, password rotation age, discovered apps count, host disk free) and prints one line per probe with `OK` / `WARN` / `FAIL` / `SKIP` and per-probe duration. `--json` emits machine-readable output for scripting. Exit code is `0` unless any probe is `FAIL`.
+- **GUI Info page Health card.** The Info page gains a top "Health" section that runs the same probes as `winpodx check` and renders each with a coloured status badge plus the overall verdict. Refreshes whenever the user clicks Refresh Info.
+
+### Fixed
+- **Discovery script path off by one.** `_ps_script_path` walked four `.parent`s and resolved to `<root>/src/scripts/windows/discover_apps.ps1`, which never exists in any layout. Walked five now so the resolution lands on the actual `<root>/scripts/windows/` directory; clicking GUI Refresh stops popping the "Pod Not Running" dialog when the pod is fine.
+- **GUI misclassified `script_missing` as `pod_not_running`.** `_looks_like_pod_down` matched the substring "pod" inside install paths like `winpodx-app/...`, so any DiscoveryError with the install path in its message was routed to the wrong dialog. The RefreshWorker now reads the explicit `DiscoveryError.kind` first and only falls back to the substring heuristic when no kind is set.
+- **Agent `/exec` returned `rc:null` after clean child exit.** PowerShell's `Start-Process -PassThru` + `WaitForExit(timeout)` can leave `$proc.ExitCode` as `$null` even when the child exited normally. The agent (rev4) now coerces the null to `0` at the source and the host `AgentClient` tolerates `rc:null` as `0` so existing pods on rev2 / rev3 stay functional.
+- **Agent flashed a PowerShell window for every `/exec`.** `Start-Process -NoNewWindow` from a hidden parent (`-WindowStyle Hidden` via HKCU\Run) re-creates a console for fast-exiting children. agent.ps1 (rev4) now spawns via `[Diagnostics.Process]` + `ProcessStartInfo` with `CreateNoWindow=$true` and `UseShellExecute=$false`; stdio is drained via async `ReadToEndAsync` to avoid pipe-buffer deadlocks. `WINPODX_OEM_VERSION 11 → 12` so the install path picks up the new agent on the next pod recreate.
+
 ## [0.2.1] - 2026-04-28
 
 Minor bump (0.2.0.x → 0.2.1) — bundled UX work: install never abandons partial state, GUI logs surface winpodx's own log live, GUI greets first-time users with a system check.

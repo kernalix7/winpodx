@@ -68,8 +68,27 @@ def test_read_os_release_returns_empty_when_missing(monkeypatch):
 # --- bundled version pin readers ---
 
 
-def test_bundled_oem_version_falls_back_to_unknown(monkeypatch):
+def test_bundled_oem_version_falls_back_to_unknown(monkeypatch, tmp_path):
+    """When neither the .txt stamp NOR the install.bat fallback is available,
+    the helper must return ``(unknown)`` rather than raising or returning ''.
+
+    The implementation reads:
+      1. ``config/oem/oem_version.txt`` via _read_text_file
+      2. ``config/oem/install.bat`` via path.open (streaming, not _read_text_file)
+
+    Both sources need to be redirected to a nonexistent path for the test to
+    actually exercise the fallback path. Patching only _read_text_file leaves
+    install.bat reachable on a dev checkout and the helper returns the real
+    version.
+    """
     monkeypatch.setattr("winpodx.core.info._read_text_file", lambda *a, **k: None)
+    # Redirect __file__'s parent walk to a tmp path so install.bat candidates
+    # don't resolve to the real repo file.
+    nowhere = tmp_path / "absent.bat"
+    monkeypatch.setattr("winpodx.core.info.Path.home", staticmethod(lambda: tmp_path))
+    monkeypatch.setattr(
+        "winpodx.core.info.__file__", str(tmp_path / "info.py"), raising=False
+    )
     assert _bundled_oem_version() == "(unknown)"
 
 

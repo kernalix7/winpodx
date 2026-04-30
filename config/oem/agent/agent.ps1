@@ -40,7 +40,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$script:AgentVersion = '0.2.2-rev3'
+$script:AgentVersion = '0.2.2-rev4'
 $script:StartedAt    = (Get-Date).ToUniversalTime().ToString('o')
 $script:OemDir       = 'C:\OEM'
 $script:TokenPath    = 'C:\OEM\agent_token.txt'
@@ -146,8 +146,6 @@ function Send-Json($resp, [int]$code, $obj) {
 function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
     $tempBase  = Join-Path $script:RunsDir ([Guid]::NewGuid().ToString('N'))
     $tempFile  = "$tempBase.ps1"
-    $stdoutFile = "$tempBase.out"
-    $stderrFile = "$tempBase.err"
     try {
         try {
             $bytes = [Convert]::FromBase64String($scriptB64)
@@ -160,13 +158,29 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
         } catch {
             return @{ error = 'temp_write_failed'; detail = $_.Exception.Message; hash = $hash }
         }
+        # Spawn the child via [Diagnostics.Process] + ProcessStartInfo with
+        # CreateNoWindow=$true. Start-Process -NoNewWindow re-opens a console
+        # for the child when the parent (agent.ps1) was launched with
+        # -WindowStyle Hidden — kernalix7 saw flashing PS windows on every
+        # /exec call on 2026-04-30. CreateNoWindow + UseShellExecute=$false
+        # is the canonical "run windowless and capture stdio" combination.
         $proc = $null
         try {
-            $proc = Start-Process -FilePath 'powershell.exe' `
-                -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$tempFile `
-                -PassThru -NoNewWindow `
-                -RedirectStandardOutput $stdoutFile `
-                -RedirectStandardError  $stderrFile
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName               = 'powershell.exe'
+            $psi.Arguments              = '-NoProfile -ExecutionPolicy Bypass -File "' + $tempFile + '"'
+            $psi.UseShellExecute        = $false
+            $psi.CreateNoWindow         = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $proc = New-Object System.Diagnostics.Process
+            $proc.StartInfo = $psi
+            [void]$proc.Start()
+            # Drain stdio asynchronously so a child writing >64KB of output
+            # doesn't deadlock against the OS pipe buffer while we're still
+            # blocked in WaitForExit (Microsoft's documented gotcha).
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
         } catch {
             return @{ error = 'spawn_failed'; detail = $_.Exception.Message; hash = $hash }
         }
@@ -188,12 +202,10 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
         }
         $stdoutText = ''
         $stderrText = ''
-        if (Test-Path $stdoutFile) {
-            try { $stdoutText = [IO.File]::ReadAllText($stdoutFile, [Text.Encoding]::UTF8) } catch { }
-        }
-        if (Test-Path $stderrFile) {
-            try { $stderrText = [IO.File]::ReadAllText($stderrFile, [Text.Encoding]::UTF8) } catch { }
-        }
+        # Pull from the async ReadToEndAsync tasks queued at spawn time.
+        # On timeout the streams may already be closed by Kill(); guard each.
+        try { if ($stdoutTask) { $stdoutText = $stdoutTask.GetAwaiter().GetResult() } } catch { }
+        try { if ($stderrTask) { $stderrText = $stderrTask.GetAwaiter().GetResult() } } catch { }
         if ($timedOut -and -not $stderrText) { $stderrText = 'timeout' }
         return @{
             rc       = $rc
@@ -203,10 +215,8 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
             timedOut = $timedOut
         }
     } finally {
-        foreach ($f in @($tempFile, $stdoutFile, $stderrFile)) {
-            if ($f -and (Test-Path $f)) {
-                try { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } catch { }
-            }
+        if ($tempFile -and (Test-Path $tempFile)) {
+            try { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue } catch { }
         }
     }
 }

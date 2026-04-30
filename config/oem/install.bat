@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=11
+set WINPODX_OEM_VERSION=12
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
