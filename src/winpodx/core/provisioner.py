@@ -179,32 +179,18 @@ def _apply_max_sessions(cfg: Config) -> None:
 def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     """Poll until the Windows guest is ready to accept commands.
 
-    Readiness signal (Sprint 4 of feat/redesign): **agent /health responds**.
-    The agent.ps1 listener only binds AFTER:
-      1. install.bat first-boot OEM stage completes (so rdprrap is
-         installed + TermService restarted),
-      2. autologon User session opens (HKCU\\Run fires agent.ps1),
-      3. agent.ps1 reads ``C:\\OEM\\agent_token.txt`` (delivered via the
-         OEM bind mount at setup time) and binds 127.0.0.1:8765.
+    Readiness signal: agent /health responds. agent.ps1 only binds the
+    listener AFTER install.bat finishes + autologon User logs in +
+    token has been read, so /health responding is the unambiguous
+    "ready" signal. Probe is HTTP-only — no FreeRDP RemoteApp, no
+    PowerShell-window flashes during the polling loop.
 
-    All three are necessary for FreeRDP RemoteApp to work without
-    "Another user is signed in" / single-session conflict dialogs, so
-    /health responding is the unambiguous "Windows is ready" signal.
-
-    Probe is HTTP-only — **no FreeRDP RemoteApp**, so no PowerShell-
-    window flashes during the polling loop. Previous design (FreeRDP
-    "Write-Output 'ping'" every 3s) was the source of the
-    "PowerShell 창 폭주" symptom kernalix7 reported on 2026-04-30.
-
-    Returns True once /health answers, False at timeout. Caller decides
-    whether to skip / retry / surface to user.
+    Returns True once /health answers, False at timeout.
     """
     from winpodx.core.transport.agent import AgentTransport
 
     deadline = time.monotonic() + max(1, int(timeout))
 
-    # First wait for the RDP port to come up — cheap TCP probe, no PS
-    # flash, just confirms the container's QEMU forwarders are alive.
     while time.monotonic() < deadline:
         if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
             break
@@ -212,19 +198,11 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     else:
         return False
 
-    # Now poll agent /health. Each probe is a localhost HTTP roundtrip
-    # (~50ms when up, ~2s timeout when not) — invisible to the user, no
-    # FreeRDP RemoteApp, no PS-window flash. The agent only answers
-    # /health AFTER install.bat is fully done and the listener is
-    # bound; so a positive answer is the clean "ready" signal.
     transport = AgentTransport(cfg)
     while time.monotonic() < deadline:
         status = transport.health()
         if status.available:
             return True
-        # 5s spacing — much longer than the 3s of the old FreeRDP loop
-        # since /health is cheap and agent.ps1 binding is bursty
-        # (happens once when Wait-Token unblocks).
         if time.monotonic() < deadline - 5:
             time.sleep(5)
         else:
