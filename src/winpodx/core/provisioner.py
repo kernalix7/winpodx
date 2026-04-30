@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
 from winpodx.core.compose import generate_compose
 from winpodx.core.config import Config
@@ -44,29 +43,23 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     _check_rotation_pending()
     cfg = _auto_rotate_password(cfg)
 
-    # v0.1.9.2: probe pod state once and run idempotent runtime fixes BEFORE
-    # the RDP-port early-return. install.bat changes only land on first boot
-    # of a new container; without this block, existing 0.1.x guests would
-    # never pick up OEM v7/v8 changes (NIC power-save, TermService failure
-    # recovery, RDP timeouts, max_sessions sync) until they recreated their
-    # container. Each apply is idempotent — `Set-ItemProperty -Force` is a
-    # no-op when the value already matches — so running them on every
-    # ensure_ready is cheap (~1.5s overhead) and self-healing.
+    # v0.2.2 (post-rollback Sprint 3): self-heal removed.
     #
-    # v0.2.0.1: gate the warm-pod path on `check_rdp_port` so we don't
-    # fire FreeRDP RemoteApp at a container that's `RUNNING` but whose
-    # Windows VM is still booting. Without the gate, each apply hits
-    # ERRCONNECT_ACTIVATION_TIMEOUT (rc=131) or ERRCONNECT_CONNECT_TRANSPORT_FAILED
-    # (rc=147, connection reset) after up to 60s, and the cascade
-    # (3×60s) surfaces as a Launch Error dialog when the user tries
-    # to start an app right after `winpodx pod restart`.
-    if (
-        cfg.pod.backend in ("podman", "docker")
-        and pod_status(cfg).state == PodState.RUNNING
-        and check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0)
-    ):
-        _self_heal_apply(cfg)
-
+    # Previously this block re-applied 4 registry/service payloads
+    # (max_sessions, rdp_timeouts, OEM, multi-session) via FreeRDP
+    # RemoteApp on every ensure_ready, gated by a stamp that required
+    # ALL FOUR to succeed. A single transient FreeRDP failure (rc=131
+    # during install.bat's TermService restart, etc.) prevented the
+    # stamp from being written and the host kept retrying on every app
+    # launch — kernalix7 reported this as "PowerShell 창이 계속 깜빡거리는"
+    # symptom on 2026-04-30.
+    #
+    # New rule: install.bat applies all OEM state at first boot; the
+    # host does NOT redo that work on subsequent launches. If a user
+    # upgrades the winpodx CLI without recreating the container, they
+    # invoke `winpodx pod apply-fixes` (CLI) or click "Apply Windows
+    # Fixes" (GUI Tools page) — both still call apply_windows_runtime_fixes
+    # below, which surfaces per-step success/failure to the caller.
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
         return cfg
 
@@ -80,10 +73,6 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     ensure_pod_awake(cfg)
 
     _ensure_pod_running(cfg, timeout)
-    # Re-apply once more after starting (cold-pod path); same idempotency
-    # guarantees mean this only does work the first time after a fresh
-    # start. The earlier branch handles the warm-pod case.
-    _self_heal_apply(cfg)
     # Bug B: after host suspend / long idle the pod can be running but RDP
     # itself is dead while VNC is fine. Probe and try to revive TermService
     # before handing the cfg to the caller — the alternative is the FreeRDP
@@ -226,81 +215,6 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     return False
 
 
-_APPLIES_STAMP_FILENAME = ".applies_stamp"
-
-
-def _container_started_at(cfg: Config) -> str:
-    """Read the container's StartedAt timestamp via {runtime} inspect.
-
-    Used as part of the self-heal stamp so a pod restart invalidates
-    the previous apply (TermService / NIC settings need to land again
-    after a reboot of the Windows VM). Returns an empty string when the
-    backend isn't podman/docker or inspect fails — caller treats empty
-    as "no stamp" and runs the apply.
-    """
-    if cfg.pod.backend not in ("podman", "docker"):
-        return ""
-    try:
-        proc = subprocess.run(  # noqa: S603
-            [
-                cfg.pod.backend,
-                "inspect",
-                "--format",
-                "{{.State.StartedAt}}",
-                cfg.pod.container_name,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return ""
-    if proc.returncode != 0:
-        return ""
-    return proc.stdout.strip()
-
-
-def _applies_stamp_path() -> Path:
-    return Path(config_dir()) / _APPLIES_STAMP_FILENAME
-
-
-def _self_heal_already_done(cfg: Config) -> bool:
-    """Return True when the self-heal apply has already succeeded for this
-    (winpodx version, pod start instance). Avoids a 3-FreeRDP-RemoteApp
-    PowerShell flash on every single app launch — the apply payloads are
-    idempotent on the registry side, but their visible effect (briefly
-    appearing PS windows) was hitting users every time they clicked an app.
-    """
-    from winpodx import __version__
-
-    started = _container_started_at(cfg)
-    if not started:
-        return False
-    expected = f"{__version__}:{started}"
-    try:
-        return _applies_stamp_path().read_text(encoding="utf-8").strip() == expected
-    except (FileNotFoundError, OSError):
-        return False
-
-
-def _record_self_heal_done(cfg: Config) -> None:
-    """Stamp ``<winpodx_version>:<container_started_at>`` once all three
-    self-heal applies have succeeded. The next ensure_ready short-circuits
-    until either the pod is restarted (started_at changes) or winpodx is
-    upgraded (__version__ changes)."""
-    from winpodx import __version__
-
-    started = _container_started_at(cfg)
-    if not started:
-        return
-    try:
-        path = _applies_stamp_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"{__version__}:{started}\n", encoding="utf-8")
-    except OSError as e:
-        log.debug("could not write self-heal stamp: %s", e)
-
-
 def _apply_multi_session(cfg: Config) -> None:
     """v0.2.0.9: enable rdprrap multi-session by default.
 
@@ -353,59 +267,6 @@ def _apply_multi_session(cfg: Config) -> None:
         # doesn't break winpodx, just means each app share a session.
         return
     log.info("multi_session: %s", result.stdout.strip())
-
-
-def _self_heal_apply(cfg: Config) -> None:
-    """Run the four idempotent runtime applies in self-healing mode.
-
-    Distinct from ``apply_windows_runtime_fixes`` which is called from
-    the explicit ``winpodx pod apply-fixes`` CLI / GUI button: that one
-    must surface failures in its result map. Self-healing mode is fired
-    from ``ensure_ready`` on every app launch, so any failure must be
-    swallowed — the user is trying to launch an app, not run an apply,
-    and a transient ERRCONNECT_ACTIVATION_TIMEOUT (Windows still
-    booting) must not cascade into a Launch Error dialog. The next
-    ensure_ready call picks up wherever this one left off.
-
-    v0.2.0.8: short-circuit when a stamp already records that all three
-    applies succeeded for the current (winpodx version, container
-    StartedAt) tuple. Without this, every single app launch fires three
-    FreeRDP RemoteApp PowerShell windows — even though `-WindowStyle
-    Hidden` makes them tiny, they still flash visibly on every click,
-    which kernalix7 reported as "powershell 계속 깜빡깜빡 뜬다" on
-    2026-04-27. The stamp invalidates on pod restart (so TermService /
-    NIC settings re-apply after a Windows reboot) and on winpodx
-    upgrade (so a patch-version bump still gets a chance to apply
-    new payloads).
-    """
-    if _self_heal_already_done(cfg):
-        return
-
-    from winpodx.core.windows_exec import WindowsExecError
-
-    applies = (
-        ("max_sessions", _apply_max_sessions),
-        ("rdp_timeouts", _apply_rdp_timeouts),
-        ("oem_runtime_fixes", _apply_oem_runtime_fixes),
-        ("multi_session", _apply_multi_session),
-    )
-    succeeded = 0
-    for name, fn in applies:
-        try:
-            fn(cfg)
-            succeeded += 1
-        except WindowsExecError as e:
-            log.warning(
-                "%s: channel failure during self-heal (will retry next ensure_ready): %s",
-                name,
-                e,
-            )
-            return  # Don't waste FreeRDP retries on a still-booting guest.
-        except Exception as e:  # noqa: BLE001
-            log.warning("%s: self-heal apply failed: %s", name, e)
-
-    if succeeded == len(applies):
-        _record_self_heal_done(cfg)
 
 
 def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:

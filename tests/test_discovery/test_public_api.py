@@ -58,7 +58,8 @@ def test_ensure_ready_does_not_fire_discovery() -> None:
         # Stub the rest of ensure_ready's dependencies so it can run to
         # completion without a real pod / RDP service.
         patch.object(provisioner, "_auto_rotate_password", side_effect=lambda c: c),
-        patch.object(provisioner, "_self_heal_apply", return_value=None),
+        # Sprint 3 (post-rollback) deleted _self_heal_apply — ensure_ready
+        # no longer auto-applies. Nothing to stub for the apply path.
         patch.object(provisioner, "_ensure_desktop_entries", return_value=None),
         patch.object(provisioner, "pod_status", return_value=PodStatus(state=PodState.RUNNING)),
         # The early-return branch (RDP port already up) is the cheapest
