@@ -5,6 +5,14 @@ owned by platform-qa) which enumerates UWP/MSIX, Start Menu, and common
 Win32 install locations and emits a JSON array on stdout. Results are
 parsed into ``DiscoveredApp`` records and can be persisted under the
 user data dir so they appear alongside bundled apps in the GUI and CLI.
+
+Public API: ``scan(cfg)`` and ``persist(apps)`` are the explicit
+entry points. Discovery is no longer auto-fired from
+``provisioner.ensure_ready`` — a deliberate simplification per the
+WINPODX redesign Step 3 (``feat/redesign``). Callers that want the
+"discover on first install" UX (``install.sh``, the bundled
+``winpodx app refresh`` post-install hook) call
+``run_if_first_boot(cfg)`` explicitly.
 """
 
 from __future__ import annotations
@@ -812,3 +820,71 @@ def _safe_rmtree(path: Path, root: Path) -> None:
         path.unlink(missing_ok=True)
         return
     shutil.rmtree(path, ignore_errors=True)
+
+
+def scan(
+    cfg: Config,
+    timeout: int = 120,
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+) -> list[DiscoveredApp]:
+    """Run guest-side discovery and return the parsed apps.
+
+    Thin wrapper over ``discover_apps`` so callers (CLI ``app refresh``,
+    GUI Refresh button, post-install hook) speak the redesigned public
+    API name. The underlying enumeration, junk filtering, and bounds
+    checks are unchanged from ``discover_apps``.
+    """
+    return discover_apps(cfg, timeout=timeout, progress_callback=progress_callback)
+
+
+def persist(
+    apps: list[DiscoveredApp],
+    target_dir: Path | None = None,
+    *,
+    replace: bool = True,
+) -> list[Path]:
+    """Persist discovered apps under ``~/.local/share/winpodx/apps/discovered/``.
+
+    Thin wrapper over ``persist_discovered``. Returns the list of
+    written ``app.toml`` paths.
+    """
+    return persist_discovered(apps, target_dir=target_dir, replace=replace)
+
+
+def run_if_first_boot(cfg: Config) -> None:
+    """Run discovery once when the persisted tree is empty (first boot).
+
+    Moved out of ``provisioner.ensure_ready`` (Step 3 of the redesign):
+    discovery is now explicit-only. Callers wanting the legacy "auto-
+    populate on first install" behaviour invoke this once at install
+    time (``install.sh`` -> ``winpodx app refresh``). ``ensure_ready``
+    no longer fires this path on every probe of the menu state.
+
+    Failure is non-fatal: a busy or still-booting guest skips the run
+    and the user can re-trigger discovery via the GUI Refresh button or
+    ``winpodx app refresh``.
+    """
+    try:
+        discovered_dir = discovered_apps_dir()
+        if discovered_dir.exists() and any(discovered_dir.iterdir()):
+            return  # already populated; user-triggered refresh stays in their hands.
+
+        log.info("First boot detected; auto-running discovery to populate the app menu...")
+        # v0.2.0.3: discovery uses the FreeRDP RemoteApp channel; on
+        # first pod boot Windows VM may still be initialising inside
+        # QEMU even though the RDP TCP port is open. Skip the run if
+        # the guest is not yet activation-responsive.
+        from winpodx.core.provisioner import wait_for_windows_responsive
+
+        if not wait_for_windows_responsive(cfg, timeout=180):
+            log.info("Windows guest still booting; deferring discovery to a later run.")
+            return
+        apps = scan(cfg)
+        persist(apps)
+        log.info("First-boot discovery wrote %d app(s) to %s", len(apps), discovered_dir)
+    except Exception as e:  # noqa: BLE001
+        log.warning(
+            "First-boot discovery failed (non-fatal — run `winpodx app refresh` to retry): %s",
+            e,
+        )

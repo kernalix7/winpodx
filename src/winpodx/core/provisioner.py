@@ -86,10 +86,11 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     if not check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
         recover_rdp_if_needed(cfg)
 
-    # v0.1.9: bundled profile set was removed; auto-discover on first boot
-    # so the user's menu is populated without them having to know about
-    # `winpodx app refresh`.
-    _auto_discover_if_empty(cfg)
+    # Discovery is no longer auto-fired here (Step 3 of the redesign).
+    # The "populate the menu on first boot" UX is owned by install.sh
+    # (which runs `winpodx app refresh` post-install) and the GUI's
+    # Refresh button — both call ``core.discovery.scan`` + ``persist``
+    # explicitly. ``ensure_ready`` stays cheap and side-effect-free.
     _ensure_desktop_entries()
 
     return cfg
@@ -789,43 +790,6 @@ def _ensure_desktop_entries() -> None:
 
     if installed:
         update_icon_cache()
-
-
-def _auto_discover_if_empty(cfg: Config) -> None:
-    """Fire `winpodx app refresh` once when the discovered tree is empty.
-
-    v0.1.9 dropped the 14 bundled profiles, so on first pod boot the
-    user's app menu is empty until discovery runs. We trigger it here —
-    after the pod is reachable and TermService recovery has had a chance
-    — so the menu populates without the user having to know about
-    `winpodx app refresh`. Failure is non-fatal: the user-clicked app
-    launch continues regardless and the next ensure_ready will retry.
-    """
-    try:
-        from winpodx.core.app import discovered_apps_dir
-        from winpodx.core.discovery import discover_apps, persist_discovered
-
-        discovered_dir = discovered_apps_dir()
-        if discovered_dir.exists() and any(discovered_dir.iterdir()):
-            return  # already discovered before; user-triggered refresh stays in their hands.
-
-        log.info("First boot detected; auto-running discovery to populate the app menu...")
-        # v0.2.0.3: discovery uses the same FreeRDP RemoteApp channel as
-        # the apply path; on first pod boot Windows VM may still be
-        # booting inside QEMU even though ensure_ready already passed
-        # check_rdp_port (port open != activation-ready). Wait for a
-        # responsive guest before scanning, otherwise rc=147 connection
-        # reset and the user's first install ends with an empty menu.
-        if not wait_for_windows_responsive(cfg, timeout=180):
-            log.info("Windows guest still booting; deferring auto-discovery to a later run.")
-            return
-        apps = discover_apps(cfg)
-        persist_discovered(apps)
-        log.info("Auto-discovery wrote %d app(s) to %s", len(apps), discovered_dir)
-    except Exception as e:  # noqa: BLE001
-        # Discovery failure must not block app launch. The user can retry
-        # manually via `winpodx app refresh` or the GUI Refresh button.
-        log.warning("Auto-discovery failed (non-fatal — run `winpodx app refresh` to retry): %s", e)
 
 
 def terminate_tracked_sessions(timeout: float = 3.0) -> int:
