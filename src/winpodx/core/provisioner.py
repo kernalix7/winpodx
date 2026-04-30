@@ -177,31 +177,34 @@ def _apply_max_sessions(cfg: Config) -> None:
 
 
 def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
-    """Poll until the Windows guest can actually accept FreeRDP RemoteApp.
+    """Poll until the Windows guest is ready to accept commands.
 
-    Container ``RUNNING`` state is not enough — dockur boots the Linux
-    container in seconds but the Windows VM inside QEMU needs another
-    30-90s before its RDP listener accepts activation. Firing an apply
-    inside that window means every call hits one of:
+    Readiness signal (Sprint 4 of feat/redesign): **agent /health responds**.
+    The agent.ps1 listener only binds AFTER:
+      1. install.bat first-boot OEM stage completes (so rdprrap is
+         installed + TermService restarted),
+      2. autologon User session opens (HKCU\\Run fires agent.ps1),
+      3. agent.ps1 reads ``C:\\OEM\\agent_token.txt`` (delivered via the
+         OEM bind mount at setup time) and binds 127.0.0.1:8765.
 
-    - ``ERRCONNECT_CONNECT_TRANSPORT_FAILED`` (rc=147, connection reset
-      by peer — RDP socket open but server not initialized)
-    - ``ERRCONNECT_ACTIVATION_TIMEOUT`` (rc=131, FreeRDP connected but
-      activation phase didn't complete in time)
+    All three are necessary for FreeRDP RemoteApp to work without
+    "Another user is signed in" / single-session conflict dialogs, so
+    /health responding is the unambiguous "Windows is ready" signal.
 
-    This helper waits for the RDP port first, then fires repeated tiny
-    no-op probes (`Write-Output 'ping'`) until either one succeeds or
-    the overall timeout expires. v0.2.0.6 added the retry loop after
-    v0.2.0.5 shipped a one-shot probe — on a still-booting guest the
-    first probe always hits rc=147 connection-reset and the entire
-    wait collapsed in <1s regardless of the timeout the caller passed.
-    Returns True once a probe succeeds, False if the guest is still
-    booting at ``timeout`` seconds — caller decides whether to skip /
-    retry / surface to user.
+    Probe is HTTP-only — **no FreeRDP RemoteApp**, so no PowerShell-
+    window flashes during the polling loop. Previous design (FreeRDP
+    "Write-Output 'ping'" every 3s) was the source of the
+    "PowerShell 창 폭주" symptom kernalix7 reported on 2026-04-30.
+
+    Returns True once /health answers, False at timeout. Caller decides
+    whether to skip / retry / surface to user.
     """
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.transport.agent import AgentTransport
 
     deadline = time.monotonic() + max(1, int(timeout))
+
+    # First wait for the RDP port to come up — cheap TCP probe, no PS
+    # flash, just confirms the container's QEMU forwarders are alive.
     while time.monotonic() < deadline:
         if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
             break
@@ -209,29 +212,21 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     else:
         return False
 
-    # Port is open — keep firing the activation probe until one succeeds
-    # or the deadline expires. On first boot the guest can refuse FreeRDP
-    # for several minutes (Windows still in mid-Sysprep / OEM apply) even
-    # though the RDP listener answers TCP, so a one-shot probe here is
-    # the wrong primitive — the user already passed `timeout` to express
-    # "try this hard, for this long".
+    # Now poll agent /health. Each probe is a localhost HTTP roundtrip
+    # (~50ms when up, ~2s timeout when not) — invisible to the user, no
+    # FreeRDP RemoteApp, no PS-window flash. The agent only answers
+    # /health AFTER install.bat is fully done and the listener is
+    # bound; so a positive answer is the clean "ready" signal.
+    transport = AgentTransport(cfg)
     while time.monotonic() < deadline:
-        per_probe_budget = max(5, min(20, int(deadline - time.monotonic())))
-        try:
-            result = run_in_windows(
-                cfg,
-                "Write-Output 'ping'\n",
-                description="responsive-probe",
-                timeout=per_probe_budget,
-            )
-            if result.rc == 0:
-                return True
-        except WindowsExecError:
-            # Transient — Windows likely still booting / Sysprep running.
-            pass
-        # Pace retries so we don't pin a CPU spinning FreeRDP processes.
-        if time.monotonic() < deadline - 3:
-            time.sleep(3)
+        status = transport.health()
+        if status.available:
+            return True
+        # 5s spacing — much longer than the 3s of the old FreeRDP loop
+        # since /health is cheap and agent.ps1 binding is bursty
+        # (happens once when Wait-Token unblocks).
+        if time.monotonic() < deadline - 5:
+            time.sleep(5)
         else:
             break
     return False
