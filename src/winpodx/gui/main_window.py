@@ -1566,9 +1566,7 @@ class WinpodxWindow(QMainWindow):
 
         overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
         verdict = QLabel(f"Overall: {overall.upper() or 'UNKNOWN'}")
-        verdict.setStyleSheet(
-            f"color: {overall_color}; font-size: 13px; font-weight: bold;"
-        )
+        verdict.setStyleSheet(f"color: {overall_color}; font-size: 13px; font-weight: bold;")
         body.addWidget(verdict)
         body.addSpacing(4)
 
@@ -1579,8 +1577,7 @@ class WinpodxWindow(QMainWindow):
             badge = QLabel(status.upper())
             badge.setFixedWidth(48)
             badge.setStyleSheet(
-                f"color: {color}; font-size: 11px; font-weight: bold; "
-                f"background: transparent;"
+                f"color: {color}; font-size: 11px; font-weight: bold; background: transparent;"
             )
             name = QLabel(p.get("name", ""))
             name.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")

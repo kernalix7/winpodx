@@ -68,9 +68,7 @@ def test_probe_never_raises_on_internal_exception():
 def test_run_all_returns_one_probe_per_registered_function(monkeypatch):
     """run_all must call every probe in PROBES and return a Probe for each."""
     fake_cfg = object()
-    fake_probes = [
-        Probe(f"p{i}", "ok", f"detail-{i}", i) for i, _ in enumerate(checks.PROBES)
-    ]
+    fake_probes = [Probe(f"p{i}", "ok", f"detail-{i}", i) for i, _ in enumerate(checks.PROBES)]
 
     monkeypatch.setattr(checks, "PROBES", tuple(lambda _cfg, n=p: n for p in fake_probes))
     out = checks.run_all(fake_cfg)
@@ -117,9 +115,7 @@ def test_probe_password_age_warn_when_overdue():
 
 
 def test_probe_apps_discovered_warn_on_missing_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "winpodx.core.discovery.discovered_apps_dir", lambda: tmp_path / "missing"
-    )
+    monkeypatch.setattr("winpodx.core.discovery.discovered_apps_dir", lambda: tmp_path / "missing")
     out = checks.probe_apps_discovered(_FakeCfg())
     assert out.status == "warn"
     assert "no apps" in out.detail.lower()
@@ -131,9 +127,7 @@ def test_probe_apps_discovered_ok_with_app_subdirs(tmp_path, monkeypatch):
     for slug in ("notepad", "msedge"):
         (apps_dir / slug).mkdir()
         (apps_dir / slug / "app.toml").write_text("name = '" + slug + "'\n")
-    monkeypatch.setattr(
-        "winpodx.core.discovery.discovered_apps_dir", lambda: apps_dir
-    )
+    monkeypatch.setattr("winpodx.core.discovery.discovered_apps_dir", lambda: apps_dir)
     out = checks.probe_apps_discovered(_FakeCfg())
     assert out.status == "ok"
     assert "2 app(s)" in out.detail

@@ -85,9 +85,7 @@ def test_bundled_oem_version_falls_back_to_unknown(monkeypatch, tmp_path):
     # Redirect __file__'s parent walk to a tmp path so install.bat candidates
     # don't resolve to the real repo file.
     monkeypatch.setattr("winpodx.core.info.Path.home", staticmethod(lambda: tmp_path))
-    monkeypatch.setattr(
-        "winpodx.core.info.__file__", str(tmp_path / "info.py"), raising=False
-    )
+    monkeypatch.setattr("winpodx.core.info.__file__", str(tmp_path / "info.py"), raising=False)
     assert _bundled_oem_version() == "(unknown)"
 
 
