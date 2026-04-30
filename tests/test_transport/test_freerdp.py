@@ -101,7 +101,7 @@ class TestExec:
             captured["progress_callback"] = progress_callback
             return WindowsExecResult(rc=0, stdout="hello", stderr="")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", fake_run)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
 
         result = transport.exec("Get-Process", timeout=30, description="probe")
 
@@ -120,7 +120,7 @@ class TestExec:
         # Per spec: a script's rc != 0 is a script-level outcome, not a
         # transport-level error — callers see ExecResult, not an exception.
         monkeypatch.setattr(
-            "winpodx.core.transport.freerdp.run_in_windows",
+            "winpodx.core.windows_exec.run_in_windows",
             lambda *a, **k: WindowsExecResult(rc=2, stdout="", stderr="err"),
         )
         result = transport.exec("$x")
@@ -131,7 +131,7 @@ class TestExec:
         def raise_timeout(*a, **k):
             raise WindowsExecError("FreeRDP timed out after 60s waiting for the script to complete")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_timeout)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", raise_timeout)
         with pytest.raises(TransportTimeoutError):
             transport.exec("$x")
 
@@ -139,7 +139,7 @@ class TestExec:
         def raise_auth(*a, **k):
             raise WindowsExecError("RDP password not set in config — cannot authenticate")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_auth)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", raise_auth)
         with pytest.raises(TransportAuthError):
             transport.exec("$x")
 
@@ -147,7 +147,7 @@ class TestExec:
         def raise_missing(*a, **k):
             raise WindowsExecError("FreeRDP not found on $PATH")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_missing)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", raise_missing)
         with pytest.raises(TransportUnavailable):
             transport.exec("$x")
 
@@ -157,7 +157,7 @@ class TestExec:
                 "No result file written (FreeRDP rc=1). stderr tail: 'connection failed'"
             )
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_no_result)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", raise_no_result)
         with pytest.raises(TransportUnavailable):
             transport.exec("$x")
 
@@ -165,7 +165,7 @@ class TestExec:
         def raise_unknown(*a, **k):
             raise WindowsExecError("result file unparseable: something weird")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_unknown)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", raise_unknown)
         with pytest.raises(TransportError) as excinfo:
             transport.exec("$x")
         # Must be the BASE TransportError, not a subclass.
@@ -193,7 +193,7 @@ class TestStream:
                 progress_callback("step 2")
             return WindowsExecResult(rc=0, stdout="done", stderr="")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", fake_run)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
 
         seen: list[str] = []
         result = transport.stream("$x", seen.append, timeout=120, description="stream-probe")
@@ -209,7 +209,7 @@ class TestStream:
         def raise_timeout(*a, **k):
             raise WindowsExecError("FreeRDP timed out after 600s")
 
-        monkeypatch.setattr("winpodx.core.transport.freerdp.run_in_windows", raise_timeout)
+        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", raise_timeout)
         with pytest.raises(TransportTimeoutError):
             transport.stream("$x", lambda _line: None)
 

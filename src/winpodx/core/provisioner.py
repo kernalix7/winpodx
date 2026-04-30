@@ -31,6 +31,28 @@ from winpodx.utils.paths import config_dir  # noqa: F401  used by other helpers 
 log = logging.getLogger(__name__)
 
 
+def _apply_via_transport(cfg: Config, payload: str, *, description: str, timeout: int = 60):
+    """Run a Windows-side apply payload through the best available transport.
+
+    Picks AgentTransport when ``agent.ps1`` /health responds, falls back
+    to FreerdpTransport otherwise. Returns a ``WindowsExecResult`` so
+    existing callers (the ``_apply_*`` functions below) don't need to
+    change their result handling.
+
+    Maps ``TransportError`` to ``WindowsExecError`` for the same reason —
+    the legacy callers' ``except WindowsExecError`` blocks keep working.
+    """
+    from winpodx.core.transport import TransportError, dispatch
+    from winpodx.core.windows_exec import WindowsExecError, WindowsExecResult
+
+    transport = dispatch(cfg)
+    try:
+        result = transport.exec(payload, timeout=timeout, description=description)
+    except TransportError as e:
+        raise WindowsExecError(str(e)) from e
+    return WindowsExecResult(rc=result.rc, stdout=result.stdout, stderr=result.stderr)
+
+
 class ProvisionError(Exception):
     """Raised when auto-provisioning fails."""
 
@@ -141,10 +163,10 @@ def _apply_max_sessions(cfg: Config) -> None:
         '(takes effect on next TermService restart)"\n'
     )
 
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError
 
     try:
-        result = run_in_windows(cfg, payload, description="apply-max-sessions")
+        result = _apply_via_transport(cfg, payload, description="apply-max-sessions")
     except WindowsExecError as e:
         log.warning("max_sessions: channel failure: %s", e)
         raise
@@ -254,10 +276,10 @@ def _apply_multi_session(cfg: Config) -> None:
     ]
     payload = "\n".join(payload_lines) + "\n"
 
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError
 
     try:
-        result = run_in_windows(cfg, payload, description="apply-multi-session")
+        result = _apply_via_transport(cfg, payload, description="apply-multi-session")
     except WindowsExecError as e:
         log.warning("multi_session: channel failure: %s", e)
         raise
@@ -342,10 +364,10 @@ def _apply_oem_runtime_fixes(cfg: Config) -> None:
         "Write-Output 'oem v7 baseline applied'\n"
     )
 
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError
 
     try:
-        result = run_in_windows(cfg, payload, description="apply-oem")
+        result = _apply_via_transport(cfg, payload, description="apply-oem")
     except WindowsExecError as e:
         log.warning("oem_runtime_fixes: channel failure: %s", e)
         raise
@@ -392,10 +414,10 @@ def _apply_rdp_timeouts(cfg: Config) -> None:
         "Write-Output 'rdp_timeouts applied'\n"
     )
 
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError
 
     try:
-        result = run_in_windows(cfg, payload, description="apply-rdp-timeouts")
+        result = _apply_via_transport(cfg, payload, description="apply-rdp-timeouts")
     except WindowsExecError as e:
         log.warning("rdp_timeouts: channel failure: %s", e)
         raise

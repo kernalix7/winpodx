@@ -12,6 +12,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+# Use the module reference (not `from ... import run_in_windows`) so monkeypatch
+# of ``winpodx.core.windows_exec.run_in_windows`` is observed at call time.
+# Test suites that mock at module scope rely on this — see test_provisioner.py
+# patches that target the windows_exec module attribute.
+from winpodx.core import windows_exec
 from winpodx.core.config import Config
 from winpodx.core.pod.health import check_rdp_port
 from winpodx.core.rdp import find_freerdp
@@ -25,7 +30,7 @@ from winpodx.core.transport.base import (
     TransportTimeoutError,
     TransportUnavailable,
 )
-from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+from winpodx.core.windows_exec import WindowsExecError
 
 assert SPEC_VERSION == 1, "FreerdpTransport built against Transport spec v1"
 
@@ -84,7 +89,7 @@ class FreerdpTransport(Transport):
         description: str = "winpodx-exec",
     ) -> ExecResult:
         try:
-            result = run_in_windows(
+            result = windows_exec.run_in_windows(
                 self.cfg,
                 script,
                 timeout=timeout,
@@ -103,7 +108,7 @@ class FreerdpTransport(Transport):
         description: str = "winpodx-stream",
     ) -> ExecResult:
         try:
-            result = run_in_windows(
+            result = windows_exec.run_in_windows(
                 self.cfg,
                 script,
                 timeout=timeout,
