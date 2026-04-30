@@ -32,7 +32,7 @@ def test_pod_status_reports_paused(monkeypatch):
     fake_backend.is_running.return_value = True
     fake_backend.is_paused.return_value = True
 
-    with patch("winpodx.core.pod.get_backend", return_value=fake_backend):
+    with patch("winpodx.core.pod.backend.get_backend", return_value=fake_backend):
         s = pod_status(cfg)
 
     assert s.state == PodState.PAUSED
@@ -47,8 +47,8 @@ def test_pod_status_falls_through_when_not_paused(monkeypatch):
     fake_backend.is_paused.return_value = False
 
     with (
-        patch("winpodx.core.pod.get_backend", return_value=fake_backend),
-        patch("winpodx.core.pod.check_rdp_port", return_value=True),
+        patch("winpodx.core.pod.backend.get_backend", return_value=fake_backend),
+        patch("winpodx.core.pod.backend.check_rdp_port", return_value=True),
     ):
         s = pod_status(cfg)
 

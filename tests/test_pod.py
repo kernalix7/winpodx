@@ -23,24 +23,24 @@ def _cfg(backend: str = "podman") -> Config:
 
 
 def test_recover_rdp_no_op_when_rdp_already_alive(monkeypatch):
-    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *a, **k: True)
+    monkeypatch.setattr("winpodx.core.pod.health.check_rdp_port", lambda *a, **k: True)
     fake_run = MagicMock()
-    monkeypatch.setattr("winpodx.core.pod.subprocess.run", fake_run)
+    monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", fake_run)
     assert recover_rdp_if_needed(_cfg()) is True
     fake_run.assert_not_called()
 
 
 def test_recover_rdp_returns_false_when_vnc_also_dead(monkeypatch):
-    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *a, **k: False)
+    monkeypatch.setattr("winpodx.core.pod.health.check_rdp_port", lambda *a, **k: False)
     fake_run = MagicMock()
-    monkeypatch.setattr("winpodx.core.pod.subprocess.run", fake_run)
+    monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", fake_run)
     assert recover_rdp_if_needed(_cfg()) is False
     fake_run.assert_not_called()
 
 
 def test_recover_rdp_skips_libvirt_backend(monkeypatch):
     fake_run = MagicMock()
-    monkeypatch.setattr("winpodx.core.pod.subprocess.run", fake_run)
+    monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", fake_run)
     # Returns True for libvirt/manual so callers don't block.
     assert recover_rdp_if_needed(_cfg(backend="libvirt")) is True
     assert recover_rdp_if_needed(_cfg(backend="manual")) is True
@@ -55,9 +55,9 @@ def test_recover_rdp_rejects_bad_container_name(monkeypatch):
     def probe(ip, port, timeout=5.0):
         return port == cfg.pod.vnc_port
 
-    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", probe)
+    monkeypatch.setattr("winpodx.core.pod.health.check_rdp_port", probe)
     fake_run = MagicMock()
-    monkeypatch.setattr("winpodx.core.pod.subprocess.run", fake_run)
+    monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", fake_run)
     assert recover_rdp_if_needed(cfg) is False
     fake_run.assert_not_called()
 
@@ -84,10 +84,10 @@ def _make_probe(rdp_results: list[bool], vnc_alive: bool = True):
 def test_recover_rdp_fires_termservice_when_vnc_alive(monkeypatch):
     cfg = _cfg()
     monkeypatch.setattr(
-        "winpodx.core.pod.check_rdp_port",
+        "winpodx.core.pod.health.check_rdp_port",
         _make_probe([False, True]),  # initial probe fails, post-recovery succeeds
     )
-    monkeypatch.setattr("winpodx.core.pod.time.sleep", lambda _x: None)
+    monkeypatch.setattr("winpodx.core.pod.health.time.sleep", lambda _x: None)
 
     captured_cmds = []
 
@@ -95,7 +95,7 @@ def test_recover_rdp_fires_termservice_when_vnc_alive(monkeypatch):
         captured_cmds.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr("winpodx.core.pod.subprocess.run", fake_run)
+    monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", fake_run)
 
     assert recover_rdp_if_needed(cfg) is True
     assert len(captured_cmds) == 1
@@ -111,13 +111,13 @@ def test_recover_rdp_fires_termservice_when_vnc_alive(monkeypatch):
 def test_recover_rdp_returns_false_after_max_attempts(monkeypatch):
     cfg = _cfg()
     monkeypatch.setattr(
-        "winpodx.core.pod.check_rdp_port",
+        "winpodx.core.pod.health.check_rdp_port",
         _make_probe([False, False, False, False]),  # always dead
     )
-    monkeypatch.setattr("winpodx.core.pod.time.sleep", lambda _x: None)
+    monkeypatch.setattr("winpodx.core.pod.health.time.sleep", lambda _x: None)
 
     monkeypatch.setattr(
-        "winpodx.core.pod.subprocess.run",
+        "winpodx.core.pod.health.subprocess.run",
         lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""),
     )
 
@@ -128,15 +128,15 @@ def test_recover_rdp_tolerates_subprocess_errors(monkeypatch):
     """A failed/timed-out exec must not raise; recovery returns False on the fallthrough."""
     cfg = _cfg()
     monkeypatch.setattr(
-        "winpodx.core.pod.check_rdp_port",
+        "winpodx.core.pod.health.check_rdp_port",
         _make_probe([False, False]),
     )
-    monkeypatch.setattr("winpodx.core.pod.time.sleep", lambda _x: None)
+    monkeypatch.setattr("winpodx.core.pod.health.time.sleep", lambda _x: None)
 
     def boom(cmd, **kw):
         raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
 
-    monkeypatch.setattr("winpodx.core.pod.subprocess.run", boom)
+    monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", boom)
     assert recover_rdp_if_needed(cfg, max_attempts=1) is False
 
 
@@ -145,12 +145,12 @@ def test_recover_rdp_succeeds_even_when_exec_returns_nonzero(monkeypatch):
     Restart-Service call — accept rc!=0 as long as the post-recovery probe is alive."""
     cfg = _cfg()
     monkeypatch.setattr(
-        "winpodx.core.pod.check_rdp_port",
+        "winpodx.core.pod.health.check_rdp_port",
         _make_probe([False, True]),
     )
-    monkeypatch.setattr("winpodx.core.pod.time.sleep", lambda _x: None)
+    monkeypatch.setattr("winpodx.core.pod.health.time.sleep", lambda _x: None)
     monkeypatch.setattr(
-        "winpodx.core.pod.subprocess.run",
+        "winpodx.core.pod.health.subprocess.run",
         lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "service stuck"),
     )
     assert recover_rdp_if_needed(cfg) is True
