@@ -59,9 +59,7 @@ class FreerdpTransport(Transport):
         # Transient state (RDP port closed during boot, etc) — return
         # available=False instead of raising so dispatch() stays simple.
         try:
-            up = check_rdp_port(
-                self.cfg.rdp.ip, self.cfg.rdp.port, timeout=_HEALTH_PROBE_TIMEOUT
-            )
+            up = check_rdp_port(self.cfg.rdp.ip, self.cfg.rdp.port, timeout=_HEALTH_PROBE_TIMEOUT)
         except Exception as e:  # noqa: BLE001 — health() must never raise on transient state
             return HealthStatus(
                 available=False,
