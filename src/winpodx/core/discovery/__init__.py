@@ -218,8 +218,12 @@ def _ps_script_path() -> Path:
     the same search order as ``winpodx.core.app.bundled_apps_dir`` so
     behaviour is consistent across install modes.
     """
+    # __file__ is at <root>/src/winpodx/core/discovery/__init__.py — five
+    # `.parent` hops reach <root>, where `scripts/windows/` lives. The previous
+    # four-hop version landed at <root>/src/, producing "<root>/src/scripts/..."
+    # which never exists in any layout (repo, wheel, or .local/bin install).
     candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent
+        Path(__file__).resolve().parent.parent.parent.parent.parent
         / "scripts"
         / "windows"
         / "discover_apps.ps1",

@@ -94,7 +94,12 @@ class _DiscoveryWorker(QObject):
             cfg = Config.load()
             apps = discovery_mod.discover_apps(cfg)
         except Exception as exc:  # noqa: BLE001 — worker surfaces all errors to UI
-            kind = "pod_not_running" if _looks_like_pod_down(exc) else "unexpected"
+            # Prefer the explicit DiscoveryError.kind when the core layer set
+            # one — string matching misclassifies (e.g. "winpodx-app" path in
+            # a script_missing message contains the substring "pod").
+            kind = getattr(exc, "kind", None)
+            if not kind:
+                kind = "pod_not_running" if _looks_like_pod_down(exc) else "unexpected"
             self.failed.emit(kind, str(exc))
             self.finished.emit()
             return

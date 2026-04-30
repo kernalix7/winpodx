@@ -40,7 +40,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$script:AgentVersion = '0.2.2-rev2'
+$script:AgentVersion = '0.2.2-rev3'
 $script:StartedAt    = (Get-Date).ToUniversalTime().ToString('o')
 $script:OemDir       = 'C:\OEM'
 $script:TokenPath    = 'C:\OEM\agent_token.txt'
@@ -178,7 +178,13 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
             try { [void]$proc.WaitForExit(2000) } catch { }
             $rc = 124
         } else {
-            $rc = $proc.ExitCode
+            # Start-Process -PassThru can leave ExitCode as $null even after
+            # WaitForExit() returns true (Windows quirk: handle isn't kept open
+            # for fast-exiting children unless the StartInfo enables it). The
+            # process did terminate cleanly, so treat null as 0 — and never
+            # emit a non-int rc, since the host AgentClient parses it as int.
+            $exitCode = $proc.ExitCode
+            if ($null -eq $exitCode) { $rc = 0 } else { $rc = [int]$exitCode }
         }
         $stdoutText = ''
         $stderrText = ''

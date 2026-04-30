@@ -232,14 +232,25 @@ class AgentClient:
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             raise AgentError(f"/exec returned non-JSON body: {e}") from e
 
-        try:
-            return ExecResult(
-                rc=int(payload["rc"]),
-                stdout=str(payload.get("stdout", "")),
-                stderr=str(payload.get("stderr", "")),
-            )
-        except (KeyError, TypeError, ValueError) as e:
-            raise AgentError(f"/exec response missing required fields: {e}") from e
+        # PowerShell's Start-Process -PassThru / WaitForExit can leave
+        # $proc.ExitCode null even after a clean exit (kernalix7 hit this on
+        # 2026-04-30). The agent has been patched to coerce that to 0, but
+        # older agents already baked into existing pods still emit rc=null —
+        # treat it as success rather than failing the whole apply, since
+        # WaitForExit returning true means the process did terminate.
+        rc_raw = payload.get("rc")
+        if rc_raw is None:
+            rc = 0
+        else:
+            try:
+                rc = int(rc_raw)
+            except (TypeError, ValueError) as e:
+                raise AgentError(f"/exec response has non-integer rc: {rc_raw!r}") from e
+        return ExecResult(
+            rc=rc,
+            stdout=str(payload.get("stdout", "")),
+            stderr=str(payload.get("stderr", "")),
+        )
 
 
 def run_via_agent_or_freerdp(
