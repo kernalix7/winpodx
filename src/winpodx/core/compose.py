@@ -31,6 +31,7 @@ services:
       REGION: "en-001"
       KEYBOARD: "en-US"
       ARGUMENTS: "-cpu host,arch_capabilities=off"
+      USER_PORTS: "8765"
     volumes:
       - winpodx-data:/storage:Z
       - {oem_dir}:/oem:Z
@@ -38,6 +39,7 @@ services:
       - "127.0.0.1:{rdp_port}:3389/tcp"
       - "127.0.0.1:{rdp_port}:3389/udp"
       - "127.0.0.1:{vnc_port}:8006"
+      - "127.0.0.1:8765:8765/tcp"
     devices:
       - /dev/kvm
       - /dev/net/tun

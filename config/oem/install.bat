@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=8
+set WINPODX_OEM_VERSION=9
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -246,6 +246,24 @@ goto :rdprrap_done
 :rdprrap_skip
 echo [winpodx] rdprrap_version.txt not found or incomplete; staying single-session.
 :rdprrap_done
+
+REM ---------------------------------------------------------------------
+REM v0.2.2-rev1: winpodx guest HTTP agent
+REM ---------------------------------------------------------------------
+echo [winpodx] Installing winpodx guest agent...
+copy /Y "%~dp0agent\agent.ps1" "C:\OEM\agent.ps1" 2>nul
+mkdir C:\OEM\agent-runs 2>nul
+
+REM Register agent at user logon. HKCU\Run mirrors the existing WinpodxMedia
+REM entry above — fires for whichever account dockur autologons. We do NOT
+REM use schtasks /SC ONLOGON /RU User /RL HIGHEST: the principal name is
+REM not always cfg.rdp.user and /RL HIGHEST races dockur's autologon UAC.
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxAgent /t REG_SZ /d "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1" /f >nul 2>&1
+
+REM Token is delivered via the OEM bind mount — no \\tsclient\home copy
+REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
+REM creation; dockur lays the OEM directory contents into C:\OEM\.
+echo [winpodx] Guest agent installed.
 
 REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stage.
 (echo done)>C:\winpodx\setup_done.txt
