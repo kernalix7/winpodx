@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from winpodx.core.provisioner import ProvisionError
@@ -27,108 +25,7 @@ def test_ensure_config_creates_default(tmp_path, monkeypatch):
     assert (tmp_path / "winpodx" / "winpodx.toml").exists()
 
 
-# C3: password rotation rollback failure handling
-
-
-@pytest.fixture()
-def _rotation_cfg(tmp_path, monkeypatch):
-    """Config set up to trigger _auto_rotate_password work."""
-    from datetime import datetime, timedelta, timezone
-
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-
-    from winpodx.core.config import Config
-
-    cfg = Config()
-    cfg.rdp.user = "User"
-    cfg.rdp.password = "old-password"
-    cfg.rdp.password_max_age = 1  # day
-    cfg.rdp.password_updated = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-    cfg.pod.backend = "podman"
-    cfg.save()
-    return cfg
-
-
-def test_rotation_rollback_success_reverts_password(_rotation_cfg, monkeypatch):
-    # When config.save fails but Windows rollback succeeds, config keeps the old password.
-    from winpodx.core import provisioner
-    from winpodx.core.pod import PodState, PodStatus
-
-    monkeypatch.setattr(
-        "winpodx.core.provisioner.pod_status",
-        lambda cfg: PodStatus(state=PodState.RUNNING),
-    )
-    monkeypatch.setattr(provisioner, "_change_windows_password", lambda cfg, pw: True)
-
-    with patch.object(_rotation_cfg, "save", side_effect=OSError("disk full")):
-        result = provisioner._auto_rotate_password(_rotation_cfg)
-
-    assert result.rdp.password == "old-password"
-    assert not provisioner._rotation_marker_path().exists()
-
-
-def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
-    # Config save and Windows rollback both fail: must log error and write .rotation_pending marker.
-    from winpodx.core import provisioner
-    from winpodx.core.pod import PodState, PodStatus
-
-    monkeypatch.setattr(
-        "winpodx.core.provisioner.pod_status",
-        lambda cfg: PodStatus(state=PodState.RUNNING),
-    )
-
-    calls: list[str] = []
-
-    def fake_change(cfg, pw):
-        calls.append(pw)
-        return len(calls) == 1
-
-    monkeypatch.setattr(provisioner, "_change_windows_password", fake_change)
-
-    with patch.object(_rotation_cfg, "save", side_effect=OSError("disk full")):
-        provisioner._auto_rotate_password(_rotation_cfg)
-
-    assert len(calls) == 2
-    marker = provisioner._rotation_marker_path()
-    assert marker.exists()
-    assert marker.stat().st_mode & 0o777 == 0o600
-
-
-def test_check_rotation_pending_warns(tmp_path, monkeypatch, caplog):
-    import logging
-
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    from winpodx.core import provisioner
-
-    marker = provisioner._rotation_marker_path()
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("pending\n")
-
-    with caplog.at_level(logging.ERROR, logger="winpodx.core.provisioner"):
-        provisioner._check_rotation_pending()
-
-    assert any("Pending password rotation" in r.message for r in caplog.records)
-
-
-def test_rotation_marker_cleared_on_success(_rotation_cfg, monkeypatch):
-    # A successful rotation must clear any previously-written marker.
-    from winpodx.core import provisioner
-    from winpodx.core.pod import PodState, PodStatus
-
-    marker = provisioner._rotation_marker_path()
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("pending\n")
-
-    monkeypatch.setattr(
-        "winpodx.core.provisioner.pod_status",
-        lambda cfg: PodStatus(state=PodState.RUNNING),
-    )
-    monkeypatch.setattr(provisioner, "_change_windows_password", lambda cfg, pw: True)
-
-    provisioner._auto_rotate_password(_rotation_cfg)
-
-    assert not marker.exists()
-
+# Rotation tests moved to tests/test_rotation/test_rotation.py (Sprint 1 Step 2).
 
 # --- v0.1.9.4: runtime applies via FreeRDP RemoteApp (windows_exec.run_in_windows) ---
 #
@@ -190,7 +87,6 @@ def test_apply_max_sessions_runs_via_windows_exec(monkeypatch):
 
 def test_apply_max_sessions_raises_on_nonzero_rc(monkeypatch):
     """v0.1.9.4: helpers no longer silently swallow non-zero rc."""
-    import pytest
 
     from winpodx.core import provisioner
     from winpodx.core.config import Config
@@ -202,7 +98,6 @@ def test_apply_max_sessions_raises_on_nonzero_rc(monkeypatch):
 
 
 def test_apply_max_sessions_propagates_channel_error(monkeypatch):
-    import pytest
 
     from winpodx.core import provisioner
     from winpodx.core.config import Config
@@ -279,8 +174,14 @@ def test_apply_oem_runtime_fixes_payload_contains_nic_and_termservice(monkeypatc
     assert "restart/5000/restart/5000/restart/5000" in payload
 
 
-def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch):
-    """v0.1.9.2: existing healthy pods must still get runtime fixes applied."""
+def test_ensure_ready_does_not_auto_apply_runtime_fixes(monkeypatch):
+    """v0.2.2 (post-rollback Sprint 3): ensure_ready no longer auto-fires
+    the 4 apply functions. install.bat applied them at first boot;
+    upgrades use the explicit ``winpodx pod apply-fixes`` path.
+
+    Regression: if anyone re-introduces the auto-apply, the next user app
+    launch fires 4 FreeRDP RemoteApp PowerShell windows in sequence — the
+    "PS창 깜빡깜빡" symptom kernalix7 reported on 2026-04-30."""
     from winpodx.core import provisioner
     from winpodx.core.config import Config
     from winpodx.core.pod import PodState, PodStatus
@@ -292,7 +193,6 @@ def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch)
     monkeypatch.setattr(provisioner, "_auto_rotate_password", lambda c: c)
     monkeypatch.setattr(provisioner, "_ensure_config", lambda: cfg)
     monkeypatch.setattr(provisioner, "pod_status", lambda c: PodStatus(state=PodState.RUNNING))
-    # RDP alive -> must trigger early return AFTER runtime apply.
     monkeypatch.setattr(provisioner, "check_rdp_port", lambda *a, **k: True)
 
     calls = {"max_sessions": 0, "rdp_timeouts": 0, "oem_runtime_fixes": 0, "multi_session": 0}
@@ -307,19 +207,16 @@ def test_ensure_ready_runs_apply_before_early_return_when_rdp_alive(monkeypatch)
     monkeypatch.setattr(provisioner, "_apply_rdp_timeouts", make_recorder("rdp_timeouts"))
     monkeypatch.setattr(provisioner, "_apply_oem_runtime_fixes", make_recorder("oem_runtime_fixes"))
     monkeypatch.setattr(provisioner, "_apply_multi_session", make_recorder("multi_session"))
-    # Force the stamp short-circuit to be a no-op so the actual applies fire.
-    monkeypatch.setattr(provisioner, "_self_heal_already_done", lambda c: False)
-    monkeypatch.setattr(provisioner, "_record_self_heal_done", lambda c: None)
 
     result = provisioner.ensure_ready(cfg, timeout=1)
     assert result is cfg
-    # All four idempotent applies fired exactly once even though the
-    # function early-returned at the RDP-port check.
+    # ZERO calls — install.bat did the work. apply_windows_runtime_fixes
+    # (manual / GUI button) is the explicit retry path.
     assert calls == {
-        "max_sessions": 1,
-        "rdp_timeouts": 1,
-        "oem_runtime_fixes": 1,
-        "multi_session": 1,
+        "max_sessions": 0,
+        "rdp_timeouts": 0,
+        "oem_runtime_fixes": 0,
+        "multi_session": 0,
     }
 
 
@@ -411,12 +308,14 @@ def test_apply_windows_runtime_fixes_records_individual_failures(monkeypatch):
 
 
 class TestWaitForWindowsResponsiveRetries:
-    """v0.2.0.6: probe must retry until deadline, not bail on first failure.
+    """v0.2.2 (post-rollback Sprint 4): readiness probe is HTTP /health, NOT
+    FreeRDP RemoteApp ping. The FreeRDP probe was the source of the
+    "PowerShell 창 폭주" symptom kernalix7 reported on 2026-04-30 — every
+    3-second tick fired one PS-window flash for the entire timeout.
 
-    Reproduces the v0.2.0.5 bug where _wait_ready phase 3 returned FAIL at
-    elapsed=00:00 because wait_for_windows_responsive ran exactly one
-    FreeRDP probe and returned False on the first WindowsExecError.
-    """
+    The HTTP path is invisible (loopback, no UI) and the agent.ps1 listener
+    only binds AFTER install.bat finishes, making /health an unambiguous
+    "Windows is ready" signal."""
 
     def _cfg(self):
         from winpodx.core.config import Config
@@ -428,11 +327,12 @@ class TestWaitForWindowsResponsiveRetries:
         cfg.rdp.password = "abc123"
         return cfg
 
-    def test_returns_true_when_probe_eventually_succeeds(self, monkeypatch):
-        """First N probes raise WindowsExecError; eventually one returns rc=0
-        and the helper must return True instead of bailing on probe #1."""
+    def test_returns_true_when_health_eventually_responds(self, monkeypatch):
+        """First N /health probes return unavailable; eventually one
+        responds available and the helper must return True instead of
+        bailing on probe #1."""
         from winpodx.core.provisioner import wait_for_windows_responsive
-        from winpodx.core.windows_exec import WindowsExecError, WindowsExecResult
+        from winpodx.core.transport.base import HealthStatus
 
         cfg = self._cfg()
         monkeypatch.setattr(
@@ -444,29 +344,29 @@ class TestWaitForWindowsResponsiveRetries:
 
         attempts: list[int] = []
 
-        def fake_run(cfg_inner, payload, *, description, timeout):
+        def fake_health(self):
             attempts.append(len(attempts))
             if len(attempts) < 4:
-                raise WindowsExecError("FreeRDP rc=147 connection reset by peer")
-            return WindowsExecResult(rc=0, stdout="ping\n", stderr="")
+                return HealthStatus(available=False, detail="agent still booting")
+            return HealthStatus(available=True, version="0.2.2-rev1")
 
-        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
+        monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport.health", fake_health)
         assert wait_for_windows_responsive(cfg, timeout=60) is True
-        assert len(attempts) >= 4, "must keep probing past first failure"
+        assert len(attempts) >= 4, "must keep polling past first unavailable"
 
     def test_returns_false_only_after_deadline(self, monkeypatch):
-        """If every probe fails for the full timeout, helper must take roughly
-        `timeout` seconds — not return False after the first attempt."""
-
+        """If /health never responds for the full timeout, helper must
+        take roughly ``timeout`` seconds — not return False after the
+        first attempt."""
         from winpodx.core.provisioner import wait_for_windows_responsive
-        from winpodx.core.windows_exec import WindowsExecError
+        from winpodx.core.transport.base import HealthStatus
 
         cfg = self._cfg()
         monkeypatch.setattr(
             "winpodx.core.provisioner.check_rdp_port",
             lambda ip, port, timeout=1.0: True,
         )
-        # Use a virtual clock so we don't really wait.
+        # Virtual clock so the test doesn't actually wait.
         clock = {"t": 0.0}
         monkeypatch.setattr("winpodx.core.provisioner.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
@@ -476,146 +376,14 @@ class TestWaitForWindowsResponsiveRetries:
 
         attempts: list[int] = []
 
-        def fake_run(cfg_inner, payload, *, description, timeout):
-            attempts.append(timeout)
-            # Each probe consumes ~5s of virtual time.
-            clock["t"] += 5
-            raise WindowsExecError("FreeRDP rc=147 connection reset")
+        def fake_health(self):
+            attempts.append(0)
+            # Each probe consumes ~2s of virtual time (HEALTH_TIMEOUT budget).
+            clock["t"] += 2
+            return HealthStatus(available=False, detail="connection refused")
 
-        monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake_run)
+        monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport.health", fake_health)
 
         result = wait_for_windows_responsive(cfg, timeout=30)
         assert result is False
         assert len(attempts) >= 2, "must retry rather than bail on first failure"
-
-
-# --- v0.2.0.8: self-heal stamp prevents PS flash on every launch ---
-
-
-class TestSelfHealStamp:
-    """v0.2.0.8: _self_heal_apply must short-circuit when a stamp records the
-    same (winpodx version, container StartedAt) tuple already succeeded."""
-
-    def _cfg(self):
-        from winpodx.core.config import Config
-
-        cfg = Config()
-        cfg.pod.backend = "podman"
-        cfg.pod.container_name = "winpodx-windows"
-        return cfg
-
-    def test_skips_apply_when_stamp_matches(self, tmp_path, monkeypatch):
-        from winpodx import __version__
-        from winpodx.core.provisioner import _self_heal_apply
-
-        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._container_started_at", lambda cfg: "2026-04-27T10:00Z"
-        )
-        (tmp_path / ".applies_stamp").write_text(
-            f"{__version__}:2026-04-27T10:00Z\n", encoding="utf-8"
-        )
-
-        called: list[str] = []
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._apply_max_sessions",
-            lambda cfg: called.append("max"),
-        )
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._apply_rdp_timeouts",
-            lambda cfg: called.append("rdp"),
-        )
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._apply_oem_runtime_fixes",
-            lambda cfg: called.append("oem"),
-        )
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._apply_multi_session",
-            lambda cfg: called.append("multi"),
-        )
-
-        _self_heal_apply(self._cfg())
-        assert called == [], "stamp must short-circuit all four applies"
-
-    def test_runs_apply_when_stamp_missing(self, tmp_path, monkeypatch):
-        from winpodx.core.provisioner import _self_heal_apply
-
-        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._container_started_at", lambda cfg: "2026-04-27T10:00Z"
-        )
-
-        called: list[str] = []
-        for fn_name, marker in (
-            ("_apply_max_sessions", "max"),
-            ("_apply_rdp_timeouts", "rdp"),
-            ("_apply_oem_runtime_fixes", "oem"),
-            ("_apply_multi_session", "multi"),
-        ):
-
-            def make(m):
-                def _stub(cfg, _m=m):
-                    called.append(_m)
-
-                return _stub
-
-            monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", make(marker))
-
-        _self_heal_apply(self._cfg())
-        assert called == ["max", "rdp", "oem", "multi"]
-
-    def test_runs_apply_when_pod_restarted(self, tmp_path, monkeypatch):
-        """Stamp is from a previous container start; current StartedAt differs
-        → must re-run apply (TermService settings need to relaunch on
-        every Windows reboot)."""
-        from winpodx import __version__
-        from winpodx.core.provisioner import _self_heal_apply
-
-        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._container_started_at",
-            lambda cfg: "2026-04-27T11:00Z",  # different time
-        )
-        (tmp_path / ".applies_stamp").write_text(
-            f"{__version__}:2026-04-27T10:00Z\n", encoding="utf-8"
-        )
-
-        called: list[str] = []
-        for fn_name, marker in (
-            ("_apply_max_sessions", "max"),
-            ("_apply_rdp_timeouts", "rdp"),
-            ("_apply_oem_runtime_fixes", "oem"),
-            ("_apply_multi_session", "multi"),
-        ):
-
-            def make(m):
-                def _stub(cfg, _m=m):
-                    called.append(_m)
-
-                return _stub
-
-            monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", make(marker))
-
-        _self_heal_apply(self._cfg())
-        assert called == ["max", "rdp", "oem", "multi"], "pod restart must invalidate stamp"
-
-    def test_stamp_written_after_three_successes(self, tmp_path, monkeypatch):
-        from winpodx import __version__
-        from winpodx.core.provisioner import _self_heal_apply
-
-        monkeypatch.setattr("winpodx.core.provisioner.config_dir", lambda: tmp_path)
-        monkeypatch.setattr(
-            "winpodx.core.provisioner._container_started_at",
-            lambda cfg: "2026-04-27T12:00Z",
-        )
-        for fn_name in (
-            "_apply_max_sessions",
-            "_apply_rdp_timeouts",
-            "_apply_oem_runtime_fixes",
-            "_apply_multi_session",
-        ):
-            monkeypatch.setattr(f"winpodx.core.provisioner.{fn_name}", lambda cfg: None)
-
-        _self_heal_apply(self._cfg())
-        stamp = (tmp_path / ".applies_stamp").read_text(encoding="utf-8").strip()
-        assert stamp == f"{__version__}:2026-04-27T12:00Z"

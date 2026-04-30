@@ -160,6 +160,15 @@ def cli(argv: list[str] | None = None) -> None:
     sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")
     sub.add_parser("tray", help="Launch system tray icon")
     sub.add_parser("info", help="Show system information")
+    check_p = sub.add_parser(
+        "check",
+        help="Run all health probes (pod, RDP, agent, password age, disk, …)",
+    )
+    check_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of the human-readable report",
+    )
     sub.add_parser("cleanup", help="Remove Office lock files")
     sub.add_parser("timesync", help="Force Windows time sync")
     sub.add_parser("debloat", help="Run Windows debloat script")
@@ -234,6 +243,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         run_tray()
     elif cmd == "info":
         _cmd_info()
+    elif cmd == "check":
+        sys.exit(_cmd_check(args))
     elif cmd == "cleanup":
         _cmd_cleanup()
     elif cmd == "timesync":
@@ -315,6 +326,54 @@ def _cmd_info() -> None:
     if warning:
         print()
         print(f"WARNING: {warning}", file=sys.stderr)
+
+
+_CHECK_GLYPHS: dict[str, str] = {
+    "ok": "OK  ",
+    "warn": "WARN",
+    "fail": "FAIL",
+    "skip": "SKIP",
+}
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    """Run every health probe and print a report.
+
+    Exit code: 0 if no probe is ``fail``; 1 otherwise. ``warn`` is
+    informational and does not change the exit code (so a CI smoke can
+    still pass with a low-disk warning).
+    """
+    from winpodx.core import checks
+    from winpodx.core.config import Config
+
+    cfg = Config.load()
+    probes = checks.run_all(cfg)
+
+    if getattr(args, "json", False):
+        import json
+
+        out = {
+            "overall": checks.overall(probes),
+            "probes": [
+                {
+                    "name": p.name,
+                    "status": p.status,
+                    "detail": p.detail,
+                    "duration_ms": p.duration_ms,
+                }
+                for p in probes
+            ],
+        }
+        print(json.dumps(out, indent=2))
+    else:
+        print("=== winpodx check ===\n")
+        for p in probes:
+            glyph = _CHECK_GLYPHS.get(p.status, p.status.upper())
+            print(f"  [{glyph}] {p.name:<18} {p.detail}  ({p.duration_ms}ms)")
+        print()
+        print(f"Overall: {checks.overall(probes).upper()}")
+
+    return 0 if all(p.status != "fail" for p in probes) else 1
 
 
 def _cmd_cleanup() -> None:
@@ -470,7 +529,18 @@ def _maybe_resume_pending(argv: list[str] | None) -> None:
     args = argv if argv is not None else sys.argv[1:]
     if not args:
         return
-    skip_first = args[0].lstrip("-") in {"version", "help", "uninstall", "config", "info"}
+    # gui / tray have their own threaded resume in `_maybe_run_first_launch_checks`
+    # — running it synchronously here would block the launcher for up to 5 min
+    # while the user stares at no window. Skip-list them.
+    skip_first = args[0].lstrip("-") in {
+        "version",
+        "help",
+        "uninstall",
+        "config",
+        "info",
+        "gui",
+        "tray",
+    }
     if skip_first:
         return
     try:

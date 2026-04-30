@@ -321,6 +321,75 @@ class TestYamlEscape:
                 break
 
 
+class TestAgentTokenStaging:
+    """Phase 1 agent: setup must stage the OEM token with mode 0600."""
+
+    def test_setup_stages_oem_token_0600(self, tmp_path, monkeypatch):
+        import argparse
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+        from winpodx.cli.setup_cmd import handle_setup
+        from winpodx.core.config import Config
+        from winpodx.utils.deps import DepCheck
+
+        cfg = Config()
+        cfg.save()
+
+        oem_dir = tmp_path / "oem"
+        oem_dir.mkdir()
+        monkeypatch.setattr("winpodx.cli.setup_cmd._find_oem_dir", lambda: str(oem_dir))
+        monkeypatch.setattr(
+            "winpodx.cli.setup_cmd.check_all",
+            lambda: {"freerdp": DepCheck(name="freerdp", found=True, note="stub")},
+        )
+
+        args = argparse.Namespace(backend=None, non_interactive=True)
+        handle_setup(args)
+
+        staged = oem_dir / "agent_token.txt"
+        assert staged.exists()
+        assert (staged.stat().st_mode & 0o777) == 0o600
+
+
+class TestAgentPortMapping:
+    """Phase 1 agent: both forwarding-chain legs must be present in compose."""
+
+    def test_compose_includes_user_ports_env(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert 'USER_PORTS: "8765"' in compose
+
+    def test_compose_includes_host_port_mapping(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert "127.0.0.1:8765:8765/tcp" in compose
+
+    def test_compose_port_mapping_loopback_only(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        assert "0.0.0.0:8765" not in compose
+        assert ":8765:8765" not in compose.replace("127.0.0.1:8765:8765", "")
+
+
 # --- Password filter ---
 
 

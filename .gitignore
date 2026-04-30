@@ -23,3 +23,7 @@ WORK_STATUS.md
 
 # Backup toolkit (generic, not project-specific)
 tmp-igbkp/
+
+# Per-install agent bearer token staged into the OEM bind mount.
+# Never commit — carries a per-install secret.
+config/oem/agent_token.txt

@@ -46,7 +46,11 @@ def _read_text_file(path: Path, *, max_bytes: int = 4096) -> str | None:
 def _bundled_oem_version() -> str:
     """Read the OEM bundle version marker shipped with this winpodx install.
 
-    Searches the same locations as `compose._find_oem_dir`.
+    Two layers, in order:
+      1. ``config/oem/oem_version.txt`` (host-side stamp; not always written)
+      2. Parse ``set WINPODX_OEM_VERSION=N`` from ``config/oem/install.bat``.
+         This is the source of truth — the .txt file is only emitted by the
+         guest install at OEM time, so it's missing on a fresh checkout.
     """
     candidates = [
         Path(__file__).parent.parent.parent.parent / "config" / "oem" / "oem_version.txt",
@@ -56,6 +60,24 @@ def _bundled_oem_version() -> str:
         text = _read_text_file(path, max_bytes=64)
         if text:
             return text
+
+    install_bat_candidates = [
+        Path(__file__).parent.parent.parent.parent / "config" / "oem" / "install.bat",
+        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem" / "install.bat",
+    ]
+    for path in install_bat_candidates:
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as fh:
+                # The version line lives in the first ~5 lines of install.bat;
+                # cap iteration so we never scan the whole file.
+                for _, line in zip(range(20), fh):
+                    stripped = line.strip()
+                    if stripped.lower().startswith("set winpodx_oem_version="):
+                        value = stripped.split("=", 1)[1].strip()
+                        if value:
+                            return value
+        except (FileNotFoundError, OSError):
+            continue
     return "(unknown)"
 
 

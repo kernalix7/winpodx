@@ -94,7 +94,12 @@ class _DiscoveryWorker(QObject):
             cfg = Config.load()
             apps = discovery_mod.discover_apps(cfg)
         except Exception as exc:  # noqa: BLE001 — worker surfaces all errors to UI
-            kind = "pod_not_running" if _looks_like_pod_down(exc) else "unexpected"
+            # Prefer the explicit DiscoveryError.kind when the core layer set
+            # one — string matching misclassifies (e.g. "winpodx-app" path in
+            # a script_missing message contains the substring "pod").
+            kind = getattr(exc, "kind", None)
+            if not kind:
+                kind = "pod_not_running" if _looks_like_pod_down(exc) else "unexpected"
             self.failed.emit(kind, str(exc))
             self.finished.emit()
             return
@@ -190,9 +195,31 @@ class _InfoWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
+            from winpodx.core import checks
             from winpodx.core.info import gather_info
 
-            self.done.emit(gather_info(self.cfg))
+            snapshot = gather_info(self.cfg)
+            # Tack the live health probes onto the snapshot so the Info page
+            # can render them in the same render cycle as everything else.
+            # Probes never raise (each is wrapped in _timed) so this stays
+            # safe even when the pod is down.
+            try:
+                probes = checks.run_all(self.cfg)
+                snapshot["health"] = [
+                    {
+                        "name": p.name,
+                        "status": p.status,
+                        "detail": p.detail,
+                        "duration_ms": p.duration_ms,
+                    }
+                    for p in probes
+                ]
+                snapshot["health_overall"] = checks.overall(probes)
+            except Exception:  # noqa: BLE001 — health is opt-in; never block info
+                log.debug("health probes failed during info refresh", exc_info=True)
+                snapshot["health"] = []
+                snapshot["health_overall"] = "fail"
+            self.done.emit(snapshot)
         except Exception as e:  # noqa: BLE001 — surface to UI via signal
             self.failed.emit(str(e))
 
@@ -1441,7 +1468,11 @@ class WinpodxWindow(QMainWindow):
         # returns, each card shows "Loading...".
         self._info_cards: dict[str, QFrame] = {}
         self._info_card_bodies: dict[str, QVBoxLayout] = {}
+        # Health goes first so the user lands on live state before the
+        # static system snapshot. Each probe renders as `[OK] detail` with
+        # a colored badge — matches the `winpodx check` CLI output.
         for key, label in [
+            ("health", "Health"),
             ("system", "System"),
             ("display", "Display"),
             ("dependencies", "Dependencies"),
@@ -1502,6 +1533,67 @@ class WinpodxWindow(QMainWindow):
         loading.setStyleSheet(f"color: {C.OVERLAY0};")
         body.addWidget(loading)
         return card
+
+    _HEALTH_BADGE_COLORS: dict[str, str] = {
+        "ok": "#a6e3a1",  # Catppuccin GREEN
+        "warn": "#f9e2af",  # YELLOW
+        "fail": "#f38ba8",  # RED
+        "skip": "#9399b2",  # SUBTEXT0
+    }
+
+    def _render_health_card(self, probes: list[dict], overall: str) -> None:
+        """Render a colored badge + detail row for each probe.
+
+        Each row reads `[STATUS] probe_name — detail (Nms)` with the badge
+        coloured by status. The overall verdict is shown as a header line so
+        the user gets the gist without reading every row.
+        """
+        body = self._info_card_bodies.get("health")
+        if body is None:
+            return
+        # Clear existing children.
+        while body.count():
+            item = body.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        if not probes:
+            empty = QLabel("No probes ran (health module unavailable).")
+            empty.setStyleSheet(f"color: {C.OVERLAY0};")
+            body.addWidget(empty)
+            return
+
+        overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
+        verdict = QLabel(f"Overall: {overall.upper() or 'UNKNOWN'}")
+        verdict.setStyleSheet(f"color: {overall_color}; font-size: 13px; font-weight: bold;")
+        body.addWidget(verdict)
+        body.addSpacing(4)
+
+        for p in probes:
+            status = p.get("status", "")
+            color = self._HEALTH_BADGE_COLORS.get(status, C.SUBTEXT0)
+            row = QHBoxLayout()
+            badge = QLabel(status.upper())
+            badge.setFixedWidth(48)
+            badge.setStyleSheet(
+                f"color: {color}; font-size: 11px; font-weight: bold; background: transparent;"
+            )
+            name = QLabel(p.get("name", ""))
+            name.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
+            name.setFixedWidth(140)
+            detail = QLabel(p.get("detail", ""))
+            detail.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 12px;")
+            detail.setWordWrap(True)
+            duration = QLabel(f"{int(p.get('duration_ms', 0))}ms")
+            duration.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
+            row.addWidget(badge, 0)
+            row.addWidget(name, 0)
+            row.addWidget(detail, 1)
+            row.addWidget(duration, 0)
+            holder = QWidget()
+            holder.setLayout(row)
+            body.addWidget(holder)
 
     def _set_info_card_rows(self, key: str, rows: list[tuple[str, str]]) -> None:
         """Replace the body of an info card with label/value rows."""
@@ -1565,6 +1657,7 @@ class WinpodxWindow(QMainWindow):
 
     def _apply_info_snapshot(self, info: dict) -> None:
         """Map gather_info output into per-card row pairs."""
+        self._render_health_card(info.get("health", []), info.get("health_overall", ""))
         sys_ = info.get("system", {})
         self._set_info_card_rows(
             "system",

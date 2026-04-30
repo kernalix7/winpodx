@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=8
+set WINPODX_OEM_VERSION=12
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -71,6 +71,15 @@ netsh advfirewall firewall delete rule name="RDP TCP" >nul 2>&1
 netsh advfirewall firewall delete rule name="RDP UDP" >nul 2>&1
 netsh advfirewall firewall add rule name="RDP TCP" dir=in action=allow protocol=tcp localport=3389 2>nul
 netsh advfirewall firewall add rule name="RDP UDP" dir=in action=allow protocol=udp localport=3389 2>nul
+
+REM Allow inbound on the winpodx agent port. QEMU's user-mode NAT forwards
+REM container:8765 -> Windows VM 10.0.2.15:8765, which Windows Firewall
+REM blocks by default — kernalix7 saw curl timeout from the host on
+REM 2026-04-30 even with agent.ps1 bound to 0.0.0.0:8765 because the SYN
+REM never made it past the firewall. RDP got auto-allowed via the
+REM "Remote Desktop" group rule above; 8765 needs an explicit rule.
+netsh advfirewall firewall delete rule name="winpodx-agent" >nul 2>&1
+netsh advfirewall firewall add rule name="winpodx-agent" dir=in action=allow protocol=tcp localport=8765 2>nul
 
 echo [winpodx] Optimizing for RDP...
 reg add "HKCU\Control Panel\Desktop" /v DragFullWindows /t REG_SZ /d 0 /f
@@ -246,6 +255,47 @@ goto :rdprrap_done
 :rdprrap_skip
 echo [winpodx] rdprrap_version.txt not found or incomplete; staying single-session.
 :rdprrap_done
+
+REM ---------------------------------------------------------------------
+REM v0.2.2-rev1: winpodx guest HTTP agent
+REM ---------------------------------------------------------------------
+echo [winpodx] Installing winpodx guest agent...
+copy /Y "%~dp0agent\agent.ps1" "C:\OEM\agent.ps1" 2>nul
+mkdir C:\OEM\agent-runs 2>nul
+
+REM Pre-register the URL ACL for agent.ps1's HttpListener prefix.
+REM
+REM agent.ps1 binds ``http://+:8765/`` (all interfaces inside the
+REM Windows VM) — NOT 127.0.0.1. dockur's user-mode QEMU NAT forwards
+REM from container:8765 to the VM's slirp interface (10.0.2.15:8765,
+REM NOT 127.0.0.1:8765); a 127.0.0.1-only listener would mean slirp's
+REM forwarded packets hit a closed port (kernalix7 saw "Connection
+REM reset by peer" on 2026-04-30 from exactly this). Binding to + is
+REM safe because the agent stays externally unreachable: compose's
+REM 127.0.0.1:8765:8765/tcp mapping is loopback on the host, and the
+REM QEMU slirp net is private to the container.
+REM
+REM HttpListener.Start() needs a urlacl entry to bind ``+``; without
+REM it the bind fails with "conflicts with an existing registration".
+REM listen=yes + user=Everyone gives the autologon User permission to
+REM listen on this prefix. Delete-then-add keeps it idempotent across
+REM reinstalls (clears any stale registration from a previous SDDL).
+REM Also clean up the old loopback-only ACL that pre-2026-04-30 builds
+REM may have left.
+netsh http delete urlacl url=http://127.0.0.1:8765/ >nul 2>&1
+netsh http delete urlacl url=http://+:8765/ >nul 2>&1
+netsh http add urlacl url=http://+:8765/ user=Everyone listen=yes >nul 2>&1
+
+REM Register agent at user logon. HKCU\Run mirrors the existing WinpodxMedia
+REM entry above — fires for whichever account dockur autologons. We do NOT
+REM use schtasks /SC ONLOGON /RU User /RL HIGHEST: the principal name is
+REM not always cfg.rdp.user and /RL HIGHEST races dockur's autologon UAC.
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxAgent /t REG_SZ /d "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1" /f >nul 2>&1
+
+REM Token is delivered via the OEM bind mount — no \\tsclient\home copy
+REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
+REM creation; dockur lays the OEM directory contents into C:\OEM\.
+echo [winpodx] Guest agent installed.
 
 REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stage.
 (echo done)>C:\winpodx\setup_done.txt
