@@ -1,23 +1,29 @@
-"""Phase 1 sanity checks for config/oem/agent/agent.ps1.
+"""Sanity checks for config/oem/agent/agent.ps1 (Phase 2).
 
 The .ps1 script runs inside Windows, so we cannot exercise it from CI.
-We instead pin the invariants the host code (and Phase 2) depends on:
+We instead pin the invariants the host code depends on:
 
 - pwsh AST parse (skipped when pwsh isn't on PATH; CI has it).
-- The literal markers Phase 1 promises to ship: HttpListener, Prefix,
-  /health, Wait-Token.
-- The bind prefix is loopback only (127.0.0.1, never 0.0.0.0 or `+`).
+- The literal markers Phase 1 + Phase 2 promise to ship: HttpListener,
+  Prefix, /health, Wait-Token (Phase 1) and Test-Auth, /exec, 401,
+  Bearer, base64 decoding (Phase 2).
+- The bind prefix is loopback only (127.0.0.1, never 0.0.0.0 / `+` / `*`).
   Anti-goal of v0.2.2.x design: a non-loopback bind would expose the
   agent on the QEMU NAT, breaking the threat model.
-- No bare `throw` in the Wait-Token / Read-Token paths. Anti-goal #6:
-  throwing on missing token kills the process and HKCU\\Run does not
-  respawn it.
+- /health stays no-auth (anti-goal: don't auth-protect the readiness
+  signal). The test asserts the dispatch shape: /health is matched
+  before any Test-Auth call.
+- The token is never logged or echoed back. The /exec script content
+  lands in agent.log only as a SHA256 hash, never the raw payload.
+- Wait-Token / Read-Token never raise. anti-goal #6: throwing kills
+  the process and HKCU\\Run does not respawn it.
 - Brace balance — guards against partial edits leaving the file
   half-parsed in the absence of pwsh on the dev box.
 """
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -32,6 +38,48 @@ AGENT_PS1 = REPO_ROOT / "config" / "oem" / "agent" / "agent.ps1"
 def agent_source() -> str:
     assert AGENT_PS1.is_file(), f"agent.ps1 missing at {AGENT_PS1}"
     return AGENT_PS1.read_text(encoding="utf-8")
+
+
+def _strip_comments(source: str) -> str:
+    """Strip `#` line comments only, preserving string literals.
+
+    Tests that need to see tokens which appear inside string literals
+    (e.g. `'/health'` in dispatch, `"hash=$x"` in log lines) use this.
+    """
+    return "\n".join(
+        (raw if (idx := raw.find("#")) == -1 else raw[:idx]) for raw in source.splitlines()
+    )
+
+
+def _strip_comments_and_strings(source: str) -> str:
+    """Coarse strip of `#` line comments AND quoted string literals.
+
+    Used by tests that scan for executable tokens (`throw`, function
+    calls, log-sink calls) where matches inside a string literal would
+    be a false positive. Not a full PowerShell tokenizer — but
+    agent.ps1 doesn't use here-strings or backtick-escaped quotes
+    inside strings, so this is sufficient.
+    """
+    cleaned: list[str] = []
+    for raw in source.splitlines():
+        idx = raw.find("#")
+        line = raw if idx == -1 else raw[:idx]
+        out_chars: list[str] = []
+        in_str: str | None = None
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if in_str is None:
+                if ch in ("'", '"'):
+                    in_str = ch
+                else:
+                    out_chars.append(ch)
+            else:
+                if ch == in_str:
+                    in_str = None
+            i += 1
+        cleaned.append("".join(out_chars))
+    return "\n".join(cleaned)
 
 
 def test_agent_ps1_exists():
@@ -63,38 +111,99 @@ def test_agent_ps1_pwsh_parse():
     )
 
 
-def test_agent_ps1_has_required_markers(agent_source: str):
+def test_agent_ps1_has_phase1_markers(agent_source: str):
     for marker in ("HttpListener", "Prefix", "/health", "Wait-Token"):
-        assert marker in agent_source, f"missing required marker: {marker!r}"
+        assert marker in agent_source, f"missing required Phase 1 marker: {marker!r}"
+
+
+def test_agent_ps1_has_phase2_markers(agent_source: str):
+    """Phase 2 surface area: auth + /exec must all be wired in."""
+    expected = (
+        "Test-Auth",
+        "/exec",
+        "Bearer",
+        "Compare-Constant",
+        "FromBase64String",
+        "401",
+        "unauthorized",
+    )
+    for marker in expected:
+        assert marker in agent_source, f"missing required Phase 2 marker: {marker!r}"
+
+
+def test_agent_ps1_sets_401_status_code(agent_source: str):
+    """The 401 path must actually pass 401 to Send-Json (which sets
+    StatusCode), not just embed the literal in a comment."""
+    assert re.search(r"Send-Json\s+\$resp\s+401\b", agent_source), (
+        "no Send-Json call with status code 401 found"
+    )
 
 
 def test_agent_ps1_binds_loopback_only(agent_source: str):
     """Prefix must be the literal http://127.0.0.1:8765/ — never 0.0.0.0 or +."""
     assert "http://127.0.0.1:8765/" in agent_source
-    # The two non-loopback shapes that `HttpListener.Prefixes.Add` accepts
-    # for "all interfaces" — both must be absent from the source.
+    # Three non-loopback shapes that HttpListener.Prefixes.Add accepts
+    # for "all interfaces" — all must be absent from the source.
     assert "0.0.0.0" not in agent_source
     assert "http://+:" not in agent_source
     assert "http://*:" not in agent_source
 
 
-def test_agent_ps1_no_throw_on_missing_token(agent_source: str):
-    """Wait-Token / Read-Token must never raise. anti-goal #6 in AGENT_V2_DESIGN.
+def test_agent_ps1_health_is_unauthenticated(agent_source: str):
+    """/health must be matched BEFORE the Test-Auth gate so it answers
+    even when no token has been delivered. Anti-goal: never auth-protect
+    the readiness signal.
 
-    A `throw` anywhere in the file at all is a smell in Phase 1 — the only
-    legitimate uses (auth failure, exec timeout) belong to later phases.
-    Phase 1 has no such paths, so any bare `throw` token is a regression.
+    Concretely, the `-eq '/health'` route check must precede the first
+    `Test-Auth $req` call site (not the function definition).
     """
-    # Strip line comments so a `throw` mentioned in a comment doesn't trip.
-    stripped_lines = []
-    for raw in agent_source.splitlines():
-        idx = raw.find("#")
-        stripped_lines.append(raw if idx == -1 else raw[:idx])
-    stripped = "\n".join(stripped_lines)
-    # Look for `throw` as a standalone token (PowerShell statement).
-    # Substring match is sufficient — we don't ship any identifier that
-    # contains the substring "throw".
-    assert "throw" not in stripped, "Phase 1 agent.ps1 must not contain `throw`"
+    # Comments stripped but string literals preserved — the '/health'
+    # path lives inside a single-quoted string in the dispatch, which
+    # _strip_comments_and_strings would erase.
+    body = _strip_comments(agent_source)
+    health_match = re.search(r"-eq\s+'/health'", body)
+    # Match a Test-Auth call (followed by `$req`), not the
+    # `function Test-Auth(` definition.
+    call_match = re.search(r"(?<!function )Test-Auth\s+\$req", body)
+    assert health_match is not None, "no /health route found"
+    assert call_match is not None, "no Test-Auth call site found"
+    assert health_match.start() < call_match.start(), (
+        "/health must be dispatched before the Test-Auth gate"
+    )
+
+
+def test_agent_ps1_no_throw_on_missing_token(agent_source: str):
+    """Wait-Token / Read-Token must never raise. anti-goal #6 in
+    AGENT_V2_DESIGN. Phase 2 still has no legitimate `throw` either —
+    auth failure / exec timeout return HTTP status codes, not throws.
+    """
+    stripped = _strip_comments_and_strings(agent_source)
+    # `throw` is not a substring of any identifier we ship.
+    assert "throw" not in stripped, "agent.ps1 must not contain `throw`"
+
+
+def test_agent_ps1_token_not_logged(agent_source: str):
+    """`$script:Token` must never appear inside Add-Content / Write-Log
+    arguments. The token is the bearer secret; logging it would defeat
+    the entire auth model. /exec script payload is logged only by
+    SHA256 hash."""
+    body = _strip_comments_and_strings(agent_source)
+    for line in body.splitlines():
+        if "$script:Token" not in line:
+            continue
+        for sink in ("Add-Content", "Write-Log", "Write-Output", "Write-Host"):
+            assert sink not in line, f"token leaked to log sink: {line!r}"
+
+
+def test_agent_ps1_exec_logs_hash_not_payload(agent_source: str):
+    """The /exec handler must compute Get-BytesHash on the decoded
+    script and log only that hash — never the raw decoded body."""
+    assert "Get-BytesHash" in agent_source, "missing Get-BytesHash helper"
+    # The hash reaches Write-Log via the $extraLog channel as a string
+    # interpolation `"hash=$($result.hash)"`. Comments stripped, but
+    # strings preserved so the interpolation is visible.
+    body = _strip_comments(agent_source)
+    assert "hash=" in body, "exec hash never reaches the log line"
 
 
 def test_agent_ps1_braces_balanced(agent_source: str):
@@ -105,28 +214,7 @@ def test_agent_ps1_braces_balanced(agent_source: str):
     check — the pwsh parse test is the authoritative gate when pwsh is on
     PATH — but it catches the obvious failures on dev boxes without pwsh.
     """
-    # Strip line comments and naive double-quoted strings; PowerShell here-
-    # strings are not used in this file.
-    cleaned: list[str] = []
-    for raw in agent_source.splitlines():
-        idx = raw.find("#")
-        line = raw if idx == -1 else raw[:idx]
-        out_chars: list[str] = []
-        in_str: str | None = None
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            if in_str is None:
-                if ch in ("'", '"'):
-                    in_str = ch
-                else:
-                    out_chars.append(ch)
-            else:
-                if ch == in_str:
-                    in_str = None
-            i += 1
-        cleaned.append("".join(out_chars))
-    body = "\n".join(cleaned)
+    body = _strip_comments_and_strings(agent_source)
     opens = body.count("{")
     closes = body.count("}")
     assert opens == closes, f"unbalanced braces: {opens} '{{' vs {closes} '}}'"

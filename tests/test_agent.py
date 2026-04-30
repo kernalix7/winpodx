@@ -1,7 +1,8 @@
-"""Tests for the host-side AgentClient (Phase 1: /health only)."""
+"""Tests for the host-side AgentClient (Phase 1: /health, Phase 2: /exec)."""
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import socket
@@ -12,7 +13,10 @@ import pytest
 from winpodx.core.agent import (
     AgentAuthError,
     AgentClient,
+    AgentError,
+    AgentTimeoutError,
     AgentUnavailableError,
+    ExecResult,
 )
 from winpodx.core.config import Config
 
@@ -182,6 +186,94 @@ class TestTokenLazyLoad:
         second = client._token()
 
         assert first == second == "deadbeef" * 8
+
+
+class TestExec:
+    @pytest.fixture
+    def authed_client(self, cfg: Config) -> AgentClient:
+        """Client with a pre-cached token so _token() never touches disk."""
+        return AgentClient(cfg, token="cafebabe" * 8)
+
+    def test_exec_happy_path(self, monkeypatch, authed_client):
+        body = json.dumps({"rc": 0, "stdout": "ok\n", "stderr": ""}).encode("utf-8")
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["method"] = req.get_method()
+            captured["timeout"] = timeout
+            captured["headers"] = dict(req.header_items())
+            captured["body"] = req.data
+            return _FakeResponse(body, status=200)
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        result = authed_client.exec("Write-Output ok", timeout=15)
+
+        assert isinstance(result, ExecResult)
+        assert result.rc == 0
+        assert result.stdout == "ok\n"
+        assert result.stderr == ""
+        assert result.ok is True
+        assert captured["url"] == "http://127.0.0.1:8765/exec"
+        assert captured["method"] == "POST"
+        assert captured["timeout"] == 14.0  # timeout - 1
+        # Authorization header present.
+        header_keys = {k.lower(): v for k, v in captured["headers"].items()}
+        assert header_keys["authorization"] == "Bearer " + "cafebabe" * 8
+        # Body is JSON with base64-encoded script.
+        sent = json.loads(captured["body"].decode("utf-8"))
+        assert sent["timeout_sec"] == 15
+        assert base64.b64decode(sent["script"]).decode("utf-8") == "Write-Output ok"
+
+    def test_exec_token_rejected(self, monkeypatch, authed_client):
+        def fake_urlopen(req, timeout=None):
+            raise urllib_error.HTTPError(
+                req.full_url, 401, "Unauthorized", hdrs=None, fp=io.BytesIO(b"")
+            )
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        with pytest.raises(AgentAuthError, match="401"):
+            authed_client.exec("Write-Output ok")
+
+    def test_exec_timeout(self, monkeypatch, authed_client):
+        def fake_urlopen(req, timeout=None):
+            raise socket.timeout("timed out")
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        with pytest.raises(AgentTimeoutError):
+            authed_client.exec("Start-Sleep 90", timeout=5)
+
+    def test_exec_connection_refused(self, monkeypatch, authed_client):
+        def fake_urlopen(req, timeout=None):
+            raise urllib_error.URLError(ConnectionRefusedError("connection refused"))
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        with pytest.raises(AgentUnavailableError, match="unreachable"):
+            authed_client.exec("Write-Output ok")
+
+    def test_exec_500(self, monkeypatch, authed_client):
+        def fake_urlopen(req, timeout=None):
+            raise urllib_error.HTTPError(
+                req.full_url, 500, "Internal Server Error", hdrs=None, fp=io.BytesIO(b"")
+            )
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        with pytest.raises(AgentUnavailableError, match="500"):
+            authed_client.exec("Write-Output ok")
+
+    def test_exec_non_json_response(self, monkeypatch, authed_client):
+        def fake_urlopen(req, timeout=None):
+            return _FakeResponse(b"<html>boom</html>", status=200)
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        with pytest.raises(AgentError, match="non-JSON"):
+            authed_client.exec("Write-Output ok")
 
 
 class TestRunViaAgentOrFreerdp:

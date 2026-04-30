@@ -20,8 +20,11 @@ See ``docs/AGENT_V2_DESIGN.md`` for the full design.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import socket
+from dataclasses import dataclass
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -60,6 +63,24 @@ class AgentTimeoutError(AgentError):
     listener was up and replied with headers but the work itself
     exceeded the per-request budget.
     """
+
+
+@dataclass(frozen=True)
+class ExecResult:
+    """Outcome of a guest-side script execution via ``/exec``.
+
+    Fields mirror the agent's JSON response (``rc``/``stdout``/``stderr``).
+    Transport-level failures (channel down, auth, timeout) raise the
+    matching ``Agent*Error`` instead of returning here.
+    """
+
+    rc: int
+    stdout: str
+    stderr: str
+
+    @property
+    def ok(self) -> bool:
+        return self.rc == 0
 
 
 class AgentClient:
@@ -154,6 +175,71 @@ class AgentClient:
             return json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             raise AgentUnavailableError(f"/health returned non-JSON body: {e}") from e
+
+    def exec(self, script: str, *, timeout: int = 60) -> ExecResult:
+        """POST /exec — run ``script`` as PowerShell on the guest.
+
+        ``script`` is the raw PowerShell source; this method base64-encodes
+        it before sending. ``timeout`` is the per-call client budget in
+        seconds; we pass ``timeout-1`` to urlopen so the server-side cap
+        has room to fire and respond before the client gives up. A
+        client-side socket timeout becomes ``AgentTimeoutError``.
+
+        Returns ``ExecResult`` even when the script's rc is non-zero —
+        that's a script-level outcome, not a transport-level error.
+
+        Raises:
+            AgentAuthError: 401/403 from the agent (token mismatch).
+            AgentTimeoutError: client-side socket timeout while waiting.
+            AgentUnavailableError: connect refused / 5xx / network error.
+            AgentError: 200 with a body the client can't parse.
+        """
+        encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
+        body = json.dumps({"script": encoded, "timeout_sec": timeout}).encode("utf-8")
+        req = self._build_request(
+            "/exec",
+            method="POST",
+            body=body,
+            with_auth=True,
+            extra_headers={"Content-Type": "application/json"},
+        )
+        urlopen_timeout = float(max(1, timeout - 1))
+        try:
+            with urllib_request.urlopen(req, timeout=urlopen_timeout) as resp:
+                status = resp.status
+                raw = resp.read()
+        except urllib_error.HTTPError as e:
+            if e.code in (401, 403):
+                raise AgentAuthError(f"/exec returned {e.code}") from e
+            raise AgentUnavailableError(f"/exec returned HTTP {e.code}") from e
+        except socket.timeout as e:
+            raise AgentTimeoutError(f"/exec timed out after {urlopen_timeout}s") from e
+        except urllib_error.URLError as e:
+            # urllib wraps socket.timeout as URLError(reason=socket.timeout) on
+            # some Python versions — disambiguate before falling through.
+            if isinstance(e.reason, socket.timeout):
+                raise AgentTimeoutError(f"/exec timed out after {urlopen_timeout}s") from e
+            raise AgentUnavailableError(f"/exec unreachable: {e.reason}") from e
+        except TimeoutError as e:
+            raise AgentTimeoutError(f"/exec timed out after {urlopen_timeout}s") from e
+        except OSError as e:
+            raise AgentUnavailableError(f"/exec socket error: {e}") from e
+
+        if status >= 500:
+            raise AgentUnavailableError(f"/exec returned HTTP {status}")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise AgentError(f"/exec returned non-JSON body: {e}") from e
+
+        try:
+            return ExecResult(
+                rc=int(payload["rc"]),
+                stdout=str(payload.get("stdout", "")),
+                stderr=str(payload.get("stderr", "")),
+            )
+        except (KeyError, TypeError, ValueError) as e:
+            raise AgentError(f"/exec response missing required fields: {e}") from e
 
 
 def run_via_agent_or_freerdp(
