@@ -102,25 +102,31 @@ _FREERDP_CACHE: tuple[str, str] | None = None
 
 
 def find_freerdp() -> tuple[str, str] | None:
-    """Locate a FreeRDP 3+ binary on the system."""
+    """Locate a FreeRDP 3+ binary on the system.
+
+    ``xfreerdp`` first: it is the only client with working RAIL.
+    ``sdl-freerdp`` has none (FreeRDP #9078) and ``wlfreerdp`` is
+    deprecated with broken RAIL repaint, so neither is a Wayland
+    substitute -- pure-Wayland needs XWayland. SDL stays as a
+    full-desktop-only fallback.
+    """
     global _FREERDP_CACHE
     if _FREERDP_CACHE is not None:
         return _FREERDP_CACHE
 
+    probes: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("xfreerdp3", "xfreerdp"), "xfreerdp"),
+        (("sdl-freerdp3", "sdl-freerdp"), "sdl"),
+    )
     found: tuple[str, str] | None = None
-
-    for name in ("xfreerdp3", "xfreerdp"):
-        path = shutil.which(name)
-        if path:
-            found = (path, "xfreerdp")
-            break
-
-    if found is None:
-        for name in ("sdl-freerdp3", "sdl-freerdp"):
+    for names, kind in probes:
+        for name in names:
             path = shutil.which(name)
             if path:
-                found = (path, "sdl")
+                found = (path, kind)
                 break
+        if found is not None:
+            break
 
     if found is None:
         try:
@@ -482,6 +488,18 @@ def launch_app(
         wm_class_hint=wm_class_hint,
         default_args=default_args,
     )
+
+    # See find_freerdp(): only xfreerdp has working RAIL, and it needs $DISPLAY.
+    is_remoteapp = launch_uri is not None or app_executable is not None
+    found = find_freerdp()
+    kind = found[1] if found else ""
+    if is_remoteapp and kind == "xfreerdp" and not os.environ.get("DISPLAY"):
+        raise RuntimeError(
+            "RemoteApp requires xfreerdp, which needs an X display. "
+            "On Wayland, enable XWayland (e.g. your compositor's built-in "
+            "support, or xwayland-satellite for niri/river) and ensure "
+            "$DISPLAY is set."
+        )
 
     log.info("Launching RDP: %s", " ".join(cmd))
 

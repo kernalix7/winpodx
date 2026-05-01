@@ -39,6 +39,19 @@ def test_linux_to_unc_media_path(monkeypatch, tmp_path):
     assert result == "\\\\tsclient\\media\\USB\\report.docx"
 
 
+def test_launch_app_remoteapp_without_display_raises(monkeypatch, tmp_path):
+    # No $DISPLAY -> xfreerdp would die post-detach; launch_app must raise.
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda: ("/usr/bin/xfreerdp", "xfreerdp"))
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+    with pytest.raises(RuntimeError, match="XWayland"):
+        rdp_mod.launch_app(Config(), app_executable="notepad.exe")
+
+
 def test_find_freerdp_returns_tuple_or_none():
     from winpodx.core.rdp import find_freerdp
 
