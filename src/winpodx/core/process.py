@@ -16,13 +16,40 @@ from winpodx.utils.paths import runtime_dir
 
 log = logging.getLogger(__name__)
 
+# argv[0] basenames find_freerdp() may launch.
+_FREERDP_ARGV0 = (
+    b"xfreerdp",
+    b"xfreerdp3",
+    b"wlfreerdp",
+    b"wlfreerdp3",
+    b"sdl-freerdp",
+    b"sdl-freerdp3",
+)
+
+
+def _cmdline_is_freerdp(cmdline: bytes) -> bool:
+    """Return True if a ``/proc/<pid>/cmdline`` blob is a FreeRDP client.
+
+    Only argv[0]'s basename (or ``flatpak run com.freerdp.FreeRDP``) counts;
+    a blanket ``b"freerdp" in cmdline`` would adopt unrelated processes that
+    merely mention freerdp in an argument or path.
+    """
+    if not cmdline:
+        return False
+    argv = cmdline.split(b"\0")
+    prog = argv[0].rsplit(b"/", 1)[-1].lower()
+    if prog in _FREERDP_ARGV0:
+        return True
+    if prog == b"flatpak":
+        tail = [a.lower() for a in argv[1:] if a]
+        return b"com.freerdp.freerdp" in tail
+    return False
+
 
 def is_freerdp_pid(pid: int) -> bool:
     """Return True if the given PID is a live FreeRDP process we spawned.
 
-    Single source of truth for PID-reuse detection. Accepts only ``freerdp``
-    or ``xfreerdp`` in the cmdline (our own spawned binaries). Excludes
-    ``winpodx`` because that substring can match unrelated CLI invocations.
+    Single source of truth for PID-reuse detection.
     """
     try:
         os.kill(pid, 0)
@@ -30,11 +57,11 @@ def is_freerdp_pid(pid: int) -> bool:
         return False
 
     try:
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().lower()
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
     except (OSError, PermissionError):
         return False
 
-    return b"freerdp" in cmdline or b"xfreerdp" in cmdline
+    return _cmdline_is_freerdp(cmdline)
 
 
 @dataclass

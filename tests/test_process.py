@@ -4,7 +4,29 @@ from __future__ import annotations
 
 import os
 
-from winpodx.core.process import TrackedProcess, kill_session, list_active_sessions
+from winpodx.core.process import (
+    TrackedProcess,
+    _cmdline_is_freerdp,
+    kill_session,
+    list_active_sessions,
+)
+
+
+class TestCmdlineIsFreerdp:
+    def test_argv0_xfreerdp(self):
+        assert _cmdline_is_freerdp(b"/usr/bin/xfreerdp3\0/v:host\0")
+
+    def test_argv0_flatpak_freerdp(self):
+        assert _cmdline_is_freerdp(b"flatpak\0run\0com.freerdp.FreeRDP\0/v:host\0")
+
+    def test_freerdp_only_in_later_argv_rejected(self):
+        # Regression: "freerdp" in a later arg must not match.
+        assert not _cmdline_is_freerdp(
+            b"/usr/bin/python3\0-m\0pytest\0--deselect=test_freerdp_pid\0"
+        )
+
+    def test_freerdp_only_in_argv0_path_component_rejected(self):
+        assert not _cmdline_is_freerdp(b"/home/user/freerdp-notes/run.sh\0")
 
 
 class TestTrackedProcess:

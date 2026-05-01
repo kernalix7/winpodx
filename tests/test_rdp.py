@@ -121,7 +121,8 @@ def test_is_freerdp_pid_helper_accepts_freerdp_only():
     with (
         patch("winpodx.core.process.os.kill", return_value=None),
         patch(
-            "winpodx.core.process.Path", side_effect=fake_path_factory(b"/usr/bin/winpodx app list")
+            "winpodx.core.process.Path",
+            side_effect=fake_path_factory(b"/usr/bin/winpodx\0app\0list\0"),
         ),
     ):
         assert proc_mod.is_freerdp_pid(12345) is False
@@ -130,7 +131,7 @@ def test_is_freerdp_pid_helper_accepts_freerdp_only():
         patch("winpodx.core.process.os.kill", return_value=None),
         patch(
             "winpodx.core.process.Path",
-            side_effect=fake_path_factory(b"/usr/bin/xfreerdp3 /v:127.0.0.1"),
+            side_effect=fake_path_factory(b"/usr/bin/xfreerdp3\0/v:127.0.0.1\0"),
         ),
     ):
         assert proc_mod.is_freerdp_pid(12345) is True
