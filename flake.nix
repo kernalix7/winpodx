@@ -88,7 +88,27 @@
       );
 
       checks = forAllSystems (pkgs: {
-        winpodx = self.packages.${pkgs.system}.winpodx;
+        winpodx = self.packages.${pkgs.stdenv.hostPlatform.system}.winpodx;
+      });
+
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.winpodx ];
+          # Runtime tools the wrapper would normally inject; expose them in
+          # the dev shell so `python -m winpodx` works against the source tree.
+          packages = [
+            pkgs.freerdp
+            pkgs.iproute2
+            pkgs.libnotify
+            pkgs.podman
+            pkgs.podman-compose
+            pkgs.ruff
+            pkgs.mypy
+          ];
+          shellHook = ''
+            export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
+          '';
+        };
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
