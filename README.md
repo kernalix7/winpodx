@@ -283,6 +283,24 @@ for machines with no registry / package-repo access:
 Env vars are honored even under `curl | bash`, so
 `WINPODX_SKIP_DEPS=1 curl ... | bash` works.
 
+**Nix** — a flake is provided for NixOS / nix-on-any-distro users:
+
+```bash
+# Run directly without installing
+nix run github:kernalix7/winpodx
+
+# Install into your profile
+nix profile install github:kernalix7/winpodx
+
+# As a flake input
+inputs.winpodx.url = "github:kernalix7/winpodx";
+```
+
+The wrapper bundles FreeRDP, podman / podman-compose, iproute2 and
+libnotify, so the default podman backend works out of the box. The
+docker and libvirt backends still require the respective tools to be
+present on the host.
+
 **One-line uninstall** — `--confirm` or `--purge` is required under pipe
 (the interactive prompts can't read from a terminal while bash consumes
 stdin from curl):
