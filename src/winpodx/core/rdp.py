@@ -73,11 +73,22 @@ def _uwp_fallback_wm_class(aumid: str) -> str:
 class RDPSession:
     app_name: str
     process: subprocess.Popen | None = None
-    stderr_tail: bytes = b""
 
     @property
     def pid_file(self) -> Path:
         return runtime_dir() / f"{self.app_name}.cproc"
+
+    @property
+    def stderr_log(self) -> Path:
+        return runtime_dir() / f"{self.app_name}.stderr"
+
+    @property
+    def stderr_tail(self) -> bytes:
+        try:
+            data = self.stderr_log.read_bytes()
+        except OSError:
+            return b""
+        return data[-2048:]
 
     @property
     def is_running(self) -> bool:
@@ -427,14 +438,12 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
 
 
 def _reaper_thread(session: RDPSession) -> None:
-    """Wait for process exit, drain stderr, and clean up the PID file."""
+    """Wait for process exit and clean up the PID file."""
     proc = session.process
     if proc is None:
         return
     try:
-        _out, err = proc.communicate()
-        if err:
-            session.stderr_tail = err[-2048:]
+        proc.wait()
     except (OSError, ValueError):
         pass
     finally:
@@ -518,13 +527,17 @@ def launch_app(
             return existing
         raise RuntimeError(f"Could not acquire lock for {app_name}")
 
+    # stderr=PIPE would SIGPIPE-kill the detached client once the CLI
+    # parent exits; log to a file so the session outlives us.
+    err_log = session.stderr_log.open("wb")
     try:
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=err_log,
         )
+        err_log.close()
 
         session.process = proc
 
