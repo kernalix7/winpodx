@@ -406,23 +406,18 @@ def _cmd_debloat() -> None:
     couldn't reach the Windows VM. Now reads the script body locally
     and pipes it through ``windows_exec.run_in_windows``.
     """
-    from pathlib import Path
-
     from winpodx.core.config import Config
     from winpodx.core.windows_exec import WindowsExecError, run_via_transport
+    from winpodx.utils.paths import bundle_dir
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
         print("Debloat only supported for Podman/Docker backends.")
         return
 
-    candidates = [
-        Path(__file__).parent.parent.parent.parent / "scripts" / "windows" / "debloat.ps1",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "scripts" / "windows" / "debloat.ps1",
-    ]
-    script = next((p for p in candidates if p.exists()), None)
-    if script is None:
-        print(f"Debloat script not found in any of: {[str(p) for p in candidates]}")
+    script = bundle_dir() / "scripts" / "windows" / "debloat.ps1"
+    if not script.exists():
+        print(f"Debloat script not found: {script}")
         return
 
     try:

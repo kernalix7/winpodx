@@ -3,9 +3,44 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 APP_NAME = "winpodx"
+
+# Directories shipped at the repo/bundle root (next to ``src/``) that the
+# runtime needs to locate regardless of install mode.
+_BUNDLE_MARKERS = ("scripts", "config", "data")
+
+
+def bundle_dir() -> Path:
+    """Return the directory containing ``scripts/``, ``config/`` and ``data/``.
+
+    Several call sites previously hand-rolled ``__file__.parent.parent...``
+    chains with inconsistent fallbacks, which broke for any install that
+    doesn't preserve the repo layout (wheel, Nix, distro package). This is
+    the single resolution point; search order:
+
+      1. ``$WINPODX_BUNDLE_DIR`` -- set by packaging wrappers (Nix flake).
+      2. Source checkout -- ``<repo>/`` derived from this file's location.
+      3. ``sys.prefix/share/winpodx`` -- FHS-style install (wheel, distro).
+      4. ``~/.local/bin/winpodx-app`` -- curl|bash installer drop location.
+
+    Falls back to the source-checkout guess so callers get a stable path for
+    error messages even when nothing exists.
+    """
+    env = os.environ.get("WINPODX_BUNDLE_DIR")
+    src_guess = Path(__file__).resolve().parents[3]
+    candidates = [
+        Path(env) if env else None,
+        src_guess,
+        Path(sys.prefix) / "share" / APP_NAME,
+        Path.home() / ".local" / "bin" / "winpodx-app",
+    ]
+    for c in candidates:
+        if c is not None and any((c / m).is_dir() for m in _BUNDLE_MARKERS):
+            return c
+    return src_guess
 
 
 def config_dir() -> Path:

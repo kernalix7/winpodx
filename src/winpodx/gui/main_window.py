@@ -60,6 +60,7 @@ from winpodx.gui.theme import (
     accent_color,
     avatar_color,
 )
+from winpodx.utils.paths import bundle_dir
 
 log = logging.getLogger(__name__)
 
@@ -2499,19 +2500,8 @@ class WinpodxWindow(QMainWindow):
             from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
             cfg = Config.load()
-            base = Path(__file__).parent.parent.parent.parent
-            candidates = [
-                base / "scripts" / "windows" / "debloat.ps1",
-                Path.home()
-                / ".local"
-                / "bin"
-                / "winpodx-app"
-                / "scripts"
-                / "windows"
-                / "debloat.ps1",
-            ]
-            script = next((p for p in candidates if p.exists()), None)
-            if script is None:
+            script = bundle_dir() / "scripts" / "windows" / "debloat.ps1"
+            if not script.exists():
                 self.app_launch_failed.emit("Debloat script not found")
                 return
 

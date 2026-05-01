@@ -180,27 +180,8 @@ def test_bundled_data_path_source_layout():
     assert path.name == "winpodx-icon.svg"
 
 
-def test_bundled_data_path_missing_returns_none(monkeypatch, tmp_path):
-    # When all candidate locations miss, returns None (no exception).
-    monkeypatch.setattr("sys.prefix", str(tmp_path))
-    monkeypatch.setenv("HOME", str(tmp_path))
-    result = bundled_data_path("does-not-exist-" + "x" * 20 + ".svg")
-    assert result is None
-
-
-def test_bundled_data_path_falls_back_to_sys_prefix(monkeypatch, tmp_path):
-    # If source layout misses, sys.prefix/share/winpodx/data is searched.
-    prefix = tmp_path / "prefix"
-    share = prefix / "share" / "winpodx" / "data"
-    share.mkdir(parents=True)
-    fake_icon = share / "fake-wheel-asset.svg"
-    fake_icon.write_text("<svg/>", encoding="utf-8")
-
-    monkeypatch.setattr("sys.prefix", str(prefix))
-    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
-
-    resolved = bundled_data_path("fake-wheel-asset.svg")
-    assert resolved == fake_icon
+def test_bundled_data_path_missing_returns_none():
+    assert bundled_data_path("does-not-exist-" + "x" * 20 + ".svg") is None
 
 
 # Audit Issue 12: update_icon_cache must enforce timeout
@@ -391,21 +372,11 @@ def test_bundled_data_path_rejects_symlink_escape(tmp_path, monkeypatch):
     secret = tmp_path / "secret.txt"
     secret.write_text("TOP SECRET", encoding="utf-8")
 
-    home = tmp_path / "home"
-    data = home / ".local" / "share" / "winpodx" / "data"
+    data = tmp_path / "bundle" / "data"
     data.mkdir(parents=True)
-    malicious = data / "winpodx-icon.svg"
-    malicious.symlink_to(secret)
+    (data / "winpodx-icon.svg").symlink_to(secret)
 
-    empty_prefix = tmp_path / "empty-prefix"
-    empty_prefix.mkdir()
-    monkeypatch.setattr("sys.prefix", str(empty_prefix))
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(
-        icons_mod,
-        "__file__",
-        str(empty_prefix / "unused" / "a" / "b" / "c.py"),
-    )
+    monkeypatch.setattr(icons_mod, "bundle_dir", lambda: tmp_path / "bundle")
 
     result = icons_mod.bundled_data_path("winpodx-icon.svg")
     assert result is None, "symlink escape must be rejected, got %r" % (result,)
@@ -435,20 +406,11 @@ def test_bundled_data_path_accepts_regular_file(tmp_path, monkeypatch):
     # Regression: ordinary files in the data dir still work.
     from winpodx.desktop import icons as icons_mod
 
-    home = tmp_path / "home"
-    data = home / ".local" / "share" / "winpodx" / "data"
+    data = tmp_path / "bundle" / "data"
     data.mkdir(parents=True)
     (data / "winpodx-icon.svg").write_text("<svg/>", encoding="utf-8")
 
-    empty_prefix = tmp_path / "empty-prefix"
-    empty_prefix.mkdir()
-    monkeypatch.setattr("sys.prefix", str(empty_prefix))
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(
-        icons_mod,
-        "__file__",
-        str(empty_prefix / "unused" / "a" / "b" / "c.py"),
-    )
+    monkeypatch.setattr(icons_mod, "bundle_dir", lambda: tmp_path / "bundle")
 
     result = icons_mod.bundled_data_path("winpodx-icon.svg")
     assert result is not None

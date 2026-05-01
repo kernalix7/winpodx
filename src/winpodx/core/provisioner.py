@@ -26,7 +26,10 @@ from winpodx.core.rotation import (  # noqa: F401  re-exports
     _mark_rotation_pending,
     _rotation_marker_path,
 )
-from winpodx.utils.paths import config_dir  # noqa: F401  used by other helpers in this module
+from winpodx.utils.paths import (  # noqa: F401  config_dir used by other helpers in this module
+    bundle_dir,
+    config_dir,
+)
 
 log = logging.getLogger(__name__)
 
@@ -373,27 +376,17 @@ def _apply_vbs_launchers(cfg: Config) -> None:
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
-    from pathlib import Path
-
-    # Locate the source files shipped with this winpodx install. Same
-    # search order as ``_ps_script_path`` and ``_bundled_oem_version``.
-    candidates_root = (
-        Path(__file__).resolve().parent.parent.parent.parent / "config" / "oem",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem",
-    )
+    oem_root = bundle_dir() / "config" / "oem"
     files = ("hidden-launcher.vbs", "launch_uwp.vbs", "launch_uwp.ps1")
     sources: dict[str, str] = {}
     for fname in files:
-        for root in candidates_root:
-            path = root / fname
-            if path.is_file():
-                try:
-                    sources[fname] = path.read_text(encoding="utf-8")
-                except OSError as e:
-                    raise RuntimeError(f"cannot read {path}: {e}") from e
-                break
-        else:
-            raise RuntimeError(f"vbs_launchers source missing: {fname}")
+        path = oem_root / fname
+        if not path.is_file():
+            raise RuntimeError(f"vbs_launchers source missing: {path}")
+        try:
+            sources[fname] = path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise RuntimeError(f"cannot read {path}: {e}") from e
 
     # Build a single PS payload that writes all three files + updates
     # HKCU\Run in one /exec round-trip. Each file body is base64-encoded

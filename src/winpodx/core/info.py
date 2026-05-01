@@ -19,6 +19,7 @@ from typing import Any
 from winpodx import __version__
 from winpodx.core.config import Config, check_session_budget
 from winpodx.core.pod import PodState, check_rdp_port, pod_status
+from winpodx.utils.paths import bundle_dir
 
 log = logging.getLogger(__name__)
 
@@ -52,20 +53,12 @@ def _bundled_oem_version() -> str:
          This is the source of truth — the .txt file is only emitted by the
          guest install at OEM time, so it's missing on a fresh checkout.
     """
-    candidates = [
-        Path(__file__).parent.parent.parent.parent / "config" / "oem" / "oem_version.txt",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem" / "oem_version.txt",
-    ]
-    for path in candidates:
-        text = _read_text_file(path, max_bytes=64)
-        if text:
-            return text
+    oem = bundle_dir() / "config" / "oem"
+    text = _read_text_file(oem / "oem_version.txt", max_bytes=64)
+    if text:
+        return text
 
-    install_bat_candidates = [
-        Path(__file__).parent.parent.parent.parent / "config" / "oem" / "install.bat",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem" / "install.bat",
-    ]
-    for path in install_bat_candidates:
+    for path in (oem / "install.bat",):
         try:
             with path.open("r", encoding="utf-8", errors="replace") as fh:
                 # The version line lives in the first ~5 lines of install.bat;
@@ -83,15 +76,10 @@ def _bundled_oem_version() -> str:
 
 def _bundled_rdprrap_version() -> str:
     """Read the bundled rdprrap version pin file."""
-    candidates = [
-        Path(__file__).parent.parent.parent.parent / "config" / "oem" / "rdprrap_version.txt",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem" / "rdprrap_version.txt",
-    ]
-    for path in candidates:
-        text = _read_text_file(path, max_bytes=128)
-        if text:
-            # Pin file may have version on first line + sha256 on second; keep just the version.
-            return text.splitlines()[0].strip()
+    text = _read_text_file(bundle_dir() / "config" / "oem" / "rdprrap_version.txt", max_bytes=128)
+    if text:
+        # Pin file may have version on first line + sha256 on second; keep just the version.
+        return text.splitlines()[0].strip()
     return "(unknown)"
 
 

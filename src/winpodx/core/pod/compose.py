@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from winpodx.core.config import Config
-from winpodx.utils.paths import config_dir
+from winpodx.utils.paths import bundle_dir, config_dir
 
 _COMPOSE_TEMPLATE_BASE = """\
 name: "winpodx"
@@ -82,17 +82,8 @@ def _yaml_escape(val: str) -> str:
 
 
 def _find_oem_dir() -> str:
-    """Return the best available OEM directory path as a string."""
-    candidates = [
-        Path(__file__).parent.parent.parent.parent / "config" / "oem",
-        Path.home() / ".local" / "bin" / "winpodx-app" / "config" / "oem",
-    ]
-    oem_dir = str(candidates[0])
-    for candidate in candidates:
-        if candidate.exists():
-            oem_dir = str(candidate)
-            break
-    return oem_dir
+    """Return the OEM directory path as a string (see :func:`bundle_dir`)."""
+    return str(bundle_dir() / "config" / "oem")
 
 
 def _build_compose_content(cfg: Config) -> str:

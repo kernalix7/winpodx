@@ -27,7 +27,6 @@ import re
 import shutil
 import struct
 import subprocess
-import sys
 import threading
 import time
 import zlib
@@ -43,6 +42,7 @@ from typing import Any
 
 from winpodx.core.app import discovered_apps_dir as _app_discovered_apps_dir
 from winpodx.core.config import Config
+from winpodx.utils.paths import bundle_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps
 
 log = logging.getLogger(__name__)
@@ -399,28 +399,8 @@ def discovered_apps_dir() -> Path:
 
 
 def _ps_script_path() -> Path:
-    """Locate ``scripts/windows/discover_apps.ps1``.
-
-    Checks repo layout first, then wheel / user install prefixes. Uses
-    the same search order as ``winpodx.core.app.bundled_apps_dir`` so
-    behaviour is consistent across install modes.
-    """
-    # __file__ is at <root>/src/winpodx/core/discovery/__init__.py — five
-    # `.parent` hops reach <root>, where `scripts/windows/` lives. The previous
-    # four-hop version landed at <root>/src/, producing "<root>/src/scripts/..."
-    # which never exists in any layout (repo, wheel, or .local/bin install).
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent.parent
-        / "scripts"
-        / "windows"
-        / "discover_apps.ps1",
-        Path(sys.prefix) / "share" / "winpodx" / "scripts" / "windows" / "discover_apps.ps1",
-        Path.home() / ".local" / "share" / "winpodx" / "scripts" / "windows" / "discover_apps.ps1",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+    """Locate ``scripts/windows/discover_apps.ps1`` via :func:`bundle_dir`."""
+    return bundle_dir() / "scripts" / "windows" / "discover_apps.ps1"
 
 
 def _runtime_for(backend: str) -> str:

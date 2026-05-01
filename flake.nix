@@ -52,20 +52,26 @@
               pytestCheckHook
             ];
 
-            disabledTests = [
-              # Assume repo-root data/ + scripts/ next to the package; not true
-              # for the installed wheel pytestCheckHook runs against.
-              "test_bundled_data_path_source_layout"
-              "test_apply_windows_runtime_fixes_returns_per_helper_status"
-              # `exec -a ... sleep` breaks on nixpkgs' multi-call coreutils.
-              "test_find_existing_session_rejects_non_freerdp_pid"
-            ];
+            preCheck = ''
+              export WINPODX_BUNDLE_DIR=$PWD
+            '';
+
+            # scripts/, config/ and data/ live at the repo root rather than
+            # inside the Python package; ship them under share/ and point the
+            # runtime at it so bundle_dir() resolves correctly for the wheel.
+            postInstall = ''
+              mkdir -p $out/share/winpodx
+              cp -r scripts config data $out/share/winpodx/
+            '';
 
             makeWrapperArgs = [
               "--prefix"
               "PATH"
               ":"
               (lib.makeBinPath runtimeBins)
+              "--set"
+              "WINPODX_BUNDLE_DIR"
+              "${placeholder "out"}/share/winpodx"
             ];
 
             pythonImportsCheck = [ "winpodx" ];

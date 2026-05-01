@@ -5,22 +5,16 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
-from winpodx.utils.paths import icons_dir
+from winpodx.utils.paths import bundle_dir, icons_dir
 
 log = logging.getLogger(__name__)
 
 
 def bundled_data_path(*parts: str) -> Path | None:
-    """Resolve a file under data/ across source, wheel, and user install layouts."""
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent / "data",
-        Path(sys.prefix) / "share" / "winpodx" / "data",
-        Path.home() / ".local" / "share" / "winpodx" / "data",
-    ]
-    for base in candidates:
+    """Resolve a file under the bundled ``data/`` tree."""
+    for base in (bundle_dir() / "data",):
         candidate = base.joinpath(*parts)
         if not candidate.exists():
             continue
