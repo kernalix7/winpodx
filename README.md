@@ -516,7 +516,7 @@ vnc_port = 8007
 auto_start = true                                # Start pod automatically when launching an app
 idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
-image = "ghcr.io/dockur/windows:latest"          # Container image (override for air-gapped mirror)
+image = "docker.io/dockurr/windows:latest"          # Container image (override for air-gapped mirror)
 disk_size = "64G"                                # Virtual disk size passed to dockur
 ```
 

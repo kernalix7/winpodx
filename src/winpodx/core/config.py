@@ -61,7 +61,7 @@ class PodConfig:
     boot_timeout: int = 300  # seconds, max wait for RDP after start_pod
     # Container image for dockur/windows. Expose as config so users can
     # pin a known-good tag or switch to a mirror.
-    image: str = "ghcr.io/dockur/windows:latest"
+    image: str = "docker.io/dockurr/windows:latest"
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
     # Maximum concurrent RemoteApp sessions. Writes
@@ -89,7 +89,7 @@ class PodConfig:
             # Fall back silently so a hand-edited config does not brick setup.
             self.container_name = _DEFAULT_CONTAINER_NAME
         if not isinstance(self.image, str) or not self.image.strip():
-            self.image = "ghcr.io/dockur/windows:latest"
+            self.image = "docker.io/dockurr/windows:latest"
         if not isinstance(self.disk_size, str) or not self.disk_size.strip():
             self.disk_size = "64G"
 

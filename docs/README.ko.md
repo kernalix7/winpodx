@@ -463,7 +463,7 @@ vnc_port = 8007
 auto_start = true                                # 앱 실행 시 자동 팟 시작
 idle_timeout = 0                                 # 자동 일시정지 (초, 0 = 비활성화)
 boot_timeout = 300                               # 최초 부팅 무인 설치 대기 시간 (초)
-image = "ghcr.io/dockur/windows:latest"          # 컨테이너 이미지 (에어갭 미러 지정 가능)
+image = "docker.io/dockurr/windows:latest"          # 컨테이너 이미지 (에어갭 미러 지정 가능)
 disk_size = "64G"                                # dockur 에 전달되는 가상 디스크 크기
 ```
 

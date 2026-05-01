@@ -275,13 +275,13 @@ def test_check_freerdp_reports_missing(monkeypatch):
 
 def test_pod_config_image_and_disk_size_defaults():
     pod = PodConfig()
-    assert pod.image == "ghcr.io/dockur/windows:latest"
+    assert pod.image == "docker.io/dockurr/windows:latest"
     assert pod.disk_size == "64G"
 
 
 def test_pod_config_image_and_disk_size_fallback_on_empty():
     pod = PodConfig(image="", disk_size="   ")
-    assert pod.image == "ghcr.io/dockur/windows:latest"
+    assert pod.image == "docker.io/dockurr/windows:latest"
     assert pod.disk_size == "64G"
 
 
