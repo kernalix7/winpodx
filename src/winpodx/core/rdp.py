@@ -73,11 +73,22 @@ def _uwp_fallback_wm_class(aumid: str) -> str:
 class RDPSession:
     app_name: str
     process: subprocess.Popen | None = None
-    stderr_tail: bytes = b""
 
     @property
     def pid_file(self) -> Path:
         return runtime_dir() / f"{self.app_name}.cproc"
+
+    @property
+    def stderr_log(self) -> Path:
+        return runtime_dir() / f"{self.app_name}.stderr"
+
+    @property
+    def stderr_tail(self) -> bytes:
+        try:
+            data = self.stderr_log.read_bytes()
+        except OSError:
+            return b""
+        return data[-2048:]
 
     @property
     def is_running(self) -> bool:
@@ -102,25 +113,31 @@ _FREERDP_CACHE: tuple[str, str] | None = None
 
 
 def find_freerdp() -> tuple[str, str] | None:
-    """Locate a FreeRDP 3+ binary on the system."""
+    """Locate a FreeRDP 3+ binary on the system.
+
+    ``xfreerdp`` first: it is the only client with working RAIL.
+    ``sdl-freerdp`` has none (FreeRDP #9078) and ``wlfreerdp`` is
+    deprecated with broken RAIL repaint, so neither is a Wayland
+    substitute -- pure-Wayland needs XWayland. SDL stays as a
+    full-desktop-only fallback.
+    """
     global _FREERDP_CACHE
     if _FREERDP_CACHE is not None:
         return _FREERDP_CACHE
 
+    probes: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("xfreerdp3", "xfreerdp"), "xfreerdp"),
+        (("sdl-freerdp3", "sdl-freerdp"), "sdl"),
+    )
     found: tuple[str, str] | None = None
-
-    for name in ("xfreerdp3", "xfreerdp"):
-        path = shutil.which(name)
-        if path:
-            found = (path, "xfreerdp")
-            break
-
-    if found is None:
-        for name in ("sdl-freerdp3", "sdl-freerdp"):
+    for names, kind in probes:
+        for name in names:
             path = shutil.which(name)
             if path:
-                found = (path, "sdl")
+                found = (path, kind)
                 break
+        if found is not None:
+            break
 
     if found is None:
         try:
@@ -421,14 +438,12 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
 
 
 def _reaper_thread(session: RDPSession) -> None:
-    """Wait for process exit, drain stderr, and clean up the PID file."""
+    """Wait for process exit and clean up the PID file."""
     proc = session.process
     if proc is None:
         return
     try:
-        _out, err = proc.communicate()
-        if err:
-            session.stderr_tail = err[-2048:]
+        proc.wait()
     except (OSError, ValueError):
         pass
     finally:
@@ -483,6 +498,18 @@ def launch_app(
         default_args=default_args,
     )
 
+    # See find_freerdp(): only xfreerdp has working RAIL, and it needs $DISPLAY.
+    is_remoteapp = launch_uri is not None or app_executable is not None
+    found = find_freerdp()
+    kind = found[1] if found else ""
+    if is_remoteapp and kind == "xfreerdp" and not os.environ.get("DISPLAY"):
+        raise RuntimeError(
+            "RemoteApp requires xfreerdp, which needs an X display. "
+            "On Wayland, enable XWayland (e.g. your compositor's built-in "
+            "support, or xwayland-satellite for niri/river) and ensure "
+            "$DISPLAY is set."
+        )
+
     log.info("Launching RDP: %s", " ".join(cmd))
 
     # Acquire PID file lock before launching to prevent race conditions.
@@ -500,13 +527,17 @@ def launch_app(
             return existing
         raise RuntimeError(f"Could not acquire lock for {app_name}")
 
+    # stderr=PIPE would SIGPIPE-kill the detached client once the CLI
+    # parent exits; log to a file so the session outlives us.
+    err_log = session.stderr_log.open("wb")
     try:
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=err_log,
         )
+        err_log.close()
 
         session.process = proc
 
