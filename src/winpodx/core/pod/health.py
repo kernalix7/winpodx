@@ -16,11 +16,79 @@ log = logging.getLogger(__name__)
 _CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 
 
-def check_rdp_port(ip: str, port: int, timeout: float = 5.0) -> bool:
-    """Check if RDP port is open and accepting connections."""
+def check_tcp_port(ip: str, port: int, timeout: float = 5.0) -> bool:
+    """Plain TCP-accept check. True if a connection can be established
+    to (ip, port), regardless of what protocol (if any) is spoken.
+
+    Used by ``recover_rdp_if_needed`` to probe the VNC port -- the
+    intent there is "is the container's QEMU process still alive at
+    all", and VNC doesn't speak RDP so we can't use the X.224-handshake
+    flavor of ``check_rdp_port`` for that. Generally NOT what you want
+    for "is RDP up" -- prefer ``check_rdp_port`` so QEMU's slirp
+    accepting forwards-with-no-guest doesn't surface as a false
+    positive.
+    """
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
+    except (ConnectionRefusedError, TimeoutError, OSError):
+        return False
+
+
+# Minimal X.224 Connection Request packet wrapped in a TPKT header.
+# The first three bytes (`03 00 00`) are TPKT version + reserved; byte
+# 4 is the TPKT length (0x13 = 19). Bytes 5-19 are an X.224 CR TPDU
+# carrying an empty cookie. Any RFC-compliant RDP server (Windows
+# TermService, FreeRDP server, xrdp) will respond to this with a TPKT
+# whose first two bytes are also `03 00` -- the X.224 Connection
+# Confirm or a Negotiation Failure. We don't care which kind of
+# response, just that the bytes look like a real RDP server speaking,
+# not QEMU slirp accepting a TCP connection it can't actually serve.
+_RDP_HANDSHAKE_PROBE = (
+    b"\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00"
+)
+
+
+def check_rdp_port(ip: str, port: int, timeout: float = 5.0) -> bool:
+    """Check that an RDP server is actually answering on (ip, port).
+
+    Pre-PR-XX this did just ``socket.create_connection``. dockur's QEMU
+    slirp accepts TCP forwards on the host's mapped port before the
+    Windows guest's TermService is up -- so a fresh install in mid-ISO-
+    download (or any pod that has booted QEMU but hasn't yet brought
+    Windows to the RDP listener) would report "RDP port open" the
+    instant the QEMU process started. install.sh's ``wait-ready`` then
+    skipped past phase 2 in 0 seconds, hit phase 3 (which after
+    PR #91 returns True with a warning when /health misses), and ran
+    migrate's apply chain against a Windows that wasn't there --
+    surfacing as a cascade of FreeRDP rc=147 / "Connection reset by
+    peer" failures.
+
+    The fix sends a minimal X.224 Connection Request and reads back 2
+    bytes. A real RDP server responds with a TPKT (first byte 0x03,
+    second byte 0x00). QEMU-forwarding-with-no-guest gets us the SYN-
+    ACK from slirp's TCP stack but the recv either times out or
+    returns EOF when slirp can't reach a listener inside the guest --
+    distinguishable from the real-server case in ~1 second.
+
+    Backward-compat note: this can return False on RDP servers that
+    don't speak the X.224 prelude (rare, mostly homebrew). If that
+    bites someone, opt out via the existing ``timeout=0`` callers OR
+    we add a fallback. Until then the false-positive case (QEMU mid-
+    install) is much more painful than the false-negative case.
+    """
+    try:
+        with socket.create_connection((ip, port), timeout=timeout) as s:
+            s.settimeout(max(1.0, timeout))
+            try:
+                s.sendall(_RDP_HANDSHAKE_PROBE)
+            except OSError:
+                return False
+            try:
+                data = s.recv(2)
+            except (TimeoutError, OSError):
+                return False
+            return len(data) == 2 and data[0:1] == b"\x03" and data[1:2] == b"\x00"
     except (ConnectionRefusedError, TimeoutError, OSError):
         return False
 
@@ -52,8 +120,11 @@ def recover_rdp_if_needed(cfg: Config, *, max_attempts: int = 3) -> bool:
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=2.0):
         return True
 
-    # Whole pod sick? Don't try to bandage RDP.
-    if not check_rdp_port(cfg.rdp.ip, cfg.pod.vnc_port, timeout=2.0):
+    # Whole pod sick? Don't try to bandage RDP. VNC isn't RDP -- use
+    # the plain TCP-accept probe so we don't get false negatives from
+    # check_rdp_port's X.224 handshake (which would naturally fail
+    # against a VNC server).
+    if not check_tcp_port(cfg.rdp.ip, cfg.pod.vnc_port, timeout=2.0):
         log.warning("RDP and VNC both unreachable; skipping recovery (pod likely down).")
         return False
 
