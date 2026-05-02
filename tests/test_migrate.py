@@ -33,10 +33,18 @@ def test_version_tuple_four_segments():
     assert _version_tuple("1.2.3.4") == (1, 2, 3, 4)
 
 
-def test_version_tuple_prerelease_truncated():
-    # Non-integer suffix ('rc1') stops parsing; ordering still works.
-    assert _version_tuple("0.1.8rc1") == (0, 1)
-    assert _version_tuple("0.1.8") > _version_tuple("0.1.8rc1")
+def test_version_tuple_prerelease():
+    # Pre-release suffixes ('rc1', '-RTM1', '+dev') keep the leading
+    # digits of the mixed segment so the [:3] tuple is complete and
+    # equal-compares to the corresponding final release. Migrate's
+    # apply-fixes gate uses this — RC builds and final builds share
+    # the same apply chain, so they should compare equal under [:3].
+    assert _version_tuple("0.1.8rc1") == (0, 1, 8)
+    assert _version_tuple("0.3.0-RTM1") == (0, 3, 0)
+    assert _version_tuple("0.3.0+dev") == (0, 3, 0)
+    # Equal compare for our gating purposes (final == its prereleases
+    # at the [:3] level — fine since they share the apply chain).
+    assert _version_tuple("0.1.8")[:3] == _version_tuple("0.1.8rc1")[:3]
 
 
 def test_version_tuple_comparison():
