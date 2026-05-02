@@ -1,10 +1,10 @@
-' launch_uwp.vbs — RemoteApp-friendly UWP launcher
+' launch_uwp.vbs -- RemoteApp-friendly UWP launcher
 '
 ' RemoteApp invokes a single program; this VBS is that program. wscript.exe
 ' has no console of its own, and WshShell.Run with intWindowStyle=0 spawns
 ' powershell.exe with SW_HIDE so launch_uwp.ps1 never flashes a console.
 ' launch_uwp.ps1 then activates the AUMID via IApplicationActivationManager
-' and exits. The UWP frame becomes the visible RemoteApp window directly —
+' and exits. The UWP frame becomes the visible RemoteApp window directly --
 ' no explorer.exe transition flash.
 '
 ' Usage:

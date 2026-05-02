@@ -51,23 +51,23 @@ foreach ($v in $victims) {
 Start-Sleep -Milliseconds 800
 
 $launcher = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs'
-if (Test-Path -LiteralPath $launcher) {
-    # Preferred path: hidden VBS wrapper. wscript.exe is GUI-subsystem so the
-    # spawned PowerShell child starts windowless from the very first instant.
-    Start-Process wscript.exe -ArgumentList @(
-        $launcher,
-        'powershell.exe',
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', 'C:\OEM\agent.ps1'
-    ) | Out-Null
-} else {
-    # Fallback to the legacy direct invocation. Brief PS console flash, but
-    # the agent at least comes back up.
-    Start-Process powershell.exe -ArgumentList @(
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-WindowStyle', 'Hidden',
-        '-File', 'C:\OEM\agent.ps1'
-    ) -WindowStyle Hidden | Out-Null
+if (-not (Test-Path -LiteralPath $launcher)) {
+    # No hidden-launcher.vbs available -> we cannot respawn cleanly. The
+    # legacy `Start-Process powershell.exe -WindowStyle Hidden` fallback
+    # used to live here, but it leaks a ~50ms conhost flash AND only
+    # fires in scenarios where the wrapper file went missing -- which
+    # post-OEM-v13 means a manual delete or filesystem corruption, not
+    # a normal install. Better to fail loudly: HKCU\Run will refire
+    # (via wscript+hidden-launcher.vbs) on the next user logon and
+    # bring the agent back without the flash.
+    exit 1
 }
+# wscript.exe is GUI-subsystem so the spawned PowerShell child starts
+# windowless from the very first instant. No flash.
+Start-Process wscript.exe -ArgumentList @(
+    $launcher,
+    'powershell.exe',
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', 'C:\OEM\agent.ps1'
+) | Out-Null

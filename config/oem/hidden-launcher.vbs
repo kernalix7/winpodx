@@ -1,4 +1,4 @@
-' hidden-launcher.vbs — universal "run any command, never show a window"
+' hidden-launcher.vbs -- universal "run any command, never show a window"
 '
 ' wscript.exe runs as a GUI-subsystem process (no console of its own), and
 ' WshShell.Run with intWindowStyle=0 (SW_HIDE) propagates STARTF_USESHOWWINDOW
