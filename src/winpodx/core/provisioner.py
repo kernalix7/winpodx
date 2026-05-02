@@ -266,6 +266,29 @@ def _apply_multi_session(cfg: Config) -> None:
         "        exit 0",
         "    }",
         "}",
+        # Belt-and-suspenders: even when the marker says non-enabled
+        # (or is missing), check ServiceDll directly. If TermService is
+        # already pointing at termwrap.dll, rdprrap is patched and
+        # multi-session is live — reactivating would needlessly cycle
+        # TermService, kill the agent's RDP session, and leave the agent
+        # dead until the user opens an app to refire HKCU\Run. Stamp the
+        # marker so subsequent apply-fixes calls hit the fast path
+        # above without re-checking the registry every time.
+        # (kernalix7 hit this 2026-05-02: marker = installer-failed
+        # from a partial OEM-time apply, but ServiceDll had successfully
+        # been patched at OEM time and multi-session worked. apply-fixes
+        # fired a redundant activation, killed the agent, and the agent
+        # stayed dead because the user wasn't connecting to apps.)
+        "$svcDll = (Get-ItemProperty"
+        " -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\TermService\\Parameters'"
+        " -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll",
+        "if ($svcDll -match 'termwrap') {",
+        "    Set-Content -LiteralPath $marker -Value 'enabled' -Force"
+        " -ErrorAction SilentlyContinue",
+        '    Write-Output ("rdprrap status: enabled'
+        " (ServiceDll=$svcDll; marker reconciled to 'enabled' from previous state)\")",
+        "    exit 0",
+        "}",
         # Need activation. Confirm the activator + VBS wrapper are staged.
         # vbs_launchers (which runs before this step in the apply chain)
         # pushes both. If they're missing, the user is on a pod older
