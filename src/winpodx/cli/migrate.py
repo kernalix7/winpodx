@@ -34,6 +34,27 @@ _MARKER_VERSION_RE = re.compile(r"^\d+(\.\d+){0,3}[a-z0-9]*$")
 # version. Add new entries at the top when cutting a release. Keep each
 # note user-facing, not developer-facing — three to six bullets max.
 _VERSION_NOTES: dict[str, list[str]] = {
+    "0.3.1": [
+        "Multi-session RDP auto-activates on `winpodx pod apply-fixes` "
+        "(and migrate). The 'Select a session to reconnect to' dialog "
+        "that appeared on every multi-app launch when rdprrap activation "
+        "had failed at OEM time is now self-healed without container "
+        "recreate. RDP sessions briefly disconnect (~10 s) during first-"
+        "migration activation; subsequent applies are no-ops.",
+        "`winpodx pod multi-session on` works at runtime — spawns a "
+        "detached activator that survives the TermService restart it "
+        "triggers. Existing pods get the activator script staged via "
+        "`apply-fixes` (vbs_launchers step pushes it).",
+        "install.bat consolidates ~80 lines of inline rdprrap install/"
+        "verify/marker logic onto rdprrap-activate.ps1 — single source "
+        "of truth shared by OEM-time and runtime activation paths. "
+        "OEM bundle 16 → 18.",
+        "migrate no longer skips apply-fixes on RTM-suffixed pods. "
+        "Version parser was treating `0.3.0-RTM1` as `(0, 3)` instead of "
+        "`(0, 3, 0)`, dropping the apply-fixes step. Stale `< 0.1.9` "
+        "gate on the cross-version path also removed — chain is "
+        "idempotent so it's safe to always run.",
+    ],
     "0.3.0": [
         "HTTP guest agent — host→guest commands now ride a bearer-authed "
         "/exec endpoint inside Windows. PowerShell window flashes on "
@@ -144,14 +165,17 @@ def run_migrate(args: argparse.Namespace) -> int:
     if inst_cmp < (0, 1, 9) <= cur_cmp:
         _maybe_cleanup_legacy_bundled(non_interactive)
 
-    # v0.1.9.2: when upgrading TO v0.1.9 or later, proactively apply
-    # Windows-side fixes (OEM v7+v8 equivalents) to the existing guest
-    # so the user doesn't have to recreate their container. install.bat
-    # only runs on a fresh container, so without this step a 0.1.6 -> 0.1.9.2
-    # user would never see RDP-timeout / NIC-power / TermService-recovery
-    # fixes land on their actual Windows VM.
-    if inst_cmp < (0, 1, 9) <= cur_cmp:
-        _apply_runtime_fixes_to_existing_guest(non_interactive)
+    # Always run the idempotent apply chain on a cross-version upgrade.
+    # Originally this was gated on `inst_cmp < (0, 1, 9) <= cur_cmp` to
+    # back-port OEM v7+v8 fixes to pre-0.1.9 pods, but the chain has
+    # since grown (multi_session auto-activate, vbs_launchers, oem_runtime
+    # _fixes) and every helper is idempotent — running on a pod that's
+    # already at-or-past the relevant fix produces a marker probe + a
+    # no-op return, no side effects. Removing the gate ensures users
+    # crossing 0.3.0 -> 0.3.x or any future version get newly-added
+    # fixes on the existing guest without having to recreate the
+    # container.
+    _apply_runtime_fixes_to_existing_guest(non_interactive)
 
     if skip_refresh:
         print("\nSkipping app discovery (--no-refresh).")
@@ -301,14 +325,26 @@ def _write_installed_version(version: str) -> None:
 def _version_tuple(v: str) -> tuple[int, ...]:
     """Parse ``'0.1.8'`` -> ``(0, 1, 8)``.
 
-    Stops at the first non-integer segment so a pre-release suffix like
-    ``0.1.8rc1`` still compares correctly against ``0.1.8``.
+    Extracts leading digits from each dot-segment so pre-release
+    suffixes (``0.1.8rc1``, ``0.3.0-RTM1``, ``0.3.0+dev``) parse to a
+    full N-tuple that compares correctly against shipped tuples.
+    Without this, ``0.3.0-RTM1`` split on '.' would yield
+    ``['0', '3', '0-RTM1']``; the old loop hit ``int('0-RTM1')`` which
+    raised, broke out, and returned ``(0, 3)`` — a 2-tuple that lex-
+    compared < every ``(0, 3, 0)`` shipped, dropping migrate's
+    apply-fixes step on the floor for every RTM-suffixed install.
     """
     out: list[int] = []
     for segment in v.strip().split("."):
-        try:
-            out.append(int(segment))
-        except ValueError:
+        m = re.match(r"^(\d+)", segment)
+        if not m:
+            break
+        out.append(int(m.group(1)))
+        if not segment.isdigit():
+            # Mixed segment (leading digits + pre-release tag) —
+            # extracted the digits, now stop. The remaining tag is a
+            # pre-release marker that doesn't carry comparable order
+            # for our [:3] comparison purposes.
             break
     return tuple(out)
 

@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-02
+
+v0.3.0-RTM1 → main 마이그레이션 경로가 컨테이너 재생성 없이 multi-session 활성화 갭을 실제로 self-heal 하도록 만든 maintenance 릴리스. OEM-time 과 runtime rdprrap 활성화 경로도 단일 스크립트로 통합.
+
 ### 추가
 - **Nix flake.** `nix run github:kernalix7/winpodx`, `nix profile install github:kernalix7/winpodx`, 또는 `inputs.winpodx.url = "github:kernalix7/winpodx"`. Wrapper 가 FreeRDP, podman / podman-compose, iproute2, libnotify 를 번들로 포함해 기본 podman 백엔드는 추가 설정 없이 동작; docker 와 libvirt 는 opt-in 유지. devShell 에 동일한 런타임 툴 + ruff + mypy + `src/` 를 `PYTHONPATH` 에 노출. README (en + ko) 에 Nix install 섹션 추가. (Thanks @Mic92 — PR #65.)
 
