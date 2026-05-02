@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### 수정
+- **`cfg.pod.image` 가 SHA-pinned dockur image 로 default; migrate 가 기존 pod 도 정렬.** 이전엔 `cfg.pod.image` 가 `docker.io/dockurr/windows:latest` (또는 v0.3.0 이하 설치는 `ghcr.io/dockur/windows:latest`) 로 default 였음. 매 `podman-compose up` 마다 tag 가 dockur 가 그 사이 push 한 최신으로 재해상도됨. resolved digest 가 바뀌면 (자주 — dockur 릴리스 주기가 거의 일별), podman-compose 가 spec mismatch 로 판단해서 **컨테이너 재생성**. kernalix7 이 2026-05-02 정확히 이 상황 만남: dockur 가 proc.sh substring failure (`proc.sh: line 137: -1: substring expression < 0`) 가 든 `:latest` push 한 직후, 일상적인 `install.sh --main` 업그레이드 가 멀쩡한 pod 위에 컨테이너 rebuild + 7.5GB ISO 재다운로드 + Sysprep 초기화 트리거. Pin: `cfg.pod.image` default 가 `docker.io/dockurr/windows@sha256:20b398ab935465f97ec8ab06489f7a85a5ad58e74e036ce66cc3c9172e7dbea8` (릴리스 시점에 Docker Hub registry 에서 조회 후 `core.config` 의 `DOCKUR_IMAGE_PIN` 으로 보관). Migrate 의 "already current" + cross-version 경로 모두 새 `_ensure_canonical_image_pin` 단계 호출 — 기존 pod 의 `cfg.pod.image` + `compose.yaml` 을 main fresh install 과 동일한 canonical pin 으로 재작성. 다음 `pod start` 에서 컨테이너 1회 재생성 (~30초, storage volume 보존 → ISO 재다운로드 없음, Sysprep 없음), 이후 dockur :latest 변동 영향 없음. Idempotent — 이미 pinned 된 config 에 migrate 재실행하면 rewrite 전에 short-circuit.
+- **`winpodx setup --update-image` 명시적 dockur 버전 갱신.** 기존 `setup` 서브커맨드에 새 플래그. 사용자의 container backend 로 `docker.io/dockurr/windows:latest` pull → 로컬 image 의 repo-digest 해결 → `cfg.pod.image` 에 저장 → `compose.yaml` 재생성. 새 pin 을 출력해서 사용자가 무엇으로 잠그는지 확인 가능. 다음 `pod start` 시 migrate 경로와 동일한 recreate 비용 (~30초, volume 보존). **fresh `:latest` 를 pull 하는 유일한 경로** — 다른 모든 경로는 bundled / persisted pin 사용.
+
 ## [0.3.1] - 2026-05-02
 
 v0.3.0-RTM1 → main 마이그레이션 경로가 컨테이너 재생성 없이 multi-session 활성화 갭을 실제로 self-heal 하도록 만든 maintenance 릴리스. OEM-time 과 runtime rdprrap 활성화 경로도 단일 스크립트로 통합.

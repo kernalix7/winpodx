@@ -155,6 +155,18 @@ def cli(argv: list[str] | None = None) -> None:
     setup_p = sub.add_parser("setup", help="Run setup wizard")
     setup_p.add_argument("--backend", choices=["podman", "docker", "libvirt", "manual"])
     setup_p.add_argument("--non-interactive", action="store_true")
+    setup_p.add_argument(
+        "--update-image",
+        action="store_true",
+        help=(
+            "Pull the latest dockur/windows from docker.io, resolve its "
+            "digest, and pin cfg.pod.image to it. The next `winpodx pod "
+            "start` will recreate the container so the new image takes "
+            "effect (volume preserved — ~30 s, no ISO redownload). "
+            "Without this flag, the bundled DOCKUR_IMAGE_PIN stays in "
+            "place across upgrades."
+        ),
+    )
 
     # --- other commands ---
     sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")

@@ -64,9 +64,106 @@ def _ask(prompt: str, default: str = "") -> str:
         return default
 
 
+def _update_image_pin() -> int:
+    """Pull docker.io/dockurr/windows:latest, resolve its digest, pin
+    cfg.pod.image to it, and regenerate compose.yaml. Returns the
+    process exit code (0 on success, non-zero on failure).
+
+    Cost on next ``pod start``: container recreate (volume preserved,
+    ~30 s, no ISO redownload). Idempotent: if the resolved digest
+    matches the current pin, prints a no-op message and returns 0.
+    """
+    import shutil
+    import subprocess
+
+    from winpodx.core.config import Config
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(f"--update-image only supports podman/docker (got {cfg.pod.backend!r}).")
+        return 2
+
+    backend = cfg.pod.backend
+    if not shutil.which(backend):
+        print(f"`{backend}` not found in PATH.")
+        return 2
+
+    print("Pulling docker.io/dockurr/windows:latest...")
+    try:
+        subprocess.run(
+            [backend, "pull", "docker.io/dockurr/windows:latest"],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"FAIL: pull exit={e.returncode}")
+        return 3
+
+    # Resolve the now-local image's repo-digest. RepoDigests is a list
+    # of `<repo>@sha256:...` references — we filter to the docker.io
+    # one so the pin always uses the canonical registry path.
+    print("Resolving image digest...")
+    try:
+        result = subprocess.run(
+            [
+                backend,
+                "image",
+                "inspect",
+                "docker.io/dockurr/windows:latest",
+                "-f",
+                "{{json .RepoDigests}}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"FAIL: image inspect exit={e.returncode}: {e.stderr.strip()}")
+        return 3
+
+    import json
+
+    try:
+        digests = json.loads(result.stdout.strip()) or []
+    except json.JSONDecodeError:
+        digests = []
+    pinned = next((d for d in digests if d.startswith("docker.io/")), None)
+    if not pinned and digests:
+        pinned = digests[0]
+    if not pinned or "@sha256:" not in pinned:
+        print(f"FAIL: no usable digest in RepoDigests={digests!r}")
+        return 3
+
+    if cfg.pod.image == pinned:
+        print(f"Image already pinned to {pinned}. Nothing to do.")
+        return 0
+
+    print(f"Old pin: {cfg.pod.image}")
+    print(f"New pin: {pinned}")
+    cfg.pod.image = pinned
+    cfg.save()
+
+    try:
+        from winpodx.core.compose import generate_compose
+
+        generate_compose(cfg)
+    except Exception as e:  # noqa: BLE001
+        print(f"FAIL: compose.yaml regenerate ({e})")
+        return 3
+
+    print(
+        "OK: cfg.pod.image + compose.yaml updated.\n"
+        "Next `winpodx pod start` recreates the container with the new image\n"
+        "(~30 s, storage volume preserved — no ISO redownload, no Sysprep)."
+    )
+    return 0
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
     import sys
+
+    if getattr(args, "update_image", False):
+        sys.exit(_update_image_pin())
 
     backend = args.backend
     non_interactive = args.non_interactive

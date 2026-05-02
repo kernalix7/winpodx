@@ -21,6 +21,23 @@ _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DEFAULT_CONTAINER_NAME = "winpodx-windows"
 
+# Pinned dockur/windows image — the default ``cfg.pod.image``. Bumping
+# this digest is a deliberate per-release decision (so winpodx ships a
+# specific tested dockur version with each release), not a side effect
+# of dockur pushing a new ``:latest``. ``winpodx setup --update-image``
+# resolves a fresh digest from ``docker.io/dockurr/windows:latest`` for
+# users who explicitly want to track upstream.
+#
+# Update procedure (release-time): query Docker Hub registry for the
+# current ``:latest`` digest, paste below. See ``winpodx setup --update
+# -image`` for the runtime equivalent users invoke explicitly.
+#
+# As of 2026-05-02:
+DOCKUR_IMAGE_PIN = (
+    "docker.io/dockurr/windows@sha256:"
+    "20b398ab935465f97ec8ab06489f7a85a5ad58e74e036ce66cc3c9172e7dbea8"
+)
+
 
 @dataclass
 class RDPConfig:
@@ -59,9 +76,15 @@ class PodConfig:
     auto_start: bool = True
     idle_timeout: int = 0  # 0 = disabled
     boot_timeout: int = 300  # seconds, max wait for RDP after start_pod
-    # Container image for dockur/windows. Expose as config so users can
-    # pin a known-good tag or switch to a mirror.
-    image: str = "docker.io/dockurr/windows:latest"
+    # Container image for dockur/windows. Pinned to a specific digest by
+    # default so dockur pushing a new ``:latest`` doesn't trigger an
+    # unsolicited container recreate (which dockur sometimes ships with
+    # transient bugs in proc.sh, and which always rebuilds the disk
+    # volume → multi-minute Sysprep). Users who want bleeding-edge
+    # dockur can override to a tag in ``winpodx.toml``; explicit
+    # update is via ``winpodx setup --update-image`` (pulls latest +
+    # rewrites the pin).
+    image: str = DOCKUR_IMAGE_PIN
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
     # Maximum concurrent RemoteApp sessions. Writes
@@ -89,7 +112,7 @@ class PodConfig:
             # Fall back silently so a hand-edited config does not brick setup.
             self.container_name = _DEFAULT_CONTAINER_NAME
         if not isinstance(self.image, str) or not self.image.strip():
-            self.image = "docker.io/dockurr/windows:latest"
+            self.image = DOCKUR_IMAGE_PIN
         if not isinstance(self.disk_size, str) or not self.disk_size.strip():
             self.disk_size = "64G"
 

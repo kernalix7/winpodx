@@ -150,6 +150,7 @@ def run_migrate(args: argparse.Namespace) -> int:
         # rather than letting them watch all three applies fail in confusing
         # ways.
         _probe_password_sync(non_interactive)
+        _ensure_canonical_image_pin(non_interactive)
         _apply_runtime_fixes_to_existing_guest(non_interactive)
         return 0
 
@@ -175,6 +176,7 @@ def run_migrate(args: argparse.Namespace) -> int:
     # crossing 0.3.0 -> 0.3.x or any future version get newly-added
     # fixes on the existing guest without having to recreate the
     # container.
+    _ensure_canonical_image_pin(non_interactive)
     _apply_runtime_fixes_to_existing_guest(non_interactive)
 
     if skip_refresh:
@@ -505,6 +507,67 @@ def _probe_password_sync(non_interactive: bool) -> None:
             print(f"  (probe inconclusive: {e})")
     else:
         print("  Password sync OK.")
+
+
+def _ensure_canonical_image_pin(non_interactive: bool) -> None:
+    """Align the existing pod's image with what a fresh install would
+    write — i.e., the packaged ``DOCKUR_IMAGE_PIN``.
+
+    Pre-this-step, ``cfg.pod.image`` was persisted at first setup
+    (``ghcr.io/dockur/windows:latest`` for installs ≤ v0.3.0, since
+    PR #62 the docker.io variant), and ``install.sh --main`` left it
+    untouched on subsequent upgrades. With ``:latest``, every
+    ``podman-compose up`` re-resolved the tag against whatever dockur
+    had pushed since — when the resolved digest changed (frequently,
+    since dockur's release cadence is daily-ish), podman-compose
+    treated the spec as different and *recreated the container*. The
+    user's session reported on 2026-05-02 caught dockur mid-bug
+    (proc.sh line 137 substring failure) on a fresh ``:latest`` push,
+    surfacing as a multi-minute "fresh install" cycle from a working
+    pod that had nothing wrong with it.
+
+    Migration semantics: ``winpodx migrate`` should leave the pod in
+    the state a *fresh main install would produce*. That means
+    ``cfg.pod.image == DOCKUR_IMAGE_PIN``. We rewrite both the
+    persisted config and ``compose.yaml`` so the next ``pod start``
+    sees the canonical pin.
+
+    Cost: one container recreate on the next ``pod start``. The
+    storage volume (``winpodx_winpodx-data``) persists across
+    recreates, so dockur's first-boot install marker still exists in
+    the volume — no Sysprep, no ISO redownload, ~30 s downtime.
+    Idempotent: re-running migrate on an already-pinned config is a
+    no-op (string equality check returns False before any rewrite).
+    """
+    from winpodx.core.config import DOCKUR_IMAGE_PIN, Config
+
+    cfg = Config.load()
+    if cfg.pod.image == DOCKUR_IMAGE_PIN:
+        return  # already aligned with what a fresh install would write
+    if cfg.pod.backend not in ("podman", "docker"):
+        return  # libvirt / manual backends don't use the dockur image
+
+    print("\nAligning container image with this winpodx version...")
+    print(f"  was: {cfg.pod.image}")
+    print(f"  now: {DOCKUR_IMAGE_PIN}")
+    cfg.pod.image = DOCKUR_IMAGE_PIN
+    cfg.save()
+
+    try:
+        from winpodx.core.compose import generate_compose
+
+        generate_compose(cfg)
+    except Exception as e:  # noqa: BLE001
+        print(f"  warning: compose.yaml regenerate failed ({e})")
+        return
+
+    print(
+        "  cfg.pod.image + compose.yaml updated.\n"
+        "  Next `winpodx pod start` will recreate the container so the new\n"
+        "  image pin takes effect (~30 s, storage volume preserved — no ISO\n"
+        "  redownload, no Sysprep). Future dockur :latest pushes won't\n"
+        "  trigger automatic recreates."
+    )
 
 
 def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
