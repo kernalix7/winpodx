@@ -317,37 +317,38 @@ def _multi_session_enable(cfg) -> None:  # type: ignore[no-untyped-def]
 
     # Verify the activation script is staged. If not, surface a clear
     # action ("run apply-fixes first") instead of a silent no-op.
-    payload = "\n".join(
-        [
-            "$ErrorActionPreference = 'Stop'",
-            f"$activate = '{activate_ps1}'",
-            f"$hidden = '{hidden_vbs}'",
-            "if (-not (Test-Path -LiteralPath $activate)) {",
-            "    Write-Output 'NOT-STAGED'",
-            "    exit 2",
-            "}",
-            "if (-not (Test-Path -LiteralPath $hidden)) {",
-            "    Write-Output 'NOT-STAGED'",
-            "    exit 2",
-            "}",
-            # -Detached makes the script wait 2s before TermService cycle
-            # so this /exec response can return before the agent's user
-            # session dies. install.bat invokes the same script WITHOUT
-            # -Detached (synchronous OEM-time path).
-            "$startArgs = @($hidden, 'powershell.exe', '-NoProfile',",
-            "         '-ExecutionPolicy', 'Bypass', '-File', $activate,",
-            "         '-Detached')",
-            "Start-Process wscript.exe -ArgumentList $startArgs | Out-Null",
-            "Write-Output 'QUEUED'",
-            "exit 0",
-        ]
-    ) + "\n"
+    payload = (
+        "\n".join(
+            [
+                "$ErrorActionPreference = 'Stop'",
+                f"$activate = '{activate_ps1}'",
+                f"$hidden = '{hidden_vbs}'",
+                "if (-not (Test-Path -LiteralPath $activate)) {",
+                "    Write-Output 'NOT-STAGED'",
+                "    exit 2",
+                "}",
+                "if (-not (Test-Path -LiteralPath $hidden)) {",
+                "    Write-Output 'NOT-STAGED'",
+                "    exit 2",
+                "}",
+                # -Detached makes the script wait 2s before TermService cycle
+                # so this /exec response can return before the agent's user
+                # session dies. install.bat invokes the same script WITHOUT
+                # -Detached (synchronous OEM-time path).
+                "$startArgs = @($hidden, 'powershell.exe', '-NoProfile',",
+                "         '-ExecutionPolicy', 'Bypass', '-File', $activate,",
+                "         '-Detached')",
+                "Start-Process wscript.exe -ArgumentList $startArgs | Out-Null",
+                "Write-Output 'QUEUED'",
+                "exit 0",
+            ]
+        )
+        + "\n"
+    )
 
     print("Queuing multi-session activation (detached)...")
     try:
-        result = run_via_transport(
-            cfg, payload, description="multi-session-enable", timeout=20
-        )
+        result = run_via_transport(cfg, payload, description="multi-session-enable", timeout=20)
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)
@@ -402,9 +403,7 @@ def _multi_session_disable(cfg) -> None:  # type: ignore[no-untyped-def]
 
     print("Disabling multi-session RDP via rdprrap...")
     try:
-        result = run_via_transport(
-            cfg, payload, description="multi-session-disable", timeout=45
-        )
+        result = run_via_transport(cfg, payload, description="multi-session-disable", timeout=45)
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)
@@ -430,35 +429,33 @@ def _multi_session_status(cfg) -> None:  # type: ignore[no-untyped-def]
     """Probe the activation_status marker + tail install.log on failure."""
     from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
-    payload = "\n".join(
-        [
-            "$marker = 'C:\\winpodx\\rdprrap\\.activation_status'",
-            "$logPath = 'C:\\winpodx\\rdprrap\\install.log'",
-            "if (-not (Test-Path -LiteralPath $marker)) {",
-            "    Write-Output 'no activation marker; pre-OEM-v15 install or"
-            " never activated'",
-            "    Write-Output 'run `winpodx pod multi-session on` to"
-            " activate at runtime'",
-            "    exit 0",
-            "}",
-            "$status = (Get-Content -LiteralPath $marker -ErrorAction"
-            " SilentlyContinue | Select-Object -First 1)",
-            "Write-Output (\"rdprrap status: $status\")",
-            "if ($status -ne 'enabled' -and (Test-Path -LiteralPath $logPath)) {",
-            "    Write-Output '--- install.log tail ---'",
-            "    Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction"
-            " SilentlyContinue",
-            "    Write-Output '--- end install.log ---'",
-            "}",
-            "exit 0",
-        ]
-    ) + "\n"
+    payload = (
+        "\n".join(
+            [
+                "$marker = 'C:\\winpodx\\rdprrap\\.activation_status'",
+                "$logPath = 'C:\\winpodx\\rdprrap\\install.log'",
+                "if (-not (Test-Path -LiteralPath $marker)) {",
+                "    Write-Output 'no activation marker; pre-OEM-v15 install or never activated'",
+                "    Write-Output 'run `winpodx pod multi-session on` to activate at runtime'",
+                "    exit 0",
+                "}",
+                "$status = (Get-Content -LiteralPath $marker -ErrorAction"
+                " SilentlyContinue | Select-Object -First 1)",
+                'Write-Output ("rdprrap status: $status")',
+                "if ($status -ne 'enabled' -and (Test-Path -LiteralPath $logPath)) {",
+                "    Write-Output '--- install.log tail ---'",
+                "    Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction SilentlyContinue",
+                "    Write-Output '--- end install.log ---'",
+                "}",
+                "exit 0",
+            ]
+        )
+        + "\n"
+    )
 
     print("Querying multi-session status...")
     try:
-        result = run_via_transport(
-            cfg, payload, description="multi-session-status", timeout=20
-        )
+        result = run_via_transport(cfg, payload, description="multi-session-status", timeout=20)
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)
