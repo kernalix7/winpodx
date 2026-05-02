@@ -355,10 +355,15 @@ class TestWaitForWindowsResponsiveRetries:
         assert wait_for_windows_responsive(cfg, timeout=60) is True
         assert len(attempts) >= 4, "must keep polling past first unavailable"
 
-    def test_returns_false_only_after_deadline(self, monkeypatch):
-        """If /health never responds for the full timeout, helper must
-        take roughly ``timeout`` seconds — not return False after the
-        first attempt."""
+    def test_returns_true_when_rdp_up_but_agent_never_responds(self, monkeypatch):
+        """If RDP is up but /health never responds within the agent
+        budget, the helper now returns ``True`` (Windows is responsive
+        — host code can fall back to FreeRDP RemoteApp). Pre-fix this
+        returned ``False`` after polling /health for the full timeout,
+        which deadlocked install.sh's wait-ready phase 3 for 60 minutes
+        on pods where the agent didn't come up cleanly. Polling must
+        still happen — we don't return on the first failure — but the
+        eventual outcome is True with a logged warning, not False."""
         from winpodx.core.provisioner import wait_for_windows_responsive
         from winpodx.core.transport.base import HealthStatus
 
@@ -385,6 +390,6 @@ class TestWaitForWindowsResponsiveRetries:
 
         monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport.health", fake_health)
 
-        result = wait_for_windows_responsive(cfg, timeout=30)
-        assert result is False
+        result = wait_for_windows_responsive(cfg, timeout=120)
+        assert result is True
         assert len(attempts) >= 2, "must retry rather than bail on first failure"

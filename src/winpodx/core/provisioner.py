@@ -182,18 +182,35 @@ def _apply_max_sessions(cfg: Config) -> None:
 def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     """Poll until the Windows guest is ready to accept commands.
 
-    Readiness signal: agent /health responds. agent.ps1 only binds the
-    listener AFTER install.bat finishes + autologon User logs in +
-    token has been read, so /health responding is the unambiguous
-    "ready" signal. Probe is HTTP-only — no FreeRDP RemoteApp, no
-    PowerShell-window flashes during the polling loop.
+    Two-stage readiness probe:
 
-    Returns True once /health answers, False at timeout.
+    Stage 1 (RDP port). The TermService listener comes up before user
+    logon, so an open RDP port means Windows itself is alive (Sysprep
+    done, kernel + services booted). Required.
+
+    Stage 2 (agent /health). agent.ps1 binds 8765 only after the
+    autologon User logs in and HKCU\\Run fires the wscript wrapper.
+    Preferred — it tells the host that subsequent /exec calls will
+    succeed without falling back to FreeRDP RemoteApp.
+
+    The function used to require BOTH stages (no fallback). That
+    deadlocked install.sh's wait-ready phase 3 when agent.ps1 didn't
+    come up for any reason: HKCU\\Run mis-registered, autologon mid-
+    cycle, agent token mismatch, port-mapping blip — kernalix7 sat at
+    `[3/3] Waiting for Windows activation` for 30+ minutes 2026-05-02
+    on a fresh install where the desktop was visible via VNC. Now:
+    after RDP is open, we wait up to ``min(timeout, 60s)`` for /health
+    to come up. If it does, return True with the agent path live. If
+    it doesn't, return True anyway (Windows IS responsive — host code
+    can fall back to FreeRDP RemoteApp via ``transport.dispatch``) and
+    log a warning so apply-fixes / discovery surface what happened.
+    Only return False if RDP itself never opens.
     """
     from winpodx.core.transport.agent import AgentTransport
 
     deadline = time.monotonic() + max(1, int(timeout))
 
+    # Stage 1 — RDP port. Required.
     while time.monotonic() < deadline:
         if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
             break
@@ -201,16 +218,25 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     else:
         return False
 
+    # Stage 2 — agent /health. Best-effort: cap at 60s since the agent
+    # comes up within ~10s of user logon on a healthy pod and any
+    # longer wait is a sign of a real misconfig that won't resolve by
+    # waiting. We return True anyway so callers proceed (FreeRDP
+    # fallback handles the agent-unavailable path).
     transport = AgentTransport(cfg)
-    while time.monotonic() < deadline:
+    agent_deadline = min(deadline, time.monotonic() + 60)
+    while time.monotonic() < agent_deadline:
         status = transport.health()
         if status.available:
             return True
-        if time.monotonic() < deadline - 5:
-            time.sleep(5)
-        else:
-            break
-    return False
+        time.sleep(5)
+    log.warning(
+        "wait_for_windows_responsive: RDP up but agent /health didn't "
+        "answer within 60s; proceeding via FreeRDP fallback. Run "
+        "`winpodx pod apply-fixes` or check C:\\winpodx\\setup.log "
+        "if subsequent /exec calls keep falling back to FreeRDP."
+    )
+    return True
 
 
 def _apply_multi_session(cfg: Config) -> None:
