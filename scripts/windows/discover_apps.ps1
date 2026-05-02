@@ -1,4 +1,4 @@
-# discover_apps.ps1 — enumerate installed Windows apps and emit JSON on stdout
+# discover_apps.ps1 -- enumerate installed Windows apps and emit JSON on stdout
 #
 # Consumed by winpodx.core.discovery. Four sources are scanned inside the
 # running guest and unioned, deduping by lowercase executable path or UWP
@@ -17,7 +17,7 @@
 #
 # Semantic contract for `launch_uri`:
 #   - source == "uwp"   : bare AUMID of the form `PackageFamilyName!AppId`
-#                         (NO `shell:AppsFolder\` prefix — the host prepends
+#                         (NO `shell:AppsFolder\` prefix -- the host prepends
 #                         that when building the FreeRDP `/app-cmd`). The
 #                         host-side regex `_AUMID_RE` in
 #                         `src/winpodx/core/rdp.py` rejects any value that
@@ -107,15 +107,15 @@ function Get-AppDescription {
     # Win32 binaries rarely fill Comments; ProductName + CompanyName are the
     # only fields we can rely on. The output lands in the Linux .desktop
     # Comment= key (a tooltip), so identical-to-the-name strings are still
-    # useful — better to surface "Microsoft Edge" than the project-wide
+    # useful -- better to surface "Microsoft Edge" than the project-wide
     # "Windows application via winpodx" generic stamp.
     #
     # Order:
-    #   1. Comments — most authored field; trust it when set.
+    #   1. Comments -- most authored field; trust it when set.
     #   2. ProductName when distinct from FileDescription (gives e.g.
     #      "Microsoft Windows Operating System" for inbox tools where the
     #      FileDescription is just "Notepad").
-    #   3. CompanyName when present — "by Microsoft Corporation" is a
+    #   3. CompanyName when present -- "by Microsoft Corporation" is a
     #      meaningful tooltip even when ProductName duplicates the name.
     #   4. Bare ProductName as a last resort (still better than nothing).
     param([string]$ExePath)
@@ -170,12 +170,12 @@ if ($DryRun) {
 # At Sysprep first-boot the user session has just started: AppX deployment
 # is still finishing, Start Menu indexer hasn't propagated all .lnk files
 # yet, AppXSvc may still be queueing work. discovery firing in this 30-60 s
-# window returns partial / empty results — kernalix7 reported the menu
+# window returns partial / empty results -- kernalix7 reported the menu
 # populating one install, missing UWP entries the next, despite identical
 # config. Both symptoms collapse to "we ran too early".
 #
 # Gate: wait until BOTH conditions hold or until the bounded budget
-# expires (we proceed regardless after timeout — a partial discovery is
+# expires (we proceed regardless after timeout -- a partial discovery is
 # better than none, and the host's retry-on-empty layer covers the
 # all-empty case).
 #
@@ -188,7 +188,7 @@ if ($DryRun) {
 # Quiescence: poll every 1 s; require 3 consecutive samples where
 # AppXSvc is Running + .lnk count is non-zero before declaring ready.
 # This catches the case where AppXSvc flips Running briefly during
-# StartPending → Running → restart cycles.
+# StartPending -> Running -> restart cycles.
 
 $readyBudgetSec = 60
 $pollIntervalSec = 1
@@ -216,7 +216,7 @@ while ((Get-Date) -lt $readyDeadline) {
     if ($appxRunning -and $lnkCount -gt 0) {
         $stableSamples++
         if ($stableSamples -ge $stableSamplesNeeded) {
-            [Console]::Error.WriteLine("[discover] stable (AppXSvc=Running, .lnk=$lnkCount, samples=$stableSamples) — proceeding")
+            [Console]::Error.WriteLine("[discover] stable (AppXSvc=Running, .lnk=$lnkCount, samples=$stableSamples) -- proceeding")
             break
         }
     } else {
@@ -262,7 +262,7 @@ function Add-Result {
 # windows_exec.run_in_windows with a progress_callback, the wrapper
 # defines `Write-WinpodxProgress`. When run standalone (or via a wrapper
 # that doesn't define it) the function is missing and the calls would
-# error — define a no-op shim that yields when the real one isn't
+# error -- define a no-op shim that yields when the real one isn't
 # available.
 if (-not (Get-Command 'Write-WinpodxProgress' -ErrorAction SilentlyContinue)) {
     function Write-WinpodxProgress($msg) { }
@@ -403,7 +403,7 @@ try {
                             $displayName = $dn
                         }
                         # AppxManifest's <VisualElements Description="..."> is the
-                        # Start-menu tooltip — exactly what we want for the
+                        # Start-menu tooltip -- exactly what we want for the
                         # Linux .desktop Comment field. Skip ms-resource:
                         # indirections that PowerShell can't resolve in a
                         # non-interactive session.
@@ -507,7 +507,7 @@ foreach ($d in $shimDirs) {
 # --- Source 5: Essentials (always emit) ------------------------------------
 #
 # OS staples (File Explorer, Calculator, Settings) sometimes fall through
-# the previous sources — File Explorer has no Start Menu .lnk, and UWP apps
+# the previous sources -- File Explorer has no Start Menu .lnk, and UWP apps
 # whose DisplayName is an unresolved ms-resource: lookup get filtered as
 # junk by the host because their fallback name is a dotted package id.
 # Emit them explicitly here with proper icons + launch args so the host
@@ -515,15 +515,15 @@ foreach ($d in $shimDirs) {
 
 Write-WinpodxProgress 'Emitting essential apps (File Explorer / Calculator / Settings)...'
 
-# File Explorer — must launch with a shell: argument so RemoteApp opens a
+# File Explorer -- must launch with a shell: argument so RemoteApp opens a
 # window instead of trying to take over as the user shell. ``shell:MyComputerFolder``
 # opens the "This PC" view; the cmd: side propagates as explorer.exe args.
 try {
     $explorer = Join-Path $env:WINDIR 'explorer.exe'
     if (Test-Path -LiteralPath $explorer) {
         # Pull the real description from explorer.exe's VersionInfo via the
-        # same Get-AppDescription helper Source 1-4 use — no hardcoded
-        # string. Stock Win11 returns "Microsoft® Windows® Operating
+        # same Get-AppDescription helper Source 1-4 use -- no hardcoded
+        # string. Stock Win11 returns "Microsoft(R) Windows(R) Operating
         # System" (ProductName, since it differs from FileDescription
         # "Windows Explorer").
         Add-Result @{

@@ -1,4 +1,4 @@
-# agent-respawn.ps1 — kill the running agent.ps1 process and spawn a fresh
+# agent-respawn.ps1 -- kill the running agent.ps1 process and spawn a fresh
 # one via the hidden-launcher.vbs wrapper.
 #
 # Background: HKCU\Run only fires once per user session, so the new wscript
@@ -47,7 +47,7 @@ foreach ($v in $victims) {
 }
 
 # Wait briefly for port 8765 to release. HttpListener doesn't always release
-# immediately — give the kernel a beat.
+# immediately -- give the kernel a beat.
 Start-Sleep -Milliseconds 800
 
 $launcher = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs'

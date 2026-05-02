@@ -1,12 +1,12 @@
 # =====================================================================
-# winpodx guest agent (Phase 2) — /health + bearer-auth /exec
+# winpodx guest agent (Phase 2) -- /health + bearer-auth /exec
 # =====================================================================
 #
 # Purpose
 # -------
 # HTTP server inside the Windows guest. Phase 1 shipped the bare
 # /health readiness probe. Phase 2 adds bearer-auth and a POST /exec
-# endpoint that runs base64-encoded PowerShell snippets — replacing
+# endpoint that runs base64-encoded PowerShell snippets -- replacing
 # FreeRDP RemoteApp PowerShell calls for non-sensitive host -> guest
 # traffic so the host can stop emitting visible PS-window flashes for
 # every registry tweak / discovery roundtrip.
@@ -15,10 +15,10 @@
 # ----------
 #   * Bind: ``http://+:8765/`` (all interfaces inside the Windows VM).
 #     QEMU's user-mode NAT forwards from the container to the VM's
-#     slirp interface (10.0.2.15:8765, NOT 127.0.0.1:8765 — slirp
+#     slirp interface (10.0.2.15:8765, NOT 127.0.0.1:8765 -- slirp
 #     hostfwd targets the VM's main NIC, not loopback). Binding only
 #     to 127.0.0.1 inside Windows would mean slirp's forwarded packets
-#     hit a closed port — kernalix7 saw "Connection reset by peer" on
+#     hit a closed port -- kernalix7 saw "Connection reset by peer" on
 #     2026-04-30 from exactly this. Binding to ``+`` covers all
 #     interfaces. The agent is still externally unreachable: compose's
 #     ``127.0.0.1:8765:8765/tcp`` mapping is loopback-only on the host,
@@ -33,7 +33,7 @@
 #     process and HKCU\Run does not auto-restart.
 #   * The token is never logged or echoed back. /exec script content
 #     lands in C:\OEM\agent.log only as a SHA256 hash, never the raw
-#     payload — sensitive payloads (registry keys, credentials touched
+#     payload -- sensitive payloads (registry keys, credentials touched
 #     by self-heal) must not survive in the log.
 # =====================================================================
 
@@ -95,7 +95,7 @@ function Compare-Constant([string]$a, [string]$b) {
 
 # Read the Authorization header off an HttpListener request, strip the
 # "Bearer " prefix, and constant-time compare against $script:Token.
-# Returns $true / $false — never throws, never logs the supplied value.
+# Returns $true / $false -- never throws, never logs the supplied value.
 function Test-Auth($req) {
     $h = $req.Headers['Authorization']
     if (-not $h) { return $false }
@@ -109,7 +109,7 @@ function Read-Body($req) {
     try { return $sr.ReadToEnd() } finally { $sr.Dispose() }
 }
 
-# SHA256 hex of arbitrary bytes — used to log a fingerprint of /exec
+# SHA256 hex of arbitrary bytes -- used to log a fingerprint of /exec
 # script payloads without spilling the script itself into agent.log.
 function Get-BytesHash([byte[]]$bytes) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -161,7 +161,7 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
         # Spawn the child via [Diagnostics.Process] + ProcessStartInfo with
         # CreateNoWindow=$true. Start-Process -NoNewWindow re-opens a console
         # for the child when the parent (agent.ps1) was launched with
-        # -WindowStyle Hidden — kernalix7 saw flashing PS windows on every
+        # -WindowStyle Hidden -- kernalix7 saw flashing PS windows on every
         # /exec call on 2026-04-30. CreateNoWindow + UseShellExecute=$false
         # is the canonical "run windowless and capture stdio" combination.
         $proc = $null
@@ -195,7 +195,7 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
             # Start-Process -PassThru can leave ExitCode as $null even after
             # WaitForExit() returns true (Windows quirk: handle isn't kept open
             # for fast-exiting children unless the StartInfo enables it). The
-            # process did terminate cleanly, so treat null as 0 — and never
+            # process did terminate cleanly, so treat null as 0 -- and never
             # emit a non-int rc, since the host AgentClient parses it as int.
             $exitCode = $proc.ExitCode
             if ($null -eq $exitCode) { $rc = 0 } else { $rc = [int]$exitCode }
@@ -235,7 +235,7 @@ try {
     # because it conflicts with an existing registration on the machine"
     # when the URL ACL is owned by a different user (stale registration
     # from a previous install / different SDDL). install.bat pre-registers
-    # the URL ACL with user=Everyone for exactly this reason — but if
+    # the URL ACL with user=Everyone for exactly this reason -- but if
     # someone deleted that or the install.bat block didn't run, we want
     # the failure visible in agent.log instead of a silent process exit.
     $err = "HttpListener.Start() failed: $($_.Exception.Message)"

@@ -1,8 +1,8 @@
-# launch_uwp.ps1 — activate a UWP/MSIX app by AUMID via COM, no explorer.exe
+# launch_uwp.ps1 -- activate a UWP/MSIX app by AUMID via COM, no explorer.exe
 #
 # The default RemoteApp UWP launch (`explorer.exe shell:AppsFolder\<AUMID>`)
 # briefly shows an explorer.exe RemoteApp window before dispatching to the
-# UWP frame — that's the "PowerShell-looking flash" users see when launching
+# UWP frame -- that's the "PowerShell-looking flash" users see when launching
 # Calculator / Settings / Terminal et al. Calling IApplicationActivationManager
 # directly skips the explorer transition: the UWP frame appears immediately
 # without an intermediate window.
@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# IApplicationActivationManager — Windows shell COM interface for launching
+# IApplicationActivationManager -- Windows shell COM interface for launching
 # packaged apps by AUMID. Documented in MSDN; available since Windows 8.
 #
 # Why a C# helper instead of calling the COM object directly from PowerShell:
@@ -77,7 +77,7 @@ try {
     [void][WinpodxUwpLauncher]::Activate($Aumid)
     exit 0
 } catch {
-    # Don't surface to the user with a console — write to a log the agent can
+    # Don't surface to the user with a console -- write to a log the agent can
     # tail. Swallowing keeps RemoteApp's "session ended" return code clean
     # rather than dumping an uncaught .NET stack on the silent path.
     try {
