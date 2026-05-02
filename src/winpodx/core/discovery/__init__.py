@@ -414,9 +414,72 @@ def _runtime_for(backend: str) -> str:
     )
 
 
+def _wait_for_transport_ready(
+    cfg: Config,
+    *,
+    max_wait_sec: int = 30,
+    progress_callback: Callable[[str], None] | None = None,
+) -> None:
+    """Block until at least one transport (agent /health or RDP port)
+    answers, or ``max_wait_sec`` elapses. install.sh runs migrate
+    immediately after wait-ready; if migrate's apply chain cycled
+    TermService (multi-session activation) the agent's session may
+    still be respawning by the time discovery fires. Without this
+    gate, refresh hits a freshly-killed agent + a freshly-bound RDP
+    listener and falls into a cascade of channel-failure errors that
+    abort discovery on what is otherwise a perfectly-good pod.
+    """
+    import socket
+    import time as _time
+
+    from winpodx.core.transport import dispatch as _dispatch
+
+    deadline = _time.monotonic() + max_wait_sec
+    while _time.monotonic() < deadline:
+        try:
+            t = _dispatch(cfg)
+        except Exception:  # noqa: BLE001 — dispatch is best-effort here
+            t = None
+        if t is not None and getattr(t, "name", None) == "agent":
+            return  # agent transport is the preferred path; ready
+        # Agent not up — RDP fallback is fine if the port answers.
+        try:
+            with socket.create_connection((cfg.rdp.ip, cfg.rdp.port), timeout=1.0):
+                return
+        except OSError:
+            pass
+        if progress_callback:
+            try:
+                progress_callback("Waiting for guest transport...")
+            except Exception:  # noqa: BLE001 — progress is decorative
+                pass
+        _time.sleep(2)
+    # Fall through: caller will hit the underlying transport error which
+    # is more informative than anything we'd raise here.
+
+
+def _looks_suspiciously_empty(apps: list[DiscoveredApp]) -> bool:
+    """Heuristic for "we caught Windows mid-boot" — discovery returned
+    an oddly small set with no UWP entries. Stock Win11 always ships
+    Calculator / Settings / Terminal as UWP packages, so a UWP count
+    of 0 is a reliable signal that AppXSvc was still warming up. Used
+    as a retry gate, not a hard error — if the second pass returns
+    the same shape, that's the real state and we accept it.
+    """
+    total = len(apps)
+    if total == 0:
+        return True
+    # Most stock Win11 installs return 15+ entries even before user
+    # apps are added. Below that is a strong signal of partial result.
+    if total < 5:
+        return True
+    uwp = sum(1 for a in apps if getattr(a, "source", "") == "uwp")
+    return uwp == 0
+
+
 def discover_apps(
     cfg: Config,
-    timeout: int = 120,
+    timeout: int = 180,
     *,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[DiscoveredApp]:
@@ -431,6 +494,27 @@ def discover_apps(
 
     and may include ``"_truncated": true`` as its last element to
     indicate the guest clipped its own output.
+
+    Default ``timeout`` bumped 120 → 180 to absorb the script's
+    first-boot readiness gate (up to 60 s waiting for AppXSvc + Start
+    Menu .lnks before enumeration starts).
+
+    First-boot races (Sysprep just finished, AppX still deploying,
+    Start Menu indexer mid-propagation) used to produce empty / partial
+    results stochastically — kernalix7 reported (2026-05-02) menu
+    populating one install and missing UWP entries the next on
+    identical configs. Three layers now collapse the variance:
+
+      1. Guest-side readiness gate (``discover_apps.ps1``) waits for
+         AppXSvc Running + ProgramData Start Menu .lnk count > 0,
+         requiring 3 consecutive stable 1 s samples before enumerating.
+      2. Host-side transport readiness (this function, just below)
+         waits for agent /health or RDP port to answer before invoking
+         the script — covers the migrate-apply-chain race where
+         TermService just cycled and the agent is mid-respawn.
+      3. Host-side retry-on-empty (this function, after first run)
+         retries once if the result is suspiciously empty (< 5 apps
+         or 0 UWP — both impossible on a stock Win11 install).
 
     Raises:
         DiscoveryError: backend unsupported, runtime missing, pod not
@@ -461,6 +545,13 @@ def discover_apps(
             f"Cannot read discovery script {script}: {e}", kind="script_missing"
         ) from e
 
+    # Wait for at least one transport to answer before invoking the
+    # script. Covers the install.sh race where migrate's apply chain
+    # just cycled TermService (multi-session activation) and the
+    # agent is mid-respawn — without this, discovery fires into a
+    # freshly-killed agent and bails with channel-failure cascade.
+    _wait_for_transport_ready(cfg, max_wait_sec=30, progress_callback=progress_callback)
+
     # Prefer the HTTP agent transport when it answers /health — the
     # discovery script regularly takes 15-25s and the legacy FreeRDP
     # RemoteApp channel hits a hard 30s wall (kernalix7 saw the timeout
@@ -471,59 +562,88 @@ def discover_apps(
     from winpodx.core.transport import TransportError, dispatch
     from winpodx.core.windows_exec import WindowsExecError
 
-    try:
-        transport = dispatch(cfg)
-    except Exception as e:  # noqa: BLE001 — never let dispatch take down the run
-        log.debug("transport dispatch failed, falling back to FreeRDP: %s", e)
-        transport = None
-
-    if transport is not None and transport.name == "agent":
-        if progress_callback:
-            try:
-                progress_callback("Connecting to guest agent...")
-            except Exception:  # noqa: BLE001 — progress is decorative
-                pass
+    def _run_once() -> list[DiscoveredApp]:
         try:
-            tresult = transport.exec(script_body, timeout=timeout, description="discover-apps")
-        except TransportError as e:
+            transport = dispatch(cfg)
+        except Exception as e:  # noqa: BLE001 — never let dispatch take down the run
+            log.debug("transport dispatch failed, falling back to FreeRDP: %s", e)
+            transport = None
+
+        if transport is not None and transport.name == "agent":
+            if progress_callback:
+                try:
+                    progress_callback("Connecting to guest agent...")
+                except Exception:  # noqa: BLE001 — progress is decorative
+                    pass
+            try:
+                tresult = transport.exec(script_body, timeout=timeout, description="discover-apps")
+            except TransportError as e:
+                msg = str(e).lower()
+                kind = (
+                    "pod_not_running"
+                    if "no result file" in msg or "auth" in msg or "unavailable" in msg
+                    else "script_failed"
+                )
+                raise DiscoveryError(f"Discovery channel failure: {e}", kind=kind) from e
+            if tresult.rc != 0:
+                raise DiscoveryError(
+                    f"Discovery script failed (rc={tresult.rc}): {tresult.stderr.strip()}",
+                    kind="script_failed",
+                )
+            return _parse_discovery_output(tresult.stdout)
+
+        # Agent unreachable — fall back to FreeRDP RemoteApp. Slower (30s
+        # cap) but always available once the pod is up and RDP works.
+        from winpodx.core.windows_exec import run_in_windows
+
+        try:
+            result = run_in_windows(
+                cfg,
+                script_body,
+                description="discover-apps",
+                timeout=timeout,
+                progress_callback=progress_callback,
+            )
+        except WindowsExecError as e:
             msg = str(e).lower()
             kind = (
-                "pod_not_running"
-                if "no result file" in msg or "auth" in msg or "unavailable" in msg
-                else "script_failed"
+                "pod_not_running" if "no result file" in msg or "auth" in msg else "script_failed"
             )
             raise DiscoveryError(f"Discovery channel failure: {e}", kind=kind) from e
-        if tresult.rc != 0:
+
+        if result.rc != 0:
             raise DiscoveryError(
-                f"Discovery script failed (rc={tresult.rc}): {tresult.stderr.strip()}",
+                f"Discovery script failed (rc={result.rc}): {result.stderr.strip()}",
                 kind="script_failed",
             )
-        return _parse_discovery_output(tresult.stdout)
 
-    # Agent unreachable — fall back to FreeRDP RemoteApp. Slower (30s
-    # cap) but always available once the pod is up and RDP works.
-    from winpodx.core.windows_exec import run_in_windows
+        return _parse_discovery_output(result.stdout)
 
-    try:
-        result = run_in_windows(
-            cfg,
-            script_body,
-            description="discover-apps",
-            timeout=timeout,
-            progress_callback=progress_callback,
+    apps = _run_once()
+    if _looks_suspiciously_empty(apps):
+        # Caught Windows mid-boot. Wait briefly and rerun — by now AppX
+        # deployment / Start Menu indexer should have settled. We only
+        # retry once: if the second pass also looks empty, it's the
+        # real state (e.g., a stripped-down image) and we accept it
+        # rather than spin forever.
+        log.info(
+            "discovery looks suspiciously empty (%d total, %d uwp); retrying once",
+            len(apps),
+            sum(1 for a in apps if getattr(a, "source", "") == "uwp"),
         )
-    except WindowsExecError as e:
-        msg = str(e).lower()
-        kind = "pod_not_running" if "no result file" in msg or "auth" in msg else "script_failed"
-        raise DiscoveryError(f"Discovery channel failure: {e}", kind=kind) from e
+        if progress_callback:
+            try:
+                progress_callback("Initial scan looked partial; retrying...")
+            except Exception:  # noqa: BLE001
+                pass
+        import time as _time
 
-    if result.rc != 0:
-        raise DiscoveryError(
-            f"Discovery script failed (rc={result.rc}): {result.stderr.strip()}",
-            kind="script_failed",
-        )
-
-    return _parse_discovery_output(result.stdout)
+        _time.sleep(8)
+        retry_apps = _run_once()
+        # Pick whichever pass returned more — never regress.
+        if len(retry_apps) > len(apps):
+            return retry_apps
+    return apps
 
 
 def _run_bounded(

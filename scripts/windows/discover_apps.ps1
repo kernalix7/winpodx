@@ -166,6 +166,68 @@ if ($DryRun) {
     exit 0
 }
 
+# --- Readiness gate (first-boot race avoidance) ----------------------------
+# At Sysprep first-boot the user session has just started: AppX deployment
+# is still finishing, Start Menu indexer hasn't propagated all .lnk files
+# yet, AppXSvc may still be queueing work. discovery firing in this 30-60 s
+# window returns partial / empty results — kernalix7 reported the menu
+# populating one install, missing UWP entries the next, despite identical
+# config. Both symptoms collapse to "we ran too early".
+#
+# Gate: wait until BOTH conditions hold or until the bounded budget
+# expires (we proceed regardless after timeout — a partial discovery is
+# better than none, and the host's retry-on-empty layer covers the
+# all-empty case).
+#
+#   1. AppXSvc service is Running. If it's StartPending / Stopped the
+#      AppX broker can't service Get-AppxPackage queries reliably.
+#   2. Start Menu has at least one .lnk under ProgramData. The default
+#      Windows Start Menu ships dozens of these; their absence means
+#      first-boot Start Menu population is still in flight.
+#
+# Quiescence: poll every 1 s; require 3 consecutive samples where
+# AppXSvc is Running + .lnk count is non-zero before declaring ready.
+# This catches the case where AppXSvc flips Running briefly during
+# StartPending → Running → restart cycles.
+
+$readyBudgetSec = 60
+$pollIntervalSec = 1
+$stableSamplesNeeded = 3
+$readyDeadline = (Get-Date).AddSeconds($readyBudgetSec)
+$stableSamples = 0
+$systemStartMenu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs"
+
+[Console]::Error.WriteLine("[discover] waiting for first-boot stability (max ${readyBudgetSec}s)...")
+while ((Get-Date) -lt $readyDeadline) {
+    $appxRunning = $false
+    try {
+        $svc = Get-Service -Name AppXSvc -ErrorAction Stop
+        $appxRunning = ($svc.Status -eq 'Running')
+    } catch {
+        $appxRunning = $false
+    }
+    $lnkCount = 0
+    try {
+        $lnkCount = (Get-ChildItem -LiteralPath $systemStartMenu -Recurse -Filter '*.lnk' -ErrorAction SilentlyContinue |
+            Measure-Object).Count
+    } catch {
+        $lnkCount = 0
+    }
+    if ($appxRunning -and $lnkCount -gt 0) {
+        $stableSamples++
+        if ($stableSamples -ge $stableSamplesNeeded) {
+            [Console]::Error.WriteLine("[discover] stable (AppXSvc=Running, .lnk=$lnkCount, samples=$stableSamples) — proceeding")
+            break
+        }
+    } else {
+        $stableSamples = 0
+    }
+    Start-Sleep -Seconds $pollIntervalSec
+}
+if ($stableSamples -lt $stableSamplesNeeded) {
+    [Console]::Error.WriteLine("[discover] stability budget exceeded (${readyBudgetSec}s); proceeding with potentially partial state")
+}
+
 # --- Accumulator -----------------------------------------------------------
 
 $results = New-Object System.Collections.Generic.List[object]
