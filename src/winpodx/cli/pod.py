@@ -258,38 +258,129 @@ def _sync_password(non_interactive: bool) -> None:
 
 
 def _multi_session(action: str) -> None:
-    """v0.2.0: toggle bundled rdprrap multi-session RDP at runtime.
+    """Toggle bundled rdprrap multi-session RDP at runtime.
 
-    The OEM bundle (since v0.1.6) installs rdprrap inside the Windows
-    guest. This command shells out to ``rdprrap-conf.exe`` via the
-    FreeRDP RemoteApp channel to enable / disable / inspect the patch
-    without recreating the container. ``rdprrap-conf`` ships with the
-    rdprrap zip and is staged into ``C:\\OEM\\`` during install.bat.
+    Activation needs to patch ``HKLM\\...\\TermService\\Parameters\\
+    ServiceDll`` and then cycle TermService so the new DLL loads. The
+    cycle kills every active RDP session, including the agent's own
+    user session — so an inline ``/exec`` can't drive the activation:
+    the agent dies before the response can return.
+
+    ``enable`` therefore spawns ``rdprrap-activate.ps1`` *detached*
+    via wscript+hidden-launcher.vbs (same pattern agent-respawn.ps1
+    uses) and returns immediately. The detached script runs
+    ``rdprrap-installer install`` with retries, restarts TermService,
+    verifies ``ServiceDll`` flipped to ``termwrap.dll``, and writes
+    the outcome to ``C:\\winpodx\\rdprrap\\.activation_status``. The
+    user reconnects after the brief disconnect; the agent auto-starts
+    via HKCU\\Run; subsequent ``status`` / ``apply-fixes`` calls read
+    the marker.
+
+    ``status`` is a marker probe — same source the provisioner's
+    multi_session apply step uses, so output is consistent across
+    surfaces.
+
+    ``disable`` still calls ``rdprrap-conf --disable`` inline.
+    Disable just clears the registry patch; TermService doesn't need
+    to be cycled until the next reboot, so the agent's session is
+    safe.
+
+    Existing v0.3.0-RTM1 pods get rdprrap-activate.ps1 staged on the
+    next ``winpodx pod apply-fixes`` (vbs_launchers step pushes it).
+    Container recreate is no longer required.
     """
     from winpodx.core.config import Config
-    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
         print(f"multi-session not supported for backend {cfg.pod.backend!r}.")
         sys.exit(2)
 
-    # rdprrap-conf paths to try, in order. Different OEM versions /
-    # extraction layouts have placed it differently.
+    if action == "on":
+        _multi_session_enable(cfg)
+    elif action == "off":
+        _multi_session_disable(cfg)
+    elif action == "status":
+        _multi_session_status(cfg)
+    else:  # argparse already restricts choices, but be explicit
+        print(f"Unknown multi-session action: {action!r}")
+        sys.exit(2)
+
+
+def _multi_session_enable(cfg) -> None:  # type: ignore[no-untyped-def]
+    """Spawn rdprrap-activate.ps1 detached + return immediately."""
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
+
+    target_dir = "C:\\Users\\Public\\winpodx\\launchers"
+    activate_ps1 = f"{target_dir}\\rdprrap-activate.ps1"
+    hidden_vbs = f"{target_dir}\\hidden-launcher.vbs"
+
+    # Verify the activation script is staged. If not, surface a clear
+    # action ("run apply-fixes first") instead of a silent no-op.
+    payload = "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"$activate = '{activate_ps1}'",
+            f"$hidden = '{hidden_vbs}'",
+            "if (-not (Test-Path -LiteralPath $activate)) {",
+            "    Write-Output 'NOT-STAGED'",
+            "    exit 2",
+            "}",
+            "if (-not (Test-Path -LiteralPath $hidden)) {",
+            "    Write-Output 'NOT-STAGED'",
+            "    exit 2",
+            "}",
+            "$startArgs = @($hidden, 'powershell.exe', '-NoProfile',",
+            "         '-ExecutionPolicy', 'Bypass', '-File', $activate)",
+            "Start-Process wscript.exe -ArgumentList $startArgs | Out-Null",
+            "Write-Output 'QUEUED'",
+            "exit 0",
+        ]
+    ) + "\n"
+
+    print("Queuing multi-session activation (detached)...")
+    try:
+        result = run_via_transport(
+            cfg, payload, description="multi-session-enable", timeout=20
+        )
+    except WindowsExecError as e:
+        print(f"FAIL: channel failure: {e}")
+        sys.exit(3)
+
+    output = (result.stdout or "").strip()
+    if result.rc == 2 and "NOT-STAGED" in output:
+        print(
+            "rdprrap-activate.ps1 not staged in the guest.\n"
+            "Run `winpodx pod apply-fixes` first — its vbs_launchers step "
+            "pushes the activation script. Then re-run "
+            "`winpodx pod multi-session on`."
+        )
+        sys.exit(2)
+    if result.rc != 0:
+        print(f"FAIL: rc={result.rc}: {result.stderr.strip() or output}")
+        sys.exit(3)
+
+    print("OK: activation queued.")
+    print(
+        "rdprrap-activate.ps1 will run rdprrap-installer + restart TermService.\n"
+        "TermService restart will briefly disconnect any active RDP sessions; "
+        "reconnect after ~10s.\n"
+        "After reconnecting, run `winpodx pod multi-session status` "
+        "(or `winpodx pod apply-fixes`) to confirm activation."
+    )
+
+
+def _multi_session_disable(cfg) -> None:  # type: ignore[no-untyped-def]
+    """Inline disable via rdprrap-conf — safe (no TermService cycle)."""
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
+
     candidates = [
-        # install.bat extracts rdprrap into C:\winpodx\rdprrap — the actual
-        # location where rdprrap-conf.exe lives on every install. The
-        # OEM / Program Files candidates stay as legacy fallbacks for
-        # users on older OEM builds that placed it differently.
         r"C:\winpodx\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap-conf.exe",
         r"C:\Program Files\rdprrap\rdprrap-conf.exe",
     ]
-    args = {"on": "--enable", "off": "--disable", "status": "--status"}[action]
-    payload_lines = [
-        "$rdprrap = $null",
-    ]
+    payload_lines = ["$rdprrap = $null"]
     for path in candidates:
         payload_lines.append(
             f"if (-not $rdprrap -and (Test-Path '{path}')) {{ $rdprrap = '{path}' }}"
@@ -299,15 +390,16 @@ def _multi_session(action: str) -> None:
         "    Write-Output 'rdprrap-conf not found in any expected path'",
         "    exit 2",
         "}",
-        f"& $rdprrap {args}",
+        "& $rdprrap --disable",
         "exit $LASTEXITCODE",
     ]
     payload = "\n".join(payload_lines) + "\n"
 
-    label = {"on": "Enabling", "off": "Disabling", "status": "Querying"}[action]
-    print(f"{label} multi-session RDP via rdprrap...")
+    print("Disabling multi-session RDP via rdprrap...")
     try:
-        result = run_via_transport(cfg, payload, description=f"multi-session-{action}", timeout=45)
+        result = run_via_transport(
+            cfg, payload, description="multi-session-disable", timeout=45
+        )
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)
@@ -316,13 +408,7 @@ def _multi_session(action: str) -> None:
     if output:
         print(output)
     if result.rc == 0:
-        print(
-            {
-                "on": "OK: multi-session enabled.",
-                "off": "OK: multi-session disabled.",
-                "status": "OK",
-            }[action]
-        )
+        print("OK: multi-session disabled.")
     elif result.rc == 2:
         print(
             "rdprrap-conf was not found in the guest. The OEM v6+ bundle "
@@ -332,6 +418,51 @@ def _multi_session(action: str) -> None:
         sys.exit(2)
     else:
         print(f"FAIL: rdprrap-conf rc={result.rc}: {result.stderr.strip()}")
+        sys.exit(3)
+
+
+def _multi_session_status(cfg) -> None:  # type: ignore[no-untyped-def]
+    """Probe the activation_status marker + tail install.log on failure."""
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
+
+    payload = "\n".join(
+        [
+            "$marker = 'C:\\winpodx\\rdprrap\\.activation_status'",
+            "$logPath = 'C:\\winpodx\\rdprrap\\install.log'",
+            "if (-not (Test-Path -LiteralPath $marker)) {",
+            "    Write-Output 'no activation marker; pre-OEM-v15 install or"
+            " never activated'",
+            "    Write-Output 'run `winpodx pod multi-session on` to"
+            " activate at runtime'",
+            "    exit 0",
+            "}",
+            "$status = (Get-Content -LiteralPath $marker -ErrorAction"
+            " SilentlyContinue | Select-Object -First 1)",
+            "Write-Output (\"rdprrap status: $status\")",
+            "if ($status -ne 'enabled' -and (Test-Path -LiteralPath $logPath)) {",
+            "    Write-Output '--- install.log tail ---'",
+            "    Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction"
+            " SilentlyContinue",
+            "    Write-Output '--- end install.log ---'",
+            "}",
+            "exit 0",
+        ]
+    ) + "\n"
+
+    print("Querying multi-session status...")
+    try:
+        result = run_via_transport(
+            cfg, payload, description="multi-session-status", timeout=20
+        )
+    except WindowsExecError as e:
+        print(f"FAIL: channel failure: {e}")
+        sys.exit(3)
+
+    output = (result.stdout or "").strip()
+    if output:
+        print(output)
+    if result.rc != 0:
+        print(f"FAIL: rc={result.rc}: {result.stderr.strip()}")
         sys.exit(3)
 
 

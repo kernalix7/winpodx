@@ -432,6 +432,10 @@ def _apply_vbs_launchers(cfg: Config) -> None:
         "launch_uwp.vbs",
         "launch_uwp.ps1",
         "agent-respawn.ps1",
+        # rdprrap-activate.ps1 is staged here so `winpodx pod multi-
+        # session enable` can activate rdprrap on existing pods without
+        # forcing a container recreate. See cli.pod._multi_session.
+        "rdprrap-activate.ps1",
     )
     sources: dict[str, str] = {}
     for fname in files:

@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=16
+set WINPODX_OEM_VERSION=17
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -365,6 +365,12 @@ copy /Y "%~dp0hidden-launcher.vbs" "C:\Users\Public\winpodx\launchers\hidden-lau
 copy /Y "%~dp0launch_uwp.vbs" "C:\Users\Public\winpodx\launchers\launch_uwp.vbs" 2>nul
 copy /Y "%~dp0launch_uwp.ps1" "C:\Users\Public\winpodx\launchers\launch_uwp.ps1" 2>nul
 copy /Y "%~dp0agent-respawn.ps1" "C:\Users\Public\winpodx\launchers\agent-respawn.ps1" 2>nul
+REM rdprrap-activate.ps1 is the runtime activation script `winpodx pod
+REM multi-session on` invokes (detached via wscript). Staged here so
+REM fresh OEM installs can re-activate post-Sysprep without container
+REM recreate; the host-side _apply_vbs_launchers also pushes it during
+REM migration for older guests.
+copy /Y "%~dp0rdprrap-activate.ps1" "C:\Users\Public\winpodx\launchers\rdprrap-activate.ps1" 2>nul
 
 REM Pre-register the URL ACL for agent.ps1's HttpListener prefix.
 REM
