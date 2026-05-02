@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=19
+set WINPODX_OEM_VERSION=20
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -155,13 +155,10 @@ if not defined WINPODX_SRC_OK (
     echo [winpodx] Mount the scripts dir at C:\winpodx-scripts via compose, or
     echo [winpodx] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
 )
-REM Wrap media_monitor.ps1 under wscript+hidden-launcher.vbs so each
-REM new RDP session's HKCU\Run fire doesn't briefly allocate a console
-REM before -WindowStyle Hidden takes effect. Same pattern WinpodxAgent
-REM uses; before this fix users saw a black PS console flash on every
-REM app launch (multi-session creates a new session per launch, each
-REM session re-fires HKCU\Run).
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "wscript.exe \"C:\Users\Public\winpodx\launchers\hidden-launcher.vbs\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\winpodx\media_monitor.ps1\"" /f
+REM WinpodxMedia HKCU\Run registration moved later in install.bat -- the
+REM same PowerShell block that registers WinpodxAgent now writes both
+REM entries with shared launcher-existence gating + setup.log diagnostics.
+REM See "Registering HKCU\Run entries" below.
 
 REM Clean up any legacy OEM updater task / file from pre-0.1.6 installs.
 schtasks /delete /tn "WinpodxOEMUpdate" /f >nul 2>&1
@@ -320,18 +317,47 @@ REM C:\OEM\. Public is universally writable for Authenticated Users, so the
 REM agent (which runs as User, non-admin) can later overwrite these files
 REM during a `winpodx pod apply-fixes` migration without needing UAC. C:\OEM\
 REM is SYSTEM-owned and rejects User writes by default.
+REM
+REM Diagnostic log (`C:\winpodx\setup.log`) records each copy + verify
+REM step. Pre-OEM-v20 the copies were silent (`2>nul`), so when a
+REM Sysprep-time failure (network share blip, AV interference) skipped a
+REM file, the missing-file symptom only surfaced later as a "Cannot find
+REM script file" wscript dialog at HKCU\Run firing time -- with no
+REM breadcrumbs. With this log + per-file existence check below, a
+REM staging failure now writes a single line we can grep from the host
+REM via the agent.
+mkdir C:\winpodx 2>nul
+set "SETUP_LOG=C:\winpodx\setup.log"
+(echo === setup log === %DATE% %TIME%) > "%SETUP_LOG%"
+(echo OEM_VERSION=%WINPODX_OEM_VERSION%)>>"%SETUP_LOG%"
+(echo install.bat dir=%~dp0)>>"%SETUP_LOG%"
+
 mkdir "C:\Users\Public\winpodx" 2>nul
 mkdir "C:\Users\Public\winpodx\launchers" 2>nul
-copy /Y "%~dp0hidden-launcher.vbs" "C:\Users\Public\winpodx\launchers\hidden-launcher.vbs" 2>nul
-copy /Y "%~dp0launch_uwp.vbs" "C:\Users\Public\winpodx\launchers\launch_uwp.vbs" 2>nul
-copy /Y "%~dp0launch_uwp.ps1" "C:\Users\Public\winpodx\launchers\launch_uwp.ps1" 2>nul
-copy /Y "%~dp0agent-respawn.ps1" "C:\Users\Public\winpodx\launchers\agent-respawn.ps1" 2>nul
-REM rdprrap-activate.ps1 is the runtime activation script `winpodx pod
-REM multi-session on` invokes (detached via wscript). Staged here so
-REM fresh OEM installs can re-activate post-Sysprep without container
-REM recreate; the host-side _apply_vbs_launchers also pushes it during
-REM migration for older guests.
-copy /Y "%~dp0rdprrap-activate.ps1" "C:\Users\Public\winpodx\launchers\rdprrap-activate.ps1" 2>nul
+
+REM Each launcher: copy, verify the file exists at its destination, log
+REM the outcome. Continuing on failure (so a single bad copy doesn't
+REM abort the rest of install.bat) but recording it for diagnostics.
+REM `LAUNCHERS_OK=1` after the loop means hidden-launcher.vbs (the
+REM critical wrapper) made it to its destination -- gates the wscript
+REM reg add below.
+set "LAUNCHERS_OK="
+for %%F in (
+    "hidden-launcher.vbs"
+    "launch_uwp.vbs"
+    "launch_uwp.ps1"
+    "agent-respawn.ps1"
+    "rdprrap-activate.ps1"
+) do (
+    copy /Y "%~dp0%%~F" "C:\Users\Public\winpodx\launchers\%%~F" >nul 2>>"%SETUP_LOG%"
+    if exist "C:\Users\Public\winpodx\launchers\%%~F" (
+        (echo launcher OK: %%~F)>>"%SETUP_LOG%"
+    ) else (
+        (echo launcher FAILED: %%~F src=%~dp0%%~F not staged or copy denied)>>"%SETUP_LOG%"
+    )
+)
+if exist "C:\Users\Public\winpodx\launchers\hidden-launcher.vbs" set "LAUNCHERS_OK=1"
+(echo launchers gate: LAUNCHERS_OK=%LAUNCHERS_OK%)>>"%SETUP_LOG%"
 
 REM Pre-register the URL ACL for agent.ps1's HttpListener prefix.
 REM
@@ -356,14 +382,44 @@ netsh http delete urlacl url=http://127.0.0.1:8765/ >nul 2>&1
 netsh http delete urlacl url=http://+:8765/ >nul 2>&1
 netsh http add urlacl url=http://+:8765/ user=Everyone listen=yes >nul 2>&1
 
-REM Register agent at user logon via the hidden VBS launcher rather than
-REM `powershell.exe -WindowStyle Hidden`. The Hidden flag is honored AFTER
-REM PowerShell allocates its conhost, so a brief PS console flashes for
-REM ~50ms on every user logon. wscript.exe is a GUI-subsystem process
-REM (no console of its own) and WshShell.Run with intWindowStyle=0
-REM propagates SW_HIDE to CreateProcess — the spawned powershell starts
-REM windowless, never flashing.
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxAgent /t REG_SZ /d "wscript.exe \"C:\Users\Public\winpodx\launchers\hidden-launcher.vbs\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\OEM\agent.ps1\"" /f >nul 2>&1
+REM Register HKCU\Run via PowerShell instead of `reg add`. Three reasons
+REM the cmd-quoting path bit users pre-OEM-v20:
+REM   1. `reg add /d "...\\\"path\\\"..."` survives cmd parsing but
+REM      reg.exe stores literal backslash-quote pairs in the registry,
+REM      and CommandLineToArgvW at logon evaluates them as escaped
+REM      quotes -- not always argv-equivalent to the intended quoted
+REM      argument. PS's Set-ItemProperty takes a real .NET string and
+REM      stores it byte-exact.
+REM   2. PS can verify hidden-launcher.vbs exists *before* registering
+REM      the wscript-wrapped value -- if the launcher staging copy
+REM      failed (logged via setup.log above, LAUNCHERS_OK unset), we
+REM      fall back to direct `powershell.exe -WindowStyle Hidden` for
+REM      WinpodxAgent. That fallback flashes briefly but at least
+REM      starts the agent; without it, HKCU\Run fired wscript on a
+REM      missing file -> "Cannot find script file" dialog blocking
+REM      the user session indefinitely (kernalix7 saw this on a fresh
+REM      install 2026-05-02 18:48).
+REM   3. Single PS round-trip writes both WinpodxAgent and WinpodxMedia,
+REM      replacing the two separate reg-add lines + the WinpodxMedia
+REM      special case below.
+echo [winpodx] Registering HKCU\Run entries...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
+  "$haveWrap = Test-Path -LiteralPath $wrap;" ^
+  "Add-Content -LiteralPath '%SETUP_LOG%' -Value (\"reg-add: haveWrap=$haveWrap\");" ^
+  "$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';" ^
+  "if ($haveWrap) {" ^
+  "  $agent = 'wscript.exe \"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\OEM\agent.ps1\"';" ^
+  "  $media = 'wscript.exe \"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\winpodx\media_monitor.ps1\"';" ^
+  "} else {" ^
+  "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'reg-add: hidden-launcher.vbs missing -> fallback to direct powershell (brief flash)';" ^
+  "  $agent = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1';" ^
+  "  $media = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\winpodx\media_monitor.ps1';" ^
+  "}" ^
+  "Set-ItemProperty -Path $key -Name 'WinpodxAgent' -Value $agent -Force;" ^
+  "Set-ItemProperty -Path $key -Name 'WinpodxMedia' -Value $media -Force;" ^
+  "Add-Content -LiteralPath '%SETUP_LOG%' -Value ('reg-add: WinpodxAgent=' + $agent);" ^
+  "Add-Content -LiteralPath '%SETUP_LOG%' -Value ('reg-add: WinpodxMedia=' + $media);" 2>>"%SETUP_LOG%"
 
 REM Token is delivered via the OEM bind mount — no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
