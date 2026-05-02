@@ -214,86 +214,99 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
 
 
 def _apply_multi_session(cfg: Config) -> None:
-    """Report multi-session status — never run rdprrap-conf at runtime.
+    """Ensure rdprrap multi-session is enabled — auto-activate if not.
 
-    rdprrap activates by patching termsrv.dll. Patching the loaded
-    binary requires restarting Windows' Terminal Service, which kills
-    every active RDP session — including the agent's own host session.
-    On 2026-05-02 kernalix7's pod hung when this step ran rdprrap-conf
-    --enable mid-apply: the patcher killed the user session, the agent
-    died with it, /exec timed out, and recovery required a full pod
-    restart. The patch only takes effect on the next TermService start
-    anyway, so calling it at runtime trades immediate breakage for a
-    benefit that won't land until the next reboot regardless.
+    Multi-session is core winpodx functionality (the dialog "Select a
+    session to reconnect to" appears on every multi-app launch without
+    it). Running it as a probe-only step (PR #77) was a safety measure
+    against the inline-activation hang that mid-apply rdprrap-conf
+    --enable caused: TermService restart killed the agent's session
+    while the host was still awaiting /exec, /exec timed out, and the
+    pod needed a full restart to recover.
 
-    The OEM-time path (install.bat's rdprrap-installer.exe call) IS
-    safe because no user session exists yet — TermService restart at
-    that point is a no-op. Users wanting to retroactively enable
-    multi-session on an existing pod should run
-    ``winpodx pod multi-session enable`` (which carries the same
-    "this will kick you out of every running app" semantics, but is
-    explicit user intent rather than a silent self-heal step).
+    PR #80 made activation safe at runtime by spawning rdprrap-
+    activate.ps1 *detached* via wscript+hidden-launcher.vbs. The /exec
+    response returns before TermService cycles, so the host never
+    blocks on a dying agent. Combined with the .activation_status
+    marker for idempotency — already-enabled pods become a no-op,
+    no disruption — this step now self-heals: if marker says enabled,
+    return; otherwise queue the detached activator.
 
-    This function therefore just reports whether rdprrap is staged on
-    the guest. The status surfaces in ``apply_windows_runtime_fixes``'s
-    output so the user sees whether OEM-time activation succeeded.
+    Cost: when activation is needed, the user's RDP sessions briefly
+    disconnect (~10 s) while TermService cycles. After reconnect, the
+    marker reads ``enabled`` and subsequent applies are no-ops. This
+    is the same one-time cost the OEM-time path pays, just deferred
+    to migration time for users on pre-OEM-v15 builds.
+
+    Depends on the vbs_launchers step running first (which stages
+    rdprrap-activate.ps1 + hidden-launcher.vbs into Public dir).
+    apply_windows_runtime_fixes orders the chain accordingly.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
-    candidates = [
-        # install.bat extracts rdprrap into RDPRRAP_DIR=C:\winpodx\rdprrap.
-        # Older OEM builds may have placed it under C:\OEM\ or
-        # C:\Program Files\rdprrap\.
-        r"C:\winpodx\rdprrap\rdprrap-conf.exe",
-        r"C:\OEM\rdprrap\rdprrap-conf.exe",
-        r"C:\OEM\rdprrap-conf.exe",
-        r"C:\Program Files\rdprrap\rdprrap-conf.exe",
-    ]
-    payload_lines = ["$rdprrap = $null"]
-    for path in candidates:
-        payload_lines.append(
-            f"if (-not $rdprrap -and (Test-Path '{path}')) {{ $rdprrap = '{path}' }}"
-        )
-    not_staged_msg = (
-        "rdprrap-conf not staged on guest "
-        "(OEM-time install may have failed; recreate the container or re-run install.bat)"
-    )
-    payload_lines += [
-        "if (-not $rdprrap) {",
-        f"    Write-Output '{not_staged_msg}'",
-        "    exit 0",
-        "}",
-        # Existence-only probe — don't invoke rdprrap-conf from runtime;
-        # it can synchronously touch termsrv state and has been observed to
-        # hang the agent on a half-patched binary. install.bat (OEM v15+)
-        # writes a status marker that we can read instead — never blocks,
-        # never restarts services. Markers: enabled / not-activated /
-        # extract-failed / installer-failed.
+    target_dir = "C:\\Users\\Public\\winpodx\\launchers"
+    activate_ps1 = f"{target_dir}\\rdprrap-activate.ps1"
+    hidden_vbs = f"{target_dir}\\hidden-launcher.vbs"
+
+    payload_lines = [
         '$marker = "C:\\winpodx\\rdprrap\\.activation_status"',
         '$logPath = "C:\\winpodx\\rdprrap\\install.log"',
-        "if (Test-Path $marker) {",
-        "    $status = (Get-Content -LiteralPath $marker"
-        " -ErrorAction SilentlyContinue | Select-Object -First 1)",
-        "    if ($status) {",
-        '        Write-Output ("rdprrap status: $status (rdprrap-conf at $rdprrap)")',
-        # On any non-enabled state, append the tail of install.log so the
-        # caller (host-side `winpodx pod apply-fixes`) sees the actual
-        # failure reason without having to RDP into the guest. The log
-        # is only tailed (~last 30 lines) to keep the apply output bounded.
-        "        if ($status -ne 'enabled' -and (Test-Path $logPath)) {",
-        '            Write-Output ""',
-        "            Write-Output '--- install.log tail ---'",
-        "            Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction SilentlyContinue",
-        "            Write-Output '--- end install.log ---'",
-        "        }",
+        f'$activate = "{activate_ps1}"',
+        f'$hidden = "{hidden_vbs}"',
+        # Idempotent: if the marker says enabled, skip everything. The
+        # vast majority of apply-fixes calls hit this path — running on
+        # an already-healthy pod produces no /exec round-trips beyond
+        # the one we're already in, no disconnect, no churn.
+        "if (Test-Path -LiteralPath $marker) {",
+        "    $status = Get-Content -LiteralPath $marker -ErrorAction SilentlyContinue"
+        " | Select-Object -First 1",
+        "    if ($status -eq 'enabled') {",
+        "        Write-Output 'rdprrap status: enabled (no-op)'",
         "        exit 0",
         "    }",
         "}",
-        # No marker — likely OEM v14 or earlier where install.bat didn't
-        # record activation state. The presence of rdprrap-conf is the
-        # only signal we have without invoking the binary.
-        'Write-Output ("rdprrap-conf staged at: $rdprrap (no activation marker; pre-OEM-v15)")',
+        # Need activation. Confirm the activator + VBS wrapper are staged.
+        # vbs_launchers (which runs before this step in the apply chain)
+        # pushes both. If they're missing, the user is on a pod older
+        # than OEM v17 AND skipped vbs_launchers — surface that clearly
+        # rather than silently failing.
+        "if (-not (Test-Path -LiteralPath $activate)) {",
+        "    Write-Output 'rdprrap-activate.ps1 not staged"
+        " (vbs_launchers must run first); skipping activation'",
+        "    exit 0",
+        "}",
+        "if (-not (Test-Path -LiteralPath $hidden)) {",
+        "    Write-Output 'hidden-launcher.vbs not staged"
+        " (vbs_launchers must run first); skipping activation'",
+        "    exit 0",
+        "}",
+        # Spawn rdprrap-activate.ps1 detached via wscript so this /exec
+        # response returns before TermService cycle kills the agent's
+        # user session. -Detached makes the script wait 2s (giving us
+        # time to land the response at the host) before doing the
+        # installer + service restart work. After completion the
+        # marker flips to 'enabled'; subsequent apply-fixes calls are
+        # no-ops via the marker check above.
+        "$startArgs = @($hidden, 'powershell.exe', '-NoProfile',",
+        "         '-ExecutionPolicy', 'Bypass', '-File', $activate, '-Detached')",
+        "Start-Process wscript.exe -ArgumentList $startArgs | Out-Null",
+        "$prev = if (Test-Path -LiteralPath $marker) {",
+        "    Get-Content -LiteralPath $marker -ErrorAction SilentlyContinue"
+        " | Select-Object -First 1",
+        "} else { 'never activated' }",
+        'Write-Output ("rdprrap status: $prev -> activation queued")',
+        "Write-Output 'note: RDP sessions will briefly disconnect (~10s)"
+        " while TermService restarts. Reconnect to restore.'",
+        # On non-enabled states with an existing log, tail it so the
+        # apply-fixes output has root-cause context for the previous
+        # failure (so users can compare before/after activation).
+        "if (Test-Path -LiteralPath $logPath) {",
+        "    Write-Output ''",
+        "    Write-Output '--- install.log tail (pre-activation) ---'",
+        "    Get-Content -LiteralPath $logPath -Tail 20 -ErrorAction SilentlyContinue",
+        "    Write-Output '--- end install.log ---'",
+        "}",
         "exit 0",
     ]
     payload = "\n".join(payload_lines) + "\n"
@@ -328,12 +341,17 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
         return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
 
     results: dict[str, str] = {}
+    # Order matters: vbs_launchers stages rdprrap-activate.ps1 +
+    # hidden-launcher.vbs that multi_session needs to spawn detached
+    # activation. multi_session is a no-op when rdprrap is already
+    # enabled (idempotent via marker), so the only-on-first-migration
+    # disconnect cost is paid exactly once per pod.
     for name, fn in (
         ("max_sessions", _apply_max_sessions),
         ("rdp_timeouts", _apply_rdp_timeouts),
         ("oem_runtime_fixes", _apply_oem_runtime_fixes),
-        ("multi_session", _apply_multi_session),
         ("vbs_launchers", _apply_vbs_launchers),
+        ("multi_session", _apply_multi_session),
     ):
         try:
             fn(cfg)
