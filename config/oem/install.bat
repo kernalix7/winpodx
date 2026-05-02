@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=18
+set WINPODX_OEM_VERSION=19
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -155,7 +155,13 @@ if not defined WINPODX_SRC_OK (
     echo [winpodx] Mount the scripts dir at C:\winpodx-scripts via compose, or
     echo [winpodx] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
 )
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\winpodx\media_monitor.ps1" /f
+REM Wrap media_monitor.ps1 under wscript+hidden-launcher.vbs so each
+REM new RDP session's HKCU\Run fire doesn't briefly allocate a console
+REM before -WindowStyle Hidden takes effect. Same pattern WinpodxAgent
+REM uses; before this fix users saw a black PS console flash on every
+REM app launch (multi-session creates a new session per launch, each
+REM session re-fires HKCU\Run).
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v WinpodxMedia /t REG_SZ /d "wscript.exe \"C:\Users\Public\winpodx\launchers\hidden-launcher.vbs\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\winpodx\media_monitor.ps1\"" /f
 
 REM Clean up any legacy OEM updater task / file from pre-0.1.6 installs.
 schtasks /delete /tn "WinpodxOEMUpdate" /f >nul 2>&1
