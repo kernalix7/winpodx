@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=17
+set WINPODX_OEM_VERSION=18
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -269,78 +269,33 @@ if not exist "%RDPRRAP_EXE%" (
     goto :rdprrap_done
 )
 
-REM --- Run installer with retries + per-attempt log ------------------------
-REM rdprrap-installer can transiently fail on first-boot due to Windows
-REM Update background tasks, antivirus init, or service startup races.
-REM Retry up to 3 times with backoff. Pipe stdout/stderr into the log so
-REM rc!=0 surfaces with the actual installer error message.
-echo [winpodx] Running rdprrap-installer...
-set "RDPRRAP_INSTALLED_OK="
-for %%T in (1 2 3) do (
-    if not defined RDPRRAP_INSTALLED_OK (
-        (echo --- installer attempt %%T %DATE% %TIME%)>>"%RDPRRAP_LOG%"
-        "%RDPRRAP_EXE%" install --skip-restart >>"%RDPRRAP_LOG%" 2>&1
-        if not errorlevel 1 set "RDPRRAP_INSTALLED_OK=1"
-        if not defined RDPRRAP_INSTALLED_OK (
-            (echo installer attempt %%T failed; sleeping 3s)>>"%RDPRRAP_LOG%"
-            echo [winpodx]   installer attempt %%T failed, retrying after 3s...
-            powershell -NoProfile -Command "Start-Sleep -Seconds 3"
-        )
-    )
-)
-if not defined RDPRRAP_INSTALLED_OK (
-    (echo FINAL: installer-failed)>>"%RDPRRAP_LOG%"
-    echo [winpodx] WARNING: rdprrap-installer failed after 3 attempts; staying single-session.
+REM --- Delegate install / TermService cycle / verify to rdprrap-activate.ps1
+REM Single source of truth — same script `winpodx pod multi-session on`
+REM uses for runtime activation. install.bat used to inline ~80 lines of
+REM installer-retry / TermService-cycle / ServiceDll-verify / marker logic;
+REM that code now lives in rdprrap-activate.ps1 so a fix to the activation
+REM flow benefits both OEM-time and runtime paths without drift.
+REM
+REM Safety at OEM time: install.bat runs from FirstLogonCommands in the
+REM local console session — TermService manages RDP sessions only, so the
+REM cycle inside the script doesn't tear down our cmd.exe parent.
+REM
+REM The script writes the same .activation_status / install.log markers
+REM install.bat used to write directly. Idempotency marker
+REM (.installed_version) stays install.bat's responsibility — only OEM
+REM time has the SHA-pinned bundle context to safely stamp it.
+echo [winpodx] Activating rdprrap (delegating to rdprrap-activate.ps1)...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rdprrap-activate.ps1" >>"%RDPRRAP_LOG%" 2>&1
+set "RDPRRAP_RC=%ERRORLEVEL%"
+(echo rdprrap-activate.ps1 exit=%RDPRRAP_RC%)>>"%RDPRRAP_LOG%"
+if not "%RDPRRAP_RC%"=="0" (
+    echo [winpodx] WARNING: rdprrap-activate.ps1 exited with code %RDPRRAP_RC%; staying single-session.
     echo [winpodx]   diagnostic log: %RDPRRAP_LOG%
-    (echo installer-failed)>"%RDPRRAP_STATUS%"
-    goto :rdprrap_done
-)
-(echo installer OK after retries^)>>"%RDPRRAP_LOG%"
-
-REM rdprrap patches the registry ServiceDll to termwrap.dll, but the already-running TermService still has the
-REM original termsrv.dll loaded in memory. dockur's unattended flow does not restart svchost before handing off
-REM to logon, so without an explicit cycle here the first RDP connection hits Windows' default single-session
-REM limit and our multi-session feature looks broken. /y auto-confirms stopping dependent services.
-echo [winpodx] Restarting TermService to activate rdprrap...
-(echo --- restarting TermService %DATE% %TIME%)>>"%RDPRRAP_LOG%"
-net stop TermService /y >>"%RDPRRAP_LOG%" 2>&1
-net start TermService >>"%RDPRRAP_LOG%" 2>&1
-
-REM --- Verify activation + log full diagnostics on failure -----------------
-REM rdprrap-installer reporting rc=0 doesn't guarantee the patch landed —
-REM observed cases where the binary completed but ServiceDll was never
-REM flipped (transient Defender hold, Sysprep-time registry race). Check
-REM HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters\ServiceDll
-REM — if it ends in termwrap.dll the patch is live; if termsrv.dll, it isn't.
-REM On the not-activated path also dump termsrv state, ServiceDll value,
-REM and the installer's exit context so failures are root-cause-able from
-REM the log alone.
-echo [winpodx] Verifying rdprrap activation...
-(echo --- activation verify %DATE% %TIME%)>>"%RDPRRAP_LOG%"
-set "RDPRRAP_SERVICEDLL="
-for /f "usebackq tokens=2,*" %%A in (`reg query "HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters" /v ServiceDll 2^>nul ^| findstr /R "REG_EXPAND_SZ"`) do (
-    set "RDPRRAP_SERVICEDLL=%%B"
-)
-(echo ServiceDll=%RDPRRAP_SERVICEDLL%)>>"%RDPRRAP_LOG%"
-echo %RDPRRAP_SERVICEDLL% | findstr /I "termwrap" >nul 2>&1
-if errorlevel 1 (
-    (echo FINAL: not-activated)>>"%RDPRRAP_LOG%"
-    (echo TermService state:)>>"%RDPRRAP_LOG%"
-    sc query TermService >>"%RDPRRAP_LOG%" 2>&1
-    (echo Parameters key dump:)>>"%RDPRRAP_LOG%"
-    reg query "HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters" >>"%RDPRRAP_LOG%" 2>&1
-    echo [winpodx] WARNING: rdprrap installer ran but ServiceDll didn't flip to termwrap.dll.
-    echo [winpodx]   ServiceDll = %RDPRRAP_SERVICEDLL%
-    echo [winpodx]   diagnostic log: %RDPRRAP_LOG%
-    echo [winpodx]   Multi-session activation incomplete; staying single-session.
-    (echo not-activated)>"%RDPRRAP_STATUS%"
     goto :rdprrap_done
 )
 
-(echo FINAL: enabled)>>"%RDPRRAP_LOG%"
-(echo enabled)>"%RDPRRAP_STATUS%"
 (echo %RDPRRAP_VERSION%)>"%RDPRRAP_INSTALLED%"
-echo [winpodx] rdprrap %RDPRRAP_VERSION% installed and activated (ServiceDll = %RDPRRAP_SERVICEDLL%).
+echo [winpodx] rdprrap %RDPRRAP_VERSION% installed and activated.
 goto :rdprrap_done
 
 :rdprrap_skip

@@ -1,37 +1,53 @@
-# rdprrap-activate.ps1 — runtime rdprrap activation that survives the
-# TermService restart it triggers.
+# rdprrap-activate.ps1 — single source of truth for rdprrap activation,
+# usable both at OEM Sysprep time (synchronous from install.bat) and at
+# runtime (detached from `winpodx pod multi-session on`).
 #
 # Background: rdprrap activates by patching termsrv.dll's ServiceDll
 # registry entry to point at termwrap.dll. The patch only takes effect
 # when TermService starts fresh, so activation requires `net stop
 # TermService /y && net start TermService`. That cycle kills every
-# active RDP session (including the agent's user session). Running it
-# from agent /exec inline therefore breaks /exec mid-flight.
+# active RDP session.
 #
-# This script is meant to be spawned DETACHED via wscript+
-# hidden-launcher.vbs (same pattern agent-respawn.ps1 uses). The
-# parent /exec response lands at the host before the detached runner
-# kills the service. Status is recorded to the same on-disk markers
-# install.bat (OEM v15+) writes, so subsequent `winpodx pod apply-
-# fixes` calls report the runtime-activation outcome the same way
-# they report OEM-time activation.
+# Two invocation modes:
 #
-# Usage (typically from cli.pod multi-session enable):
-#   wscript.exe C:\Users\Public\winpodx\launchers\hidden-launcher.vbs
-#               powershell.exe -NoProfile -ExecutionPolicy Bypass
-#               -File C:\Users\Public\winpodx\launchers\rdprrap-activate.ps1
+# 1) OEM time (install.bat, console session):
+#    powershell -NoProfile -ExecutionPolicy Bypass -File rdprrap-activate.ps1
+#    → no -Detached: skips the 2s parent-response wait, runs
+#      synchronously, exits with the activation rc so install.bat can
+#      branch on it. TermService cycle is safe — install.bat runs from
+#      FirstLogonCommands in the local console session and TermService
+#      only manages RDP sessions, so the cycle doesn't tear down our
+#      cmd.exe parent.
 #
-# Requires the agent's User to be in BUILTIN\Administrators with High
-# integrity — both true under dockur's autologon defaults.
+# 2) Runtime (cli.pod multi-session on, agent's user session):
+#    wscript.exe hidden-launcher.vbs powershell.exe ... -Detached
+#    → -Detached: sleeps 2s before any work so the parent /exec
+#      response can land at the host before TermService restart kills
+#      the agent's RDP session. Subsequent run via HKCU\Run reads the
+#      .activation_status marker — same marker install.bat writes — so
+#      `winpodx pod multi-session status` and `apply-fixes` report
+#      OEM-time and runtime activations through one surface.
+#
+# Requires the calling user to be in BUILTIN\Administrators with High
+# integrity (true at OEM time, true under dockur's autologon defaults
+# for the agent at runtime).
 
-$ErrorActionPreference = 'SilentlyContinue'
+[CmdletBinding()]
+param(
+    [switch]$Detached
+)
+
+# Default ErrorActionPreference ('Continue') — errors surface to the
+# log instead of being silently swallowed. The few calls that genuinely
+# tolerate failure (registry probes, log writes) opt in to
+# -ErrorAction SilentlyContinue locally.
+$ErrorActionPreference = 'Continue'
 
 $rdprrapDir = 'C:\winpodx\rdprrap'
 $logPath = "$rdprrapDir\install.log"
 $statusPath = "$rdprrapDir\.activation_status"
 $installer = "$rdprrapDir\rdprrap-installer.exe"
 
-# Ensure the directory exists before any logging attempt.
 [void](New-Item -ItemType Directory -Path $rdprrapDir -Force -ErrorAction SilentlyContinue)
 
 function Append-Log([string]$msg) {
@@ -43,11 +59,16 @@ function Set-Status([string]$value) {
     Set-Content -LiteralPath $statusPath -Value $value -Force -ErrorAction SilentlyContinue
 }
 
-# Give the parent /exec call ~2s to deliver its response to the host
-# before we start work that will eventually kill the agent's session.
-Start-Sleep -Seconds 2
-
-Append-Log '=== runtime rdprrap activation triggered ==='
+# Detached mode (runtime via /exec): give the parent call ~2s to land
+# its response at the host before we trigger TermService cycle that
+# kills the agent's session. Synchronous mode (OEM install.bat): no
+# such caller — skip the wait.
+if ($Detached) {
+    Start-Sleep -Seconds 2
+    Append-Log '=== runtime rdprrap activation triggered (detached) ==='
+} else {
+    Append-Log '=== rdprrap activation triggered (synchronous, OEM) ==='
+}
 
 # Extract the bundled zip if rdprrap-installer.exe isn't staged. Covers
 # the case where install.bat's extract step failed at OEM time

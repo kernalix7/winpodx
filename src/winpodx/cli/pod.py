@@ -330,8 +330,13 @@ def _multi_session_enable(cfg) -> None:  # type: ignore[no-untyped-def]
             "    Write-Output 'NOT-STAGED'",
             "    exit 2",
             "}",
+            # -Detached makes the script wait 2s before TermService cycle
+            # so this /exec response can return before the agent's user
+            # session dies. install.bat invokes the same script WITHOUT
+            # -Detached (synchronous OEM-time path).
             "$startArgs = @($hidden, 'powershell.exe', '-NoProfile',",
-            "         '-ExecutionPolicy', 'Bypass', '-File', $activate)",
+            "         '-ExecutionPolicy', 'Bypass', '-File', $activate,",
+            "         '-Detached')",
             "Start-Process wscript.exe -ArgumentList $startArgs | Out-Null",
             "Write-Output 'QUEUED'",
             "exit 0",
