@@ -128,18 +128,51 @@ if (-not $installOk) {
     exit 1
 }
 
-# Cycle TermService so the running TermService picks up the new
-# ServiceDll. This will kill the agent's user session -- but we're
-# detached, so the host's caller already returned. The agent will
-# auto-respawn on the next user logon (HKCU\Run, via wscript wrapper).
+# OEM-mode (synchronous, no -Detached): SKIP the TermService cycle.
+#
+# Background: kernalix7 reported 2026-05-03 that install.bat's session
+# was being killed mid-script. The forensics: install.log ended at
+# `FINAL: enabled` (rdprrap-activate.ps1's last line) but the
+# `(echo rdprrap-activate.ps1 exit=N)>>install.log` line that
+# install.bat writes IMMEDIATELY after the PS call -- never landed.
+# install.bat's cmd.exe died between PS exit and that line. Setup.log
+# was never created, launchers never staged, HKCU\Run never set, agent
+# never spawned -- the entire post-rdprrap section of install.bat was
+# silently lost.
+#
+# Cause: in dockur's autologon flow, the Sysprep first-logon session
+# IS managed through TermService. `net stop TermService /y` therefore
+# kills the autologon User session, and install.bat's cmd.exe (a
+# child of that session) dies with it. The earlier docstring assumed
+# the session was a "local console" insulated from TermService -- that
+# assumption was wrong for dockur's setup.
+#
+# Fix: at OEM time we ONLY patch the registry (rdprrap-installer
+# already did that above with --skip-restart). The actual TermService
+# cycle is deferred to install.bat's tail, AFTER all other setup
+# (launcher staging, HKCU\Run, agent spawn, setup_done.txt) has
+# committed -- so when the cycle eventually does kill install.bat,
+# everything we needed to write is already on disk.
+#
+# Detached mode (-Detached, runtime path from `winpodx pod multi-
+# session on`): cycle synchronously here. We're already a detached
+# wscript-spawned process; the host's /exec response landed before
+# we even started, so killing our session doesn't lose anything.
+
+if (-not $Detached) {
+    Append-Log 'OEM mode: skipping TermService cycle (install.bat will do it last)'
+    Set-Status 'patched-pending-cycle'
+    Append-Log 'FINAL: patched-pending-cycle (TermService cycle deferred to install.bat tail)'
+    exit 0
+}
+
 Append-Log 'restarting TermService to load termwrap.dll'
 $stopOut = & cmd.exe /c 'net stop TermService /y' 2>&1
 Append-Log ($stopOut | Out-String).TrimEnd()
 $startOut = & cmd.exe /c 'net start TermService' 2>&1
 Append-Log ($startOut | Out-String).TrimEnd()
 
-# Verify ServiceDll actually flipped. install.bat's OEM-time path uses
-# the same registry check; mirror it here for symmetry.
+# Verify ServiceDll actually flipped.
 Start-Sleep -Seconds 2
 $svcDll = (Get-ItemProperty `
     -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\TermService\Parameters' `

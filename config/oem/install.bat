@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=21
+set WINPODX_OEM_VERSION=22
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -459,3 +459,43 @@ REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stag
 
 echo [winpodx] Post-install configuration complete (version %WINPODX_OEM_VERSION%)!
 echo [winpodx] RDP is now enabled. You can connect with FreeRDP.
+
+REM ---------------------------------------------------------------------------
+REM TermService cycle -- ABSOLUTELY LAST STEP.
+REM
+REM This restarts TermService so the running process picks up the
+REM termwrap.dll patched into HKLM:\...\TermService\Parameters\ServiceDll
+REM by rdprrap-activate.ps1 (synchronous OEM-mode call earlier in this
+REM script). rdprrap-activate.ps1 deliberately skips the cycle in OEM
+REM mode (marker = patched-pending-cycle) BECAUSE this cycle is what
+REM has been killing install.bat mid-script -- in dockur's setup the
+REM autologon User session is itself managed through TermService, so
+REM `net stop TermService /y` takes our cmd.exe down with it.
+REM
+REM By doing the cycle as the very last action, we have already
+REM committed:
+REM   - launcher staging into C:\Users\Public\winpodx\launchers\
+REM   - HKCU\Run\WinpodxAgent (registered via PowerShell)
+REM   - inline agent spawn (so it ran with the now-stale TermService;
+REM     it'll die with this cycle, then HKCU\Run brings it back in
+REM     the autologon-retry session)
+REM   - C:\winpodx\setup_done.txt sentinel
+REM   - rdprrap-installer registry patch (done by rdprrap-activate.ps1)
+REM
+REM So even when this cycle kills install.bat's session, the autologon
+REM retry creates a fresh user session with multi-session active and
+REM HKCU\Run firing -- that brings the agent up cleanly.
+REM
+REM We still try to update the .activation_status marker after the
+REM cycle so apply-fixes doesn't have to re-trigger activation. If
+REM cmd.exe dies before reaching that, the marker stays at
+REM `patched-pending-cycle` and the host's `_apply_multi_session`
+REM ServiceDll cross-check (PR #85) will reconcile it to `enabled` on
+REM next apply-fixes.
+echo [winpodx] Cycling TermService to load termwrap.dll (final step)...
+net stop TermService /y >nul 2>&1
+net start TermService >nul 2>&1
+
+REM Best-effort marker update. May not run if the cycle killed our
+REM session; that's fine -- apply-fixes reconciles via ServiceDll check.
+(echo enabled)>C:\winpodx\rdprrap\.activation_status 2>nul
