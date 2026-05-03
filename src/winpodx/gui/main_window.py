@@ -2143,6 +2143,31 @@ class WinpodxWindow(QMainWindow):
                 self._on_start_pod()
             return
 
+        if kind == "session_disconnected":
+            # The pod IS running; what failed is the FreeRDP session
+            # winpodx tried to use. Common when multi-session is mid-
+            # activation (TermService cycle terminates the call) or
+            # when the autologon session blipped. Don't suggest "Start
+            # Pod" -- that's wrong. Suggest "Retry" instead.
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Discovery Session Disconnected")
+            box.setText(
+                "The discovery session was terminated by the guest before "
+                "results could be written.\n\n"
+                "This can happen when multi-session activation just cycled "
+                "TermService, or the autologon session briefly disconnected. "
+                "The pod itself is running; retrying usually succeeds."
+            )
+            if detail:
+                box.setInformativeText(detail)
+            retry_btn = box.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is retry_btn:
+                self._on_refresh_apps()
+            return
+
         if kind == "module_missing":
             QMessageBox.critical(
                 self,

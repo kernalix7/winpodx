@@ -204,7 +204,16 @@ class DiscoveryError(RuntimeError):
     from the canonical set so CLI/GUI callers can pattern-match without
     parsing the human-facing message. Canonical kinds:
 
-    - ``pod_not_running``
+    - ``pod_not_running`` — transport literally couldn't reach the pod
+      (TCP refused, connect timeout, agent unavailable). Pod is down
+      or starting.
+    - ``session_disconnected`` — the FreeRDP RemoteApp session was
+      terminated by the guest mid-call (LOGOFF_BY_USER, RPC_INITIATED_
+      DISCONNECT, etc.). The pod IS running; what failed is the
+      session winpodx tried to use. Common causes: multi-session
+      mid-activation (TermService cycle kicks the call), the autologon
+      user briefly logging off, or single-session-already-in-use when
+      rdprrap isn't active. Retry usually works.
     - ``script_missing``
     - ``script_failed``
     - ``bad_json``
@@ -477,6 +486,62 @@ def _looks_suspiciously_empty(apps: list[DiscoveredApp]) -> bool:
     return uwp == 0
 
 
+def _classify_channel_error(exc: Exception) -> str:
+    """Map a transport / FreeRDP error message to a ``DiscoveryError`` ``kind``.
+
+    Pre-this-helper the classifier was a one-liner: any error whose
+    message contained ``"no result file"`` or ``"auth"`` was tagged
+    ``pod_not_running``. That over-fired on session-side failures
+    where the pod was very much running -- e.g., FreeRDP RemoteApp
+    succeeded at the connection layer but the guest's RDP session
+    terminated mid-call (``ERRINFO_LOGOFF_BY_USER`` /
+    ``ERRINFO_RPC_INITIATED_DISCONNECT``, both of which produce a
+    "no result file written" outer message because the script never
+    finished writing). The GUI then surfaced a "Pod Not Running"
+    dialog on a perfectly running pod (kernalix7 hit this 2026-05-03
+    after a fresh install).
+
+    The new logic separates three states:
+
+    1. ``pod_not_running`` — connection refused / connect transport
+       failed / agent unavailable. Pod is genuinely down or still
+       booting.
+    2. ``session_disconnected`` — FreeRDP RemoteApp connected but
+       the session terminated (LOGOFF_BY_USER, RPC_INITIATED_DISCONNECT,
+       common during multi-session mid-activation). Retry usually
+       works.
+    3. ``script_failed`` — anything else (script crash, malformed
+       output, etc.).
+    """
+    msg = str(exc).lower()
+    pod_down_signals = (
+        "connection refused",
+        "errconnect_connect_transport_failed",
+        "errconnect_activation_timeout",
+        "transport_read_layer",
+        "connection reset",
+        "transport failed",
+        "unavailable",  # agent-transport flag for /health miss
+    )
+    if any(s in msg for s in pod_down_signals):
+        return "pod_not_running"
+    session_disconnect_signals = (
+        "errinfo_logoff_by_user",
+        "errinfo_rpc_initiated_disconnect",
+        "errinfo_remote_by_user",
+        "errinfo_logoff_by_admin",
+        "0x0001000c",  # LOGOFF_BY_USER hex
+        "0x00010001",  # RPC_INITIATED_DISCONNECT hex
+    )
+    if any(s in msg for s in session_disconnect_signals):
+        return "session_disconnected"
+    # Auth failure is its own thing -- pod's running but credentials don't
+    # match. Caller can route this to the sync-password rescue path.
+    if "auth" in msg or "logon_failure" in msg or "0xc000006d" in msg:
+        return "pod_not_running"
+    return "script_failed"
+
+
 def discover_apps(
     cfg: Config,
     timeout: int = 180,
@@ -578,13 +643,9 @@ def discover_apps(
             try:
                 tresult = transport.exec(script_body, timeout=timeout, description="discover-apps")
             except TransportError as e:
-                msg = str(e).lower()
-                kind = (
-                    "pod_not_running"
-                    if "no result file" in msg or "auth" in msg or "unavailable" in msg
-                    else "script_failed"
-                )
-                raise DiscoveryError(f"Discovery channel failure: {e}", kind=kind) from e
+                raise DiscoveryError(
+                    f"Discovery channel failure: {e}", kind=_classify_channel_error(e)
+                ) from e
             if tresult.rc != 0:
                 raise DiscoveryError(
                     f"Discovery script failed (rc={tresult.rc}): {tresult.stderr.strip()}",
@@ -605,11 +666,9 @@ def discover_apps(
                 progress_callback=progress_callback,
             )
         except WindowsExecError as e:
-            msg = str(e).lower()
-            kind = (
-                "pod_not_running" if "no result file" in msg or "auth" in msg else "script_failed"
-            )
-            raise DiscoveryError(f"Discovery channel failure: {e}", kind=kind) from e
+            raise DiscoveryError(
+                f"Discovery channel failure: {e}", kind=_classify_channel_error(e)
+            ) from e
 
         if result.rc != 0:
             raise DiscoveryError(
