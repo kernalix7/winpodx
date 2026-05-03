@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=20
+set WINPODX_OEM_VERSION=21
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -420,6 +420,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Set-ItemProperty -Path $key -Name 'WinpodxMedia' -Value $media -Force;" ^
   "Add-Content -LiteralPath '%SETUP_LOG%' -Value ('reg-add: WinpodxAgent=' + $agent);" ^
   "Add-Content -LiteralPath '%SETUP_LOG%' -Value ('reg-add: WinpodxMedia=' + $media);" 2>>"%SETUP_LOG%"
+
+REM Start the agent NOW (install.bat-time spawn) -- not just register it
+REM in HKCU\Run for future sessions. Reasoning: HKCU\Run fires once per
+REM user logon, and the autologon User session has *already* logged in
+REM by the time install.bat (FirstLogonCommands) executes. Registering
+REM HKCU\Run here only takes effect on the NEXT session, so without
+REM this explicit spawn the agent sits idle until the user (or a host
+REM RDP probe) opens a new session. install.sh's wait-ready phase 3
+REM was timing out at /health waiting for an agent that wasn't going
+REM to start until much later. spawn here -> agent /health up before
+REM install.bat exits, phase 3 succeeds cleanly, migrate's apply chain
+REM runs against a healthy agent (no FreeRDP-fallback cascades).
+REM
+REM Same wscript+hidden-launcher.vbs wrapper / direct-PS fallback
+REM split as the HKCU\Run registration above. Spawned via
+REM Start-Process detached so install.bat doesn't block on the agent's
+REM event loop.
+echo [winpodx] Starting guest agent...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
+  "if (Test-Path -LiteralPath $wrap) {" ^
+  "  $startArgs = @($wrap, 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\OEM\agent.ps1');" ^
+  "  Start-Process wscript.exe -ArgumentList $startArgs -WindowStyle Hidden | Out-Null;" ^
+  "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'agent-spawn: wscript+hidden-launcher.vbs';" ^
+  "} else {" ^
+  "  Start-Process powershell.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\OEM\agent.ps1') -WindowStyle Hidden | Out-Null;" ^
+  "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'agent-spawn: direct-powershell-fallback (brief flash)';" ^
+  "}" 2>>"%SETUP_LOG%"
 
 REM Token is delivered via the OEM bind mount — no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
