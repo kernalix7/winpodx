@@ -53,27 +53,83 @@ class TestBundleDir:
 
 
 class TestFindOemDir:
-    """_find_oem_dir() must return a user-writable copy, not the bundle path."""
+    """_find_oem_dir() returns the bundle path directly when user-owned,
+    otherwise copies the OEM tree into ~/.config/winpodx/oem/ and returns
+    that. Two regimes; both regression-tested."""
 
-    def test_copies_bundle_oem_to_user_config(self, tmp_path, monkeypatch):
+    def test_returns_bundle_path_when_user_writable(self, tmp_path, monkeypatch):
+        """Common case (curl install / source checkout / Nix profile):
+        the user owns the bundle dir, so we use it directly without
+        copying. Pre-PR this always copied -- the unconditional copy
+        on opensuse with restrictive ~/.config/winpodx/ parent perms
+        triggered ``cp: cannot stat '/oem/./install.bat': Permission
+        denied`` from dockur's in-container OEM-copy step."""
         from winpodx.core.pod.compose import _find_oem_dir
 
+        # Real bundle dir on the source checkout is user-writable
+        # (test runner owns the worktree). Set XDG_CONFIG_HOME just
+        # so any fallback would be visible if it fired.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-
         result = Path(_find_oem_dir())
 
-        assert result == tmp_path / "winpodx" / "oem"
+        # Returned path must NOT be under tmp_path/winpodx/oem -- the
+        # user_oem fallback shouldn't fire when the bundle is writable.
+        user_oem = tmp_path / "winpodx" / "oem"
+        assert result != user_oem, "user_oem fallback fired despite bundle being user-writable"
+        # Returned path must be the actual bundle OEM dir on disk.
+        assert (result / "install.bat").exists(), "bundle OEM not at returned path"
+
+    def test_copies_to_user_dir_when_bundle_readonly(self, tmp_path, monkeypatch):
+        """Fedora/RPM case: bundle dir is root-owned + read-only to
+        the current user. Fall back to a copy under
+        ``~/.config/winpodx/oem/`` so Podman's ``:Z`` relabel can land.
+        Regression test for GH-93 (pgarciaq's lsetxattr fail).
+        """
+        import os as _os
+
+        from winpodx.core.pod import compose as compose_mod
+
+        # Build a fake "bundle" dir we can mark as read-only-only.
+        fake_bundle = tmp_path / "fake-bundle"
+        (fake_bundle / "config" / "oem").mkdir(parents=True)
+        (fake_bundle / "scripts").mkdir()
+        (fake_bundle / "data").mkdir()
+        (fake_bundle / "config" / "oem" / "install.bat").write_text("rem fake")
+
+        # bundle_dir() is module-level, monkeypatch the import site.
+        monkeypatch.setattr(compose_mod, "bundle_dir", lambda: fake_bundle)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user-config"))
+
+        # Force the writability check to report False even though the
+        # test process technically owns the dir. Mocking os.access is
+        # cleaner than juggling sticky chmod bits in a tmp tree.
+        real_access = _os.access
+
+        def fake_access(path, mode):
+            if str(path).startswith(str(fake_bundle)):
+                return False
+            return real_access(path, mode)
+
+        monkeypatch.setattr(compose_mod.os, "access", fake_access)
+
+        result = Path(compose_mod._find_oem_dir())
+        user_oem = tmp_path / "user-config" / "winpodx" / "oem"
+
+        assert result == user_oem, "expected fallback to user_oem when bundle is read-only"
         assert result.is_dir()
         assert (result / "install.bat").exists(), "bundle OEM files should be copied"
+        # Files must end up world-readable so dockur's in-container
+        # cp succeeds regardless of the host user's umask.
+        copied_mode = (result / "install.bat").stat().st_mode & 0o777
+        assert copied_mode & 0o044, f"copied file mode {oct(copied_mode)} not world-readable"
 
     def test_user_oem_not_under_usr_share(self, tmp_path, monkeypatch):
-        """Regression test for GH-93: compose mount path must be user-owned."""
+        """Regression test for GH-93: even when the fallback fires,
+        the returned path never points at the system bundle path."""
         from winpodx.core.pod.compose import _find_oem_dir
 
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-
         result = _find_oem_dir()
-
         assert "/usr/share/" not in result, (
             "OEM dir must not point to system paths (SELinux :Z relabeling fails)"
         )

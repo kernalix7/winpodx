@@ -9,6 +9,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+- **OEM bind mount no longer copies to `~/.config/winpodx/oem/` when the bundle is already user-writable.** PR #95 (the SELinux fix for Fedora/RPM users) made `_find_oem_dir()` *always* copy the OEM tree to a user-owned path, then return that. On systems where the bundle is already user-owned (curl install, source checkout, Nix profile install -- the majority case), this introduced a regression: dockur's in-container `cp` would fail with `Permission denied` on every OEM file because `~/.config/winpodx/oem/` inherited a restrictive parent mode (e.g., 0700 from a strict default umask) that the dockur container process couldn't traverse. kernalix7 reported this on openSUSE Tumbleweed 2026-05-03: `cp: cannot stat '/oem/./install.bat': Permission denied`. Fix: branch on `os.access(bundle_oem, R_OK | W_OK)`. If the user owns the bundle, return it directly (no copy needed -- Podman's `:Z` relabel works fine on user-owned paths). Otherwise (RPM/wheel root-owned bundle), fall back to the user-space copy with explicit `chmod 0644` on files + `0755` on directories so dockur can traverse + read regardless of the host user's umask.
+
 ## [0.4.0] - 2026-05-03
 
 A significant stability + UX release focused on the install / migrate paths. Container recreates are no longer triggered by dockur's `:latest` push cadence (image is SHA-pinned), every PowerShell console flash on app launch and agent autostart has been eliminated, fresh installs honestly wait for Windows to be ready, and multi-session activation is now hands-free via `apply-fixes` / `migrate`. SELinux-enforcing systems (Fedora) work out of the box. RTM-suffixed pods (`0.3.0-RTM1`) migrate cleanly. The `winpodx app refresh` discovery race is closed in three layers. Contributing policy + lifecycle docs added.

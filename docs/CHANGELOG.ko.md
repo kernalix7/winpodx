@@ -9,6 +9,9 @@
 
 ## [Unreleased]
 
+### 수정
+- **OEM bind mount 가 bundle 이 이미 user-writable 이면 `~/.config/winpodx/oem/` 으로 복사 안 함.** PR #95 (Fedora/RPM SELinux fix) 가 `_find_oem_dir()` 를 *항상* user-owned path 로 OEM 트리 복사 + 반환하게 만듦. Bundle 이 이미 user-owned 인 시스템 (curl install, source checkout, Nix profile install — 대다수 케이스) 에서 regression: dockur 의 in-container `cp` 가 모든 OEM 파일에 `Permission denied` 로 실패 (`~/.config/winpodx/oem/` 이 상위 디렉터리의 빡빡한 mode (예: 엄격한 default umask 의 0700) 를 상속받아서 dockur 컨테이너 process 가 traverse 못함). kernalix7 가 openSUSE Tumbleweed 2026-05-03 에 보고: `cp: cannot stat '/oem/./install.bat': Permission denied`. 수정: `os.access(bundle_oem, R_OK | W_OK)` 분기. 사용자가 bundle 소유하면 그대로 반환 (복사 불필요 — Podman 의 `:Z` relabel 은 user-owned path 에 정상 동작). 그 외 (RPM/wheel root-owned bundle) 인 경우 user-space 복사로 폴백 + 파일 명시적 `chmod 0644` + 디렉터리 `0755` 해서 host user 의 umask 와 무관하게 dockur 가 traverse + read 가능.
+
 ## [0.4.0] - 2026-05-03
 
 설치 / 마이그레이션 경로의 안정성 + UX 에 집중한 주요 릴리스. dockur 의 `:latest` push cadence 가 더 이상 컨테이너 재생성을 트리거하지 않음 (이미지 SHA pinned). 앱 launch 와 agent autostart 에서 PowerShell 콘솔 깜빡임이 모두 제거됨. fresh install 이 Windows 준비될 때까지 정직하게 대기. multi-session 활성화가 `apply-fixes` / `migrate` 로 hands-free. SELinux-enforcing 시스템 (Fedora) 가 out of the box 동작. RTM-suffix pod (`0.3.0-RTM1`) 정상 마이그레이션. `winpodx app refresh` discovery race 가 3계층으로 차단. Contributing 정책 + 라이프사이클 문서 추가.
