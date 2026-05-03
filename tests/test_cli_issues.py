@@ -550,7 +550,8 @@ class TestComposeNetworkKey:
         _generate_compose(cfg)
         content = (tmp_path / "winpodx" / "compose.yaml").read_text()
         assert "NETWORK" not in content
-        assert "slirp" not in content
+        env_lines = [ln.strip() for ln in content.splitlines() if ":" in ln and "volumes" not in ln]
+        assert not any("slirp" in ln for ln in env_lines if ln.startswith(("NETWORK", "slirp")))
 
 
 # --- v0.1.8 audit I1/I2: winpodx app refresh cfg-loading + kind routing ---

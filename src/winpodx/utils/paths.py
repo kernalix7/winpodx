@@ -38,7 +38,7 @@ def bundle_dir() -> Path:
         Path.home() / ".local" / "bin" / "winpodx-app",
     ]
     for c in candidates:
-        if c is not None and any((c / m).is_dir() for m in _BUNDLE_MARKERS):
+        if c is not None and all((c / m).is_dir() for m in _BUNDLE_MARKERS):
             return c
     return src_guess
 
