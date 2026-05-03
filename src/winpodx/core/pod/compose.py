@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import string
 import tempfile
 from pathlib import Path
@@ -82,8 +83,32 @@ def _yaml_escape(val: str) -> str:
 
 
 def _find_oem_dir() -> str:
-    """Return the OEM directory path as a string (see :func:`bundle_dir`)."""
-    return str(bundle_dir() / "config" / "oem")
+    """Return a user-writable OEM directory for the compose bind mount.
+
+    Copies the bundle OEM tree into ``~/.config/winpodx/oem/`` so that
+    Podman's ``:Z`` SELinux relabeling works regardless of install method.
+    RPM/wheel installs place the bundle under root-owned ``/usr/share/``,
+    which rootless Podman cannot relabel on SELinux-enforcing systems.
+
+    Falls back to the bundle path when the bundle OEM dir is missing
+    (broken install), so callers still get a path for error messages.
+    """
+    bundle_oem = bundle_dir() / "config" / "oem"
+    user_oem = config_dir() / "oem"
+
+    if bundle_oem.is_dir():
+        user_oem.mkdir(parents=True, exist_ok=True)
+        for item in bundle_oem.iterdir():
+            dest = user_oem / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dest)
+
+    if user_oem.is_dir():
+        return str(user_oem)
+
+    return str(bundle_oem)
 
 
 def _build_compose_content(cfg: Config) -> str:
