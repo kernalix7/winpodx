@@ -46,15 +46,35 @@ class TestHealth:
     """health() never raises on transient state — see Transport ABC rule."""
 
     def test_returns_available_when_client_responds(self, transport):
-        with patch.object(
-            type(transport._client),
-            "health",
-            return_value={"version": "0.2.2-rev1", "ok": True},
+        with (
+            patch.object(
+                type(transport._client),
+                "health",
+                return_value={"version": "0.2.2-rev1", "ok": True},
+            ),
+            patch.object(type(transport._client), "auth_ready", return_value=(True, "")),
         ):
             status = transport.health()
         assert isinstance(status, HealthStatus)
         assert status.available is True
         assert status.version == "0.2.2-rev1"
+
+    def test_returns_unavailable_when_token_missing(self, transport):
+        with (
+            patch.object(
+                type(transport._client),
+                "health",
+                return_value={"version": "0.2.2-rev1", "ok": True},
+            ),
+            patch.object(
+                type(transport._client),
+                "auth_ready",
+                return_value=(False, "agent token file missing"),
+            ),
+        ):
+            status = transport.health()
+        assert status.available is False
+        assert "token" in (status.detail or "")
 
     def test_returns_unavailable_on_unavailable_error(self, transport):
         with patch.object(
@@ -76,7 +96,10 @@ class TestHealth:
     def test_handles_non_dict_payload_gracefully(self, transport):
         # AgentClient.health() returns a dict on success; if it ever
         # returns something else, AgentTransport must not crash.
-        with patch.object(type(transport._client), "health", return_value=[]):
+        with (
+            patch.object(type(transport._client), "health", return_value=[]),
+            patch.object(type(transport._client), "auth_ready", return_value=(True, "")),
+        ):
             status = transport.health()
         assert status.available is True
         assert status.version is None

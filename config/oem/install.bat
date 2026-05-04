@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent - there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=23
+set WINPODX_OEM_VERSION=24
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -483,20 +483,20 @@ echo [winpodx] Registering HKCU\Run entries...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
   "$haveWrap = Test-Path -LiteralPath $wrap;" ^
-  "Add-Content -LiteralPath '%SETUP_LOG%' -Value (\"reg-add: haveWrap=$haveWrap\");" ^
+    "Write-Output (\"reg-add: haveWrap=$haveWrap\");" ^
   "$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';" ^
   "if ($haveWrap) {" ^
   "  $agent = 'wscript.exe \"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\OEM\agent.ps1\"';" ^
   "  $media = 'wscript.exe \"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\winpodx\media_monitor.ps1\"';" ^
   "} else {" ^
-  "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'reg-add: hidden-launcher.vbs missing -> fallback to direct powershell (brief flash)';" ^
+    "  Write-Output 'reg-add: hidden-launcher.vbs missing -> fallback to direct powershell (brief flash)';" ^
   "  $agent = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1';" ^
   "  $media = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\winpodx\media_monitor.ps1';" ^
   "}" ^
   "Set-ItemProperty -Path $key -Name 'WinpodxAgent' -Value $agent -Force;" ^
   "Set-ItemProperty -Path $key -Name 'WinpodxMedia' -Value $media -Force;" ^
-  "Add-Content -LiteralPath '%SETUP_LOG%' -Value ('reg-add: WinpodxAgent=' + $agent);" ^
-  "Add-Content -LiteralPath '%SETUP_LOG%' -Value ('reg-add: WinpodxMedia=' + $media);" 2>>"%SETUP_LOG%"
+    "Write-Output ('reg-add: WinpodxAgent=' + $agent);" ^
+    "Write-Output ('reg-add: WinpodxMedia=' + $media);" >>"%SETUP_LOG%" 2>&1
 
 REM Start the agent NOW (install.bat-time spawn) -- not just register it
 REM in HKCU\Run for future sessions. Reasoning: HKCU\Run fires once per
@@ -520,11 +520,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if (Test-Path -LiteralPath $wrap) {" ^
   "  $startArgs = @($wrap, 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\OEM\agent.ps1');" ^
   "  Start-Process wscript.exe -ArgumentList $startArgs -WindowStyle Hidden | Out-Null;" ^
-  "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'agent-spawn: wscript+hidden-launcher.vbs';" ^
+    "  Write-Output 'agent-spawn: wscript+hidden-launcher.vbs';" ^
   "} else {" ^
   "  Start-Process powershell.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\OEM\agent.ps1') -WindowStyle Hidden | Out-Null;" ^
-  "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'agent-spawn: direct-powershell-fallback (brief flash)';" ^
-  "}" 2>>"%SETUP_LOG%"
+    "  Write-Output 'agent-spawn: direct-powershell-fallback (brief flash)';" ^
+    "}" >>"%SETUP_LOG%" 2>&1
 
 REM Token is delivered via the OEM bind mount - no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container

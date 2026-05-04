@@ -61,6 +61,14 @@ class AgentTransport(Transport):
         """
         try:
             payload = self._client.health()
+            # /health is intentionally unauthenticated, but this Transport is
+            # only usable for authenticated /exec calls. If the host token is
+            # missing, report the agent transport as unavailable so default
+            # dispatch can fall back to FreeRDP instead of selecting agent and
+            # failing later on the first /exec.
+            auth_ready, auth_detail = self._client.auth_ready()
+            if not auth_ready:
+                return HealthStatus(available=False, detail=auth_detail)
         except AgentUnavailableError as e:
             return HealthStatus(available=False, detail=str(e))
         except Exception as e:  # noqa: BLE001 — rule: never raise on transient

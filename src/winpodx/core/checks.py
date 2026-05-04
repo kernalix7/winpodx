@@ -85,6 +85,8 @@ def probe_agent_health(cfg: Config) -> Probe:
         try:
             payload = client.health()
         except AgentError as e:
+            if "timed out" in str(e).lower():
+                return "warn", f"agent warming up or busy: {e}"
             return "fail", str(e)
         version = payload.get("version", "?")
         return "ok", f"version={version}"
@@ -107,7 +109,7 @@ def probe_guest_exec(cfg: Config) -> Probe:
     """
 
     def _run() -> tuple[ProbeStatus, str]:
-        from winpodx.core.agent import AgentClient, AgentError
+        from winpodx.core.agent import AgentClient, AgentError, AgentTimeoutError
         from winpodx.core.pod import PodState, pod_status
 
         # Skip rather than fail when the pod itself is down — keeps the
@@ -122,6 +124,8 @@ def probe_guest_exec(cfg: Config) -> Probe:
         client = AgentClient(cfg)
         try:
             result = client.exec("Write-Output ok\n", timeout=10.0)
+        except AgentTimeoutError as e:
+            return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
             return "fail", f"exec failed: {e}"
         if result.rc != 0:
@@ -148,7 +152,7 @@ def probe_guest_summary(cfg: Config) -> Probe:
     def _run() -> tuple[ProbeStatus, str]:
         import json
 
-        from winpodx.core.agent import AgentClient, AgentError
+        from winpodx.core.agent import AgentClient, AgentError, AgentTimeoutError
         from winpodx.core.pod import PodState, pod_status
 
         try:
@@ -187,6 +191,8 @@ def probe_guest_summary(cfg: Config) -> Probe:
         client = AgentClient(cfg)
         try:
             result = client.exec(script, timeout=15.0)
+        except AgentTimeoutError as e:
+            return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
             return "fail", f"exec failed: {e}"
         if result.rc != 0:

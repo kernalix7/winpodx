@@ -126,6 +126,19 @@ class AgentClient:
         self._cached_token = content
         return content
 
+    def auth_ready(self) -> tuple[bool, str]:
+        """Return whether authenticated endpoints can be used.
+
+        This intentionally does not expose the token. It lets transport
+        selection verify that /exec can authenticate after an unauthenticated
+        /health succeeds.
+        """
+        try:
+            self._token()
+        except AgentUnavailableError as e:
+            return False, str(e)
+        return True, ""
+
     def _build_request(
         self,
         path: str,

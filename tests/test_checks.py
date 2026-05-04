@@ -159,6 +159,62 @@ def test_probe_guest_exec_fail_when_agent_unreachable(monkeypatch):
     assert "connection refused" in out.detail
 
 
+def test_probe_agent_health_timeout_is_warmup_warn(monkeypatch):
+    from winpodx.core.agent import AgentUnavailableError
+
+    class _FakeClient:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def health(self):
+            raise AgentUnavailableError("/health timed out after 2.0s")
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    out = checks.probe_agent_health(_FakeCfg())
+    assert out.status == "warn"
+    assert "warming up" in out.detail
+
+
+def test_probe_guest_exec_timeout_is_warmup_warn(monkeypatch):
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.agent import AgentTimeoutError
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.RUNNING))
+
+    class _FakeClient:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def exec(self, *_a, **_k):
+            raise AgentTimeoutError("/exec timed out after 9.0s")
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    out = checks.probe_guest_exec(_FakeCfg())
+    assert out.status == "warn"
+    assert "warming up" in out.detail
+
+
+def test_probe_guest_summary_timeout_is_warmup_warn(monkeypatch):
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.agent import AgentTimeoutError
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.RUNNING))
+
+    class _FakeClient:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def exec(self, *_a, **_k):
+            raise AgentTimeoutError("/exec timed out after 14.0s")
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    out = checks.probe_guest_summary(_FakeCfg())
+    assert out.status == "warn"
+    assert "warming up" in out.detail
+
+
 def test_probe_apps_discovered_warn_on_missing_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("winpodx.core.discovery.discovered_apps_dir", lambda: tmp_path / "missing")
     out = checks.probe_apps_discovered(_FakeCfg())
