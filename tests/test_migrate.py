@@ -402,9 +402,12 @@ class TestApplyRuntimeFixesAgentGate:
             _apply_runtime_fixes_to_existing_guest(non_interactive=True)
 
         out = capsys.readouterr().out
-        mock_apply.assert_not_called(), (
-            "apply chain MUST NOT run when agent is down — would fall back to FreeRDP "
-            "and kick install.bat's autologon session"
+        (
+            mock_apply.assert_not_called(),
+            (
+                "apply chain MUST NOT run when agent is down — would fall back to FreeRDP "
+                "and kick install.bat's autologon session"
+            ),
         )
         assert "Agent not yet up" in out
         assert "kicking the autologon" in out
@@ -439,9 +442,7 @@ class TestApplyRuntimeFixesAgentGate:
         assert "Agent not yet up" not in out
         assert "OK: applied" in out
 
-    def test_skip_message_points_to_apply_fixes_for_recovery(
-        self, tmp_path, monkeypatch, capsys
-    ):
+    def test_skip_message_points_to_apply_fixes_for_recovery(self, tmp_path, monkeypatch, capsys):
         """Skip message must tell the user how to apply the chain manually
         once the agent is up — `winpodx pod apply-fixes` is the entry."""
         self._setup_cfg(tmp_path, monkeypatch)
@@ -476,9 +477,7 @@ class TestDiscoverAppsRequireAgent:
     User session.
     """
 
-    def test_raises_agent_unavailable_when_env_set_and_agent_down(
-        self, tmp_path, monkeypatch
-    ):
+    def test_raises_agent_unavailable_when_env_set_and_agent_down(self, tmp_path, monkeypatch):
         from winpodx.core.config import Config
         from winpodx.core.discovery import DiscoveryError, discover_apps
 
