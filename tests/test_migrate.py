@@ -358,3 +358,210 @@ def test_read_installed_version_falls_back_when_invalid(tmp_path, monkeypatch):
     monkeypatch.setattr(cfgmod.Config, "path", classmethod(lambda c: tmp_path / "winpodx.toml"))
     (tmp_path / "winpodx.toml").write_text("[rdp]\nuser = 'x'\n", encoding="utf-8")
     assert _detect_installed_version() == "0.1.7"
+
+
+# --- _apply_runtime_fixes_to_existing_guest agent gate (v0.4.0) ---
+
+
+class TestApplyRuntimeFixesAgentGate:
+    """v0.4.0 (post-rc1): migrate's apply chain skips entirely when the
+    in-guest agent isn't up. Why: dispatch() silently falls back to
+    FreerdpTransport when /health doesn't answer, and a fresh FreeRDP
+    login KICKS the autologon User session that install.bat is running
+    in (rdprrap multi-session isn't loaded yet on first boot, so single-
+    session enforcement is in effect). install.bat dies mid-stage and
+    setup_done.txt / agent.ps1 staging never lands.
+    """
+
+    def _setup_cfg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.rdp.password = "abc123"
+        cfg.rdp.user = "User"
+        cfg.save()
+
+    def test_skips_apply_chain_when_agent_unavailable(self, tmp_path, monkeypatch, capsys):
+        """Agent /health down -> apply chain MUST be skipped, no FreeRDP fallback."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
+        from winpodx.core.pod import PodState
+        from winpodx.core.transport.base import HealthStatus
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+            patch("winpodx.core.provisioner.apply_windows_runtime_fixes") as mock_apply,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_health.return_value = HealthStatus(available=False, detail="connection refused")
+
+            _apply_runtime_fixes_to_existing_guest(non_interactive=True)
+
+        out = capsys.readouterr().out
+        mock_apply.assert_not_called(), (
+            "apply chain MUST NOT run when agent is down — would fall back to FreeRDP "
+            "and kick install.bat's autologon session"
+        )
+        assert "Agent not yet up" in out
+        assert "kicking the autologon" in out
+
+    def test_runs_apply_chain_when_agent_responds(self, tmp_path, monkeypatch, capsys):
+        """Agent /health up -> apply chain runs as before (via AgentTransport)."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
+        from winpodx.core.pod import PodState
+        from winpodx.core.transport.base import HealthStatus
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+            patch("winpodx.core.provisioner.apply_windows_runtime_fixes") as mock_apply,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_health.return_value = HealthStatus(available=True, version="0.4.0")
+            mock_apply.return_value = {
+                "max_sessions": "ok",
+                "rdp_timeouts": "ok",
+                "oem_runtime_fixes": "ok",
+                "vbs_launchers": "ok",
+                "multi_session": "ok",
+            }
+
+            _apply_runtime_fixes_to_existing_guest(non_interactive=True)
+
+        out = capsys.readouterr().out
+        mock_apply.assert_called_once()
+        assert "Agent not yet up" not in out
+        assert "OK: applied" in out
+
+    def test_skip_message_points_to_apply_fixes_for_recovery(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Skip message must tell the user how to apply the chain manually
+        once the agent is up — `winpodx pod apply-fixes` is the entry."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
+        from winpodx.core.pod import PodState
+        from winpodx.core.transport.base import HealthStatus
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+            patch("winpodx.core.provisioner.apply_windows_runtime_fixes") as mock_apply,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_health.return_value = HealthStatus(available=False, detail="timeout")
+
+            _apply_runtime_fixes_to_existing_guest(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "winpodx pod apply-fixes" in out
+        mock_apply.assert_not_called()
+
+
+# --- discover_apps WINPODX_REQUIRE_AGENT gate (v0.4.0) ---
+
+
+class TestDiscoverAppsRequireAgent:
+    """v0.4.0 (post-rc1): WINPODX_REQUIRE_AGENT=1 (set by install.sh's
+    post-install discovery) suppresses the FreeRDP-RemoteApp fallback
+    inside discover_apps. Same rationale as the migrate gate: a fresh
+    FreeRDP login while install.bat is in-flight kicks the autologon
+    User session.
+    """
+
+    def test_raises_agent_unavailable_when_env_set_and_agent_down(
+        self, tmp_path, monkeypatch
+    ):
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DiscoveryError, discover_apps
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.save()
+
+        monkeypatch.setenv("WINPODX_REQUIRE_AGENT", "1")
+
+        # Avoid pod_status / runtime check failures by stubbing the
+        # readiness probe + transport dispatch path.
+        from winpodx.core.transport.base import HealthStatus
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/podman"),
+            patch(
+                "winpodx.core.discovery._wait_for_transport_ready",
+                lambda *a, **k: None,
+            ),
+            patch(
+                "winpodx.core.discovery._ps_script_path",
+                lambda: tmp_path / "discover_apps.ps1",
+            ),
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+        ):
+            mock_health.return_value = HealthStatus(available=False, detail="connection refused")
+            (tmp_path / "discover_apps.ps1").write_text("# stub\n", encoding="utf-8")
+
+            try:
+                discover_apps(cfg, timeout=5)
+            except DiscoveryError as e:
+                assert getattr(e, "kind", None) == "agent_unavailable"
+                assert "WINPODX_REQUIRE_AGENT" in str(e) or "agent" in str(e).lower()
+            else:
+                raise AssertionError(
+                    "discover_apps must raise DiscoveryError(kind='agent_unavailable') "
+                    "when WINPODX_REQUIRE_AGENT=1 and agent /health is down"
+                )
+
+    def test_falls_back_to_freerdp_when_env_not_set(self, tmp_path, monkeypatch):
+        """Default behavior (no env var) -> FreeRDP fallback still works.
+        The gate is opt-in via env var; existing call sites keep their
+        fallback semantics so GUI's Apply Fixes button etc. aren't
+        affected."""
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import discover_apps
+        from winpodx.core.transport.base import HealthStatus
+        from winpodx.core.windows_exec import WindowsExecResult
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.save()
+
+        monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
+
+        # Stub script path + readiness probe; mock dispatch to return
+        # an unavailable agent so the FreeRDP fallback path executes.
+        with (
+            patch("shutil.which", return_value="/usr/bin/podman"),
+            patch(
+                "winpodx.core.discovery._wait_for_transport_ready",
+                lambda *a, **k: None,
+            ),
+            patch(
+                "winpodx.core.discovery._ps_script_path",
+                lambda: tmp_path / "discover_apps.ps1",
+            ),
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+            patch("winpodx.core.windows_exec.run_in_windows") as mock_run,
+        ):
+            mock_health.return_value = HealthStatus(available=False, detail="not up")
+            mock_run.return_value = WindowsExecResult(rc=0, stdout="[]", stderr="")
+            (tmp_path / "discover_apps.ps1").write_text("# stub\n", encoding="utf-8")
+
+            apps = discover_apps(cfg, timeout=5)
+
+        assert apps == []
+        # discover_apps retries once on a suspiciously-empty result, so
+        # 1-2 calls are both valid; the assertion that matters here is
+        # that the FreeRDP fallback path executed at all (proving the
+        # default behavior wasn't accidentally locked down).
+        assert mock_run.call_count >= 1, (
+            "without WINPODX_REQUIRE_AGENT, FreeRDP fallback path must execute"
+        )

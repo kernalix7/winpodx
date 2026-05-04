@@ -655,6 +655,30 @@ def discover_apps(
 
         # Agent unreachable — fall back to FreeRDP RemoteApp. Slower (30s
         # cap) but always available once the pod is up and RDP works.
+        #
+        # v0.4.0 (post-rc1): WINPODX_REQUIRE_AGENT=1 (set by install.sh during
+        # post-install discovery) skips FreeRDP fallback. Why: a fresh-boot
+        # FreeRDP login from the host while install.bat is still running
+        # KICKS the autologon User session (rdprrap multi-session isn't
+        # patched yet, so single-session enforcement is in effect). install.bat
+        # runs as a child of that session and dies mid-stage -- agent never
+        # gets staged, setup.log never written, /health stays down forever.
+        # kernalix7 hit this on every fresh-install smoke test 2026-05-02
+        # through 2026-05-04. Gating refresh on agent-up means the first
+        # install completes cleanly: install.bat finishes, agent comes up,
+        # then a manual `winpodx app refresh` (or pending-resume on next
+        # launch) populates the menu via the agent.
+        import os
+
+        if os.environ.get("WINPODX_REQUIRE_AGENT") == "1":
+            raise DiscoveryError(
+                "agent transport required (WINPODX_REQUIRE_AGENT=1) but "
+                "guest agent isn't up yet; skipping FreeRDP fallback to "
+                "avoid kicking install.bat's autologon session. "
+                "Re-run `winpodx app refresh` once the agent comes up.",
+                kind="agent_unavailable",
+            )
+
         from winpodx.core.windows_exec import run_in_windows
 
         try:

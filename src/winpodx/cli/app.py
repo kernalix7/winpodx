@@ -72,6 +72,14 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
         "bad_json": 3,
         "truncated": 3,
         "timeout": 4,
+        # v0.4.0 (post-rc1): install.sh's post-install refresh sets
+        # WINPODX_REQUIRE_AGENT=1 so FreeRDP fallback is suppressed
+        # while install.bat may still be in-flight (FreeRDP would kick
+        # install.bat's autologon session). Exit code 5 signals
+        # "deferred — re-run when agent comes up"; install.sh maps this
+        # to mark_pending discovery instead of treating it as a hard
+        # failure.
+        "agent_unavailable": 5,
     }
 
     cfg = Config.load()
@@ -92,6 +100,12 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
         elif kind == "unsupported_backend":
             print(
                 "Discovery requires podman or docker backend. Check 'winpodx config show'.",
+                file=sys.stderr,
+            )
+        elif kind == "agent_unavailable":
+            print(
+                "Guest agent not up yet — refresh deferred. "
+                "Re-run `winpodx app refresh` once the pod finishes first-boot.",
                 file=sys.stderr,
             )
         else:

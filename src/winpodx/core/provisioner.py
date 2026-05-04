@@ -218,13 +218,29 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
     else:
         return False
 
-    # Stage 2 — agent /health. Best-effort: cap at 60s since the agent
-    # comes up within ~10s of user logon on a healthy pod and any
-    # longer wait is a sign of a real misconfig that won't resolve by
-    # waiting. We return True anyway so callers proceed (FreeRDP
-    # fallback handles the agent-unavailable path).
+    # Stage 2 — agent /health. Best-effort.
+    #
+    # Cap was 60s pre-v0.4.0; bumped to 180s after kernalix7's 2026-05-04
+    # smoke tests on opensuse Tumbleweed showed install.bat OEM v22's
+    # rdprrap-extract / installer / activate / launcher-stage / agent-
+    # spawn chain regularly exceeded the old 60s budget on first boot
+    # (especially on slower disks / colder caches), causing /health to
+    # not-yet-answer when wait-ready phase 3 timed out. install.sh then
+    # ran migrate, migrate fell back to FreerdpTransport via dispatch(),
+    # FreeRDP opened a new RDP session, and that session kick killed
+    # install.bat mid-stage -- because rdprrap wasn't loaded yet (its
+    # ServiceDll patch isn't live until install.bat's tail TermService
+    # cycle runs), so single-session enforcement was still in effect.
+    #
+    # 180s gives install.bat enough headroom to reach its agent-spawn
+    # step (line ~444) under realistic first-boot conditions while still
+    # bounding the wait so a genuinely broken agent doesn't deadlock
+    # phase 3. We return True regardless so callers proceed -- migrate
+    # has its own agent gate (see _apply_runtime_fixes_to_existing_guest)
+    # to skip apply-chain entirely if /health still didn't answer; that
+    # avoids the FreeRDP-fallback session-kick path described above.
     transport = AgentTransport(cfg)
-    agent_deadline = min(deadline, time.monotonic() + 60)
+    agent_deadline = min(deadline, time.monotonic() + 180)
     while time.monotonic() < agent_deadline:
         status = transport.health()
         if status.available:
@@ -232,9 +248,9 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
         time.sleep(5)
     log.warning(
         "wait_for_windows_responsive: RDP up but agent /health didn't "
-        "answer within 60s; proceeding via FreeRDP fallback. Run "
-        "`winpodx pod apply-fixes` or check C:\\winpodx\\setup.log "
-        "if subsequent /exec calls keep falling back to FreeRDP."
+        "answer within 180s; proceeding without agent. Migrate's apply "
+        "chain will skip via its own agent gate; check "
+        "C:\\winpodx\\setup.log via VNC if /health remains down."
     )
     return True
 

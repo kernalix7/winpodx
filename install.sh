@@ -510,7 +510,26 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
     }
 fi
 
-# --- Post-upgrade migration wizard ---
+# --- Post-install / upgrade migration wizard + discovery ---
+#
+# Both steps run AFTER wait-ready completes, but install.bat may still
+# be in-flight inside the Windows guest (Sysprep + DNS / RDP / firewall /
+# rdprrap install / launcher staging / agent spawn / final TermService
+# cycle). install.bat is a FirstLogonCommands child of the autologon
+# User session; opening a new RDP login from the host BEFORE install.bat
+# finishes kicks that session because rdprrap multi-session isn't
+# patched yet, so single-session enforcement is in effect. install.bat
+# dies mid-stage and the agent never starts (kernalix7 hit this every
+# smoke test 2026-05-02 through 2026-05-04 -- setup.log never created,
+# C:\OEM\agent.ps1 not even copied).
+#
+# Defense: WINPODX_REQUIRE_AGENT=1 makes both migrate and app refresh
+# refuse to fall back to FreeRDP RemoteApp when the guest agent isn't
+# up yet. They exit with a "deferred" status; install.sh marks them
+# pending so the next CLI / GUI launch resumes them once the agent has
+# come up cleanly.
+export WINPODX_REQUIRE_AGENT=1
+
 # If an existing config is present this is an upgrade, not a fresh
 # install. Run the migrate wizard so the user sees new-version release
 # notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
@@ -523,12 +542,14 @@ fi
 # --- Auto-discover apps ---
 # v0.2.0.5: trigger discovery so the menu populates before install.sh
 # exits. Best-effort — if discovery fails (channel error, Windows still
-# warming up), the pending marker tells the next CLI / GUI launch to
-# retry automatically.
+# warming up, agent not yet up under WINPODX_REQUIRE_AGENT), the pending
+# marker tells the next CLI / GUI launch to retry automatically.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
     log "Discovering installed Windows apps..."
     "$HOME/.local/bin/winpodx" app refresh 2>/dev/null || mark_pending "discovery"
 fi
+
+unset WINPODX_REQUIRE_AGENT
 
 # Persist the pending list so resume_install_work() can pick it up.
 if [ -n "$PENDING_STEPS" ]; then
