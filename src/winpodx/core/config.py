@@ -144,6 +144,8 @@ class Config:
 
         _apply(cfg.rdp, data.get("rdp", {}))
         _apply(cfg.pod, data.get("pod", {}))
+        cfg.rdp.__post_init__()
+        cfg.pod.__post_init__()
         return cfg
 
     def save(self) -> None:

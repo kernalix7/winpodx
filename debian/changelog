@@ -1,3 +1,10 @@
+winpodx (0.4.0~rc1) unstable; urgency=high
+
+  * Release candidate: Defender exclusions, tar-based rdprrap extraction,
+    and install-time agent-only post-install gates.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 04 May 2026 00:00:00 +0000
+
 winpodx (0.3.0) unstable; urgency=medium
 
   * Added: HTTP guest agent (agent.ps1, rev4) on 127.0.0.1:8765.

@@ -1,12 +1,12 @@
 @echo off
-REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
+REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent - there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
 set WINPODX_OEM_VERSION=23
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
 REM ---------------------------------------------------------------------------
-REM Windows Defender exclusions — ABSOLUTE FIRST STEP.
+REM Windows Defender exclusions - ABSOLUTE FIRST STEP.
 REM
 REM Background: kernalix7's fresh installs 2026-05-02 through 2026-05-04
 REM consistently died at line ~248 (PS Expand-Archive of the rdprrap zip
@@ -22,9 +22,9 @@ REM files to 13+ (added rdprrap-activate.ps1, hidden-launcher.vbs,
 REM launch_uwp.ps1/vbs, agent-respawn.ps1, agent/agent.ps1); (2) the
 REM dockur image was pinned to a specific Windows 11 digest in PR #83
 REM (v0.3.1), and that newer Windows build ships a stricter Defender
-REM real-time policy. The combination — more PS/VBS files staged in
+REM real-time policy. The combination - more PS/VBS files staged in
 REM C:\OEM\ alongside rdprrap-installer.exe (which patches termsrv.dll
-REM and is naturally classifier-flagged as PUP) — triggers Defender
+REM and is naturally classifier-flagged as PUP) - triggers Defender
 REM real-time scanning of C:\OEM\ during install.bat's first PS call.
 REM Defender locks one of the files; PS Expand-Archive blocks waiting on
 REM the lock; install.bat blocks waiting on PS; whole thing deadlocks
@@ -37,7 +37,7 @@ REM there, the contents are SHA-pinned to the bundle, and the user
 REM workload runs from C:\Users\... (still scanned). It also keeps
 REM rdprrap-installer.exe itself out of Defender's process list.
 REM
-REM Add-MpPreference is idempotent — re-running install.bat (e.g., on
+REM Add-MpPreference is idempotent - re-running install.bat (e.g., on
 REM container recreate) just re-asserts the exclusion silently.
 echo [winpodx] Adding Windows Defender exclusions for C:\OEM, C:\winpodx, and rdprrap-installer.exe...
 powershell -NoProfile -Command "try { Add-MpPreference -ExclusionPath 'C:\OEM','C:\winpodx' -ErrorAction Stop; Add-MpPreference -ExclusionProcess 'rdprrap-installer.exe' -ErrorAction Stop } catch { Write-Output ('defender-exclusion: ' + $_.Exception.Message) }" >nul 2>&1
@@ -72,7 +72,7 @@ echo [winpodx] Disabling NIC power-save...
 powershell -NoProfile -Command "Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {$_.Status -ne 'Disabled'} | Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false -ErrorAction SilentlyContinue" >nul 2>&1
 
 echo [winpodx] Configuring TermService recovery actions...
-REM 3 attempts at 5s spacing, 24h reset window — Windows itself recovers
+REM 3 attempts at 5s spacing, 24h reset window - Windows itself recovers
 REM TermService crashes without needing host intervention.
 sc.exe failure TermService reset= 86400 actions= restart/5000/restart/5000/restart/5000 >nul 2>&1
 
@@ -80,13 +80,13 @@ REM v0.1.9.1: RDP session timeout + keep-alive. v0.2.1 adjusts the
 REM disconnection-time semantics:
 REM   * MaxIdleTime          0 = no idle timeout (active sessions never auto-disconnect)
 REM   * MaxConnectionTime    0 = no max session duration
-REM   * MaxDisconnectionTime 30000 ms = 30 sec — disconnected sessions
+REM   * MaxDisconnectionTime 30000 ms = 30 sec - disconnected sessions
 REM     auto-LOGOFF after 30 s. Previously this was 0 ("never logoff"),
 REM     which left zombie disconnected sessions accumulating every time
 REM     the user closed a FreeRDP window. The next launch then triggered
 REM     "Select a session to reconnect to" dialog because Windows saw
 REM     the user had N old disconnected sessions. rdprrap allows
-REM     concurrent sessions but doesn't suppress that prompt — only
+REM     concurrent sessions but doesn't suppress that prompt - only
 REM     auto-logoff does.
 REM Both the machine policy and the RDP-Tcp WinStation keys are set;
 REM whichever Windows consults first finds the saner default.
@@ -111,7 +111,7 @@ netsh advfirewall firewall add rule name="RDP UDP" dir=in action=allow protocol=
 
 REM Allow inbound on the winpodx agent port. QEMU's user-mode NAT forwards
 REM container:8765 -> Windows VM 10.0.2.15:8765, which Windows Firewall
-REM blocks by default — kernalix7 saw curl timeout from the host on
+REM blocks by default - kernalix7 saw curl timeout from the host on
 REM 2026-04-30 even with agent.ps1 bound to 0.0.0.0:8765 because the SYN
 REM never made it past the firewall. RDP got auto-allowed via the
 REM "Remote Desktop" group rule above; 8765 needs an explicit rule.
@@ -204,10 +204,10 @@ if exist C:\winpodx\oem_updater.ps1 del /F /Q C:\winpodx\oem_updater.ps1 >nul 2>
 REM Parenthesized echo strips the trailing space that `echo X > file` leaves behind.
 (echo %WINPODX_OEM_VERSION%)>C:\winpodx\oem_version.txt
 
-echo [winpodx] Installing multi-session RDP (rdprrap) — offline bundle...
+echo [winpodx] Installing multi-session RDP (rdprrap) - offline bundle...
 REM Bundle ships under config/oem/ and is staged into C:\OEM\ by dockur's unattended install.
 REM The pin file (version / filename / sha256) lives next to the zip. No network
-REM access is required — everything is copied straight from the staged folder.
+REM access is required - everything is copied straight from the staged folder.
 set "RDPRRAP_PIN="
 if exist "C:\OEM\rdprrap_version.txt" set "RDPRRAP_PIN=C:\OEM\rdprrap_version.txt"
 
@@ -281,18 +281,18 @@ REM v0.4.0 (post-rc1): tar -xf instead of PS Expand-Archive.
 REM
 REM Background: PS Expand-Archive deadlocked on every fresh install
 REM 2026-05-02 through 2026-05-04. install.log ended at "extract attempt
-REM 1" with no follow-up — neither "extract OK" nor "extract failed" —
+REM 1" with no follow-up - neither "extract OK" nor "extract failed" -
 REM meaning the PowerShell call never returned. The 3 disconnected
 REM User sessions in qwinsta on every attempt were the eventual kicks
 REM (host-side migrate's password probe at 12:45 UTC) that finally
 REM killed the hanging install.bat. PS Expand-Archive was hanging on
 REM Defender's real-time scan of C:\OEM\ + the rdprrap zip extraction
-REM target — one of the staged PS / EXE files (rdprrap-installer.exe
+REM target - one of the staged PS / EXE files (rdprrap-installer.exe
 REM is naturally PUP-flagged because it patches termsrv.dll) was
 REM getting locked, and Expand-Archive blocked waiting on the lock.
 REM
 REM tar (Windows 10 1803+, ships in System32\tar.exe) bypasses the
-REM PowerShell engine entirely — no module load, no .NET assembly
+REM PowerShell engine entirely - no module load, no .NET assembly
 REM resolution, no AMSI hookpoints. It's a syscall-direct extraction
 REM that Defender's PS-script analysis layer can't intercept. The
 REM Defender exclusions added at the top of install.bat (Add-MpPreference
@@ -309,12 +309,12 @@ set "RDPRRAP_EXTRACTED="
 for %%T in (1 2 3) do (
     if not defined RDPRRAP_EXTRACTED (
         (echo --- extract attempt %%T %DATE% %TIME%)>>"%RDPRRAP_LOG%"
-        tar -xf "%RDPRRAP_ZIP_SRC%" -C "%RDPRRAP_DIR%" >>"%RDPRRAP_LOG%" 2>&1
+        "%SystemRoot%\System32\tar.exe" -xf "%RDPRRAP_ZIP_SRC%" -C "%RDPRRAP_DIR%" >>"%RDPRRAP_LOG%" 2>&1
         if not errorlevel 1 set "RDPRRAP_EXTRACTED=1"
         if not defined RDPRRAP_EXTRACTED (
             (echo extract attempt %%T failed; sleeping 2s)>>"%RDPRRAP_LOG%"
             echo [winpodx]   extract attempt %%T failed, retrying after 2s...
-            REM Plain timeout instead of `powershell Start-Sleep` — PS
+            REM Plain timeout instead of `powershell Start-Sleep` - PS
             REM call here would re-introduce the very engine load that
             REM tar is bypassing.
             timeout /t 2 /nobreak >nul 2>&1
@@ -332,7 +332,7 @@ if not defined RDPRRAP_EXTRACTED (
 
 REM Defensive flatten: if tar left an inner rdprrap-<version>/ folder
 REM (depends on the zip's layout convention), move its contents up to
-REM RDPRRAP_DIR. Single shot, no PS — pure cmd. Idempotent: the for
+REM RDPRRAP_DIR. Single shot, no PS - pure cmd. Idempotent: the for
 REM loop simply finds no match if there's no inner dir.
 for /d %%D in ("%RDPRRAP_DIR%\rdprrap-*") do (
     (echo flattening inner dir: %%~nxD)>>"%RDPRRAP_LOG%"
@@ -350,19 +350,19 @@ if not exist "%RDPRRAP_EXE%" (
 )
 
 REM --- Delegate install / TermService cycle / verify to rdprrap-activate.ps1
-REM Single source of truth — same script `winpodx pod multi-session on`
+REM Single source of truth - same script `winpodx pod multi-session on`
 REM uses for runtime activation. install.bat used to inline ~80 lines of
 REM installer-retry / TermService-cycle / ServiceDll-verify / marker logic;
 REM that code now lives in rdprrap-activate.ps1 so a fix to the activation
 REM flow benefits both OEM-time and runtime paths without drift.
 REM
 REM Safety at OEM time: install.bat runs from FirstLogonCommands in the
-REM local console session — TermService manages RDP sessions only, so the
+REM local console session - TermService manages RDP sessions only, so the
 REM cycle inside the script doesn't tear down our cmd.exe parent.
 REM
 REM The script writes the same .activation_status / install.log markers
 REM install.bat used to write directly. Idempotency marker
-REM (.installed_version) stays install.bat's responsibility — only OEM
+REM (.installed_version) stays install.bat's responsibility - only OEM
 REM time has the SHA-pinned bundle context to safely stamp it.
 echo [winpodx] Activating rdprrap (delegating to rdprrap-activate.ps1)...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rdprrap-activate.ps1" >>"%RDPRRAP_LOG%" 2>&1
@@ -439,7 +439,7 @@ if exist "C:\Users\Public\winpodx\launchers\hidden-launcher.vbs" set "LAUNCHERS_
 REM Pre-register the URL ACL for agent.ps1's HttpListener prefix.
 REM
 REM agent.ps1 binds ``http://+:8765/`` (all interfaces inside the
-REM Windows VM) — NOT 127.0.0.1. dockur's user-mode QEMU NAT forwards
+REM Windows VM) - NOT 127.0.0.1. dockur's user-mode QEMU NAT forwards
 REM from container:8765 to the VM's slirp interface (10.0.2.15:8765,
 REM NOT 127.0.0.1:8765); a 127.0.0.1-only listener would mean slirp's
 REM forwarded packets hit a closed port (kernalix7 saw "Connection
@@ -526,7 +526,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Add-Content -LiteralPath '%SETUP_LOG%' -Value 'agent-spawn: direct-powershell-fallback (brief flash)';" ^
   "}" 2>>"%SETUP_LOG%"
 
-REM Token is delivered via the OEM bind mount — no \\tsclient\home copy
+REM Token is delivered via the OEM bind mount - no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
 REM creation; dockur lays the OEM directory contents into C:\OEM\.
 echo [winpodx] Guest agent installed.

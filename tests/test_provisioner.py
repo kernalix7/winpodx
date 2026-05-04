@@ -22,7 +22,13 @@ def test_ensure_config_creates_default(tmp_path, monkeypatch):
 
     assert cfg.rdp.user == "User"
     assert cfg.rdp.ip == "127.0.0.1"
+    assert cfg.rdp.password
     assert (tmp_path / "winpodx" / "winpodx.toml").exists()
+
+    from winpodx.core.config import Config
+
+    loaded = Config.load()
+    assert loaded.rdp.password == cfg.rdp.password
 
 
 # Rotation tests moved to tests/test_rotation/test_rotation.py (Sprint 1 Step 2).

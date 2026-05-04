@@ -121,6 +121,26 @@ def test_password_filter_clears_args():
     assert record.getMessage() == record.getMessage()
 
 
+def test_password_filter_redacts_freerdp_password_switch():
+    from winpodx.utils.logging import PasswordFilter
+
+    pw_filter = PasswordFilter()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="xfreerdp /u:User /p:sekret123 /v:127.0.0.1:3390",
+        args=(),
+        exc_info=None,
+    )
+
+    pw_filter.filter(record)
+
+    assert "/p:sekret123" not in record.getMessage()
+    assert "/p:***" in record.getMessage()
+
+
 def test_password_filter_passes_through_clean_records():
     from winpodx.utils.logging import PasswordFilter
 

@@ -72,9 +72,13 @@ class PasswordFilter(logging.Filter):
         """Replace password-like values with ***."""
         import re
 
-        return re.sub(
+        text = re.sub(
             r"(password|pass|passwd|secret|token)\s*[=:]\s*\S+",
             r"\1=***",
             text,
             flags=re.IGNORECASE,
         )
+        # FreeRDP's /p:<password> switch is the one unavoidable place where
+        # credentials may appear in argv. Redact it before logs hit console or
+        # ~/.config/winpodx/winpodx.log.
+        return re.sub(r"(/p:)(\S+)", r"\1***", text)

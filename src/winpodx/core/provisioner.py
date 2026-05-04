@@ -7,8 +7,9 @@ import os
 import shutil
 import subprocess
 import time
+from datetime import datetime, timezone
 
-from winpodx.core.compose import generate_compose
+from winpodx.core.compose import generate_compose, generate_password
 from winpodx.core.config import Config
 from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
 
@@ -672,6 +673,8 @@ def _ensure_config() -> Config:
     cfg = Config()
     cfg.rdp.user = "User"
     cfg.rdp.ip = "127.0.0.1"
+    cfg.rdp.password = generate_password()
+    cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
 
     if shutil.which("podman"):
         cfg.pod.backend = "podman"

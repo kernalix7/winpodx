@@ -148,23 +148,41 @@ def _auto_rotate_password(cfg: Config) -> Config:
         log.warning("Password rotation skipped: could not change Windows password")
         return cfg
 
+    old_updated = cfg.rdp.password_updated
     cfg.rdp.password = new_password
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
 
     try:
-        cfg.save()
+        # Generate compose first. If compose generation fails, the persisted
+        # config still contains the old password, so rollback only has to fix
+        # Windows. If config save fails after compose was written, the rollback
+        # path below rewrites compose with the old password again.
         generate_compose(cfg)
+        cfg.save()
         log.info("Password rotated successfully")
         _clear_rotation_pending()
     except OSError as e:
-        # Config save failed but Windows already has the new password.
-        cfg.rdp.password = old_password
-        log.error("Failed to save config after rotation: %s", e)
+        # Persistence failed but Windows already has the new password. Keep cfg
+        # on the new password for the rollback call so FreeRDP authenticates,
+        # then restore old values in memory and on disk/compose.
+        log.error("Failed to persist config after rotation: %s", e)
 
         if _change_windows_password(cfg, old_password):
+            cfg.rdp.password = old_password
+            cfg.rdp.password_updated = old_updated
+            try:
+                generate_compose(cfg)
+                cfg.save()
+            except OSError as rollback_error:
+                log.error(
+                    "Password rollback succeeded but persistence restore failed: %s",
+                    rollback_error,
+                )
             log.warning("Password rotation rolled back after config save failure")
         else:
             # Worst case: config holds old password, Windows holds new.
+            cfg.rdp.password = old_password
+            cfg.rdp.password_updated = old_updated
             _mark_rotation_pending(old_password, new_password)
             log.error(
                 "CRITICAL: password rotation partially applied. "
@@ -177,7 +195,7 @@ def _auto_rotate_password(cfg: Config) -> Config:
     return cfg
 
 
-def _mark_rotation_pending(old_password: str, new_password: str) -> None:
+def _mark_rotation_pending(_old_password: str, _new_password: str) -> None:
     """Atomically write a 0o600 marker signalling a partial rotation."""
     marker = _rotation_marker_path()
     try:

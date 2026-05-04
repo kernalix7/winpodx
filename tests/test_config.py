@@ -63,6 +63,37 @@ def test_config_save_load(tmp_path, monkeypatch):
     assert loaded.pod.backend == "libvirt"
 
 
+def test_config_load_revalidates_loaded_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    path = Config.path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "[rdp]\n"
+        "port = 99999\n"
+        "scale = 50\n"
+        "dpi = 9999\n"
+        "password_max_age = -1\n"
+        "\n[pod]\n"
+        'backend = "bad"\n'
+        "cpu_cores = -10\n"
+        "ram_gb = 9999\n"
+        'container_name = "../bad"\n',
+        encoding="utf-8",
+    )
+
+    loaded = Config.load()
+
+    assert loaded.rdp.port == 65535
+    assert loaded.rdp.scale == 100
+    assert loaded.rdp.dpi == 500
+    assert loaded.rdp.password_max_age == 0
+    assert loaded.pod.backend == "podman"
+    assert loaded.pod.cpu_cores == 1
+    assert loaded.pod.ram_gb == 512
+    assert loaded.pod.container_name == "winpodx-windows"
+
+
 def test_apply_bool_coercion_from_string():
     from winpodx.core.config import _apply
 

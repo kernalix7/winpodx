@@ -230,6 +230,39 @@ class TestProbePasswordSync:
             "would kick install.bat's autologon session"
         )
 
+    def test_probe_agent_only_under_require_agent_even_if_exec_drops(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """WINPODX_REQUIRE_AGENT=1 must remain agent-only even if the
+        agent disappears after /health succeeds. This pins the fresh-install
+        race where default dispatch fell back to FreeRDP and kicked the
+        autologon session running install.bat.
+        """
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _probe_password_sync
+        from winpodx.core.pod import PodState
+        from winpodx.core.transport.base import HealthStatus, TransportUnavailable
+
+        monkeypatch.setenv("WINPODX_REQUIRE_AGENT", "1")
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive") as mock_wait,
+            patch("winpodx.core.windows_exec.run_in_windows") as mock_run,
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+            patch("winpodx.core.transport.agent.AgentTransport.exec") as mock_exec,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_health.return_value = HealthStatus(available=True, detail="ok")
+            mock_exec.side_effect = TransportUnavailable("agent dropped after health")
+
+            _probe_password_sync(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "probe inconclusive" in out
+        mock_wait.assert_not_called()
+        mock_run.assert_not_called()
+
 
 # --- _print_whats_new ---
 

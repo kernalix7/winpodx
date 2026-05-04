@@ -45,6 +45,40 @@ def test_rotation_rollback_success_reverts_password(_rotation_cfg, monkeypatch):
     assert not rotation._rotation_marker_path().exists()
 
 
+def test_rotation_compose_failure_does_not_save_new_password(_rotation_cfg, monkeypatch):
+    # Compose failure happens before config save, so disk config must never get
+    # the new password. Windows is rolled back to the old password.
+    from winpodx.core import rotation
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.rotation.pod_status",
+        lambda cfg: PodStatus(state=PodState.RUNNING),
+    )
+
+    changes: list[str] = []
+
+    def fake_change(cfg, pw):
+        changes.append(pw)
+        return True
+
+    monkeypatch.setattr(rotation, "_change_windows_password", fake_change)
+    monkeypatch.setattr(
+        rotation,
+        "generate_compose",
+        lambda cfg: (_ for _ in ()).throw(OSError("compose full")),
+    )
+
+    with patch.object(_rotation_cfg, "save") as mock_save:
+        result = rotation._auto_rotate_password(_rotation_cfg)
+
+    assert result.rdp.password == "old-password"
+    assert len(changes) == 2
+    assert changes[1] == "old-password"
+    mock_save.assert_not_called()
+    assert not rotation._rotation_marker_path().exists()
+
+
 def test_rotation_rollback_failure_writes_marker(_rotation_cfg, monkeypatch):
     # Config save and Windows rollback both fail: must log error and write .rotation_pending marker.
     from winpodx.core import rotation
