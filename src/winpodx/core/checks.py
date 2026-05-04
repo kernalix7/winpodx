@@ -79,20 +79,35 @@ def probe_agent_health(cfg: Config) -> Probe:
     """GET /health — verifies the agent is bound and answering on 8765."""
 
     def _run() -> tuple[ProbeStatus, str]:
-        from winpodx.core.agent import AgentClient, AgentError
+        from winpodx.core.agent import AgentClient, AgentError, AgentTimeoutError
 
         client = AgentClient(cfg)
         try:
             payload = client.health()
+        except AgentTimeoutError as e:
+            return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
-            if "timed out" in str(e).lower():
-                return "warn", f"agent warming up or busy: {e}"
             return "fail", str(e)
         version = payload.get("version", "?")
         return "ok", f"version={version}"
 
     status, detail, ms = _timed(_run)
     return Probe("agent_health", status, detail, ms)
+
+
+def probe_agent_auth_ready(cfg: Config) -> Probe:
+    """Verify host-side bearer token readiness for authenticated /exec calls."""
+
+    def _run() -> tuple[ProbeStatus, str]:
+        from winpodx.core.agent import AgentClient
+
+        ok, detail = AgentClient(cfg).auth_ready()
+        if ok:
+            return "ok", "host token ready"
+        return "fail", f"auth token unavailable: {detail}"
+
+    status, detail, ms = _timed(_run)
+    return Probe("agent_auth_ready", status, detail, ms)
 
 
 def probe_guest_exec(cfg: Config) -> Probe:
@@ -297,6 +312,7 @@ PROBES: tuple[Callable[[Config], Probe], ...] = (
     probe_pod_running,
     probe_rdp_port,
     probe_agent_health,
+    probe_agent_auth_ready,
     probe_guest_exec,  # round-trip test — proves /exec works, not just /health
     probe_guest_summary,  # in-guest snapshot (Windows version / uptime / sessions / disk)
     probe_oem_version,
@@ -306,9 +322,47 @@ PROBES: tuple[Callable[[Config], Probe], ...] = (
 )
 
 
+def _skip_probe(name: str, detail: str) -> Probe:
+    return Probe(name, "skip", detail, 0)
+
+
 def run_all(cfg: Config) -> list[Probe]:
     """Run every probe and return results in deterministic order."""
-    return [p(cfg) for p in PROBES]
+    out: list[Probe] = []
+    agent_health: Probe | None = None
+    agent_auth_ready: Probe | None = None
+
+    for probe_fn in PROBES:
+        if probe_fn is probe_agent_auth_ready and agent_health is not None:
+            if agent_health.status != "ok":
+                agent_auth_ready = _skip_probe(
+                    "agent_auth_ready",
+                    f"agent not ready: {agent_health.detail}",
+                )
+                out.append(agent_auth_ready)
+                continue
+
+        if probe_fn in (probe_guest_exec, probe_guest_summary):
+            if agent_health is not None and agent_health.status != "ok":
+                out.append(_skip_probe(probe_fn.__name__.replace("probe_", ""), "agent not ready"))
+                continue
+            if agent_auth_ready is not None and agent_auth_ready.status != "ok":
+                out.append(
+                    _skip_probe(
+                        probe_fn.__name__.replace("probe_", ""),
+                        f"agent auth not ready: {agent_auth_ready.detail}",
+                    )
+                )
+                continue
+
+        probe = probe_fn(cfg)
+        out.append(probe)
+        if probe.name == "agent_health":
+            agent_health = probe
+        elif probe.name == "agent_auth_ready":
+            agent_auth_ready = probe
+
+    return out
 
 
 def overall(probes: Iterable[Probe]) -> ProbeStatus:

@@ -76,6 +76,92 @@ def test_run_all_returns_one_probe_per_registered_function(monkeypatch):
     assert all(isinstance(p, Probe) for p in out)
 
 
+def test_run_all_skips_exec_probes_when_agent_health_not_ok(monkeypatch):
+    fake_cfg = object()
+    called: list[str] = []
+
+    def pod(_cfg):
+        return Probe("pod_running", "ok", "running", 1)
+
+    def rdp(_cfg):
+        return Probe("rdp_port", "ok", "rdp", 1)
+
+    def agent(_cfg):
+        return Probe("agent_health", "warn", "agent warming up", 1)
+
+    def auth(_cfg):
+        called.append("auth")
+        return Probe("agent_auth_ready", "ok", "token", 1)
+
+    def guest_exec(_cfg):
+        called.append("exec")
+        return Probe("guest_exec", "ok", "exec", 1)
+
+    def guest_summary(_cfg):
+        called.append("summary")
+        return Probe("guest_summary", "ok", "summary", 1)
+
+    monkeypatch.setattr(checks, "probe_agent_auth_ready", auth)
+    monkeypatch.setattr(checks, "probe_guest_exec", guest_exec)
+    monkeypatch.setattr(checks, "probe_guest_summary", guest_summary)
+    monkeypatch.setattr(
+        checks,
+        "PROBES",
+        (
+            pod,
+            rdp,
+            agent,
+            checks.probe_agent_auth_ready,
+            checks.probe_guest_exec,
+            checks.probe_guest_summary,
+        ),
+    )
+
+    out = checks.run_all(fake_cfg)
+
+    by_name = {p.name: p for p in out}
+    assert by_name["agent_auth_ready"].status == "skip"
+    assert by_name["guest_exec"].status == "skip"
+    assert by_name["guest_summary"].status == "skip"
+    assert called == []
+
+
+def test_run_all_skips_exec_probes_when_auth_not_ready(monkeypatch):
+    fake_cfg = object()
+    called: list[str] = []
+
+    def pod(_cfg):
+        return Probe("pod_running", "ok", "running", 1)
+
+    def rdp(_cfg):
+        return Probe("rdp_port", "ok", "rdp", 1)
+
+    def agent(_cfg):
+        return Probe("agent_health", "ok", "version=x", 1)
+
+    def auth(_cfg):
+        return Probe("agent_auth_ready", "fail", "token missing", 1)
+
+    def guest_exec(_cfg):
+        called.append("exec")
+        return Probe("guest_exec", "ok", "exec", 1)
+
+    monkeypatch.setattr(checks, "probe_agent_auth_ready", auth)
+    monkeypatch.setattr(checks, "probe_guest_exec", guest_exec)
+    monkeypatch.setattr(
+        checks,
+        "PROBES",
+        (pod, rdp, agent, checks.probe_agent_auth_ready, checks.probe_guest_exec),
+    )
+
+    out = checks.run_all(fake_cfg)
+
+    by_name = {p.name: p for p in out}
+    assert by_name["agent_auth_ready"].status == "fail"
+    assert by_name["guest_exec"].status == "skip"
+    assert called == []
+
+
 def test_probe_pod_running_handles_pod_status_failure(monkeypatch):
     """If pod_status raises, the probe must return fail, not propagate."""
     import winpodx.core.pod as pod_mod
@@ -159,15 +245,42 @@ def test_probe_guest_exec_fail_when_agent_unreachable(monkeypatch):
     assert "connection refused" in out.detail
 
 
+def test_probe_agent_auth_ready_ok(monkeypatch):
+    class _FakeClient:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def auth_ready(self):
+            return True, ""
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    out = checks.probe_agent_auth_ready(_FakeCfg())
+    assert out.status == "ok"
+
+
+def test_probe_agent_auth_ready_fail(monkeypatch):
+    class _FakeClient:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def auth_ready(self):
+            return False, "agent token file missing"
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    out = checks.probe_agent_auth_ready(_FakeCfg())
+    assert out.status == "fail"
+    assert "token" in out.detail
+
+
 def test_probe_agent_health_timeout_is_warmup_warn(monkeypatch):
-    from winpodx.core.agent import AgentUnavailableError
+    from winpodx.core.agent import AgentTimeoutError
 
     class _FakeClient:
         def __init__(self, _cfg) -> None:
             pass
 
         def health(self):
-            raise AgentUnavailableError("/health timed out after 2.0s")
+            raise AgentTimeoutError("/health timed out after 2.0s")
 
     monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
     out = checks.probe_agent_health(_FakeCfg())

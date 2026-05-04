@@ -69,7 +69,7 @@ class AgentTransport(Transport):
             auth_ready, auth_detail = self._client.auth_ready()
             if not auth_ready:
                 return HealthStatus(available=False, detail=auth_detail)
-        except AgentUnavailableError as e:
+        except (AgentTimeoutError, AgentUnavailableError) as e:
             return HealthStatus(available=False, detail=str(e))
         except Exception as e:  # noqa: BLE001 — rule: never raise on transient
             return HealthStatus(available=False, detail=f"health probe failed: {e}")

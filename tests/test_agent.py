@@ -121,13 +121,22 @@ class TestHealth:
         with pytest.raises(AgentUnavailableError, match="503"):
             client.health()
 
-    def test_timeout_raises_unavailable(self, monkeypatch, client):
+    def test_timeout_raises_timeout(self, monkeypatch, client):
         def fake_urlopen(req, timeout=None):
             raise socket.timeout("timed out")
 
         _patch_urlopen(monkeypatch, fake_urlopen)
 
-        with pytest.raises(AgentUnavailableError):
+        with pytest.raises(AgentTimeoutError):
+            client.health()
+
+    def test_urlerror_socket_timeout_raises_timeout(self, monkeypatch, client):
+        def fake_urlopen(req, timeout=None):
+            raise urllib_error.URLError(socket.timeout("timed out"))
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        with pytest.raises(AgentTimeoutError):
             client.health()
 
     def test_non_json_raises_unavailable(self, monkeypatch, client):
@@ -172,6 +181,27 @@ class TestTokenLazyLoad:
 
         with pytest.raises(AgentUnavailableError, match="empty"):
             client._token()
+
+    def test_auth_ready_reports_missing_token(self, monkeypatch, tmp_path, cfg):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        client = AgentClient(cfg)
+
+        ok, detail = client.auth_ready()
+
+        assert ok is False
+        assert "missing" in detail
+
+    def test_auth_ready_ok_when_token_exists(self, monkeypatch, tmp_path, cfg):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        path = tmp_path / "winpodx" / "agent_token.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("deadbeef" * 8)
+        client = AgentClient(cfg)
+
+        ok, detail = client.auth_ready()
+
+        assert ok is True
+        assert detail == ""
 
     def test_token_loaded_and_cached(self, monkeypatch, tmp_path, cfg):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

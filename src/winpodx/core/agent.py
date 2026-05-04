@@ -161,9 +161,10 @@ class AgentClient:
         """GET /health — the readiness signal. No auth, 2s timeout.
 
         Returns the parsed JSON status payload on 200. Raises
-        ``AgentUnavailableError`` on connection-refused, timeout, 5xx,
-        or non-JSON body. Callers should treat any exception as "agent
-        not ready, do not fire FreeRDP probes" (anti-goal #3).
+        ``AgentTimeoutError`` on timeout, ``AgentUnavailableError`` on
+        connection-refused, 5xx, or non-JSON body. Callers should treat
+        any exception as "agent not ready, do not fire FreeRDP probes"
+        (anti-goal #3).
         """
         req = self._build_request("/health", method="GET", with_auth=False)
         try:
@@ -175,10 +176,12 @@ class AgentClient:
             if e.code in (401, 403):
                 raise AgentAuthError(f"/health returned {e.code}") from e
             raise AgentUnavailableError(f"/health returned HTTP {e.code}") from e
+        except socket.timeout as e:
+            raise AgentTimeoutError(f"/health timed out after {self.HEALTH_TIMEOUT}s") from e
         except urllib_error.URLError as e:
+            if isinstance(e.reason, socket.timeout):
+                raise AgentTimeoutError(f"/health timed out after {self.HEALTH_TIMEOUT}s") from e
             raise AgentUnavailableError(f"/health unreachable: {e.reason}") from e
-        except TimeoutError as e:
-            raise AgentUnavailableError(f"/health timed out after {self.HEALTH_TIMEOUT}s") from e
         except OSError as e:
             raise AgentUnavailableError(f"/health socket error: {e}") from e
 
@@ -233,8 +236,6 @@ class AgentClient:
             if isinstance(e.reason, socket.timeout):
                 raise AgentTimeoutError(f"/exec timed out after {urlopen_timeout}s") from e
             raise AgentUnavailableError(f"/exec unreachable: {e.reason}") from e
-        except TimeoutError as e:
-            raise AgentTimeoutError(f"/exec timed out after {urlopen_timeout}s") from e
         except OSError as e:
             raise AgentUnavailableError(f"/exec socket error: {e}") from e
 

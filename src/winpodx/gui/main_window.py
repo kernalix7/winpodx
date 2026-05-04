@@ -7,7 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -60,169 +60,10 @@ from winpodx.gui.theme import (
     accent_color,
     avatar_color,
 )
+from winpodx.gui.workers import DiscoveryWorker, InfoWorker
 from winpodx.utils.paths import bundle_dir
 
 log = logging.getLogger(__name__)
-
-
-class _DiscoveryWorker(QObject):
-    """Background worker that runs core.discovery scan and persist off the UI thread.
-
-    State machine driven from the main window:
-      idle -> scanning -> (succeeded | failed) -> idle
-
-    Emits ``succeeded(count)`` with the number of persisted apps on success,
-    or ``failed(kind, detail)`` where ``kind`` is a short token (``pod_not_running``,
-    ``module_missing``, ``unexpected``) the UI uses to decide inline actions
-    such as offering a "Start Pod" shortcut.
-    """
-
-    succeeded = Signal(int)
-    failed = Signal(str, str)
-    finished = Signal()
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            from winpodx.core import discovery as discovery_mod
-            from winpodx.core.config import Config
-        except ImportError as exc:
-            self.failed.emit("module_missing", str(exc))
-            self.finished.emit()
-            return
-
-        try:
-            cfg = Config.load()
-            apps = discovery_mod.discover_apps(cfg)
-        except Exception as exc:  # noqa: BLE001 — worker surfaces all errors to UI
-            # Prefer the explicit DiscoveryError.kind when the core layer set
-            # one — string matching misclassifies (e.g. "winpodx-app" path in
-            # a script_missing message contains the substring "pod").
-            kind = getattr(exc, "kind", None)
-            if not kind:
-                kind = "pod_not_running" if _looks_like_pod_down(exc) else "unexpected"
-            self.failed.emit(kind, str(exc))
-            self.finished.emit()
-            return
-
-        try:
-            persisted = discovery_mod.persist_discovered(apps)
-        except Exception as exc:  # noqa: BLE001
-            self.failed.emit("unexpected", str(exc))
-            self.finished.emit()
-            return
-
-        # v0.2.0.10: parity with CLI's `_refresh_apps` — install .desktop
-        # entries inline so the GUI Refresh button registers DE menu
-        # entries the same way as `winpodx app refresh`. Bidirectional
-        # sync (drop entries that no longer match a discovered app) is
-        # handled by `_sync_desktop_entries`.
-        try:
-            _sync_desktop_entries(apps)
-        except Exception:  # noqa: BLE001 — best-effort
-            log.debug("GUI refresh: desktop-entry sync failed", exc_info=True)
-
-        try:
-            from winpodx.desktop.icons import refresh_icon_cache
-
-            refresh_icon_cache()
-        except Exception:  # noqa: BLE001 — cache refresh is best-effort
-            pass
-
-        try:
-            count = len(persisted)
-        except TypeError:
-            count = len(apps)
-        self.succeeded.emit(count)
-        self.finished.emit()
-
-
-def _sync_desktop_entries(discovered) -> None:
-    """v0.2.0.10: bidirectional .desktop entry sync used by the GUI
-    refresh worker. Mirrors `cli/app._register_desktop_entries` but
-    safe to run from a worker thread (no Qt GUI calls)."""
-    from winpodx.core.app import list_available_apps
-    from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
-    from winpodx.utils.paths import applications_dir
-
-    discovered_slugs = {d.slug or d.name for d in discovered}
-    available = {a.name: a for a in list_available_apps()}
-    for slug in discovered_slugs:
-        info = available.get(slug)
-        if info is not None:
-            try:
-                install_desktop_entry(info)
-            except Exception:  # noqa: BLE001
-                log.debug("install_desktop_entry failed for %s", slug, exc_info=True)
-
-    apps_dir = applications_dir()
-    if apps_dir.exists():
-        for entry in apps_dir.glob("winpodx-*.desktop"):
-            stem = entry.stem
-            if not stem.startswith("winpodx-"):
-                continue
-            slug = stem[len("winpodx-") :]
-            if slug in {"", "gui", "launcher"}:
-                continue
-            if slug in available:
-                continue
-            try:
-                remove_desktop_entry(slug)
-            except Exception:  # noqa: BLE001
-                log.debug("remove_desktop_entry failed for %s", slug, exc_info=True)
-
-
-def _looks_like_pod_down(exc: BaseException) -> bool:
-    text = str(exc).lower()
-    return any(tok in text for tok in ("pod", "container", "connection refused", "not running"))
-
-
-class _InfoWorker(QObject):
-    """Background worker for the Info page's gather_info() call.
-
-    Hoisted to module level (was nested inside _refresh_info) so PySide6
-    doesn't re-create the QObject metaclass on every refresh — repeated
-    nested-class definition has been observed to interact badly with
-    Qt's metaobject cache, contributing to the v0.1.9 SEGV path.
-    """
-
-    done = Signal(dict)
-    failed = Signal(str)
-
-    def __init__(self, cfg) -> None:
-        super().__init__()
-        self.cfg = cfg
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            from winpodx.core import checks
-            from winpodx.core.info import gather_info
-
-            snapshot = gather_info(self.cfg)
-            # Tack the live health probes onto the snapshot so the Info page
-            # can render them in the same render cycle as everything else.
-            # Probes never raise (each is wrapped in _timed) so this stays
-            # safe even when the pod is down.
-            try:
-                probes = checks.run_all(self.cfg)
-                snapshot["health"] = [
-                    {
-                        "name": p.name,
-                        "status": p.status,
-                        "detail": p.detail,
-                        "duration_ms": p.duration_ms,
-                    }
-                    for p in probes
-                ]
-                snapshot["health_overall"] = checks.overall(probes)
-            except Exception:  # noqa: BLE001 — health is opt-in; never block info
-                log.debug("health probes failed during info refresh", exc_info=True)
-                snapshot["health"] = []
-                snapshot["health_overall"] = "fail"
-            self.done.emit(snapshot)
-        except Exception as e:  # noqa: BLE001 — surface to UI via signal
-            self.failed.emit(str(e))
 
 
 class WinpodxWindow(QMainWindow):
@@ -355,7 +196,7 @@ class WinpodxWindow(QMainWindow):
         # Refresh state: idle -> scanning -> (success|error) -> idle.
         self._refresh_state = "idle"
         self._refresh_thread: QThread | None = None
-        self._refresh_worker: _DiscoveryWorker | None = None
+        self._refresh_worker: DiscoveryWorker | None = None
 
         self._setup_signals()
         self._build_ui()
@@ -1701,7 +1542,7 @@ class WinpodxWindow(QMainWindow):
         self._info_busy = True
 
         thread = QThread(self)
-        worker = _InfoWorker(self.cfg)
+        worker = InfoWorker(self.cfg)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.done.connect(self._apply_info_snapshot)
@@ -2054,7 +1895,7 @@ class WinpodxWindow(QMainWindow):
         self._set_refresh_state("scanning")
 
         thread = QThread(self)
-        worker = _DiscoveryWorker()
+        worker = DiscoveryWorker()
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._on_refresh_succeeded)
