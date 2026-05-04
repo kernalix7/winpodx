@@ -492,6 +492,31 @@ def _probe_password_sync(non_interactive: bool) -> None:
         print("  (probe deferred — guest still booting; will retry on next ensure_ready)")
         return
 
+    # v0.4.0 (post-rc1): WINPODX_REQUIRE_AGENT=1 (set by install.sh's
+    # post-install block) refuses the FreeRDP fallback for the same
+    # reason as discover_apps' gate -- a fresh FreeRDP login while
+    # install.bat is still in-flight kicks the autologon User session.
+    # On 2026-05-04 kernalix7's smoke test showed this probe firing
+    # ONE FreeRDP attempt that returned ERRINFO_LOGOFF_BY_USER (rc=12),
+    # consuming the autologon session even though PR #104 had gated
+    # migrate's apply chain and discovery. The probe is informational
+    # (it tells the user whether their cfg password matches Windows);
+    # skipping it during install.sh is harmless -- if the password
+    # genuinely drifted, the next pod launch surfaces the same warning.
+    import os
+
+    if os.environ.get("WINPODX_REQUIRE_AGENT") == "1":
+        from winpodx.core.transport.agent import AgentTransport
+
+        if not AgentTransport(cfg).health().available:
+            print(
+                "  (probe deferred — agent /health not up yet, "
+                "skipping FreeRDP fallback to avoid kicking install.bat's "
+                "autologon session; password drift will be re-checked on "
+                "the next `winpodx migrate` once the agent comes up)"
+            )
+            return
+
     # Prefer the v0.3.0 agent transport — its /exec runs the script via
     # CreateNoWindow=$true so no PowerShell window flashes for the user.
     # FreeRDP RemoteApp stays as fallback, but the user-visible flash on

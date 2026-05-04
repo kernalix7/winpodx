@@ -196,6 +196,43 @@ class TestProbePasswordSync:
         assert "does not match" not in out
         mock_run.assert_not_called()
 
+    def test_probe_skipped_under_require_agent_env_when_agent_down(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """v0.4.0 (post-rc1): WINPODX_REQUIRE_AGENT=1 + agent /health
+        down -> probe MUST skip without firing FreeRDP. Same rationale
+        as the migrate apply gate and discovery gate -- a fresh FreeRDP
+        login while install.bat is in-flight kicks the autologon
+        session."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _probe_password_sync
+        from winpodx.core.pod import PodState
+        from winpodx.core.transport.base import HealthStatus
+
+        monkeypatch.setenv("WINPODX_REQUIRE_AGENT", "1")
+
+        with (
+            patch("winpodx.core.pod.pod_status") as mock_status,
+            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+            patch("winpodx.core.windows_exec.run_in_windows") as mock_run,
+            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
+        ):
+            mock_status.return_value = MagicMock(state=PodState.RUNNING)
+            mock_health.return_value = HealthStatus(available=False, detail="connection refused")
+
+            _probe_password_sync(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "probe deferred" in out
+        assert "agent /health not up" in out
+        (
+            mock_run.assert_not_called(),
+            (
+                "FreeRDP MUST NOT fire under WINPODX_REQUIRE_AGENT=1 when agent is down — "
+                "would kick install.bat's autologon session"
+            ),
+        )
+
 
 # --- _print_whats_new ---
 

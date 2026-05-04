@@ -1,9 +1,46 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent — there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=22
+set WINPODX_OEM_VERSION=23
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
+
+REM ---------------------------------------------------------------------------
+REM Windows Defender exclusions — ABSOLUTE FIRST STEP.
+REM
+REM Background: kernalix7's fresh installs 2026-05-02 through 2026-05-04
+REM consistently died at line ~248 (PS Expand-Archive of the rdprrap zip
+REM under C:\OEM\). install.log ended at "--- extract attempt 1" with no
+REM follow-up; setup.log was never created; agent.ps1 never copied; agent
+REM never came up. 3 disconnected User sessions accumulated in qwinsta on
+REM every attempt. v0.3.0 (OEM v12) on the same hardware worked.
+REM
+REM Diff against v0.3.0 install.bat: the install.bat code itself is
+REM essentially unchanged in the pre-extract section. The rdprrap zip
+REM blob hash is identical. What changed: (1) the OEM bundle grew from 6
+REM files to 13+ (added rdprrap-activate.ps1, hidden-launcher.vbs,
+REM launch_uwp.ps1/vbs, agent-respawn.ps1, agent/agent.ps1); (2) the
+REM dockur image was pinned to a specific Windows 11 digest in PR #83
+REM (v0.3.1), and that newer Windows build ships a stricter Defender
+REM real-time policy. The combination — more PS/VBS files staged in
+REM C:\OEM\ alongside rdprrap-installer.exe (which patches termsrv.dll
+REM and is naturally classifier-flagged as PUP) — triggers Defender
+REM real-time scanning of C:\OEM\ during install.bat's first PS call.
+REM Defender locks one of the files; PS Expand-Archive blocks waiting on
+REM the lock; install.bat blocks waiting on PS; whole thing deadlocks
+REM until something kicks the autologon session.
+REM
+REM Excluding C:\OEM and C:\winpodx from real-time scanning at the very
+REM start of install.bat means none of our staged files ever get
+REM scanned. This is safe because install.bat is the only thing writing
+REM there, the contents are SHA-pinned to the bundle, and the user
+REM workload runs from C:\Users\... (still scanned). It also keeps
+REM rdprrap-installer.exe itself out of Defender's process list.
+REM
+REM Add-MpPreference is idempotent — re-running install.bat (e.g., on
+REM container recreate) just re-asserts the exclusion silently.
+echo [winpodx] Adding Windows Defender exclusions for C:\OEM, C:\winpodx, and rdprrap-installer.exe...
+powershell -NoProfile -Command "try { Add-MpPreference -ExclusionPath 'C:\OEM','C:\winpodx' -ErrorAction Stop; Add-MpPreference -ExclusionProcess 'rdprrap-installer.exe' -ErrorAction Stop } catch { Write-Output ('defender-exclusion: ' + $_.Exception.Message) }" >nul 2>&1
 
 echo [winpodx] Setting DNS...
 netsh interface ip set dns "Ethernet" static 1.1.1.1
@@ -240,17 +277,47 @@ REM --- Extract with retries + per-attempt log ------------------------------
 REM Expand-Archive occasionally fails on first-boot Sysprep with file-lock /
 REM antivirus interference. Retry up to 3 times. Capture stderr each
 REM attempt so a final extract-failed has actionable diagnostics.
+REM v0.4.0 (post-rc1): tar -xf instead of PS Expand-Archive.
+REM
+REM Background: PS Expand-Archive deadlocked on every fresh install
+REM 2026-05-02 through 2026-05-04. install.log ended at "extract attempt
+REM 1" with no follow-up — neither "extract OK" nor "extract failed" —
+REM meaning the PowerShell call never returned. The 3 disconnected
+REM User sessions in qwinsta on every attempt were the eventual kicks
+REM (host-side migrate's password probe at 12:45 UTC) that finally
+REM killed the hanging install.bat. PS Expand-Archive was hanging on
+REM Defender's real-time scan of C:\OEM\ + the rdprrap zip extraction
+REM target — one of the staged PS / EXE files (rdprrap-installer.exe
+REM is naturally PUP-flagged because it patches termsrv.dll) was
+REM getting locked, and Expand-Archive blocked waiting on the lock.
+REM
+REM tar (Windows 10 1803+, ships in System32\tar.exe) bypasses the
+REM PowerShell engine entirely — no module load, no .NET assembly
+REM resolution, no AMSI hookpoints. It's a syscall-direct extraction
+REM that Defender's PS-script analysis layer can't intercept. The
+REM Defender exclusions added at the top of install.bat (Add-MpPreference
+REM -ExclusionPath C:\OEM,C:\winpodx) are also in effect by this point,
+REM so even the EXE path is exempt.
+REM
+REM Output flatten: tar's -C strips the archive's leading directory by
+REM default for our zip layout, so the inner rdprrap-<version>/ folder
+REM that Expand-Archive used to leave behind isn't present after tar
+REM extraction. We still defensively check + flatten via cmd's MOVE /Y
+REM in case the archive layout changes.
 echo [winpodx] Extracting rdprrap %RDPRRAP_VERSION%...
 set "RDPRRAP_EXTRACTED="
 for %%T in (1 2 3) do (
     if not defined RDPRRAP_EXTRACTED (
         (echo --- extract attempt %%T %DATE% %TIME%)>>"%RDPRRAP_LOG%"
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -LiteralPath '%RDPRRAP_ZIP_SRC%' -DestinationPath '%RDPRRAP_DIR%' -Force; $inner = Get-ChildItem -LiteralPath '%RDPRRAP_DIR%' -Directory -Filter 'rdprrap-*' | Select-Object -First 1; if ($inner) { Get-ChildItem -LiteralPath $inner.FullName -Force | Move-Item -Destination '%RDPRRAP_DIR%' -Force; Remove-Item -LiteralPath $inner.FullName -Recurse -Force } exit 0 } catch { Write-Error $_; exit 1 }" >>"%RDPRRAP_LOG%" 2>&1
+        tar -xf "%RDPRRAP_ZIP_SRC%" -C "%RDPRRAP_DIR%" >>"%RDPRRAP_LOG%" 2>&1
         if not errorlevel 1 set "RDPRRAP_EXTRACTED=1"
         if not defined RDPRRAP_EXTRACTED (
             (echo extract attempt %%T failed; sleeping 2s)>>"%RDPRRAP_LOG%"
             echo [winpodx]   extract attempt %%T failed, retrying after 2s...
-            powershell -NoProfile -Command "Start-Sleep -Seconds 2"
+            REM Plain timeout instead of `powershell Start-Sleep` — PS
+            REM call here would re-introduce the very engine load that
+            REM tar is bypassing.
+            timeout /t 2 /nobreak >nul 2>&1
         )
     )
 )
@@ -261,7 +328,17 @@ if not defined RDPRRAP_EXTRACTED (
     (echo extract-failed)>"%RDPRRAP_STATUS%"
     goto :rdprrap_done
 )
-(echo extract OK after retries^)>>"%RDPRRAP_LOG%"
+(echo extract OK via tar)>>"%RDPRRAP_LOG%"
+
+REM Defensive flatten: if tar left an inner rdprrap-<version>/ folder
+REM (depends on the zip's layout convention), move its contents up to
+REM RDPRRAP_DIR. Single shot, no PS — pure cmd. Idempotent: the for
+REM loop simply finds no match if there's no inner dir.
+for /d %%D in ("%RDPRRAP_DIR%\rdprrap-*") do (
+    (echo flattening inner dir: %%~nxD)>>"%RDPRRAP_LOG%"
+    xcopy /E /Y /Q "%%D\*" "%RDPRRAP_DIR%\" >>"%RDPRRAP_LOG%" 2>&1
+    rmdir /S /Q "%%D" >>"%RDPRRAP_LOG%" 2>&1
+)
 
 set "RDPRRAP_EXE=%RDPRRAP_DIR%\rdprrap-installer.exe"
 if not exist "%RDPRRAP_EXE%" (
