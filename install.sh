@@ -539,6 +539,34 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" !=
     "$HOME/.local/bin/winpodx" migrate || mark_pending "migrate"
 fi
 
+# --- Wait for agent to settle after migrate's apply chain ---
+#
+# migrate's apply chain ends with `_apply_multi_session`, which dispatches
+# `rdprrap-activate.ps1 -Detached` via the agent. The detached PS then
+# cycles TermService so the patched termwrap.dll loads, killing the
+# agent's own RDP session in the process. dockur autologon retries within
+# a few seconds → HKCU\Run fires → agent restarts. The whole bounce is
+# typically under 15s on a healthy boot.
+#
+# Without this wait, `app refresh` below fires while the agent is mid-
+# respawn (kernalix7 saw this on 2026-05-04 smoke: discovery deferred to
+# pending right after migrate succeeded). Polling /health here means
+# refresh runs against the resurrected agent and the menu populates
+# before install.sh exits.
+#
+# 60s budget covers the cycle plus any slow first-boot autologon. Falls
+# through silently after the budget so a genuinely-stuck agent doesn't
+# block install.sh — refresh below will still defer to pending if needed.
+if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT_AGENT:-}" != "1" ]; then
+    log "Waiting for guest agent to settle after apply chain..."
+    for _ in $(seq 1 30); do
+        if curl -fsS --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+    done
+fi
+
 # --- Auto-discover apps ---
 # v0.2.0.5: trigger discovery so the menu populates before install.sh
 # exits. Best-effort — if discovery fails (channel error, Windows still
