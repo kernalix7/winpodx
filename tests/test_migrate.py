@@ -225,12 +225,9 @@ class TestProbePasswordSync:
         out = capsys.readouterr().out
         assert "probe deferred" in out
         assert "agent /health not up" in out
-        (
-            mock_run.assert_not_called(),
-            (
-                "FreeRDP MUST NOT fire under WINPODX_REQUIRE_AGENT=1 when agent is down — "
-                "would kick install.bat's autologon session"
-            ),
+        assert not mock_run.called, (
+            "FreeRDP MUST NOT fire under WINPODX_REQUIRE_AGENT=1 when agent is down — "
+            "would kick install.bat's autologon session"
         )
 
 
@@ -439,12 +436,9 @@ class TestApplyRuntimeFixesAgentGate:
             _apply_runtime_fixes_to_existing_guest(non_interactive=True)
 
         out = capsys.readouterr().out
-        (
-            mock_apply.assert_not_called(),
-            (
-                "apply chain MUST NOT run when agent is down — would fall back to FreeRDP "
-                "and kick install.bat's autologon session"
-            ),
+        assert not mock_apply.called, (
+            "apply chain MUST NOT run when agent is down — would fall back to FreeRDP "
+            "and kick install.bat's autologon session"
         )
         assert "Agent not yet up" in out
         assert "kicking the autologon" in out
