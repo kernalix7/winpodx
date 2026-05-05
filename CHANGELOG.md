@@ -44,6 +44,9 @@ The `0.4.x` line's first stable release. `0.4.0rc1` (2026-05-05) was the soak pr
 ### Added
 - **Star History chart in README** (light/dark variants via `<picture>`). Click goes to the interactive chart on star-history.com.
 
+### Contributors
+Thanks to @Mic92 (Nix flake packaging, default-image switch, FreeRDP argv[0] match, Wayland XWayland gate — PRs #62-#65) and @pgarciaq (SELinux OEM bind mount fix — PR #95).
+
 ## [0.4.0] - 2026-05-03
 
 A significant stability + UX release focused on the install / migrate paths. Container recreates are no longer triggered by dockur's `:latest` push cadence (image is SHA-pinned), every PowerShell console flash on app launch and agent autostart has been eliminated, fresh installs honestly wait for Windows to be ready, and multi-session activation is now hands-free via `apply-fixes` / `migrate`. SELinux-enforcing systems (Fedora) work out of the box. RTM-suffixed pods (`0.3.0-RTM1`) migrate cleanly. The `winpodx app refresh` discovery race is closed in three layers. Contributing policy + lifecycle docs added.

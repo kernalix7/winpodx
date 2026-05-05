@@ -44,6 +44,9 @@ Patch release. 0.4.1 위에 작은 fix 두 개.
 ### 추가
 - **README 에 Star History chart** (light/dark `<picture>`). 클릭하면 star-history.com 인터랙티브 차트.
 
+### Contributors
+Thanks to @Mic92 (Nix flake packaging, default-image switch, FreeRDP argv[0] match, Wayland XWayland gate — PRs #62-#65) and @pgarciaq (SELinux OEM bind mount fix — PR #95).
+
 ## [0.4.0] - 2026-05-03
 
 설치 / 마이그레이션 경로의 안정성 + UX 에 집중한 주요 릴리스. dockur 의 `:latest` push cadence 가 더 이상 컨테이너 재생성을 트리거하지 않음 (이미지 SHA pinned). 앱 launch 와 agent autostart 에서 PowerShell 콘솔 깜빡임이 모두 제거됨. fresh install 이 Windows 준비될 때까지 정직하게 대기. multi-session 활성화가 `apply-fixes` / `migrate` 로 hands-free. SELinux-enforcing 시스템 (Fedora) 가 out of the box 동작. RTM-suffix pod (`0.3.0-RTM1`) 정상 마이그레이션. `winpodx app refresh` discovery race 가 3계층으로 차단. Contributing 정책 + 라이프사이클 문서 추가.
