@@ -684,6 +684,16 @@ Maintainer setup for each channel lives under [`packaging/`](packaging/):
 
 For security issues, follow the process in [SECURITY.md](SECURITY.md).
 
+## Star History
+
+<a href="https://star-history.com/#kernalix7/winpodx&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date" />
+  </picture>
+</a>
+
 ## License
 
 [MIT](LICENSE) - Kim DaeHyun (kernalix7@kodenet.io)

@@ -627,6 +627,16 @@ ruff check src/ tests/         # 린트
 
 보안 이슈는 [SECURITY.ko.md](SECURITY.ko.md)의 절차를 따라 주세요.
 
+## Star History
+
+<a href="https://star-history.com/#kernalix7/winpodx&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date" />
+  </picture>
+</a>
+
 ## 라이선스
 
 [MIT](LICENSE) - Kim DaeHyun (kernalix7@kodenet.io)
