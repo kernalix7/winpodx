@@ -537,6 +537,23 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                 bufsize=1,
             )
 
+            # Rewrite dockur's container-internal VNC web URL to the host
+            # port the user can actually reach. dockur prints
+            # `visit http://127.0.0.1:8006/ to view the screen` from inside
+            # its container, where 8006 IS the listening port; from the
+            # host that port is mapped to cfg.pod.vnc_port (8007 by default
+            # — see core/pod/compose.py). Without this rewrite, the line
+            # streamed via `--logs` told the user to visit a port that's
+            # only reachable inside the container, and copy-pasting the
+            # URL into a browser silently failed (xiyeming reported this
+            # 2026-05-05 in #118).
+            vnc_port = cfg.pod.vnc_port
+
+            def _rewrite_vnc_url(line: str) -> str:
+                if vnc_port == 8006:
+                    return line
+                return line.replace("127.0.0.1:8006", f"127.0.0.1:{vnc_port}")
+
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
                     return
@@ -545,7 +562,7 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                         break
                     line = line.rstrip()
                     if line:
-                        print(f"       [container] {line}")
+                        print(f"       [container] {_rewrite_vnc_url(line)}")
 
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
             threading.Thread(target=_drain, args=(log_proc.stderr,), daemon=True).start()
