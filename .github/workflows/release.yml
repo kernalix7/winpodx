@@ -102,9 +102,36 @@ jobs:
           # REL-v0.4.0 -> 0.4.0; REL-v0.4.0rc1 -> 0.4.0rc1.
           tag="${GITHUB_REF_NAME#REL-}"
           tag="${tag#v}"
-          notes=$(awk -v ver="$tag" '
-            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
-            flag && /^## \[/ { exit }
+          # Determine the previous published version so we can include
+          # any intermediate unreleased sections in the notes (sections
+          # the user wrote in CHANGELOG but never tagged & released).
+          # On 2026-05-05, v0.3.1 was such an unreleased section: it
+          # collected Mic92's PRs #62-#65 but no v0.3.1 tag was ever
+          # pushed; v0.4.0rc1's release page would have lost those
+          # contributor credits if it only matched ## [0.4.0].
+          # Strategy: find the most recent CHANGELOG section that
+          # corresponds to a published GitHub Release (i.e., has its own
+          # tag). Capture from the current section back to (but not
+          # including) that already-published one.
+          prev=""
+          while IFS= read -r section; do
+            sver="${section#\#\# \[}"
+            sver="${sver%%\] *}"
+            # Skip the in-flight version itself and the unreleased header.
+            [ "$sver" = "$tag" ] && continue
+            [ "$sver" = "Unreleased" ] && continue
+            # First section we hit that has a corresponding tag is the
+            # previous published release. CHANGELOG is in newest-first
+            # order so this is correct on the first match.
+            if git rev-parse --verify "v${sver}^{commit}" >/dev/null 2>&1; then
+              prev="$sver"
+              break
+            fi
+          done < <(grep -E '^## \[' CHANGELOG.md)
+          notes=$(awk -v ver="$tag" -v prev="$prev" '
+            $0 ~ "^## \\[" ver "\\]" { flag=1 }
+            prev != "" && $0 ~ "^## \\[" prev "\\]" { exit }
+            prev == "" && flag && /^## \[/ && $0 !~ "^## \\[" ver "\\]" { exit }
             flag { print }
           ' CHANGELOG.md)
           # PEP 440 prereleases (0.4.0rc1) usually share notes with the
@@ -113,9 +140,10 @@ jobs:
           if [ -z "$(echo "$notes" | tr -d '[:space:]')" ]; then
             base=$(echo "$tag" | sed -E 's/(rc|alpha|beta)[0-9]*$//')
             if [ "$base" != "$tag" ]; then
-              notes=$(awk -v ver="$base" '
-                $0 ~ "^## \\[" ver "\\]" { flag=1; next }
-                flag && /^## \[/ { exit }
+              notes=$(awk -v ver="$base" -v prev="$prev" '
+                $0 ~ "^## \\[" ver "\\]" { flag=1 }
+                prev != "" && $0 ~ "^## \\[" prev "\\]" { exit }
+                prev == "" && flag && /^## \[/ && $0 !~ "^## \\[" ver "\\]" { exit }
                 flag { print }
               ' CHANGELOG.md)
             fi
