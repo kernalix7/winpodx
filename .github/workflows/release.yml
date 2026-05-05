@@ -1,15 +1,26 @@
 name: Release
 on:
   push:
-    # Only RTM-marked tags create a public release. Plain version tags
-    # (v0.1.9, v0.2.0 etc.) are kept as repository markers but no longer
-    # auto-publish — kernalix7 found that rapid-iteration tags between
-    # v0.1.9 and v0.2.2.1 shipped unverified releases that broke users'
-    # working installs (2026-04-29). The "RTM" suffix is the explicit
-    # opt-in: e.g. `v0.2.3-RTM`, `v0.3.0-RTM1`. Manual workflow_dispatch
+    # Only REL-prefixed marker tags create a public release. Version
+    # tags themselves (v0.4.0, v0.4.0rc1) trigger the four packaging
+    # workflows (.deb / RPM / OBS / AUR) via their `v*.*.*` globs but
+    # NOT this Release workflow — that's deliberate. kernalix7 found
+    # that rapid-iteration tags between v0.1.9 and v0.2.2.1 shipped
+    # unverified releases that broke users' working installs
+    # (2026-04-29). Releasing now requires pushing a SECOND tag pointed
+    # at the same commit as the version tag, namespaced with REL- so
+    # the version scheme itself stays clean (PEP 440 / SemVer):
+    #
+    #   git tag v0.4.0              # version, triggers packaging
+    #   git tag REL-v0.4.0          # marker, triggers this workflow
+    #   git push origin v0.4.0 REL-v0.4.0
+    #
+    # The previous `*RTM*` glob was retired 2026-05-05 alongside the
+    # PEP 440 versioning move (current versions are `0.4.0` /
+    # `0.4.0rc1`, no RTM suffix anywhere). Manual workflow_dispatch
     # still works for emergency one-offs.
     tags:
-      - "*RTM*"
+      - "REL-*"
   workflow_dispatch:
 
 permissions:
@@ -37,10 +48,11 @@ jobs:
       - name: Verify tag matches pyproject version
         if: github.event_name == 'push'
         run: |
-          # Strip leading 'v' and trailing '-RTM*' so 'v0.2.3-RTM' compares
-          # against pyproject's '0.2.3'.
-          tag="${GITHUB_REF_NAME#v}"
-          tag="${tag%%-RTM*}"
+          # Tag layout: REL-v<pep440-version>. Strip the REL- marker
+          # prefix and the leading 'v' to get pyproject.toml's version
+          # field (e.g., REL-v0.4.0rc1 -> 0.4.0rc1, REL-v0.4.0 -> 0.4.0).
+          tag="${GITHUB_REF_NAME#REL-}"
+          tag="${tag#v}"
           pyver=$(python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
           if [ "$tag" != "$pyver" ]; then
             echo "Tag version ($tag) does not match pyproject.toml version ($pyver)" >&2
@@ -74,16 +86,40 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Extract version from REL tag
+        id: version
+        run: |
+          # REL-v0.4.0 -> 0.4.0; REL-v0.4.0rc1 -> 0.4.0rc1. Used by all
+          # subsequent steps so the public Release page reads
+          # "v0.4.0" / "0.4.0" instead of the internal "REL-v0.4.0"
+          # marker tag name.
+          tag="${GITHUB_REF_NAME#REL-}"
+          tag="${tag#v}"
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
       - name: Extract changelog section
         id: changelog
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          tag="${tag%%-RTM*}"
+          # REL-v0.4.0 -> 0.4.0; REL-v0.4.0rc1 -> 0.4.0rc1.
+          tag="${GITHUB_REF_NAME#REL-}"
+          tag="${tag#v}"
           notes=$(awk -v ver="$tag" '
             $0 ~ "^## \\[" ver "\\]" { flag=1; next }
             flag && /^## \[/ { exit }
             flag { print }
           ' CHANGELOG.md)
+          # PEP 440 prereleases (0.4.0rc1) usually share notes with the
+          # final (0.4.0) section in CHANGELOG. Fall back to the base
+          # version section if the prerelease-specific one is missing.
+          if [ -z "$(echo "$notes" | tr -d '[:space:]')" ]; then
+            base=$(echo "$tag" | sed -E 's/(rc|alpha|beta)[0-9]*$//')
+            if [ "$base" != "$tag" ]; then
+              notes=$(awk -v ver="$base" '
+                $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+                flag && /^## \[/ { exit }
+                flag { print }
+              ' CHANGELOG.md)
+            fi
+          fi
           if [ -z "$(echo "$notes" | tr -d '[:space:]')" ]; then
             notes="See CHANGELOG.md for details."
           fi
@@ -95,8 +131,12 @@ jobs:
       - name: Detect prerelease
         id: prerelease
         run: |
-          tag="${GITHUB_REF_NAME}"
-          if echo "$tag" | grep -qE -- '-(rc|beta|alpha)'; then
+          # Match both PEP 440 ("0.4.0rc1", no separator) and SemVer-
+          # hyphen ("0.4.0-rc1") prerelease forms after the REL- prefix
+          # is stripped.
+          tag="${GITHUB_REF_NAME#REL-}"
+          tag="${tag#v}"
+          if echo "$tag" | grep -qE -- '(rc|beta|alpha)[0-9]*'; then
             echo "value=true" >> "$GITHUB_OUTPUT"
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
@@ -104,6 +144,12 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          # tag_name + name override the default github.ref_name
+          # (REL-v0.4.0 marker) with the clean version tag (v0.4.0) so
+          # the public release surface is namespace-free. The marker
+          # tag still exists in git as the trigger record.
+          tag_name: v${{ steps.version.outputs.value }}
+          name: v${{ steps.version.outputs.value }}
           prerelease: ${{ steps.prerelease.outputs.value }}
           body: ${{ steps.changelog.outputs.notes }}
           files: |
