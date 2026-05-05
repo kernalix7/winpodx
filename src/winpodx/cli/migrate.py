@@ -853,14 +853,36 @@ def _attempt_refresh() -> None:
         )
         return
 
-    try:
-        print("\n  Scanning Windows pod for installed apps...")
-        apps = discover_apps(cfg)
-        written = persist_discovered(apps)
-        print(f"  Discovered {len(apps)} app(s); wrote {len(written)} profile(s).")
-    except DiscoveryError as exc:
-        print(f"\n  Discovery failed: {exc}")
-        print("  Retry later with: winpodx app refresh")
+    # v0.4.0 (post-rc1): retry up to 3 times with 10s spacing.
+    # `_apply_vbs_launchers` (which runs as part of the apply chain just
+    # before this prompt) ends by spawning agent-respawn.ps1 detached.
+    # The respawn waits ~3s, kills the running agent, then starts a new
+    # one. If the user accepts the discovery prompt fast enough, the
+    # /exec hits the agent during that kill-then-restart window and gets
+    # "Remote end closed connection without response". Three attempts at
+    # 10s spacing covers the respawn cycle plus any HKCU\Run-driven
+    # restart race; final failure still prints the retry-later hint so
+    # the user knows pending-resume isn't silently kicking in here.
+    print("\n  Scanning Windows pod for installed apps...")
+    last_exc: DiscoveryError | None = None
+    for attempt in (1, 2, 3):
+        try:
+            apps = discover_apps(cfg)
+            written = persist_discovered(apps)
+            print(f"  Discovered {len(apps)} app(s); wrote {len(written)} profile(s).")
+            return
+        except DiscoveryError as exc:
+            last_exc = exc
+            if attempt < 3:
+                print(
+                    f"  attempt {attempt} deferred ({exc}); "
+                    "retrying in 10s (agent may be respawning)..."
+                )
+                import time as _time
+
+                _time.sleep(10)
+    print(f"\n  Discovery failed: {last_exc}")
+    print("  Retry later with: winpodx app refresh")
 
 
 def _pod_is_running(cfg) -> bool:
