@@ -9,6 +9,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+- **Auto-disable btrfs Copy-on-Write on the container backend's storage root.** dockur warns about btrfs in its container output for a real reason: btrfs' default CoW combined with the access pattern of a Windows VM raw disk image (every pagefile / swap / boot write forks a new extent) causes the disk image to fragment aggressively. Pod recreates that should take ~30 s on ext4 take many minutes (or time out at the 300 s budget — kernalix7's reporters on cachyos hit this in #121, #122). `winpodx setup` now detects the filesystem under `podman info --format '{{.Store.GraphRoot}}'` (or the docker equivalent) via `findmnt` and, if it's btrfs, runs `chattr +C` on the directory. `chattr +C` on a directory affects only NEW files created inside, so existing podman volumes keep their CoW flags untouched and the new winpodx-data volume materialised by the next `podman-compose up` inherits NoCoW. Idempotent — re-running setup short-circuits via `lsattr` if the flag is already on. Status reasons (`disabled` / `already_off` / `not_btrfs` / `unknown` / `failed`) surface as friendly setup output; failures don't abort the install.
+
 ## [0.4.2] - 2026-05-05
 
 Patch release. Two small fixes on top of 0.4.1.

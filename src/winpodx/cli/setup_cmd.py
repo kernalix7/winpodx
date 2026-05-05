@@ -352,12 +352,51 @@ def handle_setup(args: argparse.Namespace) -> None:
     print("Just click any app. winpodx handles the rest automatically.")
 
 
+def _maybe_disable_btrfs_cow(cfg: Config) -> None:
+    """v0.4.x: detect btrfs on the container backend's storage root and run
+    ``chattr +C`` so Windows VM raw disk images (which dockur creates inside
+    the named volume) bypass btrfs Copy-on-Write.
+
+    Background: kernalix7's reporters on cachyos (#121, #122) hit pod
+    recreate timeouts that traced back to btrfs CoW thrashing on the
+    Windows raw disk. The chattr on the directory affects only NEW files,
+    so existing podman volumes keep their CoW behaviour and we don't risk
+    breaking other workloads sharing the graph root. Idempotent — running
+    on an already-NoCoW root short-circuits via ``is_cow_disabled``.
+
+    Best-effort: every failure path logs a friendly note and returns;
+    install proceeds. The user can still run ``chattr +C`` manually if
+    they care.
+    """
+    from winpodx.utils.btrfs import disable_cow_if_btrfs
+
+    status, detail = disable_cow_if_btrfs(cfg.pod.backend)
+    if status == "disabled":
+        print(f"  Disabled btrfs CoW on container storage ({detail}).")
+        print("    New files inside the storage root inherit NoCoW —")
+        print("    Windows VM disk image will avoid CoW fragmentation.")
+    elif status == "already_off":
+        # silent — common case on second-run setup, no need to surface
+        pass
+    elif status == "failed":
+        print(f"  Note: btrfs CoW disable skipped ({detail}).")
+        print("    Pod recreate may be slow on this filesystem; if you")
+        print("    notice that, run `chattr +C` on the storage root")
+        print("    manually while it's empty.")
+    # status == "not_btrfs" or "unknown" — say nothing
+
+
 def _recreate_container(cfg: Config) -> None:
     """Stop existing container and start fresh with new compose config."""
     import subprocess as sp
 
     compose_path = config_dir() / "compose.yaml"
     backend = cfg.pod.backend
+
+    # Pre-flight btrfs CoW handling. Done BEFORE the compose-up so the
+    # winpodx-data volume that podman lazily materialises during `up`
+    # inherits the +C flag from its parent.
+    _maybe_disable_btrfs_cow(cfg)
 
     compose_cmd: list[str] | None = None
     if backend == "podman":

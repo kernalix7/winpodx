@@ -9,6 +9,9 @@
 
 ## [Unreleased]
 
+### 추가
+- **컨테이너 백엔드 storage root 가 btrfs 면 Copy-on-Write 자동 비활성화.** dockur 가 btrfs 경고 출력하는 진짜 이유 — btrfs 의 기본 CoW 가 Windows VM raw disk image 의 access pattern (pagefile / swap / 부팅 시 매 쓰기마다 새 extent fork) 과 안 어울려서 디스크 이미지가 심하게 fragment. ext4 에선 ~30초 걸릴 pod 재생성이 btrfs 에선 수 분 (또는 300s timeout — kernalix7 의 cachyos 리포터들이 #121, #122 에서 hit). `winpodx setup` 이 이제 `podman info --format '{{.Store.GraphRoot}}'` (docker 등가물) 로 백엔드 storage root 의 파일시스템을 `findmnt` 로 감지, btrfs 면 디렉터리에 `chattr +C` 적용. 디렉터리 `chattr +C` 는 그 안에 **새로 생성될** 파일에만 영향이라 기존 podman 볼륨은 그대로, 다음 `podman-compose up` 에서 lazily 생성될 winpodx-data 볼륨이 NoCoW 로 상속. Idempotent — `lsattr` 로 이미 +C 면 short-circuit. 상태 코드 (`disabled` / `already_off` / `not_btrfs` / `unknown` / `failed`) 가 setup 출력에 노출되고 실패해도 install 진행.
+
 ## [0.4.2] - 2026-05-05
 
 Patch release. 0.4.1 위에 작은 fix 두 개.
