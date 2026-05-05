@@ -1,3 +1,15 @@
+winpodx (0.4.2) unstable; urgency=medium
+
+  * Patch release. Two small fixes on top of 0.4.1:
+    - wait-ready --logs now rewrites dockur's container-internal VNC URL
+      (http://127.0.0.1:8006/) to the host's actual mapped port so the
+      printed URL matches what the user can open in a browser. Closes #118.
+    - Packaging workflows (debs/rhel) tolerate the create-release race that
+      produced duplicate v0.4.1 release entries on tag push; create is now
+      idempotent.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 05 May 2026 12:00:00 +0000
+
 winpodx (0.4.1) unstable; urgency=high
 
   * 0.4.x line's first stable release. Closes the 'agent never installs'

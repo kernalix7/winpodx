@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-05
+
+Patch release. 0.4.1 위에 작은 fix 두 개.
+
+### 수정
+- **`wait-ready --logs` 가 dockur 컨테이너 내부 VNC URL 을 호스트 매핑 포트로 rewrite.** dockur 가 컨테이너 안에서 `visit http://127.0.0.1:8006/` 출력 — 컨테이너 내부에선 8006 이 listen 포트 맞음. 호스트는 그 포트를 `cfg.pod.vnc_port` (기본 `8007`, `core/pod/compose.py` 의 `127.0.0.1:{vnc_port}:8006` 스펙) 로 매핑하므로 사용자 터미널에 스트림된 URL 이 컨테이너 안에서만 reachable 한 포트를 가리키고 있었음. `_wait_ready` 의 `_drain` 이 이제 줄마다 `127.0.0.1:8006` → `127.0.0.1:{cfg.pod.vnc_port}` 치환 — 사용자가 `winpodx.toml` 에 설정한 실제 포트 사용 (커스텀 값도 그대로 반영). @xiyeming 보고. Closes #118.
+- **Packaging 워크플로우가 create-release race 견딤.** `debs-publish` 와 `rhel-publish` 가 `view || create` 패턴으로 release 보장하는데, `v0.4.1` 태그 push 시 두 job 이 동시에 view-failed 분기 → 둘 다 `gh release create` 성공 (GitHub release-create POST 가 tag uniqueness 에 atomic 아님) → 같은 태그에 GitHub Release 두 개 생성 → 후속 `release.yml` 의 `softprops/action-gh-release` 가 `tag_name: already_exists` 로 fail 하면서 sdist/wheel attach 안 됨. create 를 idempotent 로: try create, `already_exists` 에러 swallow, 그 후 view 로 reachable 확인. race 이긴 쪽이 생성, 진 쪽 create 는 no-op, 둘 다 asset upload 진행.
+
 ## [0.4.1] - 2026-05-05
 
 `0.4.x` 라인의 첫 stable 릴리스. `0.4.0rc1` (2026-05-05) 이 soak preview 였고, `0.4.1` 은 동일 코드 경로 + smoke-test triage 중 land 된 polish. 기능적으론 `0.4.0` 의 안정성 + UX 집중의 연장선이며, 모두 fresh 사용자가 거치는 install / migrate 경로에 집중.

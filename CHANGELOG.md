@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-05
+
+Patch release. Two small fixes on top of 0.4.1.
+
+### Fixed
+- **`wait-ready --logs` rewrites dockur's container-internal VNC URL to the host's mapped port.** dockur prints `visit http://127.0.0.1:8006/ to view the screen` from inside its container, where `8006` IS the listening port. The host maps that to `cfg.pod.vnc_port` (default `8007`, see `core/pod/compose.py`'s `127.0.0.1:{vnc_port}:8006` spec), so the URL streamed to the user's terminal pointed at a port only reachable inside the container. `_drain` in `_wait_ready` now substitutes `127.0.0.1:8006` → `127.0.0.1:{cfg.pod.vnc_port}` per streamed line, using the user's actual configured port (so a custom `vnc_port` in `winpodx.toml` is honored). Reported by @xiyeming. Closes #118.
+- **Packaging workflows tolerate the create-release race.** `debs-publish` and `rhel-publish` both ran an `Ensure release exists` step that did `view || create`. On `v0.4.1` tag push both jobs hit the view-failed branch in parallel and both successfully called `gh release create`; GitHub's release-create POST isn't atomic on tag uniqueness, so two GitHub Releases appeared at the same tag and `release.yml`'s subsequent `softprops/action-gh-release` failed with `tag_name: already_exists`, leaving the release page without sdist/wheel attached. The create call is now idempotent: try create, swallow any `already_exists` error, then verify the release is reachable via `view`. Whichever workflow wins the race creates the release; the loser's create call no-ops; both proceed to upload assets.
+
 ## [0.4.1] - 2026-05-05
 
 The `0.4.x` line's first stable release. `0.4.0rc1` (2026-05-05) was the soak preview; `0.4.1` is the same code path plus the polish that landed during smoke-test triage. Functionally a continuation of `0.4.0`'s stability + UX focus, all of it on the install / migrate path that fresh users actually exercise.
