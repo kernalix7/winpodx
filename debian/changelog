@@ -1,3 +1,21 @@
+winpodx (0.4.1) unstable; urgency=high
+
+  * 0.4.x line's first stable release. Closes the 'agent never installs'
+    fresh-install regression observed on openSUSE Tumbleweed: install.bat's
+    PS Expand-Archive deadlock against Windows Defender real-time scan,
+    host-side FreeRDP fallback kicking the autologon session via Windows
+    session-takeover, and the agent-respawn race after migrate's apply
+    chain are all addressed with layered defences (Defender exclusions
+    early in install.bat, tar -xf instead of PS Expand-Archive, agent /
+    health gates on every host -> guest path, retry-with-delay around the
+    apply-chain respawn window). install.sh smoke-tested end-to-end on
+    openSUSE Tumbleweed; menu populates inline before install.sh exits.
+  * Release trigger now keys on a separate REL- marker tag (REL-v0.4.1)
+    so the version scheme stays clean PEP 440. See CHANGELOG.md for full
+    details.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 05 May 2026 00:00:00 +0000
+
 winpodx (0.4.0~rc1) unstable; urgency=high
 
   * Release candidate: Defender exclusions, tar-based rdprrap extraction,
