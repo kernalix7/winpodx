@@ -569,12 +569,37 @@ fi
 
 # --- Auto-discover apps ---
 # v0.2.0.5: trigger discovery so the menu populates before install.sh
-# exits. Best-effort — if discovery fails (channel error, Windows still
-# warming up, agent not yet up under WINPODX_REQUIRE_AGENT), the pending
-# marker tells the next CLI / GUI launch to retry automatically.
+# exits.
+#
+# Retry up to 3 times with 10s spacing. Even after the curl /health wait
+# above, the agent can still be in a transient "responsive but not yet
+# stable" state right after install.bat's final TermService cycle —
+# AgentTransport.health() couples /health with the host-side token check
+# and the apply chain's vbs_launchers / multi_session steps may briefly
+# disturb either side. kernalix7's 2026-05-05 smoke showed the first
+# refresh attempt failing under WINPODX_REQUIRE_AGENT=1 even though the
+# same command run manually 30s later succeeded with 58 apps. The retry
+# loop closes that window so the menu populates before install.sh exits
+# instead of needing a follow-up CLI / GUI launch to fire pending-resume.
+#
+# Final failure still records the step as pending so pending-resume
+# stays as a safety net.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
     log "Discovering installed Windows apps..."
-    "$HOME/.local/bin/winpodx" app refresh 2>/dev/null || mark_pending "discovery"
+    discovery_ok=
+    for attempt in 1 2 3; do
+        if "$HOME/.local/bin/winpodx" app refresh 2>/dev/null; then
+            discovery_ok=1
+            break
+        fi
+        if [ "$attempt" -lt 3 ]; then
+            log "  discovery attempt $attempt deferred (agent transitioning); retrying in 10s..."
+            sleep 10
+        fi
+    done
+    if [ -z "$discovery_ok" ]; then
+        mark_pending "discovery"
+    fi
 fi
 
 unset WINPODX_REQUIRE_AGENT
