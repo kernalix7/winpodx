@@ -164,21 +164,32 @@ jobs:
       - name: List collected RPMs
         run: ls -la all-rpms/
 
-      # Publish workflows and release.yml run in parallel on tag push. If this job
-      # finishes before release.yml creates the GitHub Release, `gh release upload`
-      # fails with "release not found". Create a minimal release here if it doesn't
-      # exist yet; release.yml's softprops/action-gh-release will populate title,
-      # notes, and sdist/wheel when it completes.
+      # Publish workflows and release.yml run in parallel on tag push. If this
+      # job finishes before release.yml creates the GitHub Release,
+      # `gh release upload` fails with "release not found". Create a minimal
+      # release here if it doesn't exist yet; release.yml's
+      # softprops/action-gh-release will populate title, notes, and
+      # sdist/wheel when it completes.
+      #
+      # Race-tolerant: see debs-publish.yml's matching step. The previous
+      # `view || create` form let both packaging workflows reach create at
+      # the same time and produce duplicate releases (kernalix7 hit this on
+      # v0.4.1 push 2026-05-05). Now: try to create, swallow already-exists
+      # errors, then verify the release is reachable.
       - name: Ensure release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.tag.outputs.tag }}"
-          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 \
-            || gh release create "$tag" \
-                 --title "$tag" \
-                 --notes "Release artifacts — see CHANGELOG.md for details." \
-                 --repo "${{ github.repository }}"
+          gh release create "$tag" \
+              --title "$tag" \
+              --notes "Release artifacts — see CHANGELOG.md for details." \
+              --repo "${{ github.repository }}" \
+              2>&1 | tee /tmp/release-create.log || true
+          if ! grep -qE "already_exists|already exists|Release.created" /tmp/release-create.log; then
+            : # neither success nor known-tolerable failure — fall through to verify
+          fi
+          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null
 
       - name: Upload RPMs to release
         env:
