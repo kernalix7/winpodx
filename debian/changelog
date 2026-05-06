@@ -1,3 +1,31 @@
+winpodx (0.4.3) unstable; urgency=medium
+
+  * The btrfs Copy-on-Write fragmentation fix. Per-user storage bind mount
+    with automatic NoCoW (chattr +C) so Windows VM disk image writes stop
+    forking new btrfs extents on every overwrite. On btrfs hosts pod
+    recreates that previously took many minutes (and frequently timed out
+    on the 300 s budget) finish in 30 s like they always did on ext4.
+    Reported by @xiyeming in #121, #122; cachyos failure cascade in #126
+    has the same root cause (install.bat dies mid-stage during btrfs CoW
+    file-op stalls; without rdprrap the host's FreeRDP fallback hits
+    multi-session reset).
+  * Five PRs landing the fix end-to-end: PR #125 (bind mount + chattr +C
+    + named-volume migration), PR #127 (compose-prefixed volume name
+    resolution: `winpodx_winpodx-data`), PR #128 (chattr +C result inline
+    surfacing + post-rsync NoCoW verification), PR #129 (refuse to
+    re-migrate when bind-mount target is already populated), PR #130
+    (`detect_path_fs` walks up to existing ancestor before findmnt — the
+    actual root cause for chattr +C silently never applying on fresh
+    installs).
+  * Smoke-tested end-to-end on openSUSE Tumbleweed btrfs: clean wipe →
+    v0.4.2 fresh install → upgrade to main; install.sh prints
+    `chattr +C applied to /home/.../winpodx/storage` between
+    `Migrating storage...` and `OK: migrated 71 GiB`; afterwards
+    `lsattr -d` and `lsattr data.img` both show the C flag, dockur's
+    `Warning: COW (copy on write) is not disabled` no longer appears.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 06 May 2026 14:30:00 +0000
+
 winpodx (0.4.2) unstable; urgency=medium
 
   * Patch release. Two small fixes on top of 0.4.1:
