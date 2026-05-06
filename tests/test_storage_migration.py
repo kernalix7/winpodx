@@ -549,3 +549,163 @@ class TestPlanMigrationUsesResolvedVolume:
 
         assert isinstance(plan, sm.MigrationPlan)
         assert plan.source_volume == "winpodx-data"
+
+
+class TestChattrPostMigrationVerification:
+    """When chattr +C silently no-ops, the migration produces a CoW disk
+    image even though the code thought NoCoW was on. kernalix7 hit this
+    on opensuse Tumbleweed (2026-05-06): the auto-migration claimed
+    success but `lsattr -d` on the bind-mount dir AND on the 64 GiB
+    `data.img` showed no C flag, so the entire NoCoW benefit was lost.
+    These tests guard the post-rsync verification that surfaces the
+    discrepancy as a warning in `MigrationResult.detail` instead of
+    silently claiming success.
+    """
+
+    def _cfg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.save()
+        return cfg
+
+    def _plan(self, src, target):
+        return sm.MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=64 << 30,
+            target_path=target,
+            target_fs="btrfs",
+            chattr_will_run=True,
+            free_bytes_target=200 << 30,
+        )
+
+    def test_warns_when_target_dir_missing_cow_flag_after_migration(self, tmp_path, monkeypatch):
+        """The dir should have +C after step 2; if lsattr says it doesn't
+        after rsync (impossible in normal kernels but seen on Tumbleweed),
+        the result detail must carry a warning summary so the caller can
+        print it inline. Status stays 'ok' because data did move."""
+        cfg = self._cfg(tmp_path, monkeypatch)
+        src = tmp_path / "src"
+        src.mkdir()
+        target = tmp_path / "target"
+
+        # Simulate: chattr +C reported success, but lsattr afterward shows
+        # no C flag (the actual silent-no-op kernalix7 hit).
+        with (
+            patch.object(sm, "_stop_pod", return_value=(True, "stopped")),
+            patch.object(sm, "_rsync_copy", return_value=(True, "ok")),
+            patch.object(sm, "disable_cow_on_path", return_value=("disabled", "ok")),
+            patch.object(sm, "is_cow_disabled", return_value=False),
+            patch("winpodx.core.compose.generate_compose"),
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            result = sm.execute_migration(cfg, plan=self._plan(src, target), start_pod=False)
+
+        assert result.status == "ok"
+        assert "warning(s)" in result.detail.lower()
+
+    def test_warns_when_sample_file_did_not_inherit_cow_flag(self, tmp_path, monkeypatch):
+        """Even if the dir has +C, files born inside don't always inherit
+        on every kernel/version. Sampling the first .img file post-rsync
+        catches the case where the 64 GiB data.img landed CoW despite +C
+        on the parent."""
+        cfg = self._cfg(tmp_path, monkeypatch)
+        src = tmp_path / "src"
+        src.mkdir()
+        target = tmp_path / "target"
+
+        # Realistic _rsync_copy stand-in: actually create a fake data.img
+        # in the target so the iterdir scan finds something to sample.
+        def fake_rsync(_src, dst):
+            (dst / "data.img").write_bytes(b"x")
+            return True, "ok"
+
+        # is_cow_disabled returns True for the dir, False for the file.
+        def fake_is_cow_disabled(path):
+            if path == target:
+                return True
+            return False  # file did not inherit
+
+        with (
+            patch.object(sm, "_stop_pod", return_value=(True, "stopped")),
+            patch.object(sm, "_rsync_copy", side_effect=fake_rsync),
+            patch.object(sm, "disable_cow_on_path", return_value=("disabled", "ok")),
+            patch.object(sm, "is_cow_disabled", side_effect=fake_is_cow_disabled),
+            patch("winpodx.core.compose.generate_compose"),
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            result = sm.execute_migration(cfg, plan=self._plan(src, target), start_pod=False)
+
+        assert result.status == "ok"
+        # The detail summary should flag at least one warning.
+        assert "warning(s)" in result.detail.lower()
+
+    def test_no_warning_when_dir_and_sample_both_have_cow_flag(self, tmp_path, monkeypatch):
+        """Happy path: dir has +C, sample file inherits +C → result detail
+        is the clean summary, no warning suffix."""
+        cfg = self._cfg(tmp_path, monkeypatch)
+        src = tmp_path / "src"
+        src.mkdir()
+        target = tmp_path / "target"
+
+        def fake_rsync(_src, dst):
+            (dst / "data.img").write_bytes(b"x")
+            return True, "ok"
+
+        with (
+            patch.object(sm, "_stop_pod", return_value=(True, "stopped")),
+            patch.object(sm, "_rsync_copy", side_effect=fake_rsync),
+            patch.object(sm, "disable_cow_on_path", return_value=("disabled", "ok")),
+            patch.object(sm, "is_cow_disabled", return_value=True),
+            patch("winpodx.core.compose.generate_compose"),
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            result = sm.execute_migration(cfg, plan=self._plan(src, target), start_pod=False)
+
+        assert result.status == "ok"
+        assert "warning(s)" not in result.detail.lower()
+
+    def test_no_verification_when_chattr_will_not_run(self, tmp_path, monkeypatch):
+        """Non-btrfs target → no verify step at all; result detail clean."""
+        cfg = self._cfg(tmp_path, monkeypatch)
+        src = tmp_path / "src"
+        src.mkdir()
+        target = tmp_path / "target"
+
+        plan = sm.MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=1024,
+            target_path=target,
+            target_fs="ext4",  # not btrfs
+            chattr_will_run=False,
+            free_bytes_target=10 << 30,
+        )
+
+        with (
+            patch.object(sm, "_stop_pod", return_value=(True, "stopped")),
+            patch.object(sm, "_rsync_copy", return_value=(True, "ok")),
+            patch.object(sm, "is_cow_disabled") as mock_check,
+            patch("winpodx.core.compose.generate_compose"),
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            result = sm.execute_migration(cfg, plan, start_pod=False)
+
+        assert result.status == "ok"
+        assert "warning(s)" not in result.detail.lower()
+        # Verification is gated on chattr_will_run; the helper is never
+        # invoked for non-btrfs targets.
+        mock_check.assert_not_called()

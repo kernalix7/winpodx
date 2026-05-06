@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from winpodx.core.config import Config
-from winpodx.utils.btrfs import detect_path_fs, disable_cow_on_path
+from winpodx.utils.btrfs import detect_path_fs, disable_cow_on_path, is_cow_disabled
 
 log = logging.getLogger(__name__)
 
@@ -362,15 +362,32 @@ def execute_migration(
     except OSError as e:
         return MigrationResult(status="failed", detail=f"mkdir {plan.target_path}: {e}")
 
+    # Track chattr outcomes for the post-migration sanity check + result.detail.
+    # 'log.warning' alone goes to stderr at WARNING level, which on some hosts
+    # is filtered out of the install.sh foreground output — kernalix7's
+    # 2026-05-06 smoke test on opensuse Tumbleweed had chattr +C silently
+    # missing on the dir AND the 64 GiB data.img and the install completed
+    # showing only "OK: migrated 64 GiB". Surfacing via print() ensures the
+    # user sees it inline; sanity-checking with lsattr after rsync catches
+    # the silent-no-op case where chattr returned 0 but the flag didn't
+    # actually stick.
+    chattr_pre_status = "skipped_not_btrfs"
+    chattr_pre_detail = ""
     if plan.chattr_will_run:
-        status, detail = disable_cow_on_path(plan.target_path)
-        # 'failed' isn't fatal — the migration still works, just stays CoW.
-        if status == "disabled":
+        chattr_pre_status, chattr_pre_detail = disable_cow_on_path(plan.target_path)
+        if chattr_pre_status == "disabled":
+            print(f"  chattr +C applied to {plan.target_path} (NoCoW for new files)")
             log.info("chattr +C applied to %s (NoCoW for new files)", plan.target_path)
-        elif status == "already_off":
+        elif chattr_pre_status == "already_off":
+            print(f"  chattr +C already on {plan.target_path}")
             log.info("chattr +C already on %s", plan.target_path)
         else:
-            log.warning("chattr +C skipped (%s): %s", status, detail)
+            # Surface to stdout AND stderr — install.sh will see both.
+            print(
+                f"  WARNING: chattr +C did not apply to {plan.target_path} "
+                f"({chattr_pre_status}): {chattr_pre_detail}"
+            )
+            log.warning("chattr +C skipped (%s): %s", chattr_pre_status, chattr_pre_detail)
 
     # 3. Copy source -> target.
     log.info(
@@ -384,6 +401,45 @@ def execute_migration(
         except OSError:
             pass
         return MigrationResult(status="failed", detail=f"copy failed: {detail}")
+
+    # 3b. Verify chattr +C actually stuck — both on the dir itself and on at
+    # least one new file rsync just created. The btrfs inheritance contract
+    # is "files born inside a +C dir are NoCoW from inception." If the dir
+    # lost +C between step 2 and now (or chattr returned 0 but the flag
+    # never persisted), files won't inherit it and the migration silently
+    # produces a CoW disk image — defeating the entire point. We can't
+    # retroactively fix existing files (chattr +C on a populated file does
+    # not break existing CoW extents), so surface the discrepancy as a
+    # WARNING in the result detail with a recovery recipe.
+    cow_warnings: list[str] = []
+    if plan.chattr_will_run:
+        dir_state = is_cow_disabled(plan.target_path)
+        if dir_state is False:
+            cow_warnings.append(
+                f"target dir {plan.target_path} does NOT have +C set after migration "
+                f"(chattr earlier returned: {chattr_pre_status})"
+            )
+        # Sample one of the rsync-created files to confirm inheritance worked.
+        sample_files = sorted(
+            p for p in plan.target_path.iterdir() if p.is_file() and p.suffix in (".img",)
+        )
+        if sample_files:
+            sample = sample_files[0]
+            sample_state = is_cow_disabled(sample)
+            if sample_state is False:
+                cow_warnings.append(
+                    f"sample file {sample.name} did not inherit +C from parent dir — "
+                    f"existing CoW extents need to be broken via "
+                    f"`cp --reflink=never {sample.name} {sample.name}.new && "
+                    f"mv {sample.name}.new {sample.name}` (run from {plan.target_path} "
+                    f"with the pod stopped)"
+                )
+        if cow_warnings:
+            print("")
+            print("  WARNING: NoCoW verification failed after migration:")
+            for w in cow_warnings:
+                print(f"    - {w}")
+                log.warning("NoCoW verify: %s", w)
 
     # 4. Persist new storage_path + regenerate compose.
     cfg.pod.storage_path = str(plan.target_path)
@@ -442,7 +498,13 @@ def execute_migration(
         except (subprocess.SubprocessError, OSError) as e:
             log.warning("could not remove old named volume %s: %s", plan.source_volume, e)
 
-    return MigrationResult(
-        status="ok",
-        detail=f"migrated {plan.source_size_bytes // (1 << 30)} GiB to {plan.target_path}",
-    )
+    base_detail = f"migrated {plan.source_size_bytes // (1 << 30)} GiB to {plan.target_path}"
+    if cow_warnings:
+        # Migration data-moved successfully, but NoCoW didn't take. The pod
+        # works; the perf benefit is missing. Tag with status="ok_warn" so
+        # callers can decide presentation, but keep status="ok" for the
+        # critical "did it work" question. We surface the warnings inline
+        # via print() above; the detail only carries a short summary so
+        # the caller's success line stays readable.
+        base_detail += f" — but NoCoW verification raised {len(cow_warnings)} warning(s); see above"
+    return MigrationResult(status="ok", detail=base_detail)
