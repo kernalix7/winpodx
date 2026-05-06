@@ -57,6 +57,56 @@ class TestDetectPathFs:
         ):
             assert btrfs.detect_path_fs(tmp_path) == "unknown"
 
+    def test_walks_up_to_existing_parent_for_nonexistent_path(self, tmp_path):
+        """Regression for kernalix7's 2026-05-06 silent-NoCoW bug:
+        ``findmnt --target`` on a non-existent path returns rc=1 with
+        empty stdout on opensuse Tumbleweed — the auto-migration
+        plan_migration call computes ``target_fs = detect_path_fs(
+        ~/.local/share/winpodx/storage)`` BEFORE the dir is mkdir'd,
+        so a naive findmnt call returned 'unknown' there, set
+        ``chattr_will_run=False``, and silently skipped the entire
+        NoCoW path. The fix walks the parent chain until it hits an
+        existing dir (always succeeds — `/` exists), so callers get
+        the fs that will contain `path` once it's materialised.
+        """
+        scripted = [(0, "btrfs\n", "")]
+        fake, calls = _run_factory(scripted)
+        nonexistent = tmp_path / "nope" / "still_not_here" / "leaf"
+        # Guard rail: the leaf and its first ancestor really don't exist.
+        assert not nonexistent.exists()
+        assert not nonexistent.parent.exists()
+        with (
+            patch.object(btrfs, "_run", fake),
+            patch.object(btrfs.shutil, "which", return_value="/usr/bin/findmnt"),
+        ):
+            assert btrfs.detect_path_fs(nonexistent) == "btrfs"
+        # The probe should have walked up to tmp_path (the nearest
+        # existing ancestor), NOT the original non-existent leaf.
+        assert calls, "findmnt was not invoked"
+        last_target = calls[-1][-1]
+        assert last_target == str(tmp_path), (
+            f"expected probe to walk up to {tmp_path}, got {last_target!r}"
+        )
+
+    def test_walk_up_terminates_at_root_when_nothing_exists(self, tmp_path, monkeypatch):
+        """Loop bound: a pathological symlink loop or absurd path depth
+        must not spin forever. Walk-up has a 64-step ceiling; well past
+        that, we fall through to whatever findmnt says about the
+        original path. Sanity: a 200-segment path doesn't hang."""
+        scripted = [(0, "btrfs\n", "")]
+        fake, _ = _run_factory(scripted)
+        deep = tmp_path
+        for i in range(200):
+            deep = deep / f"seg{i}"
+        with (
+            patch.object(btrfs, "_run", fake),
+            patch.object(btrfs.shutil, "which", return_value="/usr/bin/findmnt"),
+        ):
+            # Should return SOMETHING quickly (either btrfs from the
+            # scripted response or unknown if probing fell off the ceiling).
+            result = btrfs.detect_path_fs(deep)
+        assert result in {"btrfs", "unknown"}
+
 
 class TestIsCowDisabled:
     def test_returns_true_when_C_flag_present(self, tmp_path):
