@@ -9,6 +9,9 @@
 
 ## [Unreleased]
 
+### 추가
+- **`winpodx app run --extra-args` per-launch FreeRDP 인자 override + GUI Settings 의 Extra FreeRDP args 입력.** 깨진 xfreerdp3 빌드 배포한 distro 들을 위한 진단/우회용 escape hatch. Per-launch `--extra-args` 는 `cfg.rdp.extra_flags` 뒤에 append → 일회성 디버그 플래그가 글로벌 기본값을 이김; 양쪽 경로 모두 같은 `_filter_extra_flags` allowlist 통과해서 unsafe 인자 차단. GUI Settings 페이지에 "Extra FreeRDP args" 입력란이 `cfg.rdp.extra_flags` 에 바인딩 — placeholder + tooltip 으로 자주 쓰는 토글 안내. allowlist 자체도 codec/cache/RAIL 토글 pack 으로 확장 — `+/-gfx-h264`, `+/-gfx-progressive`, `+/-gfx-thin-client`, `+/-gfx-small-cache`, `+/-nsc`, `+/-jpeg`, `+/-avc444`, `+/-wallpaper`, `+/-themes`, `+/-decorations`, `+/-grab-keyboard`, `+/-grab-mouse`, `+/-mouse-relative`, `+/-async-update`, `+/-async-channels`, `+/-auto-reconnect`, `+/-bitmap-cache`, `+/-offscreen-cache`, `+/-glyph-cache` — 이전엔 allowlist 에 없어서 xfreerdp3 도달 전에 silently drop 됐음. 단기 핵심 use case: `-gfx-h264` 가 cachyos 의 xfreerdp3 빌드 (`WITH_VAAPI_H264_ENCODING=ON` 을 FreeRDP 자체가 experimental 로 표시) 에서 xiyeming 이 RemoteApp 의 RAIL post_connect 단계에서 silent fail 한 상황의 우회 — 이제 winpodx.toml 의 `extra_flags = "-gfx-h264"` 또는 GUI 에서 RemoteFX fallback 강제 가능, `winpodx app run notepad-exe --extra-args="-gfx-h264"` 가 가설 확인하는 동안에도 사용 가능.
+
 ### 변경
 - **`winpodx pod wait-ready --logs` 출력에서 dockur 의 cosmetic "you are using the BTRFS filesystem for /storage" 경고 suppress.** dockur 의 `proc.sh` 가 이 경고를 `df --output=fstype` 만 보고 모든 btrfs 호스트에 무조건 출력 — NoCoW (`chattr +C`) 적용 여부는 확인 안 함. v0.4.3 가 사용자별 bind-mount + 자동 chattr +C 마이그레이션 제공하므로, post-migration 호스트에서 이 경고는 false positive — 실제 fragmentation 신호 (`COW (copy on write) is not disabled for disk image file ...`) 는 이미 사라짐. 스트리밍 되는 로그 라인이 `cfg.pod.storage_path` 가 set 일 때 `(btrfs warning suppressed: NoCoW bind mount in use)` 로 재작성됨 — install.sh 출력이 더 이상 경고처럼 보이지 않음. 아직 named volume 쓰는 legacy 사용자 (`storage_path = ""`) 는 원본 경고 그대로 보여서 `winpodx setup --migrate-storage` 안내가 유지됨.
 

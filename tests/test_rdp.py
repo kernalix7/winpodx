@@ -237,3 +237,72 @@ class TestBuildRdpCommand:
         cmd, _ = build_rdp_command(cfg)
         assert "/sound:sys:alsa" in cmd
         assert "/exec:evil" not in cmd
+
+    def test_codec_toggles_pass_filter(self, cfg, monkeypatch):
+        """The 2026-05-06 #126 fallout — `-gfx-h264` is the workaround
+        for cachyos's experimental WITH_VAAPI_H264_ENCODING build, so the
+        filter MUST allow it. Same goes for the rest of the codec/cache
+        toggle pack added in this PR — power users should be able to
+        disable any single codec without us shipping a per-codec config
+        field."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        # +rfx / -rfx aren't real FreeRDP bare toggles (the binary expects
+        # `/rfx[:level]`). Only the genuine bare codec toggles.
+        toggles = (
+            "-gfx-h264 +gfx-h264 "
+            "-nsc +nsc -jpeg +jpeg -avc444 +avc444 "
+            "-gfx-progressive +gfx-progressive "
+            "-gfx-thin-client +gfx-thin-client "
+            "-gfx-small-cache +gfx-small-cache "
+            "-wallpaper +wallpaper -themes +themes "
+            "-decorations +decorations "
+            "-grab-keyboard +grab-keyboard -grab-mouse +grab-mouse "
+            "-mouse-relative +mouse-relative "
+            "-async-update +async-update -async-channels +async-channels "
+            "-auto-reconnect +auto-reconnect "
+            "-bitmap-cache +bitmap-cache "
+            "-offscreen-cache +offscreen-cache "
+            "-glyph-cache +glyph-cache"
+        )
+        cfg.rdp.extra_flags = toggles
+        cmd, _ = build_rdp_command(cfg)
+        for toggle in toggles.split():
+            assert toggle in cmd, f"toggle dropped by filter: {toggle!r}"
+
+    def test_extra_args_kwarg_appended_after_global_extra_flags(self, cfg, monkeypatch):
+        """Per-launch `extra_args` (CLI --extra-args / GUI per-launch)
+        is appended AFTER `cfg.rdp.extra_flags` so per-launch overrides
+        win when FreeRDP ties on duplicate flags. Uses the same
+        allowlist filter so the per-launch path can't smuggle anything
+        unsafe."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg.rdp.extra_flags = "+gfx-h264"  # global says: keep H.264
+        cmd, _ = build_rdp_command(cfg, extra_args="-gfx-h264 /not-a-real-flag:bad")
+
+        # Both global and per-launch survived the filter.
+        assert "+gfx-h264" in cmd
+        assert "-gfx-h264" in cmd
+        # Per-launch lands AFTER global; this is the override semantics
+        # callers rely on.
+        assert cmd.index("-gfx-h264") > cmd.index("+gfx-h264")
+        # Unsafe flag in extra_args is dropped, same as via cfg.rdp.extra_flags.
+        assert "/not-a-real-flag:bad" not in cmd
+
+    def test_extra_args_empty_string_is_noop(self, cfg, monkeypatch):
+        """Default (empty extra_args) must not append anything to the
+        command. Guards against an accidental sentinel like `""` showing
+        up as an empty-string arg in the FreeRDP command."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cmd_no_extra, _ = build_rdp_command(cfg)
+        cmd_empty, _ = build_rdp_command(cfg, extra_args="")
+        assert cmd_no_extra == cmd_empty
+        assert "" not in cmd_empty

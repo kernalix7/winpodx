@@ -921,6 +921,27 @@ class WinpodxWindow(QMainWindow):
             self.input_pw_max_age.addItem(f"{current_age} days", current_age)
             self.input_pw_max_age.setCurrentIndex(self.input_pw_max_age.count() - 1)
 
+        # Extra FreeRDP arguments \u2014 escape hatch for codec / cache / RAIL
+        # tuning. Common case as of 2026-05-06: cachyos ships xfreerdp3
+        # with WITH_VAAPI_H264_ENCODING=ON which crashes during RAIL
+        # post_connect; setting `-gfx-h264` here forces RemoteFX fallback.
+        # _filter_extra_flags in core/rdp.py applies the same allowlist
+        # whether the value comes from this UI or the CLI's --extra-args,
+        # so unsafe entries are dropped with a log warning rather than
+        # passed to the FreeRDP command.
+        self.input_extra_flags = QLineEdit(self.cfg.rdp.extra_flags)
+        self.input_extra_flags.setPlaceholderText("-gfx-h264 +decorations")
+        self.input_extra_flags.setToolTip(
+            "Extra xfreerdp3 flags appended to every launch. Whitelist-filtered.\n"
+            "Common toggles:\n"
+            "  -gfx-h264         disable H.264 codec (use RemoteFX fallback;\n"
+            "                    workaround for cachyos / experimental builds)\n"
+            "  +decorations      enable RemoteApp window decorations\n"
+            "  -wallpaper        suppress Windows wallpaper rendering\n"
+            "  -bitmap-cache     disable bitmap cache (less RAM, more bandwidth)\n"
+            "See src/winpodx/core/rdp.py _BARE_FLAGS for the full allowlist."
+        )
+
         rdp_card = self._settings_card(
             "\u25a3  RDP Connection",
             "Remote Desktop Protocol settings",
@@ -931,6 +952,7 @@ class WinpodxWindow(QMainWindow):
                 ("Scale %", self.input_scale),
                 ("Windows DPI", self.input_dpi),
                 ("Password Rotation", self.input_pw_max_age),
+                ("Extra FreeRDP args", self.input_extra_flags),
             ],
         )
         cols.addWidget(rdp_card)
@@ -2219,6 +2241,7 @@ class WinpodxWindow(QMainWindow):
         self.cfg.rdp.scale = scale
         self.cfg.rdp.dpi = self.input_dpi.currentData()
         self.cfg.rdp.password_max_age = self.input_pw_max_age.currentData()
+        self.cfg.rdp.extra_flags = self.input_extra_flags.text().strip()
         self.cfg.pod.backend = self.input_backend.currentText()
         self.cfg.pod.cpu_cores = cpu
         self.cfg.pod.ram_gb = ram

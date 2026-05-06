@@ -187,6 +187,7 @@ def build_rdp_command(
     launch_uri: str | None = None,
     wm_class_hint: str | None = None,
     default_args: str | None = None,
+    extra_args: str = "",
 ) -> tuple[list[str], str]:
     """Build the xfreerdp command line for launching an app.
 
@@ -312,6 +313,13 @@ def build_rdp_command(
     if cfg.rdp.extra_flags:
         cmd += _filter_extra_flags(cfg.rdp.extra_flags)
 
+    # Per-launch override (CLI --extra-args / GUI per-launch). Appended AFTER
+    # the global extra_flags so a per-launch flag wins over a global default
+    # when FreeRDP ties on duplicate flags. Goes through the same allowlist
+    # so callers can't smuggle unsafe flags via this path.
+    if extra_args:
+        cmd += _filter_extra_flags(extra_args)
+
     return cmd, password
 
 
@@ -341,6 +349,59 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "/gfx",
         "/rfx",
         "/smartcard",
+        # ---- codec / graphics toggles (added 2026-05-06 for #126 diagnosis) ----
+        # `-gfx-h264` is the critical workaround for distros shipping FreeRDP
+        # with experimental WITH_VAAPI_H264_ENCODING=ON (cachyos as of
+        # 2026-05-06 — xiyeming's RemoteApp launches died at post_connect
+        # because the experimental codec init crashed during RAIL channel
+        # capability exchange). Disabling H.264 forces RemoteFX/NSC fallback.
+        # Other codec/cache toggles added in the same pass so users with
+        # similar broken builds can fine-tune without us shipping a per-
+        # variant escape hatch.
+        "+gfx-h264",
+        "-gfx-h264",
+        "+gfx-progressive",
+        "-gfx-progressive",
+        "+gfx-thin-client",
+        "-gfx-thin-client",
+        "+gfx-small-cache",
+        "-gfx-small-cache",
+        "+nsc",
+        "-nsc",
+        "+jpeg",
+        "-jpeg",
+        "+avc444",
+        "-avc444",
+        # Visual / desktop toggles (already in default cmd; expose for override).
+        "+wallpaper",
+        "-wallpaper",
+        "+themes",
+        "-themes",
+        "+window-position",
+        "-window-position",
+        "+decorations",
+        "-decorations",
+        # Input grab / mouse-keyboard policy.
+        "+grab-keyboard",
+        "-grab-keyboard",
+        "+grab-mouse",
+        "-grab-mouse",
+        "+mouse-relative",
+        "-mouse-relative",
+        # Connection robustness.
+        "+async-update",
+        "-async-update",
+        "+async-channels",
+        "-async-channels",
+        "+auto-reconnect",
+        "-auto-reconnect",
+        # Cache toggles (off-by-default usually saves bandwidth at cost of CPU).
+        "+bitmap-cache",
+        "-bitmap-cache",
+        "+offscreen-cache",
+        "-offscreen-cache",
+        "+glyph-cache",
+        "-glyph-cache",
     }
 )
 
@@ -457,6 +518,7 @@ def launch_app(
     launch_uri: str | None = None,
     wm_class_hint: str | None = None,
     default_args: str | None = None,
+    extra_args: str = "",
 ) -> RDPSession:
     """Launch a Windows app via RDP and return the session handle.
 
@@ -496,6 +558,7 @@ def launch_app(
         launch_uri=launch_uri,
         wm_class_hint=wm_class_hint,
         default_args=default_args,
+        extra_args=extra_args,
     )
 
     # See find_freerdp(): only xfreerdp has working RAIL, and it needs $DISPLAY.
@@ -559,9 +622,9 @@ def launch_app(
     return session
 
 
-def launch_desktop(cfg: Config) -> RDPSession:
+def launch_desktop(cfg: Config, *, extra_args: str = "") -> RDPSession:
     """Launch a full Windows desktop RDP session (no RemoteApp)."""
-    return launch_app(cfg, app_executable=None, file_path=None)
+    return launch_app(cfg, app_executable=None, file_path=None, extra_args=extra_args)
 
 
 def linux_to_unc(path: str) -> str:

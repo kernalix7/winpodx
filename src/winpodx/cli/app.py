@@ -23,7 +23,12 @@ def handle_app(args: argparse.Namespace) -> None:
     elif cmd == "refresh":
         _refresh_apps(getattr(args, "json", False), getattr(args, "timeout", 30))
     elif cmd == "run":
-        _run_app(args.name, args.file, args.wait)
+        _run_app(
+            args.name,
+            args.file,
+            args.wait,
+            extra_args=getattr(args, "extra_args", "") or "",
+        )
     elif cmd == "install":
         _install_app(args.name, getattr(args, "mime", False))
     elif cmd == "install-all":
@@ -221,7 +226,7 @@ def _register_desktop_entries(discovered) -> None:
         print(f"  Removed {removed} stale desktop entr{suffix}.", file=sys.stderr)
 
 
-def _run_app(name: str, file: str | None, wait: bool) -> None:
+def _run_app(name: str, file: str | None, wait: bool, *, extra_args: str = "") -> None:
     from winpodx.core.provisioner import ProvisionError, ensure_ready
     from winpodx.core.rdp import launch_app, launch_desktop
     from winpodx.desktop.notify import notify_error
@@ -235,7 +240,7 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
 
     if name == "desktop":
         print("Launching Windows desktop...")
-        session = launch_desktop(cfg)
+        session = launch_desktop(cfg, extra_args=extra_args)
         if wait and session.process:
             session.process.wait()
         return
@@ -255,6 +260,7 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
             launch_uri=app_info.launch_uri or None,
             wm_class_hint=app_info.wm_class_hint or None,
             default_args=app_info.args or None,
+            extra_args=extra_args,
         )
 
         if wait and session.process:

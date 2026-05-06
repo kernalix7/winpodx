@@ -52,6 +52,20 @@ def cli(argv: list[str] | None = None) -> None:
     run_p.add_argument("name", help="App name or 'desktop'")
     run_p.add_argument("file", nargs="?", help="File to open")
     run_p.add_argument("--wait", action="store_true", help="Wait for app to exit")
+    run_p.add_argument(
+        "--extra-args",
+        default="",
+        metavar="ARGS",
+        help=(
+            "Extra FreeRDP flags appended to this launch only. Merged AFTER "
+            "the global cfg.rdp.extra_flags so per-launch overrides win. "
+            "Whitelisted flags only — see _BARE_FLAGS / _SIMPLE_VALUE_FLAGS "
+            "in core/rdp.py. Useful for debugging codec issues, e.g. "
+            '`--extra-args="-gfx-h264"` to force RemoteFX fallback when the '
+            "system FreeRDP build has experimental H.264 (cachyos as of "
+            "2026-05-06)."
+        ),
+    )
 
     inst_p = app_sub.add_parser("install", help="Install app into desktop")
     inst_p.add_argument("name", help="App name to install")
