@@ -554,6 +554,16 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                     return line
                 return line.replace("127.0.0.1:8006", f"127.0.0.1:{vnc_port}")
 
+            # dockur's `Warning: you are using the BTRFS filesystem for
+            # /storage` fires on every btrfs host regardless of whether
+            # we've applied chattr +C — it just reads df. With
+            # storage_path set, NoCoW is in effect so the warning is
+            # cosmetic; rewrite it to a one-liner so install.sh output
+            # doesn't look alarming. Without storage_path (legacy named
+            # volume), keep the warning visible so the user knows to
+            # migrate.
+            suppress_btrfs_warning = bool(cfg.pod.storage_path)
+
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
                     return
@@ -561,8 +571,14 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                     if log_stop.is_set():
                         break
                     line = line.rstrip()
-                    if line:
-                        print(f"       [container] {_rewrite_vnc_url(line)}")
+                    if not line:
+                        continue
+                    if (
+                        suppress_btrfs_warning
+                        and "you are using the BTRFS filesystem for /storage" in line
+                    ):
+                        line = "(btrfs warning suppressed: NoCoW bind mount in use)"
+                    print(f"       [container] {_rewrite_vnc_url(line)}")
 
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
             threading.Thread(target=_drain, args=(log_proc.stderr,), daemon=True).start()

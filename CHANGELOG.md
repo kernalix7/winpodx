@@ -9,6 +9,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+- **Suppress dockur's cosmetic "you are using the BTRFS filesystem for /storage" warning in `winpodx pod wait-ready --logs`.** dockur's `proc.sh` fires this warning unconditionally on every btrfs host based purely on `df --output=fstype`, without checking whether NoCoW (`chattr +C`) has been applied. v0.4.3 ships per-user bind-mount + auto chattr +C migration, so on a post-migration host the warning is a false positive — the actual fragmentation signal (`COW (copy on write) is not disabled for disk image file ...`) is gone. The streamed log line is now rewritten to `(btrfs warning suppressed: NoCoW bind mount in use)` when `cfg.pod.storage_path` is set, so install.sh output stops looking alarming. Legacy users still on the named volume (`storage_path = ""`) keep seeing the original warning so they're prompted to run `winpodx setup --migrate-storage`.
+
 ## [0.4.3] - 2026-05-06
 
 The btrfs Copy-on-Write fragmentation fix. The `0.4.x` line's headline storage rework: a per-user bind mount with automatic NoCoW so Windows VM disk image writes (every pagefile / boot / swap byte) stop forking new btrfs extents on every overwrite. On btrfs hosts that means pod recreates that previously took many minutes — and frequently timed out on the 300 s budget — finish in 30 s like they always did on ext4. Reported by @xiyeming in #121, #122 (and indirectly the actual-failure cause behind #126's "Unable to open apps and desktop" cascade on cachyos).

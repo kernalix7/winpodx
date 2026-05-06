@@ -9,6 +9,9 @@
 
 ## [Unreleased]
 
+### 변경
+- **`winpodx pod wait-ready --logs` 출력에서 dockur 의 cosmetic "you are using the BTRFS filesystem for /storage" 경고 suppress.** dockur 의 `proc.sh` 가 이 경고를 `df --output=fstype` 만 보고 모든 btrfs 호스트에 무조건 출력 — NoCoW (`chattr +C`) 적용 여부는 확인 안 함. v0.4.3 가 사용자별 bind-mount + 자동 chattr +C 마이그레이션 제공하므로, post-migration 호스트에서 이 경고는 false positive — 실제 fragmentation 신호 (`COW (copy on write) is not disabled for disk image file ...`) 는 이미 사라짐. 스트리밍 되는 로그 라인이 `cfg.pod.storage_path` 가 set 일 때 `(btrfs warning suppressed: NoCoW bind mount in use)` 로 재작성됨 — install.sh 출력이 더 이상 경고처럼 보이지 않음. 아직 named volume 쓰는 legacy 사용자 (`storage_path = ""`) 는 원본 경고 그대로 보여서 `winpodx setup --migrate-storage` 안내가 유지됨.
+
 ## [0.4.3] - 2026-05-06
 
 btrfs Copy-on-Write fragmentation 을 정조준한 패치 릴리즈. `0.4.x` 라인의 핵심 storage rework: 사용자별 bind mount + 자동 NoCoW 로 Windows VM 디스크 이미지의 매 write (pagefile / boot / swap 바이트 모두) 가 btrfs extent 를 새로 fork 하던 걸 차단. btrfs 호스트에서 이전엔 수분~수십분 걸려 300초 예산을 자주 timeout 시키던 pod recreate 가 ext4 처럼 30초에 끝남. @xiyeming 의 #121, #122 보고 (cachyos 환경의 #126 "Unable to open apps and desktop" 도 actual root cause 이 동일 — install.bat 가 btrfs CoW 로 인한 file ops 정체로 mid-stage 에서 죽고, agent 가 안 올라오니 host 의 모든 FreeRDP fallback 이 multi-session 으로 reset).
