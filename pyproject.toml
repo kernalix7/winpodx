@@ -62,6 +62,7 @@ winpodx = "winpodx.cli.main:cli"
 Homepage = "https://github.com/kernalix7/winpodx"
 Repository = "https://github.com/kernalix7/winpodx"
 Issues = "https://github.com/kernalix7/winpodx/issues"
+Funding = "https://fairy.hada.io/@kernalix7"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/winpodx"]

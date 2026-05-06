@@ -1,0 +1,6 @@
+# GitHub repo 'Sponsor' button. fairy.hada.io is a Korean tipping
+# platform; it isn't on GitHub's recognized list (github_sponsors,
+# patreon, ko_fi, ...) so we use the `custom:` field, which renders
+# as a generic 'External' link button on the repo page.
+custom:
+  - https://fairy.hada.io/@kernalix7

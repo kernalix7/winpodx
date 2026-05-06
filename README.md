@@ -694,6 +694,15 @@ For security issues, follow the process in [SECURITY.md](SECURITY.md).
   </picture>
 </a>
 
+## Support / 후원
+
+If winpodx makes your Linux desktop a little nicer, you can tip the maintainer at
+[fairy.hada.io/@kernalix7](https://fairy.hada.io/@kernalix7).
+Bug reports, PRs, and stars on the repo are equally appreciated and free.
+
+winpodx 가 도움이 됐다면 [fairy.hada.io/@kernalix7](https://fairy.hada.io/@kernalix7)
+에서 후원할 수 있습니다. 버그 리포트, PR, 별점도 환영합니다.
+
 ## License
 
 [MIT](LICENSE) - Kim DaeHyun (kernalix7@kodenet.io)
