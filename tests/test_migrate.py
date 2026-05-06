@@ -637,7 +637,13 @@ class TestMaybeAutoMigrateStorage:
     """Auto-migration on `winpodx migrate` for legacy named-volume btrfs users."""
 
     def _setup_cfg(self, tmp_path, monkeypatch, *, storage_path=""):
+        # Redirect both XDG_CONFIG_HOME and HOME so the new defensive
+        # guard's `default_target_path()` (= `~/.local/share/winpodx/
+        # storage`) lands inside tmp_path. Without this, tests on a
+        # developer machine with a real bind-mount migration would have
+        # the guard return early and skip the migrate path entirely.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setenv("HOME", str(tmp_path))
         from winpodx.core.config import Config
 
         cfg = Config()
@@ -645,6 +651,76 @@ class TestMaybeAutoMigrateStorage:
         cfg.pod.storage_path = storage_path
         cfg.save()
         return cfg
+
+    def test_skips_when_default_target_already_populated(self, tmp_path, monkeypatch, capsys):
+        """Defence against the kernalix7 2026-05-06 reproducer: if the
+        default bind-mount target (``~/.local/share/winpodx/storage``) is
+        already populated, REFUSE to auto-migrate even when
+        ``cfg.pod.storage_path`` is empty. A populated target means a
+        previous migration ran, so re-running would silently overwrite
+        the user's already-NoCoW disk image with a fresh CoW-fragmented
+        copy from the named volume."""
+        self._setup_cfg(tmp_path, monkeypatch)  # storage_path = ""
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+
+        # default_target_path() = ~/.local/share/winpodx/storage; HOME
+        # was redirected to tmp_path, so we materialise a populated
+        # target there.
+        target = tmp_path / ".local" / "share" / "winpodx" / "storage"
+        target.mkdir(parents=True)
+        (target / "data.img").write_bytes(b"existing migration data")
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists") as mock_exists,
+            patch("winpodx.core.storage_migration.execute_migration") as mock_exec,
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        # The defensive guard fires BEFORE the named_volume_exists check
+        # (so we don't even touch the backend), and EXEC must not run.
+        mock_exists.assert_not_called()
+        mock_exec.assert_not_called()
+        out = capsys.readouterr().out
+        # User-facing skip notice with recovery instructions.
+        assert "is not empty" in out
+        assert 'storage_path = "' in out  # recipe to restore config
+
+    def test_proceeds_when_default_target_empty_or_absent(self, tmp_path, monkeypatch):
+        """Sanity: defensive guard does NOT misfire when the default
+        target dir is empty or doesn't exist (the legitimate auto-
+        migrate trigger condition)."""
+        self._setup_cfg(tmp_path, monkeypatch)  # storage_path = ""
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+        from winpodx.core.storage_migration import MigrationPlan, MigrationResult
+
+        # Don't create the target; it must remain absent.
+        src = tmp_path / "src"
+        src.mkdir()
+
+        plan = MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=1024,
+            target_path=tmp_path / ".local/share/winpodx/storage",
+            target_fs="btrfs",
+            chattr_will_run=True,
+            free_bytes_target=10 << 30,
+        )
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists", return_value=True),
+            patch("winpodx.core.storage_migration.get_volume_mountpoint", return_value=src),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="btrfs"),
+            patch("winpodx.core.storage_migration.plan_migration", return_value=plan),
+            patch(
+                "winpodx.core.storage_migration.execute_migration",
+                return_value=MigrationResult(status="ok", detail="0 GiB to ..."),
+            ) as mock_exec,
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        mock_exec.assert_called_once()
 
     def test_skips_when_storage_path_already_set(self, tmp_path, monkeypatch, capsys):
         # Use /tmp/winpodx-* — passes the new __post_init__ allowlist

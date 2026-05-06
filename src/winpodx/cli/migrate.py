@@ -834,6 +834,7 @@ def _maybe_auto_migrate_storage(non_interactive: bool) -> None:
     try:
         from winpodx.core.config import Config
         from winpodx.core.storage_migration import (
+            default_target_path,
             execute_migration,
             get_volume_mountpoint,
             named_volume_exists,
@@ -848,6 +849,37 @@ def _maybe_auto_migrate_storage(non_interactive: bool) -> None:
         return
     if cfg.pod.storage_path:
         return  # already on bind mount
+
+    # Defence-in-depth: refuse to auto-migrate when the default bind-mount
+    # target already has data. kernalix7 hit a confusing reproducer on
+    # 2026-05-06 where install.sh ran twice in close succession and the
+    # second run found the volume `winpodx_winpodx-data` recreated by
+    # `podman-compose up` while `cfg.pod.storage_path` had reverted to
+    # empty (still investigating root cause — could be a stale install
+    # dir loading the OLD `PodConfig` dataclass that lacked the field).
+    # The auto-migration then ran a SECOND rsync of 64 GiB into the
+    # already-populated bind mount, silently overwriting the first
+    # migration's `data.img` (which had `chattr +C` applied via the
+    # manual recovery cp) with a fresh CoW-fragmented copy. Whatever
+    # cleared `storage_path`, the bind-mount data on disk is the
+    # source of truth: if `~/.local/share/winpodx/storage` is non-empty,
+    # the migration has already run at least once and re-running would
+    # be destructive. We bail out and instruct the user to either
+    # restore `storage_path` in `winpodx.toml` or move the populated
+    # directory aside before retrying.
+    target = default_target_path()
+    if target.exists() and any(target.iterdir()):
+        print()
+        print(
+            f"NOTE: skipping auto storage-migration — target {target} is not empty.\n"
+            f"  This usually means the migration already completed on a previous\n"
+            f"  install but cfg.pod.storage_path is empty in winpodx.toml. To use\n"
+            f"  the existing bind mount, set:\n"
+            f'    storage_path = "{target}"\n'
+            f"  in [pod] of ~/.config/winpodx/winpodx.toml. Or, to start fresh,\n"
+            f"  move {target} aside and re-run `winpodx setup --migrate-storage`."
+        )
+        return
 
     if not named_volume_exists(cfg.pod.backend):
         return
