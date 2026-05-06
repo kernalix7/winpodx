@@ -9,6 +9,20 @@
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-05-06
+
+btrfs Copy-on-Write fragmentation 을 정조준한 패치 릴리즈. `0.4.x` 라인의 핵심 storage rework: 사용자별 bind mount + 자동 NoCoW 로 Windows VM 디스크 이미지의 매 write (pagefile / boot / swap 바이트 모두) 가 btrfs extent 를 새로 fork 하던 걸 차단. btrfs 호스트에서 이전엔 수분~수십분 걸려 300초 예산을 자주 timeout 시키던 pod recreate 가 ext4 처럼 30초에 끝남. @xiyeming 의 #121, #122 보고 (cachyos 환경의 #126 "Unable to open apps and desktop" 도 actual root cause 이 동일 — install.bat 가 btrfs CoW 로 인한 file ops 정체로 mid-stage 에서 죽고, agent 가 안 올라오니 host 의 모든 FreeRDP fallback 이 multi-session 으로 reset).
+
+**Highlights — 5개 PR 가 end-to-end 로 fix 를 넣음.** 마이그레이션 설계가 처음엔 "chattr +C 를 podman graph root 전체에" (PR #124 — 머지 안 하고 close, 호스트의 모든 컨테이너/볼륨/이미지를 NoCoW 로 바꾸면 btrfs snapshot 쓰는 사용자가 깜짝 놀랄 수 있음), 그 다음 사용자별 bind mount 로 pivot 후 chattr 가 그 한 디렉토리에만 적용되도록 변경. 그 다음 4개 follow-up 패치는 스모크 테스트가 매번 새로운 silent failure 를 드러내면서 추가됨:
+
+1. **PR #125** — bind mount + `chattr +C` + named-volume 마이그레이션 도구. Fresh install 은 `~/.local/share/winpodx/storage` 가 기본 (compose-up 전에 chattr 박혀있어서 dockur 의 첫 raw-disk write 가 NoCoW inherit). 기존 사용자는 named volume 그대로; `winpodx setup --migrate-storage` (또는 `winpodx migrate` 통한 자동 트리거) 가 Windows 재설치 없이 bind mount 로 이동.
+2. **PR #127** — compose-prefixed volume name resolution. `podman-compose up` 이 named volume 을 project name prefix 로 materialise (`winpodx-data` 가 아니라 `winpodx_winpodx-data`); 마이그레이션의 volume probe 가 prefixed 형식 먼저 시도 후 bare 로 fallback.
+3. **PR #128** — chattr +C 결과 surfacing + post-rsync NoCoW 검증. apply / already-off / failed 결과를 `print()` 해서 사용자가 install.sh 도중 직접 확인; rsync 후 디렉토리 와 sample `.img` 둘 다 `lsattr` 재확인 — chattr 가 0 반환했지만 flag 가 persist 안 된 silent-no-op 케이스 catch.
+4. **PR #129** — bind-mount target 이 이미 populated 인 상태에서 auto-migration 재실행 거부. install.sh 가 두 번째 실행되어 stale `cfg.pod.storage_path` 때문에 `_maybe_auto_migrate_storage` 가 64 GiB 를 already-migrated NoCoW 디스크 위에 fresh CoW 복사본으로 덮어쓰는 destructive 시나리오 방어.
+5. **PR #130** — fresh install 에서 chattr 가 절대 안 박히던 진짜 root cause. `plan_migration` 이 디렉토리 `mkdir` 전에 `detect_path_fs(target)` 호출. openSUSE Tumbleweed 에선 `findmnt --target <nonexistent_path>` 가 `rc=1` + 빈 stdout 반환 (docs 와 다르게) — `detect_path_fs` 가 `"unknown"` 반환, `chattr_will_run` False 평가, chattr 분기 통째로 silent no-op, PR #128 의 surfacing print 도 분기 진입 안 해서 fire 안 함. 수정: findmnt 호출 전에 input path 에서 가장 가까운 존재하는 ancestor 까지 walk-up (최대 64 step; `/` 는 항상 존재).
+
+**openSUSE Tumbleweed btrfs 에서 end-to-end 검증**: clean wipe → v0.4.2 fresh install (named volume `winpodx_winpodx-data` 생성) → main 으로 upgrade → install.sh 가 `Migrating storage...` 와 `OK: migrated 71 GiB` 사이에 `chattr +C applied to /home/.../winpodx/storage (NoCoW for new files)` 출력; 이후 `lsattr -d` + `lsattr data.img` 둘 다 `C` flag 박힘, dockur 의 `Warning: COW (copy on write) is not disabled for disk image file /storage/data.img` 가 더이상 journal 에 안 나옴, named volume 제거됨, 다음 `podman-compose up` 이 bind mount 마운트하고 Windows 가 CoW warning 없이 부팅.
+
 ### 추가
 - **사용자별 storage bind mount + btrfs 자동 NoCoW.** `winpodx setup` 의 fresh install 이 이제 Windows VM 디스크 이미지를 legacy `winpodx-data` named volume 대신 사용자 소유 host 디렉터리 (`~/.local/share/winpodx/storage` 기본) 에 bind mount. 그 경로가 btrfs 면 setup 이 compose-up 전 빈 디렉터리에 `chattr +C` 적용 — dockur 가 처음 Windows raw disk image 쓸 때 부모 디렉터리에서 NoCoW 상속해서 Copy-on-Write fragmentation 완전히 우회. flag 는 **이 특정 디렉터리에만** 영향; host 의 다른 podman 컨테이너/볼륨/이미지는 일체 안 건드림 (graph-root 전체에 적용하는 PR #124 설계는 의도적으로 폐기 — closed comment 참조). 기존 사용자는 named volume 그대로 유지 + 그 볼륨이 btrfs 면 마이그레이션 명령 안내 한 줄 표시. @xiyeming 의 #121, #122 보고.
 - **`winpodx setup --migrate-storage`.** 기존 `winpodx-data` named volume 을 per-user bind mount 경로로 이동 — Windows 재설치 없음. Pre-flight plan 이 source/target 경로, source 크기, target 파일시스템, chattr 실행 여부, target 빈 공간을 표시. 비용: NVMe 에서 ~5-10분 (`rsync -aS` ~60 GiB). Windows 설치 보존 — Sysprep 재실행 없음, ISO 재다운로드 없음. Idempotent: pod stop → 빈 target 에 btrfs `chattr +C` (복사되는 파일이 NoCoW 상속) → rsync → `cfg.pod.storage_path` 저장 → compose 재생성 → 성공 시에만 old named volume 제거 → pod restart. copy 실패 시 source 볼륨 그대로 두고 target 만 wipe — 재시도 시 빈 상태에서 시작. `--migrate-storage-target PATH` 로 destination override; `--yes` 로 confirmation skip.
