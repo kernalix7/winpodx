@@ -349,29 +349,24 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "/gfx",
         "/rfx",
         "/smartcard",
-        # ---- codec / graphics toggles (added 2026-05-06 for #126 diagnosis) ----
-        # `-gfx-h264` is the critical workaround for distros shipping FreeRDP
-        # with experimental WITH_VAAPI_H264_ENCODING=ON (cachyos as of
-        # 2026-05-06 — xiyeming's RemoteApp launches died at post_connect
-        # because the experimental codec init crashed during RAIL channel
-        # capability exchange). Disabling H.264 forces RemoteFX/NSC fallback.
-        # Other codec/cache toggles added in the same pass so users with
-        # similar broken builds can fine-tune without us shipping a per-
-        # variant escape hatch.
-        "+gfx-h264",
-        "-gfx-h264",
+        # ---- codec / graphics toggles (#126 diagnosis, 2026-05-06/07) ----
+        # FreeRDP 3.x splits codec flags into BOOL (`+/-foo` toggles) vs
+        # OPTIONAL/REQUIRED (`/foo:value` only). xiyeming's first test of
+        # `--extra-args="-gfx-h264"` failed at FreeRDP's own cmdline
+        # parser ("Unexpected keyword") because `gfx-h264` is OPTIONAL,
+        # not BOOL — bare `+/-gfx-h264` is invalid syntax regardless of
+        # whether the build is experimental. Same for `nsc`, `jpeg`,
+        # `avc444`. The workaround xiyeming actually needs is
+        # `/gfx:RFX` (force RemoteFX, skip H.264 negotiation entirely),
+        # which already passes through the existing `/gfx` value-regex
+        # in _SIMPLE_VALUE_FLAGS. Only the genuine BOOL toggles stay
+        # in the bare allowlist.
         "+gfx-progressive",
         "-gfx-progressive",
         "+gfx-thin-client",
         "-gfx-thin-client",
         "+gfx-small-cache",
         "-gfx-small-cache",
-        "+nsc",
-        "-nsc",
-        "+jpeg",
-        "-jpeg",
-        "+avc444",
-        "-avc444",
         # Visual / desktop toggles (already in default cmd; expose for override).
         "+wallpaper",
         "-wallpaper",

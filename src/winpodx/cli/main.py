@@ -61,9 +61,9 @@ def cli(argv: list[str] | None = None) -> None:
             "the global cfg.rdp.extra_flags so per-launch overrides win. "
             "Whitelisted flags only — see _BARE_FLAGS / _SIMPLE_VALUE_FLAGS "
             "in core/rdp.py. Useful for debugging codec issues, e.g. "
-            '`--extra-args="-gfx-h264"` to force RemoteFX fallback when the '
-            "system FreeRDP build has experimental H.264 (cachyos as of "
-            "2026-05-06)."
+            '`--extra-args="/gfx:RFX"` to force RemoteFX and skip H.264 '
+            "negotiation when the system FreeRDP build has experimental VAAPI "
+            "(cachyos as of 2026-05-06 — RemoteApp dies at post_connect)."
         ),
     )
 

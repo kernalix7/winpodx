@@ -238,22 +238,43 @@ class TestBuildRdpCommand:
         assert "/sound:sys:alsa" in cmd
         assert "/exec:evil" not in cmd
 
-    def test_codec_toggles_pass_filter(self, cfg, monkeypatch):
-        """The 2026-05-06 #126 fallout — `-gfx-h264` is the workaround
-        for cachyos's experimental WITH_VAAPI_H264_ENCODING build, so the
-        filter MUST allow it. Same goes for the rest of the codec/cache
-        toggle pack added in this PR — power users should be able to
-        disable any single codec without us shipping a per-codec config
-        field."""
+    def test_optional_codec_flags_rejected_as_bare(self, cfg, monkeypatch):
+        """Regression for the v0.4.3 → #126 follow-up: FreeRDP 3.x flags
+        of type ``COMMAND_LINE_VALUE_OPTIONAL`` (gfx-h264, rfx, nsc,
+        jpeg, avc444) are NOT bare toggles. Including them in
+        _BARE_FLAGS lets `--extra-args="-gfx-h264"` pass our filter only
+        for FreeRDP itself to reject with "Unexpected keyword" —
+        confusing stderr for the user. Reject at the filter so the
+        misleading flag never reaches xfreerdp3."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
-        # +rfx / -rfx aren't real FreeRDP bare toggles (the binary expects
-        # `/rfx[:level]`). Only the genuine bare codec toggles.
+        cfg.rdp.extra_flags = "-gfx-h264 +gfx-h264 -rfx +rfx -nsc +nsc -jpeg +jpeg -avc444 +avc444"
+        cmd, _ = build_rdp_command(cfg)
+        for bad in cfg.rdp.extra_flags.split():
+            assert bad not in cmd, f"OPTIONAL-typed flag leaked through: {bad!r}"
+
+    def test_codec_toggles_pass_filter(self, cfg, monkeypatch):
+        """Genuine BOOL toggles still pass — gfx-progressive,
+        gfx-thin-client, gfx-small-cache, wallpaper, themes, decorations,
+        grab-*, async-*, auto-reconnect, *-cache. Without these in
+        _BARE_FLAGS they were silently dropped before reaching
+        xfreerdp3."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        # FreeRDP 3.x cmdline split:
+        #   - BOOL flags (`+/-name`): the genuine bare toggles below.
+        #   - OPTIONAL/REQUIRED (`/name:value` only): rfx, gfx-h264, nsc,
+        #     jpeg, avc444 — these were attempted as bare in the original
+        #     v0.4.3 patch and FreeRDP itself rejected them with
+        #     "Unexpected keyword" (xiyeming's 2026-05-06/07 test in
+        #     #126). Stripped from the allowlist to surface the parse
+        #     failure at the filter layer instead of producing a confusing
+        #     stderr from xfreerdp3.
         toggles = (
-            "-gfx-h264 +gfx-h264 "
-            "-nsc +nsc -jpeg +jpeg -avc444 +avc444 "
             "-gfx-progressive +gfx-progressive "
             "-gfx-thin-client +gfx-thin-client "
             "-gfx-small-cache +gfx-small-cache "
@@ -282,15 +303,15 @@ class TestBuildRdpCommand:
             "winpodx.core.rdp.find_freerdp",
             lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
-        cfg.rdp.extra_flags = "+gfx-h264"  # global says: keep H.264
-        cmd, _ = build_rdp_command(cfg, extra_args="-gfx-h264 /not-a-real-flag:bad")
+        cfg.rdp.extra_flags = "+gfx-progressive"  # global says: enable
+        cmd, _ = build_rdp_command(cfg, extra_args="-gfx-progressive /not-a-real-flag:bad")
 
         # Both global and per-launch survived the filter.
-        assert "+gfx-h264" in cmd
-        assert "-gfx-h264" in cmd
+        assert "+gfx-progressive" in cmd
+        assert "-gfx-progressive" in cmd
         # Per-launch lands AFTER global; this is the override semantics
         # callers rely on.
-        assert cmd.index("-gfx-h264") > cmd.index("+gfx-h264")
+        assert cmd.index("-gfx-progressive") > cmd.index("+gfx-progressive")
         # Unsafe flag in extra_args is dropped, same as via cfg.rdp.extra_flags.
         assert "/not-a-real-flag:bad" not in cmd
 

@@ -930,12 +930,13 @@ class WinpodxWindow(QMainWindow):
         # so unsafe entries are dropped with a log warning rather than
         # passed to the FreeRDP command.
         self.input_extra_flags = QLineEdit(self.cfg.rdp.extra_flags)
-        self.input_extra_flags.setPlaceholderText("-gfx-h264 +decorations")
+        self.input_extra_flags.setPlaceholderText("/gfx:RFX +decorations")
         self.input_extra_flags.setToolTip(
             "Extra xfreerdp3 flags appended to every launch. Whitelist-filtered.\n"
             "Common toggles:\n"
-            "  -gfx-h264         disable H.264 codec (use RemoteFX fallback;\n"
-            "                    workaround for cachyos / experimental builds)\n"
+            "  /gfx:RFX          force RemoteFX, skip H.264 negotiation\n"
+            "                    (workaround for cachyos / experimental VAAPI\n"
+            "                     builds where RemoteApp dies at post_connect)\n"
             "  +decorations      enable RemoteApp window decorations\n"
             "  -wallpaper        suppress Windows wallpaper rendering\n"
             "  -bitmap-cache     disable bitmap cache (less RAM, more bandwidth)\n"
