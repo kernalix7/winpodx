@@ -68,19 +68,47 @@ def _run(cmd: list[str], timeout: float = 5.0) -> tuple[int, str, str]:
 def detect_path_fs(path: Path) -> str:
     """Return the filesystem type under ``path``.
 
-    Walks ``findmnt -no FSTYPE --target <path>`` to find the nearest
-    mountpoint and report its fs type. ``path`` does not need to exist —
-    findmnt resolves to the closest existing parent, so a not-yet-created
-    bind mount target works fine. Returns ``"unknown"`` when findmnt
-    isn't installed or the lookup fails for any reason.
+    Runs ``findmnt -no FSTYPE --target <path>`` to find the nearest
+    mountpoint and report its fs type. Returns ``"unknown"`` when
+    findmnt isn't installed or every lookup fails.
+
+    Path-existence handling: contrary to its docs, ``findmnt --target``
+    returns rc=1 with empty output on at least some build/distro combos
+    (verified: util-linux on opensuse Tumbleweed 2026-05-06) when the
+    path doesn't exist — the user's auto-migration silently classified
+    a fresh `~/.local/share/winpodx/storage` (target dir didn't exist
+    yet at plan time) as ``"unknown"``, which made
+    ``chattr_will_run`` False, which silently skipped the entire
+    NoCoW path. To survive this, we walk the parent chain until we
+    hit an existing dir before invoking findmnt — guaranteed to
+    terminate at ``/`` which always exists. Callers therefore get
+    the fs type they actually care about (the mountpoint that will
+    contain ``path`` once it's created).
     """
     if shutil.which("findmnt") is None:
         return "unknown"
-    rc, stdout, _ = _run(["findmnt", "-no", "FSTYPE", "--target", str(path)])
-    if rc != 0:
+    # Walk up to the nearest existing ancestor so findmnt never sees a
+    # non-existent target. ``path`` may be relative or absolute; either
+    # way we resolve to an absolute existing dir before the probe.
+    probe = path
+    try:
+        # Use parts iteration instead of plain `while not probe.exists()`
+        # so a pathological symlink loop can't spin us forever.
+        for _ in range(64):  # path depth ceiling is generous
+            if probe.exists():
+                break
+            parent = probe.parent
+            if parent == probe:  # hit "/" or current dir
+                break
+            probe = parent
+    except OSError:
+        # PermissionError / loop / etc. — fall back to original path and
+        # let findmnt do whatever it does.
+        probe = path
+    rc, stdout, _ = _run(["findmnt", "-no", "FSTYPE", "--target", str(probe)])
+    if rc != 0 or not stdout.strip():
         return "unknown"
-    fs = stdout.strip().lower()
-    return fs or "unknown"
+    return stdout.strip().lower()
 
 
 def is_cow_disabled(path: Path) -> bool | None:
