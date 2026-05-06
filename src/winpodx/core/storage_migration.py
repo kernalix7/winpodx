@@ -1,0 +1,384 @@
+"""Migrate the Windows VM disk image from podman's named volume to a
+host-local bind mount, optionally with btrfs Copy-on-Write disabled.
+
+Background: legacy installs (everything before this module landed) used
+a named volume ``winpodx-data:/storage:Z`` so podman managed the
+volume's lifecycle. On btrfs hosts that volume sits under podman's
+graph root and inherits the filesystem's default Copy-on-Write — every
+overwrite of the Windows raw disk image (pagefile, swap, boot writes)
+forks a new extent, fragmenting the image and slowing pod recreates
+from ~30 s to many minutes (kernalix7 / @xiyeming hit this on cachyos
+in #121, #122).
+
+This module's :func:`migrate_storage_to_bind_mount` moves the volume's
+contents to a winpodx-owned host directory (``~/.local/share/winpodx/
+storage`` by default), applies ``chattr +C`` on btrfs hosts, then
+flips the user's ``cfg.pod.storage_path`` so future compose
+generations bind-mount the new path. The original named volume is
+removed only after the copy succeeds, so an interrupted migration
+leaves the source intact for retry.
+
+Cost: a full ``rsync -a`` of the volume (60+ GB after Sysprep,
+basically the size of the Windows raw disk + ISO). On NVMe ~5-10 min;
+spinning rust ~30 min+. Disk space requirement: 2× volume size during
+the copy window. The function refuses to start if the target path
+isn't empty or there isn't enough free space on the target's
+filesystem.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import shutil
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+from winpodx.core.config import Config
+from winpodx.utils.btrfs import detect_path_fs, disable_cow_on_path
+
+log = logging.getLogger(__name__)
+
+DEFAULT_STORAGE_RELPATH = ".local/share/winpodx/storage"
+NAMED_VOLUME = "winpodx-data"
+
+
+@dataclass
+class MigrationPlan:
+    """A pre-flight summary of what migration will do, surfaced to the user."""
+
+    backend: str
+    source_volume: str
+    source_mountpoint: Path
+    source_size_bytes: int
+    target_path: Path
+    target_fs: str
+    chattr_will_run: bool
+    free_bytes_target: int
+
+
+@dataclass
+class MigrationResult:
+    """Outcome of an attempted migration."""
+
+    status: str  # ok | aborted | failed
+    detail: str
+
+
+def default_target_path() -> Path:
+    """Default bind mount path for a fresh install or migration target."""
+    return Path.home() / DEFAULT_STORAGE_RELPATH
+
+
+def named_volume_exists(backend: str, name: str = NAMED_VOLUME) -> bool:
+    """Return True if a podman/docker named volume ``name`` exists."""
+    if backend not in ("podman", "docker"):
+        return False
+    if shutil.which(backend) is None:
+        return False
+    try:
+        result = subprocess.run(
+            [backend, "volume", "exists", name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return result.returncode == 0
+
+
+def get_volume_mountpoint(backend: str, name: str = NAMED_VOLUME) -> Path | None:
+    """Return the host filesystem path of a podman/docker named volume.
+
+    Both runtimes expose a ``Mountpoint`` field on volume inspect; the
+    JSON shape is identical enough that one parser handles both.
+    """
+    if backend not in ("podman", "docker"):
+        return None
+    if shutil.which(backend) is None:
+        return None
+    try:
+        result = subprocess.run(
+            [backend, "volume", "inspect", name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    mp = data[0].get("Mountpoint")
+    if not isinstance(mp, str) or not mp:
+        return None
+    return Path(mp)
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Return total bytes of all files under ``path``. Best-effort; missing files counted as 0."""
+    total = 0
+    for p in path.rglob("*"):
+        try:
+            if p.is_file() and not p.is_symlink():
+                total += p.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def plan_migration(cfg: Config, target: Path | None = None) -> MigrationPlan | str:
+    """Build a :class:`MigrationPlan` or return a human-readable error string.
+
+    Validates:
+    - backend supports volumes (podman/docker)
+    - source volume exists
+    - source mountpoint is readable
+    - target path is empty (or doesn't exist yet)
+    - target filesystem has enough free space (1.1× source size, 10% buffer)
+
+    The plan does not modify any state. Caller invokes
+    :func:`execute_migration` to actually run.
+    """
+    backend = cfg.pod.backend
+    if backend not in ("podman", "docker"):
+        return f"backend {backend!r} does not have named volumes; nothing to migrate"
+
+    if not named_volume_exists(backend, NAMED_VOLUME):
+        return f"no {NAMED_VOLUME!r} named volume found; nothing to migrate"
+
+    src = get_volume_mountpoint(backend, NAMED_VOLUME)
+    if src is None or not src.exists():
+        return f"could not resolve {NAMED_VOLUME!r} mountpoint via `{backend} volume inspect`"
+
+    target_path = (target or default_target_path()).expanduser()
+
+    # Refuse to overwrite a populated target.
+    if target_path.exists() and any(target_path.iterdir()):
+        return f"target path {target_path} is not empty; remove it or choose a different path"
+
+    src_size = _dir_size_bytes(src)
+    # Build the plan; target dir doesn't need to exist yet for findmnt.
+    target_fs = detect_path_fs(target_path)
+
+    free = -1
+    try:
+        # Use the parent for free-space check when target itself doesn't exist yet.
+        check = target_path if target_path.exists() else target_path.parent
+        if not check.exists():
+            check = check.parent
+        usage = shutil.disk_usage(check)
+        free = usage.free
+    except OSError:
+        free = -1
+
+    needed = int(src_size * 1.1) + (1 << 30)  # 1.1× + 1GB headroom
+    if free >= 0 and free < needed:
+        return (
+            f"not enough free space at {target_path}: need ~{needed // (1 << 30)} GiB, "
+            f"have {free // (1 << 30)} GiB"
+        )
+
+    return MigrationPlan(
+        backend=backend,
+        source_volume=NAMED_VOLUME,
+        source_mountpoint=src,
+        source_size_bytes=src_size,
+        target_path=target_path,
+        target_fs=target_fs,
+        chattr_will_run=(target_fs == "btrfs"),
+        free_bytes_target=free,
+    )
+
+
+def _stop_pod(cfg: Config) -> tuple[bool, str]:
+    """Best-effort `podman/docker compose down` so the named volume isn't held open."""
+    backend = cfg.pod.backend
+    compose_path = Path.home() / ".config" / "winpodx" / "compose.yaml"
+    if not compose_path.exists():
+        return False, f"compose file not found at {compose_path}"
+
+    cmd: list[str] | None = None
+    if backend == "podman":
+        if shutil.which("podman-compose"):
+            cmd = ["podman-compose"]
+        elif shutil.which("podman"):
+            cmd = ["podman", "compose"]
+    elif backend == "docker":
+        if shutil.which("docker-compose"):
+            cmd = ["docker-compose"]
+        elif shutil.which("docker"):
+            cmd = ["docker", "compose"]
+
+    if cmd is None:
+        return False, f"no compose CLI available for backend {backend!r}"
+
+    try:
+        result = subprocess.run(
+            [*cmd, "down"],
+            cwd=compose_path.parent,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        return False, f"compose down raised: {e}"
+
+    if result.returncode != 0:
+        # 'no such' / 'not found' is fine — the pod was already stopped.
+        if any(tok in result.stderr.lower() for tok in ("no such", "not found", "no compose")):
+            return True, "no running pod"
+        return False, result.stderr.strip() or f"rc={result.returncode}"
+    return True, "stopped"
+
+
+def _rsync_copy(src: Path, dst: Path) -> tuple[bool, str]:
+    """Copy ``src/`` contents into ``dst/`` preserving permissions / owners.
+
+    Prefers ``rsync -a`` (handles symlinks, sparse files, perms cleanly);
+    falls back to ``cp -a`` if rsync isn't installed.
+    """
+    if shutil.which("rsync") is not None:
+        # Trailing dot on src ensures we copy *contents*, not the source
+        # directory itself, into dst. --sparse keeps the Windows raw
+        # disk image from ballooning if it has holes.
+        cmd = ["rsync", "-aS", str(src) + "/", str(dst) + "/"]
+    elif shutil.which("cp") is not None:
+        cmd = ["cp", "-a", str(src) + "/.", str(dst) + "/"]
+    else:
+        return False, "neither rsync nor cp available"
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=86400)
+    except (subprocess.SubprocessError, OSError) as e:
+        return False, f"copy raised: {e}"
+
+    if result.returncode != 0:
+        return False, f"copy failed (rc={result.returncode}): {result.stderr.strip()}"
+    return True, "ok"
+
+
+def execute_migration(
+    cfg: Config, plan: MigrationPlan, *, start_pod: bool = True
+) -> MigrationResult:
+    """Execute the migration plan. Returns the outcome.
+
+    Steps:
+      1. ``compose down`` so the named volume isn't held open.
+      2. Create target dir + ``chattr +C`` if btrfs (BEFORE files exist
+         so they all inherit NoCoW).
+      3. ``rsync -aS`` from source mountpoint → target.
+      4. Update ``cfg.pod.storage_path``, save config, regenerate compose.
+      5. Remove the old named volume.
+      6. Start pod if requested.
+
+    On failure mid-copy, the source volume is left intact and the
+    target dir is wiped so the user can retry. ``cfg.pod.storage_path``
+    is only persisted after a successful copy + compose regenerate.
+    """
+    from winpodx.core.compose import generate_compose
+
+    log.info("storage migration starting: %s -> %s", plan.source_mountpoint, plan.target_path)
+
+    # 1. Stop pod so the named volume isn't held open.
+    ok, detail = _stop_pod(cfg)
+    if not ok:
+        return MigrationResult(status="failed", detail=f"could not stop pod: {detail}")
+
+    # 2. Create empty target + chattr +C if btrfs.
+    try:
+        plan.target_path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return MigrationResult(status="failed", detail=f"mkdir {plan.target_path}: {e}")
+
+    if plan.chattr_will_run:
+        status, detail = disable_cow_on_path(plan.target_path)
+        # 'failed' isn't fatal — the migration still works, just stays CoW.
+        if status == "disabled":
+            log.info("chattr +C applied to %s (NoCoW for new files)", plan.target_path)
+        elif status == "already_off":
+            log.info("chattr +C already on %s", plan.target_path)
+        else:
+            log.warning("chattr +C skipped (%s): %s", status, detail)
+
+    # 3. Copy source -> target.
+    log.info(
+        "copying %.1f GiB from %s ...", plan.source_size_bytes / (1 << 30), plan.source_mountpoint
+    )
+    ok, detail = _rsync_copy(plan.source_mountpoint, plan.target_path)
+    if not ok:
+        # Copy failed — clean up target so retry can run on an empty dir.
+        try:
+            shutil.rmtree(plan.target_path, ignore_errors=True)
+        except OSError:
+            pass
+        return MigrationResult(status="failed", detail=f"copy failed: {detail}")
+
+    # 4. Persist new storage_path + regenerate compose.
+    cfg.pod.storage_path = str(plan.target_path)
+    try:
+        cfg.save()
+        generate_compose(cfg)
+    except (OSError, RuntimeError) as e:
+        # Persistence failed AFTER copy succeeded. Keep target around;
+        # don't remove the named volume so the user can roll back by
+        # editing winpodx.toml back to storage_path = "".
+        return MigrationResult(
+            status="failed",
+            detail=(
+                f"copy succeeded but config / compose persist failed: {e}. "
+                f"Target: {plan.target_path}. Original volume retained for rollback."
+            ),
+        )
+
+    # 5. Start pod if requested. The named volume is intentionally NOT
+    # removed yet — if the new bind-mount pod fails to start (e.g.,
+    # the rsync copy was structurally fine but a permission / path
+    # quirk shows up only at podman-up time), the user can edit
+    # winpodx.toml's storage_path back to "" and recover the legacy
+    # named-volume pod with no data loss. Removal happens in step 6
+    # only after the new pod is verifiably running.
+    if start_pod:
+        try:
+            from winpodx.core.provisioner import ensure_ready
+
+            ensure_ready(cfg)
+        except Exception as e:  # noqa: BLE001 — surface to caller via detail
+            return MigrationResult(
+                status="failed",
+                detail=(
+                    f"migration data moved but pod start failed: {e}. "
+                    f"The legacy {plan.source_volume!r} volume is still in place. "
+                    f"To roll back, edit ~/.config/winpodx/winpodx.toml and clear "
+                    f'`storage_path = ""`, then re-run `winpodx pod start --wait`. '
+                    f"Or retry: `winpodx setup --migrate-storage`."
+                ),
+            )
+
+    # 6. Pod started successfully — only NOW it's safe to remove the
+    # old named volume. Best-effort: a leftover volume is harmless;
+    # the user can `podman volume rm winpodx-data` later.
+    # Skipped entirely when start_pod=False (caller will start later
+    # and can manually clean up after verification).
+    if start_pod and shutil.which(plan.backend):
+        try:
+            subprocess.run(
+                [plan.backend, "volume", "rm", plan.source_volume],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            log.warning("could not remove old named volume %s: %s", plan.source_volume, e)
+
+    return MigrationResult(
+        status="ok",
+        detail=f"migrated {plan.source_size_bytes // (1 << 30)} GiB to {plan.target_path}",
+    )

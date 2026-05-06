@@ -167,6 +167,36 @@ def cli(argv: list[str] | None = None) -> None:
             "place across upgrades."
         ),
     )
+    setup_p.add_argument(
+        "--migrate-storage",
+        action="store_true",
+        help=(
+            "Move the Windows VM disk image from the legacy "
+            "`winpodx-data` named volume to a per-user bind mount "
+            "(~/.local/share/winpodx/storage by default), applying "
+            "`chattr +C` automatically on btrfs so the raw disk image "
+            "bypasses Copy-on-Write fragmentation. The Windows install "
+            "is preserved (rsync copy, no Sysprep redo, no ISO "
+            "redownload). Cost: ~5-10 min on NVMe + 2× volume size in "
+            "free space during the copy. Existing pods that were "
+            "created before this option existed need this once."
+        ),
+    )
+    setup_p.add_argument(
+        "--migrate-storage-target",
+        metavar="PATH",
+        help=(
+            "Override the bind-mount destination for `--migrate-storage` "
+            "(absolute path; ~ expansion supported). Default: "
+            "~/.local/share/winpodx/storage."
+        ),
+    )
+    setup_p.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Skip confirmation prompts (for migrate-storage etc).",
+    )
 
     # --- other commands ---
     sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")

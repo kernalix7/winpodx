@@ -628,3 +628,174 @@ class TestDiscoverAppsRequireAgent:
         assert mock_run.call_count >= 1, (
             "without WINPODX_REQUIRE_AGENT, FreeRDP fallback path must execute"
         )
+
+
+# --- _maybe_auto_migrate_storage (v0.4.x post-#122) ---
+
+
+class TestMaybeAutoMigrateStorage:
+    """Auto-migration on `winpodx migrate` for legacy named-volume btrfs users."""
+
+    def _setup_cfg(self, tmp_path, monkeypatch, *, storage_path=""):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = storage_path
+        cfg.save()
+        return cfg
+
+    def test_skips_when_storage_path_already_set(self, tmp_path, monkeypatch, capsys):
+        # Use /tmp/winpodx-* — passes the new __post_init__ allowlist
+        # (`/tmp` is allowed for test fixtures), so storage_path stays
+        # set after Config.save round-trip.
+        self._setup_cfg(tmp_path, monkeypatch, storage_path=str(tmp_path / "already-migrated"))
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists") as mock_exists,
+            patch("winpodx.core.storage_migration.execute_migration") as mock_exec,
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        mock_exists.assert_not_called()
+        mock_exec.assert_not_called()
+
+    def test_skips_when_no_named_volume(self, tmp_path, monkeypatch):
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists", return_value=False),
+            patch("winpodx.core.storage_migration.execute_migration") as mock_exec,
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        mock_exec.assert_not_called()
+
+    def test_skips_when_not_btrfs(self, tmp_path, monkeypatch):
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists", return_value=True),
+            patch(
+                "winpodx.core.storage_migration.get_volume_mountpoint",
+                return_value=tmp_path / "src",
+            ),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="ext4"),
+            patch("winpodx.core.storage_migration.execute_migration") as mock_exec,
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        mock_exec.assert_not_called()
+
+    def test_auto_executes_on_btrfs_non_interactive(self, tmp_path, monkeypatch, capsys):
+        """install.sh path: btrfs + named volume → migrate without asking."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+        from winpodx.core.storage_migration import MigrationPlan, MigrationResult
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "win.qcow2").write_bytes(b"x" * 1024)
+
+        plan = MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=1024,
+            target_path=tmp_path / "target",
+            target_fs="btrfs",
+            chattr_will_run=True,
+            free_bytes_target=10 << 30,
+        )
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists", return_value=True),
+            patch("winpodx.core.storage_migration.get_volume_mountpoint", return_value=src),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="btrfs"),
+            patch("winpodx.core.storage_migration.plan_migration", return_value=plan),
+            patch(
+                "winpodx.core.storage_migration.execute_migration",
+                return_value=MigrationResult(status="ok", detail="0 GiB to ..."),
+            ) as mock_exec,
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        mock_exec.assert_called_once()
+        out = capsys.readouterr().out
+        assert "non-interactive" in out
+        assert "OK:" in out
+
+    def test_interactive_prompts_before_migrating(self, tmp_path, monkeypatch, capsys):
+        """interactive run: prompt user, skip if they say no."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+        from winpodx.core.storage_migration import MigrationPlan
+
+        src = tmp_path / "src"
+        src.mkdir()
+
+        plan = MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=0,
+            target_path=tmp_path / "target",
+            target_fs="btrfs",
+            chattr_will_run=True,
+            free_bytes_target=10 << 30,
+        )
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists", return_value=True),
+            patch("winpodx.core.storage_migration.get_volume_mountpoint", return_value=src),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="btrfs"),
+            patch("winpodx.core.storage_migration.plan_migration", return_value=plan),
+            patch("winpodx.core.storage_migration.execute_migration") as mock_exec,
+            patch("winpodx.cli.migrate._prompt_yes", return_value=False),
+        ):
+            _maybe_auto_migrate_storage(non_interactive=False)
+
+        mock_exec.assert_not_called()
+        out = capsys.readouterr().out
+        assert "Skipped" in out
+
+    def test_failed_migration_preserves_named_volume(self, tmp_path, monkeypatch, capsys):
+        """If execute_migration returns failed, surface retry hint and don't crash."""
+        self._setup_cfg(tmp_path, monkeypatch)
+        from winpodx.cli.migrate import _maybe_auto_migrate_storage
+        from winpodx.core.storage_migration import MigrationPlan, MigrationResult
+
+        src = tmp_path / "src"
+        src.mkdir()
+
+        plan = MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=0,
+            target_path=tmp_path / "target",
+            target_fs="btrfs",
+            chattr_will_run=True,
+            free_bytes_target=10 << 30,
+        )
+
+        with (
+            patch("winpodx.core.storage_migration.named_volume_exists", return_value=True),
+            patch("winpodx.core.storage_migration.get_volume_mountpoint", return_value=src),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="btrfs"),
+            patch("winpodx.core.storage_migration.plan_migration", return_value=plan),
+            patch(
+                "winpodx.core.storage_migration.execute_migration",
+                return_value=MigrationResult(status="failed", detail="rsync interrupted"),
+            ),
+        ):
+            _maybe_auto_migrate_storage(non_interactive=True)
+
+        out = capsys.readouterr().out
+        assert "FAIL" in out
+        assert "rsync interrupted" in out
+        assert "winpodx setup --migrate-storage" in out

@@ -96,6 +96,19 @@ class PodConfig:
     # v0.2.1: default bumped 10 → 25. 10 was tight for users running
     # Office + Teams + Edge + a couple side apps simultaneously.
     max_sessions: int = 25
+    # v0.4.x: storage volume mode for the Windows raw disk image.
+    # Empty string → use the legacy named volume `winpodx-data`
+    # (backward-compatible for users who installed before this option
+    # existed). Non-empty string → use that absolute filesystem path
+    # as a host bind mount in compose.yaml. Fresh installs created by
+    # `winpodx setup` after this field landed default to a per-user
+    # bind mount under `~/.local/share/winpodx/storage`, with
+    # `chattr +C` applied automatically when the path is on btrfs so
+    # the Windows raw disk image bypasses Copy-on-Write fragmentation
+    # (kernalix7 / @xiyeming hit this on cachyos #121, #122). Existing
+    # users keep the named volume until they explicitly run
+    # `winpodx setup --migrate-storage`.
+    storage_path: str = ""
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -115,6 +128,21 @@ class PodConfig:
             self.image = DOCKUR_IMAGE_PIN
         if not isinstance(self.disk_size, str) or not self.disk_size.strip():
             self.disk_size = "64G"
+        # storage_path: keep empty (named-volume mode) or coerce to a
+        # safe absolute string under the user's home or under a known
+        # winpodx-managed root. The caller responsible for materialising
+        # the directory expands `~` at use time via
+        # ``Path(...).expanduser()``.
+        #
+        # Defence-in-depth (Security review #5: hardening A): a hand-
+        # edited TOML must never get this far with a system path like
+        # ``/`` or ``/etc`` because winpodx would later run
+        # ``chattr +C`` and ``rsync`` against it. We resolve `~` for
+        # the check (so `~/.local/share/winpodx/storage` passes) but
+        # leave the original string in place for the caller to expand.
+        # Anything outside the allowlist or matching a denylist is
+        # silently coerced to "" — back to named-volume mode.
+        self.storage_path = _sanitise_storage_path(self.storage_path)
 
 
 @dataclass
@@ -184,6 +212,7 @@ class Config:
                 "image": self.pod.image,
                 "disk_size": self.pod.disk_size,
                 "max_sessions": self.pod.max_sessions,
+                "storage_path": self.pod.storage_path,
             },
         }
 
@@ -214,6 +243,100 @@ class Config:
                 os.close(fd)
             Path(tmp_path).unlink(missing_ok=True)
             raise
+
+
+def _sanitise_storage_path(value: Any) -> str:
+    """Coerce an untrusted ``cfg.pod.storage_path`` value to a safe string.
+
+    Returns either the original string (when it passes all checks) or
+    ``""`` (which compose.py interprets as legacy named-volume mode).
+
+    Layered checks, all silent on rejection so a hand-edited TOML can't
+    brick startup:
+
+    1. Type — non-string values become ``""``.
+    2. Trim + emptiness — pure whitespace becomes ``""``.
+    3. Absolute path — rejects relative paths (``./foo``, ``foo/bar``)
+       and bare names. Bind-mounting a relative path under podman is
+       error-prone; force the user to be explicit.
+    4. Denylist of system roots — refuses ``/``, ``/etc``, ``/usr``,
+       ``/boot``, ``/proc``, ``/sys``, ``/dev``, ``/var``, ``/lib``,
+       ``/lib64``, ``/sbin``, ``/bin``, ``/root``, ``/run``. A hand-
+       edited TOML pointing storage_path at one of these would later
+       trigger ``chattr +C`` and ``rsync`` against system directories
+       — the kind of mistake config validation should catch.
+    5. Allowlist of safe parents — the resolved path must live under
+       the user's home directory or under one of the explicit
+       winpodx-managed roots (``/var/lib/winpodx``, ``/tmp/winpodx-*``).
+       Other locations bounce back to ``""``.
+
+    The expanded path is used only for the safety check; the original
+    (un-expanded) string is what we store, so ``~/.local/share/...``
+    survives a roundtrip and the actual filesystem creation happens
+    later via :func:`Path.expanduser` at the call site.
+    """
+    if not isinstance(value, str):
+        return ""
+    raw = value.strip()
+    if not raw:
+        return ""
+
+    # Reject characters that would break YAML interpolation or imply
+    # shell expansion. This duplicates compose.py's own defence so the
+    # bad value never reaches that layer.
+    if any(c in raw for c in "\n\r\"'`$") or "{" in raw or "}" in raw:
+        return ""
+
+    try:
+        expanded = Path(raw).expanduser()
+    except (RuntimeError, OSError):
+        return ""
+
+    if not expanded.is_absolute():
+        return ""
+
+    # Resolve `..` and symlinks so the allowlist sees the final target.
+    # Use strict=False so non-existent paths still validate (the caller
+    # mkdirs them later).
+    try:
+        resolved = expanded.resolve(strict=False)
+    except (RuntimeError, OSError):
+        return ""
+
+    resolved_str = str(resolved)
+    if resolved_str == "/":
+        return ""
+
+    # Allowlist gate. The path must be under one of these explicit
+    # roots. Anything else is rejected — there's no separate denylist
+    # because "not in allowlist" already covers it. Allowlist:
+    #
+    #   - the user's home directory (covers
+    #     `~/.local/share/winpodx/storage` and any other user-chosen
+    #     path under HOME)
+    #   - `/var/lib/winpodx` (system-wide install path; carved out of
+    #     `/var` which is otherwise off-limits)
+    #   - `/tmp/...` (host-tmpfs in most distros; carved out so pytest
+    #     `tmp_path` fixtures and ad-hoc test paths work)
+    try:
+        home = Path.home().resolve(strict=False)
+    except (RuntimeError, OSError):
+        home = None
+
+    if home is not None:
+        try:
+            if resolved.is_relative_to(home):
+                return raw
+        except (ValueError, OSError):
+            pass
+
+    if resolved_str.startswith("/var/lib/winpodx/") or resolved_str == "/var/lib/winpodx":
+        return raw
+
+    if resolved_str.startswith("/tmp/") or resolved_str == "/tmp":
+        return raw
+
+    return ""
 
 
 def _apply(obj: Any, data: dict[str, Any]) -> None:

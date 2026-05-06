@@ -209,6 +209,7 @@ def run_migrate(args: argparse.Namespace) -> int:
         _probe_password_sync(non_interactive)
         _ensure_canonical_image_pin(non_interactive)
         _apply_runtime_fixes_to_existing_guest(non_interactive)
+        _maybe_auto_migrate_storage(non_interactive)
         return 0
 
     print(f"winpodx: {installed} -> {current} detected\n")
@@ -235,6 +236,7 @@ def run_migrate(args: argparse.Namespace) -> int:
     # container.
     _ensure_canonical_image_pin(non_interactive)
     _apply_runtime_fixes_to_existing_guest(non_interactive)
+    _maybe_auto_migrate_storage(non_interactive)
 
     if skip_refresh:
         print("\nSkipping app discovery (--no-refresh).")
@@ -803,6 +805,94 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
             "  OK: applied to existing guest (no container recreate needed). "
             "RDP timeouts / NIC power-save / TermService recovery now active."
         )
+
+
+def _maybe_auto_migrate_storage(non_interactive: bool) -> None:
+    """Auto-migrate `winpodx-data` named volume to a NoCoW bind mount on btrfs.
+
+    Hook: runs at the tail of `winpodx migrate`, after the apply chain
+    has settled the existing guest. Conditions for triggering:
+
+    - cfg.pod.backend in {podman, docker}
+    - cfg.pod.storage_path is empty (= legacy named-volume mode, hasn't
+      been migrated yet)
+    - the `winpodx-data` named volume actually exists
+    - its mountpoint is on btrfs
+
+    When all four hold, we run the same migration path as
+    `winpodx setup --migrate-storage` (stop pod → chattr +C empty
+    target → rsync → persist storage_path → remove old volume →
+    restart). Interactive runs prompt for confirmation (default Yes);
+    non-interactive runs (install.sh post-upgrade) auto-execute, since
+    the user is already on btrfs in a degraded state and the whole
+    point of running migrate is to apply fixes.
+
+    Best-effort: any failure leaves the named volume intact (the
+    migration code preserves the source until copy succeeds), so
+    interrupted migrations don't lose Windows.
+    """
+    try:
+        from winpodx.core.config import Config
+        from winpodx.core.storage_migration import (
+            execute_migration,
+            get_volume_mountpoint,
+            named_volume_exists,
+            plan_migration,
+        )
+        from winpodx.utils.btrfs import detect_path_fs
+    except ImportError:
+        return  # storage_migration not available in this build
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+    if cfg.pod.storage_path:
+        return  # already on bind mount
+
+    if not named_volume_exists(cfg.pod.backend):
+        return
+    mp = get_volume_mountpoint(cfg.pod.backend)
+    if mp is None:
+        return
+    if detect_path_fs(mp) != "btrfs":
+        return  # not on btrfs, no benefit
+
+    print()
+    print("Detected: legacy 'winpodx-data' volume on btrfs.")
+    print("  btrfs Copy-on-Write fragments the Windows raw disk image and")
+    print("  slows pod recreates. Auto-migrating to a per-user bind mount")
+    print("  with NoCoW so the Windows install becomes 5-10× faster to boot.")
+
+    plan_or_err = plan_migration(cfg)
+    if isinstance(plan_or_err, str):
+        print(f"  Skipping migration: {plan_or_err}")
+        print("  Manual retry: winpodx setup --migrate-storage")
+        return
+
+    plan = plan_or_err
+    size_gib = plan.source_size_bytes // (1 << 30)
+    print(
+        f"  Source: {plan.source_mountpoint} ({size_gib} GiB)\n"
+        f"  Target: {plan.target_path}\n"
+        f"  Cost:   one-time rsync, ~5-10 min on NVMe; pod stopped during copy."
+    )
+
+    if not non_interactive:
+        if not _prompt_yes("\n  Migrate now?", default=True):
+            print("  Skipped — re-run later with: winpodx setup --migrate-storage")
+            return
+    else:
+        print("  Running automatically (non-interactive mode)...")
+
+    print("\nMigrating storage...")
+    result = execute_migration(cfg, plan, start_pod=True)
+    if result.status == "ok":
+        print(f"  OK: {result.detail}")
+        print("  Future pod recreates will be NoCoW (5-10× faster on btrfs).")
+    else:
+        print(f"  FAIL: {result.detail}")
+        print("  The original named volume is preserved; you can retry with:")
+        print("    winpodx setup --migrate-storage")
 
 
 def _attempt_refresh() -> None:

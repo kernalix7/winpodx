@@ -270,3 +270,79 @@ def test_check_session_budget_recommends_sufficient_ram():
     rec = int(match.group(1))
     cfg.pod.ram_gb = rec
     assert check_session_budget(cfg) is None, f"recommended ram_gb={rec} should silence the warning"
+
+
+# --- storage_path validation (Security review hardening) ---
+
+
+class TestStoragePathValidation:
+    """`PodConfig.__post_init__` rejects unsafe storage_path values.
+
+    The denylist + allowlist exists so a hand-edited TOML can't get
+    `chattr +C /etc` or `rsync -aS ... /` past validation.
+    """
+
+    def _cfg(self, raw):
+        from winpodx.core.config import PodConfig
+
+        cfg = PodConfig()
+        cfg.storage_path = raw
+        cfg.__post_init__()
+        return cfg.storage_path
+
+    def test_empty_string_passes_through(self):
+        assert self._cfg("") == ""
+
+    def test_whitespace_becomes_empty(self):
+        assert self._cfg("   ") == ""
+
+    def test_non_string_becomes_empty(self):
+        assert self._cfg(123) == ""
+        assert self._cfg(None) == ""
+
+    def test_relative_path_rejected(self):
+        assert self._cfg("./storage") == ""
+        assert self._cfg("storage") == ""
+        assert self._cfg("../foo") == ""
+
+    def test_system_root_rejected(self):
+        assert self._cfg("/") == ""
+        assert self._cfg("/etc") == ""
+        assert self._cfg("/etc/shadow") == ""
+        assert self._cfg("/usr/local/bin") == ""
+        assert self._cfg("/var/lib/anything-not-winpodx") == ""
+        assert self._cfg("/proc/1") == ""
+        assert self._cfg("/sys") == ""
+        assert self._cfg("/dev/null") == ""
+
+    def test_yaml_breaking_chars_rejected(self):
+        for bad in (
+            "/home/u/path\nfoo",
+            "/home/u/path\rfoo",
+            '/home/u/x"foo',
+            "/home/u/x'foo",
+            "/home/u/${HOME}",
+            "/home/u/`whoami`",
+            "/home/u/{a}",
+        ):
+            assert self._cfg(bad) == "", f"{bad!r} should have been rejected"
+
+    def test_user_home_subdirectory_accepted(self, tmp_path, monkeypatch):
+        # Path.home() reads $HOME; redirect via monkeypatch so the
+        # accepted-prefix check matches our tmp_path.
+        monkeypatch.setenv("HOME", str(tmp_path))
+        accepted = str(tmp_path / "winpodx-storage")
+        assert self._cfg(accepted) == accepted
+
+    def test_tilde_expansion_subdirectory_accepted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        # Original (unexpanded) string should round-trip; resolution is
+        # only used for the safety check.
+        assert self._cfg("~/.local/share/winpodx/storage") == "~/.local/share/winpodx/storage"
+
+    def test_var_lib_winpodx_accepted(self):
+        assert self._cfg("/var/lib/winpodx/storage") == "/var/lib/winpodx/storage"
+
+    def test_tmp_subpath_accepted_for_tests(self):
+        # Used by pytest fixtures (tmp_path under /tmp/pytest-of-*).
+        assert self._cfg("/tmp/winpodx-test/storage") == "/tmp/winpodx-test/storage"

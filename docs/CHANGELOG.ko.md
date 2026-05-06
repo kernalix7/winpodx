@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+### 추가
+- **사용자별 storage bind mount + btrfs 자동 NoCoW.** `winpodx setup` 의 fresh install 이 이제 Windows VM 디스크 이미지를 legacy `winpodx-data` named volume 대신 사용자 소유 host 디렉터리 (`~/.local/share/winpodx/storage` 기본) 에 bind mount. 그 경로가 btrfs 면 setup 이 compose-up 전 빈 디렉터리에 `chattr +C` 적용 — dockur 가 처음 Windows raw disk image 쓸 때 부모 디렉터리에서 NoCoW 상속해서 Copy-on-Write fragmentation 완전히 우회. flag 는 **이 특정 디렉터리에만** 영향; host 의 다른 podman 컨테이너/볼륨/이미지는 일체 안 건드림 (graph-root 전체에 적용하는 PR #124 설계는 의도적으로 폐기 — closed comment 참조). 기존 사용자는 named volume 그대로 유지 + 그 볼륨이 btrfs 면 마이그레이션 명령 안내 한 줄 표시. @xiyeming 의 #121, #122 보고.
+- **`winpodx setup --migrate-storage`.** 기존 `winpodx-data` named volume 을 per-user bind mount 경로로 이동 — Windows 재설치 없음. Pre-flight plan 이 source/target 경로, source 크기, target 파일시스템, chattr 실행 여부, target 빈 공간을 표시. 비용: NVMe 에서 ~5-10분 (`rsync -aS` ~60 GiB). Windows 설치 보존 — Sysprep 재실행 없음, ISO 재다운로드 없음. Idempotent: pod stop → 빈 target 에 btrfs `chattr +C` (복사되는 파일이 NoCoW 상속) → rsync → `cfg.pod.storage_path` 저장 → compose 재생성 → 성공 시에만 old named volume 제거 → pod restart. copy 실패 시 source 볼륨 그대로 두고 target 만 wipe — 재시도 시 빈 상태에서 시작. `--migrate-storage-target PATH` 로 destination override; `--yes` 로 confirmation skip.
+- **업그레이드 시 자동 마이그레이션.** `winpodx migrate` (install.sh 가 매 업그레이드마다 호출) 가 같은 조건을 감지 — `winpodx-data` named volume + mountpoint 가 btrfs + `cfg.pod.storage_path` 비어있음 — 시 자동 마이그레이션. 인터랙티브 실행은 confirmation prompt (default Yes); 비인터랙티브 실행 (install.sh post-upgrade 경로) 은 그냥 진행 — 이미 degraded 상태고 migrate 실행 자체가 fix 적용 목적이라. 실패 시 원본 named volume 보존되고 사용자에게 `winpodx setup --migrate-storage` 수동 재시도 안내.
+- **`cfg.pod.storage_path` config 필드.** 빈 문자열은 legacy named-volume 모드 유지; absolute path 면 그 경로로 host bind mount. `Config.load` 가 필드 검증하고 잘못된 값은 빈 문자열로 fallback; `_render_storage_blocks` 가 unsafe 값 (newline, quote, brace) 감지하면 named volume 으로 회귀 — hand-edit 한 `winpodx.toml` 이 compose YAML 깨뜨릴 수 없음.
+
 ## [0.4.2] - 2026-05-05
 
 Patch release. 0.4.1 위에 작은 fix 두 개.

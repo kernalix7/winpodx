@@ -158,12 +158,137 @@ def _update_image_pin() -> int:
     return 0
 
 
+def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
+    """Resolve ``cfg.pod.storage_path`` for the about-to-be-generated compose.
+
+    See the call site in ``handle_setup`` for the three-case decision.
+    Mutates ``cfg`` in place; the caller saves + regenerates compose.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    # Case 1: already set explicitly. Trust the user.
+    if cfg.pod.storage_path:
+        return
+
+    from winpodx.core.storage_migration import (
+        NAMED_VOLUME,
+        default_target_path,
+        get_volume_mountpoint,
+        named_volume_exists,
+    )
+    from winpodx.utils.btrfs import detect_path_fs, disable_cow_on_path
+
+    # Case 2: returning user with an existing named volume. Don't touch
+    # compose mode (stays named-volume); just warn if they're on btrfs.
+    if named_volume_exists(cfg.pod.backend, NAMED_VOLUME):
+        mp = get_volume_mountpoint(cfg.pod.backend, NAMED_VOLUME)
+        if mp is not None and detect_path_fs(mp) == "btrfs":
+            print()
+            print(f"  Note: existing {NAMED_VOLUME!r} volume is on btrfs ({mp}).")
+            print("    btrfs Copy-on-Write fragments the Windows raw disk image and")
+            print("    slows pod recreates. To migrate to a NoCoW bind mount, run:")
+            print("        winpodx setup --migrate-storage")
+            print("    (~5-10 min, preserves the Windows install)")
+            print()
+        return
+
+    # Case 3: fresh install. Pick the default bind-mount path, create the
+    # directory, and disable CoW if it's on btrfs BEFORE the volume gets
+    # populated by the next compose-up.
+    target = default_target_path()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        # If we can't create the dir, fall back to named volume (don't
+        # set storage_path) so install still proceeds.
+        print(f"  Note: could not create {target} ({e}); using named volume instead.")
+        return
+
+    fs = detect_path_fs(target)
+    if fs == "btrfs":
+        status, detail = disable_cow_on_path(target)
+        if status == "disabled":
+            print(f"  btrfs detected — applied chattr +C on {target}")
+            print("    Windows raw disk image will be NoCoW from first boot.")
+        elif status == "already_off":
+            # silent — already done in a previous setup run
+            pass
+        elif status == "failed":
+            print(f"  Note: btrfs detected but chattr +C failed ({detail}).")
+            print("    Pod will work, but VM disk operations may be slow.")
+            print("    You can retry manually: chattr +C", target)
+    cfg.pod.storage_path = str(target)
+
+
+def _handle_migrate_storage(args: argparse.Namespace) -> int:
+    """Move storage from the legacy ``winpodx-data`` named volume to a host
+    bind mount, applying ``chattr +C`` automatically on btrfs.
+
+    Returns the process exit code (0 ok / 2 misconfig / 3 runtime fail).
+    See :mod:`winpodx.core.storage_migration` for the full sequence.
+    """
+
+    from winpodx.core.storage_migration import (
+        MigrationPlan,
+        default_target_path,
+        execute_migration,
+        plan_migration,
+    )
+
+    cfg = Config.load()
+
+    # Build pre-flight plan or surface a clear error.
+    target_override = getattr(args, "migrate_storage_target", None)
+    target = Path(target_override).expanduser() if target_override else default_target_path()
+
+    plan_or_error = plan_migration(cfg, target=target)
+    if isinstance(plan_or_error, str):
+        print(f"--migrate-storage: {plan_or_error}")
+        return 2
+
+    plan: MigrationPlan = plan_or_error
+
+    # User confirmation unless --yes (acked) was passed. Migration moves
+    # tens of gigabytes of disk + recreates the pod; we don't want to
+    # surprise anyone.
+    print()
+    print("Storage migration plan:")
+    print(f"  Source:  podman volume {plan.source_volume!r}")
+    print(f"           {plan.source_mountpoint}  (~{plan.source_size_bytes // (1 << 30)} GiB)")
+    print(f"  Target:  {plan.target_path}  (fs={plan.target_fs})")
+    if plan.chattr_will_run:
+        print("  chattr:  +C will run on the target (btrfs NoCoW for new files)")
+    if plan.free_bytes_target >= 0:
+        print(f"  Free:    {plan.free_bytes_target // (1 << 30)} GiB available at target")
+    print()
+    print("Cost: rsync -aS of the entire volume. ~5-10 min on NVMe; longer on")
+    print("spinning rust. The pod is stopped for the duration.")
+    print()
+
+    if not getattr(args, "yes", False) and not getattr(args, "non_interactive", False):
+        if not _ask("Proceed? (y/N): ").lower().startswith("y"):
+            print("Aborted.")
+            return 0
+
+    print("\nMigrating...")
+    result = execute_migration(cfg, plan, start_pod=True)
+    if result.status == "ok":
+        print(f"OK: {result.detail}")
+        return 0
+    print(f"FAIL: {result.detail}")
+    return 3
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
     import sys
 
     if getattr(args, "update_image", False):
         sys.exit(_update_image_pin())
+
+    if getattr(args, "migrate_storage", False):
+        sys.exit(_handle_migrate_storage(args))
 
     backend = args.backend
     non_interactive = args.non_interactive
@@ -284,6 +409,20 @@ def handle_setup(args: argparse.Namespace) -> None:
             except ValueError:
                 print(f"Invalid number, using default: {tier.ram_gb}")
                 cfg.pod.ram_gb = tier.ram_gb
+
+        # Pick a storage mode for podman/docker before compose is
+        # rendered. Three cases:
+        #   1. cfg.pod.storage_path already set → keep it (returning user
+        #      who already migrated, or someone setting it by hand).
+        #   2. legacy named volume already present → leave storage_path
+        #      empty so compose keeps using `winpodx-data`. We surface a
+        #      warning if that volume is on btrfs so the user knows
+        #      `winpodx setup --migrate-storage` is available.
+        #   3. fresh install (no existing volume) → set storage_path to
+        #      the per-user default `~/.local/share/winpodx/storage`,
+        #      create the directory, and `chattr +C` on btrfs so the
+        #      Windows raw disk image inherits NoCoW from day one.
+        _decide_storage_mode(cfg, non_interactive=non_interactive)
 
         _generate_compose(cfg)
         _recreate_container(cfg)
