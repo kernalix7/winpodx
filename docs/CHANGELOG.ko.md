@@ -15,6 +15,9 @@
 - **업그레이드 시 자동 마이그레이션.** `winpodx migrate` (install.sh 가 매 업그레이드마다 호출) 가 같은 조건을 감지 — `winpodx-data` named volume + mountpoint 가 btrfs + `cfg.pod.storage_path` 비어있음 — 시 자동 마이그레이션. 인터랙티브 실행은 confirmation prompt (default Yes); 비인터랙티브 실행 (install.sh post-upgrade 경로) 은 그냥 진행 — 이미 degraded 상태고 migrate 실행 자체가 fix 적용 목적이라. 실패 시 원본 named volume 보존되고 사용자에게 `winpodx setup --migrate-storage` 수동 재시도 안내.
 - **`cfg.pod.storage_path` config 필드.** 빈 문자열은 legacy named-volume 모드 유지; absolute path 면 그 경로로 host bind mount. `Config.load` 가 필드 검증하고 잘못된 값은 빈 문자열로 fallback; `_render_storage_blocks` 가 unsafe 값 (newline, quote, brace) 감지하면 named volume 으로 회귀 — hand-edit 한 `winpodx.toml` 이 compose YAML 깨뜨릴 수 없음.
 
+### 수정
+- **compose-managed 설치에서 자동 마이그레이션이 silent skip 되던 버그.** `storage_migration.named_volume_exists("podman", "winpodx-data")` 가 `podman-compose up` 으로 생성된 install 에서 항상 False — 실제 볼륨은 `winpodx_winpodx-data` (compose 가 `name: "winpodx"` 프로젝트명으로 prefix). `winpodx migrate` 의 auto-migrate 와 `winpodx setup` 의 Case-2 경고 모두 bare name 기준이라 모든 compose-managed btrfs install 을 "fresh-install" / "nothing to migrate" 로 잘못 분류 — 자동 마이그레이션이 몇 시간 동안 잠자고 있었음. kernalix7 가 openSUSE Tumbleweed 에서 catch (2026-05-06): named volume 이 `winpodx_winpodx-data` 에 있었고, auto-migrate hook 이 dormant 상태였음. 새 `resolve_named_volume(backend)` 가 prefixed 형식 먼저 probe 하고 bare 형식으로 fallback — compose-managed / hand-created 양쪽 다 정확히 resolve. `MigrationPlan.source_volume` 이 resolved 이름을 끝까지 carry — migration 끝의 `volume rm` step 이 정확히 같은 볼륨을 target.
+
 ## [0.4.2] - 2026-05-05
 
 Patch release. 0.4.1 위에 작은 fix 두 개.

@@ -41,7 +41,31 @@ from winpodx.utils.btrfs import detect_path_fs, disable_cow_on_path
 log = logging.getLogger(__name__)
 
 DEFAULT_STORAGE_RELPATH = ".local/share/winpodx/storage"
-NAMED_VOLUME = "winpodx-data"
+
+# The compose template references the volume by the bare name
+# `winpodx-data`. podman-compose / docker compose, however, materialise
+# named volumes with the project name as a prefix (`winpodx_winpodx-data`
+# given our `name: "winpodx"` declaration in the compose template).
+# kernalix7's smoke test on opensuse Tumbleweed (2026-05-06) showed that
+# `podman volume exists winpodx-data` returned False there because the
+# real volume was `winpodx_winpodx-data` — auto-migration silently never
+# ran and the bug "migration sometimes fails" was actually "migration
+# never started."
+#
+# We resolve by trying both names in order: the prefixed form first
+# (the canonical podman-compose layout), then the bare form (a fallback
+# for users who manually `podman volume create winpodx-data` or who
+# created the pod outside of compose). Whichever exists wins.
+NAMED_VOLUME_BARE = "winpodx-data"
+NAMED_VOLUME_COMPOSE_PROJECT = "winpodx"
+NAMED_VOLUME_PREFIXED = f"{NAMED_VOLUME_COMPOSE_PROJECT}_{NAMED_VOLUME_BARE}"
+# Public alias kept for backward compatibility in tests / external callers.
+NAMED_VOLUME = NAMED_VOLUME_BARE
+
+
+def _candidate_volume_names() -> tuple[str, ...]:
+    """Volume names to probe in order, preferring the podman-compose layout."""
+    return (NAMED_VOLUME_PREFIXED, NAMED_VOLUME_BARE)
 
 
 @dataclass
@@ -71,12 +95,8 @@ def default_target_path() -> Path:
     return Path.home() / DEFAULT_STORAGE_RELPATH
 
 
-def named_volume_exists(backend: str, name: str = NAMED_VOLUME) -> bool:
-    """Return True if a podman/docker named volume ``name`` exists."""
-    if backend not in ("podman", "docker"):
-        return False
-    if shutil.which(backend) is None:
-        return False
+def _volume_exists_single(backend: str, name: str) -> bool:
+    """Probe a single ``backend volume exists <name>`` invocation."""
     try:
         result = subprocess.run(
             [backend, "volume", "exists", name],
@@ -89,19 +109,59 @@ def named_volume_exists(backend: str, name: str = NAMED_VOLUME) -> bool:
     return result.returncode == 0
 
 
-def get_volume_mountpoint(backend: str, name: str = NAMED_VOLUME) -> Path | None:
-    """Return the host filesystem path of a podman/docker named volume.
+def resolve_named_volume(backend: str, name: str | None = None) -> str | None:
+    """Return the actual on-host volume name for the winpodx storage volume.
 
-    Both runtimes expose a ``Mountpoint`` field on volume inspect; the
-    JSON shape is identical enough that one parser handles both.
+    Tries the candidate names in order (compose-prefixed then bare) and
+    returns the first one that exists, or None if neither does. When
+    ``name`` is provided explicitly, only that name is probed.
+
+    The two-name fallback exists because podman-compose / docker compose
+    namespace volumes by project (``winpodx_winpodx-data``) but a hand-
+    created or pre-compose-era volume uses the bare ``winpodx-data``.
     """
     if backend not in ("podman", "docker"):
         return None
     if shutil.which(backend) is None:
         return None
+
+    candidates = (name,) if name is not None else _candidate_volume_names()
+    for candidate in candidates:
+        if _volume_exists_single(backend, candidate):
+            return candidate
+    return None
+
+
+def named_volume_exists(backend: str, name: str | None = None) -> bool:
+    """Return True if a podman/docker winpodx-storage named volume exists.
+
+    Probes both the compose-prefixed (``winpodx_winpodx-data``) and bare
+    (``winpodx-data``) forms unless an explicit ``name`` is passed.
+    """
+    return resolve_named_volume(backend, name) is not None
+
+
+def get_volume_mountpoint(backend: str, name: str | None = None) -> Path | None:
+    """Return the host filesystem path of the winpodx storage volume.
+
+    Both runtimes expose a ``Mountpoint`` field on volume inspect; the
+    JSON shape is identical enough that one parser handles both.
+    Resolves the candidate names just like :func:`named_volume_exists`
+    so callers get the mountpoint regardless of whether the volume
+    landed under the compose-prefixed or bare name.
+    """
+    if backend not in ("podman", "docker"):
+        return None
+    if shutil.which(backend) is None:
+        return None
+
+    resolved = resolve_named_volume(backend, name)
+    if resolved is None:
+        return None
+
     try:
         result = subprocess.run(
-            [backend, "volume", "inspect", name],
+            [backend, "volume", "inspect", resolved],
             capture_output=True,
             text=True,
             timeout=10,
@@ -151,12 +211,16 @@ def plan_migration(cfg: Config, target: Path | None = None) -> MigrationPlan | s
     if backend not in ("podman", "docker"):
         return f"backend {backend!r} does not have named volumes; nothing to migrate"
 
-    if not named_volume_exists(backend, NAMED_VOLUME):
-        return f"no {NAMED_VOLUME!r} named volume found; nothing to migrate"
+    resolved_volume = resolve_named_volume(backend)
+    if resolved_volume is None:
+        return (
+            f"no winpodx storage volume found (tried {NAMED_VOLUME_PREFIXED!r} "
+            f"and {NAMED_VOLUME_BARE!r}); nothing to migrate"
+        )
 
-    src = get_volume_mountpoint(backend, NAMED_VOLUME)
+    src = get_volume_mountpoint(backend, resolved_volume)
     if src is None or not src.exists():
-        return f"could not resolve {NAMED_VOLUME!r} mountpoint via `{backend} volume inspect`"
+        return f"could not resolve {resolved_volume!r} mountpoint via `{backend} volume inspect`"
 
     target_path = (target or default_target_path()).expanduser()
 
@@ -188,7 +252,7 @@ def plan_migration(cfg: Config, target: Path | None = None) -> MigrationPlan | s
 
     return MigrationPlan(
         backend=backend,
-        source_volume=NAMED_VOLUME,
+        source_volume=resolved_volume,
         source_mountpoint=src,
         source_size_bytes=src_size,
         target_path=target_path,

@@ -83,10 +83,11 @@ class TestPlanMigration:
 
     def test_returns_error_string_when_no_named_volume(self, tmp_path, monkeypatch):
         cfg = self._cfg(tmp_path, monkeypatch)
-        with patch.object(sm, "named_volume_exists", return_value=False):
+        with patch.object(sm, "resolve_named_volume", return_value=None):
             result = sm.plan_migration(cfg, target=tmp_path / "target")
         assert isinstance(result, str)
-        assert "no" in result.lower() and "winpodx-data" in result
+        # Error mentions both candidate names so the user can grep for either.
+        assert "winpodx-data" in result and "winpodx_winpodx-data" in result
 
     def test_returns_error_string_when_target_not_empty(self, tmp_path, monkeypatch):
         cfg = self._cfg(tmp_path, monkeypatch)
@@ -97,7 +98,7 @@ class TestPlanMigration:
         src = tmp_path / "src"
         src.mkdir()
         with (
-            patch.object(sm, "named_volume_exists", return_value=True),
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
             patch.object(sm, "get_volume_mountpoint", return_value=src),
         ):
             result = sm.plan_migration(cfg, target=target)
@@ -112,7 +113,7 @@ class TestPlanMigration:
         (src / "win.qcow2").write_bytes(b"x" * 1024)
 
         with (
-            patch.object(sm, "named_volume_exists", return_value=True),
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
             patch.object(sm, "get_volume_mountpoint", return_value=src),
             patch.object(sm, "detect_path_fs", return_value="btrfs"),
         ):
@@ -405,3 +406,146 @@ class TestExecuteMigrationDefersVolumeRm:
         assert any(cmd[:3] == ["podman", "volume", "rm"] for cmd in volume_rm_called), (
             f"volume rm not called after pod start success: {volume_rm_called!r}"
         )
+
+
+# --- Compose-prefix volume name resolution (#126 follow-up) ---
+
+
+class TestResolveNamedVolume:
+    """podman-compose namespaces volumes by project, so the actual
+    volume on disk is `winpodx_winpodx-data` not `winpodx-data`. The
+    resolver must find either form so auto-migration doesn't silently
+    skip on a compose-managed install (kernalix7 hit this on opensuse
+    Tumbleweed 2026-05-06 — auto-migrate had been a no-op for hours).
+    """
+
+    def test_returns_prefixed_name_when_only_prefixed_exists(self):
+        seen = []
+
+        def fake_run(cmd, **_):
+            seen.append(cmd)
+            # First probe: prefixed name → exists; second probe never reached.
+            if cmd == ["podman", "volume", "exists", "winpodx_winpodx-data"]:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=1, stdout="", stderr="")
+
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run", side_effect=fake_run),
+        ):
+            result = sm.resolve_named_volume("podman")
+
+        assert result == "winpodx_winpodx-data"
+        # Should have probed prefixed first (preferred form)
+        assert seen[0] == ["podman", "volume", "exists", "winpodx_winpodx-data"]
+
+    def test_returns_bare_name_when_only_bare_exists(self):
+        def fake_run(cmd, **_):
+            if cmd == ["podman", "volume", "exists", "winpodx-data"]:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=1, stdout="", stderr="")
+
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run", side_effect=fake_run),
+        ):
+            result = sm.resolve_named_volume("podman")
+
+        assert result == "winpodx-data"
+
+    def test_returns_none_when_neither_exists(self):
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
+            assert sm.resolve_named_volume("podman") is None
+
+    def test_named_volume_exists_uses_resolver(self):
+        with patch.object(sm, "resolve_named_volume", return_value="winpodx_winpodx-data"):
+            assert sm.named_volume_exists("podman") is True
+        with patch.object(sm, "resolve_named_volume", return_value=None):
+            assert sm.named_volume_exists("podman") is False
+
+    def test_get_volume_mountpoint_uses_resolved_name_for_inspect(self):
+        """Regression: inspect must run on the resolved name, not the bare const."""
+        seen_inspect = []
+
+        def fake_run(cmd, **_):
+            if cmd[:3] == ["podman", "volume", "exists"]:
+                # Only the prefixed name exists.
+                return MagicMock(
+                    returncode=0 if cmd[3] == "winpodx_winpodx-data" else 1,
+                    stdout="",
+                    stderr="",
+                )
+            if cmd[:3] == ["podman", "volume", "inspect"]:
+                seen_inspect.append(cmd[3])
+                return MagicMock(
+                    returncode=0,
+                    stdout=json.dumps(
+                        [{"Mountpoint": "/var/lib/containers/.../winpodx_winpodx-data/_data"}]
+                    ),
+                    stderr="",
+                )
+            return MagicMock(returncode=1, stdout="", stderr="")
+
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm.subprocess, "run", side_effect=fake_run),
+        ):
+            mp = sm.get_volume_mountpoint("podman")
+
+        assert mp is not None
+        # `inspect` must have been called on the prefixed name (the
+        # resolved one), not the bare default.
+        assert "winpodx_winpodx-data" in seen_inspect
+        assert "winpodx-data" not in seen_inspect
+
+
+class TestPlanMigrationUsesResolvedVolume:
+    """plan_migration must build the MigrationPlan with the *resolved*
+    (existing) volume name so that volume rm later actually targets the
+    real volume.
+    """
+
+    def _cfg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.save()
+        return cfg
+
+    def test_plan_records_compose_prefixed_volume_when_that_exists(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        target = tmp_path / "target"
+        src = tmp_path / "src"
+        src.mkdir()
+
+        with (
+            patch.object(sm, "resolve_named_volume", return_value="winpodx_winpodx-data"),
+            patch.object(sm, "get_volume_mountpoint", return_value=src),
+            patch.object(sm, "detect_path_fs", return_value="btrfs"),
+        ):
+            plan = sm.plan_migration(cfg, target=target)
+
+        assert isinstance(plan, sm.MigrationPlan)
+        assert plan.source_volume == "winpodx_winpodx-data"
+
+    def test_plan_records_bare_volume_when_that_exists(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        target = tmp_path / "target"
+        src = tmp_path / "src"
+        src.mkdir()
+
+        with (
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
+            patch.object(sm, "get_volume_mountpoint", return_value=src),
+            patch.object(sm, "detect_path_fs", return_value="btrfs"),
+        ):
+            plan = sm.plan_migration(cfg, target=target)
+
+        assert isinstance(plan, sm.MigrationPlan)
+        assert plan.source_volume == "winpodx-data"

@@ -172,20 +172,24 @@ def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
         return
 
     from winpodx.core.storage_migration import (
-        NAMED_VOLUME,
         default_target_path,
         get_volume_mountpoint,
-        named_volume_exists,
+        resolve_named_volume,
     )
     from winpodx.utils.btrfs import detect_path_fs, disable_cow_on_path
 
     # Case 2: returning user with an existing named volume. Don't touch
     # compose mode (stays named-volume); just warn if they're on btrfs.
-    if named_volume_exists(cfg.pod.backend, NAMED_VOLUME):
-        mp = get_volume_mountpoint(cfg.pod.backend, NAMED_VOLUME)
+    # Probe both the compose-prefixed (`winpodx_winpodx-data`) and bare
+    # (`winpodx-data`) names so we don't silently misclassify the user
+    # as "fresh install" when their compose-managed volume lives under
+    # the prefixed name.
+    resolved = resolve_named_volume(cfg.pod.backend)
+    if resolved is not None:
+        mp = get_volume_mountpoint(cfg.pod.backend, resolved)
         if mp is not None and detect_path_fs(mp) == "btrfs":
             print()
-            print(f"  Note: existing {NAMED_VOLUME!r} volume is on btrfs ({mp}).")
+            print(f"  Note: existing {resolved!r} volume is on btrfs ({mp}).")
             print("    btrfs Copy-on-Write fragments the Windows raw disk image and")
             print("    slows pod recreates. To migrate to a NoCoW bind mount, run:")
             print("        winpodx setup --migrate-storage")
