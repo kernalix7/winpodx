@@ -2,20 +2,25 @@
 
 Extracted from ``winpodx.core.provisioner`` (Track A Sprint 1 Step 2).
 
-# Behavioral rule #6 — DO NOT route through Transport
+# Transport selection (rule #6 superseded 2026-05-07)
 
-Password rotation **must** call ``windows_exec.run_in_windows`` directly,
-NOT through the Transport ABC. See ``docs/TRANSPORT_ABC.md`` rule #6:
+Rotation now prefers ``AgentTransport`` and falls back to
+``run_in_windows`` (FreeRDP RemoteApp). The historical prohibition on
+using Transport for rotation (TRANSPORT_ABC.md rule #6) was based on
+two arguments that no longer hold:
 
-> Password rotation requires the host to authenticate FreeRDP with the
-> OLD password to set the NEW password. Routing this through a Transport
-> abstraction would tempt callers to use AgentTransport, which would
-> expose the new password to the agent process and to anyone who could
-> read the agent's process memory.
+1. "Need OLD password to authenticate FreeRDP" — AgentTransport
+   authenticates with a bearer token, not the user password.
+2. "Don't expose new password to agent process memory" — both
+   transports expose the new password equally via PowerShell argv and
+   ``net user`` argv. The agent path adds an in-memory HTTP request
+   buffer; the FreeRDP path writes a script file under
+   ``~/.local/share/winpodx/windows-exec/``. Neither is strictly
+   safer than the other.
 
-This is enforced by code review, not by API shape. If a future patch
-introduces ``transport.dispatch(cfg).exec(...)`` here, the patch must be
-rejected.
+The agent-first preference fixes a real cachyos bug where xfreerdp3's
+broken bidirectional drive redirect caused the FreeRDP-only path to
+time out at 45s. See ``docs/TRANSPORT_ABC.md`` for the full rationale.
 
 # Public API
 
@@ -70,22 +75,19 @@ def _rotation_marker_path() -> Path:
 
 
 def _change_windows_password(cfg: Config, new_password: str) -> bool:
-    """Change the Windows user account password via FreeRDP RemoteApp.
+    """Change the Windows user account password.
 
-    Uses the CURRENT cfg.password to authenticate FreeRDP, then runs
-    ``net user <User> <new>`` inside Windows. On success, the caller
+    Tries AgentTransport first (fast HTTP, bypasses xfreerdp3's broken
+    bidirectional drive redirect on cachyos). If the agent isn't
+    reachable, falls back to ``run_in_windows`` (FreeRDP RemoteApp).
+    Auth failures on the agent are NOT followed by FreeRDP fallback —
+    those indicate config drift, not transient channel state.
+
+    Runs ``net user <User> <new>`` on the guest. On success the caller
     updates cfg.password. The existing rotation rollback marker
     (``_ROTATION_PENDING_MARKER``) handles the partial-failure window
     where the host saved the new password to disk but the guest didn't
-    accept it — on next ensure_ready the marker is detected and the
-    cfg.password is reverted to whatever Windows actually accepts.
-
-    v0.1.9.5: was on the broken `podman exec ... powershell.exe` path
-    which silently failed for every release back to 0.1.0. Migrated to
-    the FreeRDP RemoteApp channel along with all the other Windows-
-    side commands.
-
-    Rule #6: this calls ``run_in_windows`` directly, never via Transport.
+    accept it.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return False
@@ -94,13 +96,24 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
     pw = new_password.replace("'", "''")
     payload = f"& net user '{user}' '{pw}' | Out-Null\nWrite-Output 'password set'\n"
 
+    from winpodx.core.transport import dispatch
+    from winpodx.core.transport.base import TransportAuthError, TransportUnavailable
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
-        result = run_in_windows(cfg, payload, description="rotate-password", timeout=45)
-    except WindowsExecError as e:
-        log.warning("Password change channel failure: %s", e)
+        transport = dispatch(cfg, prefer="agent")
+        result = transport.exec(payload, description="rotate-password", timeout=30)
+    except TransportUnavailable:
+        log.info("Agent unavailable for password rotation; falling back to FreeRDP")
+        try:
+            result = run_in_windows(cfg, payload, description="rotate-password", timeout=45)
+        except WindowsExecError as e:
+            log.warning("Password change channel failure: %s", e)
+            return False
+    except TransportAuthError as e:
+        log.warning("Password change auth failure: %s", e)
         return False
+
     if result.rc != 0:
         log.warning("Password change failed (rc=%d): %s", result.rc, result.stderr.strip())
         return False

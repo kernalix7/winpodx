@@ -39,16 +39,14 @@ def dispatch(cfg: Config, *, prefer: Optional[PreferKind] = None) -> Transport:
       1. If AgentTransport.health().available, use it.
       2. Else fall back to FreerdpTransport.
 
-    ``prefer="freerdp"`` forces FreerdpTransport (used for password
-    rotation paths that explicitly opt out of the agent — see
-    ``docs/TRANSPORT_ABC.md`` rule #6, "NEVER use Transport for
-    password rotation"; rotation should call ``run_in_windows``
-    directly, but if a code path *must* go through dispatch and avoid
-    the agent, this is the escape hatch).
+    ``prefer="freerdp"`` forces FreerdpTransport (escape hatch for
+    callers that explicitly need to avoid the agent path).
 
     ``prefer="agent"`` raises ``TransportUnavailable`` if the agent
     isn't up rather than silently falling back — useful for callers
-    that need the streaming/SSE features only AgentTransport provides.
+    that need the streaming/SSE features only AgentTransport provides,
+    and for callers (like ``core/rotation/``) that want explicit
+    fallback control rather than the dispatcher's silent default.
 
     The dispatcher does NOT cache instances; each call returns a fresh
     Transport so state stays on cfg, not on the dispatcher.

@@ -235,17 +235,32 @@ AgentTransport: `/exec` endpoint enforces `timeout` via job kill.
 FreerdpTransport: `subprocess.run(timeout=...)` on the FreeRDP process.
 Either way, a hung script doesn't leak past the timeout.
 
-### 6. NEVER use Transport for password rotation
+### 6. (superseded 2026-05-07) Password rotation may use any Transport
 
-Password rotation requires the host to authenticate FreeRDP with
-the OLD password to set the NEW password. Routing this through a
-Transport abstraction would tempt callers to use AgentTransport,
-which would expose the new password to the agent process and to
-anyone who could read the agent's process memory.
+Historical: this rule prohibited using Transport for password rotation,
+arguing (a) the host needs to authenticate FreeRDP with the OLD password
+and (b) routing via AgentTransport would expose the new password to the
+agent process memory.
 
-`core/rotation/` calls `windows_exec.run_in_windows` directly, NOT
-through Transport. The rule is enforced by code review, not by API
-shape.
+Both arguments no longer hold:
+
+- AgentTransport authenticates with a bearer token, not the user
+  password. Bootstrapping is independent of which password is in cfg.
+- Both transports expose the new password equally — via PowerShell
+  argv and `net user` argv on the guest, visible to any other guest
+  process via Task Manager / WMI. The agent path adds one in-memory
+  HTTP request buffer; the FreeRDP path adds one on-disk script file
+  under `~/.local/share/winpodx/windows-exec/`. Neither is strictly
+  worse from a memory-exposure standpoint.
+
+In practice the prohibition caused a real bug: cachyos's xfreerdp3
+build has a broken bidirectional drive redirect, so the FreeRDP-only
+rotation path timed out at 45s with no recourse. `core/rotation/` now
+prefers AgentTransport with FreeRDP fallback.
+
+The pre-rotation `_ROTATION_PENDING_MARKER` is still required and
+unchanged — it's the recovery contract for ANY transport that
+disconnects mid-rotation.
 
 ## Anti-goals (do NOT do these)
 
@@ -306,8 +321,11 @@ Today's `run_in_windows` callers move to `dispatch(cfg).exec(...)`:
 
 ### Untouched (intentional)
 
-- `core/rotation/` — keeps direct `windows_exec.run_in_windows` calls.
-  See behavioral rule #6.
 - `core/rdp/launch.py` — RemoteApp launches for actual user apps stay
   on FreeRDP directly. Transport is for command channels, not for the
   user-facing app windows.
+
+### Migrated 2026-05-07
+
+- `core/rotation/` — now agent-first via `dispatch(cfg, prefer="agent")`
+  with `run_in_windows` as explicit fallback. See rule #6 (superseded).
