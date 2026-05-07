@@ -176,23 +176,32 @@ def _sync_password(non_interactive: bool) -> None:
     """v0.1.9.5: rescue path when cfg.password no longer matches Windows.
 
     Use case: prior releases (0.1.0 through 0.1.9.4) ran password rotation
-    via a broken `podman exec ... powershell.exe net user` path that never
-    actually reached the Windows VM. Host-side cfg.password has drifted
-    while Windows still has whatever the original install.bat / OEM
-    unattend.xml set it to. Symptom: FreeRDP launches fail with auth
+    via a broken ``podman exec ... powershell.exe net user`` path that
+    never actually reached the Windows VM. Host-side cfg.password has
+    drifted while Windows still has whatever the original install.bat /
+    OEM unattend.xml set it to. Symptom: FreeRDP launches fail with auth
     error.
 
-    This command authenticates ONCE with a user-supplied "last known
-    working" password (typically the original from initial setup, or the
-    value in compose.yml's PASSWORD env var), then runs `net user` inside
-    Windows to reset the account password to the current cfg.password.
-    On success, password rotation works normally going forward (now that
-    v0.1.9.5 has migrated `_change_windows_password` to FreeRDP RemoteApp).
+    Two transports can carry the reset:
+
+    - ``AgentTransport`` (preferred) — bearer-token authed; works even
+      when cfg.rdp.password no longer matches Windows because the agent
+      doesn't care about the user password. No recovery password needed.
+    - ``FreeRDP RemoteApp`` (fallback) — needs the user's "last known
+      working" password to authenticate, then runs ``net user`` to set
+      the account back to cfg.rdp.password.
+
+    Agent-first matters here for the same reason as ``rotate-password``:
+    on cachyos the FreeRDP path can hang at 45 s due to a broken
+    bidirectional drive redirect. Without the agent path, a user whose
+    rotation broke had no way out.
     """
     import getpass
     import os
 
     from winpodx.core.config import Config
+    from winpodx.core.transport import dispatch
+    from winpodx.core.transport.base import TransportAuthError, TransportUnavailable
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     cfg = Config.load()
@@ -204,6 +213,47 @@ def _sync_password(non_interactive: bool) -> None:
         print("No password set in cfg — nothing to sync to.")
         sys.exit(2)
 
+    target_pw = cfg.rdp.password.replace("'", "''")
+    user = cfg.rdp.user.replace("'", "''")
+    payload = f"& net user '{user}' '{target_pw}' | Out-Null\nWrite-Output 'password reset'\n"
+
+    # Try the agent first — sidesteps the broken FreeRDP drive redirect
+    # on cachyos and avoids prompting for a recovery password the user
+    # may not remember.
+    try:
+        transport = dispatch(cfg, prefer="agent")
+    except TransportUnavailable:
+        transport = None
+
+    if transport is not None:
+        print("Resetting Windows account password via agent...")
+        try:
+            result = transport.exec(payload, description="sync-password", timeout=30)
+        except TransportAuthError as e:
+            print(f"FAIL: agent rejected the request (auth): {e}")
+            print(
+                "\nThe agent's bearer token doesn't match what's on the guest. "
+                "This is config drift, not a transient channel failure — fix the "
+                "token mismatch (reinstall agent or re-run install.bat) before "
+                "retrying."
+            )
+            sys.exit(3)
+        except TransportUnavailable as e:
+            # Health probe passed but exec failed — treat as fall-through.
+            print(f"Agent became unreachable mid-call ({e}); falling back to FreeRDP.")
+            transport = None
+        else:
+            if result.rc != 0:
+                print(
+                    f"FAIL: password reset script failed (rc={result.rc}): {result.stderr.strip()}"
+                )
+                sys.exit(3)
+            print("OK: Windows account password is now in sync with winpodx config.")
+            print("Password rotation will now work normally.")
+            return
+
+    # Agent unavailable — fall back to FreeRDP RemoteApp, which needs a
+    # recovery password to authenticate.
     if non_interactive:
         recovery_pw = os.environ.get("WINPODX_RECOVERY_PASSWORD", "")
         if not recovery_pw:
@@ -229,10 +279,6 @@ def _sync_password(non_interactive: bool) -> None:
     # run_in_windows uses the right credentials for FreeRDP auth.
     rescue_cfg = Config.load()
     rescue_cfg.rdp.password = recovery_pw
-
-    target_pw = cfg.rdp.password.replace("'", "''")
-    user = cfg.rdp.user.replace("'", "''")
-    payload = f"& net user '{user}' '{target_pw}' | Out-Null\nWrite-Output 'password reset'\n"
 
     print("Authenticating with recovery password and resetting Windows account...")
     try:
