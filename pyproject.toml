@@ -85,3 +85,6 @@ testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:winpodx.*",
 ]
+markers = [
+    "hypothesis: property-based tests using the Hypothesis library (skipped if hypothesis is not installed)",
+]

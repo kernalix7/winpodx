@@ -12,6 +12,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # Python 3.9, 3.10
 
+from winpodx.reverse_open.config import ReverseOpenConfig
 from winpodx.utils.paths import config_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps
 
@@ -149,6 +150,7 @@ class PodConfig:
 class Config:
     rdp: RDPConfig = field(default_factory=RDPConfig)
     pod: PodConfig = field(default_factory=PodConfig)
+    reverse_open: ReverseOpenConfig = field(default_factory=ReverseOpenConfig)
 
     @classmethod
     def path(cls) -> Path:
@@ -172,8 +174,10 @@ class Config:
 
         _apply(cfg.rdp, data.get("rdp", {}))
         _apply(cfg.pod, data.get("pod", {}))
+        _apply(cfg.reverse_open, data.get("reverse_open", {}))
         cfg.rdp.__post_init__()
         cfg.pod.__post_init__()
+        cfg.reverse_open.__post_init__()
         return cfg
 
     def save(self) -> None:
@@ -213,6 +217,13 @@ class Config:
                 "disk_size": self.pod.disk_size,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
+            },
+            "reverse_open": {
+                "enabled": self.reverse_open.enabled,
+                "allowlist": list(self.reverse_open.allowlist),
+                "denylist": list(self.reverse_open.denylist),
+                "last_synced_at": self.reverse_open.last_synced_at,
+                "deny_dangerous": self.reverse_open.deny_dangerous,
             },
         }
 
