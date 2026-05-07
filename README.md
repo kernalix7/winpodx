@@ -696,12 +696,14 @@ For security issues, follow the process in [SECURITY.md](SECURITY.md).
 
 ## Support / 후원
 
-If winpodx makes your Linux desktop a little nicer, you can tip the maintainer at
-[fairy.hada.io/@kernalix7](https://fairy.hada.io/@kernalix7).
-Bug reports, PRs, and stars on the repo are equally appreciated and free.
+If winpodx makes your Linux desktop a little nicer:
 
-winpodx 가 도움이 됐다면 [fairy.hada.io/@kernalix7](https://fairy.hada.io/@kernalix7)
-에서 후원할 수 있습니다. 버그 리포트, PR, 별점도 환영합니다.
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/kernalix7)
+[![Fairy](https://img.shields.io/badge/🧚_Fairy-EE6E73?style=for-the-badge&logoColor=white)](https://fairy.hada.io/@kernalix7)
+
+Ko-fi for international card / PayPal payments; fairy.hada.io 는 국내 결제용.
+Bug reports, PRs, and stars on the repo are equally appreciated and free —
+버그 리포트, PR, 별점도 환영합니다.
 
 ## License
 
