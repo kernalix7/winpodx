@@ -24,11 +24,13 @@ from winpodx.utils.paths import config_dir
 __all__ = [
     "_build_compose_content",
     "_build_compose_template",
+    "_container_exists_on_backend",
     "_ensure_oem_token_staged",
     "_find_oem_dir",
     "_generate_compose",
     "_generate_compose_to",
     "_generate_password",
+    "_heal_missing_container_if_needed",
     "_yaml_escape",
     "handle_rotate_password",
     "handle_setup",
@@ -284,6 +286,69 @@ def _handle_migrate_storage(args: argparse.Namespace) -> int:
     return 3
 
 
+def _container_exists_on_backend(cfg: Config) -> bool:
+    """Return True if the container named ``cfg.pod.container_name`` exists.
+
+    Uses ``<backend> ps -a --format '{{.Names}}'`` rather than a richer
+    backend probe so the check works even when libpod is wedged. Any
+    subprocess error is treated as "unknown" → returns False so the
+    caller's recovery path runs (recreating an already-present container
+    is idempotent — ensure_ready / start_pod just no-op on a healthy pod).
+    """
+    import subprocess
+
+    backend = cfg.pod.backend
+    if backend not in ("podman", "docker"):
+        return False
+    try:
+        result = subprocess.run(
+            [backend, "ps", "-a", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    names = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return cfg.pod.container_name in names
+
+
+def _heal_missing_container_if_needed(cfg: Config) -> None:
+    """Recreate the container if config exists but container is gone.
+
+    The "half-uninstalled" state: a previous ``uninstall.sh`` (or some
+    external cleanup) removed the podman/docker container but kept
+    ``winpodx.toml`` + ``compose.yaml``. Without this guard the next
+    step in install.sh (``pod wait-ready``) fails with
+    ``Error: no such container ...`` and the user has to do a
+    ``--purge`` reinstall to recover. ``ensure_ready`` regenerates the
+    container from the existing compose.yaml idempotently.
+    """
+    from winpodx.core.pod import PodState, pod_status
+
+    try:
+        state = pod_status(cfg).state
+    except Exception as e:  # noqa: BLE001
+        print(f"  warning: could not probe pod state: {e}")
+        state = None
+
+    if state in (PodState.STOPPED, PodState.ERROR, None) and not _container_exists_on_backend(cfg):
+        print(
+            f"  Container '{cfg.pod.container_name}' is missing — "
+            f"creating it from existing config + compose.yaml."
+        )
+        try:
+            from winpodx.core.provisioner import ensure_ready
+
+            ensure_ready(cfg)
+        except Exception as e:  # noqa: BLE001
+            print(f"  WARNING: could not start pod: {e}")
+            print("  Try a full reinstall: uninstall.sh --purge then install.sh")
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
     import sys
@@ -332,6 +397,15 @@ def handle_setup(args: argparse.Namespace) -> None:
         if non_interactive:
             print(f"Existing config found at {Config.path()}, skipping setup.")
             _ensure_oem_token_staged()
+            # Half-uninstalled detection. If cfg points at a podman/docker
+            # pod but the container is gone (user did `uninstall.sh`
+            # without --keep, or some external cleanup), the next step
+            # in install.sh's flow (`pod wait-ready`) would fail with
+            # "no such container". Trigger ensure_ready now so install.sh
+            # has something to wait on. ensure_ready handles the compose
+            # regeneration + container creation idempotently.
+            if cfg.pod.backend in ("podman", "docker"):
+                _heal_missing_container_if_needed(cfg)
             return
     else:
         cfg = Config()

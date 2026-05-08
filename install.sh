@@ -502,12 +502,32 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
     log "Waiting for Windows VM to finish first-boot (up to 60 min)..."
     log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply."
     log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
-    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 3600 --logs || {
-        warn "Windows first-boot didn't complete in 60 minutes."
-        warn "Marking remaining steps as pending — they will auto-resume on next"
-        warn "\`winpodx\` CLI invocation or when you open \`winpodx gui\`."
-        mark_pending "wait_ready"
-    }
+    # Capture wait-ready output so we can discriminate the "no such
+    # container" failure (half-uninstalled state — config + compose
+    # survived but the container is gone) from a generic timeout. The
+    # `tee` shows live progress to the user; PIPESTATUS[0] is the
+    # winpodx exit code (NOT tee's), and `set -o pipefail` is already
+    # in effect from the script header so a non-zero rc would normally
+    # abort install.sh — `|| true` keeps us going so we can inspect
+    # the captured output.
+    WAIT_READY_OUT="$(mktemp)"
+    "$HOME/.local/bin/winpodx" pod wait-ready --timeout 3600 --logs 2>&1 \
+        | tee "$WAIT_READY_OUT" || true
+    WAIT_READY_RC="${PIPESTATUS[0]}"
+    if [ "$WAIT_READY_RC" -ne 0 ]; then
+        if grep -q "no such container" "$WAIT_READY_OUT"; then
+            warn "Container is missing — likely from a partial uninstall."
+            warn "Recover with a full reinstall:"
+            warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge'
+            warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main'
+        else
+            warn "Windows first-boot didn't complete in 60 minutes."
+            warn "Marking remaining steps as pending — they will auto-resume on next"
+            warn "\`winpodx\` CLI invocation or when you open \`winpodx gui\`."
+            mark_pending "wait_ready"
+        fi
+    fi
+    rm -f "$WAIT_READY_OUT"
 fi
 
 # --- Post-install / upgrade migration wizard + discovery ---
