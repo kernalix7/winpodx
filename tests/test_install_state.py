@@ -28,16 +28,6 @@ from winpodx.core.install_state import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _isolate_xdg_state_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The shared conftest only redirects HOME/XDG_CONFIG/XDG_DATA. The
-    install state cache lives under ``$XDG_STATE_HOME``, which the user's
-    real environment commonly has set — without overriding it the cache
-    path leaks into the developer's home dir between test runs.
-    """
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-
-
 @pytest.fixture
 def cfg() -> Config:
     return Config()

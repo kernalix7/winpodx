@@ -16,12 +16,14 @@ def _isolate_xdg_and_home(
     config = root / "xdg_config"
     data = root / "xdg_data"
     cache = root / "xdg_cache"
+    state = root / "xdg_state"
     runtime = root / "xdg_runtime"
-    for directory in (home, config, data, cache, runtime):
+    for directory in (home, config, data, cache, state, runtime):
         directory.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
     monkeypatch.setenv("XDG_DATA_HOME", str(data))
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    monkeypatch.setenv("XDG_STATE_HOME", str(state))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
