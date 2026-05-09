@@ -243,6 +243,13 @@ and registers every installed app with its real icon. No root required
 except for the dependency install step. Works on
 openSUSE, Fedora, Debian/Ubuntu, RHEL-family, and Arch.
 
+> **Windows licensing.** dockur downloads a Windows ISO from Microsoft
+> at first pod boot. Your use of the resulting Windows guest is governed
+> by Microsoft's Software License Terms (the EULA shown on first
+> activation). winpodx does not redistribute Windows; it only orchestrates
+> the install on your machine. Bring your own Windows license key for
+> activation — Home / Pro / Enterprise are all supported by dockur.
+
 By default the installer pins to the **latest published GitHub release**
 (currently `v0.1.9`). Pre-release / development versions stay opt-in.
 

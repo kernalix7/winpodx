@@ -51,6 +51,7 @@ licenses govern.
 | [PySide6](https://pypi.org/project/PySide6/) | LGPL-3.0-or-later (with [Qt for Python FAQ exceptions](https://www.qt.io/qt-for-python)) | `winpodx[gui]` | Dynamic — imported at runtime. Not redistributed by winpodx. |
 | [libvirt-python](https://pypi.org/project/libvirt-python/) | LGPL-2.1-or-later | `winpodx[libvirt]` | Dynamic — imported at runtime. Not redistributed by winpodx. |
 | [docker](https://pypi.org/project/docker/) (docker-py) | Apache-2.0 | `winpodx[docker]` | Dynamic — imported at runtime. |
+| [pyxdg](https://pypi.org/project/pyxdg/) | LGPL-2.0-or-later | (none — soft optional) | Dynamic — try-imported at runtime by `core/reverse_open/mime.py` for the long-tail MIME→extension fallback when a type isn't in the curated 86-entry table. winpodx works without it (fallback simply returns the curated entry only). Not vendored. |
 
 LGPL compliance: winpodx does not statically link, vendor, or redistribute
 PySide6 or libvirt-python binaries. Users install them from PyPI (or their
