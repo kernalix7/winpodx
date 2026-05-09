@@ -56,8 +56,9 @@ $script:WpxAgentScriptSrc = 'C:\OEM\agent\agent.ps1'
 $script:WpxAgentScriptDst = 'C:\winpodx\agent\agent.ps1'
 $script:WpxWatchdogSrc    = 'C:\OEM\agent\watchdog.ps1'
 $script:WpxWatchdogDst    = 'C:\winpodx\agent\watchdog.ps1'
-$script:WpxResumeSrc      = 'C:\OEM\install-resume.ps1'
-$script:WpxResumeDst      = 'C:\winpodx\agent\install-resume.ps1'
+# install-resume.ps1 stays in C:\OEM\ (dockur stages it natively at first
+# boot); the Scheduled Task points there directly. No copy step needed.
+$script:WpxResumePath     = 'C:\OEM\install-resume.ps1'
 $script:WpxAgentHealthUrl = 'http://127.0.0.1:8765/health'
 $script:WpxAgentExecUrl   = 'http://127.0.0.1:8765/exec'
 $script:WpxMaxRetries     = 3
@@ -386,7 +387,7 @@ function Register-WinpodxWatchdogAutostart {
 # to leave registered after a successful install.
 function Register-WinpodxResumeTask {
     $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script:WpxResumeDst + '"')
+        -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script:WpxResumePath + '"')
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
         -LogonType Interactive -RunLevel Limited
@@ -446,10 +447,9 @@ function Invoke-Step-agent_ready {
                 Copy-Item -LiteralPath $script:WpxWatchdogSrc `
                     -Destination $script:WpxWatchdogDst -Force
             }
-            if (Test-Path -LiteralPath $script:WpxResumeSrc) {
-                Copy-Item -LiteralPath $script:WpxResumeSrc `
-                    -Destination $script:WpxResumeDst -Force
-            }
+            # install-resume.ps1 is NOT copied -- dockur natively stages
+            # C:\OEM\install-resume.ps1 and the Scheduled Task references
+            # that path directly (matches design doc verbatim).
 
             # URL ACL for HttpListener prefix (agent binds http://+:8765/).
             & netsh.exe http delete urlacl url=http://+:8765/ 2>&1 | Out-Null
