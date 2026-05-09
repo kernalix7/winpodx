@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kernalix7/winpodx/blob/main/docs/design/install_failure.schema.json",
+  "title": "winpodx agent-first install failure record",
+  "description": "Pinned JSON Schema for install_failure.json, the sanitized failure record written by the in-guest install agent after retry exhaustion. The host reads this file on next 'winpodx app run' / 'pod install-status' / 'pod install-resume'. See docs/design/AGENT_FIRST_INSTALL_DESIGN.md (§Schemas → install_failure.json) for the full design context, including the redactor pipeline that runs before any payload reaches this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "session_id",
+    "failed_step",
+    "phase",
+    "attempt",
+    "max_attempts",
+    "exit_code",
+    "error_class",
+    "error_summary",
+    "timestamp_utc",
+    "environment",
+    "last_log_lines"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "description": "UUID identifying the install session that produced this failure record."
+    },
+    "failed_step": {
+      "type": "string",
+      "pattern": "^[a-z_]+$",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "Slug identifying the step that exhausted its retry budget (e.g. 'multi_session_activate'). Restricted to lowercase ASCII and underscore so the value is safe to interpolate into log lines and CLI output without escaping."
+    },
+    "phase": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9,
+      "description": "Install phase number (0..9). Range leaves room for future phases beyond the four documented in the design doc."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-indexed attempt count when the failure was recorded. Always equal to max_attempts in a retry-exhausted record."
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Configured retry budget for failed_step."
+    },
+    "exit_code": {
+      "type": "integer",
+      "description": "Process exit code from the failed step. Any integer is allowed, including negative values that some platforms emit for signal-terminated processes."
+    },
+    "error_class": {
+      "type": "string",
+      "pattern": "^[a-z_]+$",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "Stable, machine-readable error category (e.g. 'rdprrap_activate_failed'). Restricted to lowercase ASCII and underscore so host-side switch/case logic can match safely."
+    },
+    "error_summary": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Short human-readable summary, post-redactor. The redactor (see design doc §Sanitization rules) runs before this value is written; the schema's only job is to bound the length."
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 / ISO 8601 timestamp in UTC (ending in 'Z') for when the failure was recorded."
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windows_build",
+        "disk_fs",
+        "free_bytes",
+        "ram_total_mb"
+      ],
+      "properties": {
+        "windows_build": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Windows build string from the guest (e.g. '10.0.26100.0')."
+        },
+        "disk_fs": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Host filesystem hosting the pod's storage (e.g. 'ntfs', 'ext4', 'btrfs')."
+        },
+        "free_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Free bytes on the guest's system drive at the moment of failure."
+        },
+        "ram_total_mb": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total RAM available to the guest, in MiB."
+        }
+      }
+    },
+    "last_log_lines": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      },
+      "description": "Tail of the install.log JSON-per-line stream, post-redactor. Bounded at 50 lines / 1000 chars per line to keep the failure record cheap to ship and parse."
+    }
+  }
+}

@@ -25,10 +25,18 @@ def handle_pod(args: argparse.Namespace) -> None:
         _multi_session(args.action)
     elif cmd == "wait-ready":
         _wait_ready(args.timeout, getattr(args, "logs", False))
+    elif cmd == "install-status":
+        from winpodx.cli.pod_install_status import handle as handle_install_status
+
+        sys.exit(handle_install_status(args))
+    elif cmd == "install-resume":
+        from winpodx.cli.pod_install_resume import handle as handle_install_resume
+
+        sys.exit(handle_install_resume(args))
     else:
         print(
             "Usage: winpodx pod {start|stop|status|restart|apply-fixes|"
-            "sync-password|multi-session|wait-ready}"
+            "sync-password|multi-session|wait-ready|install-status|install-resume}"
         )
         sys.exit(1)
 
