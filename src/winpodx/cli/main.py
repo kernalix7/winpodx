@@ -153,6 +153,12 @@ def cli(argv: list[str] | None = None) -> None:
         help="Tail container logs while waiting so the user sees Windows boot progress.",
     )
 
+    from winpodx.cli.pod_install_resume import add_subcommand as add_install_resume
+    from winpodx.cli.pod_install_status import add_subcommand as add_install_status
+
+    add_install_status(pod_sub)
+    add_install_resume(pod_sub)
+
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")
     cfg_sub = cfg_parser.add_subparsers(dest="config_command")

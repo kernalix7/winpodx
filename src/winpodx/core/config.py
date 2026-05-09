@@ -1,4 +1,10 @@
-"""Configuration management for winpodx."""
+"""Configuration management for winpodx.
+
+Persists ``[rdp]``, ``[pod]``, ``[reverse_open]``, and ``[install]``
+sections to ``$XDG_CONFIG_HOME/winpodx/winpodx.toml``. The ``[install]``
+section drives the agent-first install flow (see
+``docs/design/AGENT_FIRST_INSTALL_DESIGN.md``).
+"""
 
 from __future__ import annotations
 
@@ -147,10 +153,63 @@ class PodConfig:
 
 
 @dataclass
+class InstallConfig:
+    """Agent-first install flow tuning (see AGENT_FIRST_INSTALL_DESIGN.md)."""
+
+    # Phase 1-3 ships with this False (legacy install path is the
+    # default); Phase 4 flips the default to True. Persisted absence in
+    # an existing TOML reads as False, so the rollout is opt-in until
+    # the default flips.
+    agent_first: bool = False
+    # Stage 2 of host-side wait-ready: agent /health 200 OK.
+    # Default 15min covers the slowest healthy case (HDD ext4, Pi 5
+    # aarch64) per the design doc's hardware matrix.
+    wait_ready_stage2_secs: int = 900
+    # Stage 3: install_complete.done present (read via agent /exec).
+    # Default 30min covers the long tail (HDD btrfs pre-NoCoW).
+    wait_ready_stage3_secs: int = 1800
+    # On `winpodx app run`, auto-trigger install-resume if a previous
+    # install left install_failure.json behind. Disable to require an
+    # explicit `winpodx pod install-resume` for diagnostics.
+    auto_resume: bool = True
+    # In-process watchdog inside install.bat: how many times to respawn
+    # a dead agent before giving up and writing install_failure.json.
+    watchdog_max_respawns: int = 3
+    # Watchdog probe debounce: how many consecutive failed /health
+    # probes before declaring the agent dead and respawning.
+    watchdog_probe_debounce_count: int = 2
+    # Backoff (seconds) between debounced probe attempts. Length should
+    # equal watchdog_probe_debounce_count; the first delay is between
+    # probe 1 and 2, etc. List is consumed positionally.
+    watchdog_probe_debounce_secs: list[int] = field(default_factory=lambda: [2, 5])
+
+    def __post_init__(self) -> None:
+        # Defensive coercion only — never raise on a hand-edited TOML.
+        # The install flow has to be the path that recovers a broken
+        # config, so we clamp to safe defaults instead of bailing out.
+        self.agent_first = bool(self.agent_first)
+        self.auto_resume = bool(self.auto_resume)
+        self.wait_ready_stage2_secs = _clamp_int(
+            self.wait_ready_stage2_secs, lo=60, hi=14400, fallback=900
+        )
+        self.wait_ready_stage3_secs = _clamp_int(
+            self.wait_ready_stage3_secs, lo=60, hi=14400, fallback=1800
+        )
+        self.watchdog_max_respawns = _clamp_int(self.watchdog_max_respawns, lo=0, hi=20, fallback=3)
+        self.watchdog_probe_debounce_count = _clamp_int(
+            self.watchdog_probe_debounce_count, lo=1, hi=10, fallback=2
+        )
+        self.watchdog_probe_debounce_secs = _coerce_positive_int_list(
+            self.watchdog_probe_debounce_secs, default=[2, 5]
+        )
+
+
+@dataclass
 class Config:
     rdp: RDPConfig = field(default_factory=RDPConfig)
     pod: PodConfig = field(default_factory=PodConfig)
     reverse_open: ReverseOpenConfig = field(default_factory=ReverseOpenConfig)
+    install: InstallConfig = field(default_factory=InstallConfig)
 
     @classmethod
     def path(cls) -> Path:
@@ -175,9 +234,11 @@ class Config:
         _apply(cfg.rdp, data.get("rdp", {}))
         _apply(cfg.pod, data.get("pod", {}))
         _apply(cfg.reverse_open, data.get("reverse_open", {}))
+        _apply(cfg.install, data.get("install", {}))
         cfg.rdp.__post_init__()
         cfg.pod.__post_init__()
         cfg.reverse_open.__post_init__()
+        cfg.install.__post_init__()
         return cfg
 
     def save(self) -> None:
@@ -225,6 +286,15 @@ class Config:
                 "last_synced_at": self.reverse_open.last_synced_at,
                 "deny_dangerous": self.reverse_open.deny_dangerous,
             },
+            "install": {
+                "agent_first": self.install.agent_first,
+                "wait_ready_stage2_secs": self.install.wait_ready_stage2_secs,
+                "wait_ready_stage3_secs": self.install.wait_ready_stage3_secs,
+                "auto_resume": self.install.auto_resume,
+                "watchdog_max_respawns": self.install.watchdog_max_respawns,
+                "watchdog_probe_debounce_count": self.install.watchdog_probe_debounce_count,
+                "watchdog_probe_debounce_secs": list(self.install.watchdog_probe_debounce_secs),
+            },
         }
 
         # Atomic write: create temp file with 0600, fsync, then rename.
@@ -254,6 +324,43 @@ class Config:
                 os.close(fd)
             Path(tmp_path).unlink(missing_ok=True)
             raise
+
+
+def _clamp_int(value: Any, *, lo: int, hi: int, fallback: int) -> int:
+    """Coerce ``value`` to an int clamped to ``[lo, hi]``.
+
+    A hand-edited TOML string (``"30"``) coerces; anything not
+    convertible falls back to ``fallback`` (which is then itself
+    clamped, so a misuse of this helper still returns a sane value).
+    """
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError):
+        ivalue = fallback
+    return max(lo, min(hi, ivalue))
+
+
+def _coerce_positive_int_list(value: Any, *, default: list[int]) -> list[int]:
+    """Coerce ``value`` to a list of positive ints.
+
+    Returns a copy of ``default`` if ``value`` is not a list, is
+    empty, or contains any element that cannot be coerced to a
+    positive int. The list is fully validated rather than partially
+    repaired so a watchdog backoff schedule is either entirely the
+    config-supplied one or entirely the default.
+    """
+    if not isinstance(value, list) or not value:
+        return list(default)
+    out: list[int] = []
+    for elem in value:
+        try:
+            ielem = int(elem)
+        except (TypeError, ValueError):
+            return list(default)
+        if ielem <= 0:
+            return list(default)
+        out.append(ielem)
+    return out
 
 
 def _sanitise_storage_path(value: Any) -> str:
