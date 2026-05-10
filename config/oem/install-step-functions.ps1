@@ -350,15 +350,44 @@ function Invoke-Step-token_staged {
             # readable to BUILTIN\Users for the ~60-90s window between
             # Phase 0 (Defender exclusion) and this step. Tightening the
             # source first ensures no other user (or background process)
-            # can read the token while we're staging it. Grant the
-            # auto-logon user (R,W) -- NOT bare R -- because Phase 3
-            # later zeroes this same file via [IO.File]::WriteAllBytes
-            # before deletion. Read-only would make the zero-write throw
-            # UnauthorizedAccessException, the post-condition would fail,
-            # and every install would end in install_failure.json.
-            # (security review #12 / re-review #18)
-            & icacls.exe $script:WpxAgentTokenSrc /inheritance:r 2>&1 | Out-Null
-            & icacls.exe $script:WpxAgentTokenSrc /grant:r ("${user}:(R,W)") 2>&1 | Out-Null
+            # can read the token while we're staging it. Grant SYSTEM,
+            # Administrators, and the current user (R,W) -- NOT bare R --
+            # because Phase 3 later zeroes this same file via
+            # [IO.File]::WriteAllBytes before deletion. Read-only would
+            # make the zero-write throw UnauthorizedAccessException, the
+            # post-condition would fail, and every install would end in
+            # install_failure.json. (security review #12 / re-review #18)
+            #
+            # SYSTEM (S-1-5-18) and BUILTIN\Administrators (S-1-5-32-544)
+            # are pinned by SID rather than name to survive locale
+            # differences (Korean / Japanese / German Windows translates
+            # the canonical names). Including SYSTEM is required because
+            # /inheritance:r removes the inherited SYSTEM ACE, and
+            # install.bat may run under a service principal that needs
+            # SYSTEM-equivalent access. Including Administrators keeps
+            # the file recoverable for support / debugging.
+            #
+            # icacls failures must NOT be silently swallowed: if the
+            # /inheritance:r succeeds but /grant fails, the file becomes
+            # unreadable to everyone (the actual production failure mode
+            # from the first agent-first install attempt). Both calls
+            # check $LASTEXITCODE and abort the step with a logged error.
+            $icaclsArgs = @(
+                $script:WpxAgentTokenSrc, '/inheritance:r',
+                '/grant:r', '*S-1-5-18:(R,W)',
+                '/grant:r', '*S-1-5-32-544:(R,W)',
+                '/grant:r', "${user}:(R,W)"
+            )
+            $icaclsOut = & icacls.exe @icaclsArgs 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-WinpodxLog -Level 'ERROR' -Step 'token_staged' `
+                    -Event 'icacls_src_failed' -Extra @{
+                        rc = $LASTEXITCODE
+                        output = ("$icaclsOut" | Out-String).Trim()
+                        principal = $user
+                    }
+                return 1
+            }
 
             $dstDir = Split-Path -Parent $script:WpxAgentTokenDst
             if (-not (Test-Path -LiteralPath $dstDir)) {
@@ -367,12 +396,26 @@ function Invoke-Step-token_staged {
             Copy-Item -LiteralPath $script:WpxAgentTokenSrc `
                 -Destination $script:WpxAgentTokenDst -Force
 
-            # User-only ACL on the dst: remove inherited, grant current
-            # user R+W, deny everyone else implicitly. icacls is more
-            # reliable than PS Acl APIs against Windows's odd default
-            # DACLs on copies.
-            & icacls.exe $script:WpxAgentTokenDst /inheritance:r 2>&1 | Out-Null
-            & icacls.exe $script:WpxAgentTokenDst /grant:r ("${user}:(R,W)") 2>&1 | Out-Null
+            # Same hardened ACL on the dst: SYSTEM + Administrators +
+            # current user, no inheritance. icacls is more reliable
+            # than PS Acl APIs against Windows's odd default DACLs on
+            # copies.
+            $icaclsDstArgs = @(
+                $script:WpxAgentTokenDst, '/inheritance:r',
+                '/grant:r', '*S-1-5-18:(R,W)',
+                '/grant:r', '*S-1-5-32-544:(R,W)',
+                '/grant:r', "${user}:(R,W)"
+            )
+            $icaclsDstOut = & icacls.exe @icaclsDstArgs 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-WinpodxLog -Level 'ERROR' -Step 'token_staged' `
+                    -Event 'icacls_dst_failed' -Extra @{
+                        rc = $LASTEXITCODE
+                        output = ("$icaclsDstOut" | Out-String).Trim()
+                        principal = $user
+                    }
+                return 1
+            }
             return 0
         }
 }
@@ -849,12 +892,29 @@ function Invoke-Step-install_complete {
             $newToken = [Convert]::ToBase64String($bytes)
             $rng.Dispose()
 
-            # Write new token to staged location with User-only ACL.
+            # Write new token to staged location with hardened ACL
+            # (SYSTEM + Administrators + current user). See Phase 0.6
+            # for the SID/locale rationale and the silent-failure bug
+            # this guards against.
             Set-Content -LiteralPath $script:WpxAgentTokenDst -Value $newToken -Encoding ASCII -NoNewline
             $user = "$env:USERDOMAIN\$env:USERNAME"
             if (-not $env:USERDOMAIN) { $user = $env:USERNAME }
-            & icacls.exe $script:WpxAgentTokenDst /inheritance:r 2>&1 | Out-Null
-            & icacls.exe $script:WpxAgentTokenDst /grant:r ("${user}:(R,W)") 2>&1 | Out-Null
+            $icaclsRotateArgs = @(
+                $script:WpxAgentTokenDst, '/inheritance:r',
+                '/grant:r', '*S-1-5-18:(R,W)',
+                '/grant:r', '*S-1-5-32-544:(R,W)',
+                '/grant:r', "${user}:(R,W)"
+            )
+            $icaclsRotateOut = & icacls.exe @icaclsRotateArgs 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-WinpodxLog -Level 'ERROR' -Step 'install_complete' `
+                    -Event 'icacls_dst_failed' -Extra @{
+                        rc = $LASTEXITCODE
+                        output = ("$icaclsRotateOut" | Out-String).Trim()
+                        principal = $user
+                    }
+                return 1
+            }
 
             # Zero + delete the OEM-source token. Failure here is
             # propagated up -- the post-condition will catch it, the

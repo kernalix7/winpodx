@@ -90,31 +90,74 @@ def test_step_functions_phase3_hardens_oem_token_cleanup() -> None:
 
 def test_step_functions_phase06_tightens_oem_source_acl() -> None:
     """Security review #12: Phase 0.6 must tighten the ACL on the
-    OEM-source token BEFORE reading. Look for an icacls call on
-    WpxAgentTokenSrc inside the token_staged body."""
+    OEM-source token BEFORE reading. Look for /inheritance:r on
+    WpxAgentTokenSrc inside the token_staged body's icacls splat."""
     text = STEP_FUNCTIONS.read_text(encoding="utf-8")
-    assert "icacls.exe $script:WpxAgentTokenSrc /inheritance:r" in text
+    # Locate the token_staged body and require the splat to reference both
+    # WpxAgentTokenSrc and /inheritance:r (multi-line splat form).
+    body_start = text.index("function Invoke-Step-token_staged")
+    body_end = text.index("# --- Phase 1: agent_ready", body_start)
+    body = text[body_start:body_end]
+    assert "$script:WpxAgentTokenSrc" in body
+    assert "/inheritance:r" in body
 
 
 def test_step_functions_phase06_grants_rw_not_bare_r_on_oem_source() -> None:
     """Security review #18 (re-review BLOCKER): the OEM-source ACL grant
     must be (R,W), not bare R. Phase 3 install_complete zeroes this same
     file via [IO.File]::WriteAllBytes before deletion; a read-only ACL
-    here would throw UnauthorizedAccessException at zero-write time,
-    fail the hard post-condition, and force every install into
-    install_failure.json with error_class=install_complete_failed.
-
-    Pin the (R,W) form on the WpxAgentTokenSrc grant line so the next
-    refactor can't accidentally drop the W."""
+    here would throw UnauthorizedAccessException at zero-write time."""
     text = STEP_FUNCTIONS.read_text(encoding="utf-8")
-    src_grant_line = next(
-        ln for ln in text.splitlines()
-        if "icacls.exe $script:WpxAgentTokenSrc /grant:r" in ln
-    )
-    assert "(R,W)" in src_grant_line, (
+    body_start = text.index("function Invoke-Step-token_staged")
+    body_end = text.index("# --- Phase 1: agent_ready", body_start)
+    body = text[body_start:body_end]
+    # Splat form: a /grant:r line followed by ${user}:(R,W) on the next line.
+    assert '${user}:(R,W)' in body, (
         "Phase 0.6 OEM-source grant lost W permission -- Phase 3 zero-write "
         "will throw UnauthorizedAccessException. See security review #18."
     )
+
+
+def test_step_functions_phase06_grants_system_and_admins_by_sid() -> None:
+    """Production smoke test (2026-05-10): /inheritance:r removes
+    inherited ACEs for SYSTEM and Administrators too. If the /grant
+    only targets the auto-logon user and that grant fails (icacls error
+    swallowed by 2>&1 | Out-Null), the file becomes unreadable to
+    everyone -- the actual failure mode observed on the first
+    agent-first install.
+
+    Pin the SYSTEM SID and Administrators SID in the grant chain so a
+    refactor can't drop them. Use SIDs (not names) to survive locale
+    differences (Korean / Japanese / German Windows translates the
+    canonical names)."""
+    text = STEP_FUNCTIONS.read_text(encoding="utf-8")
+    body_start = text.index("function Invoke-Step-token_staged")
+    body_end = text.index("# --- Phase 1: agent_ready", body_start)
+    body = text[body_start:body_end]
+    assert "*S-1-5-18:(R,W)" in body, "SYSTEM SID grant missing in token_staged"
+    assert "*S-1-5-32-544:(R,W)" in body, (
+        "Administrators SID grant missing in token_staged"
+    )
+
+
+def test_step_functions_phase06_checks_lastexitcode_on_icacls() -> None:
+    """Production smoke test (2026-05-10): the original code piped icacls
+    stderr into Out-Null and never checked $LASTEXITCODE. When the grant
+    silently failed, the script proceeded with a now-unreadable file and
+    Copy-Item threw "Access is denied" downstream, with no diagnostic
+    trail. Pin the LASTEXITCODE check so any refactor that drops it
+    fails this test."""
+    text = STEP_FUNCTIONS.read_text(encoding="utf-8")
+    body_start = text.index("function Invoke-Step-token_staged")
+    body_end = text.index("# --- Phase 1: agent_ready", body_start)
+    body = text[body_start:body_end]
+    assert "$LASTEXITCODE -ne 0" in body, (
+        "token_staged must check $LASTEXITCODE on icacls -- silent failure "
+        "regression from 2026-05-10 first-install attempt."
+    )
+    # And the failure path must log + return 1, not warn-and-continue.
+    assert "icacls_src_failed" in body
+    assert "icacls_dst_failed" in body
 
 
 def test_watchdog_branches_on_install_complete_marker() -> None:
