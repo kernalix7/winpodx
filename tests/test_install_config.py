@@ -11,7 +11,7 @@ from winpodx.core.config import Config, InstallConfig
 
 def test_install_config_defaults():
     cfg = InstallConfig()
-    assert cfg.agent_first is False
+    assert cfg.agent_first is True
     assert cfg.wait_ready_stage2_secs == 900
     assert cfg.wait_ready_stage3_secs == 1800
     assert cfg.auto_resume is True
@@ -23,7 +23,7 @@ def test_install_config_defaults():
 def test_config_includes_install_section():
     cfg = Config()
     assert isinstance(cfg.install, InstallConfig)
-    assert cfg.install.agent_first is False
+    assert cfg.install.agent_first is True
 
 
 # --- bool coercion ------------------------------------------------------------
@@ -115,7 +115,7 @@ def test_config_load_with_no_install_section_uses_defaults(tmp_path, monkeypatch
 
     loaded = Config.load()
     assert loaded.rdp.user == "alice"
-    assert loaded.install.agent_first is False
+    assert loaded.install.agent_first is True
     assert loaded.install.wait_ready_stage2_secs == 900
     assert loaded.install.watchdog_probe_debounce_secs == [2, 5]
 

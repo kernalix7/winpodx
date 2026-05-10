@@ -156,11 +156,11 @@ class PodConfig:
 class InstallConfig:
     """Agent-first install flow tuning (see AGENT_FIRST_INSTALL_DESIGN.md)."""
 
-    # Phase 1-3 ships with this False (legacy install path is the
-    # default); Phase 4 flips the default to True. Persisted absence in
-    # an existing TOML reads as False, so the rollout is opt-in until
-    # the default flips.
-    agent_first: bool = False
+    # Phase 4 flip: agent-first install path is now the default.
+    # Existing TOML files without an [install] section automatically
+    # opt in. Set explicitly to false to fall back to the legacy
+    # OEM install path.
+    agent_first: bool = True
     # Stage 2 of host-side wait-ready: agent /health 200 OK.
     # Default 15min covers the slowest healthy case (HDD ext4, Pi 5
     # aarch64) per the design doc's hardware matrix.
