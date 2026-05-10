@@ -580,13 +580,25 @@ function Invoke-WinpodxAgentStep {
         -Body {
             $r = Invoke-WinpodxAgentExec -Script $BodyScript -TimeoutSec $TimeoutSec
             if (-not $r.ok) {
+                # Capture both streams. Phase 2 step bodies use
+                # Write-Output (stdout) for diagnostic messages; logging
+                # only stderr was a black hole (see smoke test
+                # 2026-05-10: rdprrap_installed surfaced 'pin_incomplete'
+                # via stdout but install.log showed empty stderr only).
                 Write-WinpodxLog -Level 'ERROR' -Step $Name -Event 'agent_exec_failed' `
-                    -Extra @{ stderr = $r.stderr }
+                    -Extra @{
+                        stdout = ("$($r.stdout)" | Out-String).Trim()
+                        stderr = ("$($r.stderr)" | Out-String).Trim()
+                    }
                 return 1
             }
             if ($r.rc -ne 0) {
                 Write-WinpodxLog -Level 'ERROR' -Step $Name -Event 'agent_exec_nonzero' `
-                    -Extra @{ rc = $r.rc; stderr = $r.stderr }
+                    -Extra @{
+                        rc = $r.rc
+                        stdout = ("$($r.stdout)" | Out-String).Trim()
+                        stderr = ("$($r.stderr)" | Out-String).Trim()
+                    }
                 return $r.rc
             }
             return 0
@@ -607,10 +619,23 @@ $pin = 'C:\OEM\rdprrap_version.txt'
 if (-not (Test-Path -LiteralPath $pin)) { Write-Output 'pin_missing'; exit 1 }
 $cfg = @{}
 foreach ($line in Get-Content -LiteralPath $pin) {
-    if ($line -match '^(?<k>[a-zA-Z_]+)=(?<v>.+)$') { $cfg[$matches.k] = $matches.v.Trim() }
+    # Key pattern is [\w]+ (letters/digits/underscore) -- not just
+    # letters. The earlier [a-zA-Z_]+ pattern silently dropped the
+    # `sha256=` line because `256` isn't in the letter-only group, so
+    # $cfg.sha256 stayed null and the script bailed with 'pin_incomplete'
+    # on every install. Smoke test 2026-05-10 caught this on first
+    # real-Windows attempt with agent-first.
+    if ($line -match '^(?<k>\w+)=(?<v>.+)$') { $cfg[$matches.k] = $matches.v.Trim() }
 }
 $ver = $cfg.version; $name = $cfg.filename; $sha = $cfg.sha256
-if (-not $ver -or -not $name -or -not $sha) { Write-Output 'pin_incomplete'; exit 1 }
+if (-not $ver -or -not $name -or -not $sha) {
+    $missing = @()
+    if (-not $ver)  { $missing += 'version' }
+    if (-not $name) { $missing += 'filename' }
+    if (-not $sha)  { $missing += 'sha256' }
+    Write-Output ("pin_incomplete:missing=" + ($missing -join ','))
+    exit 1
+}
 $src = "C:\OEM\$name"
 if (-not (Test-Path -LiteralPath $src)) { Write-Output 'bundle_missing'; exit 1 }
 $got = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash

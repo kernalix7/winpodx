@@ -118,6 +118,51 @@ def test_step_functions_phase06_grants_rw_not_bare_r_on_oem_source() -> None:
     )
 
 
+def test_step_functions_rdprrap_pin_regex_accepts_digits() -> None:
+    """Smoke test 2026-05-10: the pin-file parser used `[a-zA-Z_]+` for
+    key names, which silently dropped the `sha256=` line (`256` is not
+    in the letter-only group). $cfg.sha256 stayed null, the body wrote
+    'pin_incomplete' to stdout (not stderr), and the orchestrator-side
+    log only captured stderr -- so the diagnostic was invisible.
+
+    Pin the digit-tolerant pattern (`\\w+` or `[a-zA-Z0-9_]+`) so this
+    can't regress."""
+    text = STEP_FUNCTIONS.read_text(encoding="utf-8")
+    rdprrap_start = text.index("# --- Phase 2: rdprrap_installed")
+    rdprrap_end = text.index("# --- Phase 2: vbs_launchers", rdprrap_start)
+    body = text[rdprrap_start:rdprrap_end]
+    # Either \w+ or [a-zA-Z0-9_]+ is acceptable; bare [a-zA-Z_]+ is not.
+    assert "[a-zA-Z_]+)=" not in body, (
+        "rdprrap pin regex regressed to letter-only key pattern -- sha256= "
+        "line will silently drop, breaking every install with "
+        "'pin_incomplete'."
+    )
+
+
+def test_step_functions_agent_exec_logs_stdout_on_failure() -> None:
+    """Smoke test 2026-05-10: Invoke-WinpodxAgentStep originally logged
+    only stderr on failure paths, but Phase 2 step bodies use
+    Write-Output (stdout) for their diagnostic messages. The
+    rdprrap_installed regression surfaced 'pin_incomplete:...' via
+    stdout but install.log showed empty stderr only -- root cause took
+    a manual VNC repro to find.
+
+    Pin both stdout and stderr in the agent_exec_failed and
+    agent_exec_nonzero log paths so a refactor can't drop either."""
+    text = STEP_FUNCTIONS.read_text(encoding="utf-8")
+    factory_start = text.index("function Invoke-WinpodxAgentStep")
+    factory_end = text.index("# --- Phase 2: rdprrap_installed", factory_start)
+    factory = text[factory_start:factory_end]
+    # Both event names must capture both streams.
+    for event in ("agent_exec_failed", "agent_exec_nonzero"):
+        chunk_start = factory.index(f"'{event}'")
+        # Take a 400-char window after the event name to span the -Extra
+        # hashtable.
+        window = factory[chunk_start:chunk_start + 400]
+        assert "stdout" in window, f"{event} log missing stdout capture"
+        assert "stderr" in window, f"{event} log missing stderr capture"
+
+
 def test_step_functions_phase06_grants_system_and_admins_by_sid() -> None:
     """Production smoke test (2026-05-10): /inheritance:r removes
     inherited ACEs for SYSTEM and Administrators too. If the /grant
