@@ -40,19 +40,30 @@ libvirt = [
 docker = [
     "docker>=7.0,<8.0",
 ]
+# Reverse-open (#48) icon conversion. Pillow handles raster (PNG/XPM)
+# → multi-resolution ICO; cairosvg handles SVG → PNG; pyxdg drives the
+# freedesktop icon-theme lookup. Without this extra installed, the
+# discovery layer still works but ICO conversion falls back to a
+# logged warning + no file written.
+reverse-open = [
+    "Pillow>=10.0,<12.0",
+    "cairosvg>=2.7,<3.0",
+    "pyxdg>=0.27,<1.0",
+]
 dev = [
     "pytest>=7.0,<9.0",
     "ruff>=0.4,<1.0",
     "pip-audit>=2.7",
+    "Pillow>=10.0,<12.0",
 ]
 all = [
-    "winpodx[gui,libvirt,docker,dev]",
+    "winpodx[gui,libvirt,docker,reverse-open,dev]",
 ]
 # Same as `all` but without libvirt-python, which requires libvirt-dev system
 # headers to build from source. Use this for CI, docs builds, and minimal
 # environments (Debian slim, Alpine, Flatpak) where libvirt-dev is unavailable.
 all-no-libvirt = [
-    "winpodx[gui,docker,dev]",
+    "winpodx[gui,docker,reverse-open,dev]",
 ]
 
 [project.scripts]

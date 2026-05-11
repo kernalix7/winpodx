@@ -9,6 +9,9 @@
 
 ## [Unreleased]
 
+### 추가
+- **Reverse-open Phase 2a — host 쪽 `.desktop` discovery, ICO 변환, `winpodx host-open` CLI.** Phase 1 의 dormant foundations 를 host-only 사용 가능한 흐름으로 끌어올림. 새 `winpodx host-open refresh` 명령이 `xdg-open` 처럼 `$XDG_DATA_HOME/applications` + `$XDG_DATA_DIRS` 를 walk, 기존 `cfg.reverse_open` 의 allow / denylist 적용, freedesktop 아이콘을 16/24/32/48/64/128/256 px Windows `.ico` 로 변환 (raster 는 Pillow, SVG 는 cairosvg → svglib fallback, 둘 다 없으면 generic placeholder), `~/.local/share/winpodx/reverse-open/` 에 `apps.json` manifest 를 stage — Phase 2b 의 sync layer 가 guest 로 push 할 준비. Discovery 는 input 을 강하게 검증 — `Exec=` 라인의 shell metacharacter 거부, Wine / winapps / winpodx wrapper 제거 (재귀 방어), `Hidden` / `NoDisplay` / `OnlyShowIn` / `NotShowIn` 존중, `TryExec=` 검증, `mimeapps.list` 의 user default 표시. 그래서 `~/.local/share/applications/` 의 악성 `.desktop` 이 staged manifest 를 통해 Phase 2b 의 spawn 경로로 shell 명령을 smuggling 할 수 없음. CLI 는 또한 `status`, `list` (live-scan 또는 `--cached`), `enable` / `disable`, `add` / `remove` (allow / denylist 관리, `--deny` 토글 + slug-shape 검증) 도 노출. 새 optional extra `winpodx[reverse-open]` 가 `Pillow`, `cairosvg`, `pyxdg` 를 가져옴; 없으면 `host-open refresh` 가 여전히 manifest 는 만들지만 앱당 placeholder ICO 를 쓰고 경고 로깅. +60 tests across `test_reverse_open_discovery.py` (25), `test_reverse_open_icons.py` (14), `test_cli_host_open.py` (21). Phase 2b (inotify listener + `lifecycle` daemon + agent `/reverse-open/sync` endpoint), Phase 2c (Go shim + guest 쪽 `register-apps.ps1` / `unregister-apps.ps1`), Phase 2d (GUI Settings card) 는 deferred. References #48.
+
 ## [0.4.4] - 2026-05-10
 
 패치 릴리스. v0.4.3 에서 의도치 않게 buffered 됐던 `pod wait-ready --logs` 실시간 출력 복구 + half-uninstalled 자동 복구 + cachyos rotation/sync-password agent-first 우선 + codec flag allowlist 정정 + `--extra-args` escape hatch + btrfs warning suppression + agent-first install / reverse-open 의 dormant Phase 1 foundations.

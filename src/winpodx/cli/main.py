@@ -259,6 +259,11 @@ def cli(argv: list[str] | None = None) -> None:
         help="Disable all prompts (for automation / CI)",
     )
 
+    # --- host-open (reverse file associations, #48) ---
+    from winpodx.cli.host_open import add_subcommand as add_host_open
+
+    add_host_open(sub)
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -321,6 +326,10 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.migrate import run_migrate
 
         sys.exit(run_migrate(args))
+    elif cmd == "host-open":
+        from winpodx.cli.host_open import handle as handle_host_open
+
+        sys.exit(handle_host_open(args))
 
 
 def _cmd_info() -> None:
