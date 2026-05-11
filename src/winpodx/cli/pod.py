@@ -74,6 +74,42 @@ def _start(wait: bool, timeout: int) -> None:
         print(f"Failed to start pod: {status.error}", file=sys.stderr)
         sys.exit(1)
 
+    # Start the reverse-open listener daemon if the feature is on. The
+    # listener watches a host directory for guest-written request files
+    # (the FreeRDP drive redirect exposes ~/.local/share/winpodx/
+    # reverse-open/incoming/ to the guest), so it can be useful even
+    # before the guest comes up. Lifecycle.start_listener is idempotent
+    # — if it's already running we just log that and move on.
+    _maybe_start_reverse_open_listener(cfg)
+
+
+def _maybe_start_reverse_open_listener(cfg) -> None:  # type: ignore[no-untyped-def]
+    if not getattr(cfg.reverse_open, "enabled", False):
+        return
+    try:
+        from winpodx.cli.host_open import (
+            _apps_json,
+            _listener_config,
+            _seen_uuids_path,
+        )
+        from winpodx.reverse_open.lifecycle import (
+            ListenerStartFailed,
+            is_listener_running,
+            start_listener,
+        )
+    except Exception:  # noqa: BLE001 — import surface should never break pod start
+        return
+    if is_listener_running() is not None:
+        return
+    listener_cfg = _listener_config(cfg)
+    try:
+        listener_cfg.incoming_dir.mkdir(parents=True, exist_ok=True)
+        listener_cfg.incoming_dir.chmod(0o700)
+        pid = start_listener(listener_cfg, _apps_json(), _seen_uuids_path())
+        print(f"  reverse-open listener: started (pid {pid})")
+    except (ListenerStartFailed, OSError) as exc:
+        print(f"  reverse-open listener: start failed ({exc})", file=sys.stderr)
+
 
 def _stop() -> None:
     from winpodx.core.config import Config
@@ -89,6 +125,17 @@ def _stop() -> None:
         answer = input("Stop pod anyway? (y/N): ").strip().lower()
         if answer not in ("y", "yes"):
             return
+
+    # Tear down the reverse-open listener BEFORE the pod itself —
+    # the listener is per-pod (spawns guest apps on the host) and
+    # has nothing to do once the pod is gone.
+    try:
+        from winpodx.reverse_open.lifecycle import stop_listener
+
+        if stop_listener():
+            print("Reverse-open listener stopped.")
+    except Exception:  # noqa: BLE001
+        pass
 
     print("Stopping pod...")
     stop_pod(cfg)

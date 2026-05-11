@@ -230,6 +230,29 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     # it up to AppsDatabase.load().
     daemon_reloaded = reload_apps_db()
 
+    # Push to the guest if the agent is reachable. The sync runs the
+    # guest-side register-apps.ps1 which writes the Windows registry
+    # entries that surface our slugs in Explorer's "Open with…" menu.
+    # Agent unreachable is normal during pre-install / pod-down states
+    # — we record the failure shape in the summary and the user can
+    # re-run refresh once the pod is up.
+    sync_pushed_apps: int | None = None
+    sync_pushed_icons: int | None = None
+    sync_error: str | None = None
+    if cfg.reverse_open.enabled:
+        try:
+            from winpodx.reverse_open.sync import SyncError, sync_to_guest
+
+            result = sync_to_guest(cfg, _reverse_open_dir())
+            sync_pushed_apps = result.pushed_apps
+            sync_pushed_icons = result.pushed_icons
+            cfg.reverse_open.last_synced_at = _now_iso()
+            cfg.save()
+        except SyncError as exc:
+            sync_error = f"guest register failed: {exc}"
+        except Exception as exc:  # noqa: BLE001 — surface to user, don't crash
+            sync_error = f"agent unreachable or error: {exc.__class__.__name__}"
+
     if args.json:
         out = {
             "discovered": len(apps),
@@ -239,6 +262,9 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
             "icons_placeholder": sum(1 for ok in icon_results.values() if not ok),
             "apps_json": str(apps_json_path),
             "daemon_reloaded": daemon_reloaded,
+            "sync_pushed_apps": sync_pushed_apps,
+            "sync_pushed_icons": sync_pushed_icons,
+            "sync_error": sync_error,
         }
         json.dump(out, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")
@@ -253,7 +279,14 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         print(f"  Manifest: {apps_json_path}")
         if daemon_reloaded:
             print("  Daemon: SIGHUP sent; new manifest loaded.")
-        if not cfg.reverse_open.enabled:
+        if sync_pushed_apps is not None:
+            print(
+                f"  Guest sync: pushed {sync_pushed_apps} app(s) "
+                f"+ {sync_pushed_icons} icon(s) → registered."
+            )
+        elif sync_error is not None:
+            print(f"  Guest sync: skipped ({sync_error})")
+        elif not cfg.reverse_open.enabled:
             print("  Note: reverse-open is disabled; run `winpodx host-open enable` to activate.")
     return 0
 

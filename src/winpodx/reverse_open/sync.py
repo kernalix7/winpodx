@@ -1,0 +1,310 @@
+"""Push the host-staged manifest + icons into the Windows guest.
+
+Pairs with the guest-side :file:`config/oem/reverse-open/
+register-apps.ps1` (staged into ``C:\\OEM\\reverse-open\\``
+automatically by dockur's autounattend OEM copy). The sync flow:
+
+1. Read ``apps.json`` + every ``icons/<slug>.ico`` from the local
+   stage dir (under :func:`winpodx.utils.paths.data_dir`).
+2. Build a single PowerShell snippet that base64-decodes each blob
+   into a file under ``C:\\Users\\Public\\winpodx\\reverse-open\\``,
+   then invokes ``C:\\OEM\\reverse-open\\register-apps.ps1`` against
+   those paths.
+3. Send the snippet over the existing :class:`AgentClient.exec`
+   transport.
+
+Why /exec rather than a dedicated agent endpoint: ``agent.ps1``
+already implements bearer-auth POST /exec for arbitrary PowerShell;
+adding a new endpoint for the file-blob transfer would duplicate the
+auth + body-handling code with no functional gain. /exec's 60-second
+default timeout is bumped to 180 s here to cover the worst case of
+~50 apps with ICOs (each ICO is ~30 KB; the encoded payload is well
+under the agent's 64 KB body cap per request — total snippet stays
+within ~3 MB even with that many apps).
+
+Failure modes (caller decides how to surface):
+
+- :class:`AgentUnavailableError` — guest not up or network gone;
+  the local stage still landed, so a later sync will pick it up.
+- :class:`AgentAuthError` — token drift between host and guest;
+  ``winpodx pod sync-password`` is the user's recovery handle.
+- :class:`SyncError` — guest-side register-apps.ps1 failed; the
+  result includes the snippet's stdout + stderr for triage.
+
+This module does NOT touch :class:`Config` directly. The CLI layer
+is responsible for updating ``cfg.reverse_open.last_synced_at`` on
+success.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+
+from winpodx.core.agent import AgentClient, AgentError
+from winpodx.core.config import Config
+from winpodx.utils.paths import bundle_dir
+
+logger = logging.getLogger(__name__)
+
+
+# Where the synced payload lands on the guest. Public-readable so the
+# user's RDP session can run register-apps.ps1 without elevation;
+# winpodx-<slug> registry entries land in HKCU which is per-user and
+# doesn't require admin. See config/oem/reverse-open/register-apps.ps1
+# for the registry shape.
+_GUEST_BASE = r"C:\Users\Public\winpodx\reverse-open"
+_GUEST_APPS_JSON = _GUEST_BASE + r"\apps.json"
+_GUEST_ICONS_DIR = _GUEST_BASE + r"\icons"
+_GUEST_SHIM_DIR = _GUEST_BASE + r"\shim"
+_GUEST_SHIM_PS1 = _GUEST_SHIM_DIR + r"\winpodx-reverse-open-shim.ps1"
+_GUEST_REGISTER_PS1 = _GUEST_BASE + r"\register-apps.ps1"
+_GUEST_UNREGISTER_PS1 = _GUEST_BASE + r"\unregister-apps.ps1"
+
+# Names of the three PowerShell scripts we push from the host
+# bundle. Locating them at bundle_dir() means the sync layer works
+# regardless of install mode (source checkout, wheel install, FHS
+# install, curl|bash drop) without ever depending on dockur having
+# staged the OEM bundle first — which matters for upgrading existing
+# pods where the OEM dir is frozen from an older release.
+_HOST_BUNDLE_SUBDIR = ("config", "oem", "reverse-open")
+_HOST_SCRIPTS: dict[str, tuple[str, ...]] = {
+    "register": ("register-apps.ps1",),
+    "unregister": ("unregister-apps.ps1",),
+    "shim": ("shim", "winpodx-reverse-open-shim.ps1"),
+}
+
+# Agent /exec default is 60s; bumped for the sync payload because the
+# guest also runs register-apps.ps1 which iterates per-app + writes
+# registry per ext. Empirically ~30s for 50 apps; double that as headroom.
+_SYNC_TIMEOUT_SEC = 180
+
+
+@dataclass
+class SyncResult:
+    """Outcome from one :func:`sync_to_guest` call."""
+
+    pushed_apps: int
+    pushed_icons: int
+    rc: int
+    stdout: str
+    stderr: str
+
+    @property
+    def ok(self) -> bool:
+        return self.rc == 0
+
+
+class SyncError(RuntimeError):
+    """Sync attempt reached the guest but failed before / during register."""
+
+
+def _read_manifest(stage_dir: Path) -> dict:
+    apps_json = stage_dir / "apps.json"
+    if not apps_json.is_file():
+        raise SyncError(f"local manifest missing at {apps_json}")
+    try:
+        return json.loads(apps_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SyncError(f"local manifest parse failed: {exc}") from exc
+
+
+def _collect_icons(stage_dir: Path, manifest: dict) -> dict[str, bytes]:
+    """Map slug → ICO file contents for every app referenced in the manifest.
+
+    Missing ICOs are skipped silently — register-apps.ps1 falls back
+    to the default Windows icon when DefaultIcon is absent. We don't
+    fail the whole sync over a single missing icon.
+    """
+    icons_dir = stage_dir / "icons"
+    out: dict[str, bytes] = {}
+    for app in manifest.get("apps", []):
+        slug = app.get("slug")
+        if not isinstance(slug, str):
+            continue
+        candidate = icons_dir / f"{slug}.ico"
+        if not candidate.is_file():
+            logger.debug("sync: icon missing for %s", slug)
+            continue
+        try:
+            out[slug] = candidate.read_bytes()
+        except OSError as exc:
+            logger.warning("sync: cannot read icon for %s: %s", slug, exc)
+    return out
+
+
+def _read_host_scripts() -> dict[str, str]:
+    """Read the three host-side PowerShell scripts from the bundle.
+
+    Returns ``{name: text}`` keyed by the same keys as
+    :data:`_HOST_SCRIPTS`. Raises :class:`SyncError` if any of the
+    three are missing — they're shipped by every install mode (source
+    checkout, wheel, distro package) under ``config/oem/reverse-open/``
+    so their absence is a real broken-install signal worth surfacing.
+    """
+    base = bundle_dir()
+    out: dict[str, str] = {}
+    for key, parts in _HOST_SCRIPTS.items():
+        path = base.joinpath(*_HOST_BUNDLE_SUBDIR, *parts)
+        if not path.is_file():
+            raise SyncError(f"bundle script missing: {path}")
+        try:
+            out[key] = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SyncError(f"cannot read {path}: {exc}") from exc
+    return out
+
+
+def _build_sync_script(
+    apps_json_text: str,
+    icons_b64: dict[str, str],
+    host_scripts: dict[str, str],
+) -> str:
+    """Render the PowerShell snippet that runs on the guest via /exec.
+
+    The snippet base64-decodes every payload (apps.json, icons,
+    register / unregister / shim PowerShell scripts) and writes them
+    to ``C:\\Users\\Public\\winpodx\\reverse-open\\`` before running
+    ``register-apps.ps1``. This makes the sync entirely self-contained
+    — no dependence on dockur having staged the OEM bundle, so the
+    feature works on pods that were created before this PR landed.
+    """
+    apps_b64 = base64.b64encode(apps_json_text.encode("utf-8")).decode("ascii")
+    icon_entries = "\n".join(
+        f"  @{{ slug = '{slug}'; b64 = '{b64}' }};" for slug, b64 in sorted(icons_b64.items())
+    )
+    register_b64 = base64.b64encode(host_scripts["register"].encode("utf-8")).decode("ascii")
+    unregister_b64 = base64.b64encode(host_scripts["unregister"].encode("utf-8")).decode("ascii")
+    shim_b64 = base64.b64encode(host_scripts["shim"].encode("utf-8")).decode("ascii")
+
+    # The PowerShell snippet keeps every string parameter inside
+    # single-quoted literals (only ' itself needs escaping; the
+    # base64 alphabet doesn't contain '). Multi-line construction
+    # via string concatenation rather than a triple-quoted f-string
+    # keeps `ruff format` happy without breaking the script body.
+    script = (
+        "$ErrorActionPreference = 'Stop'\n"
+        f"$base = '{_GUEST_BASE}'\n"
+        f"$iconsDir = '{_GUEST_ICONS_DIR}'\n"
+        f"$shimDir = '{_GUEST_SHIM_DIR}'\n"
+        f"$appsJson = '{_GUEST_APPS_JSON}'\n"
+        f"$register = '{_GUEST_REGISTER_PS1}'\n"
+        f"$unregister = '{_GUEST_UNREGISTER_PS1}'\n"
+        f"$shim = '{_GUEST_SHIM_PS1}'\n"
+        "\n"
+        "foreach ($d in @($base, $iconsDir, $shimDir)) {\n"
+        "    if (-not (Test-Path -LiteralPath $d)) "
+        "{ New-Item -ItemType Directory -Path $d -Force | Out-Null }\n"
+        "}\n"
+        "\n"
+        "function Write-TextAtomic($Path, $Base64) {\n"
+        "    $bytes = [Convert]::FromBase64String($Base64)\n"
+        "    $text = [Text.Encoding]::UTF8.GetString($bytes)\n"
+        '    $tmp = "$Path.tmp"\n'
+        "    Set-Content -LiteralPath $tmp -Value $text -Encoding UTF8 -NoNewline\n"
+        "    Move-Item -LiteralPath $tmp -Destination $Path -Force\n"
+        "}\n"
+        "\n"
+        f"Write-TextAtomic $appsJson '{apps_b64}'\n"
+        f"Write-TextAtomic $register '{register_b64}'\n"
+        f"Write-TextAtomic $unregister '{unregister_b64}'\n"
+        f"Write-TextAtomic $shim '{shim_b64}'\n"
+        "\n"
+        "# Write each ICO.\n"
+        "$icons = @(\n"
+        f"{icon_entries}\n"
+        ")\n"
+        "foreach ($entry in $icons) {\n"
+        '    $dst = Join-Path $iconsDir "$($entry.slug).ico"\n'
+        "    $bytes = [Convert]::FromBase64String($entry.b64)\n"
+        "    [IO.File]::WriteAllBytes($dst, $bytes)\n"
+        "}\n"
+        "\n"
+        "# Run the now-staged register-apps.ps1 from the public dir.\n"
+        "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $register "
+        "-AppsJson $appsJson -IconsDir $iconsDir -ShimPath $shim\n"
+        "exit $LASTEXITCODE\n"
+    )
+    return script
+
+
+def sync_to_guest(cfg: Config, stage_dir: Path) -> SyncResult:
+    """Push the local stage to the guest and register the handlers.
+
+    Raises:
+      SyncError: manifest unreadable, register-apps.ps1 non-zero exit,
+        or an unexpected agent error.
+      AgentUnavailableError, AgentAuthError, AgentTimeoutError: from
+        the underlying transport — caller decides how to surface.
+    """
+    manifest = _read_manifest(stage_dir)
+    icons = _collect_icons(stage_dir, manifest)
+    icons_b64 = {slug: base64.b64encode(data).decode("ascii") for slug, data in icons.items()}
+
+    host_scripts = _read_host_scripts()
+    script = _build_sync_script(
+        stage_dir.joinpath("apps.json").read_text(encoding="utf-8"),
+        icons_b64,
+        host_scripts,
+    )
+    client = AgentClient(cfg)
+    try:
+        result = client.exec(script, timeout=_SYNC_TIMEOUT_SEC)
+    except AgentError:
+        raise
+
+    rc = result.rc if result.rc is not None else 0
+    if not result.ok:
+        raise SyncError(
+            f"register-apps.ps1 failed (rc={rc}); "
+            f"stdout={result.stdout.strip()!r} stderr={result.stderr.strip()!r}"
+        )
+    return SyncResult(
+        pushed_apps=len(manifest.get("apps", [])),
+        pushed_icons=len(icons),
+        rc=rc,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+
+
+def unregister_on_guest(cfg: Config) -> SyncResult:
+    """Run ``unregister-apps.ps1`` on the guest via /exec.
+
+    Used by ``winpodx host-open disable`` (or a future ``unregister``
+    subcommand) to scrub the per-user registry entries when the
+    feature is turned off. Idempotent — does nothing if no
+    winpodx-<slug> entries exist.
+    """
+    # Use the public-dir copy we staged on the most recent sync. The
+    # script exits 0 cleanly if no winpodx-<slug> ProgIDs are present
+    # (idempotent), so calling this on a guest that never had
+    # reverse-open enabled is a no-op.
+    script = (
+        "$ErrorActionPreference = 'Stop'\n"
+        f"$unregister = '{_GUEST_UNREGISTER_PS1}'\n"
+        "if (-not (Test-Path -LiteralPath $unregister)) {\n"
+        '    Write-Output "unregister-apps.ps1 not staged at $unregister"\n'
+        "    exit 4\n"
+        "}\n"
+        "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $unregister\n"
+        "exit $LASTEXITCODE\n"
+    )
+    client = AgentClient(cfg)
+    result = client.exec(script, timeout=_SYNC_TIMEOUT_SEC)
+    rc = result.rc if result.rc is not None else 0
+    if not result.ok:
+        raise SyncError(
+            f"unregister-apps.ps1 failed (rc={rc}); "
+            f"stdout={result.stdout.strip()!r} stderr={result.stderr.strip()!r}"
+        )
+    return SyncResult(
+        pushed_apps=0,
+        pushed_icons=0,
+        rc=rc,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )

@@ -63,7 +63,7 @@ class ReverseOpenConfig:
       master toggle — documented in the design doc).
     """
 
-    enabled: bool = False
+    enabled: bool = True
     allowlist: list[str] = field(default_factory=list)
     denylist: list[str] = field(default_factory=list)
     last_synced_at: str = ""

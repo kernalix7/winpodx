@@ -76,10 +76,10 @@ _GIMP = (
 # --- status -------------------------------------------------------------------
 
 
-def test_status_default_disabled(capsys: pytest.CaptureFixture[str]) -> None:
+def test_status_default_enabled(capsys: pytest.CaptureFixture[str]) -> None:
     cli_main(["host-open", "status"])
     out = capsys.readouterr().out
-    assert "disabled" in out
+    assert "enabled" in out
     assert "0 slug(s)" in out  # allowlist
     assert "(none — run `winpodx host-open refresh`)" in out
 
@@ -88,7 +88,7 @@ def test_status_json(capsys: pytest.CaptureFixture[str]) -> None:
     cli_main(["host-open", "status", "--json"])
     out = capsys.readouterr().out
     payload = json.loads(out)
-    assert payload["enabled"] is False
+    assert payload["enabled"] is True
     assert payload["allowlist"] == []
     assert payload["cache"]["exists"] is False
 
@@ -96,28 +96,22 @@ def test_status_json(capsys: pytest.CaptureFixture[str]) -> None:
 # --- enable / disable ---------------------------------------------------------
 
 
-def test_enable_persists_to_toml(capsys: pytest.CaptureFixture[str]) -> None:
+def test_enable_when_already_default_on(capsys: pytest.CaptureFixture[str]) -> None:
     cli_main(["host-open", "enable"])
-    out = capsys.readouterr().out
-    assert "enabled" in out
+    assert "already enabled" in capsys.readouterr().out
     cfg = Config.load()
     assert cfg.reverse_open.enabled is True
 
 
-def test_enable_idempotent(capsys: pytest.CaptureFixture[str]) -> None:
-    cli_main(["host-open", "enable"])
-    capsys.readouterr()
-    cli_main(["host-open", "enable"])
-    assert "already enabled" in capsys.readouterr().out
-
-
-def test_disable_after_enable(capsys: pytest.CaptureFixture[str]) -> None:
-    cli_main(["host-open", "enable"])
-    capsys.readouterr()
+def test_disable_then_re_enable(capsys: pytest.CaptureFixture[str]) -> None:
     cli_main(["host-open", "disable"])
     cfg = Config.load()
     assert cfg.reverse_open.enabled is False
     assert "disabled" in capsys.readouterr().out
+
+    cli_main(["host-open", "enable"])
+    cfg = Config.load()
+    assert cfg.reverse_open.enabled is True
 
 
 # --- add / remove -------------------------------------------------------------

@@ -15,10 +15,10 @@ from winpodx.reverse_open.config import ReverseOpenConfig
 # ---- defaults --------------------------------------------------------
 
 
-def test_defaults_disabled_and_lists_empty():
-    """Fresh instance is opt-out: ``enabled=False``, no user lists."""
+def test_defaults_enabled_and_lists_empty():
+    """Fresh instance ships default-on: ``enabled=True``, no user lists."""
     cfg = ReverseOpenConfig()
-    assert cfg.enabled is False
+    assert cfg.enabled is True
     assert cfg.allowlist == []
     assert cfg.last_synced_at == ""
     assert cfg.deny_dangerous is True
@@ -251,7 +251,7 @@ def test_config_load_missing_section_yields_defaults(tmp_path, monkeypatch):
     loaded = Config.load()
     assert loaded.rdp.user == "old-user"
     # reverse_open defaults applied even though the section wasn't on disk.
-    assert loaded.reverse_open.enabled is False
+    assert loaded.reverse_open.enabled is True
     assert loaded.reverse_open.allowlist == []
     assert loaded.reverse_open.deny_dangerous is True
     # Dangerous defaults still folded (because deny_dangerous=True default).
