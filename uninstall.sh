@@ -62,26 +62,27 @@ elif command -v docker &>/dev/null; then
 fi
 
 # --- 0. Reverse-open teardown (BEFORE container removal) ---
-# Runs unregister-apps.ps1 on the guest via the agent so the
-# `winpodx-<slug>.cmd` files, registry entries, and Start Menu
-# shortcuts go away before we kill the container. If the container is
-# already stopped / agent unreachable, this is a no-op — the artifacts
-# disappear with the container anyway on a --purge.
-# Also stops the host-side listener daemon (the runtime/winpodx/
-# dir cleanup below would only delete its pid file, leaving an
-# orphan process).
+# Stops the host-side listener daemon so the runtime/winpodx/ cleanup
+# below doesn't leave an orphan process when the pid file is deleted.
+#
+# Guest-side registry scrub (unregister-apps.ps1) only runs in non-
+# purge mode — when --purge is set, the container is destroyed in
+# step 1 below and the HKCU entries vanish with it. Calling the agent
+# in that case is wasted latency (and can hang if the agent isn't
+# reachable, slowing down the uninstall path with no payoff).
 if [[ -x "$HOME/.local/bin/winpodx" ]]; then
     if "$HOME/.local/bin/winpodx" host-open daemon-status --json 2>/dev/null | grep -q '"running": true'; then
         log "Stopping host-side reverse-open listener..."
         "$HOME/.local/bin/winpodx" host-open stop-listener 2>/dev/null || true
         REMOVED=$((REMOVED + 1))
     fi
-    # Best-effort guest-side scrub. Silent on agent unavailable — the
-    # container removal step below makes the registry cleanup moot.
-    if [[ -n "$RUNTIME" ]] && $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -q "winpodx-windows"; then
+    # Skip the guest scrub on --purge: container teardown below
+    # destroys the registry anyway.
+    if [[ "$PURGE" != true ]] && [[ -n "$RUNTIME" ]] && \
+       $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -q "winpodx-windows"; then
         log "Scrubbing reverse-open registry entries on the guest..."
         "$HOME/.local/bin/winpodx" host-open unregister-guest 2>/dev/null | sed 's/^/  /' || \
-            warn "  guest scrub skipped (agent unreachable; container teardown will clean it anyway)"
+            warn "  guest scrub skipped (agent unreachable)"
     fi
 fi
 
