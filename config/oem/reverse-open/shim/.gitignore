@@ -1,0 +1,5 @@
+# Cargo build artifacts. The release-mode .exe is checked in under
+# bin/ (committed binary, shipped with the wheel + distro packages);
+# everything else under target/ is regenerable.
+/target/
+Cargo.lock

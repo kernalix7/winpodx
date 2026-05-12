@@ -59,23 +59,29 @@ logger = logging.getLogger(__name__)
 _GUEST_BASE = r"C:\Users\Public\winpodx\reverse-open"
 _GUEST_APPS_JSON = _GUEST_BASE + r"\apps.json"
 _GUEST_ICONS_DIR = _GUEST_BASE + r"\icons"
-_GUEST_SHIM_DIR = _GUEST_BASE + r"\shim"
-_GUEST_SHIM_PS1 = _GUEST_SHIM_DIR + r"\winpodx-reverse-open-shim.ps1"
+_GUEST_BIN_DIR = _GUEST_BASE + r"\bin"
+_GUEST_SHIM_EXE = _GUEST_BIN_DIR + r"\winpodx-reverse-open-shim.exe"
 _GUEST_REGISTER_PS1 = _GUEST_BASE + r"\register-apps.ps1"
 _GUEST_UNREGISTER_PS1 = _GUEST_BASE + r"\unregister-apps.ps1"
 
-# Names of the three PowerShell scripts we push from the host
-# bundle. Locating them at bundle_dir() means the sync layer works
-# regardless of install mode (source checkout, wheel install, FHS
-# install, curl|bash drop) without ever depending on dockur having
-# staged the OEM bundle first — which matters for upgrading existing
-# pods where the OEM dir is frozen from an older release.
+# Host-bundle layout for the assets we push to the guest. The two
+# PowerShell scripts are text; the shim is a Rust-built Windows .exe
+# shipped pre-compiled in the source tree (the build matrix produces
+# it once per release rather than at sync time). Each install mode
+# (source checkout, wheel install, FHS install, curl|bash drop)
+# carries the binary alongside the .ps1 files under
+# config/oem/reverse-open/, so locating them via bundle_dir() works
+# uniformly without depending on dockur having staged the OEM bundle.
 _HOST_BUNDLE_SUBDIR = ("config", "oem", "reverse-open")
-_HOST_SCRIPTS: dict[str, tuple[str, ...]] = {
+_HOST_PS_SCRIPTS: dict[str, tuple[str, ...]] = {
     "register": ("register-apps.ps1",),
     "unregister": ("unregister-apps.ps1",),
-    "shim": ("shim", "winpodx-reverse-open-shim.ps1"),
 }
+_HOST_SHIM_PATH: tuple[str, ...] = (
+    "shim",
+    "bin",
+    "winpodx-reverse-open-shim.exe",
+)
 
 # Agent /exec default is 60s; bumped for the sync payload because the
 # guest also runs register-apps.ps1 which iterates per-app + writes
@@ -137,17 +143,17 @@ def _collect_icons(stage_dir: Path, manifest: dict) -> dict[str, bytes]:
 
 
 def _read_host_scripts() -> dict[str, str]:
-    """Read the three host-side PowerShell scripts from the bundle.
+    """Read the two host-side PowerShell scripts from the bundle.
 
     Returns ``{name: text}`` keyed by the same keys as
-    :data:`_HOST_SCRIPTS`. Raises :class:`SyncError` if any of the
-    three are missing — they're shipped by every install mode (source
-    checkout, wheel, distro package) under ``config/oem/reverse-open/``
-    so their absence is a real broken-install signal worth surfacing.
+    :data:`_HOST_PS_SCRIPTS`. Raises :class:`SyncError` if either is
+    missing — they're shipped by every install mode (source checkout,
+    wheel, distro package) under ``config/oem/reverse-open/`` so
+    their absence is a real broken-install signal worth surfacing.
     """
     base = bundle_dir()
     out: dict[str, str] = {}
-    for key, parts in _HOST_SCRIPTS.items():
+    for key, parts in _HOST_PS_SCRIPTS.items():
         path = base.joinpath(*_HOST_BUNDLE_SUBDIR, *parts)
         if not path.is_file():
             raise SyncError(f"bundle script missing: {path}")
@@ -158,19 +164,50 @@ def _read_host_scripts() -> dict[str, str]:
     return out
 
 
+def _read_host_shim_exe() -> bytes:
+    """Read the pre-built Rust shim binary from the host bundle.
+
+    The shim is cross-compiled to ``x86_64-pc-windows-gnu`` at release
+    time and committed under ``config/oem/reverse-open/shim/bin/``.
+    Raises :class:`SyncError` if the binary is missing — the install
+    is broken (or running against a source checkout that hasn't built
+    the shim yet), and pretending to sync would just register handlers
+    that point at a nonexistent .exe on the guest.
+    """
+    path = bundle_dir().joinpath(*_HOST_BUNDLE_SUBDIR, *_HOST_SHIM_PATH)
+    if not path.is_file():
+        raise SyncError(
+            f"reverse-open shim binary missing at {path}; "
+            "rebuild via `cd config/oem/reverse-open/shim && "
+            "cargo build --release --target x86_64-pc-windows-gnu`"
+        )
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise SyncError(f"cannot read shim binary {path}: {exc}") from exc
+
+
 def _build_sync_script(
     apps_json_text: str,
     icons_b64: dict[str, str],
     host_scripts: dict[str, str],
+    shim_b64: str,
 ) -> str:
     """Render the PowerShell snippet that runs on the guest via /exec.
 
-    The snippet base64-decodes every payload (apps.json, icons,
-    register / unregister / shim PowerShell scripts) and writes them
-    to ``C:\\Users\\Public\\winpodx\\reverse-open\\`` before running
-    ``register-apps.ps1``. This makes the sync entirely self-contained
-    — no dependence on dockur having staged the OEM bundle, so the
-    feature works on pods that were created before this PR landed.
+    The snippet base64-decodes every payload (apps.json text, ICOs,
+    register / unregister PowerShell scripts, and the Rust shim
+    ``.exe``) and writes them to ``C:\\Users\\Public\\winpodx\\
+    reverse-open\\`` before running ``register-apps.ps1``. This makes
+    the sync entirely self-contained — no dependence on dockur having
+    staged the OEM bundle, so the feature works on pods that were
+    created before this PR landed.
+
+    Atomicity: the shim ``.exe`` is written via the binary writer
+    (raw bytes, not text-encoded) because UTF-8 decoding a PE binary
+    would corrupt it. The two ``.ps1`` scripts are written via
+    text-mode atomic writes for consistency with the user-readable
+    intent of the files.
     """
     apps_b64 = base64.b64encode(apps_json_text.encode("utf-8")).decode("ascii")
     icon_entries = "\n".join(
@@ -178,7 +215,6 @@ def _build_sync_script(
     )
     register_b64 = base64.b64encode(host_scripts["register"].encode("utf-8")).decode("ascii")
     unregister_b64 = base64.b64encode(host_scripts["unregister"].encode("utf-8")).decode("ascii")
-    shim_b64 = base64.b64encode(host_scripts["shim"].encode("utf-8")).decode("ascii")
 
     # The PowerShell snippet keeps every string parameter inside
     # single-quoted literals (only ' itself needs escaping; the
@@ -189,13 +225,13 @@ def _build_sync_script(
         "$ErrorActionPreference = 'Stop'\n"
         f"$base = '{_GUEST_BASE}'\n"
         f"$iconsDir = '{_GUEST_ICONS_DIR}'\n"
-        f"$shimDir = '{_GUEST_SHIM_DIR}'\n"
+        f"$binDir = '{_GUEST_BIN_DIR}'\n"
         f"$appsJson = '{_GUEST_APPS_JSON}'\n"
         f"$register = '{_GUEST_REGISTER_PS1}'\n"
         f"$unregister = '{_GUEST_UNREGISTER_PS1}'\n"
-        f"$shim = '{_GUEST_SHIM_PS1}'\n"
+        f"$shimExe = '{_GUEST_SHIM_EXE}'\n"
         "\n"
-        "foreach ($d in @($base, $iconsDir, $shimDir)) {\n"
+        "foreach ($d in @($base, $iconsDir, $binDir)) {\n"
         "    if (-not (Test-Path -LiteralPath $d)) "
         "{ New-Item -ItemType Directory -Path $d -Force | Out-Null }\n"
         "}\n"
@@ -208,10 +244,17 @@ def _build_sync_script(
         "    Move-Item -LiteralPath $tmp -Destination $Path -Force\n"
         "}\n"
         "\n"
+        "function Write-BinaryAtomic($Path, $Base64) {\n"
+        "    $bytes = [Convert]::FromBase64String($Base64)\n"
+        '    $tmp = "$Path.tmp"\n'
+        "    [IO.File]::WriteAllBytes($tmp, $bytes)\n"
+        "    Move-Item -LiteralPath $tmp -Destination $Path -Force\n"
+        "}\n"
+        "\n"
         f"Write-TextAtomic $appsJson '{apps_b64}'\n"
         f"Write-TextAtomic $register '{register_b64}'\n"
         f"Write-TextAtomic $unregister '{unregister_b64}'\n"
-        f"Write-TextAtomic $shim '{shim_b64}'\n"
+        f"Write-BinaryAtomic $shimExe '{shim_b64}'\n"
         "\n"
         "# Write each ICO.\n"
         "$icons = @(\n"
@@ -225,7 +268,7 @@ def _build_sync_script(
         "\n"
         "# Run the now-staged register-apps.ps1 from the public dir.\n"
         "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $register "
-        "-AppsJson $appsJson -IconsDir $iconsDir -ShimPath $shim\n"
+        "-AppsJson $appsJson -IconsDir $iconsDir -BinDir $binDir -ShimExe $shimExe\n"
         "exit $LASTEXITCODE\n"
     )
     return script
@@ -245,10 +288,13 @@ def sync_to_guest(cfg: Config, stage_dir: Path) -> SyncResult:
     icons_b64 = {slug: base64.b64encode(data).decode("ascii") for slug, data in icons.items()}
 
     host_scripts = _read_host_scripts()
+    shim_bytes = _read_host_shim_exe()
+    shim_b64 = base64.b64encode(shim_bytes).decode("ascii")
     script = _build_sync_script(
         stage_dir.joinpath("apps.json").read_text(encoding="utf-8"),
         icons_b64,
         host_scripts,
+        shim_b64,
     )
     client = AgentClient(cfg)
     try:
