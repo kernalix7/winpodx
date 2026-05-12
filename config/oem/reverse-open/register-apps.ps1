@@ -6,22 +6,27 @@
 # Linux app in Windows Explorer's right-click menu for the MIME
 # extensions it advertises.
 #
-# Why per-app .cmd wrappers
-# --------------------------
-# Earlier revisions of this script registered each Linux app as a
-# winpodx-<slug> ProgID whose `shell\open\command` invoked
-# powershell.exe with the shim script. Windows' shell deduplicates
-# the "Open with" menu by underlying EXE path -- every winpodx-<slug>
-# ProgID's command line started with the same `powershell.exe`, so
-# Explorer collapsed all N entries into a single "powershell" item.
+# Why per-app .exe hard links
+# ----------------------------
+# 1. Distinct binary paths per app. Earlier revisions registered each
+#    Linux app as a winpodx-<slug> ProgID whose `shell\open\command`
+#    invoked powershell.exe (and later wscript.exe) with the shim
+#    script. Windows' Open With menu deduplicates by underlying EXE
+#    path, so all N entries collapsed into a single item. A per-slug
+#    binary path is the fix.
 #
-# To get N distinct entries (one per Linux app, with its own name +
-# icon), each app needs its OWN binary path from Windows' perspective.
-# We achieve that with a per-slug `.cmd` wrapper under
-# `C:\Users\Public\winpodx\reverse-open\bin\winpodx-<slug>.cmd` that
-# just forwards %1 into the shared PowerShell shim. From Windows'
-# POV these `.cmd` files are distinct executables, so each appears
-# as a separate "Open with" entry with its FriendlyAppName + DefaultIcon.
+# 2. .exe (Rust shim, `windows_subsystem = "windows"`) is what we
+#    register now. Console-less PE subsystem = no flash when the user
+#    clicks "Open with → <app>". Earlier .cmd/.vbs wrappers flashed
+#    cmd.exe or used wscript's generic icon; the Rust .exe has neither
+#    problem AND its embedded icon can be overridden per slug via the
+#    `Applications\<exe>\DefaultIcon` registry value.
+#
+# 3. NTFS hard links keep the disk footprint flat. The shim is one
+#    physical binary; per-slug files (`winpodx-<slug>.exe`) are hard
+#    links to the same inode. 95 apps cost ~300 KB on disk total, not
+#    300 KB × 95 = 28 MB. The shim reads its own filename at runtime
+#    (`std::env::current_exe`) to figure out which slug it represents.
 #
 # We register under `HKCU\Software\Classes\Applications\<exe>\`
 # rather than as ProgIDs because that's the canonical Windows path
@@ -34,7 +39,11 @@ param(
     [string]$AppsJson = 'C:\Users\Public\winpodx\reverse-open\apps.json',
     [string]$IconsDir = 'C:\Users\Public\winpodx\reverse-open\icons',
     [string]$BinDir = 'C:\Users\Public\winpodx\reverse-open\bin',
-    [string]$ShimPath = 'C:\Users\Public\winpodx\reverse-open\shim\winpodx-reverse-open-shim.ps1',
+    # Rust-built reverse-open shim (PE subsystem = windows, no console
+    # flash, custom icon overridable per-slug via the Applications
+    # subkey's DefaultIcon value). Each per-slug entry is a hard
+    # link to this single binary.
+    [string]$ShimExe = 'C:\Users\Public\winpodx\reverse-open\bin\winpodx-reverse-open-shim.exe',
     [string]$StartMenuDir = $(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Linux Apps'),
     [switch]$DryRun
 )
@@ -131,13 +140,35 @@ if ($null -eq $manifest -or -not $manifest.PSObject.Properties['apps']) {
     exit 2
 }
 
-if (-not (Test-Path -LiteralPath $ShimPath)) {
-    Write-LogLine 'ERROR' "shim missing at $ShimPath — refusing to register handlers that point at a nonexistent path"
+if (-not (Test-Path -LiteralPath $ShimExe)) {
+    Write-LogLine 'ERROR' "shim binary missing at $ShimExe — refusing to register handlers that point at a nonexistent path"
     exit 3
 }
 
 if (-not (Test-Path -LiteralPath $BinDir)) {
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+}
+
+# Helper: create a hard link from $LinkPath to $TargetPath. Falls back
+# to a copy if the link command fails (e.g. cross-volume, or NTFS
+# permissions). PowerShell's New-Item supports `-ItemType HardLink`
+# since Win10, but the registry-friendly fallback is plain copy.
+function New-HardLinkOrCopy([string]$LinkPath, [string]$TargetPath) {
+    if (Test-Path -LiteralPath $LinkPath) {
+        Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        New-Item -ItemType HardLink -Path $LinkPath -Target $TargetPath -Force -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        try {
+            Copy-Item -LiteralPath $TargetPath -Destination $LinkPath -Force -ErrorAction Stop
+            return $false
+        } catch {
+            Write-LogLine 'WARN' "could not create $LinkPath (hardlink + copy both failed): $($_.Exception.Message)"
+            return $false
+        }
+    }
 }
 
 $registered = 0
@@ -174,32 +205,27 @@ foreach ($app in $manifest.apps) {
         continue
     }
     $icoPath = Join-Path $IconsDir "$slug.ico"
-    $cmdName = "winpodx-$slug.cmd"
-    $cmdPath = Join-Path $BinDir $cmdName
+    $exeName = "winpodx-$slug.exe"
+    $exePath = Join-Path $BinDir $exeName
     $friendly = "Open with $name (Linux)"
 
-    # Write the per-slug .cmd wrapper. Each is a distinct binary
-    # from Windows' POV so they appear as separate "Open with"
-    # entries with their own names + icons.
-    # %* preserves Windows' quoting of the file path; %1 is the
-    # raw first arg which `Open with` substitutes with the file.
-    $cmdContent = @"
-@echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$ShimPath" -Slug "$slug" -File "%~1"
-"@
     if ($DryRun) {
-        Write-LogLine 'INFO' "[dry-run] would write $cmdPath + register $friendly for $($mimes -join ',')"
+        Write-LogLine 'INFO' "[dry-run] would hard-link $exePath -> $ShimExe + register $friendly for $($mimes -join ',')"
         $registered++
         continue
     }
-    Set-Content -LiteralPath $cmdPath -Value $cmdContent -Encoding ASCII -Force
 
-    $appRoot = "HKCU:\Software\Classes\Applications\$cmdName"
+    # Hard-link the generic shim to its per-slug name. Same inode,
+    # zero additional disk usage. The shim reads its own filename
+    # at runtime to figure out which slug to embed in the request.
+    [void](New-HardLinkOrCopy -LinkPath $exePath -TargetPath $ShimExe)
+
+    $appRoot = "HKCU:\Software\Classes\Applications\$exeName"
     Set-NamedValue $appRoot 'FriendlyAppName' $friendly
     if (Test-Path -LiteralPath $icoPath) {
         Set-DefaultValue (Join-Path $appRoot 'DefaultIcon') "$icoPath,0"
     }
-    Set-DefaultValue (Join-Path $appRoot 'shell\open\command') "`"$cmdPath`" `"%1`""
+    Set-DefaultValue (Join-Path $appRoot 'shell\open\command') "`"$exePath`" `"%1`""
 
     # SupportedTypes lists every extension this app handles. The
     # value name is the extension; the value content is conventionally
@@ -223,11 +249,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$Sh
                 if (-not (Test-Path -LiteralPath $extKey)) {
                     New-Item -Path $extKey -Force | Out-Null
                 }
-                New-ItemProperty -Path $extKey -Name $cmdName -Value '' -PropertyType String -Force | Out-Null
+                New-ItemProperty -Path $extKey -Name $exeName -Value '' -PropertyType String -Force | Out-Null
             }
         }
     }
-    Write-LogLine 'INFO' "registered $slug (cmd=$cmdName) for $($exts.Count) extension(s)"
+    Write-LogLine 'INFO' "registered $slug (exe=$exeName) for $($exts.Count) extension(s)"
     $registered++
 }
 
@@ -262,17 +288,13 @@ if (-not $DryRun) {
         $name = [string]$app.name
         if ([string]::IsNullOrWhiteSpace($name)) { $name = $slug }
         $icoPath = Join-Path $IconsDir "$slug.ico"
-        $cmdPath = Join-Path $BinDir "winpodx-$slug.cmd"
+        $exePath = Join-Path $BinDir "winpodx-$slug.exe"
 
-        # If the per-app .cmd doesn't exist (because the app was
-        # skipped at the registration pass for having no Linux
-        # defaults), write it now so the shortcut has a target.
-        if (-not (Test-Path -LiteralPath $cmdPath)) {
-            $cmdContent = @"
-@echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$ShimPath" -Slug "$slug" -File "%~1"
-"@
-            Set-Content -LiteralPath $cmdPath -Value $cmdContent -Encoding ASCII -Force
+        # If the per-app .exe link doesn't exist (because the app
+        # was skipped at the registration pass for having no Linux
+        # defaults), hard-link it now so the shortcut has a target.
+        if (-not (Test-Path -LiteralPath $exePath)) {
+            [void](New-HardLinkOrCopy -LinkPath $exePath -TargetPath $ShimExe)
         }
 
         # Sanitise the name for use as a filename — strip illegal
@@ -284,7 +306,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$Sh
 
         try {
             $lnk = $shell.CreateShortcut($lnkPath)
-            $lnk.TargetPath = $cmdPath
+            $lnk.TargetPath = $exePath
             $lnk.Description = "$name (Linux)"
             if (Test-Path -LiteralPath $icoPath) {
                 $lnk.IconLocation = "$icoPath,0"

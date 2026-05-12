@@ -78,6 +78,14 @@ Funding = "https://ko-fi.com/kernalix7"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/winpodx"]
+# Keep Cargo build artifacts out of the wheel. The shim is checked in
+# pre-built under shim/bin/; everything under target/ is regenerable
+# and would otherwise inflate the wheel by ~5 MB per accidental build.
+exclude = [
+    "config/oem/reverse-open/shim/target",
+    "config/oem/reverse-open/shim/target/**",
+    "config/oem/reverse-open/shim/Cargo.lock",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "data" = "share/winpodx/data"

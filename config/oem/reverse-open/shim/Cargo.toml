@@ -1,0 +1,23 @@
+[package]
+name = "winpodx-reverse-open-shim"
+version = "0.4.5"
+edition = "2021"
+description = "Stub binary that Windows Explorer invokes from 'Open with' to relay a file-open request back to the Linux host's reverse-open listener."
+license = "MIT"
+
+[dependencies]
+# Crypto-quality randomness for the request UUID. On Windows targets
+# this routes to BCryptGenRandom; no other deps.
+getrandom = "0.2"
+
+[profile.release]
+# Optimise hard for size — the shim ships as N hard links to the same
+# binary, so one copy of the .exe lives on the guest. Smaller is
+# better because we ALSO ship the bytes through the agent /exec
+# bearer-auth pipe (base64-encoded JSON in the snippet), and the
+# agent body cap is finite.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,16 +1,18 @@
 # =====================================================================
 # winpodx reverse-open — remove the Linux app handlers from Windows.
 #
-# Mirrors register-apps.ps1's per-app .cmd wrapper scheme:
-#   * Strip winpodx-<slug>.cmd entries from every <ext>\OpenWithList
+# Mirrors register-apps.ps1's per-app .exe hard-link scheme:
+#   * Strip winpodx-<slug>.exe entries from every <ext>\OpenWithList
 #     subkey under HKCU\Software\Classes
-#   * Remove HKCU\Software\Classes\Applications\winpodx-<slug>.cmd
-#   * Delete the matching .cmd files from $BinDir
+#   * Remove HKCU\Software\Classes\Applications\winpodx-<slug>.exe
+#   * Delete the matching .exe hard links from $BinDir (and the
+#     source shim binary)
 #
-# Legacy scrub: earlier revisions of register-apps.ps1 registered
-# winpodx-<slug> ProgIDs under HKCU\Software\Classes\winpodx-<slug>
-# and attached via OpenWithProgids. This script also walks + removes
-# those so users who hit the pre-fix revision don't have orphans.
+# Legacy scrub: earlier revisions of register-apps.ps1 used .cmd or
+# .vbs wrappers, or registered winpodx-<slug> ProgIDs under
+# HKCU\Software\Classes\winpodx-<slug> with OpenWithProgids
+# attachments. This script also walks + removes those so users who
+# hit any prior revision don't end up with orphans.
 #
 # Idempotent: missing keys / missing values / missing files are
 # silently OK.
@@ -37,10 +39,19 @@ if (-not (Test-Path -LiteralPath $classesRoot)) {
 }
 
 # --- legacy ProgIDs (pre-fix revision) ---
+# Pre-PR-#164 builds registered winpodx-<slug> as a bare ProgID directly
+# under HKCU\Software\Classes. We exclude any winpodx-*.exe / .cmd /
+# .vbs children here because those belong to the Applications\
+# scrubber (or to the legacy wrapper file scrub below).
 $legacyProgIds = @()
 try {
     $legacyProgIds = Get-ChildItem -LiteralPath $classesRoot -ErrorAction Stop |
-        Where-Object { $_.PSChildName -like 'winpodx-*' -and $_.PSChildName -notlike '*.cmd' } |
+        Where-Object {
+            $_.PSChildName -like 'winpodx-*' -and
+            $_.PSChildName -notlike '*.exe' -and
+            $_.PSChildName -notlike '*.cmd' -and
+            $_.PSChildName -notlike '*.vbs'
+        } |
         Select-Object -ExpandProperty PSChildName
 } catch {
     Write-LogLine 'WARN' "enumerate legacy ProgIDs failed: $($_.Exception.Message)"
@@ -62,21 +73,28 @@ foreach ($progId in $legacyProgIds) {
     }
 }
 
-# --- per-app .cmd wrappers under Applications\ ---
+# --- per-app wrappers under Applications\ (.exe / .cmd / .vbs) ---
+# Current scheme: .exe hard links. Older revisions used .cmd then
+# .vbs — we scrub all three patterns so re-installing over an old
+# layout doesn't leave dangling registry entries.
 $apps = @()
 $appsRoot = Join-Path $classesRoot 'Applications'
 if (Test-Path -LiteralPath $appsRoot) {
     try {
         $apps = Get-ChildItem -LiteralPath $appsRoot -ErrorAction Stop |
-            Where-Object { $_.PSChildName -like 'winpodx-*.cmd' } |
+            Where-Object {
+                $_.PSChildName -like 'winpodx-*.exe' -or
+                $_.PSChildName -like 'winpodx-*.cmd' -or
+                $_.PSChildName -like 'winpodx-*.vbs'
+            } |
             Select-Object -ExpandProperty PSChildName
     } catch {
         Write-LogLine 'WARN' "enumerate Applications failed: $($_.Exception.Message)"
     }
 }
 $removedApps = 0
-foreach ($cmdName in $apps) {
-    $appKey = Join-Path $appsRoot $cmdName
+foreach ($appName in $apps) {
+    $appKey = Join-Path $appsRoot $appName
     if ($DryRun) {
         Write-LogLine 'INFO' "[dry-run] would remove $appKey"
         $removedApps++
@@ -127,25 +145,47 @@ foreach ($ext in $extKeys) {
     }
 }
 
-# --- delete the per-slug .cmd files ---
+# --- delete the per-slug wrapper files (.exe / .cmd / .vbs) and shim ---
+# Hard links share an inode with the source shim, so removing each
+# .exe just drops a name; the inode is freed when the last name goes
+# (and we delete the source shim explicitly at the end). Legacy .cmd
+# / .vbs files are removed for upgrade hygiene.
 $removedFiles = 0
 if (Test-Path -LiteralPath $BinDir) {
-    try {
-        $files = Get-ChildItem -LiteralPath $BinDir -Filter 'winpodx-*.cmd' -ErrorAction Stop
-    } catch {
-        $files = @()
-    }
-    foreach ($f in $files) {
-        if ($DryRun) {
-            Write-LogLine 'INFO' "[dry-run] would delete $($f.FullName)"
-            $removedFiles++
-            continue
-        }
+    foreach ($pat in @('winpodx-*.exe', 'winpodx-*.cmd', 'winpodx-*.vbs')) {
         try {
-            Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop
-            $removedFiles++
+            $files = Get-ChildItem -LiteralPath $BinDir -Filter $pat -ErrorAction Stop
         } catch {
-            Write-LogLine 'WARN' "could not delete $($f.FullName): $($_.Exception.Message)"
+            $files = @()
+        }
+        foreach ($f in $files) {
+            if ($DryRun) {
+                Write-LogLine 'INFO' "[dry-run] would delete $($f.FullName)"
+                $removedFiles++
+                continue
+            }
+            try {
+                Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop
+                $removedFiles++
+            } catch {
+                Write-LogLine 'WARN' "could not delete $($f.FullName): $($_.Exception.Message)"
+            }
+        }
+    }
+    # Also remove the master shim binary (separate from the
+    # per-app hard links, named winpodx-reverse-open-shim.exe).
+    $shimPath = Join-Path $BinDir 'winpodx-reverse-open-shim.exe'
+    if (Test-Path -LiteralPath $shimPath) {
+        if ($DryRun) {
+            Write-LogLine 'INFO' "[dry-run] would delete $shimPath"
+            $removedFiles++
+        } else {
+            try {
+                Remove-Item -LiteralPath $shimPath -Force -ErrorAction Stop
+                $removedFiles++
+            } catch {
+                Write-LogLine 'WARN' "could not delete ${shimPath}: $($_.Exception.Message)"
+            }
         }
     }
 }
