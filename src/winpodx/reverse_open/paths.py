@@ -301,36 +301,28 @@ def translate_unc_to_posix(
 
 @dataclass
 class SafeFile:
-    """Holder for an FD opened with TOCTOU-safe semantics.
+    """Holder for an FD plus the kernel's canonical real path.
 
-    ``proc_path`` (``/proc/self/fd/N``) is what the caller hands to
-    the spawned app's argv. As long as ``fd`` is open in the listener
-    process the kernel keeps the inode pinned, so even if the guest
-    swaps a symlink under the original path the spawn still targets
-    the file we validated.
+    Two paths are available on the holder; pick the right one for
+    your call site:
 
-    .. note::
+    ``real_path``
+        The kernel's canonical, post-resolve, real path to the inode
+        the FD points at (the result of
+        ``os.readlink('/proc/self/fd/N')``). This is what to hand to
+        the spawned app's argv — opaque to the child, no FD inheritance
+        required, works for D-Bus-handoff apps like Firefox /
+        LibreOffice / Chromium that route the open through a singleton
+        process (the receiver wouldn't have the listener's FD).
 
-       ``subprocess.Popen`` defaults to ``close_fds=True`` (Python 3.7+),
-       which closes every inheritable FD in the child *except* the std
-       streams. To make the child inherit the pinned ``fd``, pass
-       ``pass_fds=(self.fd,)`` to ``Popen`` -- or use the
-       :meth:`popen_kwargs` helper:
-
-       .. code-block:: python
-
-           with safe_open_unc(unc, share_roots) as safe:
-               subprocess.Popen(
-                   [app, str(safe.proc_path)],
-                   **safe.popen_kwargs(),
-               )
-
-       Without ``pass_fds`` the child opens ``/proc/self/fd/N`` from
-       *its own* FD table, where ``N`` is unallocated -- the open
-       fails with ``ENOENT`` and the launch silently breaks. The
-       listener's own FD stays valid, so there's no security
-       regression, just a functional bug that's easy to miss in
-       testing.
+    ``proc_path``
+        The literal ``/proc/self/fd/N`` form. Kept for callers that
+        truly need the FD-pinned referent (e.g. tools that want to
+        defend against between-validate-and-spawn TOCTOU swaps). Using
+        it requires the child to inherit ``fd`` via Popen
+        ``pass_fds=(self.fd,)``. **The listener does NOT use this**
+        because the threat model is user-acting-on-own-files and the
+        single-instance-app handoff failure is the dominant concern.
 
     Use the :func:`safe_open_unc` context-manager wrapper rather
     than constructing this directly -- it handles validation, FD
@@ -338,6 +330,7 @@ class SafeFile:
     """
 
     fd: int
+    real_path: Path
     proc_path: Path
 
     def close(self) -> None:
@@ -349,12 +342,16 @@ class SafeFile:
     def popen_kwargs(self) -> dict[str, tuple[int, ...]]:
         """Return kwargs to merge into ``subprocess.Popen(...)``.
 
-        Currently ``{"pass_fds": (self.fd,)}`` -- ensures the child
-        inherits the pinned FD so that ``/proc/self/fd/N`` resolves
-        in the child's own FD table. See class docstring for why
-        this matters.
+        Empty dict by default — call sites pass ``real_path`` as a
+        regular argv slot, so the child opens by name (no inherited
+        FD needed). If a caller switches back to ``proc_path``, this
+        helper would need to return ``{"pass_fds": (self.fd,)}`` so
+        the child can resolve ``/proc/self/fd/N`` in its own FD
+        table; the listener doesn't take that path because Firefox /
+        LibreOffice handoff to a singleton process makes inherited
+        FDs unusable in the receiver.
         """
-        return {"pass_fds": (self.fd,)}
+        return {}
 
 
 # os.O_PATH was added in Linux's standard headers ages ago, but
@@ -481,7 +478,7 @@ def safe_open_unc(
                 )
 
         proc_path = Path(f"/proc/self/fd/{fd}")
-        safe = SafeFile(fd=fd, proc_path=proc_path)
+        safe = SafeFile(fd=fd, real_path=true_path, proc_path=proc_path)
         try:
             yield safe
         finally:

@@ -109,7 +109,11 @@ foreach ($appName in $apps) {
     }
 }
 
-# --- per-ext OpenWithList + OpenWithProgids ref strip ---
+# --- per-ext OpenWithList sub-keys + legacy values + OpenWithProgids ---
+# Current scheme: OpenWithList\winpodx-<slug>.exe SUB-KEYS (this is the
+# Windows convention). Pre-fix builds wrote VALUES under OpenWithList
+# with the same name — we scrub both so an upgrade from the broken
+# revision leaves no orphans.
 $removedExtRefs = 0
 try {
     $extKeys = Get-ChildItem -LiteralPath $classesRoot -ErrorAction Stop |
@@ -118,6 +122,32 @@ try {
     $extKeys = @()
 }
 foreach ($ext in $extKeys) {
+    # Strip winpodx-*.exe / .cmd / .vbs sub-keys under OpenWithList.
+    $owlKey = Join-Path $ext.PSPath 'OpenWithList'
+    if (Test-Path -LiteralPath $owlKey) {
+        try {
+            $children = Get-ChildItem -LiteralPath $owlKey -ErrorAction Stop |
+                Where-Object { $_.PSChildName -like 'winpodx-*' }
+        } catch {
+            $children = @()
+        }
+        foreach ($child in $children) {
+            $childPath = $child.PSPath
+            if ($DryRun) {
+                Write-LogLine 'INFO' "[dry-run] would remove sub-key $childPath"
+                $removedExtRefs++
+                continue
+            }
+            try {
+                Remove-Item -LiteralPath $childPath -Recurse -Force -ErrorAction Stop
+                $removedExtRefs++
+            } catch {
+                Write-LogLine 'WARN' "could not remove ${childPath}: $($_.Exception.Message)"
+            }
+        }
+    }
+    # Strip winpodx-* legacy VALUES under OpenWithList + any
+    # winpodx-* OpenWithProgids attachments.
     foreach ($subName in @('OpenWithList', 'OpenWithProgids')) {
         $subKey = Join-Path $ext.PSPath $subName
         if (-not (Test-Path -LiteralPath $subKey)) { continue }
@@ -130,7 +160,7 @@ foreach ($ext in $extKeys) {
         foreach ($prop in $props.PSObject.Properties) {
             if ($prop.Name -like 'winpodx-*') {
                 if ($DryRun) {
-                    Write-LogLine 'INFO' "[dry-run] would strip $($prop.Name) from $subKey"
+                    Write-LogLine 'INFO' "[dry-run] would strip value $($prop.Name) from $subKey"
                     $removedExtRefs++
                     continue
                 }
@@ -203,6 +233,19 @@ if (Test-Path -LiteralPath $StartMenuDir) {
         } catch {
             Write-LogLine 'WARN' "could not remove ${StartMenuDir}: $($_.Exception.Message)"
         }
+    }
+}
+
+# Invalidate Open With chooser cache so the removed handlers stop
+# appearing immediately. See register-apps.ps1 for rationale.
+if (-not $DryRun) {
+    try {
+        $ie4uinit = Join-Path $env:SystemRoot 'System32\ie4uinit.exe'
+        if (Test-Path -LiteralPath $ie4uinit) {
+            & $ie4uinit -show 2>&1 | Out-Null
+        }
+    } catch {
+        # best-effort — the registry scrub already succeeded above
     }
 }
 

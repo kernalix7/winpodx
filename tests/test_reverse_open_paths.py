@@ -421,20 +421,41 @@ def test_safe_open_unc_empty_share_roots(tmp_path):
             pass
 
 
-def test_safe_popen_kwargs_returns_pass_fds(tmp_path):
-    """``SafeFile.popen_kwargs()`` returns ``{'pass_fds': (fd,)}``.
+def test_safe_popen_kwargs_returns_empty(tmp_path):
+    """``SafeFile.popen_kwargs()`` returns an empty dict.
 
-    Required so ``subprocess.Popen(close_fds=True)`` (the 3.7+ default)
-    inherits the pinned FD into the child, where ``/proc/self/fd/N``
-    can resolve.
+    The listener now hands ``real_path`` (the kernel's canonical path)
+    to the spawned child instead of the FD-bound ``proc_path``, so no
+    FD inheritance is needed. See SafeFile docstring for why we made
+    this trade (Firefox / LibreOffice D-Bus handoff workaround).
     """
     target = tmp_path / "f"
     target.touch()
     share_roots = {"home": tmp_path}
 
     with safe_open_unc(r"\\tsclient\home\f", share_roots) as safe:
-        kwargs = safe.popen_kwargs()
-        assert kwargs == {"pass_fds": (safe.fd,)}
+        assert safe.popen_kwargs() == {}
+
+
+def test_safe_open_unc_exposes_real_path(tmp_path):
+    """SafeFile.real_path is the kernel's canonical post-resolve path.
+
+    This is what the listener hands to the child process — opaque,
+    no FD inheritance required, works for D-Bus-handoff apps like
+    Firefox where /proc/self/fd/N would fail in the receiver process.
+    """
+    target = tmp_path / "f"
+    target.write_text("hello")
+    share_roots = {"home": tmp_path}
+
+    with safe_open_unc(r"\\tsclient\home\f", share_roots) as safe:
+        # real_path resolves to the validated inode and contains the
+        # same bytes we'd see via the FD-bound proc_path.
+        assert safe.real_path.is_file()
+        assert safe.real_path.read_text() == "hello"
+        # It's also distinct from /proc/self/fd/N — the two are kept
+        # as separate fields for callers with different needs.
+        assert "/proc/self/fd/" not in str(safe.real_path)
 
 
 # ---- Symlink-swap-during-window attack tests ---------------------

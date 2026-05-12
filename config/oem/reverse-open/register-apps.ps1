@@ -224,6 +224,14 @@ foreach ($app in $manifest.apps) {
     Set-NamedValue $appRoot 'FriendlyAppName' $friendly
     if (Test-Path -LiteralPath $icoPath) {
         Set-DefaultValue (Join-Path $appRoot 'DefaultIcon') "$icoPath,0"
+    } else {
+        # Surface a clear log signal so a missing icon on the guest
+        # doesn't look like silent success. Sync layer should always
+        # land a .ico under $IconsDir for every registered slug; if
+        # it doesn't, register-apps.ps1 still produces a working
+        # handler but the OpenWith chooser falls back to the generic
+        # .exe icon. (Hard-link shim has no embedded icon resource.)
+        Write-LogLine 'WARN' "icon missing for $slug at $icoPath — chooser will show generic .exe icon"
     }
     Set-DefaultValue (Join-Path $appRoot 'shell\open\command') "`"$exePath`" `"%1`""
 
@@ -243,13 +251,19 @@ foreach ($app in $manifest.apps) {
             $extLower = $ext.ToLowerInvariant()
             if ($exts.Add($extLower)) {
                 New-ItemProperty -Path $stKey -Name $extLower -Value '' -PropertyType String -Force | Out-Null
-                # OpenWithList — alternative attach point that better
-                # surfaces per-Application entries than OpenWithProgids.
-                $extKey = "HKCU:\Software\Classes\$extLower\OpenWithList"
+                # OpenWithList — Windows convention is a SUB-KEY named
+                # after the executable, NOT a value under OpenWithList.
+                # The values under \OpenWithList\ are the MRU list (a,
+                # b, c, MRUList), which is for tracking the user's most
+                # recently used picks — Explorer reads the sub-key
+                # names to populate the inline short "Open with" menu.
+                # Writing a value here makes us invisible to the short
+                # menu (it appears only in the long "Choose another
+                # app" dialog).
+                $extKey = "HKCU:\Software\Classes\$extLower\OpenWithList\$exeName"
                 if (-not (Test-Path -LiteralPath $extKey)) {
                     New-Item -Path $extKey -Force | Out-Null
                 }
-                New-ItemProperty -Path $extKey -Name $exeName -Value '' -PropertyType String -Force | Out-Null
             }
         }
     }
@@ -316,6 +330,33 @@ if (-not $DryRun) {
         } catch {
             Write-LogLine 'WARN' "could not write shortcut for ${slug}: $($_.Exception.Message)"
         }
+    }
+}
+
+# --- invalidate Explorer's Open With cache --------------------------------
+#
+# Win11 caches the per-extension Application list aggressively. After
+# writing OpenWithList sub-keys + Applications\<exe>\SupportedTypes,
+# the next right-click → "Open with" can still surface a stale list
+# until the user logs off / on, OR until `ie4uinit.exe -show` is
+# invoked. `-show` is documented as "Refresh icon cache + Open With
+# list" and lands instantly (no UI side-effect for the user).
+#
+# Best-effort: missing binary OR non-zero exit is logged but doesn't
+# fail the script — the registration itself is still durable. We also
+# poke the Shell.Application "Refresh" to nudge any open Explorer
+# windows.
+if (-not $DryRun) {
+    try {
+        $ie4uinit = Join-Path $env:SystemRoot 'System32\ie4uinit.exe'
+        if (Test-Path -LiteralPath $ie4uinit) {
+            & $ie4uinit -show 2>&1 | Out-Null
+            Write-LogLine 'INFO' 'invalidated Open With chooser cache'
+        } else {
+            Write-LogLine 'WARN' "ie4uinit not at $ie4uinit — chooser cache may be stale until next logon"
+        }
+    } catch {
+        Write-LogLine 'WARN' "ie4uinit refresh failed: $($_.Exception.Message)"
     }
 }
 

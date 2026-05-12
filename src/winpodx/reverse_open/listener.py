@@ -275,7 +275,15 @@ class Listener:
         unc = data["path"]
         try:
             with safe_open_unc(unc, self._cfg.share_roots) as safe:
-                argv = substitute_path(app.exec_argv, str(safe.proc_path))
+                # Use the kernel's canonical real path (not the
+                # /proc/self/fd/N proc_path) so D-Bus-handoff apps —
+                # Firefox, LibreOffice, Chromium et al. — work. Those
+                # apps forward the file path to a pre-existing singleton
+                # instance and exit, and the singleton process doesn't
+                # inherit our FD table, so /proc/self/fd/N can't be
+                # resolved there. TOCTOU isn't in scope: user is
+                # acting on their own files.
+                argv = substitute_path(app.exec_argv, str(safe.real_path))
                 try:
                     self._spawn(argv, safe.popen_kwargs())
                 except OSError as exc:

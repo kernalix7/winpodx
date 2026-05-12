@@ -259,9 +259,16 @@ def test_process_pending_spawns_on_happy_path(
     assert len(captured) == 1
     argv, popen_kwargs = captured[0]
     assert argv[0] == "/usr/bin/kate"
-    # argv[1] is the proc_path /proc/self/fd/N from SafeFile.
-    assert argv[1].startswith("/proc/self/fd/")
-    assert "pass_fds" in popen_kwargs
+    # argv[1] is now real_path — the kernel's canonical post-resolve
+    # path to the inode, not /proc/self/fd/N. Switched to real_path
+    # so D-Bus-handoff apps (Firefox / LibreOffice / Chromium) work:
+    # the receiver singleton process doesn't inherit our FD table, so
+    # /proc/self/fd/N couldn't be resolved there. The string must
+    # contain the original filename, not a /proc/self/fd/ prefix.
+    assert "/proc/self/fd/" not in argv[1]
+    assert argv[1].endswith("note.txt")
+    # No FD inheritance needed any more — popen_kwargs is empty.
+    assert popen_kwargs == {}
     # Request file is deleted after the accepted spawn.
     assert not (inc / f"{uid}.json").exists()
 
