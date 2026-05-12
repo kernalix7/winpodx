@@ -333,6 +333,74 @@ if (-not $DryRun) {
     }
 }
 
+# --- Desktop folder shortcut + Quick Access pin ----------------------------
+#
+# Win11's "Open with → Choose another app → Look for another app on
+# this PC" surface is a regular file-browse dialog. Without a hint, the
+# user has to navigate to %APPDATA%\Microsoft\Windows\Start Menu\
+# Programs\Linux Apps\ — long path, not obvious. We drop two
+# discoverability aids that point at the existing $StartMenuDir:
+#
+#   1. Desktop\Linux Apps.lnk — folder shortcut on the desktop. The
+#      dialog's left sidebar always has Desktop; one click + one
+#      double-click gets the user to the .lnk list.
+#   2. Quick Access pin — adds the folder to File Explorer's left
+#      sidebar (and every Common Item Dialog inherits that sidebar).
+#      Implemented via the documented "pintohome" shell verb.
+#
+# Both are best-effort: failure logs a WARN but doesn't fail the
+# script, since the per-extension Open With registration above is
+# what actually delivers the feature.
+$folderShortcuts = 0
+if (-not $DryRun -and (Test-Path -LiteralPath $StartMenuDir)) {
+    # Desktop folder shortcut.
+    try {
+        $desktopDir = [Environment]::GetFolderPath('Desktop')
+        if ($desktopDir -and (Test-Path -LiteralPath $desktopDir)) {
+            $desktopLnk = Join-Path $desktopDir 'Linux Apps.lnk'
+            $lnk = $shell.CreateShortcut($desktopLnk)
+            $lnk.TargetPath = $StartMenuDir
+            $lnk.Description = 'Linux apps available via winpodx'
+            # Use the generic shell32 folder icon (index 4) so the
+            # shortcut renders as a normal folder. Trying to embed our
+            # own .ico here would require shipping a winpodx-folder.ico;
+            # the generic folder glyph is sufficient and unsurprising.
+            $lnk.IconLocation = 'shell32.dll,4'
+            $lnk.Save()
+            $folderShortcuts++
+            Write-LogLine 'INFO' "wrote Desktop folder shortcut: $desktopLnk"
+        }
+    } catch {
+        Write-LogLine 'WARN' "could not write Desktop folder shortcut: $($_.Exception.Message)"
+    }
+
+    # Quick Access pin via Shell.Application's "pintohome" verb.
+    # This is the documented mechanism for File Explorer's "Pin to
+    # Quick access" right-click action.
+    try {
+        $shellApp = New-Object -ComObject Shell.Application
+        $folder = $shellApp.Namespace($StartMenuDir)
+        if ($folder) {
+            $item = $folder.Self
+            # Look for the localised verb; fall back to the canonical
+            # English name. Localised systems (e.g. ko-KR
+            # "즐겨찾기에 고정") still respond to "pintohome" when
+            # invoked programmatically.
+            $verb = $item.Verbs() | Where-Object { $_.Name -replace '&', '' -match '(pintohome|Pin to Quick access|즐겨찾기에 고정)' } | Select-Object -First 1
+            if ($null -eq $verb) {
+                # Direct invoke by canonical name — works on all locales.
+                $item.InvokeVerb('pintohome')
+            } else {
+                $verb.DoIt()
+            }
+            $folderShortcuts++
+            Write-LogLine 'INFO' "pinned Linux Apps to Quick Access"
+        }
+    } catch {
+        Write-LogLine 'WARN' "could not pin to Quick Access: $($_.Exception.Message)"
+    }
+}
+
 # --- invalidate Explorer's Open With cache --------------------------------
 #
 # Win11 caches the per-extension Application list aggressively. After
@@ -360,5 +428,5 @@ if (-not $DryRun) {
     }
 }
 
-Write-LogLine 'INFO' "done. registered=$registered skipped=$skipped start_menu=$startMenuCount"
+Write-LogLine 'INFO' "done. registered=$registered skipped=$skipped start_menu=$startMenuCount folder_shortcuts=$folderShortcuts"
 exit 0

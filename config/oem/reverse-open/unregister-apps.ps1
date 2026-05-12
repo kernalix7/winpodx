@@ -236,6 +236,48 @@ if (Test-Path -LiteralPath $StartMenuDir) {
     }
 }
 
+# --- Desktop folder shortcut + Quick Access pin ---------------------------
+# Mirror cleanup for the discoverability aids register-apps.ps1 lands
+# alongside the per-slug registrations.
+$removedFolderShortcuts = 0
+if (-not $DryRun) {
+    # Desktop\Linux Apps.lnk
+    try {
+        $desktopDir = [Environment]::GetFolderPath('Desktop')
+        if ($desktopDir) {
+            $desktopLnk = Join-Path $desktopDir 'Linux Apps.lnk'
+            if (Test-Path -LiteralPath $desktopLnk) {
+                Remove-Item -LiteralPath $desktopLnk -Force -ErrorAction Stop
+                $removedFolderShortcuts++
+            }
+        }
+    } catch {
+        Write-LogLine 'WARN' "could not remove Desktop folder shortcut: $($_.Exception.Message)"
+    }
+
+    # Quick Access unpin. The Shell.Application "unpinfromhome" verb
+    # only works if the pinned item still exists on disk, so we run
+    # this BEFORE the Start Menu folder deletion above would have
+    # taken effect — except that section already ran. Fall back to
+    # walking the AutomaticDestinations file the pin lives in.
+    try {
+        $shellApp = New-Object -ComObject Shell.Application
+        # The Quick Access folder is exposed as "shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}"
+        $qa = $shellApp.Namespace('shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}')
+        if ($qa) {
+            foreach ($it in $qa.Items()) {
+                if ($it.Name -eq 'Linux Apps' -or $it.Path -eq $StartMenuDir) {
+                    $it.InvokeVerb('unpinfromhome')
+                    $removedFolderShortcuts++
+                    break
+                }
+            }
+        }
+    } catch {
+        Write-LogLine 'WARN' "could not unpin from Quick Access: $($_.Exception.Message)"
+    }
+}
+
 # Invalidate Open With chooser cache so the removed handlers stop
 # appearing immediately. See register-apps.ps1 for rationale.
 if (-not $DryRun) {
@@ -249,5 +291,5 @@ if (-not $DryRun) {
     }
 }
 
-Write-LogLine 'INFO' "done. legacy_progids=$removedLegacy apps=$removedApps ext_refs=$removedExtRefs files=$removedFiles start_menu=$removedShortcuts"
+Write-LogLine 'INFO' "done. legacy_progids=$removedLegacy apps=$removedApps ext_refs=$removedExtRefs files=$removedFiles start_menu=$removedShortcuts folder_shortcuts=$removedFolderShortcuts"
 exit 0
