@@ -1,18 +1,18 @@
 # =====================================================================
 # winpodx reverse-open — remove the Linux app handlers from Windows.
 #
-# Mirrors register-apps.ps1's per-app .exe hard-link scheme:
-#   * Strip winpodx-<slug>.exe entries from every <ext>\OpenWithList
-#     subkey under HKCU\Software\Classes
-#   * Remove HKCU\Software\Classes\Applications\winpodx-<slug>.exe
-#   * Delete the matching .exe hard links from $BinDir (and the
-#     source shim binary)
+# Mirrors register-apps.ps1's three registration surfaces:
+#   * Per-slug ProgID at HKCU\Software\Classes\winpodx-<slug>
+#     (canonical icon source — current scheme)
+#   * Applications\winpodx-<slug>.exe key (FriendlyAppName + command)
+#   * Per-extension OpenWithList\winpodx-<slug>.exe sub-keys AND
+#     OpenWithProgids\winpodx-<slug> value entries
+#   * Per-slug .exe hard links under $BinDir + the source shim binary
 #
-# Legacy scrub: earlier revisions of register-apps.ps1 used .cmd or
-# .vbs wrappers, or registered winpodx-<slug> ProgIDs under
-# HKCU\Software\Classes\winpodx-<slug> with OpenWithProgids
-# attachments. This script also walks + removes those so users who
-# hit any prior revision don't end up with orphans.
+# Legacy scrub: earlier revisions used .cmd / .vbs wrappers under
+# Applications\, and an earlier ProgID iteration with the same name —
+# walked + removed by the same patterns so re-installing over any
+# prior layout leaves no orphans.
 #
 # Idempotent: missing keys / missing values / missing files are
 # silently OK.
@@ -38,11 +38,13 @@ if (-not (Test-Path -LiteralPath $classesRoot)) {
     exit 0
 }
 
-# --- legacy ProgIDs (pre-fix revision) ---
-# Pre-PR-#164 builds registered winpodx-<slug> as a bare ProgID directly
-# under HKCU\Software\Classes. We exclude any winpodx-*.exe / .cmd /
-# .vbs children here because those belong to the Applications\
-# scrubber (or to the legacy wrapper file scrub below).
+# --- per-slug ProgIDs (current scheme + legacy) ---
+# Current scheme registers winpodx-<slug> as a bare ProgID directly
+# under HKCU\Software\Classes (canonical icon surface). An earlier
+# iteration also used the same shape, so this scrub covers both. We
+# exclude any winpodx-*.exe / .cmd / .vbs children here because those
+# belong to the Applications\ scrubber (or to the legacy wrapper file
+# scrub below).
 $legacyProgIds = @()
 try {
     $legacyProgIds = Get-ChildItem -LiteralPath $classesRoot -ErrorAction Stop |
@@ -288,6 +290,20 @@ if (-not $DryRun) {
         }
     } catch {
         # best-effort — the registry scrub already succeeded above
+    }
+
+    # SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0) — mirrors
+    # the same call from register-apps.ps1. Required to flush the shell
+    # icon cache; without it Explorer can keep painting the removed
+    # ProgID icons until next logon.
+    try {
+        Add-Type -Namespace WinPodx -Name Shell32Ext -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("shell32.dll")]
+public static extern void SHChangeNotify(int wEventId, uint uFlags, System.IntPtr dwItem1, System.IntPtr dwItem2);
+'@ -ErrorAction Stop
+        [WinPodx.Shell32Ext]::SHChangeNotify(0x08000000, 0x0000, [System.IntPtr]::Zero, [System.IntPtr]::Zero)
+    } catch {
+        # best-effort — registry/file cleanup already succeeded above
     }
 }
 

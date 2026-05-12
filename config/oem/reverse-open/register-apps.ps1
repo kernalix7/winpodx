@@ -28,10 +28,29 @@
 #    300 KB × 95 = 28 MB. The shim reads its own filename at runtime
 #    (`std::env::current_exe`) to figure out which slug it represents.
 #
-# We register under `HKCU\Software\Classes\Applications\<exe>\`
-# rather than as ProgIDs because that's the canonical Windows path
-# for per-app handlers; the OpenWithList ext linkage (rather than
-# OpenWithProgids) is the matching surface.
+# We register under THREE surfaces, because Windows' "Open with…"
+# chooser is a minefield and no single one is sufficient on its own:
+#
+#   a. `HKCU\Software\Classes\Applications\<exe>\` — FriendlyAppName +
+#      SupportedTypes + shell\open\command. Required for the entry to
+#      appear in the "Open with → Choose another app" long dialog at
+#      all.
+#
+#   b. `HKCU\Software\Classes\<ext>\OpenWithList\<exe>` — SUB-KEY (NOT
+#      a value). Drives the inline short "Open with" menu visibility
+#      (Win10 + Win11). #166's fix.
+#
+#   c. `HKCU\Software\Classes\winpodx-<slug>` — per-slug **ProgID**
+#      with `DefaultIcon` + `shell\open\command`, linked to each
+#      extension via `<ext>\OpenWithProgids\winpodx-<slug>` value.
+#      This is the **canonical surface for the chooser's per-entry
+#      ICON**: `Applications\<exe>\DefaultIcon` is widely ignored by
+#      Explorer's chooser, and the hard-linked shim has no embedded
+#      icon resource, so without the ProgID surface every entry
+#      falls back to the generic .exe glyph. Same hard-linked .exe
+#      per slug — the EXE-dedup concern in the header above applies
+#      to `OpenWithList` (where Windows collapses by EXE path), NOT
+#      to `OpenWithProgids` (where the ProgID name is the dedup key).
 # =====================================================================
 
 [CmdletBinding()]
@@ -223,17 +242,30 @@ foreach ($app in $manifest.apps) {
     $appRoot = "HKCU:\Software\Classes\Applications\$exeName"
     Set-NamedValue $appRoot 'FriendlyAppName' $friendly
     if (Test-Path -LiteralPath $icoPath) {
+        # Kept for upgrade/back-compat — older revisions read it. The
+        # canonical icon surface for the chooser is the per-slug
+        # ProgID's DefaultIcon below; this Applications-key value is
+        # belt-and-suspenders and harmless.
         Set-DefaultValue (Join-Path $appRoot 'DefaultIcon') "$icoPath,0"
     } else {
-        # Surface a clear log signal so a missing icon on the guest
-        # doesn't look like silent success. Sync layer should always
-        # land a .ico under $IconsDir for every registered slug; if
-        # it doesn't, register-apps.ps1 still produces a working
-        # handler but the OpenWith chooser falls back to the generic
-        # .exe icon. (Hard-link shim has no embedded icon resource.)
         Write-LogLine 'WARN' "icon missing for $slug at $icoPath — chooser will show generic .exe icon"
     }
     Set-DefaultValue (Join-Path $appRoot 'shell\open\command') "`"$exePath`" `"%1`""
+
+    # --- per-slug ProgID (canonical icon surface) ------------------------
+    # Without this, Explorer's chooser uses the .exe's embedded icon
+    # resource — which our hard-linked Rust shim doesn't have — and
+    # falls back to the generic .exe glyph. The ProgID's DefaultIcon
+    # is the surface Explorer reliably honours when an entry is
+    # surfaced via `<ext>\OpenWithProgids\winpodx-<slug>` (written in
+    # the per-extension loop below).
+    $progIdRoot = "HKCU:\Software\Classes\winpodx-$slug"
+    Set-DefaultValue $progIdRoot $friendly
+    Set-NamedValue $progIdRoot 'FriendlyTypeName' $friendly
+    if (Test-Path -LiteralPath $icoPath) {
+        Set-DefaultValue (Join-Path $progIdRoot 'DefaultIcon') "$icoPath,0"
+    }
+    Set-DefaultValue (Join-Path $progIdRoot 'shell\open\command') "`"$exePath`" `"%1`""
 
     # SupportedTypes lists every extension this app handles. The
     # value name is the extension; the value content is conventionally
@@ -264,6 +296,16 @@ foreach ($app in $manifest.apps) {
                 if (-not (Test-Path -LiteralPath $extKey)) {
                     New-Item -Path $extKey -Force | Out-Null
                 }
+                # OpenWithProgids — VALUE (not sub-key). Names the
+                # per-slug ProgID we registered above so Explorer
+                # resolves the entry's icon from the ProgID's
+                # DefaultIcon. Empty REG_NONE value is the documented
+                # convention.
+                $owpKey = "HKCU:\Software\Classes\$extLower\OpenWithProgids"
+                if (-not (Test-Path -LiteralPath $owpKey)) {
+                    New-Item -Path $owpKey -Force | Out-Null
+                }
+                New-ItemProperty -Path $owpKey -Name "winpodx-$slug" -Value ([byte[]]@()) -PropertyType None -Force | Out-Null
             }
         }
     }
@@ -425,6 +467,25 @@ if (-not $DryRun) {
         }
     } catch {
         Write-LogLine 'WARN' "ie4uinit refresh failed: $($_.Exception.Message)"
+    }
+
+    # SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0) — the
+    # canonical "file associations changed, refresh per-entry icons"
+    # signal. `ie4uinit -show` covers the OpenWith MRU list but does
+    # NOT invalidate the shell icon cache; without this P/Invoke,
+    # per-slug ProgID DefaultIcons land in the registry but Explorer
+    # keeps painting the previous (often generic) icon until next
+    # logon. Shell32 export, present on every supported Windows.
+    try {
+        Add-Type -Namespace WinPodx -Name Shell32Ext -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("shell32.dll")]
+public static extern void SHChangeNotify(int wEventId, uint uFlags, System.IntPtr dwItem1, System.IntPtr dwItem2);
+'@ -ErrorAction Stop
+        # SHCNE_ASSOCCHANGED = 0x08000000; SHCNF_IDLIST = 0x0000
+        [WinPodx.Shell32Ext]::SHChangeNotify(0x08000000, 0x0000, [System.IntPtr]::Zero, [System.IntPtr]::Zero)
+        Write-LogLine 'INFO' 'SHChangeNotify(SHCNE_ASSOCCHANGED) — icon cache invalidated'
+    } catch {
+        Write-LogLine 'WARN' "SHChangeNotify failed (icons may need re-logon to refresh): $($_.Exception.Message)"
     }
 }
 

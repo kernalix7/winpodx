@@ -284,6 +284,11 @@ class Listener:
                 # resolved there. TOCTOU isn't in scope: user is
                 # acting on their own files.
                 argv = substitute_path(app.exec_argv, str(safe.real_path))
+                # Log the exact argv so a misbehaving spawn (e.g. wrong
+                # file path, dropped placeholder, mistargeted Firefox)
+                # is recoverable from the daemon log instead of needing
+                # a re-instrumentation cycle on the user's machine.
+                logger.info("listener: spawning slug=%s argv=%r", slug, argv)
                 try:
                     self._spawn(argv, safe.popen_kwargs())
                 except OSError as exc:
