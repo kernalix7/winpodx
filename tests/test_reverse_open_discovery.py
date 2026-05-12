@@ -244,6 +244,42 @@ def test_discover_apps_default_handlers_marked(monkeypatch: pytest.MonkeyPatch) 
     assert apps[0].is_default_for == ["text/plain"]
 
 
+def test_discover_apps_picks_up_system_level_kde_mimeapps_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Defaults set in a system-wide ``<desktop>-mimeapps.list``
+    (e.g. ``/usr/share/applications/kde-mimeapps.list``) must be
+    honoured. This is where distro packaging puts per-DE defaults —
+    KDE Plasma installs typically ship a kde-mimeapps.list with
+    ``text/plain=org.kde.kate.desktop`` that the user inherits without
+    any per-user mimeapps.list.
+
+    Regression guard for the v0.4.6 smoke finding where only 6 of 95
+    discovered apps had ``is_default_for`` populated because the
+    candidate walk stopped at $XDG_CONFIG_HOME / $XDG_DATA_HOME.
+    """
+    _write_desktop("org.kde.kate.desktop", _kate_entry())
+
+    # Stand up a fake XDG_DATA_DIRS entry containing a system-wide
+    # kde-mimeapps.list with the default. We DO NOT write any
+    # user-level mimeapps.list — that's the point: the default lives
+    # purely in the system file and discovery must still find it.
+    sys_share = tmp_path / "share"
+    sys_apps = sys_share / "applications"
+    sys_apps.mkdir(parents=True)
+    (sys_apps / "kde-mimeapps.list").write_text(
+        "[Default Applications]\ntext/plain=org.kde.kate.desktop\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_DATA_DIRS", str(sys_share))
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
+
+    apps = discover_apps()
+    kate = next((a for a in apps if a.slug == "org-kde-kate"), None)
+    assert kate is not None
+    assert kate.is_default_for == ["text/plain"]
+
+
 def test_discover_apps_extra_dirs_after_xdg() -> None:
     _write_desktop("kate.desktop", _kate_entry())
     extra = Path(os.environ["XDG_DATA_HOME"]).parent / "extra" / "apps"

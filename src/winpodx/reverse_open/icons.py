@@ -263,27 +263,48 @@ def convert_to_ico(src: Path, dst: Path) -> bool:
                 break
             images.append(Image.open(io.BytesIO(png_bytes)).convert("RGBA"))
     else:
-        # Raster — open once, resize per target size.
+        # Raster — open once, then upscale to the largest target size
+        # before resampling down to every other size. Pillow's ICO
+        # encoder silently SKIPS any requested size larger than the
+        # source (``if size[0] > width: continue`` in IcoImagePlugin),
+        # so a 16×16 source PNG would produce a single-frame 16×16
+        # .ico even though we asked for 7 sizes. Win11's OpenWith
+        # chooser then renders that tiny frame fuzzy or falls back
+        # to the generic .exe icon entirely. Upscaling first guarantees
+        # every requested size lands in the output.
         try:
             base = Image.open(src).convert("RGBA")
         except Exception as exc:
             logger.warning("Pillow cannot open %s: %s", src, exc)
             used_placeholder = True
         else:
+            max_size = max(ICO_SIZES)
+            if base.size != (max_size, max_size):
+                base = base.resize((max_size, max_size), Image.Resampling.LANCZOS)
             for size in ICO_SIZES:
-                images.append(base.resize((size, size), Image.Resampling.LANCZOS))
+                if size == max_size:
+                    images.append(base)
+                else:
+                    images.append(base.resize((size, size), Image.Resampling.LANCZOS))
 
     if used_placeholder or not images:
         images = [_placeholder_image(size) for size in ICO_SIZES]
 
+    # Order frames largest-first. Pillow's ICO encoder uses the BASE
+    # image's dimensions as the cap for which ``sizes=`` entries it
+    # actually writes — anything larger than the base is dropped.
+    # Saving the 256×256 frame as the base guarantees all 7 sizes
+    # land in the output.
+    by_size_desc = sorted(images, key=lambda im: im.size[0], reverse=True)
+
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_suffix(dst.suffix + ".tmp")
     try:
-        images[0].save(
+        by_size_desc[0].save(
             tmp,
             format="ICO",
             sizes=[(s, s) for s in ICO_SIZES],
-            append_images=images[1:],
+            append_images=by_size_desc[1:],
         )
         os.replace(tmp, dst)
     finally:

@@ -241,34 +241,71 @@ def _split_mimes(value: str) -> list[str]:
 
 
 def _mimeapps_candidates() -> list[Path]:
-    """Return the per-user ``mimeapps.list`` paths in lookup order.
+    """Return every ``mimeapps.list`` path the freedesktop spec defines.
 
-    Per the freedesktop Associations spec:
+    Walks the full canonical search order so we honour defaults set
+    anywhere a desktop-environment or distro packaging convention puts
+    them — not just the per-user files. For each base directory below,
+    we check the desktop-prefix variant (one per
+    ``XDG_CURRENT_DESKTOP`` colon-component, lowercased) followed by
+    plain ``mimeapps.list``. The base-dir order, from highest to
+    lowest precedence:
 
-      1. ``$XDG_CONFIG_HOME/<desktop>-mimeapps.list`` — desktop-specific
-         override (`KDE-mimeapps.list`, `gnome-mimeapps.list`, …)
-      2. ``$XDG_CONFIG_HOME/mimeapps.list`` — primary user file
-      3. ``$XDG_DATA_HOME/applications/<desktop>-mimeapps.list`` —
-         older location some apps still write
-      4. ``$XDG_DATA_HOME/applications/mimeapps.list`` — legacy
-         fallback
+      1. ``$XDG_CONFIG_HOME``                                 (user)
+      2. Each entry of ``$XDG_CONFIG_DIRS``                   (system config)
+      3. ``$XDG_DATA_HOME/applications``                      (user, legacy)
+      4. Each entry of ``$XDG_DATA_DIRS/applications``        (system data)
 
-    Earlier entries shadow later ones; the caller merges by
-    "first definition wins".
+    Defaults follow freedesktop:
+
+      * ``XDG_CONFIG_HOME`` → ``~/.config``
+      * ``XDG_CONFIG_DIRS`` → ``/etc/xdg``
+      * ``XDG_DATA_HOME``  → ``~/.local/share``
+      * ``XDG_DATA_DIRS``  → ``/usr/local/share:/usr/share``
+
+    The caller merges first-definition-wins so user-level always
+    shadows system-level — matching xdg-mime's own resolution. This
+    is how distros that ship a system-wide ``kde-mimeapps.list``
+    (e.g. ``/usr/share/applications/kde-mimeapps.list`` with
+    ``text/plain=org.kde.kate.desktop``) get picked up, and why
+    GNOME-on-Wayland with no user override still resolves to its
+    system-default text editor.
     """
-    cfg_home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
-    data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(
-        os.path.expanduser("~"), ".local", "share"
-    )
-    out: list[Path] = []
-    desktops = os.environ.get("XDG_CURRENT_DESKTOP", "")
-    for desktop in (p.strip() for p in desktops.split(":") if p.strip()):
-        out.append(Path(cfg_home) / f"{desktop.lower()}-mimeapps.list")
-    out.append(Path(cfg_home) / "mimeapps.list")
-    for desktop in (p.strip() for p in desktops.split(":") if p.strip()):
-        out.append(Path(data_home) / "applications" / f"{desktop.lower()}-mimeapps.list")
-    out.append(Path(data_home) / "applications" / "mimeapps.list")
-    return out
+    home = os.path.expanduser("~")
+
+    cfg_home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    cfg_dirs_raw = os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg"
+    cfg_dirs = [d for d in cfg_dirs_raw.split(":") if d]
+
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+    data_dirs_raw = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    data_dirs = [d for d in data_dirs_raw.split(":") if d]
+
+    desktops = [
+        p.strip().lower() for p in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":") if p.strip()
+    ]
+
+    def _expand(base: Path) -> list[Path]:
+        """Desktop-prefix variants (each component of XDG_CURRENT_DESKTOP)
+        followed by the plain mimeapps.list under ``base``."""
+        out: list[Path] = []
+        for d in desktops:
+            out.append(base / f"{d}-mimeapps.list")
+        out.append(base / "mimeapps.list")
+        return out
+
+    paths: list[Path] = []
+    # 1. user config
+    paths.extend(_expand(Path(cfg_home)))
+    # 2. system config (XDG_CONFIG_DIRS)
+    for d in cfg_dirs:
+        paths.extend(_expand(Path(d)))
+    # 3. user data (legacy applications/ location)
+    paths.extend(_expand(Path(data_home) / "applications"))
+    # 4. system data (XDG_DATA_DIRS)
+    for d in data_dirs:
+        paths.extend(_expand(Path(d) / "applications"))
+    return paths
 
 
 def _read_default_handlers() -> dict[str, str]:

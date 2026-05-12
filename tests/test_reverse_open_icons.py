@@ -119,6 +119,35 @@ def test_convert_to_ico_from_png(tmp_path: Path) -> None:
     _assert_ico_valid(dst)
 
 
+def test_convert_to_ico_small_source_upscales_to_full_size_set(tmp_path: Path) -> None:
+    """Source PNGs smaller than the largest target must NOT collapse the
+    output to a single frame.
+
+    Pillow's ICO encoder silently skips any requested size larger than
+    the source (``if size[0] > width: continue``). Without upscaling the
+    base image first, a 16×16 firefox.png would produce a single 16×16
+    frame in the .ico — Win11's OpenWith chooser then falls back to the
+    generic .exe icon. ``convert_to_ico`` must pre-upscale so every
+    requested ICO_SIZES entry lands in the output.
+    """
+    src = tmp_path / "tiny.png"
+    _make_png(src, size=16)  # smaller than max(ICO_SIZES)=256
+    dst = tmp_path / "out.ico"
+    assert convert_to_ico(src, dst) is True
+
+    with Image.open(dst) as img:
+        sizes = getattr(img, "ico", None)
+        if sizes is not None:
+            actual = {(w, h) for (w, h) in sizes.sizes()}
+        else:
+            actual = set(img.info.get("sizes", []))
+        # Every declared ICO size must be present, not just the
+        # source's own 16×16. Win11 chooser typically renders at 32 or
+        # 48 — failing to embed those was the v0.4.5/v0.4.6 smoke bug.
+        for s in ICO_SIZES:
+            assert (s, s) in actual, f"{s}x{s} missing — actual sizes: {actual}"
+
+
 def test_convert_to_ico_creates_parent_directory(tmp_path: Path) -> None:
     src = tmp_path / "in.png"
     _make_png(src)
