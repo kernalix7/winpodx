@@ -54,12 +54,68 @@ jobs:
           echo "dockur_current=$DOCKUR_CURRENT" >> "$GITHUB_OUTPUT"
           echo "dockur_arm_current=$DOCKUR_ARM_CURRENT" >> "$GITHUB_OUTPUT"
 
+      - name: Check :latest digest drift on Docker Hub
+        id: digest_check
+        run: |
+          # Anonymous Docker Hub Registry API. We fetch the manifest
+          # headers for ``:latest`` and read ``Docker-Content-Digest``
+          # to detect silent rebuilds (digest changed but the GitHub
+          # release tag did not). dockur sometimes ships security
+          # patches as same-tag rebuilds, which the release-tag check
+          # alone misses.
+          fetch_digest() {
+            local repo="$1"
+            local out_dir
+            out_dir="$(mktemp -d)"
+            curl -fsSL -o "$out_dir/token.json" \
+              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull"
+            local token
+            token=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['token'])" "$out_dir/token.json")
+            curl -fsSL -D "$out_dir/headers.txt" -o /dev/null \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json" \
+              "https://registry-1.docker.io/v2/${repo}/manifests/latest"
+            grep -i '^docker-content-digest:' "$out_dir/headers.txt" \
+              | awk '{print $2}' | tr -d '\r\n'
+          }
+
+          DIGEST_X86_LATEST=$(fetch_digest "dockurr/windows" || echo "")
+          DIGEST_ARM_LATEST=$(fetch_digest "dockurr/windows-arm" || echo "")
+
+          VERSION_FILE="config/oem/VERSIONS.txt"
+          DIGEST_X86_CURRENT=""
+          DIGEST_ARM_CURRENT=""
+          if [ -f "$VERSION_FILE" ]; then
+            DIGEST_X86_CURRENT=$(grep "^dockur-digest=" "$VERSION_FILE" | cut -d= -f2- || echo "")
+            DIGEST_ARM_CURRENT=$(grep "^dockur-arm-digest=" "$VERSION_FILE" | cut -d= -f2- || echo "")
+          fi
+
+          DIGEST_DRIFT_X86=false
+          if [ -n "$DIGEST_X86_LATEST" ] && [ "$DIGEST_X86_LATEST" != "$DIGEST_X86_CURRENT" ]; then
+            DIGEST_DRIFT_X86=true
+            echo "dockur/windows:latest digest drift: ${DIGEST_X86_CURRENT:-none} -> $DIGEST_X86_LATEST"
+          fi
+
+          DIGEST_DRIFT_ARM=false
+          if [ -n "$DIGEST_ARM_LATEST" ] && [ "$DIGEST_ARM_LATEST" != "$DIGEST_ARM_CURRENT" ]; then
+            DIGEST_DRIFT_ARM=true
+            echo "dockur/windows-arm:latest digest drift: ${DIGEST_ARM_CURRENT:-none} -> $DIGEST_ARM_LATEST"
+          fi
+
+          echo "digest_drift_x86=$DIGEST_DRIFT_X86" >> "$GITHUB_OUTPUT"
+          echo "digest_drift_arm=$DIGEST_DRIFT_ARM" >> "$GITHUB_OUTPUT"
+          echo "digest_x86_latest=$DIGEST_X86_LATEST" >> "$GITHUB_OUTPUT"
+          echo "digest_arm_latest=$DIGEST_ARM_LATEST" >> "$GITHUB_OUTPUT"
+          echo "digest_x86_current=$DIGEST_X86_CURRENT" >> "$GITHUB_OUTPUT"
+          echo "digest_arm_current=$DIGEST_ARM_CURRENT" >> "$GITHUB_OUTPUT"
+
       - name: Open x86_64 tracking issue
         if: steps.check.outputs.needs_update_x86 == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKUR_LATEST: ${{ steps.check.outputs.dockur_latest }}
           DOCKUR_CURRENT: ${{ steps.check.outputs.dockur_current }}
+          DIGEST_X86_LATEST: ${{ steps.digest_check.outputs.digest_x86_latest }}
         run: |
           TITLE="chore: dockur/windows update available ($DOCKUR_LATEST)"
 
@@ -77,10 +133,13 @@ jobs:
           ## Windows Build Update (x86_64)
 
           **dockur/windows**: ${DOCKUR_CURRENT:-unknown} → $DOCKUR_LATEST
+          **Current :latest digest**: \`${DIGEST_X86_LATEST:-unknown}\`
 
           ### Action items
-          1. Update \`config/oem/VERSIONS.txt\` → \`dockur=$DOCKUR_LATEST\`
-          2. Pull the new image and refresh \`DOCKUR_IMAGE_PIN\` in \`src/winpodx/core/config.py\`:
+          1. Update \`config/oem/VERSIONS.txt\`:
+             - \`dockur=$DOCKUR_LATEST\`
+             - \`dockur-digest=${DIGEST_X86_LATEST:-<paste new digest>}\`
+          2. Refresh \`DOCKUR_IMAGE_PIN\` in \`src/winpodx/core/config.py\` if rolling forward:
              \`\`\`
              podman pull docker.io/dockurr/windows:latest
              podman image inspect docker.io/dockurr/windows:latest -f '{{json .RepoDigests}}'
@@ -98,6 +157,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKUR_ARM_LATEST: ${{ steps.check.outputs.dockur_arm_latest }}
           DOCKUR_ARM_CURRENT: ${{ steps.check.outputs.dockur_arm_current }}
+          DIGEST_ARM_LATEST: ${{ steps.digest_check.outputs.digest_arm_latest }}
         run: |
           TITLE="chore: dockur/windows-arm update available ($DOCKUR_ARM_LATEST)"
 
@@ -115,10 +175,13 @@ jobs:
           ## Windows Build Update (aarch64)
 
           **dockur/windows-arm**: ${DOCKUR_ARM_CURRENT:-unknown} → $DOCKUR_ARM_LATEST
+          **Current :latest digest**: \`${DIGEST_ARM_LATEST:-unknown}\`
 
           ### Action items
-          1. Update \`config/oem/VERSIONS.txt\` → \`dockur-arm=$DOCKUR_ARM_LATEST\`
-          2. Pull the new image and refresh \`DOCKUR_IMAGE_ARM_PIN\` in \`src/winpodx/core/config.py\`:
+          1. Update \`config/oem/VERSIONS.txt\`:
+             - \`dockur-arm=$DOCKUR_ARM_LATEST\`
+             - \`dockur-arm-digest=${DIGEST_ARM_LATEST:-<paste new digest>}\`
+          2. Refresh \`DOCKUR_IMAGE_ARM_PIN\` in \`src/winpodx/core/config.py\` if rolling forward:
              \`\`\`
              podman pull docker.io/dockurr/windows-arm:latest
              podman image inspect docker.io/dockurr/windows-arm:latest -f '{{json .RepoDigests}}'
@@ -127,5 +190,91 @@ jobs:
           4. Check if \`TargetReleaseVersionInfo\` in \`config/oem/install.bat\` needs updating
 
           Release notes: https://github.com/dockur/windows-arm/releases/tag/$DOCKUR_ARM_LATEST
+          EOF
+          )"
+
+      - name: Open x86_64 silent-rebuild issue
+        # Only fire when digest drifted AND no release-tag bump (the
+        # tag-bump issue above already covers the drift in that case).
+        if: steps.digest_check.outputs.digest_drift_x86 == 'true' && steps.check.outputs.needs_update_x86 != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKUR_LATEST: ${{ steps.check.outputs.dockur_latest }}
+          DIGEST_X86_LATEST: ${{ steps.digest_check.outputs.digest_x86_latest }}
+          DIGEST_X86_CURRENT: ${{ steps.digest_check.outputs.digest_x86_current }}
+        run: |
+          TITLE="chore: dockur/windows :latest digest drift (silent rebuild)"
+
+          EXISTING=$(gh issue list \
+            --search "$TITLE in:title is:open" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "Issue #$EXISTING already tracks this drift, skipping"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "$TITLE" \
+            --body "$(cat <<EOF
+          ## Silent rebuild of dockur/windows:latest (x86_64)
+
+          The \`:latest\` tag points at a new image digest, but no new
+          release tag was published on GitHub. This usually means an
+          upstream security patch was baked into the same release tag.
+
+          **Tag**: \`${DOCKUR_LATEST:-unknown}\` (unchanged)
+          **Previous digest**: \`${DIGEST_X86_CURRENT:-unknown}\`
+          **New digest**: \`$DIGEST_X86_LATEST\`
+
+          ### Action items
+          1. Investigate dockur/windows recent commits for the rebuild trigger:
+             https://github.com/dockur/windows/commits/master
+          2. If the rebuild is desirable, update \`config/oem/VERSIONS.txt\`:
+             - \`dockur-digest=$DIGEST_X86_LATEST\`
+          3. Refresh \`DOCKUR_IMAGE_PIN\` in \`src/winpodx/core/config.py\` if rolling forward.
+          4. If the rebuild looks unintentional or breaks something, leave
+             the pin alone and update only the baseline once stable.
+          EOF
+          )"
+
+      - name: Open aarch64 silent-rebuild issue
+        if: steps.digest_check.outputs.digest_drift_arm == 'true' && steps.check.outputs.needs_update_arm != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKUR_ARM_LATEST: ${{ steps.check.outputs.dockur_arm_latest }}
+          DIGEST_ARM_LATEST: ${{ steps.digest_check.outputs.digest_arm_latest }}
+          DIGEST_ARM_CURRENT: ${{ steps.digest_check.outputs.digest_arm_current }}
+        run: |
+          TITLE="chore: dockur/windows-arm :latest digest drift (silent rebuild)"
+
+          EXISTING=$(gh issue list \
+            --search "$TITLE in:title is:open" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "Issue #$EXISTING already tracks this drift, skipping"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "$TITLE" \
+            --body "$(cat <<EOF
+          ## Silent rebuild of dockur/windows-arm:latest (aarch64)
+
+          The \`:latest\` tag points at a new image digest, but no new
+          release tag was published on GitHub. This usually means an
+          upstream security patch was baked into the same release tag.
+
+          **Tag**: \`${DOCKUR_ARM_LATEST:-unknown}\` (unchanged)
+          **Previous digest**: \`${DIGEST_ARM_CURRENT:-unknown}\`
+          **New digest**: \`$DIGEST_ARM_LATEST\`
+
+          ### Action items
+          1. Investigate dockur/windows-arm recent commits for the rebuild trigger:
+             https://github.com/dockur/windows-arm/commits/master
+          2. If the rebuild is desirable, update \`config/oem/VERSIONS.txt\`:
+             - \`dockur-arm-digest=$DIGEST_ARM_LATEST\`
+          3. Refresh \`DOCKUR_IMAGE_ARM_PIN\` in \`src/winpodx/core/config.py\` if rolling forward.
+          4. If the rebuild looks unintentional or breaks something, leave
+             the pin alone and update only the baseline once stable.
           EOF
           )"
