@@ -1,6 +1,6 @@
 [package]
 name = "winpodx-reverse-open-shim"
-version = "0.4.5"
+version = "0.5.0"
 edition = "2021"
 description = "Stub binary that Windows Explorer invokes from 'Open with' to relay a file-open request back to the Linux host's reverse-open listener."
 license = "MIT"

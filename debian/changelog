@@ -1,11 +1,27 @@
-winpodx (0.4.5) unstable; urgency=medium
+winpodx (0.5.0) unstable; urgency=medium
 
-  * Reverse-open feature (#48) ships end-to-end. Linux apps now
-    appear in the Windows guest's right-click "Open with..." menu by
-    default — no opt-in flag, no Settings toggle required. Phase 2
+  * Reverse-open feature (#48) ships end-to-end as the headline of
+    this release. Linux apps now appear in the Windows guest's
+    right-click "Open with..." menu by default — no opt-in flag, no
+    Settings toggle required — with correct per-app icons in both
+    the short menu and the long "Choose another app" dialog. Phase 2
     series complete (a discovery + ICO + CLI, b listener daemon +
     lifecycle, c guest handlers + sync transport + default-on, d Qt
-    Settings card).
+    Settings card), plus the full fix-forward stack.
+  * Chooser entry icons render correctly via embedded EXE icon
+    resource. Each per-slug `winpodx-<slug>.exe` is an independent
+    copy of the Rust shim whose PE resource section carries the
+    matching `<slug>.ico`, patched via vendored rcedit
+    (electron/rcedit v2.0.0, MIT). The Win10/Win11 Open With chooser
+    ignores `Applications\<exe>\DefaultIcon` and per-ProgID
+    `DefaultIcon`; the embedded EXE icon is the only surface that
+    works. PR #165's hard-link inode-sharing optimisation is dropped
+    (~500 KB × N apps on disk) since there's no chooser-icon path
+    that also preserves shared inodes on stock Windows.
+  * Per-app `.cmd` wrappers, Rust `.exe` shim, short-menu visibility,
+    Firefox handoff, multi-resolution ICOs, Desktop folder shortcut
+    + Quick Access pin, and `--purge` skip-guest-scrub all land in
+    the fix-forward stack (PRs #164 → #171).
   * `winpodx pod start` auto-spawns the host-side reverse-open
     listener daemon; `winpodx pod stop` tears it down before stopping
     the pod itself.
@@ -18,15 +34,15 @@ winpodx (0.4.5) unstable; urgency=medium
   * On the guest, per-app `HKCU\\Software\\Classes\\winpodx-<slug>`
     ProgIDs are attached to each applicable extension's
     `OpenWithProgids` subkey; clicking a Linux app from "Open
-    with..." invokes a PowerShell shim that atomically writes a
+    with..." invokes the Rust shim which atomically writes a
     request JSON into the host listener's incoming dir.
   * Self-contained sync — all three guest scripts
-    (`register-apps.ps1`, `unregister-apps.ps1`, the shim) are
-    base64-embedded into the sync payload, so existing pods get the
-    feature on first sync without depending on dockur having staged
-    the OEM bundle.
+    (`register-apps.ps1`, `unregister-apps.ps1`, the shim) plus the
+    vendored `rcedit.exe` are base64-embedded into the sync payload,
+    so existing pods get the feature on first sync without depending
+    on dockur having staged the OEM bundle.
 
- -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 11 May 2026 13:00:00 +0000
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 13 May 2026 00:00:00 +0000
 
 winpodx (0.4.4) unstable; urgency=medium
 
