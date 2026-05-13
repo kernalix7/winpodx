@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFrame,
-    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -33,6 +32,7 @@ from PySide6.QtWidgets import (
 from winpodx.core.app import AppInfo, list_available_apps
 from winpodx.core.config import Config
 from winpodx.core.pod import pod_status
+from winpodx.gui._widget_helpers import add_shadow, make_app_avatar, make_source_badge
 from winpodx.gui.theme import (
     ACTION_ROW,
     APP_CARD,
@@ -75,110 +75,6 @@ class WinpodxWindow(QMainWindow):
     app_launched = Signal(str)
     app_launch_failed = Signal(str)
     log_signal = Signal(str, str)
-
-    @staticmethod
-    def _add_shadow(
-        widget: QWidget,
-        blur: int = 16,
-        y: int = 3,
-        alpha: int = 45,
-    ) -> None:
-        """Apply subtle drop shadow for depth effect."""
-        shadow = QGraphicsDropShadowEffect(widget)
-        shadow.setBlurRadius(blur)
-        shadow.setOffset(0, y)
-        shadow.setColor(QColor(0, 0, 0, alpha))
-        widget.setGraphicsEffect(shadow)
-
-    @staticmethod
-    def _make_source_badge(app: AppInfo) -> QLabel | None:
-        """Pill badge marking app provenance: Detected (from scan) vs Bundled.
-
-        Returns None when ``AppInfo.source`` is absent (older cores) or equals
-        the default user-authored provenance, so legacy apps stay unannotated.
-        """
-        source = getattr(app, "source", "bundled")
-        if source == "discovered":
-            text = "Detected"
-            bg = C.SAPPHIRE
-            fg = C.CRUST
-        elif source == "bundled":
-            text = "Bundled"
-            bg = C.SURFACE2
-            fg = C.SUBTEXT1
-        else:
-            return None
-
-        badge = QLabel(text)
-        badge.setStyleSheet(
-            f"background: {bg}; color: {fg};"
-            " border-radius: 7px;"
-            " font-size: 9px; font-weight: bold;"
-            " padding: 2px 7px;"
-            " letter-spacing: 0.3px;"
-        )
-        return badge
-
-    @staticmethod
-    def _make_app_avatar(app: AppInfo, size: int, *, radius: int, font_size: int) -> QLabel:
-        """Build the avatar label for an app row/card.
-
-        When ``app.icon_path`` points at a real PNG / SVG, render the icon
-        scaled to ``size`` with a subtle surface background for contrast.
-        Otherwise fall back to the colored single-letter avatar (legacy
-        look for apps without a discovered icon).
-        """
-        avatar = QLabel()
-        avatar.setFixedSize(size, size)
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        icon_path = (app.icon_path or "").strip()
-        pixmap: QPixmap | None = None
-        if icon_path and Path(icon_path).is_file():
-            pad = max(4, size // 7)
-            inner = size - pad * 2
-            try:
-                if icon_path.lower().endswith(".svg"):
-                    renderer = QSvgRenderer(icon_path)
-                    if renderer.isValid():
-                        pm = QPixmap(inner, inner)
-                        pm.fill(Qt.GlobalColor.transparent)
-                        from PySide6.QtGui import QPainter
-
-                        painter = QPainter(pm)
-                        renderer.render(painter)
-                        painter.end()
-                        pixmap = pm
-                else:
-                    pm = QPixmap(icon_path)
-                    if not pm.isNull():
-                        pixmap = pm.scaled(
-                            inner,
-                            inner,
-                            Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation,
-                        )
-            except Exception:  # noqa: BLE001
-                pixmap = None
-
-        if pixmap is not None and not pixmap.isNull():
-            avatar.setPixmap(pixmap)
-            avatar.setStyleSheet(
-                f"background: {C.SURFACE1}; border-radius: {radius}px; padding: 0px;"
-            )
-            return avatar
-
-        # Fallback: legacy colored letter avatar.
-        color = avatar_color(app.name)
-        letter = app.full_name[0].upper() if app.full_name else "?"
-        avatar.setText(letter)
-        avatar.setStyleSheet(
-            f"background: {color};"
-            f" color: {C.CRUST};"
-            f" border-radius: {radius}px;"
-            f" font-size: {font_size}px; font-weight: bold;"
-        )
-        return avatar
 
     def __init__(self) -> None:
         super().__init__()
@@ -646,7 +542,7 @@ class WinpodxWindow(QMainWindow):
         card.setStyleSheet(APP_CARD)
         card.setMinimumHeight(190)
         card.setMinimumWidth(160)
-        self._add_shadow(card)
+        add_shadow(card)
 
         vl = QVBoxLayout(card)
         vl.setContentsMargins(16, 18, 16, 14)
@@ -656,11 +552,11 @@ class WinpodxWindow(QMainWindow):
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(0)
 
-        avatar = self._make_app_avatar(app, size=52, radius=14, font_size=22)
+        avatar = make_app_avatar(app, size=52, radius=14, font_size=22)
         top_row.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
         top_row.addStretch()
 
-        badge = self._make_source_badge(app)
+        badge = make_source_badge(app)
         if badge is not None:
             top_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
 
@@ -734,7 +630,7 @@ class WinpodxWindow(QMainWindow):
         tile.setObjectName("appTile")
         tile.setStyleSheet(APP_TILE)
         tile.setMinimumHeight(72)
-        self._add_shadow(tile, blur=12, y=2, alpha=35)
+        add_shadow(tile, blur=12, y=2, alpha=35)
 
         layout = QHBoxLayout(tile)
         layout.setContentsMargins(0, 0, 16, 0)
@@ -746,7 +642,7 @@ class WinpodxWindow(QMainWindow):
         layout.addWidget(stripe)
         layout.addSpacing(14)
 
-        avatar = self._make_app_avatar(app, size=40, radius=10, font_size=16)
+        avatar = make_app_avatar(app, size=40, radius=10, font_size=16)
         layout.addWidget(avatar)
         layout.addSpacing(14)
 
@@ -761,7 +657,7 @@ class WinpodxWindow(QMainWindow):
         name_row.setContentsMargins(0, 0, 0, 0)
         name_row.setSpacing(8)
         name_row.addWidget(name_lbl)
-        badge = self._make_source_badge(app)
+        badge = make_source_badge(app)
         if badge is not None:
             name_row.addWidget(badge)
         name_row.addStretch()
@@ -1040,7 +936,7 @@ class WinpodxWindow(QMainWindow):
             + INPUT
             + COMBO
         )
-        self._add_shadow(card)
+        add_shadow(card)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -1252,7 +1148,7 @@ class WinpodxWindow(QMainWindow):
         row.setStyleSheet(ACTION_ROW)
         row.setMinimumHeight(64)
         row.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._add_shadow(row, blur=12, y=2, alpha=35)
+        add_shadow(row, blur=12, y=2, alpha=35)
 
         rl = QHBoxLayout(row)
         rl.setContentsMargins(16, 0, 20, 0)
@@ -1452,7 +1348,7 @@ class WinpodxWindow(QMainWindow):
             SETTINGS_SECTION
             + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
         )
-        self._add_shadow(card)
+        add_shadow(card)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(24, 22, 24, 22)
