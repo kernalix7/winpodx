@@ -431,6 +431,19 @@ class SettingsPageMixin:
                         self.app_launched.emit("Container restarted")
                     except Exception as e:  # noqa: BLE001
                         self.app_launch_failed.emit(f"Restart failed: {e}")
+                        return
+                    # v0.5.1: the freshly-recreated guest has no booted
+                    # Windows / no agent / no rdprrap / no apps yet. Run
+                    # the full bring-up chain (wait pod -> wait agent ->
+                    # apply Windows fixes -> discover apps -> reverse-
+                    # open sync) on its own worker thread. The call
+                    # returns immediately; the user sees progress in
+                    # ``BringUpProgressDialog`` (opened on the GUI thread
+                    # via the ``bringup_started`` signal).
+                    try:
+                        self._run_full_bring_up()
+                    except Exception as e:  # noqa: BLE001
+                        self.app_launch_failed.emit(f"Bring-up kickoff failed: {e}")
 
                 threading.Thread(target=_recreate, daemon=True).start()
                 return

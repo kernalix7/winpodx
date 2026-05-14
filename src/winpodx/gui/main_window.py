@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from winpodx.core.app import list_available_apps
 from winpodx.core.config import Config
 from winpodx.gui._main_window_apps import AppCrudMixin
+from winpodx.gui._main_window_bringup import BringUpMixin
 from winpodx.gui._main_window_header import HeaderMixin
 from winpodx.gui._main_window_info import InfoPageMixin
 from winpodx.gui._main_window_library import LibraryPageMixin
@@ -38,6 +39,7 @@ log = logging.getLogger(__name__)
 
 class WinpodxWindow(
     AppCrudMixin,
+    BringUpMixin,
     HeaderMixin,
     InfoPageMixin,
     LibraryPageMixin,
@@ -57,6 +59,14 @@ class WinpodxWindow(
     app_launched = Signal(str)
     app_launch_failed = Signal(str)
     log_signal = Signal(str, str)
+    # v0.5.1 bring-up signals (see _main_window_bringup.py).
+    # ``bringup_phase`` is (phase_label, sub_detail); the dialog renders
+    # both rows. ``bringup_done`` is (success, error_msg). ``bringup_started``
+    # is the cross-thread kick from the recreate worker to the GUI thread
+    # so we can construct the dialog without touching Qt off-thread.
+    bringup_phase = Signal(str, str)
+    bringup_done = Signal(bool, str)
+    bringup_started = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -106,6 +116,9 @@ class WinpodxWindow(
         # through Terminal's full QTextEdit history also flashes at
         # the bottom of the window regardless of which page is open.
         self.log_signal.connect(self._update_log_bar)
+        # Bring-up dialog kick-off: the worker thread emits this and
+        # _open_bringup_dialog (BringUpMixin) runs on the GUI thread.
+        self.bringup_started.connect(self._open_bringup_dialog)
 
     def _update_log_bar(self, line: str, color: str) -> None:
         """Push the latest log line onto the bottom bar (2-line ticker)."""
