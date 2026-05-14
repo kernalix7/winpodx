@@ -448,11 +448,14 @@ def handle_setup(args: argparse.Namespace) -> None:
             raise SystemExit(1)
 
     # Apply --win-version before the cfg is saved. PodConfig.__post_init__
-    # normalises whitespace/case and warns when the value is off the
-    # curated allowlist (it still passes through to dockur — see #178).
+    # normalises whitespace/case, rejects YAML-breaking characters, and
+    # warns when the value is off the curated allowlist (it still passes
+    # through to dockur — see #178). Re-run __post_init__ explicitly
+    # because direct attribute assignment bypasses dataclass validation.
     win_version_arg = getattr(args, "win_version", None)
     if win_version_arg:
         cfg.pod.win_version = win_version_arg
+        cfg.pod.__post_init__()
 
     from datetime import datetime, timezone
 

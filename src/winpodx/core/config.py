@@ -60,6 +60,20 @@ _KNOWN_WIN_VERSIONS = frozenset(
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DEFAULT_CONTAINER_NAME = "winpodx-windows"
 
+# Characters that break out of a YAML double-quoted scalar (or invite
+# shell / PowerShell expansion downstream). Used to reject hand-edited
+# TOML values that try to inject through ``cfg.pod.win_version`` /
+# ``cfg.pod.image`` into the generated ``compose.yaml``. The compose
+# writer also runs each scalar through ``_yaml_escape`` as defense in
+# depth, but rejecting at the config layer means the value never even
+# reaches disk in a recoverable form.
+_DANGEROUS_YAML_CHARS = set('"\\\n\r$`')
+
+# ``cfg.pod.disk_size`` must match dockur's expected ``<integer>[GMT]``
+# form (e.g. ``64G``, ``128G``, ``2T``). Reject anything else — dockur
+# happily accepts garbage here and silently provisions a 0-byte disk.
+_DISK_SIZE_RE = re.compile(r"^[1-9][0-9]{0,4}[KMGTkmgt]?$")
+
 # Pinned dockur/windows image — the default ``cfg.pod.image``. Bumping
 # this digest is a deliberate per-release decision (so winpodx ships a
 # specific tested dockur version with each release), not a side effect
@@ -209,19 +223,40 @@ class PodConfig:
             self.image = _default_pod_image()
         # win_version: keep a string; coerce empty to default; warn (don't
         # reject) on unknown values so future dockur additions still work.
+        # Reject values containing characters that break out of YAML
+        # double-quoted scalars or invite downstream shell expansion —
+        # the compose template embeds this value inside ``VERSION: "..."``,
+        # and a hand-edited TOML with ``win_version = '11"\nEVIL: "x'``
+        # would otherwise inject an arbitrary env key into the dockur
+        # service. Coerce dangerous values back to "11".
         if not isinstance(self.win_version, str) or not self.win_version.strip():
             self.win_version = "11"
         else:
-            self.win_version = self.win_version.strip().lower()
-            if self.win_version not in _KNOWN_WIN_VERSIONS:
+            candidate = self.win_version.strip().lower()
+            if any(ch in _DANGEROUS_YAML_CHARS for ch in candidate):
                 logging.getLogger(__name__).warning(
-                    "win_version=%r not in winpodx's known list (%s); "
-                    "passing through to dockur as-is",
+                    "win_version=%r contains characters reserved by YAML / shell "
+                    '(", \\, \\n, \\r, $, `); coercing to default "11"',
                     self.win_version,
-                    ", ".join(sorted(_KNOWN_WIN_VERSIONS)),
                 )
-        if not isinstance(self.disk_size, str) or not self.disk_size.strip():
+                self.win_version = "11"
+            else:
+                self.win_version = candidate
+                if self.win_version not in _KNOWN_WIN_VERSIONS:
+                    logging.getLogger(__name__).warning(
+                        "win_version=%r not in winpodx's known list (%s); "
+                        "passing through to dockur as-is",
+                        self.win_version,
+                        ", ".join(sorted(_KNOWN_WIN_VERSIONS)),
+                    )
+        # disk_size: validate against dockur's expected size shape so a
+        # hand-edited TOML can't provision a 0-byte disk or inject YAML.
+        if not isinstance(self.disk_size, str) or not _DISK_SIZE_RE.match(
+            self.disk_size.strip() if isinstance(self.disk_size, str) else ""
+        ):
             self.disk_size = "64G"
+        else:
+            self.disk_size = self.disk_size.strip()
         # storage_path: keep empty (named-volume mode) or coerce to a
         # safe absolute string under the user's home or under a known
         # winpodx-managed root. The caller responsible for materialising
