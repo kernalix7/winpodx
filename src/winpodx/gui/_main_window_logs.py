@@ -21,6 +21,7 @@ import logging
 import threading
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -31,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.config import Config
-from winpodx.gui.theme import BTN_GHOST, BTN_PRIMARY, TERMINAL, C
+from winpodx.gui.theme import BTN_GHOST, BTN_PRIMARY, COMBO, TERMINAL, C
 
 log = logging.getLogger(__name__)
 
@@ -241,6 +242,36 @@ class LogsMixin:
             f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
         )
         header.addWidget(title)
+        header.addSpacing(16)
+
+        # Log level dropdown — changes both what gets written to
+        # ``~/.config/winpodx/winpodx.log`` (which the "Live (app)"
+        # button tails) AND what the running CLI / GUI logger emits.
+        # Persists to ``cfg.logging.level`` so subsequent winpodx
+        # invocations honour the choice. Default is INFO; DEBUG
+        # surfaces the chatty per-tick probe / state logs (useful
+        # when triaging an "agent not ready" / "starting" stuck state).
+        level_label = QLabel("Log level:")
+        level_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;")
+        header.addWidget(level_label)
+        self.input_log_level = QComboBox()
+        self.input_log_level.setStyleSheet(COMBO)
+        self.input_log_level.setFixedWidth(140)
+        for value in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            self.input_log_level.addItem(value, value)
+        current_level = self.cfg.logging.level
+        idx = self.input_log_level.findData(current_level)
+        if idx >= 0:
+            self.input_log_level.setCurrentIndex(idx)
+        self.input_log_level.setToolTip(
+            "Set the winpodx logger level. Lower (DEBUG) shows more\n"
+            "detail in the log file + this terminal; higher (ERROR)\n"
+            "shows only errors. Change persists to winpodx.toml so\n"
+            "future CLI / GUI runs honour the choice. Applied live —\n"
+            "no winpodx restart needed."
+        )
+        self.input_log_level.currentIndexChanged.connect(self._on_log_level_changed)
+        header.addWidget(self.input_log_level)
         header.addStretch()
 
         # Route container name through cfg so renamed pods still work.
@@ -316,6 +347,36 @@ class LogsMixin:
 
         layout.addLayout(cmd_row)
         return page
+
+    def _on_log_level_changed(self, *_args) -> None:
+        """Apply the dropdown's new log level live + persist to config.
+
+        Runs in the GUI thread (combo's ``currentIndexChanged`` signal).
+        Reconfigures the existing winpodx logger so the level change
+        takes effect immediately — no winpodx restart needed. Persists
+        to ``cfg.logging.level`` so future CLI / GUI invocations pick
+        the same level.
+        """
+        from winpodx.utils.logging import setup_logging
+
+        new_level = self.input_log_level.currentData()
+        if not new_level or new_level == self.cfg.logging.level:
+            return
+        try:
+            self.cfg.logging.level = new_level
+            self.cfg.logging.__post_init__()  # re-validate / normalise
+            self.cfg.save()
+        except Exception as exc:  # noqa: BLE001
+            self._log_append(f"Could not persist log level: {exc}", C.RED)
+            return
+        # Re-apply on the live logger (setup_logging knows to update
+        # in-place when handlers already exist).
+        try:
+            setup_logging(level=self.cfg.logging.numeric_level())
+        except Exception as exc:  # noqa: BLE001
+            self._log_append(f"Could not update logger: {exc}", C.RED)
+            return
+        self._log_append(f"Log level set to {self.cfg.logging.level}", C.BLUE)
 
     def _on_rdp_test(self) -> None:
         self._log_append("$ Testing RDP connection...", C.BLUE)

@@ -143,6 +143,9 @@ disk_size = "64G"                                # Virtual disk size passed to d
 enabled = true                                   # Default since v0.5.0
 allow = []                                       # Empty = all discovered apps
 deny = []                                        # Apps to exclude from the manifest
+
+[logging]
+level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL — changes what winpodx writes to ~/.config/winpodx/winpodx.log
 ```
 
 Edit via `winpodx config set <key> <value>` or directly with your editor — TOML is parsed via the stdlib on Python 3.11+ (`tomli` on 3.9/3.10).

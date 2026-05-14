@@ -41,6 +41,7 @@ Maintenance + ergonomics release. Wider curated Windows edition support, headles
 - **Discovery cleanup** (#182) — `winpodx app refresh` no longer re-imports the reverse-open Linux-app shims as Windows apps, and a self-heal pass purges any existing polluted entries on the next refresh.
 - **Weekly Docker Hub digest watcher** (#180) — picks up silent dockur rebuilds (security patches that don't get a release tag) that the release-tag-only watcher misses.
 - **Internal**: `WinpodxWindow` Qt class decomposed from 2745 lines into a 148-line orchestrator + 10 single-responsibility mixins (#181). Zero behaviour change; maps cleanly to a future Rust port.
+- **Live log-level picker** — Terminal tab gets a `DEBUG / INFO / WARNING / ERROR / CRITICAL` dropdown that retargets the running logger AND persists to `cfg.logging.level`. DEBUG surfaces the chatty per-tick probe / state logs useful for triaging "agent not ready" / "starting" stuck states.
 
 ### Added
 
@@ -50,6 +51,7 @@ Maintenance + ergonomics release. Wider curated Windows edition support, headles
 - `check-windows-updates` workflow gains a `:latest` digest drift detector — opens a "silent rebuild" tracking issue when digest changes without a release-tag bump. Two new fields in `config/oem/VERSIONS.txt`: `dockur-digest=` and `dockur-arm-digest=`. (#180)
 - `docs/ARCHITECTURE.md` "Advanced: Custom Windows ISO" section documents the manual `win_version = "custom"` + `compose.yaml` mount workaround for users with their own pre-loaded ISOs. Korean mirror updated. (#178, #184)
 - `CONTRIBUTING.md` "Crediting contributors in Highlights" section codifies the inline `(by @user, #PR)` / `(reported by @user, #issue)` convention used in CHANGELOG Highlights. Korean mirror updated. (#187)
+- New `[logging]` config section with `level` field (`DEBUG | INFO | WARNING | ERROR | CRITICAL`). `setup_logging()` reads it on startup so all winpodx CLI / GUI runs pick up the chosen level. Default `INFO`; unknown values fall back to `INFO` with no rejection. Terminal tab dropdown changes the live logger AND persists to TOML.
 
 ### Changed
 

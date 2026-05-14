@@ -6,11 +6,39 @@ import logging
 import logging.handlers
 
 
-def setup_logging(level: int = logging.INFO, log_file: bool = True) -> None:
-    """Configure logging with console and optional rotating file handler."""
+def setup_logging(level: int | None = None, log_file: bool = True) -> None:
+    """Configure logging with console and optional rotating file handler.
+
+    When ``level`` is ``None`` (the default), the logger reads its
+    starting level from ``Config.load().logging.level``. This lets the
+    user pin a level via the GUI Terminal tab's dropdown or by hand-
+    editing ``[logging] level`` in ``winpodx.toml`` and have all
+    ``winpodx`` CLI / GUI invocations honour it. Explicit numeric
+    ``level`` arguments still win (for tests or callers that want a
+    fixed level regardless of user config).
+
+    Config-load failures (corrupt TOML, permissions) fall back to INFO
+    rather than crashing the logger setup — the install flow has to
+    keep logging usable even when the user's config is broken.
+    """
+    if level is None:
+        try:
+            from winpodx.core.config import Config
+
+            level = Config.load().logging.numeric_level()
+        except Exception:  # noqa: BLE001 — logger init must never crash
+            level = logging.INFO
+
     root = logging.getLogger("winpodx")
     if root.handlers:
-        return  # Already configured
+        # Already configured — re-apply level so a runtime change
+        # (GUI dropdown → cfg.save → setup_logging()) flows through
+        # without needing a winpodx restart.
+        root.setLevel(level)
+        for handler in root.handlers:
+            if isinstance(handler, logging.handlers.RotatingFileHandler):
+                handler.setLevel(level)
+        return
 
     root.setLevel(level)
 

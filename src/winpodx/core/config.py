@@ -291,12 +291,44 @@ class InstallConfig:
         )
 
 
+_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+
+@dataclass
+class LoggingConfig:
+    """winpodx logger configuration. See ``utils/logging.py``.
+
+    ``level`` controls both what gets written to the rotating
+    ``winpodx.log`` file AND what the GUI Terminal tab's auto-tail
+    surfaces (the file is the source). Set via GUI Terminal tab
+    dropdown or by hand-editing ``[logging]`` in ``winpodx.toml``.
+    Unknown values fall back to ``INFO`` rather than crashing the
+    logger.
+    """
+
+    level: str = "INFO"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.level, str):
+            self.level = "INFO"
+            return
+        normalized = self.level.strip().upper()
+        self.level = normalized if normalized in _VALID_LOG_LEVELS else "INFO"
+
+    def numeric_level(self) -> int:
+        """Translate the string level to ``logging.<LEVEL>``."""
+        import logging as _logging
+
+        return getattr(_logging, self.level, _logging.INFO)
+
+
 @dataclass
 class Config:
     rdp: RDPConfig = field(default_factory=RDPConfig)
     pod: PodConfig = field(default_factory=PodConfig)
     reverse_open: ReverseOpenConfig = field(default_factory=ReverseOpenConfig)
     install: InstallConfig = field(default_factory=InstallConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
     def path(cls) -> Path:
@@ -322,10 +354,12 @@ class Config:
         _apply(cfg.pod, data.get("pod", {}))
         _apply(cfg.reverse_open, data.get("reverse_open", {}))
         _apply(cfg.install, data.get("install", {}))
+        _apply(cfg.logging, data.get("logging", {}))
         cfg.rdp.__post_init__()
         cfg.pod.__post_init__()
         cfg.reverse_open.__post_init__()
         cfg.install.__post_init__()
+        cfg.logging.__post_init__()
         return cfg
 
     def save(self) -> None:
@@ -381,6 +415,9 @@ class Config:
                 "watchdog_max_respawns": self.install.watchdog_max_respawns,
                 "watchdog_probe_debounce_count": self.install.watchdog_probe_debounce_count,
                 "watchdog_probe_debounce_secs": list(self.install.watchdog_probe_debounce_secs),
+            },
+            "logging": {
+                "level": self.logging.level,
             },
         }
 

@@ -130,6 +130,54 @@ def test_config_load_revalidates_loaded_values(tmp_path, monkeypatch):
     assert loaded.pod.container_name == "winpodx-windows"
 
 
+def test_logging_config_defaults_to_info():
+    from winpodx.core.config import LoggingConfig
+
+    cfg = LoggingConfig()
+    assert cfg.level == "INFO"
+    assert cfg.numeric_level() == 20  # logging.INFO == 20
+
+
+def test_logging_config_normalises_case_and_whitespace():
+    from winpodx.core.config import LoggingConfig
+
+    assert LoggingConfig(level="  debug  ").level == "DEBUG"
+    assert LoggingConfig(level="Warning").level == "WARNING"
+
+
+def test_logging_config_unknown_falls_back_to_info():
+    from winpodx.core.config import LoggingConfig
+
+    assert LoggingConfig(level="VERBOSE").level == "INFO"
+    assert LoggingConfig(level="").level == "INFO"
+    assert LoggingConfig(level=None).level == "INFO"
+
+
+def test_logging_config_numeric_level():
+    import logging as _logging
+
+    from winpodx.core.config import LoggingConfig
+
+    assert LoggingConfig(level="DEBUG").numeric_level() == _logging.DEBUG
+    assert LoggingConfig(level="ERROR").numeric_level() == _logging.ERROR
+    assert LoggingConfig(level="CRITICAL").numeric_level() == _logging.CRITICAL
+
+
+def test_logging_config_round_trip(tmp_path, monkeypatch):
+    """``cfg.logging.level`` survives save / load via the new ``[logging]``
+    TOML section."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.logging.level = "DEBUG"
+    cfg.save()
+
+    loaded = Config.load()
+    assert loaded.logging.level == "DEBUG"
+
+
 def test_apply_bool_coercion_from_string():
     from winpodx.core.config import _apply
 
