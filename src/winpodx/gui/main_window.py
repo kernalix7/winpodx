@@ -7,7 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -35,17 +35,13 @@ from winpodx.gui._main_window_logs import LogsMixin
 from winpodx.gui._main_window_maintenance import MaintenanceMixin
 from winpodx.gui._main_window_pod import PodStatusMixin
 from winpodx.gui._main_window_settings import SettingsPageMixin
-from winpodx.gui._widget_helpers import add_shadow
 from winpodx.gui.theme import (
-    ACTION_ROW,
-    BTN_DANGER,
     BTN_GHOST,
     BTN_PRIMARY,
     GLOBAL_STYLE,
     SCROLL_AREA,
     TERMINAL,
     C,
-    accent_color,
 )
 from winpodx.gui.workers import DiscoveryWorker
 
@@ -128,218 +124,6 @@ class WinpodxWindow(
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())
-
-    def _build_maintenance_page(self) -> QWidget:
-        page = QWidget()
-        outer = QVBoxLayout(page)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(SCROLL_AREA)
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 24, 32, 20)
-
-        title = QLabel("Tools")
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        layout.addWidget(title)
-
-        sub = QLabel("System maintenance and pod management")
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
-        layout.addWidget(sub)
-        layout.addSpacing(20)
-
-        grp1 = QLabel("Pod Management")
-        grp1.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp1)
-        layout.addSpacing(8)
-
-        pod_tools = [
-            (
-                "\u23f8",
-                "Suspend Pod",
-                "Pause container (keeps memory)",
-                self._on_suspend,
-            ),
-            (
-                "\u25b6",
-                "Resume Pod",
-                "Unpause a suspended container",
-                self._on_resume,
-            ),
-            (
-                "\u25a3",
-                "Full Desktop",
-                "Launch full Windows desktop",
-                self._on_open_desktop,
-            ),
-        ]
-        for i, (icon, label, desc, handler) in enumerate(pod_tools):
-            layout.addWidget(self._make_action_row(icon, label, desc, handler, i))
-
-        layout.addSpacing(20)
-
-        grp2 = QLabel("System")
-        grp2.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp2)
-        layout.addSpacing(8)
-
-        sys_tools = [
-            (
-                "\u2727",
-                "Clean Locks",
-                "Remove Office lock files",
-                self._on_cleanup,
-            ),
-            (
-                "\u25f7",
-                "Sync Time",
-                "Force Windows clock sync",
-                self._on_timesync,
-            ),
-            (
-                "\u25c6",
-                "Debloat",
-                "Disable telemetry & ads",
-                self._on_debloat,
-            ),
-            (
-                "\u2699",  # gear
-                "Apply Windows Fixes",
-                "Re-apply RDP timeout / NIC / TermService recovery to existing pod",
-                self._on_apply_fixes,
-            ),
-        ]
-        for i, (icon, label, desc, handler) in enumerate(sys_tools):
-            layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
-
-        layout.addSpacing(20)
-
-        grp3 = QLabel("Windows Update")
-        grp3.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp3)
-        layout.addSpacing(8)
-
-        update_row = QFrame()
-        update_row.setObjectName("actionRow")
-        update_row.setStyleSheet(ACTION_ROW)
-        update_row.setMinimumHeight(64)
-        rl = QHBoxLayout(update_row)
-        rl.setContentsMargins(16, 8, 16, 8)
-
-        update_icon = QLabel("\u21c5")
-        update_icon.setFixedSize(36, 36)
-        update_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        update_icon.setStyleSheet(
-            f"background: {accent_color(7)}; color: {C.TEXT}; border-radius: 8px; font-size: 16px;"
-        )
-        rl.addWidget(update_icon)
-
-        col = QVBoxLayout()
-        col.setSpacing(2)
-        lbl = QLabel("Windows Update")
-        lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 600;"
-        )
-        col.addWidget(lbl)
-        self._update_status_label = QLabel("Checking...")
-        self._update_status_label.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;"
-        )
-        col.addWidget(self._update_status_label)
-        rl.addLayout(col, 1)
-
-        self._btn_enable_updates = QPushButton("Enable")
-        self._btn_enable_updates.setStyleSheet(BTN_PRIMARY)
-        self._btn_enable_updates.setFixedWidth(90)
-        self._btn_enable_updates.clicked.connect(self._on_enable_updates)
-        rl.addWidget(self._btn_enable_updates)
-
-        self._btn_disable_updates = QPushButton("Disable")
-        self._btn_disable_updates.setStyleSheet(BTN_DANGER)
-        self._btn_disable_updates.setFixedWidth(90)
-        self._btn_disable_updates.clicked.connect(self._on_disable_updates)
-        rl.addWidget(self._btn_disable_updates)
-
-        layout.addWidget(update_row)
-
-        self._refresh_update_status()
-
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
-        return page
-
-    def _make_action_row(
-        self,
-        icon: str,
-        label: str,
-        desc: str,
-        handler: object,
-        color_idx: int,
-    ) -> QFrame:
-        """Build a single tool action row."""
-        row = QFrame()
-        row.setObjectName("actionRow")
-        row.setStyleSheet(ACTION_ROW)
-        row.setMinimumHeight(64)
-        row.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_shadow(row, blur=12, y=2, alpha=35)
-
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(16, 0, 20, 0)
-        rl.setSpacing(16)
-
-        color = accent_color(color_idx)
-        icon_circle = QLabel(icon)
-        icon_circle.setFixedSize(36, 36)
-        icon_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_circle.setStyleSheet(
-            f"background: {color}; color: {C.CRUST}; border-radius: 18px; font-size: 16px;"
-        )
-        rl.addWidget(icon_circle)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(1)
-        title_lbl = QLabel(label)
-        title_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: bold;"
-        )
-        text_col.addWidget(title_lbl)
-        desc_lbl = QLabel(desc)
-        desc_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-        text_col.addWidget(desc_lbl)
-        rl.addLayout(text_col)
-        rl.addStretch()
-
-        arrow = QLabel("\u203a")
-        arrow.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 20px;")
-        rl.addWidget(arrow)
-
-        row.mousePressEvent = lambda ev, h=handler: h()
-        return row
 
     def _build_logs_page(self) -> QWidget:
         page = QWidget()
