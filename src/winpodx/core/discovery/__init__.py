@@ -134,13 +134,29 @@ def _is_junk_entry(name: str, executable: str, source: str) -> bool:
     """Return True when a discovered entry should be hidden as junk.
 
     Filters by display-name patterns (uninstall / setup / redist / …),
-    by executable basename (vcredist, crashpad_handler, …), and — for
-    UWP — by detection of unresolved PackageFamilyName fallbacks where
+    by executable basename (vcredist, crashpad_handler, …), by
+    reverse-open shim path (winpodx's own Linux-app-into-Windows
+    bridge — must not be re-imported as Windows apps), and — for UWP
+    — by detection of unresolved PackageFamilyName fallbacks where
     the display name still looks like a dotted identifier
     (``Microsoft.AAD.BrokerPlugin``) rather than a real human label.
     """
     name_stripped = name.strip()
     if not name_stripped:
+        return True
+
+    # Reverse-open shims (#48 / v0.5.0) are Windows .exe entries
+    # created by winpodx itself to surface Linux host apps in the
+    # Windows "Open with…" menu — they are not Windows apps and must
+    # not be re-imported as such. The check runs before the name /
+    # basename filters so older guest-side scripts that didn't filter
+    # them out still get caught here. The directory comes from
+    # ``reverse_open.sync._GUEST_BIN_DIR`` (single source of truth)
+    # via ``is_guest_shim_path`` — locally-imported to avoid a hot
+    # module-level cycle.
+    from winpodx.reverse_open.sync import is_guest_shim_path
+
+    if is_guest_shim_path(executable):
         return True
 
     for pattern in _JUNK_NAME_PATTERNS:
@@ -1026,6 +1042,12 @@ def persist_discovered(
     root = target_dir if target_dir is not None else discovered_apps_dir()
     root.mkdir(parents=True, exist_ok=True)
 
+    # Self-heal: earlier winpodx builds (before this fix) could re-import
+    # reverse-open shims as Windows apps on discovery, leaving polluted
+    # entries under discovered/. Sweep them now so this run cleans up
+    # after the bug — users don't need a manual `rm -rf` step.
+    _purge_reverse_open_entries(root)
+
     # Hybrid filter step — guarantee essentials are present (synthesizing
     # stubs when the scan missed them) before we touch disk. Tests can
     # opt out via ``add_essentials=False`` to keep their fixtures
@@ -1254,6 +1276,37 @@ def _validate_png_stdlib(data: bytes) -> bool:
         return saw_ihdr and saw_iend
     except (struct.error, ValueError, IndexError):
         return False
+
+
+def _purge_reverse_open_entries(root: Path) -> None:
+    """Remove any existing per-app subdir whose app.toml points at a reverse-open shim.
+
+    Heals the pre-fix state where the discovery scan returned the
+    winpodx-installed reverse-open .exe shims as Windows apps. The
+    canonical shim directory is owned by ``reverse_open.sync`` and
+    queried via ``is_guest_shim_path`` so this sweep stays in sync
+    with the install layout if it ever moves.
+
+    Failure is non-fatal: a broken TOML or unreadable file is skipped,
+    and the next discovery refresh retries.
+    """
+    from winpodx.reverse_open.sync import is_guest_shim_path
+
+    if not root.exists():
+        return
+    for child in root.iterdir():
+        if not child.is_dir():
+            continue
+        toml_path = child / "app.toml"
+        if not toml_path.is_file():
+            continue
+        try:
+            data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if is_guest_shim_path(str(data.get("executable", ""))):
+            log.info("Purging stale reverse-open entry from discovered/: %s", child.name)
+            _safe_rmtree(child, root)
 
 
 def _safe_rmtree(path: Path, root: Path) -> None:

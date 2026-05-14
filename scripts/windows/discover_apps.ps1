@@ -242,8 +242,16 @@ function Add-Result {
     if (-not $name -or -not $path) { return }
     if ($name.Length -gt $MAX_NAME_LEN) { return }
     if ($path.Length -gt $MAX_PATH_LEN) { return }
+    # Reverse-open shims (#48 / v0.5.0) live under
+    # C:\Users\Public\winpodx\reverse-open\bin\. They are Windows .exe
+    # entries created by winpodx itself to surface Linux host apps in
+    # the Windows "Open with..." menu and must not be returned as
+    # Windows apps. Match the directory fragment rather than the full
+    # path so a future layout change still catches the entries.
+    $pathLower = $path.ToLower()
+    if ($pathLower -like '*\winpodx\reverse-open\bin\*') { return }
     $key = if ($Entry.launch_uri) { ([string]$Entry.launch_uri).ToLower() }
-           else { $path.ToLower() }
+           else { $pathLower }
     if ($seen.ContainsKey($key)) { return }
     $seen[$key] = $true
     $results.Add([ordered]@{

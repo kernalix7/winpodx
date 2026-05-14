@@ -30,7 +30,9 @@ from winpodx.core.discovery import (
     DiscoveredApp,
     DiscoveryError,
     _entry_to_discovered,
+    _is_junk_entry,
     _parse_discovery_output,
+    _purge_reverse_open_entries,
     _safe_rmtree,
     _slugify_name,
     _sniff_icon_ext,
@@ -538,6 +540,98 @@ def test_persist_rejects_unsafe_slug(tmp_path):
     written = persist_discovered([bad], target_dir=tmp_path, add_essentials=False)
     assert written == []
     assert not (tmp_path / "has space").exists()
+
+
+# --- reverse-open shim filter ---------------------------------------------
+
+
+def test_is_junk_entry_rejects_reverse_open_shim():
+    # Reverse-open shims live at C:\Users\Public\winpodx\reverse-open\bin\
+    # and must never be re-imported as Windows apps.
+    assert _is_junk_entry(
+        "Firefox",
+        "C:\\Users\\Public\\winpodx\\reverse-open\\bin\\winpodx-firefox.exe",
+        "win32",
+    )
+    # Case-insensitive: a guest scanner that lowercased or uppercased the path
+    # must still be filtered.
+    assert _is_junk_entry(
+        "Firefox",
+        "c:\\users\\public\\WinPodX\\Reverse-Open\\bin\\winpodx-firefox.exe",
+        "win32",
+    )
+    # Forward-slash variant (just in case a guest scanner emits POSIX paths).
+    assert _is_junk_entry(
+        "Firefox",
+        "C:/Users/Public/winpodx/reverse-open/bin/winpodx-firefox.exe",
+        "win32",
+    )
+
+
+def test_is_junk_entry_accepts_real_windows_app():
+    assert not _is_junk_entry("Notepad", "C:\\Windows\\System32\\notepad.exe", "win32")
+    assert not _is_junk_entry("Firefox", "C:\\Program Files\\Mozilla Firefox\\firefox.exe", "win32")
+
+
+def test_purge_reverse_open_entries_removes_polluted(tmp_path):
+    polluted = tmp_path / "firefox"
+    polluted.mkdir()
+    shim = "C:\\\\Users\\\\Public\\\\winpodx\\\\reverse-open\\\\bin\\\\winpodx-firefox.exe"
+    (polluted / "app.toml").write_text(
+        f'name = "firefox"\nfull_name = "Firefox"\nexecutable = "{shim}"\nsource = "win32"\n',
+        encoding="utf-8",
+    )
+    # And a real Windows app entry that should survive.
+    real = tmp_path / "notepad"
+    real.mkdir()
+    (real / "app.toml").write_text(
+        'name = "notepad"\nfull_name = "Notepad"\nexecutable = "C:\\\\Windows\\\\notepad.exe"\n',
+        encoding="utf-8",
+    )
+
+    _purge_reverse_open_entries(tmp_path)
+    assert not polluted.exists()
+    assert real.exists()
+
+
+def test_purge_reverse_open_entries_skips_when_root_missing(tmp_path):
+    # No-op on missing root; must not raise.
+    _purge_reverse_open_entries(tmp_path / "does-not-exist")
+
+
+def test_purge_reverse_open_entries_tolerates_broken_toml(tmp_path):
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "app.toml").write_text("garbage = [unterminated", encoding="utf-8")
+    polluted = tmp_path / "polluted"
+    polluted.mkdir()
+    (polluted / "app.toml").write_text(
+        'executable = "C:\\\\Users\\\\Public\\\\winpodx\\\\reverse-open\\\\bin\\\\winpodx-x.exe"\n',
+        encoding="utf-8",
+    )
+
+    _purge_reverse_open_entries(tmp_path)
+    # Broken stays (we cannot prove it is reverse-open).
+    assert broken.exists()
+    # Polluted is gone.
+    assert not polluted.exists()
+
+
+def test_persist_discovered_self_heals_reverse_open(tmp_path):
+    # Simulate prior pollution: discovered/ contains a stale reverse-open entry.
+    stale = tmp_path / "firefox"
+    stale.mkdir()
+    shim = "C:\\\\Users\\\\Public\\\\winpodx\\\\reverse-open\\\\bin\\\\winpodx-firefox.exe"
+    (stale / "app.toml").write_text(
+        f'name = "firefox"\nexecutable = "{shim}"\n',
+        encoding="utf-8",
+    )
+
+    # A new discovery run with a real Windows app — purge runs first, then write.
+    real = DiscoveredApp(name="notepad", full_name="Notepad", executable="C:\\Windows\\notepad.exe")
+    persist_discovered([real], target_dir=tmp_path, add_essentials=False)
+    assert not stale.exists()  # purged
+    assert (tmp_path / "notepad" / "app.toml").exists()
 
 
 # --- _safe_rmtree ----------------------------------------------------------

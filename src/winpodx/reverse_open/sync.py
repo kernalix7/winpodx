@@ -65,6 +65,27 @@ _GUEST_RCEDIT_EXE = _GUEST_BIN_DIR + r"\rcedit.exe"
 _GUEST_REGISTER_PS1 = _GUEST_BASE + r"\register-apps.ps1"
 _GUEST_UNREGISTER_PS1 = _GUEST_BASE + r"\unregister-apps.ps1"
 
+
+def is_guest_shim_path(executable: str) -> bool:
+    """Return True if ``executable`` points inside the guest reverse-open bin dir.
+
+    Single source of truth for the question "is this Windows .exe one of
+    our reverse-open shims, or a real Windows app?". Used by the discovery
+    junk-filter (``core.discovery._is_junk_entry``) and the discovery
+    self-heal sweep (``core.discovery._purge_reverse_open_entries``) so
+    those callers don't hardcode the directory layout — they import this
+    function instead, and any future relocation of ``_GUEST_BIN_DIR``
+    propagates without code churn.
+
+    The match is case-insensitive and accepts forward-slash variants so
+    a guest scanner that emitted POSIX-style paths is still caught.
+    """
+    if not executable:
+        return False
+    needle = (_GUEST_BIN_DIR + "\\").replace("/", "\\").lower()
+    return needle in executable.replace("/", "\\").lower()
+
+
 # Host-bundle layout for the assets we push to the guest. The two
 # PowerShell scripts are text; the shim is a Rust-built Windows .exe
 # shipped pre-compiled in the source tree (the build matrix produces
