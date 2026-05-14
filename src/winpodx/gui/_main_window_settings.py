@@ -182,6 +182,12 @@ class SettingsPageMixin:
         # cross-referencing the upstream docs see the same names.
         self.input_win_version = QComboBox()
         self.input_win_version.setEditable(True)
+        # Win10+ kernel family only — see ``_KNOWN_WIN_VERSIONS`` in
+        # ``core/config.py`` for the policy rationale. Pre-Win10
+        # editions are intentionally not offered; if a user really
+        # needs one, they can type the dockur tag into the editable
+        # combo and config validation will pass it through with a
+        # warning.
         win_version_options = [
             ("Windows 11", "11"),
             ("Windows 11 LTSC", "ltsc11"),
@@ -190,17 +196,10 @@ class SettingsPageMixin:
             ("Windows 10", "10"),
             ("Windows 10 LTSC", "ltsc10"),
             ("Windows 10 (Tiny10, debloated)", "tiny10"),
-            ("Windows 8.1", "8"),
-            ("Windows 7", "7"),
-            ("Windows Vista", "vista"),
-            ("Windows XP", "xp"),
             ("Windows Server 2025", "2025"),
             ("Windows Server 2022", "2022"),
             ("Windows Server 2019", "2019"),
             ("Windows Server 2016", "2016"),
-            ("Windows Server 2012", "2012"),
-            ("Windows Server 2008", "2008"),
-            ("Windows Server 2003", "2003"),
         ]
         for label, value in win_version_options:
             self.input_win_version.addItem(label, value)

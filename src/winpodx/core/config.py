@@ -26,36 +26,33 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
 
-# Windows edition strings winpodx ships explicit support for. Mirrors
-# dockur/windows' own VERSION allowlist (see #178). Unknown values are
-# allowed at the config layer with a warning — bleeding-edge dockur
-# releases may add editions winpodx hasn't documented yet, and we
-# shouldn't block users from opting in. Validation is strictness=warn,
-# not strictness=reject.
+# Windows edition strings winpodx ships explicit support for. Subset
+# of dockur/windows' full VERSION set, restricted to Windows 10-era
+# kernels and newer (see #178). Pre-Win10 editions (XP / Vista / 7 /
+# 8 / Server 2003-2012) are intentionally excluded — they're out of
+# Microsoft security support, and winpodx's stack (rdprrap multi-
+# session, agent.ps1 modern PowerShell APIs, dockur's RDP shim)
+# targets the Win10+ family. Unknown values are still permitted at
+# the config layer with a warning so bleeding-edge dockur additions
+# winpodx hasn't documented yet still work — validation is
+# strictness=warn, not strictness=reject.
 _KNOWN_WIN_VERSIONS = frozenset(
     {
-        # Desktop editions
+        # Mainstream desktop
         "11",
         "10",
-        "8",
-        "7",
-        "vista",
-        "xp",
-        # LTSC / IoT (long-term servicing — #178 ask)
+        # LTSC / IoT (long-term servicing — #178 core ask)
         "ltsc11",
         "ltsc10",
         "iot11",
         # Debloated community builds
         "tiny11",
         "tiny10",
-        # Server editions
+        # Server editions (Win10+ kernel only)
         "2025",
         "2022",
         "2019",
         "2016",
-        "2012",
-        "2008",
-        "2003",
     }
 )
 
@@ -136,12 +133,13 @@ class PodConfig:
     vm_name: str = "RDPWindows"
     container_name: str = "winpodx-windows"
     # Windows edition picker — passed through to dockur/windows via the
-    # ``VERSION`` env var (see ``compose.py``). Supported values mirror
-    # dockur's own allowlist; see #178 for the rationale (LTSC IoT and
-    # Win10 LTSC are common asks). Unknown values fall back to "11"
-    # with a warning in ``__post_init__`` so a typo doesn't brick the
-    # install — bleeding-edge dockur versions are still settable, just
-    # log a one-line "value not on the winpodx-known list" notice.
+    # ``VERSION`` env var (see ``compose.py``). Restricted to the
+    # Win10+ kernel family (see ``_KNOWN_WIN_VERSIONS``) — older
+    # editions are out of Microsoft security support and don't match
+    # winpodx's stack assumptions (rdprrap multi-session, agent.ps1
+    # modern APIs). Unknown values pass through with a one-line
+    # WARNING log in ``__post_init__`` so newer dockur releases that
+    # add editions winpodx hasn't documented yet still work.
     win_version: str = "11"
     cpu_cores: int = 4
     # v0.2.1: default bumped 4 -> 6 GB so the new 25-session default

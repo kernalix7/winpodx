@@ -49,9 +49,20 @@ def test_pod_config_idle_timeout_clamping():
 
 
 def test_pod_config_win_version_known_values():
-    # All shipped values mirror dockur/windows' VERSION set; round-trip untouched.
-    for v in ("11", "10", "ltsc11", "ltsc10", "iot11", "tiny11", "2022", "xp"):
+    # Win10+ family — round-trip untouched without triggering the warning.
+    for v in ("11", "10", "ltsc11", "ltsc10", "iot11", "tiny11", "tiny10", "2022", "2016"):
         assert PodConfig(win_version=v).win_version == v
+
+
+def test_pod_config_win_version_pre_win10_warns_but_passes_through(caplog):
+    # Pre-Win10 editions are off the known list but still accepted with a
+    # warning so users on bleeding-edge dockur builds aren't blocked.
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="winpodx.core.config"):
+        pod = PodConfig(win_version="xp")
+    assert pod.win_version == "xp"
+    assert any("not in winpodx's known list" in r.message for r in caplog.records)
 
 
 def test_pod_config_win_version_normalises_case_and_whitespace():
