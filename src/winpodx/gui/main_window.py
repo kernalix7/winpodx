@@ -11,16 +11,9 @@ from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPushButton,
-    QScrollArea,
     QStackedWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -36,11 +29,7 @@ from winpodx.gui._main_window_maintenance import MaintenanceMixin
 from winpodx.gui._main_window_pod import PodStatusMixin
 from winpodx.gui._main_window_settings import SettingsPageMixin
 from winpodx.gui.theme import (
-    BTN_GHOST,
-    BTN_PRIMARY,
     GLOBAL_STYLE,
-    SCROLL_AREA,
-    TERMINAL,
     C,
 )
 from winpodx.gui.workers import DiscoveryWorker
@@ -124,163 +113,6 @@ class WinpodxWindow(
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())
-
-    def _build_logs_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(32, 28, 32, 20)
-
-        header = QHBoxLayout()
-        title = QLabel("Terminal")
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        header.addWidget(title)
-        header.addStretch()
-
-        # Route container name through cfg so renamed pods still work.
-        container = self.cfg.pod.container_name
-        quick = [
-            ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
-            ("Pod logs", ["podman", "logs", "--tail", "100", container]),
-            ("Live (pod)", "follow_pod"),
-            ("App log", "tail_app_log"),
-            ("Live (app)", "follow_app_log"),
-            ("Inspect", ["podman", "inspect", container]),
-            ("RDP Test", None),
-            ("Stop tail", "stop_tail"),
-            ("Clear", None),
-        ]
-        for label, cmd in quick:
-            btn = QPushButton(label)
-            btn.setStyleSheet(BTN_GHOST)
-            if label == "Clear":
-                btn.clicked.connect(lambda: self.log_output.clear())
-            elif label == "RDP Test":
-                btn.clicked.connect(self._on_rdp_test)
-            elif cmd == "follow_pod":
-                btn.clicked.connect(self._on_follow_pod_log)
-            elif cmd == "tail_app_log":
-                btn.clicked.connect(self._on_tail_app_log)
-            elif cmd == "follow_app_log":
-                btn.clicked.connect(self._on_follow_app_log)
-            elif cmd == "stop_tail":
-                btn.clicked.connect(self._on_stop_tail)
-            else:
-                btn.clicked.connect(lambda _, c=cmd: self._run_log_cmd(c))
-            header.addWidget(btn)
-
-        layout.addLayout(header)
-        layout.addSpacing(10)
-
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet(TERMINAL)
-        layout.addWidget(self.log_output)
-
-        cmd_row = QHBoxLayout()
-        cmd_row.setSpacing(8)
-
-        prompt = QLabel("\u276f")
-        prompt.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 16px; font-weight: bold;"
-        )
-        cmd_row.addWidget(prompt)
-
-        self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText(
-            f"Enter command (e.g. podman logs {self.cfg.pod.container_name})"
-        )
-        self.cmd_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {C.CRUST}; color: {C.TEXT};
-                border: 1px solid {C.SURFACE0}; border-radius: 8px;
-                padding: 10px 14px;
-                font-family: 'JetBrains Mono', 'Fira Code', monospace;
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{ border-color: {C.BLUE}; }}
-        """)
-        self.cmd_input.returnPressed.connect(self._on_cmd_enter)
-        cmd_row.addWidget(self.cmd_input)
-
-        run_btn = QPushButton("Run")
-        run_btn.setStyleSheet(BTN_PRIMARY)
-        run_btn.clicked.connect(self._on_cmd_enter)
-        cmd_row.addWidget(run_btn)
-
-        layout.addLayout(cmd_row)
-        return page
-
-    def _build_info_page(self) -> QWidget:
-        """5-section system snapshot: System / Display / Dependencies / Pod / Config.
-
-        Mirrors `winpodx info` via the shared `core.info.gather_info` helper.
-        Pod section probes RDP/VNC ports + queries podman inspect, so the
-        initial paint is async via QThread and the user can re-run on demand
-        with the Refresh button.
-        """
-        page = QWidget()
-        outer = QVBoxLayout(page)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(SCROLL_AREA)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 32)
-        layout.setSpacing(16)
-
-        header = QHBoxLayout()
-        title = QLabel("Info")
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        header.addWidget(title)
-        header.addStretch()
-
-        refresh_btn = QPushButton("Refresh Info")
-        refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
-        refresh_btn.setStyleSheet(BTN_GHOST)
-        refresh_btn.clicked.connect(self._refresh_info)
-        header.addWidget(refresh_btn)
-        layout.addLayout(header)
-
-        # Containers for the 5 cards. Initial population goes through
-        # _refresh_info which dispatches a worker thread; until that thread
-        # returns, each card shows "Loading...".
-        self._info_cards: dict[str, QFrame] = {}
-        self._info_card_bodies: dict[str, QVBoxLayout] = {}
-        # Health goes first so the user lands on live state before the
-        # static system snapshot. Each probe renders as `[OK] detail` with
-        # a colored badge — matches the `winpodx check` CLI output.
-        for key, label in [
-            ("health", "Health"),
-            ("system", "System"),
-            ("display", "Display"),
-            ("dependencies", "Dependencies"),
-            ("pod", "Pod"),
-            ("config", "Config"),
-        ]:
-            card = self._info_card(label)
-            self._info_cards[key] = card
-            layout.addWidget(card)
-
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
-
-        # v0.1.9.1: Defer the first fetch out of __init__. Calling
-        # _refresh_info() synchronously here can race with the rest of
-        # the main-window construction — the worker thread fires its
-        # `done` signal back into a partially-built window and hits the
-        # same QMessageBox font-lookup SEGV the Apps refresh path saw.
-        QTimer.singleShot(0, self._refresh_info)
-        return page
 
     def _switch_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)

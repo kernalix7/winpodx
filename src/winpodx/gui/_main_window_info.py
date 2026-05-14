@@ -15,10 +15,19 @@ Host-class contract (only listed for readers; not enforced):
 from __future__ import annotations
 
 from PySide6.QtCore import QThread, QTimer, Slot
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from winpodx.gui._widget_helpers import add_shadow
-from winpodx.gui.theme import SETTINGS_SECTION, C
+from winpodx.gui.theme import BTN_GHOST, SCROLL_AREA, SETTINGS_SECTION, C
 from winpodx.gui.workers import InfoWorker
 
 
@@ -31,6 +40,76 @@ class InfoPageMixin:
         "fail": "#f38ba8",  # RED
         "skip": "#9399b2",  # SUBTEXT0
     }
+
+    def _build_info_page(self) -> QWidget:
+        """5-section system snapshot: System / Display / Dependencies / Pod / Config.
+
+        Mirrors `winpodx info` via the shared `core.info.gather_info` helper.
+        Pod section probes RDP/VNC ports + queries podman inspect, so the
+        initial paint is async via QThread and the user can re-run on demand
+        with the Refresh button.
+        """
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(SCROLL_AREA)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(32, 28, 32, 32)
+        layout.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Info")
+        title.setStyleSheet(
+            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
+        )
+        header.addWidget(title)
+        header.addStretch()
+
+        refresh_btn = QPushButton("Refresh Info")
+        refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
+        refresh_btn.setStyleSheet(BTN_GHOST)
+        refresh_btn.clicked.connect(self._refresh_info)
+        header.addWidget(refresh_btn)
+        layout.addLayout(header)
+
+        # Containers for the 5 cards. Initial population goes through
+        # _refresh_info which dispatches a worker thread; until that thread
+        # returns, each card shows "Loading...".
+        self._info_cards: dict[str, QFrame] = {}
+        self._info_card_bodies: dict[str, QVBoxLayout] = {}
+        # Health goes first so the user lands on live state before the
+        # static system snapshot. Each probe renders as `[OK] detail` with
+        # a colored badge — matches the `winpodx check` CLI output.
+        for key, label in [
+            ("health", "Health"),
+            ("system", "System"),
+            ("display", "Display"),
+            ("dependencies", "Dependencies"),
+            ("pod", "Pod"),
+            ("config", "Config"),
+        ]:
+            card = self._info_card(label)
+            self._info_cards[key] = card
+            layout.addWidget(card)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+        # v0.1.9.1: Defer the first fetch out of __init__. Calling
+        # _refresh_info() synchronously here can race with the rest of
+        # the main-window construction — the worker thread fires its
+        # `done` signal back into a partially-built window and hits the
+        # same QMessageBox font-lookup SEGV the Apps refresh path saw.
+        QTimer.singleShot(0, self._refresh_info)
+        return page
 
     def _info_card(self, title: str) -> QFrame:
         """Card scaffold with a title bar + an empty body layout we mutate later."""

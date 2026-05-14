@@ -20,8 +20,18 @@ from __future__ import annotations
 import logging
 import threading
 
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
 from winpodx.core.config import Config
-from winpodx.gui.theme import C
+from winpodx.gui.theme import BTN_GHOST, BTN_PRIMARY, TERMINAL, C
 
 log = logging.getLogger(__name__)
 
@@ -219,6 +229,93 @@ class LogsMixin:
             return
 
         self._run_log_cmd(cmd)
+
+    def _build_logs_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 20)
+
+        header = QHBoxLayout()
+        title = QLabel("Terminal")
+        title.setStyleSheet(
+            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
+        )
+        header.addWidget(title)
+        header.addStretch()
+
+        # Route container name through cfg so renamed pods still work.
+        container = self.cfg.pod.container_name
+        quick = [
+            ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
+            ("Pod logs", ["podman", "logs", "--tail", "100", container]),
+            ("Live (pod)", "follow_pod"),
+            ("App log", "tail_app_log"),
+            ("Live (app)", "follow_app_log"),
+            ("Inspect", ["podman", "inspect", container]),
+            ("RDP Test", None),
+            ("Stop tail", "stop_tail"),
+            ("Clear", None),
+        ]
+        for label, cmd in quick:
+            btn = QPushButton(label)
+            btn.setStyleSheet(BTN_GHOST)
+            if label == "Clear":
+                btn.clicked.connect(lambda: self.log_output.clear())
+            elif label == "RDP Test":
+                btn.clicked.connect(self._on_rdp_test)
+            elif cmd == "follow_pod":
+                btn.clicked.connect(self._on_follow_pod_log)
+            elif cmd == "tail_app_log":
+                btn.clicked.connect(self._on_tail_app_log)
+            elif cmd == "follow_app_log":
+                btn.clicked.connect(self._on_follow_app_log)
+            elif cmd == "stop_tail":
+                btn.clicked.connect(self._on_stop_tail)
+            else:
+                btn.clicked.connect(lambda _, c=cmd: self._run_log_cmd(c))
+            header.addWidget(btn)
+
+        layout.addLayout(header)
+        layout.addSpacing(10)
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setStyleSheet(TERMINAL)
+        layout.addWidget(self.log_output)
+
+        cmd_row = QHBoxLayout()
+        cmd_row.setSpacing(8)
+
+        prompt = QLabel("❯")
+        prompt.setStyleSheet(
+            f"background: transparent; color: {C.BLUE}; font-size: 16px; font-weight: bold;"
+        )
+        cmd_row.addWidget(prompt)
+
+        self.cmd_input = QLineEdit()
+        self.cmd_input.setPlaceholderText(
+            f"Enter command (e.g. podman logs {self.cfg.pod.container_name})"
+        )
+        self.cmd_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {C.CRUST}; color: {C.TEXT};
+                border: 1px solid {C.SURFACE0}; border-radius: 8px;
+                padding: 10px 14px;
+                font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                font-size: 13px;
+            }}
+            QLineEdit:focus {{ border-color: {C.BLUE}; }}
+        """)
+        self.cmd_input.returnPressed.connect(self._on_cmd_enter)
+        cmd_row.addWidget(self.cmd_input)
+
+        run_btn = QPushButton("Run")
+        run_btn.setStyleSheet(BTN_PRIMARY)
+        run_btn.clicked.connect(self._on_cmd_enter)
+        cmd_row.addWidget(run_btn)
+
+        layout.addLayout(cmd_row)
+        return page
 
     def _on_rdp_test(self) -> None:
         self._log_append("$ Testing RDP connection...", C.BLUE)
