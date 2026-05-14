@@ -107,6 +107,27 @@ _THIRD_PARTY_ACK: tuple[tuple[str, str, str], ...] = (
         "freedesktop .desktop file parser for host-app discovery (optional, reverse-open extra)",
     ),
     (
+        "libvirt-python",
+        "LGPL-2.1-or-later",
+        "Python bindings for libvirt (optional, only with the libvirt extra)",
+    ),
+    (
+        "docker (docker-py)",
+        "Apache-2.0",
+        "Python client for the Docker Engine API (optional, only with the docker extra)",
+    ),
+    (
+        "tomli",
+        "MIT",
+        "TOML parser fallback for Python 3.9 / 3.10 (stdlib tomllib used on 3.11+)",
+    ),
+    (
+        "getrandom (Rust crate)",
+        "MIT OR Apache-2.0",
+        "Crypto-quality randomness for the reverse-open Windows shim "
+        "(statically linked into the vendored .exe)",
+    ),
+    (
         "GitHub Primer Dark",
         "MIT (Copyright 2013 GitHub Inc.)",
         "Color palette inspiration for the GUI theme (see src/winpodx/gui/theme.py)",
