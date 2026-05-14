@@ -183,35 +183,67 @@ class TestBuildRdpCommand:
         assert "/cert:tofu" in cmd
         assert "/cert:ignore" not in cmd
 
-    def test_app_executable_added(self, cfg, monkeypatch):
-        """Win32 RemoteApp uses FreeRDP's separate /app: + /app-name: + /app-cmd:
-        flag form (FreeRDP 2 / 3 compatible) rather than the combined
-        ``/app:program:X,name:Y,cmd:Z`` (FreeRDP 3-only) form. See #158 —
-        FreeRDP 2.11.x silently mis-parses the combined form and Windows
-        falls back to opening Microsoft Store for the unmatched app name.
-        """
+    def test_app_executable_freerdp3_uses_combined_syntax(self, cfg, monkeypatch):
+        """On FreeRDP 3, Win32 RemoteApp must use the combined
+        ``/app:program:X,name:Y[,cmd:Z]`` syntax. FreeRDP 3 parses
+        ``/app:`` as ``<key>:<value>,...`` so bare ``/app:PATH`` is
+        rejected with "Unexpected keyword" at the path's drive prefix.
+        Regression test for the smoke failure on Tumbleweed FreeRDP
+        3.24.1 (2026-05-14)."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        assert "/app:program:notepad.exe,name:notepad" in cmd
+        # Separate /app-name: / /app-cmd: flags MUST NOT appear — they
+        # double up with the combined form's name: / cmd: sub-keys.
+        assert not any(c.startswith("/app-name:") for c in cmd)
+        assert not any(c.startswith("/app-cmd:") for c in cmd)
+
+    def test_app_executable_freerdp2_uses_separate_flags(self, cfg, monkeypatch):
+        """On FreeRDP 2, Win32 RemoteApp must use the separate
+        ``/app:PATH`` + ``/app-name:NAME`` + ``/app-cmd:CMD`` flag
+        form. FreeRDP 2 parses the combined ``program:X,name:Y,cmd:Z``
+        string as the literal program path and falls back to the
+        Microsoft Store handler (#158, reported by @poetman)."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 2)
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
         assert "/app:notepad.exe" in cmd
         assert any(c.startswith("/app-name:") for c in cmd)
-        # And the deprecated combined form must NOT be present.
-        assert not any(c.startswith("/app:program:") for c in cmd), (
-            "Win32 RemoteApp must use separate flags, not combined "
-            "/app:program:X,name:Y,cmd:Z (which breaks on FreeRDP 2)."
-        )
+        # Combined form must NOT appear on FreeRDP 2.
+        assert not any(c.startswith("/app:program:") for c in cmd)
 
-    def test_app_cmd_uses_separate_flag(self, cfg, monkeypatch):
-        """``default_args`` (e.g. File Explorer ``shell:Desktop``) lands
-        on its own ``/app-cmd:`` flag rather than as a ``cmd:`` sub-arg
-        on ``/app:``. This restores FreeRDP 2 compat and removes the
-        comma-sanitisation hack the combined form needed."""
+    def test_app_cmd_freerdp3_inlined_into_app_arg(self, cfg, monkeypatch):
+        """FreeRDP 3 combined form bundles ``cmd:`` into the same
+        ``/app:`` arg, with comma-to-space sanitisation."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
+        cmd, _ = build_rdp_command(
+            cfg,
+            app_executable="explorer.exe",
+            default_args="shell:Desktop",
+        )
+        assert any(",cmd:shell:Desktop" in c for c in cmd)
+        assert not any(c.startswith("/app-cmd:") for c in cmd)
+
+    def test_app_cmd_freerdp2_uses_separate_flag(self, cfg, monkeypatch):
+        """FreeRDP 2 puts ``default_args`` on its own ``/app-cmd:``
+        flag — commas inside the value are safe because each flag is
+        its own argv entry."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 2)
         cmd, _ = build_rdp_command(
             cfg,
             app_executable="explorer.exe",

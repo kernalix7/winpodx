@@ -110,6 +110,57 @@ def _find_media_base() -> Path | None:
 
 # Success-only cache; a miss is not cached so a mid-session install is picked up.
 _FREERDP_CACHE: tuple[str, str] | None = None
+_FREERDP_MAJOR_CACHE: int | None = None
+
+
+def freerdp_major_version() -> int:
+    """Return the FreeRDP major version (2 or 3), or 3 on detection failure.
+
+    Result is cached in ``_FREERDP_MAJOR_CACHE``. We default to 3 when
+    the version probe can't run cleanly because: (a) winpodx targets
+    FreeRDP 3+ anyway, (b) the combined ``/app:program:X,name:Y,cmd:Z``
+    syntax is FreeRDP 3-only and is what most users hit, (c) on
+    FreeRDP 2 hosts the user gets the (now-rare) Microsoft Store
+    fallback symptom rather than a silent crash.
+
+    The branching matters because FreeRDP 3 made ``/app:`` parse its
+    value as ``<key>:<value>,...`` rather than as a bare path, so
+    ``/app:C:\\Path\\app.exe`` (FreeRDP 2 syntax) is rejected with
+    ``Unexpected keyword`` at the ``C:`` prefix. The combined form is
+    the only ``/app:`` form FreeRDP 3 accepts. Conversely, FreeRDP 2
+    parses the entire combined string as a literal path and lands on
+    the Store fallback (#158).
+    """
+    global _FREERDP_MAJOR_CACHE
+    if _FREERDP_MAJOR_CACHE is not None:
+        return _FREERDP_MAJOR_CACHE
+
+    found = find_freerdp()
+    if found is None:
+        _FREERDP_MAJOR_CACHE = 3  # safest default; later code paths gate on this
+        return _FREERDP_MAJOR_CACHE
+
+    path, _kind = found
+    # ``flatpak run ...`` returns the inner FreeRDP version too; the
+    # caller passes the whole launcher string so shlex it.
+    cmd = shlex.split(path) + ["--version"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        _FREERDP_MAJOR_CACHE = 3
+        return _FREERDP_MAJOR_CACHE
+    # FreeRDP --version prints "This is FreeRDP version <major>.<minor>.<patch>"
+    # on stdout. Be forgiving about stream choice and surrounding text.
+    blob = (result.stdout or "") + (result.stderr or "")
+    match = re.search(r"FreeRDP version\s+(\d+)\.", blob)
+    if not match:
+        _FREERDP_MAJOR_CACHE = 3
+        return _FREERDP_MAJOR_CACHE
+    try:
+        _FREERDP_MAJOR_CACHE = int(match.group(1))
+    except ValueError:
+        _FREERDP_MAJOR_CACHE = 3
+    return _FREERDP_MAJOR_CACHE
 
 
 def find_freerdp() -> tuple[str, str] | None:
@@ -281,38 +332,54 @@ def build_rdp_command(
         name_token = (wm_class_hint or "").strip().lower() or stem
         if not _is_safe_wm_class(name_token):
             name_token = stem
-        # Use FreeRDP's separate /app: + /app-name: + /app-cmd: flags
-        # rather than the combined ``/app:program:X,name:Y,cmd:Z`` form.
-        # The combined form is FreeRDP 3-only — FreeRDP 2.11.x (still
-        # the apt default on Ubuntu 22.04 LTS) parses the entire
-        # ``program:...,name:...,cmd:...`` string as the literal program
-        # path, which fails to launch and falls back to a Windows shell
-        # handler that frequently lands on Microsoft Store for unknown
-        # app names. The separate-flag form is accepted by both FreeRDP
-        # 2 and 3 (FreeRDP 3 keeps the old flags for backward compat),
-        # so this is the broader-compatible choice with no downside.
-        # See #158 (reported by @poetman, verified with manual
-        # `xfreerdp /app:<path> /app-name:<name>` invocations on
-        # FreeRDP 2.11.5).
-        cmd.append(f"/app:{app_executable}")
-        cmd.append(f"/app-name:{name_token}")
-        if file_path:
-            try:
-                unc_path = linux_to_unc(file_path)
-            except ValueError as e:
-                # Convert to RuntimeError so CLI (_run_app) surfaces it to the user.
-                raise RuntimeError(f"Cannot open file: {e}") from e
-            cmd.append(f"/app-cmd:{unc_path}")
-        elif default_args:
-            # File Explorer needs a shell: argument so RemoteApp opens a
-            # window instead of taking over as the user shell. Discovery
-            # stores that argument in the ``args`` field of app.toml;
-            # pass it as ``/app-cmd:`` when no user-supplied file_path
-            # is overriding. Comma sanitisation is no longer needed
-            # because ``/app-cmd:`` is its own flag — commas inside the
-            # value no longer collide with FreeRDP's ``/app:`` sub-arg
-            # separator.
-            cmd.append(f"/app-cmd:{default_args}")
+        # FreeRDP's RemoteApp syntax is incompatible between major
+        # versions and we have to branch:
+        #
+        # - FreeRDP 3.x parses ``/app:`` as ``<key>:<value>,...`` —
+        #   bare ``/app:C:\Path\app.exe`` is rejected with
+        #   ``Unexpected keyword`` at the ``C:`` prefix (the parser
+        #   reads ``C`` as an unknown sub-key). The COMBINED form
+        #   ``/app:program:PATH,name:NAME,cmd:CMD`` is the only
+        #   accepted shape.
+        # - FreeRDP 2.11.x (still apt default on Ubuntu 22.04 LTS)
+        #   parses the combined string as a literal program path and
+        #   fails to launch — Windows shell handler then falls back
+        #   to Microsoft Store for unknown app names (#158, reported
+        #   by @poetman, verified with manual xfreerdp invocations).
+        #   FreeRDP 2 only accepts SEPARATE flags ``/app:PATH``,
+        #   ``/app-name:NAME``, ``/app-cmd:CMD``.
+        #
+        # ``freerdp_major_version()`` caches the probe so this branch
+        # only spawns the version-check subprocess once per process.
+        if freerdp_major_version() >= 3:
+            # FreeRDP 3: combined sub-arg form. Comma in ``default_args``
+            # would collide with FreeRDP's sub-arg separator, so it is
+            # sanitised to spaces. ``cmd:`` accepts a UNC path (file
+            # open) or a CLI string (Explorer ``shell:Desktop``).
+            app_arg = f"/app:program:{app_executable},name:{name_token}"
+            if file_path:
+                try:
+                    unc_path = linux_to_unc(file_path)
+                except ValueError as e:
+                    raise RuntimeError(f"Cannot open file: {e}") from e
+                app_arg += f",cmd:{unc_path}"
+            elif default_args:
+                sanitized = default_args.replace(",", " ")
+                app_arg += f",cmd:{sanitized}"
+            cmd.append(app_arg)
+        else:
+            # FreeRDP 2: separate flags. Commas inside ``/app-cmd:``
+            # are safe because each flag is its own argv entry.
+            cmd.append(f"/app:{app_executable}")
+            cmd.append(f"/app-name:{name_token}")
+            if file_path:
+                try:
+                    unc_path = linux_to_unc(file_path)
+                except ValueError as e:
+                    raise RuntimeError(f"Cannot open file: {e}") from e
+                cmd.append(f"/app-cmd:{unc_path}")
+            elif default_args:
+                cmd.append(f"/app-cmd:{default_args}")
         cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
 
