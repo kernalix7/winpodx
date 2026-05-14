@@ -281,24 +281,38 @@ def build_rdp_command(
         name_token = (wm_class_hint or "").strip().lower() or stem
         if not _is_safe_wm_class(name_token):
             name_token = stem
-        app_arg = f"/app:program:{app_executable},name:{name_token}"
+        # Use FreeRDP's separate /app: + /app-name: + /app-cmd: flags
+        # rather than the combined ``/app:program:X,name:Y,cmd:Z`` form.
+        # The combined form is FreeRDP 3-only — FreeRDP 2.11.x (still
+        # the apt default on Ubuntu 22.04 LTS) parses the entire
+        # ``program:...,name:...,cmd:...`` string as the literal program
+        # path, which fails to launch and falls back to a Windows shell
+        # handler that frequently lands on Microsoft Store for unknown
+        # app names. The separate-flag form is accepted by both FreeRDP
+        # 2 and 3 (FreeRDP 3 keeps the old flags for backward compat),
+        # so this is the broader-compatible choice with no downside.
+        # See #158 (reported by @poetman, verified with manual
+        # `xfreerdp /app:<path> /app-name:<name>` invocations on
+        # FreeRDP 2.11.5).
+        cmd.append(f"/app:{app_executable}")
+        cmd.append(f"/app-name:{name_token}")
         if file_path:
             try:
                 unc_path = linux_to_unc(file_path)
             except ValueError as e:
                 # Convert to RuntimeError so CLI (_run_app) surfaces it to the user.
                 raise RuntimeError(f"Cannot open file: {e}") from e
-            app_arg += f",cmd:{unc_path}"
+            cmd.append(f"/app-cmd:{unc_path}")
         elif default_args:
             # File Explorer needs a shell: argument so RemoteApp opens a
             # window instead of taking over as the user shell. Discovery
-            # stores that argument in the `args` field of app.toml; pass
-            # it as cmd: when no user-supplied file_path is overriding.
-            # default_args is ALREADY a string the user (or discovery)
-            # blessed; we only neutralize FreeRDP separators.
-            sanitized = default_args.replace(",", " ")
-            app_arg += f",cmd:{sanitized}"
-        cmd.append(app_arg)
+            # stores that argument in the ``args`` field of app.toml;
+            # pass it as ``/app-cmd:`` when no user-supplied file_path
+            # is overriding. Comma sanitisation is no longer needed
+            # because ``/app-cmd:`` is its own flag — commas inside the
+            # value no longer collide with FreeRDP's ``/app:`` sub-arg
+            # separator.
+            cmd.append(f"/app-cmd:{default_args}")
         cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
 

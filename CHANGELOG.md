@@ -28,6 +28,9 @@ verbatim.
 ### Fixed
 -->
 
+### Fixed
+- `winpodx app run <slug>` no longer opens Microsoft Store on FreeRDP 2.x hosts (Ubuntu 22.04 LTS). Win32 RemoteApp launches were emitting FreeRDP 3's combined `/app:program:X,name:Y,cmd:Z` syntax, which FreeRDP 2.11.x mis-parses and Windows resolves to a shell-handler fallback that lands on Store for unmatched app names. Switched the Win32 path to the separate-flag form (`/app:` + `/app-name:` + `/app-cmd:`) that both FreeRDP 2 and 3 accept. UWP path is unchanged. (reported by @poetman, #158)
+
 ## [0.5.0] - 2026-05-13
 
 Reverse-open (#48) ships end-to-end and is the headline feature of this release. Linux apps now appear in the Windows guest's right-click "Open with…" menu by default — no opt-in flag, no Settings toggle required — with correct per-app icons in both the short menu and the long "Choose another app" dialog. Phase 2 series complete (a / b / c / d), plus the full fix-forward stack: per-app `.cmd` wrappers, Rust `.exe` shim, short-menu visibility, Firefox handoff, uninstall `--purge` scope, multi-resolution ICOs, Desktop folder shortcut + Quick Access pin, and the embedded-EXE-icon chooser fix.
