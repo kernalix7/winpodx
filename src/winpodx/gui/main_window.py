@@ -21,6 +21,7 @@ from winpodx.gui._main_window_apps import AppCrudMixin
 from winpodx.gui._main_window_header import HeaderMixin
 from winpodx.gui._main_window_info import InfoPageMixin
 from winpodx.gui._main_window_library import LibraryPageMixin
+from winpodx.gui._main_window_license import LicensePageMixin
 from winpodx.gui._main_window_logs import LogsMixin
 from winpodx.gui._main_window_maintenance import MaintenanceMixin
 from winpodx.gui._main_window_nav import NavigationMixin
@@ -40,6 +41,7 @@ class WinpodxWindow(
     HeaderMixin,
     InfoPageMixin,
     LibraryPageMixin,
+    LicensePageMixin,
     LogsMixin,
     MaintenanceMixin,
     NavigationMixin,
@@ -135,6 +137,7 @@ class WinpodxWindow(
         self.pages.addWidget(self._build_maintenance_page())
         self.pages.addWidget(self._build_logs_page())
         self.pages.addWidget(self._build_info_page())
+        self.pages.addWidget(self._build_license_page())
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())

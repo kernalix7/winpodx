@@ -55,6 +55,7 @@ Maintenance + ergonomics release. Wider curated Windows edition support, headles
 - `docs/ARCHITECTURE.md` "Advanced: Custom Windows ISO" section documents the manual `win_version = "custom"` + `compose.yaml` mount workaround for users with their own pre-loaded ISOs. Korean mirror updated. (#178, #184)
 - `CONTRIBUTING.md` "Crediting contributors in Highlights" section codifies the inline `(by @user, #PR)` / `(reported by @user, #issue)` convention used in CHANGELOG Highlights. Korean mirror updated. (#187)
 - New `[logging]` config section with `level` field (`DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW`). `setup_logging()` reads it on startup so all winpodx CLI / GUI runs pick up the chosen level. Default `INFO`; unknown values fall back to `INFO` with no rejection. Terminal tab dropdown changes the live logger AND persists to TOML. `RAW` is a winpodx-only meta-level: pins the Python logger to `DEBUG` AND turns on a parallel `podman logs -f` tail in the Terminal so dockur / QEMU / Windows-side output interleaves with winpodx's own log lines (pod-log lines are prefixed `[pod]` and dimmed for distinguishability).
+- New **License** GUI tab. Shows the MIT license text inline + a "Third-party components" section listing the upstream projects winpodx ships or depends on (dockur, FreeRDP, PySide6/Qt, rdprrap, rcedit, Catppuccin) with their respective licenses. Resolves the LICENSE file via `bundle_dir()` so it renders correctly across every install mode (source checkout, wheel, FHS, `curl | bash`).
 
 ### Changed
 

@@ -93,6 +93,7 @@ class HeaderMixin:
             ("Tools", 2),
             ("Terminal", 3),
             ("Info", 4),
+            ("License", 5),
         ]:
             btn = QPushButton(label)
             btn.setCheckable(True)
@@ -259,8 +260,7 @@ class HeaderMixin:
         # Terminal-ish background so the bar reads as a log surface and
         # doesn't compete visually with the info_bar above it.
         bar.setStyleSheet(
-            f"#logBar {{ background: {C.CRUST};"
-            f" border-top: 1px solid {C.SURFACE0}; }}"
+            f"#logBar {{ background: {C.CRUST}; border-top: 1px solid {C.SURFACE0}; }}"
         )
         bar.setFixedHeight(38)
 
