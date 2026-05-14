@@ -55,6 +55,30 @@ WINPODX_REF=v0.5.0 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpod
 
 환경변수는 `curl | bash` 에서도 동작 — `WINPODX_SKIP_DEPS=1 curl ... | bash` 가능.
 
+## Windows 에디션 선택
+
+기본은 dockur 의 최신 Windows 11 이미지. fresh install 시 `--win-version VER` (또는 `WINPODX_WIN_VERSION` 환경변수) 로 다른 큐레이트 에디션 선택 가능:
+
+```bash
+# Win11 대신 Windows 10 LTSC 설치
+./install.sh --win-version ltsc10
+
+# IoT Enterprise LTSC (kiosk / appliance 용 장기 지원)
+./install.sh --win-version iot11
+
+# Debloat 커뮤니티 빌드
+./install.sh --win-version tiny11
+
+# Server 2022
+./install.sh --win-version 2022
+```
+
+큐레이트 셋: `11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016`. Pre-Win10 에디션 (XP / Vista / 7 / 8 / Server 2003-2012) 은 Microsoft 보안 지원이 끝났고 winpodx 의 rdprrap / agent.ps1 / install.bat 가정과 안 맞음 — WARNING 한 줄 로그하고 dockur 로 통과되지만 정식 지원 아님.
+
+`--win-version` 플래그는 fresh install 에만 적용 (기존 `winpodx.toml` 없을 때). 기존 설치에서 에디션 변경은 GUI 설정 → Container/VM → **Windows Edition** 드롭다운 (또는 config 삭제 후 `winpodx setup --win-version VER`).
+
+자체 커스텀 ISO 부팅은 [고급: 커스텀 Windows ISO](ARCHITECTURE.ko.md#고급-커스텀-windows-iso) 참고.
+
 ## 네이티브 패키지 매니저
 
 미리 빌드된 RPM / `.deb` / AUR 패키지가 모든 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) 에 첨부됨 — openSUSE/Fedora RPM 은 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) 에서, 나머지는 GitHub Actions 에서.

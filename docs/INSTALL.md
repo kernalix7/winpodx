@@ -55,6 +55,30 @@ The installer takes three optional flags for machines with no registry / package
 
 Env vars are honored even under `curl | bash`, so `WINPODX_SKIP_DEPS=1 curl ... | bash` works.
 
+## Choosing the Windows edition
+
+By default winpodx installs the latest dockur Windows 11 image. Pass `--win-version VER` (or the `WINPODX_WIN_VERSION` env var) to pick a different curated edition during a fresh install:
+
+```bash
+# Install Windows 10 LTSC instead of Win11
+./install.sh --win-version ltsc10
+
+# IoT Enterprise LTSC (long-term-service for kiosks / appliances)
+./install.sh --win-version iot11
+
+# Debloated community build
+./install.sh --win-version tiny11
+
+# Server 2022
+./install.sh --win-version 2022
+```
+
+Curated set: `11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016`. Pre-Win10 editions (XP / Vista / 7 / 8 / Server 2003-2012) are out of Microsoft security support and don't match the rdprrap / agent.ps1 / install.bat assumptions winpodx is built on — they'll still pass through to dockur with a WARNING but aren't first-class supported.
+
+The `--win-version` flag only applies on fresh installs (no existing `winpodx.toml`). Existing installs change the edition via the GUI Settings → Container/VM → **Windows Edition** dropdown (or `winpodx setup --win-version VER` if you've removed the config).
+
+For booting your own custom ISO with programs pre-installed, see [Advanced: Custom Windows ISO](ARCHITECTURE.md#advanced-custom-windows-iso).
+
 ## Native package managers
 
 Prebuilt RPM / `.deb` / AUR packages are attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions.
