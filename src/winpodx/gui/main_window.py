@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -78,6 +78,15 @@ class WinpodxWindow(
         self._build_ui()
         self._start_status_timer()
 
+        # v0.5.1: always-on tails feeding the bottom log bar + Terminal.
+        # The app-log tail starts unconditionally — ``tail -F`` handles
+        # the missing-file case for fresh installs. The pod tail is
+        # gated on ``cfg.logging.is_raw()`` so users on standard levels
+        # don't see dockur boot noise in their bar.
+        self._on_follow_app_log()
+        if self.cfg.logging.is_raw():
+            self._start_raw_pod_tail()
+
         # v0.2.1: pending-setup resume + first-run quick start. Fired
         # asynchronously after the window paints so the user sees the
         # app immediately rather than blocking on a network probe.
@@ -89,6 +98,23 @@ class WinpodxWindow(
         self.app_launched.connect(self._on_app_launched)
         self.app_launch_failed.connect(self._on_app_launch_failed)
         self.log_signal.connect(self._log_append)
+        # Fan-out: the same log_signal also feeds the always-visible
+        # 2-line bottom log bar (the QLabel pair built by
+        # HeaderMixin._build_log_bar). This way every line that flows
+        # through Terminal's full QTextEdit history also flashes at
+        # the bottom of the window regardless of which page is open.
+        self.log_signal.connect(self._update_log_bar)
+
+    def _update_log_bar(self, line: str, color: str) -> None:
+        """Push the latest log line onto the bottom bar (2-line ticker)."""
+        # Shift current top → second slot, put new line on top.
+        self.log_bar_line2.setText(self.log_bar_line1.text())
+        # Elide so long winpodx log messages don't blow out the bar
+        # width — the full line is still in the Terminal QTextEdit.
+        fm = self.log_bar_line1.fontMetrics()
+        available = max(self.log_bar_line1.width() - 4, 200)
+        elided = fm.elidedText(line, Qt.TextElideMode.ElideRight, available)
+        self.log_bar_line1.setText(elided)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -112,6 +138,11 @@ class WinpodxWindow(
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())
+        # Always-visible log ticker below info_bar. Shows the latest
+        # two ``log_signal`` lines (winpodx logger + pod tail when
+        # ``cfg.logging.level == "RAW"``) regardless of which page
+        # the user is on.
+        root.addWidget(self._build_log_bar())
 
 
 def run_gui() -> None:

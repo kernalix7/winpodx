@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -237,5 +238,53 @@ class HeaderMixin:
         res_lbl = QLabel(f"{self.cfg.pod.cpu_cores} CPU · {self.cfg.pod.ram_gb} GB")
         res_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
         layout.addWidget(res_lbl)
+
+        return bar
+
+    def _build_log_bar(self) -> QWidget:
+        """Always-visible 2-line log ticker at the very bottom of the window.
+
+        Shows the latest two lines emitted via ``log_signal`` regardless
+        of which page is active. The Python ``winpodx`` logger feeds it
+        through the always-on ``tail -F winpodx.log`` worker; when
+        ``cfg.logging.level == "RAW"`` the parallel ``podman logs -f``
+        tail also feeds it, with ``[pod]`` prefix on each line.
+
+        The log level dropdown on the Terminal page controls what gets
+        WRITTEN to ``winpodx.log`` (and therefore what reaches this
+        bar). RAW additionally enables the pod-log stream.
+        """
+        bar = QWidget()
+        bar.setObjectName("logBar")
+        # Terminal-ish background so the bar reads as a log surface and
+        # doesn't compete visually with the info_bar above it.
+        bar.setStyleSheet(
+            f"#logBar {{ background: {C.CRUST};"
+            f" border-top: 1px solid {C.SURFACE0}; }}"
+        )
+        bar.setFixedHeight(38)
+
+        layout = QVBoxLayout(bar)
+        layout.setContentsMargins(20, 4, 20, 4)
+        layout.setSpacing(0)
+
+        # Two lines stacked: most-recent on top, previous below it
+        # (one tick of history). The "previous" line is dimmer so the
+        # eye snaps to the freshest line first.
+        self.log_bar_line1 = QLabel("")
+        self.log_bar_line1.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT1};"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 10px;"
+        )
+        self.log_bar_line1.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.log_bar_line1)
+
+        self.log_bar_line2 = QLabel("")
+        self.log_bar_line2.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0};"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 10px;"
+        )
+        self.log_bar_line2.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.log_bar_line2)
 
         return bar

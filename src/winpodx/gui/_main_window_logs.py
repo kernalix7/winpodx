@@ -279,16 +279,18 @@ class LogsMixin:
         header.addStretch()
 
         # Route container name through cfg so renamed pods still work.
+        # v0.5.1: dropped the "Live (app)" / "Live (pod)" / "Stop tail"
+        # buttons — the always-on tails started at WinpodxWindow.__init__
+        # already stream into this terminal + the bottom log bar, so
+        # those buttons would be redundant (and prone to fighting with
+        # the always-on tails). What's left is one-shot diagnostics.
         container = self.cfg.pod.container_name
         quick = [
             ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
             ("Pod logs", ["podman", "logs", "--tail", "100", container]),
-            ("Live (pod)", "follow_pod"),
             ("App log", "tail_app_log"),
-            ("Live (app)", "follow_app_log"),
             ("Inspect", ["podman", "inspect", container]),
             ("RDP Test", None),
-            ("Stop tail", "stop_tail"),
             ("Clear", None),
         ]
         for label, cmd in quick:
@@ -298,14 +300,8 @@ class LogsMixin:
                 btn.clicked.connect(lambda: self.log_output.clear())
             elif label == "RDP Test":
                 btn.clicked.connect(self._on_rdp_test)
-            elif cmd == "follow_pod":
-                btn.clicked.connect(self._on_follow_pod_log)
             elif cmd == "tail_app_log":
                 btn.clicked.connect(self._on_tail_app_log)
-            elif cmd == "follow_app_log":
-                btn.clicked.connect(self._on_follow_app_log)
-            elif cmd == "stop_tail":
-                btn.clicked.connect(self._on_stop_tail)
             else:
                 btn.clicked.connect(lambda _, c=cmd: self._run_log_cmd(c))
             header.addWidget(btn)

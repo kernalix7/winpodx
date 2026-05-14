@@ -41,7 +41,10 @@ Maintenance + ergonomics release. Wider curated Windows edition support, headles
 - **Discovery cleanup** (#182) — `winpodx app refresh` no longer re-imports the reverse-open Linux-app shims as Windows apps, and a self-heal pass purges any existing polluted entries on the next refresh.
 - **Weekly Docker Hub digest watcher** (#180) — picks up silent dockur rebuilds (security patches that don't get a release tag) that the release-tag-only watcher misses.
 - **Internal**: `WinpodxWindow` Qt class decomposed from 2745 lines into a 148-line orchestrator + 10 single-responsibility mixins (#181). Zero behaviour change; maps cleanly to a future Rust port.
-- **Live log-level picker** — Terminal tab gets a `DEBUG / INFO / WARNING / ERROR / CRITICAL / RAW` dropdown that retargets the running logger AND persists to `cfg.logging.level`. DEBUG surfaces the chatty per-tick probe / state logs useful for triaging "agent not ready" / "starting" stuck states; **RAW** additionally interleaves `podman logs -f` output (dockur / QEMU / Windows-side messages) into the same Terminal so the answer is in one place when winpodx's own logs aren't enough.
+- **Always-on bottom log bar + live log-level picker.** Two new pieces working together:
+  - A persistent 2-line log ticker at the very bottom of the main window — visible regardless of which page is active. Latest two ``log_signal`` lines (winpodx logger + pod tail when ``cfg.logging.level == "RAW"``) flash there in real time.
+  - Terminal tab gets a `DEBUG / INFO / WARNING / ERROR / CRITICAL / RAW` dropdown that retargets the running logger AND persists to `cfg.logging.level`. **RAW** also enables the parallel `podman logs -f` stream (with `[pod]` prefix), so dockur / QEMU / Windows-side messages flow through both the Terminal full view and the bottom bar — useful for "Windows isn't booting" / "ISO download stuck" / agent-down triage.
+  - Tails are started once at GUI launch and stay running, so the bottom bar updates regardless of which page you're on. The Terminal tab's `Live (app)` / `Live (pod)` / `Stop tail` buttons were removed (now redundant with the always-on design).
 
 ### Added
 
