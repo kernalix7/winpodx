@@ -184,12 +184,40 @@ class TestBuildRdpCommand:
         assert "/cert:ignore" not in cmd
 
     def test_app_executable_added(self, cfg, monkeypatch):
+        """Win32 RemoteApp uses FreeRDP's separate /app: + /app-name: + /app-cmd:
+        flag form (FreeRDP 2 / 3 compatible) rather than the combined
+        ``/app:program:X,name:Y,cmd:Z`` (FreeRDP 3-only) form. See #158 —
+        FreeRDP 2.11.x silently mis-parses the combined form and Windows
+        falls back to opening Microsoft Store for the unmatched app name.
+        """
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
-        assert any("/app:program:notepad.exe" in c for c in cmd)
+        assert "/app:notepad.exe" in cmd
+        assert any(c.startswith("/app-name:") for c in cmd)
+        # And the deprecated combined form must NOT be present.
+        assert not any(c.startswith("/app:program:") for c in cmd), (
+            "Win32 RemoteApp must use separate flags, not combined "
+            "/app:program:X,name:Y,cmd:Z (which breaks on FreeRDP 2)."
+        )
+
+    def test_app_cmd_uses_separate_flag(self, cfg, monkeypatch):
+        """``default_args`` (e.g. File Explorer ``shell:Desktop``) lands
+        on its own ``/app-cmd:`` flag rather than as a ``cmd:`` sub-arg
+        on ``/app:``. This restores FreeRDP 2 compat and removes the
+        comma-sanitisation hack the combined form needed."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cmd, _ = build_rdp_command(
+            cfg,
+            app_executable="explorer.exe",
+            default_args="shell:Desktop",
+        )
+        assert "/app-cmd:shell:Desktop" in cmd
 
     def test_dpi_flag_when_set(self, cfg, monkeypatch):
         monkeypatch.setattr(
