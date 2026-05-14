@@ -11,9 +11,7 @@ from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -36,17 +34,15 @@ from winpodx.gui._main_window_library import LibraryPageMixin
 from winpodx.gui._main_window_logs import LogsMixin
 from winpodx.gui._main_window_maintenance import MaintenanceMixin
 from winpodx.gui._main_window_pod import PodStatusMixin
+from winpodx.gui._main_window_settings import SettingsPageMixin
 from winpodx.gui._widget_helpers import add_shadow
 from winpodx.gui.theme import (
     ACTION_ROW,
     BTN_DANGER,
     BTN_GHOST,
     BTN_PRIMARY,
-    COMBO,
     GLOBAL_STYLE,
-    INPUT,
     SCROLL_AREA,
-    SETTINGS_SECTION,
     TERMINAL,
     C,
     accent_color,
@@ -64,6 +60,7 @@ class WinpodxWindow(
     LogsMixin,
     MaintenanceMixin,
     PodStatusMixin,
+    SettingsPageMixin,
     QMainWindow,
 ):
     """Main window with horizontal top navigation bar."""
@@ -131,239 +128,6 @@ class WinpodxWindow(
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())
-
-    def _build_settings_page(self) -> QWidget:
-        page = QWidget()
-        outer = QVBoxLayout(page)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(SCROLL_AREA)
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 28)
-
-        title = QLabel("Settings")
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        layout.addWidget(title)
-
-        sub = QLabel("Configure RDP and container settings")
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
-        layout.addWidget(sub)
-        layout.addSpacing(20)
-
-        cols = QHBoxLayout()
-        cols.setSpacing(16)
-
-        self.input_user = QLineEdit(self.cfg.rdp.user)
-        self.input_ip = QLineEdit(self.cfg.rdp.ip)
-        self.input_port = QLineEdit(str(self.cfg.rdp.port))
-        self.input_scale = QComboBox()
-        scale_options = [("100%", 100), ("140%", 140), ("180%", 180)]
-        for label, val in scale_options:
-            self.input_scale.addItem(label, val)
-        current_scale = self.cfg.rdp.scale
-        idx = next((i for i, (_, v) in enumerate(scale_options) if v == current_scale), 0)
-        self.input_scale.setCurrentIndex(idx)
-
-        self.input_dpi = QComboBox()
-        dpi_options = [
-            ("Auto", 0),
-            ("100%  (96 DPI)", 100),
-            ("125%  (120 DPI)", 125),
-            ("150%  (144 DPI)", 150),
-            ("175%  (168 DPI)", 175),
-            ("200%  (192 DPI)", 200),
-            ("250%  (240 DPI)", 250),
-            ("300%  (288 DPI)", 300),
-        ]
-        for label, val in dpi_options:
-            self.input_dpi.addItem(label, val)
-        current_dpi = self.cfg.rdp.dpi
-        idx = self.input_dpi.findData(current_dpi)
-        if idx >= 0:
-            self.input_dpi.setCurrentIndex(idx)
-        elif current_dpi > 0:
-            self.input_dpi.addItem(f"{current_dpi}%", current_dpi)
-            self.input_dpi.setCurrentIndex(self.input_dpi.count() - 1)
-
-        self.input_pw_max_age = QComboBox()
-        pw_age_options = [
-            ("Disabled", 0),
-            ("1 day", 1),
-            ("3 days", 3),
-            ("7 days (default)", 7),
-            ("14 days", 14),
-            ("30 days", 30),
-            ("90 days", 90),
-        ]
-        for label, val in pw_age_options:
-            self.input_pw_max_age.addItem(label, val)
-        current_age = self.cfg.rdp.password_max_age
-        age_idx = self.input_pw_max_age.findData(current_age)
-        if age_idx >= 0:
-            self.input_pw_max_age.setCurrentIndex(age_idx)
-        elif current_age > 0:
-            self.input_pw_max_age.addItem(f"{current_age} days", current_age)
-            self.input_pw_max_age.setCurrentIndex(self.input_pw_max_age.count() - 1)
-
-        # Extra FreeRDP arguments \u2014 escape hatch for codec / cache / RAIL
-        # tuning. Common case as of 2026-05-06: cachyos ships xfreerdp3
-        # with WITH_VAAPI_H264_ENCODING=ON which crashes during RAIL
-        # post_connect; setting `-gfx-h264` here forces RemoteFX fallback.
-        # _filter_extra_flags in core/rdp.py applies the same allowlist
-        # whether the value comes from this UI or the CLI's --extra-args,
-        # so unsafe entries are dropped with a log warning rather than
-        # passed to the FreeRDP command.
-        self.input_extra_flags = QLineEdit(self.cfg.rdp.extra_flags)
-        self.input_extra_flags.setPlaceholderText("/gfx:RFX +decorations")
-        self.input_extra_flags.setToolTip(
-            "Extra xfreerdp3 flags appended to every launch. Whitelist-filtered.\n"
-            "Common toggles:\n"
-            "  /gfx:RFX          force RemoteFX, skip H.264 negotiation\n"
-            "                    (workaround for cachyos / experimental VAAPI\n"
-            "                     builds where RemoteApp dies at post_connect)\n"
-            "  +decorations      enable RemoteApp window decorations\n"
-            "  -wallpaper        suppress Windows wallpaper rendering\n"
-            "  -bitmap-cache     disable bitmap cache (less RAM, more bandwidth)\n"
-            "See src/winpodx/core/rdp.py _BARE_FLAGS for the full allowlist."
-        )
-
-        rdp_card = self._settings_card(
-            "\u25a3  RDP Connection",
-            "Remote Desktop Protocol settings",
-            [
-                ("Username", self.input_user),
-                ("Host / IP", self.input_ip),
-                ("Port", self.input_port),
-                ("Scale %", self.input_scale),
-                ("Windows DPI", self.input_dpi),
-                ("Password Rotation", self.input_pw_max_age),
-                ("Extra FreeRDP args", self.input_extra_flags),
-            ],
-        )
-        cols.addWidget(rdp_card)
-
-        self.input_backend = QComboBox()
-        self.input_backend.addItems(["podman", "docker", "libvirt", "manual"])
-        self.input_backend.setCurrentText(self.cfg.pod.backend)
-
-        self.input_cpu = QLineEdit(str(self.cfg.pod.cpu_cores))
-        self.input_ram = QLineEdit(str(self.cfg.pod.ram_gb))
-        self.input_idle = QLineEdit(str(self.cfg.pod.idle_timeout))
-        self.input_max_sessions = QLineEdit(str(self.cfg.pod.max_sessions))
-
-        pod_card = self._settings_card(
-            "\u25a8  Container / VM",
-            "Backend and resource allocation",
-            [
-                ("Backend", self.input_backend),
-                ("CPU Cores", self.input_cpu),
-                ("RAM (GB)", self.input_ram),
-                ("Idle Timeout", self.input_idle),
-                ("Max Sessions (1-50)", self.input_max_sessions),
-            ],
-        )
-        cols.addWidget(pod_card)
-
-        layout.addLayout(cols)
-
-        # Reverse-open (#48) \u2014 Linux apps in the Windows guest's right-
-        # click "Open with\u2026" menu. The panel is self-contained \u2014 its
-        # button handlers call into the host_open CLI handlers
-        # directly, and the enable / allow / deny edits land on
-        # ``self.cfg.reverse_open`` so the existing _save_settings()
-        # persists them via the shared cfg.save() call.
-        from winpodx.gui.reverse_open_panel import build_panel as _build_ropanel
-
-        try:
-            ropanel = _build_ropanel(self.cfg, parent=content)
-            layout.addWidget(ropanel)
-        except Exception:  # noqa: BLE001 \u2014 never block Settings rendering
-            logging.getLogger(__name__).exception(
-                "reverse-open panel failed to build; Settings page continues without it"
-            )
-
-        # Budget warning \u2014 only visible when max_sessions over-subscribes ram_gb.
-        # Live-updates as the user types in either field.
-        self.budget_warning_label = QLabel("")
-        self.budget_warning_label.setWordWrap(True)
-        self.budget_warning_label.setStyleSheet(
-            f"color: {C.YELLOW if hasattr(C, 'YELLOW') else '#e5c07b'}; "
-            f"background: transparent; font-size: 12px; padding: 4px 8px;"
-        )
-        self.budget_warning_label.setVisible(False)
-        layout.addWidget(self.budget_warning_label)
-        self.input_ram.textChanged.connect(self._update_budget_warning)
-        self.input_max_sessions.textChanged.connect(self._update_budget_warning)
-        self._update_budget_warning()
-
-        layout.addSpacing(20)
-
-        save_btn = QPushButton("Save Settings")
-        save_btn.setStyleSheet(BTN_PRIMARY)
-        save_btn.setFixedWidth(180)
-        save_btn.clicked.connect(self._save_settings)
-        layout.addWidget(save_btn)
-
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
-        return page
-
-    def _settings_card(
-        self,
-        title: str,
-        subtitle: str,
-        fields: list[tuple[str, QWidget]],
-    ) -> QFrame:
-        """Build a settings section card."""
-        card = QFrame()
-        card.setObjectName("settingsSection")
-        card.setStyleSheet(
-            SETTINGS_SECTION
-            + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
-            + INPUT
-            + COMBO
-        )
-        add_shadow(card)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(4)
-
-        header = QLabel(title)
-        header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
-        )
-        layout.addWidget(header)
-
-        sub = QLabel(subtitle)
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-        layout.addWidget(sub)
-
-        accent_line = QFrame()
-        accent_line.setFixedHeight(1)
-        accent_line.setStyleSheet(f"background: {C.SURFACE1};")
-        layout.addWidget(accent_line)
-        layout.addSpacing(14)
-
-        form = QGridLayout()
-        form.setVerticalSpacing(10)
-        form.setHorizontalSpacing(12)
-
-        for row, (label, widget) in enumerate(fields):
-            lbl = QLabel(label)
-            lbl.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 13px;")
-            form.addWidget(lbl, row, 0)
-            form.addWidget(widget, row, 1)
-
-        layout.addLayout(form)
-        return card
 
     def _build_maintenance_page(self) -> QWidget:
         page = QWidget()
@@ -759,100 +523,6 @@ class WinpodxWindow(
             self._start_info_auto_refresh()
         else:
             self._stop_info_auto_refresh()
-
-    def _update_budget_warning(self) -> None:
-        """Live-update the session memory budget warning label.
-
-        Quiet when the estimate fits; shows a wrapped message when
-        max_sessions over-subscribes ram_gb. Called whenever either
-        spinbox text changes.
-        """
-        from winpodx.core.config import Config, check_session_budget
-
-        try:
-            sessions = int(self.input_max_sessions.text() or "10")
-            ram = int(self.input_ram.text() or "4")
-        except ValueError:
-            self.budget_warning_label.setVisible(False)
-            return
-
-        tmp = Config()
-        tmp.pod.max_sessions = max(1, min(50, sessions))
-        tmp.pod.ram_gb = max(1, ram)
-        msg = check_session_budget(tmp)
-        if msg:
-            self.budget_warning_label.setText(f"WARNING: {msg}")
-            self.budget_warning_label.setVisible(True)
-        else:
-            self.budget_warning_label.setVisible(False)
-
-    def _save_settings(self) -> None:
-        try:
-            port = int(self.input_port.text() or str(self.cfg.rdp.port))
-            scale = self.input_scale.currentData()
-            cpu = int(self.input_cpu.text() or "4")
-            ram = int(self.input_ram.text() or "4")
-            idle = int(self.input_idle.text() or "0")
-            max_sessions = int(self.input_max_sessions.text() or "10")
-        except ValueError:
-            QMessageBox.warning(
-                self,
-                "Invalid Input",
-                "Port, Scale, CPU, RAM, Idle Timeout, and Max Sessions must be numbers.",
-            )
-            return
-
-        old_cfg = Config.load()
-        needs_container = (
-            cpu != old_cfg.pod.cpu_cores
-            or ram != old_cfg.pod.ram_gb
-            or port != old_cfg.rdp.port
-            or self.input_user.text() != old_cfg.rdp.user
-        )
-
-        self.cfg.rdp.user = self.input_user.text()
-        self.cfg.rdp.ip = self.input_ip.text()
-        self.cfg.rdp.port = port
-        self.cfg.rdp.scale = scale
-        self.cfg.rdp.dpi = self.input_dpi.currentData()
-        self.cfg.rdp.password_max_age = self.input_pw_max_age.currentData()
-        self.cfg.rdp.extra_flags = self.input_extra_flags.text().strip()
-        self.cfg.pod.backend = self.input_backend.currentText()
-        self.cfg.pod.cpu_cores = cpu
-        self.cfg.pod.ram_gb = ram
-        self.cfg.pod.idle_timeout = idle
-        self.cfg.pod.max_sessions = max_sessions
-        # Let __post_init__ clamp max_sessions to [1, 50] before save.
-        self.cfg.pod.__post_init__()
-        self.cfg.save()
-
-        if needs_container and self.cfg.pod.backend in ("podman", "docker"):
-            reply = QMessageBox.question(
-                self,
-                "Restart Container",
-                "CPU, RAM, or port changed.\nContainer must be recreated to apply.\n\nRestart now?",
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self.info_label.setText("Recreating container...")
-                QApplication.processEvents()
-
-                def _recreate() -> None:
-                    try:
-                        from winpodx.cli.setup_cmd import (
-                            _generate_compose,
-                            _recreate_container,
-                        )
-
-                        _generate_compose(self.cfg)
-                        _recreate_container(self.cfg)
-                        self.app_launched.emit("Container restarted")
-                    except Exception as e:
-                        self.app_launch_failed.emit(f"Restart failed: {e}")
-
-                threading.Thread(target=_recreate, daemon=True).start()
-                return
-
-        self.info_label.setText("Settings saved")
 
     def _maybe_run_first_launch_checks(self) -> None:
         """v0.2.1: on GUI startup, resume any pending install steps and —
