@@ -73,6 +73,7 @@ Maintenance + ergonomics release. Wider curated Windows edition support, headles
 ### Changed
 
 - `.gitignore` extended for AI-tooling-footprint hygiene per CLAUDE.md Section 8 (`.mcp.json`, `AGENTS.md`, `CLAUDE.local.md`, `demo.png`) plus standard scratch / editor / OS patterns and a defensive secret-shape denylist (`*.env`, `*.pem`, `*.key`, `id_rsa*`, etc. — currently no such files in tree).
+- **Arch Linux status accuracy.** The `README.md` "Supported distros" row claimed `pacman / AUR | Supported`, and `docs/INSTALL.md` instructed `yay -S winpodx`. Neither is currently true — the AUR publish workflow is wired but secret-gated on `AUR_SSH_PRIVATE_KEY`, which has not been provisioned, so no `winpodx` AUR package has shipped. Updated the README row to "Source install supported · AUR package pending maintainer onboarding", replaced the `INSTALL.md` "Arch Linux (AUR)" section with `install.sh` guidance, and clarified the native-package-manager intro. Korean mirrors updated.
 
 ## [0.5.0] - 2026-05-13
 

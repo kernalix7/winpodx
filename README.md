@@ -186,7 +186,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for deep dives, including multi-session
 | Fedora 42 / 43 | dnf | Supported |
 | Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 | apt | Supported |
 | AlmaLinux / Rocky / RHEL 9 / 10 | dnf | Supported |
-| Arch / Manjaro | pacman / AUR | Supported |
+| Arch / Manjaro | pacman + `install.sh` | Source install supported · AUR package pending maintainer onboarding |
 | NixOS (and Nix on any distro) | nix flake | Supported |
 
 Each tag push (`v*.*.*`) publishes to all channels automatically — see [packaging/](packaging/) for maintainer details.
