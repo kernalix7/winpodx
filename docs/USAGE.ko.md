@@ -129,7 +129,7 @@ extra_flags = ""             # 추가 FreeRDP 플래그 (allowlist)
 
 [pod]
 backend = "podman"
-win_version = "11"                               # 11 | 10 | ltsc10 | tiny11 | tiny10
+win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016 — 커스텀 ISO 는 ARCHITECTURE.md 참고
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007

@@ -129,7 +129,7 @@ extra_flags = ""             # Additional FreeRDP flags (allowlisted)
 
 [pod]
 backend = "podman"
-win_version = "11"                               # 11 | 10 | ltsc10 | tiny11 | tiny10
+win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016 — see ARCHITECTURE.md for custom ISOs
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007
