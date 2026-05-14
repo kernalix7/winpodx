@@ -1,3 +1,35 @@
+winpodx (0.5.1) unstable; urgency=medium
+
+  * Win10+ Windows edition picker (#178). LTSC IoT, Win11 LTSC,
+    Tiny10/11, Server 2016-2025 selectable from GUI Settings,
+    `winpodx setup --win-version`, or `install.sh --win-version`.
+    Pre-Win10 editions excluded (out of Microsoft security support;
+    don't match rdprrap / agent.ps1 assumptions) but pass through to
+    dockur with a warning if explicitly requested. Custom Windows
+    ISOs documented as a manual workaround under "Advanced: Custom
+    Windows ISO" in docs/ARCHITECTURE.md — set
+    win_version = "custom" + edit compose.yaml to mount the .iso.
+  * FreeRDP 2/3 RemoteApp compatibility fix (#158, reported by
+    @poetman). `winpodx app run <app>` no longer falls back to
+    Microsoft Store on Ubuntu 22.04 LTS (FreeRDP 2.11.x). Win32
+    RemoteApp launches now use FreeRDP's separate /app: + /app-name:
+    + /app-cmd: flags instead of FreeRDP 3-only combined
+    /app:program:X,name:Y,cmd:Z syntax that FreeRDP 2 mis-parses.
+  * Discovery no longer re-imports Linux reverse-open shims as
+    Windows apps (#182). Existing polluted entries are auto-purged
+    on the next `winpodx app refresh`.
+  * Weekly Docker Hub digest watcher (#180) — catches silent dockur
+    rebuilds (security patches without a tag bump) that the
+    release-tag watcher alone misses.
+  * Internal refactor: WinpodxWindow Qt class split from 2745 lines
+    into a 148-line orchestrator + 10 single-responsibility mixins
+    (#181). No user-visible change.
+  * Docs: contributor attribution convention documented in
+    CONTRIBUTING (#187). Korean CHANGELOG / INSTALL / ARCHITECTURE /
+    USAGE mirrors updated to match.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Thu, 14 May 2026 12:00:00 +0000
+
 winpodx (0.5.0) unstable; urgency=medium
 
   * Reverse-open feature (#48) ships end-to-end as the headline of

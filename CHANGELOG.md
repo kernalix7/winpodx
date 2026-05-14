@@ -28,8 +28,39 @@ verbatim.
 ### Fixed
 -->
 
+## [0.5.1] - 2026-05-14
+
+Maintenance + ergonomics release. Wider curated Windows edition support, headless install ergonomics, FreeRDP 2 compatibility fix for Ubuntu 22.04 LTS users, and an internal Qt refactor that future-proofs the GUI codebase. Nine PRs land between v0.5.0 and this tag.
+
+### Highlights
+
+**Pick LTSC IoT, Win10 LTSC, Tiny, Server, or your own ISO — and `winpodx app run <app>` now works on Ubuntu 22.04's default FreeRDP 2.11.** This release is mostly a follow-up to user-reported pain points on v0.5.0: more Windows editions selectable from one place, a real `--win-version` flag on `install.sh` and `winpodx setup`, and a RemoteApp launch bug that opened Microsoft Store instead of the real app on FreeRDP 2.x hosts.
+
+- **Windows edition picker** (#178, #183, #185, #186) — `cfg.pod.win_version` now accepts the full Win10+ curated set (11, 10, ltsc11, ltsc10, iot11, tiny11, tiny10, 2025, 2022, 2019, 2016) from the GUI Settings → Container/VM card, `winpodx setup --win-version`, or `install.sh --win-version`. Custom ISOs documented as a manual workaround in `docs/ARCHITECTURE.md`. (reported by @gabe39, #178)
+- **FreeRDP 2 / Ubuntu 22.04 LTS compatibility** (#189) — `winpodx app run <app>` no longer opens Microsoft Store on FreeRDP 2.11.x. Win32 RemoteApp launches now use FreeRDP's separate `/app:` + `/app-name:` + `/app-cmd:` flags instead of FreeRDP 3's combined `/app:program:X,name:Y,cmd:Z` syntax. (reported by @poetman, #158)
+- **Discovery cleanup** (#182) — `winpodx app refresh` no longer re-imports the reverse-open Linux-app shims as Windows apps, and a self-heal pass purges any existing polluted entries on the next refresh.
+- **Weekly Docker Hub digest watcher** (#180) — picks up silent dockur rebuilds (security patches that don't get a release tag) that the release-tag-only watcher misses.
+- **Internal**: `WinpodxWindow` Qt class decomposed from 2745 lines into a 148-line orchestrator + 10 single-responsibility mixins (#181). Zero behaviour change; maps cleanly to a future Rust port.
+
+### Added
+
+- `winpodx setup --win-version EDITION` and `install.sh --win-version VER` flags for headless edition selection on fresh installs. New `WINPODX_WIN_VERSION` env var equivalent. Documented in `docs/INSTALL.md` "Choosing the Windows edition" section. (#178, #185, #186)
+- GUI Settings → Container/VM card gains a "Windows Edition" combo populated from `_KNOWN_WIN_VERSIONS`; editable so power users can type custom dockur tags. (#178, #183)
+- `_KNOWN_WIN_VERSIONS` constant in `core/config.py` (12 curated editions). `PodConfig.__post_init__` normalises whitespace + case, warns on unknown values without rejecting them. (#178, #183)
+- `check-windows-updates` workflow gains a `:latest` digest drift detector — opens a "silent rebuild" tracking issue when digest changes without a release-tag bump. Two new fields in `config/oem/VERSIONS.txt`: `dockur-digest=` and `dockur-arm-digest=`. (#180)
+- `docs/ARCHITECTURE.md` "Advanced: Custom Windows ISO" section documents the manual `win_version = "custom"` + `compose.yaml` mount workaround for users with their own pre-loaded ISOs. Korean mirror updated. (#178, #184)
+- `CONTRIBUTING.md` "Crediting contributors in Highlights" section codifies the inline `(by @user, #PR)` / `(reported by @user, #issue)` convention used in CHANGELOG Highlights. Korean mirror updated. (#187)
+
+### Changed
+
+- **Qt `WinpodxWindow` decomposed into mixins.** `src/winpodx/gui/main_window.py` shrinks from 2745 lines to 148 (-95%); page builders, page behaviour, chrome construction, pod control, and worker orchestration each move to their own private `_main_window_*.py` mixin module. Pure structural refactor — zero functional change, all method resolution preserved via MRO. (#181)
+- `core/discovery._is_junk_entry` now rejects executables under `C:\Users\Public\winpodx\reverse-open\bin\` (queried via the new `reverse_open.sync.is_guest_shim_path` helper) so the host's reverse-open Linux-app shims aren't mistakenly imported as Windows apps. `persist_discovered()` runs a `_purge_reverse_open_entries` self-heal pass that drops any existing polluted entries on the next refresh. `scripts/windows/discover_apps.ps1` `Add-Result` filters the same path on the guest side as defense in depth. (#182)
+- `docs/USAGE.md` `win_version` TOML example updated to list the new curated set instead of the pre-#183 subset. Korean mirror updated. (#184)
+
 ### Fixed
-- `winpodx app run <slug>` no longer opens Microsoft Store on FreeRDP 2.x hosts (Ubuntu 22.04 LTS). Win32 RemoteApp launches were emitting FreeRDP 3's combined `/app:program:X,name:Y,cmd:Z` syntax, which FreeRDP 2.11.x mis-parses and Windows resolves to a shell-handler fallback that lands on Store for unmatched app names. Switched the Win32 path to the separate-flag form (`/app:` + `/app-name:` + `/app-cmd:`) that both FreeRDP 2 and 3 accept. UWP path is unchanged. (reported by @poetman, #158)
+
+- `winpodx app run <slug>` no longer opens Microsoft Store on FreeRDP 2.x hosts (Ubuntu 22.04 LTS). Win32 RemoteApp launches were emitting FreeRDP 3's combined `/app:program:X,name:Y,cmd:Z` syntax in a single `/app:` argument; FreeRDP 2.11.x parses that string as a literal program path, the launch fails on the Windows side, and the shell handler falls back to opening Microsoft Store for unmatched app names. Switched the Win32 path to the separate-flag form (`/app:` + `/app-name:` + `/app-cmd:`) that both FreeRDP 2 and 3 accept. UWP path is unchanged. The comma-sanitisation hack on `default_args` is no longer needed and was dropped. (reported by @poetman, #158)
+- `__version__` in `src/winpodx/__init__.py` was stale at `0.4.3` and didn't track the package version. Bumped to `0.5.1` with this release; `winpodx --version`, the migrate version comparison, and the install marker now match `pyproject.toml`.
 
 ## [0.5.0] - 2026-05-13
 
