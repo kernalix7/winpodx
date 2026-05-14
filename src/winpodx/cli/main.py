@@ -174,6 +174,19 @@ def cli(argv: list[str] | None = None) -> None:
     # --- setup ---
     setup_p = sub.add_parser("setup", help="Run setup wizard")
     setup_p.add_argument("--backend", choices=["podman", "docker", "libvirt", "manual"])
+    setup_p.add_argument(
+        "--win-version",
+        metavar="EDITION",
+        help=(
+            "Windows edition to install (passed to dockur via VERSION env "
+            "var). Curated set: 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 "
+            "| tiny10 | 2025 | 2022 | 2019 | 2016. Other values pass "
+            "through to dockur with a warning — see ARCHITECTURE.md for "
+            "the custom-ISO workaround. Only takes effect on fresh installs "
+            "(no existing winpodx.toml); for existing installs use the GUI "
+            "Settings → Windows Edition picker or edit winpodx.toml."
+        ),
+    )
     setup_p.add_argument("--non-interactive", action="store_true")
     setup_p.add_argument(
         "--update-image",

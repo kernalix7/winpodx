@@ -447,6 +447,13 @@ def handle_setup(args: argparse.Namespace) -> None:
             print(f"Invalid choice: {choice}")
             raise SystemExit(1)
 
+    # Apply --win-version before the cfg is saved. PodConfig.__post_init__
+    # normalises whitespace/case and warns when the value is off the
+    # curated allowlist (it still passes through to dockur — see #178).
+    win_version_arg = getattr(args, "win_version", None)
+    if win_version_arg:
+        cfg.pod.win_version = win_version_arg
+
     from datetime import datetime, timezone
 
     if non_interactive:

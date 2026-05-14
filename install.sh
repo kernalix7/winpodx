@@ -41,6 +41,11 @@ WINPODX_SKIP_DEPS="${WINPODX_SKIP_DEPS:-}"
 # v0.2.2.2: explicit ref selection. Empty -> auto-detect latest release tag
 # at install time. Set to "main" via --main flag for development builds.
 WINPODX_REF="${WINPODX_REF:-}"
+# v0.5.x: --win-version flag picks the dockur Windows edition for fresh
+# installs (e.g. ltsc10, iot11, tiny11). Empty -> dockur default "11".
+# Ignored when an existing winpodx.toml is present (setup skips
+# re-configuration for upgrade flows). See #178.
+WINPODX_WIN_VERSION="${WINPODX_WIN_VERSION:-}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
@@ -57,6 +62,10 @@ Flags:
   --source PATH       Copy from local repo instead of git clone
   --image-tar PATH    Load container image from local tar
   --skip-deps         Skip distro dependency install
+  --win-version VER   Windows edition for fresh installs
+                      (11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 |
+                       tiny10 | 2025 | 2022 | 2019 | 2016 — see
+                       docs/ARCHITECTURE.md for custom ISOs)
   -h, --help          Print this help and exit
 USAGE_EOF
 }
@@ -83,6 +92,14 @@ while [ $# -gt 0 ]; do
         --skip-deps)
             WINPODX_SKIP_DEPS=1
             shift
+            ;;
+        --win-version)
+            WINPODX_WIN_VERSION="${2:-}"
+            if [ -z "$WINPODX_WIN_VERSION" ]; then
+                err "--win-version requires a value (e.g. ltsc10, iot11, tiny11)"
+                exit 1
+            fi
+            shift 2
             ;;
         -h|--help)
             usage
@@ -461,7 +478,12 @@ fi
 # --- Run setup ---
 log "Running winpodx setup..."
 export PYTHONPATH="$INSTALL_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
-python3 -m winpodx setup --non-interactive 2>/dev/null || true
+SETUP_ARGS=(--non-interactive)
+if [ -n "$WINPODX_WIN_VERSION" ]; then
+    SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
+    log "Installing Windows edition: $WINPODX_WIN_VERSION"
+fi
+python3 -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
 
 # --- Install winpodx GUI desktop entry & icon ---
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"

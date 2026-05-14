@@ -182,6 +182,43 @@ class TestAskHelper:
 
         assert marker.read_text(encoding="utf-8").strip() == "0.1.8"
 
+    def test_setup_applies_win_version_arg_on_fresh_install(self, tmp_path, monkeypatch):
+        """`--win-version ltsc11` must land in cfg.pod.win_version when no
+        existing winpodx.toml is present. #178 follow-up."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+
+        args = argparse.Namespace(
+            backend="manual",
+            non_interactive=True,
+            win_version="ltsc11",
+        )
+
+        freerdp_dep = MagicMock()
+        freerdp_dep.found = True
+        freerdp_dep.note = ""
+
+        with (
+            patch(
+                "winpodx.cli.setup_cmd.check_all",
+                return_value={"freerdp": freerdp_dep},
+            ),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._generate_compose"),
+            patch("winpodx.cli.setup_cmd._recreate_container"),
+            patch("winpodx.cli.setup_cmd._register_all_desktop_entries"),
+            patch("winpodx.display.scaling.detect_scale_factor", return_value=100),
+            patch("winpodx.display.scaling.detect_raw_scale", return_value=1.0),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(args)
+
+        from winpodx.core.config import Config
+
+        loaded = Config.load()
+        assert loaded.pod.win_version == "ltsc11"
+
 
 # Issue 8: password rotation split-brain
 
