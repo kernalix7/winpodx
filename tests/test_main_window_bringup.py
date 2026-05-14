@@ -21,9 +21,11 @@ from typing import Any
 
 import pytest
 
-from winpodx.core.config import Config
-from winpodx.core.pod import PodState, PodStatus
-from winpodx.gui._main_window_bringup import BringUpMixin
+pytest.importorskip("PySide6")
+
+from winpodx.core.config import Config  # noqa: E402
+from winpodx.core.pod import PodState, PodStatus  # noqa: E402
+from winpodx.gui._main_window_bringup import BringUpMixin  # noqa: E402
 
 
 class FakeSignal:
