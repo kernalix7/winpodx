@@ -175,11 +175,57 @@ class SettingsPageMixin:
         self.input_idle = QLineEdit(str(self.cfg.pod.idle_timeout))
         self.input_max_sessions = QLineEdit(str(self.cfg.pod.max_sessions))
 
+        # Windows edition picker (#178). Editable so a power user can
+        # type a value dockur added after winpodx was released — config
+        # validation will accept it with a warning rather than reject.
+        # Labels mirror dockur/windows' README ordering so users
+        # cross-referencing the upstream docs see the same names.
+        self.input_win_version = QComboBox()
+        self.input_win_version.setEditable(True)
+        win_version_options = [
+            ("Windows 11", "11"),
+            ("Windows 11 LTSC", "ltsc11"),
+            ("Windows 11 IoT Enterprise LTSC", "iot11"),
+            ("Windows 11 (Tiny11, debloated)", "tiny11"),
+            ("Windows 10", "10"),
+            ("Windows 10 LTSC", "ltsc10"),
+            ("Windows 10 (Tiny10, debloated)", "tiny10"),
+            ("Windows 8.1", "8"),
+            ("Windows 7", "7"),
+            ("Windows Vista", "vista"),
+            ("Windows XP", "xp"),
+            ("Windows Server 2025", "2025"),
+            ("Windows Server 2022", "2022"),
+            ("Windows Server 2019", "2019"),
+            ("Windows Server 2016", "2016"),
+            ("Windows Server 2012", "2012"),
+            ("Windows Server 2008", "2008"),
+            ("Windows Server 2003", "2003"),
+        ]
+        for label, value in win_version_options:
+            self.input_win_version.addItem(label, value)
+        # Map current cfg value back onto the dropdown. If unknown
+        # (custom dockur edition), insert it verbatim so the editable
+        # combo still shows what's in winpodx.toml.
+        current_wv = self.cfg.pod.win_version
+        idx = self.input_win_version.findData(current_wv)
+        if idx >= 0:
+            self.input_win_version.setCurrentIndex(idx)
+        else:
+            self.input_win_version.addItem(current_wv, current_wv)
+            self.input_win_version.setCurrentIndex(self.input_win_version.count() - 1)
+        self.input_win_version.setToolTip(
+            "Windows edition passed to dockur via VERSION env var.\n"
+            "Pick from the list or type any value dockur supports.\n"
+            "Changing this requires recreating the container."
+        )
+
         pod_card = self._settings_card(
             "▨  Container / VM",
             "Backend and resource allocation",
             [
                 ("Backend", self.input_backend),
+                ("Windows Edition", self.input_win_version),
                 ("CPU Cores", self.input_cpu),
                 ("RAM (GB)", self.input_ram),
                 ("Idle Timeout", self.input_idle),
@@ -325,12 +371,20 @@ class SettingsPageMixin:
             )
             return
 
+        # Pull Windows edition: prefer the combo's data role (canonical
+        # dockur tag) over its display text. If the user typed a custom
+        # value, currentData() is None — fall back to the edit-line text.
+        new_win_version = self.input_win_version.currentData()
+        if not new_win_version:
+            new_win_version = self.input_win_version.currentText().strip()
+
         old_cfg = Config.load()
         needs_container = (
             cpu != old_cfg.pod.cpu_cores
             or ram != old_cfg.pod.ram_gb
             or port != old_cfg.rdp.port
             or self.input_user.text() != old_cfg.rdp.user
+            or new_win_version != old_cfg.pod.win_version
         )
 
         self.cfg.rdp.user = self.input_user.text()
@@ -341,6 +395,7 @@ class SettingsPageMixin:
         self.cfg.rdp.password_max_age = self.input_pw_max_age.currentData()
         self.cfg.rdp.extra_flags = self.input_extra_flags.text().strip()
         self.cfg.pod.backend = self.input_backend.currentText()
+        self.cfg.pod.win_version = new_win_version
         self.cfg.pod.cpu_cores = cpu
         self.cfg.pod.ram_gb = ram
         self.cfg.pod.idle_timeout = idle
@@ -353,7 +408,8 @@ class SettingsPageMixin:
             reply = QMessageBox.question(
                 self,
                 "Restart Container",
-                "CPU, RAM, or port changed.\nContainer must be recreated to apply.\n\nRestart now?",
+                "CPU, RAM, port, user, or Windows edition changed.\n"
+                "Container must be recreated to apply.\n\nRestart now?",
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.info_label.setText("Recreating container...")
