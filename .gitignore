@@ -20,6 +20,13 @@ CLAUDE.md
 .claude
 .vscode
 WORK_STATUS.md
+# Additional per-tool files routed via .priv-storage chain or
+# explicitly local. CLAUDE.md Section 8 ("AI Tooling Footprint Ban")
+# requires these never reach git history.
+.mcp.json
+AGENTS.md
+CLAUDE.local.md
+demo.png
 
 # Backup toolkit (generic, not project-specific)
 tmp-igbkp/
@@ -27,3 +34,24 @@ tmp-igbkp/
 # Per-install agent bearer token staged into the OEM bind mount.
 # Never commit — carries a per-install secret.
 config/oem/agent_token.txt
+
+# Coverage / test artefacts.
+.coverage
+htmlcov/
+
+# Editor / OS scratch files.
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+.idea/
+
+# Secret-shaped files — defensive denylist so a stray .env / key never
+# slips into a commit. Currently no such files in tree.
+*.env
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*

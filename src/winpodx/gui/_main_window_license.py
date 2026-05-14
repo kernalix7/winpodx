@@ -36,26 +36,81 @@ log = logging.getLogger(__name__)
 # what-we-use-it-for). Kept short on purpose — the LICENSE file +
 # upstream project pages are the canonical legal source; this is just
 # a "who got us here" summary the user can scan in 10 seconds.
+#
+# ``rdprrap`` is bundled in ``config/oem/`` and is technically a
+# sibling project authored by the same maintainer (MIT, same
+# copyright). It's listed here for transparency about what's
+# inside the OEM zip — not because it's "third party" in the
+# strict sense. Its own NOTICE file documents that portions are
+# source-level ports of stascorp/rdpwrap (Apache-2.0), which is
+# why that upstream is also listed below.
 _THIRD_PARTY_ACK: tuple[tuple[str, str, str], ...] = (
-    ("dockur/windows", "MIT", "Windows-in-Docker base image — the core VM stack winpodx wraps"),
+    (
+        "dockur/windows",
+        "MIT",
+        "Windows-in-Docker base image (pulled from Docker Hub at runtime, not bundled)",
+    ),
     (
         "dockur/windows-arm",
         "MIT",
-        "Windows-on-ARM container image for aarch64 hosts (Pi 5, Ampere)",
+        "Windows-on-ARM container image for aarch64 hosts (Pi 5, Ampere) — runtime-pulled",
     ),
     (
         "FreeRDP 3",
         "Apache-2.0",
-        "RDP client with RemoteApp/RAIL — bridges Windows apps to Linux desktops",
+        "RDP client with RemoteApp/RAIL (system-installed dependency)",
     ),
-    ("rdprrap", "GPL-3.0", "RDPWrap-style TermService DLL hook for multi-session RDP in the guest"),
-    ("PySide6 / Qt 6", "LGPL-3.0", "GUI framework — main window, tray, settings"),
+    (
+        "rdprrap",
+        "MIT",
+        "TermService DLL hook for multi-session RDP in the guest "
+        "(same maintainer; bundled in OEM zip)",
+    ),
+    (
+        "stascorp/rdpwrap",
+        "Apache-2.0",
+        "Source-level ancestor of rdprrap — bundled rdprrap ports portions of rdpwrap",
+    ),
+    (
+        "llccd/TermWrap",
+        "MIT",
+        "Source-level ancestor of rdprrap's termwrap DLL (per rdprrap NOTICE section 2)",
+    ),
+    (
+        "llccd/RDPWrapOffsetFinder",
+        "MIT",
+        "Source-level ancestor of rdprrap's offset-finder tool (per rdprrap NOTICE section 3)",
+    ),
+    (
+        "PySide6 / Qt 6",
+        "LGPL-3.0-only WITH Qt-LGPL-exception-1.1",
+        "GUI framework — dynamically linked via import; LGPL §4(d) satisfied",
+    ),
     (
         "electron/rcedit",
-        "MIT",
-        "Vendored Windows .exe resource editor (icons embedded into per-slug reverse-open shims)",
+        "MIT (Copyright 2013 GitHub Inc.)",
+        "Vendored Windows .exe resource editor for embedding per-slug reverse-open icons",
     ),
-    ("Catppuccin Mocha", "MIT", "Color palette used across the GUI"),
+    (
+        "Pillow",
+        "MIT-CMU",
+        "PNG / SVG → ICO conversion for reverse-open (optional, only with the reverse-open extra)",
+    ),
+    (
+        "cairosvg",
+        "LGPL-3.0-or-later",
+        "SVG rasterizer used during ICO build (optional, only with the reverse-open extra)",
+    ),
+    (
+        "pyxdg",
+        "LGPL-2.0-only",
+        "freedesktop .desktop file parser for host-app discovery (optional, reverse-open extra)",
+    ),
+    (
+        "GitHub Primer Dark",
+        "MIT (Copyright 2013 GitHub Inc.)",
+        "Color palette inspiration for the GUI theme (see src/winpodx/gui/theme.py)",
+    ),
 )
 
 

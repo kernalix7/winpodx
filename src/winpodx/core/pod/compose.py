@@ -243,16 +243,23 @@ def _build_compose_content(cfg: Config) -> str:
     password = cfg.rdp.password or generate_password()
     template = _build_compose_template(cfg.pod.backend)
     top_volumes, storage_mount = _render_storage_blocks(cfg)
+    # All string fields that land inside a YAML double-quoted scalar
+    # MUST pass through _yaml_escape — otherwise a hand-edited TOML
+    # value (or a --win-version flag argument) containing ``"``, ``\n``,
+    # ``\\``, or ``$`` could break out of its scalar and inject
+    # arbitrary env keys into the dockur service. Defense in depth:
+    # PodConfig.__post_init__ also rejects these characters, but the
+    # escape here is the last line of defence on the YAML boundary.
     return template.format(
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
-        container_name=cfg.pod.container_name,
-        image=cfg.pod.image,
-        disk_size=cfg.pod.disk_size,
+        container_name=_yaml_escape(cfg.pod.container_name),
+        image=_yaml_escape(cfg.pod.image),
+        disk_size=_yaml_escape(cfg.pod.disk_size),
         user=_yaml_escape(cfg.rdp.user),
         password=_yaml_escape(password),
         home=str(Path.home()),
-        win_version=cfg.pod.win_version,
+        win_version=_yaml_escape(cfg.pod.win_version),
         rdp_port=cfg.rdp.port,
         vnc_port=cfg.pod.vnc_port,
         oem_dir=_find_oem_dir(),

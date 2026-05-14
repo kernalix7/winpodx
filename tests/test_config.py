@@ -185,6 +185,60 @@ def test_logging_config_is_raw_false_for_standard_levels():
         assert LoggingConfig(level=level).is_raw() is False
 
 
+# --- v0.5.1 security review: YAML-injection reject on PodConfig fields ---
+
+
+def test_pod_config_win_version_rejects_yaml_quote(caplog):
+    """A hand-edited TOML with ``win_version`` containing ``"`` (which
+    would break out of the compose YAML's double-quoted ``VERSION:``
+    scalar) must be coerced back to ``"11"`` with a WARN log."""
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="winpodx.core.config"):
+        pod = PodConfig(win_version='11"\nEVIL: "x')
+    assert pod.win_version == "11"
+    assert any("characters reserved by YAML / shell" in r.message for r in caplog.records)
+
+
+def test_pod_config_win_version_rejects_each_dangerous_char():
+    """Every character in ``_DANGEROUS_YAML_CHARS`` must trip the reject."""
+    for ch in ('"', "\\", "\n", "\r", "$", "`"):
+        bad = f"11{ch}EVIL"
+        assert PodConfig(win_version=bad).win_version == "11", f"char {ch!r} did not trigger reject"
+
+
+def test_pod_config_win_version_clean_values_unchanged():
+    """Regression guard: ordinary curated values round-trip untouched
+    after the dangerous-char filter was added."""
+    for clean in ("ltsc11", "iot11", "tiny11", "2022", "11"):
+        assert PodConfig(win_version=clean).win_version == clean
+
+
+def test_pod_config_disk_size_accepts_valid():
+    """``disk_size`` regex accepts dockur's expected shapes."""
+    for valid in ("64G", "128G", "2T", "512M", "1K", "99999G", "64g", "128t"):
+        assert PodConfig(disk_size=valid).disk_size == valid
+
+
+def test_pod_config_disk_size_rejects_invalid():
+    """``disk_size`` regex rejects anything not matching ``[1-9]\\d{0,4}[KMGTkmgt]?``
+    — coerces to default ``"64G"``. Covers empty / numeric-only / unit-only /
+    YAML-injection / shell-injection / size-overflow shapes."""
+    for invalid in (
+        "",
+        "0G",  # leading zero blocked by regex
+        "abc",
+        "Gx",
+        "${x}G",
+        "64; rm -rf /",
+        '64G"\nEVIL: "x',
+        "100000G",  # 6 digits — over the 5-digit cap
+    ):
+        assert PodConfig(disk_size=invalid).disk_size == "64G", (
+            f"disk_size={invalid!r} should have been coerced to default"
+        )
+
+
 def test_logging_config_round_trip(tmp_path, monkeypatch):
     """``cfg.logging.level`` survives save / load via the new ``[logging]``
     TOML section."""
