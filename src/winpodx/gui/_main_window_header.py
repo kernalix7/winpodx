@@ -1,0 +1,241 @@
+"""Header-chrome builder mixin for ``WinpodxWindow``.
+
+Holds the methods that build the persistent top-of-window chrome:
+the top navigation bar (logo + tabs + pod chip + start/stop buttons),
+the warning banner shown while the pod is not running, and the slim
+info bar (status text + backend + resource summary). Pulled out of
+``main_window.py`` to keep that file focused on overall window
+orchestration.
+
+Host-class contract (only listed for readers; not enforced):
+    cfg: winpodx.core.config.Config
+    apps: list[AppInfo]
+    _switch_page(idx) -> None       — defined on the host class.
+    _on_start_pod() / _on_stop_pod()  — defined on PodStatusMixin.
+    Widgets created here (nav_buttons, pod_dot, pod_label, agent_dot,
+    rdp_dot, btn_start, btn_stop, banner_icon, banner_text, info_label,
+    info_pod_dot, info_pod_state) are accessed from sibling mixins
+    via the shared ``self`` instance.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QWidget,
+)
+
+from winpodx.gui.theme import (
+    INFO_BAR,
+    POD_CHIP,
+    POD_CTRL,
+    STATUS_BANNER_WARN,
+    TAB_BTN,
+    TOP_BAR,
+    C,
+)
+
+
+class HeaderMixin:
+    """Builds the top bar, status banner, and info bar."""
+
+    def _build_top_bar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("topBar")
+        bar.setStyleSheet(TOP_BAR)
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(0)
+
+        from winpodx.desktop.icons import bundled_data_path
+
+        icon_path = bundled_data_path("winpodx-icon.svg")
+        if icon_path is not None:
+            renderer = QSvgRenderer(str(icon_path))
+            pixmap = QPixmap(QSize(28, 24))
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            renderer.render(painter)
+            painter.end()
+            logo_icon = QLabel()
+            logo_icon.setPixmap(pixmap)
+            logo_icon.setStyleSheet("background: transparent;")
+            layout.addWidget(logo_icon)
+            layout.addSpacing(8)
+
+        logo_text = QLabel("winpodx")
+        logo_text.setStyleSheet(
+            f"background: transparent; color: {C.TEXT};"
+            " font-size: 16px; font-weight: bold;"
+            " letter-spacing: 1px;"
+        )
+        layout.addWidget(logo_text)
+        layout.addSpacing(32)
+
+        tab_container = QWidget()
+        tab_container.setStyleSheet(TAB_BTN)
+        tabs = QHBoxLayout(tab_container)
+        tabs.setContentsMargins(0, 0, 0, 0)
+        tabs.setSpacing(0)
+
+        self.nav_buttons: list[QPushButton] = []
+        for label, idx in [
+            ("Apps", 0),
+            ("Settings", 1),
+            ("Tools", 2),
+            ("Terminal", 3),
+            ("Info", 4),
+        ]:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda _, i=idx: self._switch_page(i))
+            tabs.addWidget(btn)
+            self.nav_buttons.append(btn)
+
+        self.nav_buttons[0].setChecked(True)
+        layout.addWidget(tab_container)
+        layout.addStretch()
+
+        chip = QFrame()
+        chip.setObjectName("podChip")
+        chip.setStyleSheet(POD_CHIP)
+        chip_l = QHBoxLayout(chip)
+        chip_l.setContentsMargins(12, 4, 6, 4)
+        chip_l.setSpacing(6)
+
+        self.pod_dot = QLabel("●")
+        self.pod_dot.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: 10px;"
+        )
+        self.pod_dot.setToolTip("Pod state")
+        chip_l.addWidget(self.pod_dot)
+
+        self.pod_label = QLabel("checking")
+        self.pod_label.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;"
+        )
+        chip_l.addWidget(self.pod_label)
+
+        # Mini transport indicators — small colored dots next to the pod
+        # chip showing agent + RDP reachability so the user can see at a
+        # glance whether host→guest commands will succeed (agent dot) or
+        # fall back to FreeRDP RemoteApp (RDP dot). Updated by the same
+        # 15s status_timer that drives pod_dot, plus a quick agent probe.
+        self.agent_dot = QLabel("A")
+        self.agent_dot.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: bold;"
+        )
+        self.agent_dot.setToolTip("Guest agent (HTTP /health) — probing…")
+        chip_l.addWidget(self.agent_dot)
+
+        self.rdp_dot = QLabel("R")
+        self.rdp_dot.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: bold;"
+        )
+        self.rdp_dot.setToolTip("RDP port (3390) — probing…")
+        chip_l.addWidget(self.rdp_dot)
+
+        ctrl_w = QWidget()
+        ctrl_w.setStyleSheet(POD_CTRL)
+        ctrl_l = QHBoxLayout(ctrl_w)
+        ctrl_l.setContentsMargins(4, 0, 0, 0)
+        ctrl_l.setSpacing(2)
+
+        self.btn_start = QPushButton("▶")
+        self.btn_start.setToolTip("Start Pod")
+        self.btn_start.clicked.connect(self._on_start_pod)
+        ctrl_l.addWidget(self.btn_start)
+
+        self.btn_stop = QPushButton("■")
+        self.btn_stop.setToolTip("Stop Pod")
+        self.btn_stop.clicked.connect(self._on_stop_pod)
+        ctrl_l.addWidget(self.btn_stop)
+
+        chip_l.addWidget(ctrl_w)
+        layout.addWidget(chip)
+
+        return bar
+
+    def _build_status_banner(self) -> QFrame:
+        banner = QFrame()
+        banner.setObjectName("statusBanner")
+        banner.setStyleSheet(STATUS_BANNER_WARN)
+
+        layout = QHBoxLayout(banner)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(12)
+
+        self.banner_icon = QLabel("⚠")
+        self.banner_icon.setStyleSheet(
+            f"background: transparent; color: {C.YELLOW}; font-size: 14px;"
+        )
+        layout.addWidget(self.banner_icon)
+
+        self.banner_text = QLabel("Pod is not running")
+        self.banner_text.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;"
+        )
+        layout.addWidget(self.banner_text)
+        layout.addStretch()
+
+        start_btn = QPushButton("Start Now")
+        start_btn.setStyleSheet(
+            f"QPushButton {{ background: {C.BLUE}; color: {C.CRUST};"
+            f" border: none; border-radius: 6px;"
+            f" padding: 4px 14px; font-size: 12px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {C.LAVENDER}; }}"
+        )
+        start_btn.clicked.connect(self._on_start_pod)
+        layout.addWidget(start_btn)
+
+        banner.setVisible(True)
+        return banner
+
+    def _build_info_bar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("infoBar")
+        bar.setStyleSheet(INFO_BAR)
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(16)
+
+        self.info_label = QLabel(f"{len(self.apps)} apps available")
+        self.info_label.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;"
+        )
+        layout.addWidget(self.info_label)
+        layout.addStretch()
+
+        self.info_pod_dot = QLabel("●")
+        self.info_pod_dot.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 8px;"
+        )
+        layout.addWidget(self.info_pod_dot)
+
+        self.info_pod_state = QLabel("checking")
+        self.info_pod_state.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;"
+        )
+        layout.addWidget(self.info_pod_state)
+
+        sep = QLabel("│")
+        sep.setStyleSheet(f"background: transparent; color: {C.SURFACE1}; font-size: 11px;")
+        layout.addWidget(sep)
+
+        backend_lbl = QLabel(f"{self.cfg.pod.backend}")
+        backend_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
+        layout.addWidget(backend_lbl)
+
+        res_lbl = QLabel(f"{self.cfg.pod.cpu_cores} CPU · {self.cfg.pod.ram_gb} GB")
+        res_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
+        layout.addWidget(res_lbl)
+
+        return bar

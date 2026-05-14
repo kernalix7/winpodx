@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from winpodx.core.config import Config
 from winpodx.gui.theme import C
 
 log = logging.getLogger(__name__)
@@ -218,3 +219,18 @@ class LogsMixin:
             return
 
         self._run_log_cmd(cmd)
+
+    def _on_rdp_test(self) -> None:
+        self._log_append("$ Testing RDP connection...", C.BLUE)
+
+        def _do() -> None:
+            cfg = Config.load()
+            from winpodx.core.pod import check_rdp_port
+
+            ok = check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=5)
+            if ok:
+                self.log_signal.emit(f"RDP OK: {cfg.rdp.ip}:{cfg.rdp.port}", C.GREEN)
+            else:
+                self.log_signal.emit(f"RDP FAIL: {cfg.rdp.ip}:{cfg.rdp.port}", C.RED)
+
+        threading.Thread(target=_do, daemon=True).start()
