@@ -320,6 +320,68 @@ class TestYamlEscape:
                 assert "\\n" in line or "\\r" in line
                 break
 
+    def test_yaml_escape_win_version_quote_injection(self, tmp_path, monkeypatch):
+        """Defense-in-depth: even when ``win_version`` somehow bypasses
+        the ``__post_init__`` allowlist (e.g. set after load(), or via a
+        legacy code path that mutates ``cfg.pod.win_version`` directly),
+        the compose writer's ``_yaml_escape`` must neutralise YAML-
+        breaking characters so a hand-crafted value cannot inject env
+        keys into the dockur service. Bypass validation here with
+        ``object.__setattr__`` to simulate the worst case.
+        """
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.rdp.user = "User"
+        # Bypass __post_init__'s dangerous-char reject — simulate a
+        # legacy / future code path that mutates win_version directly
+        # without re-running validation.
+        object.__setattr__(cfg.pod, "win_version", '11"\nEVIL_KEY: "x')
+
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        # The injected key must NOT appear as a YAML key. Note: the
+        # escaped value still contains the literal substring
+        # ``EVIL_KEY`` inside the quoted VERSION scalar (the escape
+        # neutralises the syntactic break, not the bytes). What we
+        # care about is that ``EVIL_KEY`` is not parsed as a key.
+        for line in compose.splitlines():
+            stripped = line.strip()
+            # Real YAML key would be at zero or canonical indentation
+            # like "      EVIL_KEY:" — never inside a quoted value.
+            assert not stripped.startswith("EVIL_KEY:"), (
+                f"YAML injection succeeded: line {line!r} parses as a key"
+            )
+
+    def test_yaml_escape_container_name_image_disk_size(self, tmp_path, monkeypatch):
+        """Same defense-in-depth contract for ``cfg.pod.container_name``,
+        ``cfg.pod.image``, and ``cfg.pod.disk_size``. All three land in
+        YAML double-quoted scalars (container_name in name field, image
+        in service.image, disk_size in DISK_SIZE env). A bypass-validation
+        injection must not break out of its scalar.
+        """
+        from winpodx.cli.setup_cmd import _generate_compose
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.rdp.user = "User"
+        object.__setattr__(cfg.pod, "container_name", 'win"\nCONTAINER_EVIL: "x')
+        object.__setattr__(cfg.pod, "image", 'image"\nIMAGE_EVIL: "x')
+        object.__setattr__(cfg.pod, "disk_size", '64G"\nDISK_EVIL: "x')
+
+        _generate_compose(cfg)
+
+        compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
+        for evil_key in ("CONTAINER_EVIL:", "IMAGE_EVIL:", "DISK_EVIL:"):
+            for line in compose.splitlines():
+                assert not line.strip().startswith(evil_key), (
+                    f"YAML injection succeeded: {evil_key} appears as a key in {line!r}"
+                )
+
 
 class TestAgentTokenStaging:
     """Phase 1 agent: setup must stage the OEM token with mode 0600."""
