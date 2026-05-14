@@ -175,19 +175,22 @@ class SettingsPageMixin:
         self.input_idle = QLineEdit(str(self.cfg.pod.idle_timeout))
         self.input_max_sessions = QLineEdit(str(self.cfg.pod.max_sessions))
 
-        # Windows edition picker (#178). Editable so a power user can
-        # type a value dockur added after winpodx was released — config
-        # validation will accept it with a warning rather than reject.
+        # Windows edition picker (#178). Read-only combo — the dark
+        # theme renders an editable QComboBox's drop-down arrow with
+        # poor contrast and the dropdown affordance disappears
+        # visually (smoke-tested on Tumbleweed 2026-05-14: users
+        # interpret the editable field as a text input and don't see
+        # the picker). Custom dockur tags outside the curated list
+        # are still supported via direct ``winpodx.toml`` edit (see
+        # ``docs/ARCHITECTURE.md`` "Advanced: Custom Windows ISO");
+        # config validation passes them through with a one-line
+        # WARN regardless of how the value got there.
         # Labels mirror dockur/windows' README ordering so users
         # cross-referencing the upstream docs see the same names.
         self.input_win_version = QComboBox()
-        self.input_win_version.setEditable(True)
         # Win10+ kernel family only — see ``_KNOWN_WIN_VERSIONS`` in
         # ``core/config.py`` for the policy rationale. Pre-Win10
-        # editions are intentionally not offered; if a user really
-        # needs one, they can type the dockur tag into the editable
-        # combo and config validation will pass it through with a
-        # warning.
+        # editions are intentionally not offered.
         win_version_options = [
             ("Windows 11", "11"),
             ("Windows 11 LTSC", "ltsc11"),
@@ -204,18 +207,21 @@ class SettingsPageMixin:
         for label, value in win_version_options:
             self.input_win_version.addItem(label, value)
         # Map current cfg value back onto the dropdown. If unknown
-        # (custom dockur edition), insert it verbatim so the editable
-        # combo still shows what's in winpodx.toml.
+        # (custom dockur edition set via toml edit), append a "(custom)"-
+        # tagged entry so the visible state matches winpodx.toml even
+        # though the curated list doesn't carry that tag.
         current_wv = self.cfg.pod.win_version
         idx = self.input_win_version.findData(current_wv)
         if idx >= 0:
             self.input_win_version.setCurrentIndex(idx)
         else:
-            self.input_win_version.addItem(current_wv, current_wv)
+            self.input_win_version.addItem(f"{current_wv} (custom)", current_wv)
             self.input_win_version.setCurrentIndex(self.input_win_version.count() - 1)
         self.input_win_version.setToolTip(
             "Windows edition passed to dockur via VERSION env var.\n"
-            "Pick from the list or type any value dockur supports.\n"
+            "For curated editions, pick from this list.\n"
+            "For custom dockur tags, edit win_version in winpodx.toml\n"
+            "directly — see docs/ARCHITECTURE.md 'Advanced: Custom Windows ISO'.\n"
             "Changing this requires recreating the container."
         )
 
@@ -370,12 +376,11 @@ class SettingsPageMixin:
             )
             return
 
-        # Pull Windows edition: prefer the combo's data role (canonical
-        # dockur tag) over its display text. If the user typed a custom
-        # value, currentData() is None — fall back to the edit-line text.
+        # Pull Windows edition from the combo's data role (canonical
+        # dockur tag). Read-only combo so currentData() always matches
+        # one of the curated tags or the (custom)-tagged entry that was
+        # injected for an out-of-list winpodx.toml value at build time.
         new_win_version = self.input_win_version.currentData()
-        if not new_win_version:
-            new_win_version = self.input_win_version.currentText().strip()
 
         old_cfg = Config.load()
         needs_container = (

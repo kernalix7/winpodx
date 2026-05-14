@@ -45,7 +45,7 @@ Maintenance + ergonomics release. Wider curated Windows edition support, headles
 ### Added
 
 - `winpodx setup --win-version EDITION` and `install.sh --win-version VER` flags for headless edition selection on fresh installs. New `WINPODX_WIN_VERSION` env var equivalent. Documented in `docs/INSTALL.md` "Choosing the Windows edition" section. (#178, #185, #186)
-- GUI Settings → Container/VM card gains a "Windows Edition" combo populated from `_KNOWN_WIN_VERSIONS`; editable so power users can type custom dockur tags. (#178, #183)
+- GUI Settings → Container/VM card gains a "Windows Edition" combo populated from `_KNOWN_WIN_VERSIONS`. Read-only dropdown; custom dockur tags outside the curated list are settable via direct `winpodx.toml` edit (see `docs/ARCHITECTURE.md` "Advanced: Custom Windows ISO"). (#178, #183)
 - `_KNOWN_WIN_VERSIONS` constant in `core/config.py` (12 curated editions). `PodConfig.__post_init__` normalises whitespace + case, warns on unknown values without rejecting them. (#178, #183)
 - `check-windows-updates` workflow gains a `:latest` digest drift detector — opens a "silent rebuild" tracking issue when digest changes without a release-tag bump. Two new fields in `config/oem/VERSIONS.txt`: `dockur-digest=` and `dockur-arm-digest=`. (#180)
 - `docs/ARCHITECTURE.md` "Advanced: Custom Windows ISO" section documents the manual `win_version = "custom"` + `compose.yaml` mount workaround for users with their own pre-loaded ISOs. Korean mirror updated. (#178, #184)
