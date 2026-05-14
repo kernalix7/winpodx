@@ -123,6 +123,36 @@ git tag REL-vX.Y.Z vX.Y.Z^{}    # nested-tag 경고 피하려고 commit 으로 d
 git push origin vX.Y.Z REL-vX.Y.Z
 ```
 
+### Highlights 에서 기여자 표기
+
+Highlights bullet 이 메인테이너 외부에서 온 작업 (외부 PR / 외부 버그
+리포트 / feature request) 을 다룰 때, 인라인으로 기여자 크레딧을 표기.
+컨벤션:
+
+| 출처 | 접미사 |
+|---|---|
+| 외부 PR (다른 사람의 커밋) | `(by @username, #PR)` |
+| 외부 이슈 / feature request (코드는 메인테이너 작성) | `(reported by @username, #issue)` |
+| 둘 다 — 같은 사람의 외부 리포트 **+** 외부 PR | `(by @username, #PR / #issue)` |
+
+GitHub 가 두 형식 모두 릴리스 페이지에 user 아바타 + 핸들로 자동
+렌더링 — 추가 작업 없이 크레딧이 노출됨.
+
+예시:
+
+```markdown
+### Highlights
+
+- Atomic Fedora flavours (Silverblue / Kinoite / Bazzite) now ship via the
+  OBS repo with `rpm-ostree install --apply-live`. (by @Zeik0s, #163)
+- LTSC IoT and Win10 LTSC pickable from Settings or `--win-version`.
+  (reported by @gabe39, #178)
+```
+
+위의 "AI tool co-author trailers 금지" 룰과는 무관: 그것은
+기계 생성 attribution 금지. 사람 기여자는 자유롭고 명시적으로
+크레딧.
+
 ## 보안
 
 보안 취약점을 발견한 경우, [SECURITY.ko.md](SECURITY.ko.md)에 설명된 절차를 따라 주세요. **공개 이슈를 열지 마세요.**

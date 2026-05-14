@@ -123,6 +123,36 @@ git tag REL-vX.Y.Z vX.Y.Z^{}    # dereference to commit to avoid a nested-tag wa
 git push origin vX.Y.Z REL-vX.Y.Z
 ```
 
+### Crediting contributors in Highlights
+
+When a Highlights bullet covers work that came from outside the
+maintainer (external PR or external bug report / feature request),
+credit the contributor inline. The convention:
+
+| Source | Suffix |
+|---|---|
+| External PR (someone else's commits) | `(by @username, #PR)` |
+| External issue / feature request (maintainer wrote the code) | `(reported by @username, #issue)` |
+| Both — external report **and** external PR by the same person | `(by @username, #PR / #issue)` |
+
+GitHub auto-renders both forms as the user's avatar + handle on the
+release page, so the recognition surfaces without extra work.
+
+Example:
+
+```markdown
+### Highlights
+
+- Atomic Fedora flavours (Silverblue / Kinoite / Bazzite) now ship via the
+  OBS repo with `rpm-ostree install --apply-live`. (by @Zeik0s, #163)
+- LTSC IoT and Win10 LTSC pickable from Settings or `--win-version`.
+  (reported by @gabe39, #178)
+```
+
+The "no AI tool co-author trailers" rule above is unrelated: it bans
+machine-generated attribution. Human contributors are credited
+liberally and explicitly.
+
 ## Security
 
 If you discover a security vulnerability, please follow the process described in [SECURITY.md](SECURITY.md). **Do NOT open a public issue.**
