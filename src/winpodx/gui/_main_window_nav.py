@@ -40,12 +40,21 @@ class NavigationMixin:
         # navigates to the Tools/Terminal page so they see live program
         # logs by default rather than just an empty terminal. Stops on
         # leaving so we don't leak `tail -F` processes.
+        #
+        # v0.5.1: when ``cfg.logging.level == "RAW"``, additionally
+        # start the auxiliary pod-log tail so dockur / QEMU / Windows
+        # output interleaves with the winpodx log lines. Stop both on
+        # leaving the page.
         logs_index = 3  # _build_logs_page is the 4th page (Apps/Settings/Tools/Logs/Info)
         if index == logs_index:
             if getattr(self, "_tail_proc", None) is None:
                 self._on_follow_app_log()
+            if self.cfg.logging.is_raw() and getattr(self, "_tail_proc_raw", None) is None:
+                self._start_raw_pod_tail()
         else:
             self._on_stop_tail()
+            if getattr(self, "_tail_proc_raw", None) is not None:
+                self._stop_raw_pod_tail()
 
         # Auto-refresh the Info page Health card when the user is looking
         # at it. The probes hit /exec which spawns a child PS, so we keep

@@ -257,7 +257,11 @@ class LogsMixin:
         self.input_log_level = QComboBox()
         self.input_log_level.setStyleSheet(COMBO)
         self.input_log_level.setFixedWidth(140)
-        for value in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        for value in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "RAW"):
+            # RAW = DEBUG + ``podman logs -f`` of the pod container
+            # interleaved into this terminal. Useful when the answer
+            # is in dockur / QEMU / Windows-side output, not in the
+            # winpodx Python logger.
             self.input_log_level.addItem(value, value)
         current_level = self.cfg.logging.level
         idx = self.input_log_level.findData(current_level)
@@ -356,12 +360,20 @@ class LogsMixin:
         takes effect immediately — no winpodx restart needed. Persists
         to ``cfg.logging.level`` so future CLI / GUI invocations pick
         the same level.
+
+        ``RAW`` is a special level: the Python logger is set to
+        ``DEBUG`` (so all winpodx log calls flow to the file), AND the
+        Terminal additionally tails ``podman logs -f`` for the pod
+        container so dockur / QEMU / Windows-side messages interleave
+        with winpodx's own log lines. Transitions between RAW and any
+        other level start / stop the auxiliary pod tail.
         """
         from winpodx.utils.logging import setup_logging
 
         new_level = self.input_log_level.currentData()
         if not new_level or new_level == self.cfg.logging.level:
             return
+        was_raw = self.cfg.logging.is_raw()
         try:
             self.cfg.logging.level = new_level
             self.cfg.logging.__post_init__()  # re-validate / normalise
@@ -377,6 +389,103 @@ class LogsMixin:
             self._log_append(f"Could not update logger: {exc}", C.RED)
             return
         self._log_append(f"Log level set to {self.cfg.logging.level}", C.BLUE)
+
+        # Manage the auxiliary pod-log tail based on RAW state transition.
+        is_now_raw = self.cfg.logging.is_raw()
+        if is_now_raw and not was_raw:
+            self._start_raw_pod_tail()
+        elif not is_now_raw and was_raw:
+            self._stop_raw_pod_tail()
+
+    def _start_raw_pod_tail(self) -> None:
+        """Start a parallel ``podman logs -f`` stream into the Terminal.
+
+        Kept entirely separate from the primary ``_tail_proc`` (which is
+        the app-log or pod-log tail driven by the quick-buttons). Lives
+        in ``_tail_proc_raw`` / ``_tail_stop_raw`` so the user can
+        switch between Live (app) / Live (pod) / RAW without stomping
+        on each other.
+
+        Failures are non-fatal — RAW just degrades to "DEBUG-only" for
+        the winpodx logger when podman isn't installed or the
+        container isn't running.
+        """
+        import subprocess
+
+        if getattr(self, "_tail_proc_raw", None) is not None:
+            return  # already running
+        self._log_append(
+            f"[RAW] $ podman logs -f --tail 20 {self.cfg.pod.container_name}",
+            C.BLUE,
+        )
+        try:
+            self._tail_proc_raw = subprocess.Popen(
+                [
+                    self.cfg.pod.backend,
+                    "logs",
+                    "-f",
+                    "--tail",
+                    "20",
+                    self.cfg.pod.container_name,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except (FileNotFoundError, OSError) as e:
+            self._log_append(f"[RAW] pod tail unavailable: {e}", C.YELLOW)
+            self._tail_proc_raw = None
+            return
+        self._tail_stop_raw = threading.Event()
+        threading.Thread(
+            target=self._drain_raw_pod_tail,
+            args=(self._tail_proc_raw,),
+            daemon=True,
+        ).start()
+
+    def _drain_raw_pod_tail(self, proc) -> None:  # type: ignore[no-untyped-def]
+        """Drain the RAW pod-log stream, prefix each line so it's
+        distinguishable from winpodx's own log lines."""
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                if (
+                    getattr(self, "_tail_stop_raw", None) is not None
+                    and self._tail_stop_raw.is_set()
+                ):
+                    break
+                line = line.rstrip()
+                if line:
+                    self.log_signal.emit(f"[pod] {line}", C.OVERLAY0)
+        except Exception:  # noqa: BLE001
+            log.debug("RAW pod tail drain crashed", exc_info=True)
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _stop_raw_pod_tail(self) -> None:
+        """Stop the auxiliary pod tail (RAW → non-RAW transition)."""
+        proc = getattr(self, "_tail_proc_raw", None)
+        stop = getattr(self, "_tail_stop_raw", None)
+        if proc is None:
+            return
+        if stop is not None:
+            stop.set()
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+        self._log_append("[RAW] pod tail stopped", C.OVERLAY0)
+        self._tail_proc_raw = None
 
     def _on_rdp_test(self) -> None:
         self._log_append("$ Testing RDP connection...", C.BLUE)

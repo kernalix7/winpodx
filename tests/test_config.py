@@ -163,6 +163,28 @@ def test_logging_config_numeric_level():
     assert LoggingConfig(level="CRITICAL").numeric_level() == _logging.CRITICAL
 
 
+def test_logging_config_raw_collapses_to_debug_for_python_logger():
+    """RAW is a winpodx-only meta-level: it pins the Python logger to
+    DEBUG AND turns on a parallel pod-log tail in the GUI Terminal.
+    For ``numeric_level()`` (which is consumed by ``logging.setLevel``)
+    it has to map to ``logging.DEBUG``."""
+    import logging as _logging
+
+    from winpodx.core.config import LoggingConfig
+
+    cfg = LoggingConfig(level="RAW")
+    assert cfg.level == "RAW"
+    assert cfg.numeric_level() == _logging.DEBUG
+    assert cfg.is_raw() is True
+
+
+def test_logging_config_is_raw_false_for_standard_levels():
+    from winpodx.core.config import LoggingConfig
+
+    for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        assert LoggingConfig(level=level).is_raw() is False
+
+
 def test_logging_config_round_trip(tmp_path, monkeypatch):
     """``cfg.logging.level`` survives save / load via the new ``[logging]``
     TOML section."""

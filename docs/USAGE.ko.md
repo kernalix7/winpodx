@@ -145,7 +145,7 @@ allow = []                                       # 비어있으면 발견된 모
 deny = []                                        # manifest 에서 제외할 앱
 
 [logging]
-level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL — winpodx 가 ~/.config/winpodx/winpodx.log 에 쓰는 레벨
+level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW — RAW = DEBUG + pod 로그 (podman logs -f) 를 GUI Terminal 에 interleave
 ```
 
 `winpodx config set <key> <value>` 또는 에디터로 직접 수정 — TOML 은 3.11+ 에서 stdlib (`tomli` on 3.9/3.10) 로 파싱.

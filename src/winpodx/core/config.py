@@ -291,7 +291,7 @@ class InstallConfig:
         )
 
 
-_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "RAW"})
 
 
 @dataclass
@@ -300,10 +300,23 @@ class LoggingConfig:
 
     ``level`` controls both what gets written to the rotating
     ``winpodx.log`` file AND what the GUI Terminal tab's auto-tail
-    surfaces (the file is the source). Set via GUI Terminal tab
-    dropdown or by hand-editing ``[logging]`` in ``winpodx.toml``.
-    Unknown values fall back to ``INFO`` rather than crashing the
-    logger.
+    surfaces (the file is the source).
+
+    Valid values:
+
+    - ``DEBUG`` / ``INFO`` / ``WARNING`` / ``ERROR`` / ``CRITICAL`` —
+      standard Python logging levels. Default is ``INFO``.
+    - ``RAW`` — like ``DEBUG`` for the winpodx logger PLUS the GUI
+      Terminal tab additionally tails ``podman logs -f`` for the
+      pod container, so dockur / QEMU / Windows-side messages
+      interleave with winpodx's own log lines. Useful for triaging
+      "Windows isn't booting" / "ISO download stuck" / agent-down
+      states where the answer is in the container log, not the
+      winpodx log.
+
+    Set via the GUI Terminal tab dropdown or by hand-editing
+    ``[logging]`` in ``winpodx.toml``. Unknown values fall back to
+    ``INFO`` rather than crashing the logger.
     """
 
     level: str = "INFO"
@@ -316,10 +329,21 @@ class LoggingConfig:
         self.level = normalized if normalized in _VALID_LOG_LEVELS else "INFO"
 
     def numeric_level(self) -> int:
-        """Translate the string level to ``logging.<LEVEL>``."""
+        """Translate the string level to ``logging.<LEVEL>``.
+
+        ``RAW`` collapses to ``DEBUG`` for the Python logger — the
+        pod-log streaming is a separate GUI-side mechanism handled
+        by ``LogsMixin``, not a Python ``logging`` level.
+        """
         import logging as _logging
 
+        if self.level == "RAW":
+            return _logging.DEBUG
         return getattr(_logging, self.level, _logging.INFO)
+
+    def is_raw(self) -> bool:
+        """True when ``level == 'RAW'`` — pod-log streaming on."""
+        return self.level == "RAW"
 
 
 @dataclass
