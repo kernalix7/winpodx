@@ -79,6 +79,39 @@ The `--win-version` flag only applies on fresh installs (no existing `winpodx.to
 
 For booting your own custom ISO with programs pre-installed, see [Advanced: Custom Windows ISO](ARCHITECTURE.md#advanced-custom-windows-iso).
 
+## Choosing the Windows language
+
+By default, Windows installs in **English (US)**. You can configure the display language, regional format, and keyboard layout by editing `~/.config/winpodx/winpodx.toml` after running the installer (or by creating it beforehand for a fresh install):
+
+```toml
+[pod]
+# Spanish example
+language = "Spanish"
+region = "es-ES"
+keyboard = "es-ES"
+```
+
+Common language configurations:
+
+| Language | `language` | `region` | `keyboard` |
+|----------|------------|----------|------------|
+| English (US) | `English` | `en-001` | `en-US` |
+| Spanish (Spain) | `Spanish` | `es-ES` | `es-ES` |
+| Spanish (Latin America) | `Spanish` | `es-MX` | `la-Latin` |
+| French (France) | `French` | `fr-FR` | `fr-FR` |
+| German (Germany) | `German` | `de-DE` | `de-DE` |
+| Italian (Italy) | `Italian` | `it-IT` | `it-IT` |
+| Portuguese (Brazil) | `Portuguese` | `pt-BR` | `pt-BR` |
+| Portuguese (Portugal) | `Portuguese` | `pt-PT` | `pt-PT` |
+| Japanese | `Japanese` | `ja-JP` | `ja-JP` |
+| Chinese (Simplified) | `Chinese` | `zh-CN` | `zh-CN` |
+
+These settings only apply to **fresh Windows installations**. If you've already run `winpodx setup` and booted Windows once, you'll need to either:
+1. Recreate the container with `winpodx pod stop`, delete the storage volume, edit the config, and run `winpodx setup` again, **or**
+2. Change the language manually inside Windows via Settings → Time & Language → Language & region
+
+For the complete list of supported languages and region codes, see the [dockur/windows documentation](https://github.com/dockur/windows#how-do-i-change-the-language).
+
 ## Native package managers
 
 Prebuilt RPM and `.deb` packages are attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions. AUR publishing is wired but currently inactive (maintainer SSH key onboarding pending) — Arch users should use `install.sh` for now.

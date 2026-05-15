@@ -21,3 +21,11 @@ ram_gb = 4
 vnc_port = 8007
 auto_start = true     # Auto-start pod when launching an app
 idle_timeout = 0      # Seconds before auto-suspend (0 = disabled)
+# Windows language/region/keyboard settings
+# Default: English (US)
+# For Spanish: language = "Spanish", region = "es-ES", keyboard = "es-ES"
+# For French: language = "French", region = "fr-FR", keyboard = "fr-FR"
+# For German: language = "German", region = "de-DE", keyboard = "de-DE"
+language = "English"  # Display language
+region = "en-001"     # Regional format (date, currency, etc.)
+keyboard = "en-US"    # Keyboard layout

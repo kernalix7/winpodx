@@ -50,9 +50,9 @@ name: "winpodx"
       USERNAME: "{user}"
       PASSWORD: "{password}"
       HOME: "{home}"
-      LANGUAGE: "English"
-      REGION: "en-001"
-      KEYBOARD: "en-US"
+      LANGUAGE: "{language}"
+      REGION: "{region}"
+      KEYBOARD: "{keyboard}"
       ARGUMENTS: "{qemu_arguments}"
       USER_PORTS: "8765"
     volumes:
@@ -260,6 +260,9 @@ def _build_compose_content(cfg: Config) -> str:
         password=_yaml_escape(password),
         home=str(Path.home()),
         win_version=_yaml_escape(cfg.pod.win_version),
+        language=_yaml_escape(cfg.pod.language),
+        region=_yaml_escape(cfg.pod.region),
+        keyboard=_yaml_escape(cfg.pod.keyboard),
         rdp_port=cfg.rdp.port,
         vnc_port=cfg.pod.vnc_port,
         oem_dir=_find_oem_dir(),

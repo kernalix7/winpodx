@@ -204,6 +204,13 @@ class PodConfig:
     # users keep the named volume until they explicitly run
     # `winpodx setup --migrate-storage`.
     storage_path: str = ""
+    # v0.5.x: Windows installation language/region/keyboard settings.
+    # Passed through to dockur's LANGUAGE, REGION, KEYBOARD env vars.
+    # Defaults to English (US). Common values for Spanish:
+    # language="Spanish", region="es-ES", keyboard="es-ES"
+    language: str = "English"
+    region: str = "en-001"
+    keyboard: str = "en-US"
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -272,6 +279,27 @@ class PodConfig:
         # Anything outside the allowlist or matching a denylist is
         # silently coerced to "" — back to named-volume mode.
         self.storage_path = _sanitise_storage_path(self.storage_path)
+        # language, region, keyboard: sanitize to prevent YAML injection.
+        # Default to English (US) if the value contains dangerous chars.
+        for field_name, default_val in [
+            ("language", "English"),
+            ("region", "en-001"),
+            ("keyboard", "en-US"),
+        ]:
+            val = getattr(self, field_name, default_val)
+            if not isinstance(val, str) or not val.strip():
+                setattr(self, field_name, default_val)
+            elif any(ch in _DANGEROUS_YAML_CHARS for ch in val):
+                logging.getLogger(__name__).warning(
+                    "%s=%r contains characters reserved by YAML / shell; "
+                    "coercing to default %r",
+                    field_name,
+                    val,
+                    default_val,
+                )
+                setattr(self, field_name, default_val)
+            else:
+                setattr(self, field_name, val.strip())
 
 
 @dataclass

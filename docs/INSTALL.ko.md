@@ -79,6 +79,40 @@ WINPODX_REF=v0.5.0 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpod
 
 자체 커스텀 ISO 부팅은 [고급: 커스텀 Windows ISO](ARCHITECTURE.ko.md#고급-커스텀-windows-iso) 참고.
 
+## Windows 언어 선택
+
+기본은 **영어 (미국)**. installer 실행 후 `~/.config/winpodx/winpodx.toml` 편집해서 표시 언어, 지역 형식, 키보드 레이아웃 설정 가능 (또는 fresh install 전에 미리 생성):
+
+```toml
+[pod]
+# 한국어 예시
+language = "Korean"
+region = "ko-KR"
+keyboard = "ko-KR"
+```
+
+일반적인 언어 설정:
+
+| 언어 | `language` | `region` | `keyboard` |
+|------|------------|----------|------------|
+| 영어 (미국) | `English` | `en-001` | `en-US` |
+| 한국어 | `Korean` | `ko-KR` | `ko-KR` |
+| 스페인어 (스페인) | `Spanish` | `es-ES` | `es-ES` |
+| 스페인어 (라틴 아메리카) | `Spanish` | `es-MX` | `la-Latin` |
+| 프랑스어 (프랑스) | `French` | `fr-FR` | `fr-FR` |
+| 독일어 (독일) | `German` | `de-DE` | `de-DE` |
+| 이탈리아어 (이탈리아) | `Italian` | `it-IT` | `it-IT` |
+| 포르투갈어 (브라질) | `Portuguese` | `pt-BR` | `pt-BR` |
+| 포르투갈어 (포르투갈) | `Portuguese` | `pt-PT` | `pt-PT` |
+| 일본어 | `Japanese` | `ja-JP` | `ja-JP` |
+| 중국어 (간체) | `Chinese` | `zh-CN` | `zh-CN` |
+
+이 설정은 **fresh Windows 설치**에만 적용. 이미 `winpodx setup` 실행하고 Windows 를 한 번 부팅했으면:
+1. `winpodx pod stop` 으로 컨테이너 중지, storage volume 삭제, config 편집 후 `winpodx setup` 재실행, **또는**
+2. Windows 안에서 수동으로 설정 → 시간 및 언어 → 언어 및 지역에서 변경
+
+지원 언어 및 지역 코드 전체 목록은 [dockur/windows 문서](https://github.com/dockur/windows#how-do-i-change-the-language) 참고.
+
 ## 네이티브 패키지 매니저
 
 미리 빌드된 RPM 과 `.deb` 패키지가 모든 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) 에 첨부됨 — openSUSE/Fedora RPM 은 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) 에서, 나머지는 GitHub Actions 에서. AUR publishing 은 워크플로우는 준비되어 있지만 현재는 비활성 (메인테이너 SSH 키 온보딩 대기 중) — Arch 사용자는 당분간 `install.sh` 사용 권장.
