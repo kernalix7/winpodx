@@ -10,7 +10,7 @@ Every way to install winpodx — the one-line installer, distro package managers
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Detects your distro, installs missing system dependencies (Podman, FreeRDP, KVM, Python 3.9+) with your confirmation, drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically the first time the pod boots — discovery scans your running Windows guest and registers every installed app with its real icon. No root required except for the dependency install step. Works on openSUSE, Fedora, Debian/Ubuntu, RHEL-family, Arch, and NixOS.
+Detects your distro, installs missing system dependencies (Podman, FreeRDP, KVM, Python 3.9+) with your confirmation, drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically the first time the pod boots — discovery scans your running Windows guest and registers every installed app with its real icon. No root required except for the dependency install step. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, and NixOS.
 
 > **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). winpodx does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
 
@@ -94,13 +94,30 @@ sudo zypper install winpodx
 
 Replace `openSUSE_Tumbleweed` with `openSUSE_Leap_16.0`, `openSUSE_Leap_15.6`, or `openSUSE_Slowroll` as needed.
 
-### Fedora 42 / 43
+### Fedora 42 / 43 / 44
 
 ```bash
 sudo dnf config-manager --add-repo \
   https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
 sudo dnf install winpodx
 ```
+
+Replace `Fedora_43` with `Fedora_42` or `Fedora_44` as needed.
+
+### Fedora Atomic Desktops (Silverblue / Kinoite / Sericea / Bluefin / Bazzite)
+
+Atomic Fedora uses `rpm-ostree` instead of `dnf` — the same OBS RPM is layered onto the booted deployment with `--apply-live` (no reboot needed) when the running system accepts it, otherwise staged for the next boot. The universal `install.sh` autodetects `rpm-ostree` and runs the layered path; you can also do it by hand:
+
+```bash
+sudo curl -sSL \
+  https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo \
+  -o /etc/yum.repos.d/home-Kernalix7-winpodx.repo
+sudo rpm-ostree install --apply-live winpodx     # try live apply first
+# If live apply isn't supported on the booted deployment:
+sudo rpm-ostree install winpodx                  # staged; reboot to activate
+```
+
+Replace `Fedora_43` with `Fedora_42` or `Fedora_44` to match your base image.
 
 ### Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10
 

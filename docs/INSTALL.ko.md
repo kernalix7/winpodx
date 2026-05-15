@@ -10,7 +10,7 @@ winpodx 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, winpodx 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트를 스캔하고 설치된 모든 앱을 실제 아이콘과 함께 등록. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora, Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
+distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, winpodx 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트를 스캔하고 설치된 모든 앱을 실제 아이콘과 함께 등록. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
 
 > **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. winpodx 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
 
@@ -94,13 +94,30 @@ sudo zypper install winpodx
 
 필요에 따라 `openSUSE_Tumbleweed` 를 `openSUSE_Leap_16.0`, `openSUSE_Leap_15.6`, `openSUSE_Slowroll` 로 교체.
 
-### Fedora 42 / 43
+### Fedora 42 / 43 / 44
 
 ```bash
 sudo dnf config-manager --add-repo \
   https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
 sudo dnf install winpodx
 ```
+
+`Fedora_43` 을 `Fedora_42` 또는 `Fedora_44` 로 교체.
+
+### Fedora Atomic Desktops (Silverblue / Kinoite / Sericea / Bluefin / Bazzite)
+
+Atomic Fedora 는 `dnf` 대신 `rpm-ostree` 사용 — 동일 OBS RPM 을 부팅된 deployment 에 `--apply-live` 로 레이어링 (재부팅 불필요, 라이브 deployment 가 받으면). 받지 못하는 경우 다음 부팅용으로 staged. 범용 `install.sh` 가 `rpm-ostree` 를 autodetect 해서 레이어링 경로 실행; 수동으로도 가능:
+
+```bash
+sudo curl -sSL \
+  https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo \
+  -o /etc/yum.repos.d/home-Kernalix7-winpodx.repo
+sudo rpm-ostree install --apply-live winpodx     # 먼저 라이브 적용 시도
+# 부팅된 deployment 에서 라이브 적용을 지원하지 않으면:
+sudo rpm-ostree install winpodx                  # staged; 재부팅으로 활성화
+```
+
+`Fedora_43` 을 베이스 이미지에 맞게 `Fedora_42` 또는 `Fedora_44` 로 교체.
 
 ### Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10
 
