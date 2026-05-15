@@ -38,6 +38,8 @@ verbatim.
 
 - **Qt stylesheet parser warnings at GUI startup.** `main_window.py` combined a bare property declaration (`background: ...`) with full QSS selector rules (`QPushButton { ... }`), which Qt's stylesheet engine rejects. The central widget now carries an `objectName="centralRoot"` and the background rule is scoped to `QWidget#centralRoot { ... }`. No visual change; just silences the `Could not parse stylesheet of object QWidget(...)` warnings in the logs. Library page Launch/Edit buttons also got their inline QSS converted to multi-line blocks for readability while tracking parser warnings. (by @juampe, #203)
 
+- **Dynamic Desktop Window Resolution** - creating a desktop session now resizes the resolution dynamically to the size of the FreeRDP client window. Flag added as default behavior for desktop sessions. Covered by tests. (by @Zeik0s, #197)
+
 ## [0.5.2] - 2026-05-14
 
 Same-day install-path hot-fix release. Two `install.sh` regressions that blocked new installs on common 2025+ distros (Debian 13 Trixie, Ubuntu 24.10+) are fixed, and Atomic Fedora support lands as a single-transaction OBS-layered install path.
