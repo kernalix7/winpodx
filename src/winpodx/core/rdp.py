@@ -282,7 +282,7 @@ def build_rdp_command(
     ]
 
     # If an App launches, remove default dynamic-resolution flag
-    if (app_executable or launch_uri)  and "/dynamic-resolution" in cmd:
+    if (app_executable or launch_uri) and "/dynamic-resolution" in cmd:
         cmd.remove("/dynamic-resolution")
 
     # Share the media mount directory so USB storage appears under \\tsclient\media.
