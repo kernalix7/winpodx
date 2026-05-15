@@ -260,6 +260,27 @@ class TestBuildRdpCommand:
         cmd, _ = build_rdp_command(cfg)
         assert "/scale-desktop:150" in cmd
 
+    def test_dynamic_resolution_flag(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cmd, _ = build_rdp_command(cfg)
+        assert "/dynamic-resolution" in cmd
+
+    def test_dynamic_resolution_not_in_app_launch(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cmd, _ = build_rdp_command(
+            cfg,
+            app_executable="explorer.exe",
+            default_args="shell:Desktop",
+        )
+        assert "cmd:" in cmd
+        assert not "/dynamic-resolution" in cmd
+
     def test_dpi_flag_omitted_when_zero(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
