@@ -28,6 +28,10 @@ verbatim.
 ### Fixed
 -->
 
+### Fixed
+
+- `install.sh` no longer fails with `freerdp2-x11 not found` on Debian 13 (Trixie) and recent Ubuntu (24.10 / 25.04 / 25.10) where stock apt repos only ship `freerdp3-x11`. The Debian/Ubuntu branch in `pkg_name()` now probes `apt-cache show` and prefers `freerdp3-x11` when available, falling back to `freerdp2-x11` only on older systems (Debian <=12, Ubuntu 22.04 stock). FreeRDP 3 is the recommended target anyway — the v0.5.1 launcher detects the major version at startup and emits the matching `/app:` syntax for either. (reported by @basti189, #198)
+
 ## [0.5.1] - 2026-05-14
 
 Maintenance + ergonomics release. Wider curated Windows edition support, headless install ergonomics, FreeRDP 2 compatibility fix for Ubuntu 22.04 LTS users, and an internal Qt refactor that future-proofs the GUI codebase. Nine PRs land between v0.5.0 and this tag.

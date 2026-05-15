@@ -203,7 +203,27 @@ pkg_name() {
                 python3)        echo "python3" ;;
                 podman)         echo "podman" ;;
                 podman-compose) echo "podman-compose" ;;
-                freerdp)        echo "freerdp2-x11" ;;
+                freerdp)
+                    # Debian 13+ (Trixie) and recent Ubuntu (24.10+, 25.04, 25.10)
+                    # only ship freerdp3-x11; the stock freerdp2-x11 package is
+                    # gone. Older systems (Debian <=12, Ubuntu 22.04 stock) only
+                    # ship freerdp2-x11. Ubuntu 24.04 LTS ships both.
+                    # Prefer freerdp3-x11 — the v0.5.1 launcher detects the
+                    # FreeRDP major version at startup and emits the right
+                    # /app: syntax for either version, so freerdp3-x11 is the
+                    # better default when available. Fall back to freerdp2-x11
+                    # only when the user's apt repos don't have a 3 build.
+                    if apt-cache show freerdp3-x11 2>/dev/null | grep -q '^Package:'; then
+                        echo "freerdp3-x11"
+                    elif apt-cache show freerdp2-x11 2>/dev/null | grep -q '^Package:'; then
+                        echo "freerdp2-x11"
+                    else
+                        # Neither in cache — emit freerdp3-x11 so apt produces
+                        # a useful "Unable to locate package" error pointing at
+                        # the recommended package, instead of a stale one.
+                        echo "freerdp3-x11"
+                    fi
+                    ;;
                 kvm)            echo "qemu-kvm" ;;
             esac ;;
         arch|manjaro|endeavouros)
