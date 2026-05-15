@@ -260,6 +260,54 @@ install_pkg() {
     fi
 }
 
+# --- Atomic Fedora (Silverblue / Kinoite / Sericea / Bluefin / Bazzite / ...) ---
+#
+# These distros use rpm-ostree (image-based, immutable root) instead of dnf.
+# Layering many packages individually with rpm-ostree triggers a reboot per
+# layered batch, so we sidestep the per-dependency loop entirely — winpodx is
+# published on the openSUSE Build Service (OBS) as a Fedora RPM whose
+# Requires: pulls in freerdp >= 3.0, python3-tomli, and Recommends: podman +
+# python3-PySide6, so layering just `winpodx` is one transaction. We try
+# `rpm-ostree install --apply-live` first to land the layer in the booted
+# deployment without a reboot; if the running deployment can't accept the
+# live apply we stage normally and prompt the user to reboot once.
+if command -v rpm-ostree >/dev/null 2>&1; then
+    log "Detected rpm-ostree — Atomic Fedora install path."
+    if [ ! -f /etc/os-release ]; then
+        err "/etc/os-release missing; can't determine Fedora version for OBS repo selection."
+        exit 1
+    fi
+    # /etc/os-release was already sourced above for distro detection; re-source
+    # here defensively so VERSION_ID is in scope even if the function above
+    # ran in a subshell on some bash versions.
+    . /etc/os-release
+    obs_ver="$VERSION_ID"
+    repo_url="https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_${obs_ver}/home:Kernalix7.repo"
+    log "Probing OBS repo for Fedora ${obs_ver}: $repo_url"
+    if ! curl -sSfI "$repo_url" >/dev/null 2>&1; then
+        err "No OBS repo published for Fedora_${obs_ver}."
+        err "Currently enabled: Fedora 42, 43, 44 at https://build.opensuse.org/project/show/home:Kernalix7"
+        err "Open an issue at https://github.com/kernalix7/winpodx/issues if you need another Fedora release added."
+        exit 1
+    fi
+    log "Adding OBS repo to /etc/yum.repos.d/..."
+    sudo curl -sSL "$repo_url" -o /etc/yum.repos.d/home-Kernalix7-winpodx.repo
+    log "Layering winpodx via rpm-ostree install --apply-live (one transaction)..."
+    if sudo rpm-ostree install --apply-live --idempotent winpodx; then
+        log "winpodx layered into the booted deployment — no reboot required."
+        log "Run: winpodx setup"
+    else
+        warn "Live apply unavailable on this deployment — staging the layer for next boot."
+        if sudo rpm-ostree install --idempotent winpodx; then
+            log "Staged. Reboot the host, then run: winpodx setup"
+        else
+            err "rpm-ostree install failed in both live and staged modes. See the rpm-ostree output above for the underlying error."
+            exit 1
+        fi
+    fi
+    exit 0
+fi
+
 # --- Check / install dependencies ---
 log "Checking dependencies..."
 
