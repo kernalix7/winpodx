@@ -278,7 +278,7 @@ class TestBuildRdpCommand:
             app_executable="explorer.exe",
             default_args="shell:Desktop",
         )
-        assert "cmd:" in cmd
+        assert any(c.startswith("/app:") for c in cmd)
         assert not "/dynamic-resolution" in cmd
 
     def test_dpi_flag_omitted_when_zero(self, cfg, monkeypatch):
