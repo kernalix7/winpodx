@@ -319,11 +319,16 @@ class LibraryPageMixin:
         launch_btn.setFixedSize(32, 32)
         launch_btn.setToolTip(f"Launch {app.full_name}")
         launch_btn.setStyleSheet(
-            f"QPushButton {{ background: {C.GREEN};"
-            f" color: {C.CRUST}; border: none;"
-            " border-radius: 16px;"
-            " font-size: 14px; }}"
-            f"QPushButton:hover {{ background: {C.TEAL}; }}"
+            f"""
+            QPushButton {{
+                background: {C.GREEN};
+                color: {C.CRUST};
+                border: none;
+                border-radius: 16px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{ background: {C.TEAL}; }}
+            """
         )
         launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
         bottom.addWidget(launch_btn)
@@ -333,11 +338,19 @@ class LibraryPageMixin:
         edit_btn.setFixedSize(28, 28)
         edit_btn.setToolTip("Edit")
         edit_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent;"
-            f" color: {C.OVERLAY0}; border: none;"
-            " border-radius: 14px; font-size: 16px; }}"
-            f"QPushButton:hover {{ color: {C.TEXT};"
-            f" background: {C.SURFACE1}; }}"
+            f"""
+            QPushButton {{
+                background: transparent;
+                color: {C.OVERLAY0};
+                border: none;
+                border-radius: 14px;
+                font-size: 16px;
+            }}
+            QPushButton:hover {{
+                color: {C.TEXT};
+                background: {C.SURFACE1};
+            }}
+            """
         )
         edit_btn.clicked.connect(lambda _, a=app: self._on_edit_app(a))
         bottom.addWidget(edit_btn)

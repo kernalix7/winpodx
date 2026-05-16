@@ -133,7 +133,10 @@ class WinpodxWindow(
 
     def _build_ui(self) -> None:
         central = QWidget()
-        central.setStyleSheet(f"background: {C.MANTLE};" + GLOBAL_STYLE)
+        central.setObjectName("centralRoot")
+        central.setStyleSheet(
+            f"QWidget#centralRoot {{ background: {C.MANTLE}; }}\n" + GLOBAL_STYLE
+        )
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
