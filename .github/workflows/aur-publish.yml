@@ -80,8 +80,12 @@ jobs:
           fi
           echo "sha256: $sha"
 
-          sed -e "s|__PKGVER__|${version}|g" \
-              -e "s|__SHA256__|${sha}|g" \
+          # Anchor on the assignment lines so the template comment at the
+          # top (which mentions __PKGVER__ / __SHA256__ literally) is not
+          # also rewritten — otherwise the published PKGBUILD ships with
+          # the stamped values inlined into the explanatory text.
+          sed -e "s|^pkgver=__PKGVER__$|pkgver=${version}|" \
+              -e "s|^sha256sums=('__SHA256__')$|sha256sums=('${sha}')|" \
               packaging/aur/PKGBUILD > PKGBUILD.rendered
           mv PKGBUILD.rendered packaging/aur/PKGBUILD
           echo "---- rendered PKGBUILD ----"

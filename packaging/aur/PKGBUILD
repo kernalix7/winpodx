@@ -42,4 +42,12 @@ package() {
   cd "$pkgname-$pkgver"
   python -m installer --destdir="$pkgdir" dist/*.whl
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
+  install -Dm644 data/winpodx.desktop \
+    "$pkgdir/usr/share/applications/winpodx.desktop"
+  install -Dm644 data/winpodx-icon.svg \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/winpodx.svg"
+  install -Dm644 data/winpodx.toml.example \
+    "$pkgdir/usr/share/winpodx/winpodx.toml.example"
 }
