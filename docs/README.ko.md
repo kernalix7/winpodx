@@ -188,7 +188,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 | Fedora Silverblue / Kinoite / Sericea / Bluefin / Bazzite (42 / 43 / 44) | rpm-ostree (OBS, `--apply-live`) | Supported |
 | Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 | apt | Supported |
 | AlmaLinux / Rocky / RHEL 9 / 10 | dnf | Supported |
-| Arch / Manjaro | pacman + `install.sh` | 소스 설치 지원 · AUR 패키지는 메인테이너 온보딩 대기 |
+| Arch / Manjaro | pacman + `yay -S winpodx` | Supported |
 | NixOS (와 모든 distro 위의 Nix) | nix flake | Supported |
 
 각 태그 푸시 (`v*.*.*`) 마다 모든 채널에 자동 publish — 메인테이너 상세는 [packaging/](../packaging/) 참조.

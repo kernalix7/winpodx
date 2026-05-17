@@ -115,7 +115,7 @@ keyboard = "ko-KR"
 
 ## 네이티브 패키지 매니저
 
-미리 빌드된 RPM 과 `.deb` 패키지가 모든 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) 에 첨부됨 — openSUSE/Fedora RPM 은 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) 에서, 나머지는 GitHub Actions 에서. AUR publishing 은 워크플로우는 준비되어 있지만 현재는 비활성 (메인테이너 SSH 키 온보딩 대기 중) — Arch 사용자는 당분간 `install.sh` 사용 권장.
+미리 빌드된 RPM 과 `.deb` 패키지가 모든 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) 에 첨부됨 — openSUSE/Fedora RPM 은 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) 에서, 나머지는 GitHub Actions 에서. [`winpodx` AUR 패키지](https://aur.archlinux.org/packages/winpodx) 는 v0.5.2 부터 라이브 — Arch 사용자는 `yay -S winpodx` 또는 `paru -S winpodx` 로 설치.
 
 ### openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll
 
@@ -172,13 +172,15 @@ sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm    # 또는 .el10.rpm
 
 ### Arch Linux / Manjaro
 
-AUR publish 워크플로우는 존재하지만 메인테이너 SSH 키가 프로비저닝되기 전까지 휴면 상태 — 아직 `winpodx` AUR 패키지 없음. 당분간 위의 universal installer 사용; `pacman` 감지하고 모든 의존성 자동 설치:
+선호하는 AUR helper 로 설치:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+yay -S winpodx
+# 또는
+paru -S winpodx
 ```
 
-AUR 패키지가 활성화되면 이 섹션이 `yay -S winpodx` / `paru -S winpodx` 안내로 업데이트됨.
+PKGBUILD 는 [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) 에 있고, 태그 푸시 (`v*.*.*`) 마다 버전 + tarball sha256 자동 stamp 후 `aur.archlinux.org/winpodx.git` 로 푸시.
 
 ## Nix
 
