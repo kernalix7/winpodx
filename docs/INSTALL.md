@@ -114,7 +114,7 @@ For the complete list of supported languages and region codes, see the [dockur/w
 
 ## Native package managers
 
-Prebuilt RPM and `.deb` packages are attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions. AUR publishing is wired but currently inactive (maintainer SSH key onboarding pending) — Arch users should use `install.sh` for now.
+Prebuilt RPM and `.deb` packages are attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions. The [`winpodx` AUR package](https://aur.archlinux.org/packages/winpodx) is live as of v0.5.2 — Arch users can install via `yay -S winpodx` or `paru -S winpodx`.
 
 ### openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll
 
@@ -171,13 +171,15 @@ sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm    # or .el10.rpm
 
 ### Arch Linux / Manjaro
 
-The AUR publish workflow exists but is dormant until the maintainer's SSH key is provisioned — there is no `winpodx` AUR package yet. In the meantime, use the universal installer above; it detects `pacman` and installs all dependencies cleanly:
+Install from the AUR using your preferred helper:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+yay -S winpodx
+# or
+paru -S winpodx
 ```
 
-Once the AUR package goes live, this section will be updated with `yay -S winpodx` / `paru -S winpodx`.
+The PKGBUILD lives at [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD); each tag push (`v*.*.*`) auto-stamps the version + tarball sha256 and pushes to `aur.archlinux.org/winpodx.git`.
 
 ## Nix
 
