@@ -55,3 +55,17 @@ htmlcov/
 *.p12
 id_rsa*
 id_ed25519*
+
+# Editor / assistant scratch & backup paths
+CLAUDE.md.bak
+AGENTS.md.bak
+.cursorrules.bak
+WORK_STATUS.md.bak
+.gitignore.bak
+.codex/
+.aider*
+.continue/
+.cline/
+.roo/
+uninstall-backup-*/
+.priv-storage/.allow-setup-reread
