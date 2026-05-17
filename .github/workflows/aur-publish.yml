@@ -17,7 +17,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Secret-gated so tag pushes made before AUR_SSH_PRIVATE_KEY is set up
       # (see packaging/aur/README.md for the one-time onboarding flow) do not

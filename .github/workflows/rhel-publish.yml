@@ -52,7 +52,7 @@ jobs:
           dnf config-manager --set-enabled crb || \
             dnf config-manager --set-enabled powertools || true
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve tag
         id: tag

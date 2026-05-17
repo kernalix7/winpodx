@@ -41,7 +41,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Enable backports if needed
         if: matrix.backports
