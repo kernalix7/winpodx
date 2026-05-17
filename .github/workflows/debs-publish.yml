@@ -31,6 +31,8 @@ jobs:
             suffix: ubuntu2504
           - image: ubuntu:25.10
             suffix: ubuntu2510
+          - image: ubuntu:26.04
+            suffix: ubuntu2604
     container: ${{ matrix.image }}
     steps:
       - name: Bootstrap container (git + apt)
