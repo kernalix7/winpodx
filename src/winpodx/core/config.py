@@ -291,8 +291,7 @@ class PodConfig:
                 setattr(self, field_name, default_val)
             elif any(ch in _DANGEROUS_YAML_CHARS for ch in val):
                 logging.getLogger(__name__).warning(
-                    "%s=%r contains characters reserved by YAML / shell; "
-                    "coercing to default %r",
+                    "%s=%r contains characters reserved by YAML / shell; coercing to default %r",
                     field_name,
                     val,
                     default_val,
