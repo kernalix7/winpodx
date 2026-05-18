@@ -24,7 +24,7 @@ Depends:
  ${misc:Depends},
  python3 (>= 3.9),
  python3-tomli,
- freerdp-wayland | freerdp-x11 | freerdp3-x11 | freerdp2-x11
+ freerdp-x11 | freerdp3-x11 | freerdp2-x11
 Recommends:
  podman,
  python3-pyside6.qtcore,
