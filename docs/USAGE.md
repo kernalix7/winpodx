@@ -43,7 +43,7 @@ winpodx power --suspend           # Pause container (free CPU, keep memory)
 winpodx power --resume            # Resume paused container
 
 # Security
-winpodx rotate-password           # Rotate Windows RDP password
+winpodx rotate-password           # Rotate Windows RDP password (host config + Windows-side guest account)
 
 # Reverse-open (host listener / guest sync)
 winpodx host-open status          # Show listener daemon + manifest state
@@ -110,6 +110,30 @@ Overall: OK
 ```
 
 Status legend: `OK` (green) / `WARN` (yellow — informational, exit 0) / `FAIL` (red — exit 1) / `SKIP` (grey — disabled by config). Use `--json` for machine-readable output.
+
+## Changing the Windows password
+
+Use `winpodx rotate-password` — never reuse `winpodx setup` for this. The two have very different effects on an already-running install:
+
+| Command | Host config (`winpodx.toml`) | Windows guest account |
+|---|---|---|
+| `winpodx rotate-password` | Updated atomically (with rollback on failure) | Updated via Windows-side change mechanism |
+| `winpodx setup` (rerun) | Preserved as-is (since v0.5.5) | Not touched |
+| `winpodx setup` (fresh install, no prior config) | Generated / prompted | Applied on first boot via dockur `USERNAME`/`PASSWORD` env vars |
+
+Re-running `winpodx setup` to bump cores / RAM / `win_version` is safe and will not touch your credentials. On pre-v0.5.5 releases the wizard reprompted for the password every run and silently overwrote `winpodx.toml` — but dockur honors the password env var only on first boot, so the host config desynced from the Windows guest account and the next RDP launch failed with `LOGON_FAILED_BAD_PASSWORD`.
+
+### Recovering from a desynced password (pre-v0.5.5 lockout)
+
+If you ran `winpodx setup` on an older release and can no longer log in:
+
+1. **Restore the old password** if you still have it (in a `winpodx.toml` backup, your password manager, or your shell history):
+   ```bash
+   winpodx config set rdp.password '<old-password>'
+   winpodx pod start
+   winpodx rotate-password
+   ```
+2. **Otherwise**, the only path is `winpodx pod purge` + reinstall, which loses any in-Windows state (installed apps, documents, settings). Make a fresh `winpodx setup` your first step after reinstall, then never touch the password through `setup` again — use `rotate-password`.
 
 ## Configuration
 

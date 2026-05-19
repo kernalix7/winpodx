@@ -151,6 +151,8 @@ Example:
   the FreeRDP client window automatically. (by @Zeik0s, #202)
 - Ubuntu 26.04 build target + Wayland-friendly Recommends split.
   (by @juampe, #206)
+- `winpodx setup` rerun no longer overwrites the working Windows password
+  and locks the user out of their guest. (reported by @tolistim, #216)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans
