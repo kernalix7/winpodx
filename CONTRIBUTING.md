@@ -149,6 +149,8 @@ Example:
   (reported by @gabe39, #178)
 - Dynamic Desktop Window Resolution — Full Desktop sessions now resize
   the FreeRDP client window automatically. (by @Zeik0s, #202)
+- Ubuntu 26.04 build target + Wayland-friendly Recommends split.
+  (by @juampe, #206)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans
