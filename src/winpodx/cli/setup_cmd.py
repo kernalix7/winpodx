@@ -35,6 +35,7 @@ __all__ = [
     "_generate_compose_to",
     "_generate_password",
     "_heal_missing_container_if_needed",
+    "_resolve_credentials",
     "_yaml_escape",
     "handle_rotate_password",
     "handle_setup",
@@ -383,6 +384,50 @@ def _heal_missing_container_if_needed(cfg: Config) -> None:
             print("  Try a full reinstall: uninstall.sh --purge then install.sh")
 
 
+def _resolve_credentials(cfg: Config, *, non_interactive: bool, config_existed: bool) -> None:
+    """Set cfg.rdp user/password/ip for the current setup run.
+
+    Three branches:
+    * `non_interactive=True` — generate fresh credentials. Used by install.sh
+      and the no-config path.
+    * `config_existed=True` and cfg already carries credentials — preserve
+      them. Re-running `winpodx setup` to bump cores/RAM must not silently
+      overwrite the working password: dockur's USERNAME/PASSWORD env vars
+      only apply on first boot, so a new password in the host config would
+      desync from the Windows guest account and lock the user out (#216).
+    * fresh interactive install — prompt for user / password / ip.
+    """
+    from datetime import datetime, timezone
+
+    if non_interactive:
+        cfg.rdp.user = "User"
+        cfg.rdp.password = _generate_password()
+        cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
+        cfg.rdp.ip = "127.0.0.1"
+        return
+
+    if config_existed and cfg.rdp.user and cfg.rdp.password:
+        print(
+            f"Existing credentials for user {cfg.rdp.user!r} preserved. "
+            "Use `winpodx rotate-password` to change the Windows password."
+        )
+        return
+
+    cfg.rdp.user = _ask("Windows username [User]: ", default="User")
+    import getpass
+
+    try:
+        entered_pw = getpass.getpass("Windows password (Enter for random): ")
+    except EOFError:
+        entered_pw = ""
+    cfg.rdp.password = entered_pw or _generate_password()
+    cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
+    if cfg.pod.backend == "manual":
+        cfg.rdp.ip = _ask("Windows IP address: ")
+    else:
+        cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
     import sys
@@ -426,7 +471,8 @@ def handle_setup(args: argparse.Namespace) -> None:
             print(f"Config saved to {Config.path()}")
             return
 
-    if Config.path().exists():
+    config_existed = Config.path().exists()
+    if config_existed:
         cfg = Config.load()
         if non_interactive:
             print(f"Existing config found at {Config.path()}, skipping setup.")
@@ -479,27 +525,7 @@ def handle_setup(args: argparse.Namespace) -> None:
         cfg.pod.win_version = win_version_arg
         cfg.pod.__post_init__()
 
-    from datetime import datetime, timezone
-
-    if non_interactive:
-        cfg.rdp.user = "User"
-        cfg.rdp.password = _generate_password()
-        cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
-        cfg.rdp.ip = "127.0.0.1"
-    else:
-        cfg.rdp.user = _ask("Windows username [User]: ", default="User")
-        import getpass
-
-        try:
-            entered_pw = getpass.getpass("Windows password (Enter for random): ")
-        except EOFError:
-            entered_pw = ""
-        cfg.rdp.password = entered_pw or _generate_password()
-        cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
-        if cfg.pod.backend == "manual":
-            cfg.rdp.ip = _ask("Windows IP address: ")
-        else:
-            cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
+    _resolve_credentials(cfg, non_interactive=non_interactive, config_existed=config_existed)
 
     if cfg.pod.backend in ("podman", "docker"):
         # v0.2.1: detect host specs and pick a tier preset (low/mid/high)

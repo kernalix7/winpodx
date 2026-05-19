@@ -285,3 +285,111 @@ class TestHealHelperDirect:
             _heal_missing_container_if_needed(cfg)
 
         assert ensure_ready_mock.call_count == 0
+
+
+class TestResolveCredentials:
+    """`_resolve_credentials` decides whether to prompt, generate, or preserve.
+
+    Regression coverage for #216: an interactive `winpodx setup` rerun on an
+    existing install used to reprompt for the password and silently
+    overwrite cfg.rdp.password, which desynced from the Windows guest
+    account (dockur honors USERNAME/PASSWORD only on first boot) and locked
+    the user out at next launch.
+    """
+
+    def test_non_interactive_generates_fresh_credentials(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.cli.setup_cmd import _resolve_credentials
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.rdp.user = ""
+        cfg.rdp.password = ""
+
+        _resolve_credentials(cfg, non_interactive=True, config_existed=False)
+
+        assert cfg.rdp.user == "User"
+        assert cfg.rdp.password  # randomly generated
+        assert cfg.rdp.ip == "127.0.0.1"
+        assert cfg.rdp.password_updated
+
+    def test_preserves_password_when_config_existed(self, tmp_path, monkeypatch):
+        """Interactive rerun on an existing install must not reprompt for
+        the password — that would desync the host config from the Windows
+        guest account. #216."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.cli.setup_cmd import _resolve_credentials
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.rdp.user = "User"
+        cfg.rdp.password = "OldPa55w0rd!"  # noqa: S105 — fixture only
+        cfg.rdp.password_updated = "2026-01-01T00:00:00+00:00"
+        cfg.rdp.ip = "127.0.0.1"
+
+        getpass_mock = MagicMock(return_value="NewPa55w0rd!")
+        ask_mock = MagicMock(return_value="bogus")
+        with (
+            patch("winpodx.cli.setup_cmd._ask", ask_mock),
+            patch("getpass.getpass", getpass_mock),
+        ):
+            _resolve_credentials(cfg, non_interactive=False, config_existed=True)
+
+        assert cfg.rdp.user == "User"
+        assert cfg.rdp.password == "OldPa55w0rd!"
+        assert cfg.rdp.password_updated == "2026-01-01T00:00:00+00:00"
+        assert cfg.rdp.ip == "127.0.0.1"
+        getpass_mock.assert_not_called()
+        ask_mock.assert_not_called()
+
+    def test_interactive_fresh_install_prompts_for_credentials(self, tmp_path, monkeypatch):
+        """No prior config — the wizard must ask for user / password / ip."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.cli.setup_cmd import _resolve_credentials
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+
+        ask_returns = iter(["alice", "127.0.0.1"])
+        ask_mock = MagicMock(side_effect=lambda *a, **kw: next(ask_returns))
+        getpass_mock = MagicMock(return_value="ChosenPassw0rd!")
+
+        with (
+            patch("winpodx.cli.setup_cmd._ask", ask_mock),
+            patch("getpass.getpass", getpass_mock),
+        ):
+            _resolve_credentials(cfg, non_interactive=False, config_existed=False)
+
+        assert cfg.rdp.user == "alice"
+        assert cfg.rdp.password == "ChosenPassw0rd!"
+        assert cfg.rdp.ip == "127.0.0.1"
+        getpass_mock.assert_called_once()
+
+    def test_interactive_existing_config_but_blank_password_still_prompts(
+        self, tmp_path, monkeypatch
+    ):
+        """An existing config with an empty password (mid-init / corruption)
+        should not silently keep the blank — fall back to the prompt."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.cli.setup_cmd import _resolve_credentials
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.rdp.user = "User"
+        cfg.rdp.password = ""
+
+        ask_returns = iter(["User", "127.0.0.1"])
+        ask_mock = MagicMock(side_effect=lambda *a, **kw: next(ask_returns))
+        getpass_mock = MagicMock(return_value="FillIn!")
+
+        with (
+            patch("winpodx.cli.setup_cmd._ask", ask_mock),
+            patch("getpass.getpass", getpass_mock),
+        ):
+            _resolve_credentials(cfg, non_interactive=False, config_existed=True)
+
+        assert cfg.rdp.password == "FillIn!"
+        getpass_mock.assert_called_once()
