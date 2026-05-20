@@ -585,15 +585,97 @@ def _restart() -> None:
         sys.exit(1)
 
 
+def _wait_for_oem_reboot(cfg, timeout: int) -> bool:  # type: ignore[no-untyped-def]
+    """Poll for ``C:\\winpodx\\oem_reboot_pending.txt`` to disappear.
+
+    Phase 4 of wait-ready. ``install.bat`` schedules a final
+    ``shutdown /r /t 15`` after writing this marker, so the guest
+    does one extra Windows boot to pick up registry edits that only
+    take effect after reboot (Modern Standby off, NIC binding, etc.).
+    A RunOnce key clears the marker on the second boot. We poll its
+    absence via the agent transport.
+
+    Returns:
+        True when the marker is absent (either it was never written
+        because OEM didn't schedule a reboot, or the second boot
+        completed and the RunOnce fired). False when the timeout
+        expired with the marker still present.
+
+    The function is intentionally lenient about probe failures:
+    transient agent /exec errors (the guest reboot itself takes the
+    agent down) are retried until the timeout. A genuine "marker
+    never went away" outcome only happens when shutdown failed or
+    RunOnce didn't fire, which is rare enough that the caller's
+    WARN-level message is the right UX.
+    """
+    import time as _time
+
+    from winpodx.core.transport.agent import AgentTransport
+    from winpodx.core.transport.base import TransportError
+
+    # Probe interval -- 5s keeps the loop snappy without flooding the
+    # agent socket during the actual reboot window (when /exec is
+    # rejecting connections anyway).
+    interval = 5
+    # Initial settling: install.bat issues `shutdown /r /t 15`, so the
+    # guest takes ~15s to start the reboot. Sleep 5s before the first
+    # probe so we don't see the marker as "absent" from a stale agent
+    # connection that pre-dates install.bat's write of the file.
+    _time.sleep(5)
+
+    transport = AgentTransport(cfg)
+    deadline = _time.monotonic() + max(15, int(timeout))
+    # Grace window for the marker to APPEAR.
+    # `wait_for_windows_responsive` (phase 3) returns OK as soon as the
+    # agent /health endpoint answers, but install.bat may still be
+    # ahead of the marker-write line at that moment (TermService cycle,
+    # .activation_status update, etc., before the shutdown block). Give
+    # the marker `appear_grace` seconds to show up before treating
+    # "never seen" as "this is an upgrade path with no OEM-scheduled
+    # reboot".
+    appear_grace_deadline = _time.monotonic() + 30
+    saw_marker_at_least_once = False
+    consecutive_absent = 0
+
+    while _time.monotonic() < deadline:
+        try:
+            result = transport.exec(
+                "if (Test-Path 'C:\\winpodx\\oem_reboot_pending.txt') { exit 1 } else { exit 0 }",
+                timeout=10,
+            )
+            if result.rc == 1:
+                saw_marker_at_least_once = True
+                consecutive_absent = 0
+            elif result.rc == 0:
+                consecutive_absent += 1
+                if saw_marker_at_least_once and consecutive_absent >= 2:
+                    # Marker was present then disappeared -- RunOnce
+                    # fired post-reboot. Done.
+                    return True
+                if not saw_marker_at_least_once and _time.monotonic() >= appear_grace_deadline:
+                    # No marker ever observed in the grace window: this
+                    # is an existing install upgraded in-place with an
+                    # OEM version that pre-dates the reboot mechanism.
+                    # Nothing to wait for.
+                    return True
+        except TransportError:
+            # Agent rejecting connections -- reboot in progress.
+            consecutive_absent = 0
+        _time.sleep(interval)
+
+    return False
+
+
 def _wait_ready(timeout: int, show_logs: bool) -> None:
     """v0.2.0.5: multi-phase wait for the Windows VM to finish first-boot.
 
-    Polls three checkpoints with elapsed-time stamps so the user sees
+    Polls four checkpoints with elapsed-time stamps so the user sees
     progress instead of a silent multi-minute hang on `curl install.sh`:
 
-      [1/3] Container running                  (e.g. 5s)
-      [2/3] RDP port open                      (typically 30-90s)
-      [3/3] Windows ready (RemoteApp probes OK) (typically 2-8min on first boot)
+      [1/4] Container running                  (e.g. 5s)
+      [2/4] RDP port open                      (typically 30-90s)
+      [3/4] Windows ready (RemoteApp probes OK) (typically 2-8min on first boot)
+      [4/4] OEM reboot pass complete           (typically 30-90s on fresh install)
 
     With ``--logs``, container stdout is tailed in a background thread
     and surfaced as ``[container] ...`` lines so the user can see Windows
@@ -688,8 +770,8 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             log_proc = None
 
     try:
-        # --- [1/3] Container running ---
-        print(f"[1/3] Waiting for container to start...      ({elapsed()})")
+        # --- [1/4] Container running ---
+        print(f"[1/4] Waiting for container to start...      ({elapsed()})")
         deadline = start + timeout
         while _time.monotonic() < deadline:
             try:
@@ -703,8 +785,8 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             print(f"      FAIL Timeout waiting for container       ({elapsed()})")
             sys.exit(3)
 
-        # --- [2/3] RDP port open ---
-        print(f"[2/3] Waiting for Windows RDP service...     ({elapsed()})")
+        # --- [2/4] RDP port open ---
+        print(f"[2/4] Waiting for Windows RDP service...     ({elapsed()})")
         while _time.monotonic() < deadline:
             if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
                 print(f"      OK RDP port {cfg.rdp.port} open                  ({elapsed()})")
@@ -714,8 +796,8 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             print(f"      FAIL Timeout waiting for RDP port        ({elapsed()})")
             sys.exit(3)
 
-        # --- [3/3] FreeRDP RemoteApp activation ---
-        print(f"[3/3] Waiting for Windows activation...      ({elapsed()})")
+        # --- [3/4] FreeRDP RemoteApp activation ---
+        print(f"[3/4] Waiting for Windows activation...      ({elapsed()})")
         remaining = max(60, int(deadline - _time.monotonic()))
         if wait_for_windows_responsive(cfg, timeout=remaining):
             print(f"      OK Windows ready                         ({elapsed()})")
@@ -726,6 +808,33 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                 "`winpodx pod wait-ready` once the container is fully up."
             )
             sys.exit(3)
+
+        # --- [4/4] OEM reboot pass ---
+        #
+        # install.bat schedules a `shutdown /r /t 15` after writing
+        # `C:\winpodx\oem_reboot_pending.txt`, so the guest does one
+        # extra Windows boot to pick up registry edits that don't take
+        # effect until reboot (Modern Standby off via
+        # PlatformAoAcOverride, NIC binding tweaks, etc.). The
+        # RunOnce key clears the marker on the second boot. Phase 4
+        # polls the marker's absence and re-asserts Windows
+        # responsiveness so install.sh's next steps (apply-fixes,
+        # discovery) don't run mid-reboot.
+        #
+        # If the marker never existed (existing install upgraded
+        # in-place, or OEM v < the one that adds it), we skip phase 4
+        # silently — `apply-fixes` will surface the pending-reboot
+        # condition separately if it matters.
+        print(f"[4/4] Waiting for OEM reboot pass...         ({elapsed()})")
+        remaining = max(60, int(deadline - _time.monotonic()))
+        if _wait_for_oem_reboot(cfg, timeout=remaining):
+            print(f"      OK OEM reboot pass complete             ({elapsed()})")
+        else:
+            print(
+                f"      WARN OEM reboot pass marker still pending ({elapsed()})\n"
+                "      Registry changes that need a reboot may not be active "
+                "yet. Run `winpodx pod restart` once installs.sh finishes."
+            )
     finally:
         log_stop.set()
         if log_proc is not None:

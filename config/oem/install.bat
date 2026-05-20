@@ -599,3 +599,37 @@ net start TermService >nul 2>&1
 REM Best-effort marker update. May not run if the cycle killed our
 REM session; that's fine -- apply-fixes reconciles via ServiceDll check.
 (echo enabled)>C:\winpodx\rdprrap\.activation_status 2>nul
+
+REM ---------------------------------------------------------------------------
+REM Scheduled reboot -- ABSOLUTELY FINAL.
+REM
+REM Several registry edits set above (PlatformAoAcOverride for Modern
+REM Standby, NIC binding, etc.) only take effect on the next Windows
+REM boot. Without this reboot, a fresh-install guest is technically
+REM running with the *old* Modern Standby state for the first session;
+REM the host then sees the long-idle stall the powercfg /change
+REM timeouts can't prevent on their own. The TermService cycle above
+REM picks up termwrap.dll; the reboot below picks up everything that
+REM needs a clean boot.
+REM
+REM Sequence:
+REM   1. install.bat writes ``C:\winpodx\oem_reboot_pending.txt``.
+REM   2. ``shutdown /r /t 15`` queues the reboot with a 15s grace
+REM      window so cmd.exe can finish + the autologon User session
+REM      doesn't fight the cycle.
+REM   3. On the next Windows boot, the RunOnce key below fires
+REM      ``del oem_reboot_pending.txt`` so the host can poll the
+REM      marker's absence as the "reboot pass complete" signal.
+REM   4. ``winpodx pod wait-ready`` adds a [4/4] step that polls
+REM      the marker via the agent transport (or `\\tsclient\home`
+REM      fallback) until it's gone.
+REM
+REM If shutdown fails for any reason, the marker is left behind --
+REM apply-fixes treats this as "still need second-pass reboot" and
+REM offers to retry. Failure mode is detectable, not silent.
+echo [winpodx] Scheduling reboot to apply registry / power settings...
+(echo pending)>C:\winpodx\oem_reboot_pending.txt 2>nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" ^
+    /v WinpodxClearOemRebootMarker /t REG_SZ ^
+    /d "cmd.exe /c del /q C:\winpodx\oem_reboot_pending.txt" /f >nul
+shutdown /r /t 15 /c "winpodx: applying registry / power settings"

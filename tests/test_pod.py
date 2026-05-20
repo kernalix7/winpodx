@@ -222,10 +222,19 @@ class TestWaitReady:
             "winpodx.core.provisioner.wait_for_windows_responsive",
             lambda cfg, timeout=180: True,
         )
+        # Phase 4 (OEM reboot pass): pretend the marker was never
+        # written so the helper short-circuits to True via its
+        # appear-grace fallback without sleeping.
+        monkeypatch.setattr(
+            "winpodx.cli.pod._wait_for_oem_reboot",
+            lambda cfg, timeout: True,
+        )
 
         _wait_ready(timeout=30, show_logs=False)
         out = capsys.readouterr().out
-        assert "[1/3]" in out
-        assert "[2/3]" in out
-        assert "[3/3]" in out
+        assert "[1/4]" in out
+        assert "[2/4]" in out
+        assert "[3/4]" in out
+        assert "[4/4]" in out
         assert "Windows ready" in out
+        assert "OEM reboot pass complete" in out
