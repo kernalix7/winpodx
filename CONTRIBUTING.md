@@ -159,6 +159,12 @@ Example:
 - Fedora 42 / 43 / 44 install snippet now uses dnf5 syntax (`dnf
   config-manager addrepo --from-repofile=<URL>`); the dnf4 form
   failed on Fedora 41 +. (reported by @payayas, #228)
+- `install.sh` re-verifies `/dev/kvm` after the package install loop
+  and refuses to proceed with an actionable BIOS / kernel-module /
+  kvm-group diagnostic when hardware virtualisation is off. README
+  gains a "Minimum requirements" section so users see the gating
+  checks before they curl-install. (reported by @pnogaret2019-code,
+  #220)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans

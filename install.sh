@@ -338,8 +338,30 @@ if [ "$FREERDP_OK" = false ]; then
 fi
 
 if [ ! -e /dev/kvm ]; then
-    warn "/dev/kvm not found (KVM required for Windows container)"
-    warn "Enable virtualization in BIOS"
+    # Pre-install hint. A surprising fraction of user bug reports start
+    # here -- the package install loop below will run successfully on
+    # most distros because qemu / qemu-kvm is already present, and then
+    # the container start later silently fails because hardware virt
+    # is off in BIOS. Print the BIOS / module / group check now so the
+    # user can stop, fix the actual cause, and re-run -- instead of
+    # filing a bug after the install "succeeds" but nothing works.
+    warn "/dev/kvm not found -- KVM hardware virtualization is required."
+    warn ""
+    warn "Before continuing, please verify:"
+    warn "  1. Intel VT-x / AMD-V is enabled in your BIOS / UEFI."
+    warn "     (Reboot -> firmware setup -> 'Intel Virtualization Technology' /"
+    warn "      'SVM Mode' / 'VT-x'. The setting is OFF by default on many laptops.)"
+    warn "  2. The kvm kernel module is loaded:"
+    if command -v lsmod >/dev/null 2>&1; then
+        modules=$(lsmod 2>/dev/null | grep -E '^(kvm|kvm_intel|kvm_amd)\b' | awk '{print $1}' | tr '\n' ' ')
+        warn "       Currently loaded: ${modules:-none}"
+        warn "       Load it with: sudo modprobe kvm_intel  (or kvm_amd on AMD)"
+    fi
+    warn "  3. Your user is in the 'kvm' group: id -nG | tr ' ' '\\n' | grep kvm"
+    warn ""
+    warn "Installing the qemu package alone won't fix BIOS / module / group issues."
+    warn "Most 'install ran fine but Windows never boots' bug reports trace back here."
+    warn ""
     MISSING+=("kvm")
 fi
 
@@ -377,6 +399,47 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     log "All dependencies installed successfully"
 else
     log "All dependencies OK"
+fi
+
+# Re-verify /dev/kvm after the install loop. Installing the qemu /
+# qemu-kvm package alone does NOT enable hardware virtualisation if
+# the CPU extension is off in BIOS, the kvm kernel module isn't
+# loaded, or the user isn't in the `kvm` group -- @pnogaret2019-code
+# hit this on Linux Mint LMDE 7 (#220) where apt happily said
+# "qemu-system-x86 already up to date" while /dev/kvm stayed absent,
+# and install.sh printed "All dependencies installed successfully"
+# anyway. Without this guard the container starts but the VM never
+# boots, and the user sees a silent stall instead of the actionable
+# diagnostic below.
+if [ ! -e /dev/kvm ]; then
+    err "/dev/kvm still missing after package install."
+    err ""
+    err "Hardware virtualisation is required for winpodx. Likely causes:"
+    err "  1. Intel VT-x / AMD-V disabled in BIOS / UEFI."
+    err "     -> Reboot, enter setup, look for 'Intel Virtualization Technology'"
+    err "        / 'SVM Mode' / 'VT-x' and enable it."
+    err "  2. kvm kernel module not loaded:"
+    if command -v lscpu >/dev/null 2>&1; then
+        vmx=$(lscpu 2>/dev/null | grep -i 'virtualization\|vmx\|svm' | head -1)
+        err "     lscpu: ${vmx:-no virtualization line found}"
+    fi
+    if command -v lsmod >/dev/null 2>&1; then
+        modules=$(lsmod 2>/dev/null | grep -E '^(kvm|kvm_intel|kvm_amd)\b' | awk '{print $1}' | tr '\n' ' ')
+        err "     Loaded kvm modules: ${modules:-none}"
+        err "     -> 'sudo modprobe kvm_intel' (Intel) or 'sudo modprobe kvm_amd' (AMD)"
+    fi
+    err "  3. Your user is not in the 'kvm' group:"
+    if command -v id >/dev/null 2>&1; then
+        if id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx kvm; then
+            err "     id: '$USER' is in the kvm group (this one is fine)."
+        else
+            err "     id: '$USER' is NOT in the kvm group."
+            err "     -> 'sudo usermod -aG kvm $USER' then log out + back in."
+        fi
+    fi
+    err ""
+    err "Fix one of the above and re-run install.sh."
+    exit 1
 fi
 
 # winpodx uses only stdlib on 3.11+; on 3.9/3.10 tomli backfills tomllib.

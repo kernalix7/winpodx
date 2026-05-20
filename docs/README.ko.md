@@ -56,6 +56,18 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 winpodx 는 백그라운드에서 Windows 컨테이너 ([dockur/windows](https://github.com/dockur/windows)) 를 실행하고, FreeRDP RemoteApp 으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. 게스트 안의 bearer-auth HTTP agent 가 host→guest 명령 채널을 처리해서 PowerShell 창이 깜빡이지 않음. 반대 방향 — Linux 앱이 Windows "Open with…" 메뉴에 노출 — 은 호스트 측 listener 가 게스트 내 슬러그별 Rust shim 이 작성한 JSON 요청을 소비하는 식으로 처리. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
 
+## 최소 요구사항
+
+**설치 전에** 머신이 가상화를 실제로 지원하는지 확인. winpodx 는 KVM 기반 컨테이너에서 Windows 실행 — 아래 셋 없으면 설치는 끝까지 진행되지만 Windows 가 절대 부팅 안 됨.
+
+| 요구사항 | 확인 명령 | 해결 |
+|---|---|---|
+| **BIOS / UEFI 에 Intel VT-x 또는 AMD-V 활성** | `lscpu \| grep -i virtualization` 에 `VT-x` 또는 `AMD-V` 표시 | 재부팅 → 펌웨어 설정 → "Intel Virtualization Technology" / "SVM Mode" / "VT-x" 활성. 노트북에서 기본 OFF 인 경우 많음. |
+| **kvm 커널 모듈 로드** | `lsmod \| grep kvm` 에 `kvm_intel` 또는 `kvm_amd` | `sudo modprobe kvm_intel` (Intel) 또는 `sudo modprobe kvm_amd` (AMD). BIOS 활성 후 자동 로드. |
+| **사용자가 `kvm` 그룹에 속함** | `id -nG \| tr ' ' '\n' \| grep kvm` 가 `kvm` 반환 | `sudo usermod -aG kvm $USER` 후 로그아웃 → 재로그인. |
+
+하드웨어: 가상화 확장 지원 x86_64 또는 aarch64 CPU, 8GB+ RAM (12GB+ 권장), Windows 이미지용 디스크 여유 ~30GB. `install.sh` 가 패키지 설치 단계 후 `/dev/kvm` 없으면 같은 진단으로 중단. "설치는 잘 됐는데 Windows 가 안 떠요" 류 버그 리포트 대부분이 위 세 줄 중 하나가 원인.
+
 ## 빠른 설치
 
 원라인 (지원되는 모든 Linux distro):
