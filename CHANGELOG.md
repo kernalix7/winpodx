@@ -28,6 +28,18 @@ verbatim.
 ### Fixed
 -->
 
+## [0.5.5] - 2026-05-20
+
+User-report follow-up release driven by @tolistim (#216) and @ismikes (#215). Fixes a setup-rerun lockout that desynced the host config from the Windows guest password, and lands a host-adaptive Windows-on-KVM tuning profile so safe perf tweaks turn themselves on without user configuration.
+
+### Highlights
+
+**`winpodx setup` rerun is safe again, and the dockur compose now auto-tunes itself to the host (#215, #216).**
+
+- `winpodx setup` rerun on an existing install preserves the working Windows credentials instead of silently overwriting `cfg.rdp.password`; the lockout that produced `LOGON_FAILED_BAD_PASSWORD` is gone. Reported by @tolistim (#216).
+- New `cfg.pod.tuning_profile` (default `"auto"`): winpodx probes the host once at compose time (invariant TSC, kernel ≥ 5.6 for io_uring, `vm.nr_hugepages`, idle CPU + RAM headroom) and turns on every safe Windows-on-KVM tweak the host can support. `+invtsc` lands in the x86_64 QEMU args on supported CPUs. `winpodx info` / `winpodx setup` print a new `[Tuning]` block so the auto-applied set is never hidden. Suggested by @ismikes (#215).
+- `safe` / `off` / `manual` escape hatches for the tuning profile; host-side prerequisites (hugepages, CPU pinning, VFIO) stay documented operator tasks rather than wired into winpodx automatically.
+
 ### Added
 
 - **Host-adaptive Windows-on-KVM tuning profile (#215).** `cfg.pod.tuning_profile` controls how aggressively winpodx tunes the dockur compose for the host. Default `"auto"` probes the host once at compose time (constant_tsc + nonstop_tsc, kernel ≥ 5.6 for io_uring, `vm.nr_hugepages > 0`, idle CPU + RAM headroom) and enables the matching subset of standard tweaks — currently `+invtsc` on x86_64 hosts that expose invariant TSC. Other profiles: `"safe"` (Tier-1 only — `+invtsc` + Windows `platform_tick`, no host-side prerequisites), `"off"` (dockur defaults only), `"manual"` (`safe` shape; future per-knob overrides). `winpodx info` and `winpodx setup` both print the detected capability + resolved profile so users can see exactly what was auto-applied. Suggested by @ismikes (#215); standard sysguides.com Windows-on-KVM tuning items that need host-side setup (hugepages, CPU pinning) are documented in `docs/USAGE.md` as user-host tasks rather than wired into winpodx automatically.

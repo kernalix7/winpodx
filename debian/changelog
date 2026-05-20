@@ -1,3 +1,29 @@
+winpodx (0.5.5) unstable; urgency=medium
+
+  * winpodx setup rerun no longer silently overwrites the Windows
+    password and locks users out of the guest account (#216,
+    reported by @tolistim). Re-running setup on an existing install
+    used to reprompt for the Windows password and write whatever was
+    entered into winpodx.toml; because dockur honors USERNAME /
+    PASSWORD env vars only on first boot, the host config silently
+    desynced from the actual Windows guest account and the next RDP
+    launch failed with LOGON_FAILED_BAD_PASSWORD. The interactive
+    prompt now detects an existing config with populated
+    cfg.rdp.user / cfg.rdp.password, preserves them, and directs the
+    user to `winpodx rotate-password`.
+  * Host-adaptive Windows-on-KVM tuning profile (#215, suggested by
+    @ismikes). New `cfg.pod.tuning_profile` knob with values auto |
+    safe | off | manual. Default `auto` probes /proc/cpuinfo,
+    /proc/meminfo, os.uname, os.getloadavg at compose time and turns
+    on `+invtsc` on x86_64 hosts that expose invariant TSC.
+    `winpodx info` and `winpodx setup` print a [Tuning] block
+    showing detected capability and resolved profile. Items that
+    require host-side setup (hugepages, CPU pinning, VFIO) stay
+    documented operator tasks rather than wired into winpodx
+    automatically.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 20 May 2026 14:00:00 +0000
+
 winpodx (0.5.4) unstable; urgency=medium
 
   * Same-day hotfix for v0.5.3 Debian/Ubuntu package build failure.
