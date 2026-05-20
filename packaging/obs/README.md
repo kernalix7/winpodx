@@ -136,7 +136,14 @@ zypper refresh
 zypper install winpodx
 ```
 
-Fedora (dnf):
+Fedora (dnf5 — Fedora 41+):
+
+```
+dnf config-manager addrepo --from-repofile=https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+dnf install winpodx
+```
+
+Fedora ≤40 (dnf4, EOL):
 
 ```
 dnf config-manager --add-repo https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_41/home:Kernalix7.repo

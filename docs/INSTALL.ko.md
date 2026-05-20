@@ -131,12 +131,14 @@ sudo zypper install winpodx
 ### Fedora 42 / 43 / 44
 
 ```bash
-sudo dnf config-manager --add-repo \
-  https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+sudo dnf config-manager addrepo --from-repofile=\
+https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
 sudo dnf install winpodx
 ```
 
 `Fedora_43` 을 `Fedora_42` 또는 `Fedora_44` 로 교체.
+
+> **메모:** Fedora 41+ 는 dnf5 — 위 syntax (`addrepo --from-repofile=`) 가 그것. dnf4 (Fedora ≤40, EOL) 는 `sudo dnf config-manager --add-repo <URL>`. @payayas 가 #228 에서 제보.
 
 ### Fedora Atomic Desktops (Silverblue / Kinoite / Sericea / Bluefin / Bazzite)
 

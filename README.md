@@ -71,8 +71,8 @@ Or via a native package manager:
 sudo zypper addrepo https://download.opensuse.org/repositories/home:/Kernalix7/openSUSE_Tumbleweed/home:Kernalix7.repo
 sudo zypper install winpodx
 
-# Fedora 42 / 43
-sudo dnf config-manager --add-repo https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+# Fedora 42 / 43 / 44 (dnf5 — Fedora 41+)
+sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
 sudo dnf install winpodx
 
 # Debian / Ubuntu — grab the matching .deb from the latest release

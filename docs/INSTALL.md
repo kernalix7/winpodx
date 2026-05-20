@@ -130,12 +130,14 @@ Replace `openSUSE_Tumbleweed` with `openSUSE_Leap_16.0`, `openSUSE_Leap_15.6`, o
 ### Fedora 42 / 43 / 44
 
 ```bash
-sudo dnf config-manager --add-repo \
-  https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+sudo dnf config-manager addrepo --from-repofile=\
+https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
 sudo dnf install winpodx
 ```
 
 Replace `Fedora_43` with `Fedora_42` or `Fedora_44` as needed.
+
+> **Note:** Fedora 41 + ships dnf5; the syntax above (`addrepo --from-repofile=`) matches it. On dnf4 (Fedora ≤40, EOL) the equivalent is `sudo dnf config-manager --add-repo <URL>`. Reported by @payayas in #228.
 
 ### Fedora Atomic Desktops (Silverblue / Kinoite / Sericea / Bluefin / Bazzite)
 

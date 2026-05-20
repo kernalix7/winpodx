@@ -57,6 +57,8 @@ User-report follow-up release driven by @tolistim (#216) and @ismikes (#215). Fi
 
 - **`winpodx setup` rerun no longer locks out users by silently rewriting the Windows password (#216).** Re-running setup on an existing install (e.g. to bump cores/RAM) used to reprompt for the Windows password and write whatever was entered into `winpodx.toml`. Because dockur honors `USERNAME` / `PASSWORD` env vars only on first boot, the host config silently desynced from the Windows guest account and the next RDP launch failed with `LOGON_FAILED_BAD_PASSWORD`. The interactive prompt now detects an existing config with a populated `cfg.rdp.user` + `cfg.rdp.password`, preserves them, and prints guidance to use `winpodx rotate-password` (which goes through the Windows-side password change mechanism). Non-interactive `install.sh` setup and fresh installs are unchanged. Reported by @tolistim on Linux Mint 22.3 / v0.5.4.
 
+- **Docs: Fedora 42 / 43 / 44 install snippet uses dnf5 syntax (#228).** Old `sudo dnf config-manager --add-repo <URL>` fails on Fedora 41+ because dnf5 changed the subcommand shape. Snippet now reads `sudo dnf config-manager addrepo --from-repofile=<URL>`; the dnf4 form is noted below for Fedora ≤40 (EOL). Updated in `README.md` / `docs/README.ko.md` / `docs/INSTALL.md` / `docs/INSTALL.ko.md` / `packaging/obs/README.md`. Reported by @payayas.
+
 ## [0.5.4] - 2026-05-19
 
 User-report follow-up release. Fixes slow-link compose timeout (#212), eliminates the silent "launched but no window" failure mode that #213 / #214 surfaced, lands Ubuntu 26.04 packaging in the CI matrix (#206), Windows language / region / keyboard configurability (#201), and the dynamic desktop resolution feature (#197).

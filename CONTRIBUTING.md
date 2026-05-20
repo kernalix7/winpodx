@@ -156,6 +156,9 @@ Example:
 - Host-adaptive Windows-on-KVM tuning — `cfg.pod.tuning_profile = "auto"`
   detects host capability and applies `+invtsc` on x86_64 invariant-TSC
   CPUs. (reported by @ismikes, #215)
+- Fedora 42 / 43 / 44 install snippet now uses dnf5 syntax (`dnf
+  config-manager addrepo --from-repofile=<URL>`); the dnf4 form
+  failed on Fedora 41 +. (reported by @payayas, #228)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans
