@@ -165,6 +165,10 @@ Example:
   gains a "Minimum requirements" section so users see the gating
   checks before they curl-install. (reported by @pnogaret2019-code,
   #220)
+- `install.sh` picks `qemu-system-x86` (or `qemu-system-x86-hwe`)
+  on Ubuntu 24.04+ / Debian 13 where `qemu-kvm` became a virtual
+  package with no install candidate. Same probe pattern as the
+  freerdp2 → freerdp3 selector. (reported by @n-osennij, #200)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans
