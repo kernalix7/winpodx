@@ -153,6 +153,9 @@ Example:
   (by @juampe, #206)
 - `winpodx setup` rerun no longer overwrites the working Windows password
   and locks the user out of their guest. (reported by @tolistim, #216)
+- Host-adaptive Windows-on-KVM tuning — `cfg.pod.tuning_profile = "auto"`
+  detects host capability and applies `+invtsc` on x86_64 invariant-TSC
+  CPUs. (reported by @ismikes, #215)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans
