@@ -28,12 +28,16 @@ class PodState(Enum):
 
 
 # Container must be running this long before an RDP-port miss can be
-# classified as ``UNRESPONSIVE`` rather than ``STARTING``. Default
-# matches the dockur first-boot floor (Sysprep + OEM apply); legitimate
-# late-boot misses on slower hosts may extend past this — in which case
-# the caller's auto-recovery flow is a no-op (the agent isn't up yet
-# either) and the next poll picks up the real RUNNING state.
-_UNRESPONSIVE_UPTIME_FLOOR_SECS = 600
+# classified as ``UNRESPONSIVE`` rather than ``STARTING``. First-boot
+# Sysprep + OEM apply is driven by ``install.sh`` separately
+# (``[1-3/3] Waiting for ...`` checkpoints) so the GUI / tray are
+# expected to be closed during that window. By the time the GUI is
+# usable to the human, the container is past boot — three minutes is
+# plenty of cushion for an in-place ``winpodx pod restart`` to come
+# back without the user briefly seeing UNRESPONSIVE flicker. Lowered
+# from 600 s after the post-#219 smoke showed the tray still stuck on
+# ``starting`` past the 10-minute mark on a known-stalled pod.
+_UNRESPONSIVE_UPTIME_FLOOR_SECS = 180
 
 
 @dataclass
@@ -93,17 +97,35 @@ def pod_status(cfg: Config) -> PodStatus:
 
     # RDP unreachable. Discriminate STARTING (boot in progress, expected
     # to clear) from UNRESPONSIVE (long-running container whose Windows
-    # guest has stalled — pre-#TBD this was misreported as STARTING
+    # guest has stalled — pre-#219 this was misreported as STARTING
     # forever, leaving the GUI / tray frozen on "starting" until the
     # user noticed). Probe the backend's container uptime: under the
-    # floor → STARTING, past it → UNRESPONSIVE. Backends that don't
-    # expose uptime (libvirt, manual) fall back to the legacy STARTING
-    # answer.
+    # floor → STARTING, past it → UNRESPONSIVE.
+    #
+    # Unknown-uptime fallback (post-smoke v0.5.5): treat ``None`` as
+    # UNRESPONSIVE on container backends. The dockur first-boot window
+    # is owned by ``install.sh`` (`[1-3/3]` checkpoints, no GUI / tray
+    # active), so by the time a probe returns ``None`` from the running
+    # GUI, the container has clearly been up — defaulting to STARTING
+    # was the bug we just hit on real-Windows smoke: uptime parse
+    # failure → STARTING → user thinks pod is still booting after
+    # 50 min. Fall back to STARTING only on backends that don't
+    # implement uptime_secs at all (libvirt / manual return None
+    # because they override nothing; container backends return a real
+    # value or None only on probe failure).
     uptime = None
     try:
         uptime = backend.uptime_secs()
     except Exception as e:  # pragma: no cover - defensive
         log.debug("uptime_secs probe failed: %s", e)
     if uptime is not None and uptime >= _UNRESPONSIVE_UPTIME_FLOOR_SECS:
+        return PodStatus(state=PodState.UNRESPONSIVE, ip=cfg.rdp.ip)
+    if uptime is None and cfg.pod.backend in ("podman", "docker"):
+        log.warning(
+            "Container backend %r did not return an uptime; classifying as "
+            "UNRESPONSIVE on the assumption that an RDP miss without uptime "
+            "data is a stalled long-running pod, not a fresh boot.",
+            cfg.pod.backend,
+        )
         return PodStatus(state=PodState.UNRESPONSIVE, ip=cfg.rdp.ip)
     return PodStatus(state=PodState.STARTING, ip=cfg.rdp.ip)

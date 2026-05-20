@@ -122,11 +122,12 @@ def test_docker_backend_is_running_uses_configured_container_name():
 # control the RDP probe, and verify each of the five states resolves.
 
 
-def _patched_pod_status(*, running, paused, rdp_ok, uptime):
+def _patched_pod_status(*, running, paused, rdp_ok, uptime, backend_name="podman"):
     """Helper — run pod_status with the four input switches mocked."""
     from winpodx.core.pod import pod_status
 
     cfg = Config()
+    cfg.pod.backend = backend_name
     fake_backend = MagicMock()
     fake_backend.is_running.return_value = running
     fake_backend.is_paused.return_value = paused
@@ -145,23 +146,47 @@ def test_pod_status_running_when_container_up_and_rdp_reachable():
 
 
 def test_pod_status_starting_when_container_recent_and_rdp_down():
-    """Container up < 600s + RDP miss = still booting, do not yet
+    """Container up < 180s + RDP miss = still booting, do not yet
     classify as UNRESPONSIVE."""
     status = _patched_pod_status(running=True, paused=False, rdp_ok=False, uptime=60)
     assert status.state == PodState.STARTING
 
 
 def test_pod_status_unresponsive_when_container_old_and_rdp_down():
-    """Container up past the 600s floor + RDP miss = guest stalled."""
+    """Container up past the 180s floor + RDP miss = guest stalled."""
     status = _patched_pod_status(running=True, paused=False, rdp_ok=False, uptime=900)
     assert status.state == PodState.UNRESPONSIVE
 
 
-def test_pod_status_starting_when_uptime_unknown_legacy_fallback():
-    """libvirt + manual backends return None from uptime_secs() — must
-    fall back to the legacy STARTING answer instead of UNRESPONSIVE."""
-    status = _patched_pod_status(running=True, paused=False, rdp_ok=False, uptime=None)
+def test_pod_status_starting_when_uptime_unknown_on_non_container_backend():
+    """libvirt + manual backends return None from uptime_secs() — they
+    must fall back to STARTING (no auto-recovery for non-container)."""
+    status = _patched_pod_status(
+        running=True,
+        paused=False,
+        rdp_ok=False,
+        uptime=None,
+        backend_name="libvirt",
+    )
     assert status.state == PodState.STARTING
+
+
+def test_pod_status_unresponsive_when_uptime_unknown_on_container_backend():
+    """Container backend (podman / docker) returning None from
+    ``uptime_secs`` means the probe parse failed on a known-running
+    container — by the time the GUI / tray polls, first-boot Sysprep
+    has already finished (install.sh owns that window). Treating
+    parse failure as "still STARTING after 50 min" was the bug in the
+    pre-fix smoke run (#219 follow-up), so an unknown uptime on a
+    container backend now resolves to UNRESPONSIVE."""
+    status = _patched_pod_status(
+        running=True,
+        paused=False,
+        rdp_ok=False,
+        uptime=None,
+        backend_name="podman",
+    )
+    assert status.state == PodState.UNRESPONSIVE
 
 
 def test_pod_status_paused_short_circuits_before_rdp_probe():

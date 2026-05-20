@@ -272,6 +272,14 @@ class PodStatusMixin:
                 f"background: transparent; color: {C.BLUE}; font-size: 14px;"
             )
             self.banner_text.setText("Pod is starting...")
+        elif state == "unresponsive":
+            self.banner_icon.setText("⚠")
+            self.banner_icon.setStyleSheet(
+                f"background: transparent; color: {C.PEACH}; font-size: 14px;"
+            )
+            self.banner_text.setText(
+                "Pod is alive but RDP is unresponsive — auto-recovering, or click Restart Pod"
+            )
         elif state == "error":
             self.banner_icon.setText("✗")
             self.banner_icon.setStyleSheet(
