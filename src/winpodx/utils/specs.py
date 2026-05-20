@@ -88,3 +88,224 @@ def recommend_tier(specs: HostSpecs) -> TierPreset:
 def all_tiers() -> list[TierPreset]:
     """Three presets in low -> high order. Useful for GUI dropdowns."""
     return [_TIER_LOW, _TIER_MID, _TIER_HIGH]
+
+
+# ---------------------------------------------------------------------------
+# Tuning capability detection — issue #215.
+#
+# Standard Windows-on-KVM tuning checklist contains items that are safe to
+# enable only when the host meets a precondition (`+invtsc` needs invariant
+# TSC; io_uring needs Linux >= 5.6; hugepages need the operator to pre-set
+# `vm.nr_hugepages`). Auto-detect once at compose time so users don't have
+# to know any of this; expose the detection result so they can see what was
+# applied and override if needed via `cfg.pod.tuning_profile`.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TuningCapability:
+    """Host-side facts that gate optional perf tunings.
+
+    All fields are best-effort: detection failure is treated as "feature
+    absent" so we degrade safely to the dockur baseline.
+    """
+
+    invtsc: bool
+    io_uring: bool
+    hugepages_enabled: bool
+    dedicated_host: bool
+    kernel_version: tuple[int, int] | None
+    cpu_vendor: str  # "intel" | "amd" | "arm" | "unknown"
+
+
+@dataclass
+class TuningProfile:
+    """Resolved set of tunings for a given (capability, user-pref) pair."""
+
+    name: str  # "auto" | "safe" | "off" | "manual"
+    apply_invtsc: bool
+    apply_io_uring: bool
+    apply_hugepages: bool
+    apply_cpu_pinning: bool
+    apply_platform_tick: bool
+    apply_no_balloon: bool
+
+
+_PROFILE_OFF = TuningProfile(
+    name="off",
+    apply_invtsc=False,
+    apply_io_uring=False,
+    apply_hugepages=False,
+    apply_cpu_pinning=False,
+    apply_platform_tick=False,
+    apply_no_balloon=False,
+)
+
+
+def _read_cpuinfo_flags() -> set[str]:
+    try:
+        text = Path("/proc/cpuinfo").read_text()
+    except OSError as e:
+        log.debug("could not read /proc/cpuinfo: %s", e)
+        return set()
+    for line in text.splitlines():
+        if line.startswith("flags") or line.startswith("Features"):
+            _, _, rest = line.partition(":")
+            return {tok.strip() for tok in rest.split() if tok.strip()}
+    return set()
+
+
+def _read_cpu_vendor() -> str:
+    try:
+        text = Path("/proc/cpuinfo").read_text()
+    except OSError:
+        return "unknown"
+    for line in text.splitlines():
+        if line.startswith("vendor_id"):
+            _, _, rest = line.partition(":")
+            v = rest.strip().lower()
+            if "intel" in v:
+                return "intel"
+            if "amd" in v:
+                return "amd"
+            return v or "unknown"
+        if line.startswith("CPU implementer"):
+            return "arm"
+    return "unknown"
+
+
+def _read_kernel_version() -> tuple[int, int] | None:
+    try:
+        release = os.uname().release
+    except OSError:
+        return None
+    head = release.split("-", 1)[0]
+    parts = head.split(".")
+    try:
+        return (int(parts[0]), int(parts[1]))
+    except (IndexError, ValueError):
+        return None
+
+
+def _read_hugepages_total() -> int:
+    """Read `HugePages_Total` from /proc/meminfo. Returns 0 on failure."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("HugePages_Total:"):
+                return int(line.split()[1])
+    except (OSError, ValueError, IndexError) as e:
+        log.debug("could not read HugePages_Total: %s", e)
+    return 0
+
+
+def _idle_cpu_count() -> int:
+    """Best-effort estimate of CPUs currently idle.
+
+    We avoid sampling /proc/stat (slow, needs two reads); use
+    `os.getloadavg()` as a rough proxy. load1 < cpu_count means there's
+    headroom. Returns max(0, cpu_count - ceil(load1)).
+    """
+    cpu = os.cpu_count() or 1
+    try:
+        load1, _, _ = os.getloadavg()
+    except OSError:
+        return cpu
+    import math
+
+    used = math.ceil(load1)
+    return max(0, cpu - used)
+
+
+def detect_tuning_capability(*, vm_cpu_cores: int, vm_ram_gb: int) -> TuningCapability:
+    """Probe the host for everything `recommend_tuning_profile` needs.
+
+    `vm_cpu_cores` / `vm_ram_gb` are the VM's allocation; we use them to
+    decide whether the host can comfortably afford dedicated resources
+    (`dedicated_host`). Other fields are pure host-side facts.
+    """
+    flags = _read_cpuinfo_flags()
+    invtsc = ("constant_tsc" in flags) and ("nonstop_tsc" in flags)
+    kernel = _read_kernel_version()
+    io_uring = kernel is not None and (kernel[0], kernel[1]) >= (5, 6)
+    hugepages = _read_hugepages_total() > 0
+
+    host = detect_host_specs()
+    idle_cpu = _idle_cpu_count()
+    # "Dedicated" = at least twice the VM's allocation currently free on
+    # both axes. Factor-of-two cushion avoids pinning a VM on a shared
+    # workstation where another tool spikes briefly.
+    dedicated = idle_cpu >= vm_cpu_cores * 2 and host.ram_gb >= vm_ram_gb * 2
+
+    return TuningCapability(
+        invtsc=invtsc,
+        io_uring=io_uring,
+        hugepages_enabled=hugepages,
+        dedicated_host=dedicated,
+        kernel_version=kernel,
+        cpu_vendor=_read_cpu_vendor(),
+    )
+
+
+def recommend_tuning_profile(cap: TuningCapability, *, user_pref: str = "auto") -> TuningProfile:
+    """Resolve a TuningProfile from host capability and user preference.
+
+    `user_pref` is `cfg.pod.tuning_profile`:
+      * `"off"` — everything off, dockur defaults only.
+      * `"safe"` — only Tier-1 tunings that don't require host setup
+        (currently: `+invtsc`, `platform_tick`).
+      * `"auto"` (default) — apply everything the host can support.
+      * `"manual"` — return `safe` shape; callers are expected to override
+        individual flags from `cfg.pod.tuning_*` keys instead. Helper
+        stays pure (no Config read) so it's easy to test.
+    """
+    if user_pref == "off":
+        return _PROFILE_OFF
+
+    if user_pref in ("safe", "manual"):
+        return TuningProfile(
+            name=user_pref,
+            apply_invtsc=cap.invtsc and cap.cpu_vendor in ("intel", "amd"),
+            apply_io_uring=False,
+            apply_hugepages=False,
+            apply_cpu_pinning=False,
+            # Always safe on a winpodx-owned guest; reversible via bcdedit
+            # /deletevalue. Keep on under "safe" so users who explicitly
+            # request the conservative profile still get the no-cost
+            # timer win.
+            apply_platform_tick=True,
+            apply_no_balloon=False,
+        )
+
+    return TuningProfile(
+        name="auto",
+        apply_invtsc=cap.invtsc and cap.cpu_vendor in ("intel", "amd"),
+        apply_io_uring=cap.io_uring,
+        apply_hugepages=cap.hugepages_enabled,
+        apply_cpu_pinning=cap.dedicated_host,
+        apply_platform_tick=True,
+        apply_no_balloon=cap.dedicated_host,
+    )
+
+
+def format_tuning_summary(cap: TuningCapability, profile: TuningProfile) -> str:
+    """Render a human-readable summary for `winpodx info` / setup."""
+    kv = ".".join(str(x) for x in cap.kernel_version) if cap.kernel_version else "?"
+
+    def yn(b: bool) -> str:
+        return "yes" if b else "no"
+
+    lines = [
+        f"  invtsc:        {yn(cap.invtsc):<4}  ({cap.cpu_vendor})",
+        f"  io_uring:      {yn(cap.io_uring):<4}  (kernel {kv}, need >= 5.6)",
+        f"  hugepages:     {yn(cap.hugepages_enabled):<4}  (sysctl vm.nr_hugepages)",
+        f"  dedicated:     {yn(cap.dedicated_host):<4}",
+        "",
+        f"  Profile: {profile.name}",
+        f"    +invtsc:        {yn(profile.apply_invtsc)}",
+        f"    io_uring aio:   {yn(profile.apply_io_uring)}",
+        f"    hugepages:      {yn(profile.apply_hugepages)}",
+        f"    CPU pinning:    {yn(profile.apply_cpu_pinning)}",
+        f"    platform_tick:  {yn(profile.apply_platform_tick)}",
+        f"    no balloon:     {yn(profile.apply_no_balloon)}",
+    ]
+    return "\n".join(lines)

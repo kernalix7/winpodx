@@ -411,6 +411,18 @@ def _cmd_info() -> None:
         print()
         print(f"WARNING: {warning}", file=sys.stderr)
 
+    print()
+    print("[Tuning]")
+    from winpodx.utils.specs import (
+        detect_tuning_capability,
+        format_tuning_summary,
+        recommend_tuning_profile,
+    )
+
+    cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
+    profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
+    print(format_tuning_summary(cap, profile))
+
 
 _CHECK_GLYPHS: dict[str, str] = {
     "ok": "OK  ",

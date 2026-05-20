@@ -135,6 +135,43 @@ If you ran `winpodx setup` on an older release and can no longer log in:
    ```
 2. **Otherwise**, the only path is `winpodx pod purge` + reinstall, which loses any in-Windows state (installed apps, documents, settings). Make a fresh `winpodx setup` your first step after reinstall, then never touch the password through `setup` again — use `rotate-password`.
 
+## Performance tuning profile
+
+`cfg.pod.tuning_profile` controls how aggressively winpodx tunes the dockur compose for the underlying host. It defaults to `"auto"` — winpodx probes the host once at compose time and turns on the matching subset of safe Windows-on-KVM tweaks. Look at the `[Tuning]` block in `winpodx info` to see what was detected and applied:
+
+```
+[Tuning]
+  invtsc:        yes   (intel)
+  io_uring:      yes   (kernel 6.18, need >= 5.6)
+  hugepages:     no    (sysctl vm.nr_hugepages)
+  dedicated:     yes
+
+  Profile: auto
+    +invtsc:        yes
+    io_uring aio:   yes
+    hugepages:      no
+    CPU pinning:    yes
+    platform_tick:  yes
+    no balloon:     yes
+```
+
+Profiles:
+
+| `tuning_profile` | What it does |
+|---|---|
+| `auto` (default) | Detect host capability + apply every safe tuning the host can support. Recommended for most users. |
+| `safe` | Apply only Tier-1 tunings that don't depend on host configuration — currently `+invtsc` (when supported) and the Windows `platform_tick` BCD tweak. |
+| `off` | Apply nothing; the dockur defaults stand. Use when troubleshooting suspected tuning interaction. |
+| `manual` | Same shape as `safe`; reserved for future per-knob overrides. |
+
+### Items that require host-side setup (not auto-applied)
+
+These are standard Windows-on-KVM tweaks that need operator action on the Linux host before winpodx can take advantage of them. The `[Tuning]` block in `winpodx info` will show them as `no` until the host is set up; flipping to `yes` happens automatically the next time `cfg.pod.tuning_profile = auto` runs.
+
+* **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. winpodx detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
+* **CPU pinning.** winpodx flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; winpodx will not modify host scheduling.
+* **VFIO GPU passthrough.** Out of scope for the RDP-based winpodx architecture. Use a libvirt setup directly if you need bare-metal GPU performance.
+
 ## Configuration
 
 Config file: `~/.config/winpodx/winpodx.toml` (auto-created, `0600` permissions)

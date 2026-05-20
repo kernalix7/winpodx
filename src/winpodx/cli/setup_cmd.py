@@ -594,6 +594,20 @@ def handle_setup(args: argparse.Namespace) -> None:
     cfg.save()
     print(f"\nConfig saved to {Config.path()}")
 
+    # Surface the auto-detected tuning profile so the user can see what
+    # `winpodx setup` decided about their host (#215). The detection is
+    # pure /proc reads; safe to call regardless of backend.
+    from winpodx.utils.specs import (
+        detect_tuning_capability,
+        format_tuning_summary,
+        recommend_tuning_profile,
+    )
+
+    cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
+    profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
+    print("\n[Tuning]")
+    print(format_tuning_summary(cap, profile))
+
     _ensure_oem_token_staged()
 
     # v0.2.0.2: stamp installed_version.txt so a follow-up `winpodx migrate`

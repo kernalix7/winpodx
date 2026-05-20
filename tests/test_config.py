@@ -84,6 +84,30 @@ def test_pod_config_win_version_unknown_passes_through_with_warning(caplog):
     assert any("not in winpodx's known list" in r.message for r in caplog.records)
 
 
+def test_pod_config_tuning_profile_default_is_auto():
+    assert PodConfig().tuning_profile == "auto"
+
+
+def test_pod_config_tuning_profile_accepts_valid_values():
+    for v in ("auto", "safe", "off", "manual"):
+        assert PodConfig(tuning_profile=v).tuning_profile == v
+
+
+def test_pod_config_tuning_profile_normalises_case_and_whitespace():
+    assert PodConfig(tuning_profile="  SAFE  ").tuning_profile == "safe"
+
+
+def test_pod_config_tuning_profile_unknown_coerces_to_auto(caplog):
+    """A typo (`automatic` instead of `auto`) must not silently disable
+    all tunings — it should fall back to the safe default with a warning."""
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="winpodx.core.config"):
+        pod = PodConfig(tuning_profile="automatic")
+    assert pod.tuning_profile == "auto"
+    assert any("tuning_profile" in r.message for r in caplog.records)
+
+
 def test_config_save_load(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 

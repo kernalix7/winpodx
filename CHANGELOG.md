@@ -28,6 +28,10 @@ verbatim.
 ### Fixed
 -->
 
+### Added
+
+- **Host-adaptive Windows-on-KVM tuning profile (#215).** `cfg.pod.tuning_profile` controls how aggressively winpodx tunes the dockur compose for the host. Default `"auto"` probes the host once at compose time (constant_tsc + nonstop_tsc, kernel ≥ 5.6 for io_uring, `vm.nr_hugepages > 0`, idle CPU + RAM headroom) and enables the matching subset of standard tweaks — currently `+invtsc` on x86_64 hosts that expose invariant TSC. Other profiles: `"safe"` (Tier-1 only — `+invtsc` + Windows `platform_tick`, no host-side prerequisites), `"off"` (dockur defaults only), `"manual"` (`safe` shape; future per-knob overrides). `winpodx info` and `winpodx setup` both print the detected capability + resolved profile so users can see exactly what was auto-applied. Suggested by @ismikes (#215); standard sysguides.com Windows-on-KVM tuning items that need host-side setup (hugepages, CPU pinning) are documented in `docs/USAGE.md` as user-host tasks rather than wired into winpodx automatically.
+
 ### Fixed
 
 - **`winpodx setup` rerun no longer locks out users by silently rewriting the Windows password (#216).** Re-running setup on an existing install (e.g. to bump cores/RAM) used to reprompt for the Windows password and write whatever was entered into `winpodx.toml`. Because dockur honors `USERNAME` / `PASSWORD` env vars only on first boot, the host config silently desynced from the Windows guest account and the next RDP launch failed with `LOGON_FAILED_BAD_PASSWORD`. The interactive prompt now detects an existing config with a populated `cfg.rdp.user` + `cfg.rdp.password`, preserves them, and prints guidance to use `winpodx rotate-password` (which goes through the Windows-side password change mechanism). Non-interactive `install.sh` setup and fresh installs are unchanged. Reported by @tolistim on Linux Mint 22.3 / v0.5.4.

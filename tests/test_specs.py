@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from winpodx.utils.specs import (
     HostSpecs,
+    TuningCapability,
     all_tiers,
     detect_host_specs,
+    format_tuning_summary,
     recommend_tier,
+    recommend_tuning_profile,
 )
 
 
@@ -74,3 +79,116 @@ class TestAllTiers:
         rams = [t.ram_gb for t in tiers]
         assert cpus == sorted(cpus)
         assert rams == sorted(rams)
+
+
+def _cap(**overrides) -> TuningCapability:
+    """Build a TuningCapability with sensible defaults; override per test."""
+    base = {
+        "invtsc": True,
+        "io_uring": True,
+        "hugepages_enabled": False,
+        "dedicated_host": True,
+        "kernel_version": (6, 18),
+        "cpu_vendor": "intel",
+    }
+    base.update(overrides)
+    return TuningCapability(**base)
+
+
+class TestRecommendTuningProfile:
+    """Profile-resolution policy for #215. The capability is a snapshot of
+    host state; the user_pref dial decides how aggressive to be."""
+
+    def test_off_disables_everything(self):
+        p = recommend_tuning_profile(_cap(), user_pref="off")
+        assert p.name == "off"
+        assert not p.apply_invtsc
+        assert not p.apply_platform_tick
+        assert not p.apply_io_uring
+        assert not p.apply_cpu_pinning
+
+    def test_safe_applies_only_t1_tunings(self):
+        p = recommend_tuning_profile(_cap(), user_pref="safe")
+        assert p.name == "safe"
+        assert p.apply_invtsc
+        assert p.apply_platform_tick
+        # Host-setup tunings are off in safe mode regardless of capability.
+        assert not p.apply_io_uring
+        assert not p.apply_hugepages
+        assert not p.apply_cpu_pinning
+        assert not p.apply_no_balloon
+
+    def test_auto_applies_everything_supported(self):
+        p = recommend_tuning_profile(_cap(hugepages_enabled=True), user_pref="auto")
+        assert p.name == "auto"
+        assert p.apply_invtsc
+        assert p.apply_io_uring
+        assert p.apply_hugepages
+        assert p.apply_cpu_pinning  # dedicated host
+        assert p.apply_platform_tick
+        assert p.apply_no_balloon
+
+    def test_auto_skips_unsupported_capabilities(self):
+        cap = _cap(invtsc=False, io_uring=False, dedicated_host=False)
+        p = recommend_tuning_profile(cap, user_pref="auto")
+        assert not p.apply_invtsc
+        assert not p.apply_io_uring
+        assert not p.apply_cpu_pinning
+        assert not p.apply_no_balloon
+        # platform_tick is guest-side + always safe.
+        assert p.apply_platform_tick
+
+    def test_invtsc_requires_x86_vendor(self):
+        # invtsc is x86-only; ARM TSC story is different. The recommender
+        # must not flip it on even when /proc/cpuinfo happens to expose
+        # the named flags (unlikely but defensive).
+        p = recommend_tuning_profile(_cap(cpu_vendor="arm"), user_pref="auto")
+        assert not p.apply_invtsc
+
+    def test_unknown_pref_falls_back_to_auto(self):
+        # Defensive: a hand-edited TOML slipping past Config validation
+        # with a typo like "automatic" should be treated as auto, not
+        # silently kill all tunings.
+        p = recommend_tuning_profile(_cap(), user_pref="automatic-typo")
+        assert p.name == "auto"
+
+
+class TestFormatTuningSummary:
+    def test_renders_yes_no_for_every_capability(self):
+        cap = _cap()
+        profile = recommend_tuning_profile(cap, user_pref="auto")
+        out = format_tuning_summary(cap, profile)
+        assert "invtsc" in out
+        assert "io_uring" in out
+        assert "hugepages" in out
+        assert "Profile: auto" in out
+        assert "+invtsc:" in out
+
+
+class TestDetectTuningCapabilityIntegration:
+    """`detect_tuning_capability` reads /proc + os.uname; smoke-test that it
+    runs to completion on the actual test host without raising."""
+
+    def test_runs_without_error(self):
+        from winpodx.utils.specs import detect_tuning_capability
+
+        cap = detect_tuning_capability(vm_cpu_cores=4, vm_ram_gb=6)
+        assert isinstance(cap.invtsc, bool)
+        assert isinstance(cap.io_uring, bool)
+        assert isinstance(cap.hugepages_enabled, bool)
+        assert isinstance(cap.dedicated_host, bool)
+        assert cap.cpu_vendor in ("intel", "amd", "arm", "unknown")
+
+    def test_kernel_version_parses(self):
+        from winpodx.utils.specs import _read_kernel_version
+
+        with patch("os.uname") as mock_uname:
+            mock_uname.return_value.release = "6.18.29-1-longterm"
+            assert _read_kernel_version() == (6, 18)
+
+    def test_kernel_version_unparseable_returns_none(self):
+        from winpodx.utils.specs import _read_kernel_version
+
+        with patch("os.uname") as mock_uname:
+            mock_uname.return_value.release = "weird-no-numbers"
+            assert _read_kernel_version() is None

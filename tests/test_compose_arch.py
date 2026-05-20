@@ -23,6 +23,10 @@ def _cfg() -> Config:
     cfg.rdp.port = 3390
     cfg.pod.vnc_port = 8007
     cfg.pod.container_name = "winpodx-windows"
+    # Baseline architecture tests must stay independent of host capability
+    # detection (#215). Turn off the auto tuner so the QEMU args reflect
+    # only the architecture branch under test.
+    cfg.pod.tuning_profile = "off"
     return cfg
 
 
@@ -58,3 +62,107 @@ def test_compose_arguments_unknown_arch_falls_through_to_x86(monkeypatch):
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "riscv64")
     content = _build_compose_content(_cfg())
     assert 'ARGUMENTS: "-cpu host,arch_capabilities=off"' in content
+
+
+def test_compose_arguments_invtsc_off_profile_does_not_append(monkeypatch):
+    """``cfg.pod.tuning_profile = "off"`` must produce the baseline x86
+    args even on an invtsc-capable host (#215)."""
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=True,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=False,
+            kernel_version=(6, 18),
+            cpu_vendor="intel",
+        ),
+    )
+    cfg = _cfg()
+    cfg.pod.tuning_profile = "off"
+    content = _build_compose_content(cfg)
+    assert 'ARGUMENTS: "-cpu host,arch_capabilities=off"' in content
+    assert "+invtsc" not in content
+
+
+def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatch):
+    """``tuning_profile = "auto"`` + invtsc-capable host appends ``+invtsc``
+    so the Windows guest sees an invariant TSC clocksource (#215)."""
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=True,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=False,
+            kernel_version=(6, 18),
+            cpu_vendor="amd",
+        ),
+    )
+    cfg = _cfg()
+    cfg.pod.tuning_profile = "auto"
+    content = _build_compose_content(cfg)
+    assert 'ARGUMENTS: "-cpu host,arch_capabilities=off,+invtsc"' in content
+
+
+def test_compose_arguments_invtsc_skipped_when_host_lacks_flag(monkeypatch):
+    """Even with ``tuning_profile = "auto"``, a host without
+    ``constant_tsc + nonstop_tsc`` must not get ``+invtsc`` — QEMU
+    would either silently drop it or refuse to start."""
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=False,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=False,
+            kernel_version=(6, 18),
+            cpu_vendor="intel",
+        ),
+    )
+    cfg = _cfg()
+    cfg.pod.tuning_profile = "auto"
+    content = _build_compose_content(cfg)
+    assert "+invtsc" not in content
+
+
+def test_compose_arguments_aarch64_ignores_tuning_profile(monkeypatch):
+    """aarch64 returns ``-cpu host`` regardless of profile — invtsc is
+    x86-only."""
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=True,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=True,
+            kernel_version=(6, 18),
+            cpu_vendor="arm",
+        ),
+    )
+    cfg = _cfg()
+    cfg.pod.tuning_profile = "auto"
+    content = _build_compose_content(cfg)
+    assert 'ARGUMENTS: "-cpu host"' in content
+    assert "+invtsc" not in content
+    assert "arch_capabilities" not in content

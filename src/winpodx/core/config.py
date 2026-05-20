@@ -25,6 +25,7 @@ from winpodx.utils.paths import config_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps
 
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
+_VALID_TUNING_PROFILES = frozenset({"auto", "safe", "off", "manual"})
 
 # Windows edition strings winpodx ships explicit support for. Subset
 # of dockur/windows' full VERSION set, restricted to Windows 10-era
@@ -211,6 +212,21 @@ class PodConfig:
     language: str = "English"
     region: str = "en-001"
     keyboard: str = "en-US"
+    # Host-adaptive performance tuning (#215).
+    #
+    # * "auto"  — detect host capability (invtsc, io_uring, hugepages,
+    #             idle CPU/RAM headroom) at compose time and apply
+    #             everything the host can support.
+    # * "safe"  — apply only Tier-1 tunings that don't require host
+    #             setup (currently +invtsc + Windows platform_tick).
+    # * "off"   — apply nothing; let dockur defaults stand.
+    # * "manual" — same shape as "safe" by default; callers expected to
+    #              flip individual ``cfg.pod.tuning_*`` flags themselves
+    #              (forthcoming knobs).
+    #
+    # The resolved profile is printed by ``winpodx info`` so users can
+    # see exactly what was auto-applied to their compose / guest.
+    tuning_profile: str = "auto"
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -299,6 +315,22 @@ class PodConfig:
                 setattr(self, field_name, default_val)
             else:
                 setattr(self, field_name, val.strip())
+        # tuning_profile: restricted enum. Coerce unknown / empty values
+        # to "auto" silently — a hand-edited TOML must never disable all
+        # tunings via a typo, and the auto profile is always safe.
+        if not isinstance(self.tuning_profile, str):
+            self.tuning_profile = "auto"
+        else:
+            candidate = self.tuning_profile.strip().lower()
+            if candidate not in _VALID_TUNING_PROFILES:
+                logging.getLogger(__name__).warning(
+                    "tuning_profile=%r not in %s; coercing to 'auto'",
+                    self.tuning_profile,
+                    sorted(_VALID_TUNING_PROFILES),
+                )
+                self.tuning_profile = "auto"
+            else:
+                self.tuning_profile = candidate
 
 
 @dataclass

@@ -135,6 +135,43 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
    ```
 2. **그렇지 않으면** `winpodx pod purge` + 재설치가 유일한 길. Windows 안의 모든 상태 (설치된 앱, 문서, 설정) 손실. 재설치 후 첫 단계로 `winpodx setup` 한 번 돌리고, 이후 비밀번호 변경은 절대 `setup` 으로 하지 말고 `rotate-password` 만 사용하세요.
 
+## 성능 튜닝 프로파일
+
+`cfg.pod.tuning_profile` 이 호스트에 대한 winpodx 의 dockur compose 튜닝 적극성을 제어. 기본값 `"auto"` — winpodx 가 compose 생성 시점에 호스트를 한 번 probe 하고 매칭되는 안전한 Windows-on-KVM 튜닝을 활성화. `winpodx info` 의 `[Tuning]` 블록에서 무엇이 감지되고 적용됐는지 확인 가능:
+
+```
+[Tuning]
+  invtsc:        yes   (intel)
+  io_uring:      yes   (kernel 6.18, need >= 5.6)
+  hugepages:     no    (sysctl vm.nr_hugepages)
+  dedicated:     yes
+
+  Profile: auto
+    +invtsc:        yes
+    io_uring aio:   yes
+    hugepages:      no
+    CPU pinning:    yes
+    platform_tick:  yes
+    no balloon:     yes
+```
+
+프로파일:
+
+| `tuning_profile` | 동작 |
+|---|---|
+| `auto` (기본) | 호스트 capability 감지 + 호스트가 지원하는 모든 안전 튜닝 적용. 대부분 사용자에게 권장. |
+| `safe` | 호스트 설정에 의존하지 않는 Tier-1 튜닝만 적용 — 현재는 `+invtsc` (지원 시) + Windows `platform_tick` BCD 변경. |
+| `off` | 아무것도 적용 안 함; dockur 기본만 유지. 튜닝 간섭 디버깅 시 사용. |
+| `manual` | `safe` 와 동일 shape; 향후 개별 knob override 용 예약. |
+
+### 호스트 사전 설정 필요 항목 (자동 적용 안 됨)
+
+다음은 Linux 호스트에서 운영자가 사전 작업해야 winpodx 가 활용 가능한 표준 Windows-on-KVM 튜닝. 호스트 미설정 시 `winpodx info` 의 `[Tuning]` 블록에 `no` 로 표시; 호스트 설정 후 다음 `cfg.pod.tuning_profile = auto` 실행 시 자동 `yes`.
+
+* **Transparent hugepages / explicit hugepages.** `sysctl vm.nr_hugepages` 설정 (또는 `madvise` THP 사용) 으로 QEMU 프로세스 메모리 hugepage backing. winpodx 가 `/proc/meminfo` 의 `HugePages_Total > 0` 감지 시 auto-apply, 미예약 시 skip.
+* **CPU pinning.** winpodx 가 현재 idle CPU + RAM 이 VM 할당량의 2배 이상일 때 호스트를 `dedicated` 로 flag. QEMU 스레드를 특정 코어에 `taskset` 또는 systemd `CPUAffinity=` 으로 pin 하는 건 운영자 책임; winpodx 는 호스트 스케줄링 수정 안 함.
+* **VFIO GPU passthrough.** RDP 기반 winpodx 아키텍처에 scope 밖. 베어메탈 GPU 성능 필요 시 libvirt 직접 사용.
+
 ## 설정
 
 설정 파일: `~/.config/winpodx/winpodx.toml` (자동 생성, `0600` 권한)
