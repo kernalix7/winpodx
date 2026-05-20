@@ -554,6 +554,27 @@ REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
 REM creation; dockur lays the OEM directory contents into C:\OEM\.
 echo [winpodx] Guest agent installed.
 
+REM Stage power-monitor.ps1 under C:\winpodx (C:\OEM is wiped after
+REM first boot, so anything we want to keep needs a copy outside it).
+REM Then register a SYSTEM-level scheduled task that runs the monitor
+REM at boot; the script subscribes to Win32_PowerManagementEvent and
+REM cycles TermService when the host suspends/resumes (which the guest
+REM only sees as a wall-clock jump, leaving the RDP TCP listener
+REM stale -- kernalix7's recurring "GUI stuck on starting after host
+REM wake" symptom).
+if exist C:\OEM\power-monitor.ps1 (
+    if not exist C:\winpodx mkdir C:\winpodx
+    copy /Y C:\OEM\power-monitor.ps1 C:\winpodx\power-monitor.ps1 >nul 2>&1
+    schtasks /create /tn "winpodx-power-monitor" ^
+        /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\winpodx\power-monitor.ps1" ^
+        /sc onstart /ru SYSTEM /rl HIGHEST /f >nul 2>&1
+    REM Kick the task immediately so the WMI subscription is live for
+    REM this session too -- otherwise the very first host suspend
+    REM after install (before the next guest reboot) goes unhandled.
+    schtasks /run /tn "winpodx-power-monitor" >nul 2>&1
+    echo [winpodx] Guest power monitor scheduled.
+)
+
 REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stage.
 (echo done)>C:\winpodx\setup_done.txt
 

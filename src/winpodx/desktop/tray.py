@@ -317,6 +317,47 @@ def run_tray() -> None:
     timer.timeout.connect(refresh_status)
     timer.start(30000)
 
+    # systemd-logind PrepareForSleep listener (issue #TBD). On host
+    # resume the QEMU guest sees a wall-clock jump and its RDP TCP
+    # listener goes stale -- the user sees the tray frozen on
+    # "starting" because the existing UNRESPONSIVE classifier can take
+    # several poll cycles to fire. Subscribing to the system bus lets
+    # us trigger recovery in seconds instead of minutes.
+    def _on_prepare_for_sleep(active: bool) -> None:
+        if active:
+            # Pre-sleep -- nothing to do here yet (future: pause container).
+            log.debug("PrepareForSleep(active=True): host suspending")
+            return
+        # Post-resume. Give the network stack a few seconds to come back
+        # up, then refresh + trigger recovery if RDP is now stale.
+        log.info("PrepareForSleep(active=False): host resumed, refreshing pod state")
+        QTimer.singleShot(5000, refresh_status)
+
+    try:
+        from PySide6.QtDBus import QDBusConnection
+
+        bus = QDBusConnection.systemBus()
+        if bus.isConnected():
+            ok = bus.connect(
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "PrepareForSleep",
+                _on_prepare_for_sleep,
+            )
+            if not ok:
+                log.debug(
+                    "QDBus PrepareForSleep subscription failed; "
+                    "host-suspend recovery will rely on the 30 s poll instead."
+                )
+        else:
+            log.debug("system D-Bus not connected; skipping PrepareForSleep subscription")
+    except ImportError:
+        # PySide6.QtDBus not available in some packaging variants. The
+        # 30 s status poll still catches resume eventually -- D-Bus is
+        # the fast path, not the only path.
+        log.debug("PySide6.QtDBus not available; skipping sleep listener")
+
     import threading
 
     idle_stop = threading.Event()
