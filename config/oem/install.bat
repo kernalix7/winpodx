@@ -155,6 +155,29 @@ net stop DiagTrack 2>nul
 
 powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
+REM Force every idle timeout to "never" so the RDP service / virtio NIC
+REM don't get suspended out from under the host while the user is on a
+REM coffee break. Without this the host pod_status() probe sees RDP
+REM unreachable on a healthy container and shows "starting" forever
+REM (#TBD, observed by kernalix7).
+powercfg /change standby-timeout-ac 0
+powercfg /change standby-timeout-dc 0
+powercfg /change hibernate-timeout-ac 0
+powercfg /change hibernate-timeout-dc 0
+powercfg /change monitor-timeout-ac 0
+powercfg /change monitor-timeout-dc 0
+powercfg /change disk-timeout-ac 0
+powercfg /change disk-timeout-dc 0
+REM Modern Standby (S0 low-power idle) -- even with the timeouts above
+REM it can drop the NIC. The platform role registry key forces
+REM Desktop class so Modern Standby logic is bypassed.
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Power" /v PlatformAoAcOverride /t REG_DWORD /d 0 /f
+REM Belt-and-braces: disable hardware-initiated wake / sleep transitions
+REM via the AC profile too.
+powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0 2>nul
+powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0 2>nul
+powercfg /setactive SCHEME_CURRENT 2>nul
+
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /t REG_DWORD /d 0 /f
 
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 1 /f

@@ -90,6 +90,45 @@ class DockerBackend(Backend):
     def is_paused(self) -> bool:
         return "paused" in self._container_state()
 
+    def uptime_secs(self) -> int | None:
+        """Seconds since the container was last started, or None on probe failure."""
+        import datetime
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    "-f",
+                    "{{.State.StartedAt}}",
+                    self.cfg.pod.container_name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        ts = result.stdout.strip()
+        if not ts or result.returncode != 0:
+            return None
+        ts = ts.replace("Z", "+00:00")
+        if "." in ts:
+            head, _, tail = ts.partition(".")
+            frac, _, tz = tail.partition("+")
+            if tz:
+                ts = f"{head}.{frac[:6]}+{tz}"
+            else:
+                ts = f"{head}.{frac[:6]}"
+        try:
+            started = datetime.datetime.fromisoformat(ts)
+        except ValueError:
+            return None
+        now = datetime.datetime.now(tz=started.tzinfo)
+        return max(0, int((now - started).total_seconds()))
+
     def get_ip(self) -> str:
         return self.cfg.rdp.ip or "127.0.0.1"
 

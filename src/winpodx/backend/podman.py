@@ -95,6 +95,52 @@ class PodmanBackend(Backend):
     def is_paused(self) -> bool:
         return "paused" in self._container_state()
 
+    def uptime_secs(self) -> int | None:
+        """Seconds since the container was last started, or None on probe failure."""
+        import datetime
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                [
+                    "podman",
+                    "inspect",
+                    "-f",
+                    "{{.State.StartedAt}}",
+                    self.cfg.pod.container_name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        ts = result.stdout.strip()
+        if not ts or result.returncode != 0:
+            return None
+        # podman prints RFC3339 (`2026-05-20T14:00:00.123456789Z`). Python's
+        # fromisoformat handles `+00:00` but not bare `Z` until 3.11, and
+        # the nanoseconds suffix until 3.11 either — strip both for the
+        # 3.9 / 3.10 fallback path.
+        ts = ts.replace("Z", "+00:00")
+        if "." in ts:
+            head, _, tail = ts.partition(".")
+            # Truncate fractional seconds to microseconds (6 digits) so
+            # the parser accepts it across Python versions.
+            frac, _, tz = tail.partition("+")
+            if tz:
+                ts = f"{head}.{frac[:6]}+{tz}"
+            else:
+                ts = f"{head}.{frac[:6]}"
+        try:
+            started = datetime.datetime.fromisoformat(ts)
+        except ValueError:
+            return None
+        now = datetime.datetime.now(tz=started.tzinfo)
+        delta = (now - started).total_seconds()
+        return max(0, int(delta))
+
     def get_ip(self) -> str:
         return self.cfg.rdp.ip or "127.0.0.1"
 

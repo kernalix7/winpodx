@@ -114,3 +114,62 @@ def test_docker_backend_is_running_uses_configured_container_name():
     args, _ = mock_run.call_args
     cmd = args[0]
     assert "name=docker-win" in cmd
+
+
+# pod_status state-classification tests covering the new UNRESPONSIVE
+# discriminator (#TBD). Mock the backend to control is_running /
+# is_paused / uptime_secs deterministically, mock `check_rdp_port` to
+# control the RDP probe, and verify each of the five states resolves.
+
+
+def _patched_pod_status(*, running, paused, rdp_ok, uptime):
+    """Helper — run pod_status with the four input switches mocked."""
+    from winpodx.core.pod import pod_status
+
+    cfg = Config()
+    fake_backend = MagicMock()
+    fake_backend.is_running.return_value = running
+    fake_backend.is_paused.return_value = paused
+    fake_backend.uptime_secs.return_value = uptime
+
+    with (
+        patch("winpodx.core.pod.backend.get_backend", return_value=fake_backend),
+        patch("winpodx.core.pod.backend.check_rdp_port", return_value=rdp_ok),
+    ):
+        return pod_status(cfg)
+
+
+def test_pod_status_running_when_container_up_and_rdp_reachable():
+    status = _patched_pod_status(running=True, paused=False, rdp_ok=True, uptime=300)
+    assert status.state == PodState.RUNNING
+
+
+def test_pod_status_starting_when_container_recent_and_rdp_down():
+    """Container up < 600s + RDP miss = still booting, do not yet
+    classify as UNRESPONSIVE."""
+    status = _patched_pod_status(running=True, paused=False, rdp_ok=False, uptime=60)
+    assert status.state == PodState.STARTING
+
+
+def test_pod_status_unresponsive_when_container_old_and_rdp_down():
+    """Container up past the 600s floor + RDP miss = guest stalled."""
+    status = _patched_pod_status(running=True, paused=False, rdp_ok=False, uptime=900)
+    assert status.state == PodState.UNRESPONSIVE
+
+
+def test_pod_status_starting_when_uptime_unknown_legacy_fallback():
+    """libvirt + manual backends return None from uptime_secs() — must
+    fall back to the legacy STARTING answer instead of UNRESPONSIVE."""
+    status = _patched_pod_status(running=True, paused=False, rdp_ok=False, uptime=None)
+    assert status.state == PodState.STARTING
+
+
+def test_pod_status_paused_short_circuits_before_rdp_probe():
+    """Paused state must win over RDP / uptime classification."""
+    status = _patched_pod_status(running=True, paused=True, rdp_ok=False, uptime=900)
+    assert status.state == PodState.PAUSED
+
+
+def test_pod_status_stopped_when_container_not_running():
+    status = _patched_pod_status(running=False, paused=False, rdp_ok=False, uptime=None)
+    assert status.state == PodState.STOPPED

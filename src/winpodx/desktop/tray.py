@@ -48,6 +48,58 @@ def run_tray() -> None:
     stop_action = QAction("Stop Pod")
     restart_action = QAction("Restart Pod")
 
+    # Cache the previous state across refresh ticks so the tray can drive
+    # state-transition behaviour — currently the RUNNING → UNRESPONSIVE
+    # auto-recovery flow + its notifications. Holds the PodState value of
+    # the most recent observation, or None at startup.
+    state_cache: dict[str, object] = {"prev": None, "recovery_inflight": False}
+
+    def _trigger_unresponsive_recovery(cfg: Config) -> None:
+        """Run the agent-side TermService cycle in a background thread.
+
+        The tray's status timer keeps polling while this runs. The
+        recovery itself takes up to ~30 s (TermService stop + start +
+        RDP re-probe window), so it must not block the UI thread.
+        Re-entry is guarded via ``state_cache['recovery_inflight']`` so
+        a flapping pod doesn't pile up overlapping recovery threads.
+        """
+        import threading
+
+        from winpodx.core.pod.recovery import RecoveryAction, try_recover_rdp
+        from winpodx.desktop.notify import (
+            notify_pod_needs_manual_restart,
+            notify_pod_recovered,
+        )
+
+        if state_cache["recovery_inflight"]:
+            return
+        state_cache["recovery_inflight"] = True
+
+        def worker() -> None:
+            try:
+                result = try_recover_rdp(cfg)
+            except Exception as e:  # noqa: BLE001 — must not crash the tray
+                log.warning("Recovery worker crashed: %s", e)
+                notify_pod_needs_manual_restart(f"recovery worker error: {e}")
+                return
+            finally:
+                state_cache["recovery_inflight"] = False
+
+            if result.success:
+                notify_pod_recovered()
+                return
+
+            detail = ""
+            if result.action == RecoveryAction.AGENT_UNREACHABLE:
+                detail = "agent unreachable"
+            elif result.action == RecoveryAction.RDP_STILL_DOWN:
+                detail = "RDP still down after TermService restart"
+            if result.detail:
+                detail = f"{detail} — {result.detail}" if detail else result.detail
+            notify_pod_needs_manual_restart(detail)
+
+        threading.Thread(target=worker, name="winpodx-pod-recovery", daemon=True).start()
+
     def refresh_status() -> None:
         cfg = Config.load()
         try:
@@ -58,7 +110,24 @@ def run_tray() -> None:
             status_action.setText(f"Pod: {state_text}")
             start_action.setEnabled(s.state == PodState.STOPPED)
             stop_action.setEnabled(s.state == PodState.RUNNING)
-            restart_action.setEnabled(s.state == PodState.RUNNING)
+            restart_action.setEnabled(s.state in (PodState.RUNNING, PodState.UNRESPONSIVE))
+
+            # State-transition behaviour: RUNNING → UNRESPONSIVE fires the
+            # auto-recovery flow + a "trying to wake the guest"
+            # notification. Recovery worker emits either
+            # `notify_pod_recovered` or `notify_pod_needs_manual_restart`
+            # when it completes, so we don't need to drive those here.
+            prev = state_cache["prev"]
+            if (
+                s.state == PodState.UNRESPONSIVE
+                and prev != PodState.UNRESPONSIVE
+                and not state_cache["recovery_inflight"]
+            ):
+                from winpodx.desktop.notify import notify_pod_unresponsive
+
+                notify_pod_unresponsive(s.ip or cfg.rdp.ip)
+                _trigger_unresponsive_recovery(cfg)
+            state_cache["prev"] = s.state
         except Exception as e:
             log.warning("Failed to get pod status: %s", e)
             status_action.setText("Pod: error")

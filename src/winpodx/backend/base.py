@@ -35,6 +35,16 @@ class Backend(ABC):
         """
         return False
 
+    def uptime_secs(self) -> int | None:
+        """Return seconds since the backend's runtime started, or None.
+
+        Used by ``pod_status`` to distinguish a still-booting container
+        (``STARTING``) from a long-running one whose Windows guest has
+        gone unresponsive (``UNRESPONSIVE``). Default: None so backends
+        that can't cheaply expose this fall back to legacy behaviour.
+        """
+        return None
+
     @abstractmethod
     def get_ip(self) -> str:
         """Return the IP address of the running Windows environment."""
