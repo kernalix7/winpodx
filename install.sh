@@ -224,7 +224,35 @@ pkg_name() {
                         echo "freerdp3-x11"
                     fi
                     ;;
-                kvm)            echo "qemu-kvm" ;;
+                kvm)
+                    # Ubuntu 24.04+ (and Mint 22+ / xubuntu 26.04 / Debian 13)
+                    # made qemu-kvm a virtual package with no installation
+                    # candidate; apt errors with
+                    # ``E: Package 'qemu-kvm' has no installation candidate``
+                    # and lists qemu-system-x86 / qemu-system-x86-hwe as the
+                    # real providers (#200, reported by @n-osennij on
+                    # xubuntu 26.04). On aarch64 the real package is
+                    # qemu-system-arm. Probe apt-cache and pick the available
+                    # candidate; fall back to qemu-kvm so apt emits the
+                    # legacy error message on truly ancient repos.
+                    local kvm_first kvm_second
+                    if [ "$ARCH" = "aarch64" ]; then
+                        kvm_first="qemu-system-arm"
+                        kvm_second="qemu-kvm"
+                    else
+                        kvm_first="qemu-system-x86"
+                        kvm_second="qemu-system-x86-hwe"
+                    fi
+                    if apt-cache show "$kvm_first" 2>/dev/null | grep -q '^Package:'; then
+                        echo "$kvm_first"
+                    elif apt-cache show "$kvm_second" 2>/dev/null | grep -q '^Package:'; then
+                        echo "$kvm_second"
+                    elif apt-cache show qemu-kvm 2>/dev/null | grep -q '^Package:'; then
+                        echo "qemu-kvm"
+                    else
+                        echo "$kvm_first"
+                    fi
+                    ;;
             esac ;;
         arch|manjaro|endeavouros)
             case "$dep" in
