@@ -30,6 +30,7 @@ verbatim.
 
 ### Added
 
+- **`install.sh --manual` flag (#255 PR 2).** Skips `winpodx setup` + `pod wait-ready` + app discovery + reverse-open setup. Binary + desktop entry + icon land normally; provisioning is deferred to the first-run prompt that fires on the next `winpodx` invocation (CLI Y/C/n or GUI modal). Useful when you want to pick custom knobs (edition / language / debloat / tuning / anti-detection) without sitting through the auto path first. Equivalent: `WINPODX_MANUAL=1` env var. `docs/INSTALL.md` + Korean mirror gain a "Manual install" section.
 - **CLI + GUI first-run setup prompt (#255 PR 1).** When `cfg.pod.initialized` is False (or no config exists), the first `winpodx <cmd>` invocation surfaces a three-way prompt: `[Y]es` (auto -- host-detected defaults, no prompts), `[C]ustom` (wizard -- pick every knob), `[n]o` (skip). Skip-list bypasses introspection / config / uninstall / gui / tray commands and non-TTY stdin. GUI shows the same modal on first launch. After a successful setup, `initialized` flips to True and the prompt stops firing.
 - **`winpodx setup --customize` flag (#255 PR 1).** Opts into the wizard mode (existing interactive prompts; full multi-step wizard with debloat / tuning / anti-detection knobs lands in PR 7). Default `winpodx setup` is now non-interactive (host-detected defaults).
 - **`winpodx --version` install-source suffix.** Output now reads `winpodx 0.5.8 (installed via apt)` / `(curl install)` / `(pip install)` / `(install source not detected)` so users see provenance at a glance.

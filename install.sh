@@ -67,6 +67,14 @@ Flags:
                       (11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 |
                        tiny10 | 2025 | 2022 | 2019 | 2016 — see
                        docs/ARCHITECTURE.md for custom ISOs)
+  --manual            Install binary only — skip 'winpodx setup',
+                      'winpodx pod wait-ready', app discovery, and
+                      reverse-open setup. Lets you finish provisioning
+                      yourself via the first-run prompt that fires on
+                      the next 'winpodx' invocation (CLI Y/C/n or GUI
+                      modal). Useful when you want to pick custom
+                      knobs without sitting through the auto path
+                      first. Equivalent: WINPODX_MANUAL=1 env var.
   -h, --help          Print this help and exit
 USAGE_EOF
 }
@@ -101,6 +109,10 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             shift 2
+            ;;
+        --manual)
+            WINPODX_MANUAL=1
+            shift
             ;;
         -h|--help)
             usage
@@ -670,14 +682,24 @@ if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
 fi
 
 # --- Run setup ---
-log "Running winpodx setup..."
+# --manual / WINPODX_MANUAL=1: skip setup + the entire provisioning
+# chain below (wait-ready / migrate / discovery / reverse-open). The
+# binary is installed, but the Windows VM stays unprovisioned until
+# the user picks one of the first-run prompt options on the next
+# `winpodx` invocation (CLI Y/C/n or GUI modal -- #255 PR 1).
 export PYTHONPATH="$INSTALL_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
-SETUP_ARGS=(--non-interactive)
-if [ -n "$WINPODX_WIN_VERSION" ]; then
-    SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
-    log "Installing Windows edition: $WINPODX_WIN_VERSION"
+if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
+    log "Manual mode (--manual / WINPODX_MANUAL=1) — skipping setup + Windows provisioning."
+    log "  Run 'winpodx' (CLI or GUI) to finish setup. Prompt will offer auto, customize, or skip."
+else
+    log "Running winpodx setup..."
+    SETUP_ARGS=(--non-interactive)
+    if [ -n "$WINPODX_WIN_VERSION" ]; then
+        SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
+        log "Installing Windows edition: $WINPODX_WIN_VERSION"
+    fi
+    python3 -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
 fi
-python3 -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
 
 # --- Install winpodx GUI desktop entry & icon ---
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
@@ -935,13 +957,24 @@ echo ""
 echo " Location: $INSTALL_DIR"
 echo " Command:  winpodx"
 echo ""
-echo " Usage:"
-echo "   winpodx app run desktop        # Start the Windows pod (first run takes ~5-10 min)"
-echo "   winpodx app refresh            # Scan the pod for installed apps + icons"
-echo "   winpodx info                   # System / pod / dependency snapshot"
-echo "   winpodx setup                  # Reconfigure"
-echo ""
-echo " On first pod boot the menu auto-populates with the apps actually"
-echo " installed in your Windows guest — no curated list, real icons."
+if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
+    echo " Manual mode — Windows VM was NOT provisioned."
+    echo ""
+    echo " Next step (pick one):"
+    echo "   winpodx              # CLI first-run prompt: auto / customize / skip"
+    echo "   winpodx gui          # GUI first-run modal with the same three choices"
+    echo "   winpodx setup        # Run setup directly (non-interactive auto)"
+    echo "   winpodx setup --customize"
+    echo "                        # Run setup wizard (pick every knob)"
+else
+    echo " Usage:"
+    echo "   winpodx app run desktop        # Start the Windows pod (first run takes ~5-10 min)"
+    echo "   winpodx app refresh            # Scan the pod for installed apps + icons"
+    echo "   winpodx info                   # System / pod / dependency snapshot"
+    echo "   winpodx setup                  # Reconfigure"
+    echo ""
+    echo " On first pod boot the menu auto-populates with the apps actually"
+    echo " installed in your Windows guest — no curated list, real icons."
+fi
 echo ""
 log "Installation complete!"

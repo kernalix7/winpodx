@@ -35,6 +35,24 @@ WINPODX_REF=main   curl -fsSL https://raw.githubusercontent.com/kernalix7/winpod
 WINPODX_REF=v0.5.7 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
+## Manual install (skip provisioning)
+
+For users who want to install the binary now and customize the Windows guest later (pick edition / language / debloat / tuning knobs before the ~7.5 GB ISO download + Sysprep + OEM apply kicks off), pass `--manual`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --manual
+# or via env var:
+WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
+Manual mode installs the binary + desktop entry + icon only -- no `winpodx setup`, no `pod wait-ready`, no app discovery, no reverse-open setup. The next time you run `winpodx` (CLI or GUI), the first-run prompt offers three options:
+
+- **Auto** -- host-detected defaults, non-interactive (= what default `install.sh` would have done)
+- **Customize** -- wizard mode (pick every knob); equivalent to `winpodx setup --customize`
+- **Skip** -- exits without changes; re-runs the prompt on next invocation
+
+This is the same flow that fires after a package-manager install. Use it when you want the wizard but prefer not to interrupt `install.sh` half-way through.
+
 ## Offline / air-gapped install
 
 The installer takes three optional flags for machines with no registry / package-repo access:

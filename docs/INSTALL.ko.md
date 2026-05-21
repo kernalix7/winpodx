@@ -35,6 +35,24 @@ WINPODX_REF=main   curl -fsSL https://raw.githubusercontent.com/kernalix7/winpod
 WINPODX_REF=v0.5.7 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
+## 수동 설치 (provisioning 건너뛰기)
+
+바이너리만 먼저 설치하고 Windows 게스트 커스터마이즈 (edition / 언어 / debloat / tuning knob 선택) 를 ~7.5 GB ISO 다운로드 + Sysprep + OEM apply 시작 전에 하고 싶은 사용자는 `--manual` 전달:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --manual
+# 또는 env var:
+WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
+Manual 모드는 바이너리 + desktop entry + 아이콘만 설치 — `winpodx setup` / `pod wait-ready` / 앱 디스커버리 / reverse-open 설정 전부 skip. 다음 `winpodx` 실행 (CLI 또는 GUI) 시 first-run prompt 가 3가지 옵션 제공:
+
+- **Auto** — 호스트 감지 default, non-interactive (= 기본 `install.sh` 가 했을 것)
+- **Customize** — wizard 모드 (모든 knob 선택); `winpodx setup --customize` 와 동등
+- **Skip** — 변경 없이 종료; 다음 실행시 prompt 재발
+
+패키지 매니저 설치 후 발화하는 flow 와 동일. wizard 원하지만 `install.sh` 중간에 인터럽트 받기 싫을 때 사용.
+
 ## 오프라인 / 에어갭 설치
 
 인스톨러는 registry / 패키지 저장소 접근이 없는 머신을 위한 세 가지 선택 플래그 제공:
