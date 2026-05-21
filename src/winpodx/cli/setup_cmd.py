@@ -440,12 +440,21 @@ def handle_setup(args: argparse.Namespace) -> None:
         sys.exit(_handle_migrate_storage(args))
 
     backend = args.backend
-    non_interactive = args.non_interactive
 
-    # Non-TTY stdin (pipe, /dev/null, CI) → force non-interactive mode so that
-    # every input() call uses its default without raising EOFError.
-    if not non_interactive and not sys.stdin.isatty():
+    # #255: ``winpodx setup`` defaults to non-interactive (auto). The
+    # ``--customize`` flag opts into the wizard. ``--non-interactive``
+    # is a deprecated alias kept for back-compat with install.sh and
+    # other scripted callers; both interpretations resolve to the same
+    # auto mode.
+    customize = bool(getattr(args, "customize", False))
+    non_interactive = not customize
+
+    # Non-TTY stdin (pipe, /dev/null, CI) -> force non-interactive even
+    # if --customize was passed: every input() call would otherwise
+    # raise EOFError when defaults are read.
+    if customize and not sys.stdin.isatty():
         non_interactive = True
+        customize = False
 
     print("=== winpodx setup ===\n")
 
@@ -618,6 +627,10 @@ def handle_setup(args: argparse.Namespace) -> None:
         print(f"Detected Windows DPI: {detected_dpi}%")
         cfg.rdp.dpi = detected_dpi
 
+    # #255: mark this install as initialized so the first-run prompt
+    # doesn't fire again. Setting this on the cfg in memory before save
+    # ensures the flag round-trips through TOML.
+    cfg.pod.initialized = True
     cfg.save()
     print(f"\nConfig saved to {Config.path()}")
 

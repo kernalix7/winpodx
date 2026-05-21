@@ -26,7 +26,11 @@ def cli(argv: list[str] | None = None) -> None:
         prog="winpodx",
         description="Windows app integration for Linux desktop",
     )
-    parser.add_argument("--version", action="version", version=f"winpodx {__version__}")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=_format_version_string(),
+    )
 
     sub = parser.add_subparsers(dest="command")
 
@@ -230,7 +234,27 @@ def cli(argv: list[str] | None = None) -> None:
             "Settings → Windows Edition picker or edit winpodx.toml."
         ),
     )
-    setup_p.add_argument("--non-interactive", action="store_true")
+    # --non-interactive: pre-#255 used to be the way to skip prompts.
+    # As of #255, ``winpodx setup`` is non-interactive by default, so
+    # this flag is a deprecated alias kept for back-compat with
+    # install.sh, packaging scripts, and CI callers. The new opposite
+    # is ``--customize``.
+    setup_p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="DEPRECATED: setup is non-interactive by default since #255.",
+    )
+    setup_p.add_argument(
+        "--customize",
+        action="store_true",
+        help=(
+            "Wizard mode: walk every customizable knob (specs, edition, "
+            "backend, locale, timezone, tuning profile, debloat preset, "
+            "anti-detection) with host-detected defaults pre-filled. "
+            "Press Enter to accept any value. Default is non-interactive "
+            "auto setup; use this flag to opt into the wizard."
+        ),
+    )
     setup_p.add_argument(
         "--update-image",
         action="store_true",
@@ -375,6 +399,19 @@ def cli(argv: list[str] | None = None) -> None:
         parser.print_help()
         return
 
+    # First-run prompt (#255): fire before tray spawn / dispatch when
+    # the user hasn't run setup yet. Skipped for introspection /
+    # config / uninstall / gui / tray commands and for non-TTY stdin.
+    # When the prompt runs and the user picks setup, control returns
+    # here so the original command proceeds against a now-initialized
+    # pod.
+    try:
+        from winpodx.cli.first_run import maybe_run_first_run_prompt
+
+        maybe_run_first_run_prompt(args.command)
+    except Exception:  # noqa: BLE001 -- never block the CLI on the prompt itself
+        pass
+
     # Best-effort: ensure the tray subprocess is up before dispatching
     # any CLI command. The tray is the only driver for the UNRESPONSIVE
     # auto-recovery flow, so even users who only ever touch winpodx via
@@ -467,6 +504,7 @@ def _cmd_info() -> None:
     sys_ = info["system"]
     print("[System]")
     print(f"  winpodx:        {sys_['winpodx']}")
+    print(f"  Install:        {sys_.get('install_source', '(unknown)')}")
     print(f"  OEM bundle:     {sys_['oem_bundle']}")
     print(f"  rdprrap:        {sys_['rdprrap']}")
     print(f"  Distro:         {sys_['distro']}")
@@ -772,6 +810,22 @@ def _cmd_uninstall(args: argparse.Namespace) -> None:
     print(f"\nUninstall complete ({removed} items removed).")
     print(f"Container '{_container}' was NOT removed.")
     print(f"To remove it: podman stop {_container} && podman rm {_container}")
+
+
+def _format_version_string() -> str:
+    """Render the ``winpodx --version`` line with install-source suffix.
+
+    Example: ``winpodx 0.5.8 (installed via apt)``. Detection is
+    best-effort; on any failure the suffix is omitted so the string
+    falls back to plain ``winpodx <version>``.
+    """
+    try:
+        from winpodx.utils.install_source import detect
+
+        source = detect()
+        return f"winpodx {__version__} ({source.label})"
+    except Exception:  # noqa: BLE001
+        return f"winpodx {__version__}"
 
 
 def _maybe_resume_pending(argv: list[str] | None) -> None:

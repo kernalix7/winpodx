@@ -28,6 +28,18 @@ verbatim.
 ### Fixed
 -->
 
+### Added
+
+- **CLI + GUI first-run setup prompt (#255 PR 1).** When `cfg.pod.initialized` is False (or no config exists), the first `winpodx <cmd>` invocation surfaces a three-way prompt: `[Y]es` (auto -- host-detected defaults, no prompts), `[C]ustom` (wizard -- pick every knob), `[n]o` (skip). Skip-list bypasses introspection / config / uninstall / gui / tray commands and non-TTY stdin. GUI shows the same modal on first launch. After a successful setup, `initialized` flips to True and the prompt stops firing.
+- **`winpodx setup --customize` flag (#255 PR 1).** Opts into the wizard mode (existing interactive prompts; full multi-step wizard with debloat / tuning / anti-detection knobs lands in PR 7). Default `winpodx setup` is now non-interactive (host-detected defaults).
+- **`winpodx --version` install-source suffix.** Output now reads `winpodx 0.5.8 (installed via apt)` / `(curl install)` / `(pip install)` / `(install source not detected)` so users see provenance at a glance.
+- **`winpodx info [System]` install-source line.** Same detection surfaced in the info command's System block alongside winpodx / OEM bundle / rdprrap / distro / kernel lines.
+- **`winpodx.utils.install_source`** -- new helper. Detects install provenance via `dpkg -S` / `rpm -qf` / `pacman -Qo` (3 s timeout each), with `~/.local/bin/winpodx-app` curl-install heuristic + `site-packages` source-checkout fallback. Returns `InstallSource(kind, label, package_name, removal_command)` for downstream uninstall / version / info / doctor consumers.
+
+### Changed
+
+- **`winpodx setup` default flipped to non-interactive auto (#255 PR 1).** Previously interactive with host-detected defaults + a handful of prompts. Now defaults to fully auto (= existing `--non-interactive` behaviour). Use `winpodx setup --customize` for the wizard. The `--non-interactive` flag stays as a deprecated alias for install.sh and other scripted callers.
+
 ## [0.5.7] - 2026-05-21
 
 Feature release wrapping up #247 (per-item debloat picker, four phases) and #254 (locale + edition save flow, three phases), plus the OEM-perm regression #266/#267 caught at the same time.

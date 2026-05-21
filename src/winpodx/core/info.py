@@ -104,8 +104,18 @@ def _system_section() -> dict[str, str]:
     distro_id = osr.get("ID", "")
     distro_ver = osr.get("VERSION", osr.get("VERSION_ID", ""))
     distro = f"{distro_id} {distro_ver}".strip() or "(unknown)"
+    # Install-source line (#255): tells the user whether winpodx came
+    # from apt / dnf / yay / curl / source, so the uninstall path
+    # decision is obvious without digging through dpkg/rpm/pacman.
+    try:
+        from winpodx.utils.install_source import detect as _detect_install_source
+
+        install_source = _detect_install_source().label
+    except Exception:  # noqa: BLE001 -- never break info on detection failure
+        install_source = "install source not detected"
     return {
         "winpodx": __version__,
+        "install_source": install_source,
         "oem_bundle": _bundled_oem_version(),
         "rdprrap": _bundled_rdprrap_version(),
         "distro": distro,

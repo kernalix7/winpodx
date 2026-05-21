@@ -59,7 +59,12 @@ class NavigationMixin:
         """v0.2.1: on GUI startup, resume any pending install steps and —
         if this is genuinely a first run (no apps registered yet) —
         surface a one-shot Quick Start dialog summarising system state.
-        Both branches are best-effort and silent on success."""
+
+        #255: when ``cfg.pod.initialized`` is False, the first-run setup
+        prompt fires *before* the quick-start dialog -- user picks
+        auto / customize / skip, setup runs (auto) or wizard opens
+        (customize), then we proceed to the normal quick-start flow.
+        Both branches stay best-effort and silent on success."""
         from winpodx.utils.pending import has_pending
 
         if has_pending():
@@ -81,12 +86,88 @@ class NavigationMixin:
 
             threading.Thread(target=_do, daemon=True).start()
 
+        # #255: first-run setup prompt -- only fires when config exists
+        # but isn't marked initialized (or when config is missing). The
+        # CLI's first-run prompt covers the terminal path; this is the
+        # GUI counterpart.
+        if not getattr(self.cfg.pod, "initialized", False):
+            QTimer.singleShot(1500, self._show_first_run_setup_prompt)
+            return
+
         # First-launch wizard: only show when no apps have ever been
         # discovered AND the welcome marker is missing. After dismiss
         # the marker is written so we don't pester returning users.
         marker = Path(self.cfg.path()).parent / ".welcomed"
         if not marker.exists() and not self.apps:
             QTimer.singleShot(1500, self._show_quick_start)
+
+    def _show_first_run_setup_prompt(self) -> None:
+        """First-run setup prompt (#255 GUI counterpart).
+
+        Three-way modal: Auto / Customize / Skip. Auto runs
+        ``winpodx setup`` (non-interactive) on a worker thread,
+        streaming output into the GUI log. Customize launches the
+        wizard (PR 7 of #255; until that lands, falls back to Auto
+        with a notice). Skip dismisses without action -- prompt
+        re-fires on next launch.
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Set up winpodx")
+        box.setText("winpodx has not been set up yet on this account.\n\nRun setup now?")
+        box.setInformativeText(
+            "Auto:      host-detected defaults, no prompts (~5-10 min for "
+            "Windows ISO download + Sysprep + OEM apply)\n"
+            "Customize: wizard -- pick every knob (CPU/RAM, edition, "
+            "language, debloat, tuning, ...)\n"
+            "Skip:      do nothing; you can run `winpodx setup` later"
+        )
+        auto_btn = box.addButton("Auto", QMessageBox.ButtonRole.AcceptRole)
+        customize_btn = box.addButton("Customize", QMessageBox.ButtonRole.ActionRole)
+        skip_btn = box.addButton("Skip", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(auto_btn)
+        box.exec()
+        clicked = box.clickedButton()
+
+        if clicked is skip_btn:
+            return
+
+        mode = "customize" if clicked is customize_btn else "auto"
+        self._run_first_run_setup(mode)
+
+    def _run_first_run_setup(self, mode: str) -> None:
+        """Spawn ``winpodx setup`` on a worker thread, stream output
+        through the existing log signal. After completion, reload cfg
+        so ``initialized = True`` takes effect, then trigger the
+        normal quick-start.
+        """
+        import argparse
+
+        def _stream(line: str) -> None:
+            self.log_signal.emit(line, C.SUBTEXT1)
+
+        def _do() -> None:
+            from winpodx.cli.setup_cmd import handle_setup
+            from winpodx.core.config import Config
+
+            args = argparse.Namespace(
+                backend=None,
+                win_version=None,
+                update_image=False,
+                migrate_storage=False,
+                migrate_storage_target=None,
+                non_interactive=(mode == "auto"),
+                customize=(mode == "customize"),
+            )
+            try:
+                handle_setup(args)
+                self.cfg = Config.load()
+                _stream("[winpodx] Setup complete.")
+            except Exception as e:  # noqa: BLE001
+                _stream(f"[winpodx] Setup failed: {e}")
+
+        threading.Thread(target=_do, daemon=True).start()
 
     def _show_quick_start(self) -> None:
         """First-run welcome dialog: brief checklist of what's set up,

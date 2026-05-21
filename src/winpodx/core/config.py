@@ -222,6 +222,15 @@ class PodConfig:
     # so users on niche territories (Russia Time Zone N, etc.) the CLDR
     # 001 wildcard doesn't cover can still hand-set it.
     timezone: str = ""
+    # v0.5.8+ (#255): first-run prompt fires when this is False. Set to
+    # True at the end of a successful ``winpodx setup`` (auto or
+    # --customize). Absent in TOML = treated as False on load, so
+    # existing installs that upgrade get the prompt once (unless they
+    # explicitly run setup, which flips it to True silently). Stored
+    # on the pod section because it conceptually marks "pod is
+    # configured + ready to provision" -- not "winpodx CLI is
+    # installed".
+    initialized: bool = False
     # Host-adaptive performance tuning (#215).
     #
     # * "auto"  — detect host capability (invtsc, io_uring, hugepages,
@@ -549,6 +558,7 @@ class Config:
                 "keyboard": self.pod.keyboard,
                 "timezone": self.pod.timezone,
                 "tuning_profile": self.pod.tuning_profile,
+                "initialized": self.pod.initialized,
             },
             "reverse_open": {
                 "enabled": self.reverse_open.enabled,
