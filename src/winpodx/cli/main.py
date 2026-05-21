@@ -317,6 +317,17 @@ def cli(argv: list[str] | None = None) -> None:
             "Mutually exclusive with --preset; explicit list wins."
         ),
     )
+    debloat_p.add_argument(
+        "--undo",
+        action="store_true",
+        help=(
+            "Run each selected item's undo script instead of its apply "
+            "script. Items without an undo path (e.g. onedrive, "
+            "startup_programs) are rejected with a clear error. "
+            "Combine with --items <list> for targeted revert; combine "
+            "with --preset <name> to undo a whole preset."
+        ),
+    )
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
@@ -604,6 +615,7 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
     from winpodx.core.debloat import (
         DebloatCatalogError,
         build_run_script,
+        build_undo_script,
         format_catalog_listing,
         load_catalog,
         resolve_selection,
@@ -638,14 +650,18 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
         print("Debloat only supported for Podman/Docker backends.")
         return
 
+    undo = getattr(args, "undo", False)
     try:
-        payload = build_run_script(catalog, selection)
+        payload = (
+            build_undo_script(catalog, selection) if undo else build_run_script(catalog, selection)
+        )
     except DebloatCatalogError as e:
         print(f"Debloat payload build error: {e}")
         return
 
-    description = "debloat (" + ",".join(selection) + ")"
-    print(f"Running debloat ({len(selection)} item(s); may take a minute)...")
+    verb = "undo" if undo else "apply"
+    description = f"debloat-{verb} (" + ",".join(selection) + ")"
+    print(f"Running debloat {verb} ({len(selection)} item(s); may take a minute)...")
     from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
     try:
@@ -657,9 +673,12 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
     if result.rc == 0:
         if result.stdout.strip():
             print(result.stdout.rstrip())
-        print("Debloat complete.")
+        print(f"Debloat {verb} complete.")
     else:
-        print(f"Debloat failed (rc={result.rc}): {result.stderr.strip() or result.stdout.strip()}")
+        print(
+            f"Debloat {verb} failed (rc={result.rc}): "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
 
 
 def _cmd_power(args: argparse.Namespace) -> None:

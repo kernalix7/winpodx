@@ -8,6 +8,7 @@ import pytest
 from winpodx.core.debloat import (
     DebloatCatalogError,
     build_run_script,
+    build_undo_script,
     format_catalog_listing,
     load_catalog,
     resolve_selection,
@@ -221,6 +222,79 @@ class TestBuildRunScript:
     def test_unknown_item_via_resolve_then_build_raises(self, catalog):
         with pytest.raises(DebloatCatalogError):
             resolve_selection(catalog, preset=None, items=["nope"])
+
+
+class TestUndoCatalog:
+    """#247 P2: per-item undo + reversibility marker."""
+
+    def test_reversible_items_have_undo_path(self):
+        catalog = load_catalog()
+        # Items that ship undo.ps1 siblings (per #247 P2).
+        for name in (
+            "telemetry",
+            "ads",
+            "sysmain",
+            "web_search",
+            "widgets",
+            "scheduled_tasks",
+            "visual_effects",
+            "search_indexing",
+            "transparency",
+        ):
+            item = catalog.items[name]
+            assert item.is_reversible, f"{name} should be reversible"
+            assert item.undo_script_path is not None
+            assert item.undo_script_path.exists()
+
+    def test_one_way_items_marked_irreversible(self):
+        """onedrive + startup_programs are one-way -- the apply removes
+        installers / autostart commands the original of which can't be
+        reconstructed."""
+        catalog = load_catalog()
+        for name in ("onedrive", "startup_programs"):
+            item = catalog.items[name]
+            assert not item.is_reversible, f"{name} should be one-way"
+            assert item.undo_script_path is None
+
+
+class TestBuildUndoScript:
+    @pytest.fixture
+    def catalog(self):
+        return load_catalog()
+
+    def test_undo_payload_has_header_and_footer(self, catalog):
+        payload = build_undo_script(catalog, ["telemetry"])
+        assert "winpodx debloat undo" in payload
+        assert "undo done:" in payload
+
+    def test_undo_payload_includes_per_item_undo_body(self, catalog):
+        payload = build_undo_script(catalog, ["telemetry", "ads"])
+        # Re-enable lines from telemetry.ps1 undo + ads undo deletion.
+        assert "Re-enabling DiagTrack" in payload
+        assert "Restoring ContentDeliveryManager" in payload
+
+    def test_undo_calls_clear_state_helper(self, catalog):
+        payload = build_undo_script(catalog, ["telemetry"])
+        assert "Clear-WinpodxDebloatApplied" in payload
+        assert "telemetry" in payload
+
+    def test_undo_rejects_one_way_items(self, catalog):
+        with pytest.raises(DebloatCatalogError, match="one-way"):
+            build_undo_script(catalog, ["onedrive"])
+
+    def test_undo_rejects_mixed_selection_with_one_way(self, catalog):
+        """Even one one-way item in the list aborts the whole undo run --
+        we don't want a partial undo where the reversible items got
+        reverted but the user thinks the one-way item was too."""
+        with pytest.raises(DebloatCatalogError, match="one-way"):
+            build_undo_script(catalog, ["telemetry", "onedrive"])
+
+    def test_run_script_calls_mark_applied(self, catalog):
+        """Apply payload (P1 behaviour) gains the Mark-WinpodxDebloatApplied
+        state helper call under P2 wiring."""
+        payload = build_run_script(catalog, ["telemetry"])
+        assert "Mark-WinpodxDebloatApplied" in payload
+        assert "debloat-applied.json" in payload
 
 
 class TestFormatCatalogListing:

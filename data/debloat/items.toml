@@ -16,33 +16,40 @@
 #                                     (OneDrive, common startup apps).
 #                        ``high``   = trades a real capability for VM
 #                                     perf (Windows Search indexing).
+#   * ``undo_script`` -- (optional) path under ``scripts/windows/debloat/undo/``
+#                        for the reverse-action ``.ps1``. Items without an
+#                        ``undo_script`` field are flagged as one-way: ``winpodx
+#                        debloat --undo --items <name>`` rejects them with a
+#                        clear error. Used by #247 P2 to drive per-item undo
+#                        + state tracking via ``%ProgramData%\winpodx\debloat-
+#                        applied.json``.
 #
 # Presets in ``items_presets`` reference these item names. Adding a new
 # item requires:
 #
 #   1. Append a ``[<name>]`` table here.
 #   2. Drop the matching ``.ps1`` under ``scripts/windows/debloat/``.
-#   3. Add the name to whichever preset(s) it belongs to.
-#
-# Future fields planned but not consumed yet:
-#
-#   * ``undo_script`` -- path to the reverse-action ``.ps1`` (#247 P2).
+#   3. (Optional) Drop an undo sibling under ``scripts/windows/debloat/undo/``
+#      and add the ``undo_script`` field to the table.
+#   4. Add the name to whichever preset(s) it belongs to.
 
 [items.telemetry]
 label = "Telemetry & diagnostics"
 description = "Disable DiagTrack / dmwappushservice services + AllowTelemetry policy."
 script = "telemetry.ps1"
+undo_script = "undo/telemetry.ps1"
 risk = "low"
 
 [items.ads]
 label = "Ads & suggestions"
 description = "Disable Start menu / lock-screen / settings ads (ContentDeliveryManager keys)."
 script = "ads.ps1"
+undo_script = "undo/ads.ps1"
 risk = "low"
 
 [items.onedrive]
 label = "OneDrive"
-description = "Remove OneDrive integration (uninstall + remove from File Explorer pane)."
+description = "Remove OneDrive integration (uninstall + remove from File Explorer pane). One-way: undo requires reinstalling OneDrive from Microsoft."
 script = "onedrive.ps1"
 risk = "medium"
 
@@ -50,29 +57,33 @@ risk = "medium"
 label = "SuperFetch (SysMain)"
 description = "Disable SysMain -- VM has no spinning disk; SuperFetch wastes RAM."
 script = "sysmain.ps1"
+undo_script = "undo/sysmain.ps1"
 risk = "low"
 
 [items.web_search]
 label = "Cortana + Windows web search"
 description = "Disable Cortana + Start menu web result lookups."
 script = "web_search.ps1"
+undo_script = "undo/web_search.ps1"
 risk = "low"
 
 [items.widgets]
 label = "Widgets / news panel"
 description = "Disable taskbar widgets + sliding news panel."
 script = "widgets.ps1"
+undo_script = "undo/widgets.ps1"
 risk = "low"
 
 [items.scheduled_tasks]
 label = "Unnecessary scheduled tasks"
 description = "Disable App Experience / Autochk / CEIP / Disk Diagnostic / Maps / RetailDemo / WER."
 script = "scheduled_tasks.ps1"
+undo_script = "undo/scheduled_tasks.ps1"
 risk = "low"
 
 [items.startup_programs]
 label = "Common startup bloat"
-description = "Disable common autostart entries (OneDrive, Teams, Skype, Spotify, Discord, OEM updaters)."
+description = "Disable common autostart entries (OneDrive, Teams, Skype, Spotify, Discord, OEM updaters). One-way: undo can't restore original autostart commands."
 script = "startup_programs.ps1"
 risk = "medium"
 
@@ -80,18 +91,21 @@ risk = "medium"
 label = "Visual effects -> best performance"
 description = "Disable animations; keep thumbnails, font smoothing, drag-window contents (sysguides recipe)."
 script = "visual_effects.ps1"
+undo_script = "undo/visual_effects.ps1"
 risk = "low"
 
 [items.search_indexing]
 label = "Search indexing service"
 description = "Disable the WSearch service. Tradeoff: Start menu search becomes file-system-walk slow."
 script = "search_indexing.ps1"
+undo_script = "undo/search_indexing.ps1"
 risk = "high"
 
 [items.transparency]
 label = "Window transparency"
 description = "Disable Windows acrylic / transparency effects (saves GPU + scanout bandwidth)."
 script = "transparency.ps1"
+undo_script = "undo/transparency.ps1"
 risk = "low"
 
 # ---------------------------------------------------------------------------

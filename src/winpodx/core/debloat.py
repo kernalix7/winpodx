@@ -59,11 +59,29 @@ class DebloatItem:
     description: str
     script: str  # filename only, resolved against scripts/windows/debloat/
     risk: str
+    # Optional: path under scripts/windows/debloat/ to the reverse-action
+    # PowerShell snippet. ``None`` = this item is one-way (e.g. OneDrive
+    # uninstall, where reinstalling requires re-running Microsoft's
+    # installer and restoring autostart commands isn't recoverable).
+    # ``winpodx debloat --undo --items <name>`` rejects items with no
+    # undo_script.
+    undo_script: str | None = None
 
     @property
     def script_path(self) -> Path:
-        """Absolute path to this item's PowerShell script."""
+        """Absolute path to this item's PowerShell apply script."""
         return bundle_dir().joinpath(*_SCRIPTS_REL_PATH, self.script)
+
+    @property
+    def undo_script_path(self) -> Path | None:
+        """Absolute path to this item's undo script, or ``None`` if absent."""
+        if self.undo_script is None:
+            return None
+        return bundle_dir().joinpath(*_SCRIPTS_REL_PATH, self.undo_script)
+
+    @property
+    def is_reversible(self) -> bool:
+        return self.undo_script is not None
 
 
 @dataclass(frozen=True)
@@ -136,16 +154,24 @@ def load_catalog(*, catalog_path: Path | None = None) -> DebloatCatalog:
             raise DebloatCatalogError(
                 f"items.{name}: risk={body['risk']!r} not in {sorted(_VALID_RISKS)}"
             )
+        undo_script = body.get("undo_script")
+        if undo_script is not None and not isinstance(undo_script, str):
+            raise DebloatCatalogError(f"items.{name}: undo_script must be a string when set")
         item = DebloatItem(
             name=name,
             label=str(body["label"]),
             description=str(body["description"]),
             script=str(body["script"]),
             risk=risk,
+            undo_script=str(undo_script) if undo_script else None,
         )
         if not item.script_path.exists():
             raise DebloatCatalogError(
                 f"items.{name}: script {item.script_path} does not exist on disk"
+            )
+        if item.undo_script_path is not None and not item.undo_script_path.exists():
+            raise DebloatCatalogError(
+                f"items.{name}: undo_script {item.undo_script_path} does not exist on disk"
             )
         items[name] = item
 
@@ -209,15 +235,70 @@ def resolve_selection(
     return resolved
 
 
+# PowerShell helper appended to every apply / undo payload. Reads the
+# state JSON, mutates it for the current item, writes back atomically
+# via a temp-file rename. Path lives under %ProgramData% so it survives
+# user profile rebuilds (Sysprep, account recreation) and aligns HKLM-
+# side debloat actions with HKCU state.
+_STATE_HELPER_PS = r"""
+$winpodxDebloatStateDir = "$env:ProgramData\winpodx"
+$winpodxDebloatStatePath = "$winpodxDebloatStateDir\debloat-applied.json"
+
+function Get-WinpodxDebloatState {
+    if (-not (Test-Path $winpodxDebloatStateDir)) {
+        New-Item -Path $winpodxDebloatStateDir -ItemType Directory -Force | Out-Null
+    }
+    if (Test-Path $winpodxDebloatStatePath) {
+        try {
+            $raw = Get-Content -Path $winpodxDebloatStatePath -Raw -ErrorAction Stop
+            if ($raw) {
+                $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+                if ($obj -is [PSCustomObject]) { return $obj }
+            }
+        } catch {
+            Write-Host "  [state] discarding corrupted $winpodxDebloatStatePath"
+        }
+    }
+    return New-Object PSObject
+}
+
+function Set-WinpodxDebloatState {
+    param($state)
+    $tmp = "$winpodxDebloatStatePath.tmp"
+    $state | ConvertTo-Json -Depth 4 | Set-Content -Path $tmp -Encoding UTF8 -Force
+    Move-Item -Path $tmp -Destination $winpodxDebloatStatePath -Force
+}
+
+function Mark-WinpodxDebloatApplied {
+    param([string]$Name)
+    $state = Get-WinpodxDebloatState
+    $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $state | Add-Member -MemberType NoteProperty -Name $Name -Value @{applied_at = $stamp} -Force
+    Set-WinpodxDebloatState $state
+}
+
+function Clear-WinpodxDebloatApplied {
+    param([string]$Name)
+    $state = Get-WinpodxDebloatState
+    if ($state.PSObject.Properties.Name -contains $Name) {
+        $state.PSObject.Properties.Remove($Name)
+        Set-WinpodxDebloatState $state
+    }
+}
+"""
+
+
 def build_run_script(catalog: DebloatCatalog, selection: list[str]) -> str:
     """Build a single PowerShell payload that runs ``selection`` in order.
 
     The payload is a thin orchestrator that:
 
+      * Defines helpers for the per-guest state JSON at
+        ``%ProgramData%\\winpodx\\debloat-applied.json``.
       * Prints ``=== winpodx debloat (N items) ===`` once at the top.
       * For each selected item: prints a ``--- <name> ---`` banner,
-        sources the item's per-item ``.ps1`` via dot-sourcing
-        (``. <abs_path>``), and tracks a pass/fail counter.
+        inlines the item's per-item ``.ps1``, marks the item applied
+        in the state JSON on success, and tracks a pass/fail counter.
       * Prints a final ``=== done: <ok>/<total> succeeded ===`` line.
 
     The per-item ``.ps1`` files are read from disk at build time and
@@ -226,6 +307,7 @@ def build_run_script(catalog: DebloatCatalog, selection: list[str]) -> str:
     blob through ``run_via_transport``.
     """
     blocks: list[str] = []
+    blocks.append(_STATE_HELPER_PS)
     blocks.append('Write-Host "=== winpodx debloat (' + str(len(selection)) + ' items) ==="')
     blocks.append("$winpodxDebloatOk = 0")
     blocks.append("$winpodxDebloatTotal = 0")
@@ -247,12 +329,62 @@ def build_run_script(catalog: DebloatCatalog, selection: list[str]) -> str:
         blocks.append("$winpodxDebloatTotal++")
         blocks.append("try {")
         blocks.append(script_text)
+        blocks.append(f'    Mark-WinpodxDebloatApplied -Name "{name}"')
         blocks.append("    $winpodxDebloatOk++")
         blocks.append("} catch {")
         blocks.append(f'    Write-Host "    [{name}] FAILED: $($_.Exception.Message)"')
         blocks.append("}")
 
     blocks.append('Write-Host "=== done: $winpodxDebloatOk/$winpodxDebloatTotal succeeded ==="')
+    return "\n".join(blocks)
+
+
+def build_undo_script(catalog: DebloatCatalog, selection: list[str]) -> str:
+    """Build a PowerShell payload that runs each item's ``undo_script``.
+
+    Raises ``DebloatCatalogError`` if any selected item is one-way
+    (``undo_script == None``) -- the CLI surfaces the offending names so
+    users can drop them from ``--items`` and retry.
+    """
+    one_way = [name for name in selection if not catalog.items[name].is_reversible]
+    if one_way:
+        raise DebloatCatalogError(
+            "items have no undo path and are one-way: "
+            + ", ".join(one_way)
+            + ". Drop them from --items or accept the original apply was permanent."
+        )
+
+    blocks: list[str] = []
+    blocks.append(_STATE_HELPER_PS)
+    blocks.append('Write-Host "=== winpodx debloat undo (' + str(len(selection)) + ' items) ==="')
+    blocks.append("$winpodxDebloatOk = 0")
+    blocks.append("$winpodxDebloatTotal = 0")
+
+    for name in selection:
+        item = catalog.items[name]
+        undo_path = item.undo_script_path
+        # Already guarded by is_reversible check above; the assert keeps
+        # mypy happy + acts as defence against catalog hot-reload during
+        # orchestration.
+        assert undo_path is not None
+        try:
+            script_text = undo_path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise DebloatCatalogError(f"items.{name}: could not read {undo_path}: {e}") from e
+
+        blocks.append(f'Write-Host "--- undo {name} ({item.label}) ---"')
+        blocks.append("$winpodxDebloatTotal++")
+        blocks.append("try {")
+        blocks.append(script_text)
+        blocks.append(f'    Clear-WinpodxDebloatApplied -Name "{name}"')
+        blocks.append("    $winpodxDebloatOk++")
+        blocks.append("} catch {")
+        blocks.append(f'    Write-Host "    [undo {name}] FAILED: $($_.Exception.Message)"')
+        blocks.append("}")
+
+    blocks.append(
+        'Write-Host "=== undo done: $winpodxDebloatOk/$winpodxDebloatTotal succeeded ==="'
+    )
     return "\n".join(blocks)
 
 
