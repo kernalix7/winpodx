@@ -109,6 +109,56 @@ def test_pod_config_tuning_profile_unknown_coerces_to_auto(caplog):
     assert any("tuning_profile" in r.message for r in caplog.records)
 
 
+def test_pod_config_timezone_default_is_empty():
+    """Empty default -> compose-time host autodetect (#254)."""
+    assert PodConfig().timezone == ""
+
+
+def test_pod_config_timezone_accepts_iana_name():
+    assert PodConfig(timezone="Asia/Seoul").timezone == "Asia/Seoul"
+
+
+def test_pod_config_timezone_accepts_windows_id():
+    assert PodConfig(timezone="Korea Standard Time").timezone == "Korea Standard Time"
+
+
+def test_pod_config_timezone_strips_whitespace():
+    assert PodConfig(timezone="  Asia/Seoul  ").timezone == "Asia/Seoul"
+
+
+def test_pod_config_timezone_dangerous_chars_coerce_to_empty(caplog):
+    """YAML-injection-class characters in the timezone string must coerce
+    to autodetect rather than reach the compose template."""
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="winpodx.core.config"):
+        pod = PodConfig(timezone='Asia/Seoul"; rm -rf /')
+    assert pod.timezone == ""
+    assert any("timezone" in r.message for r in caplog.records)
+
+
+def test_config_save_load_timezone_roundtrip(tmp_path, monkeypatch):
+    """#254 save()-missing-field regression: cfg.pod.timezone (and the
+    other 4 locale / tuning fields previously omitted) must survive a
+    save/load roundtrip."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    cfg = Config()
+    cfg.pod.timezone = "Asia/Seoul"
+    cfg.pod.language = "Korean"
+    cfg.pod.region = "ko-KR"
+    cfg.pod.keyboard = "ko-KR"
+    cfg.pod.tuning_profile = "safe"
+    cfg.save()
+
+    reloaded = Config.load()
+    assert reloaded.pod.timezone == "Asia/Seoul"
+    assert reloaded.pod.language == "Korean"
+    assert reloaded.pod.region == "ko-KR"
+    assert reloaded.pod.keyboard == "ko-KR"
+    assert reloaded.pod.tuning_profile == "safe"
+
+
 def test_config_save_load(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 

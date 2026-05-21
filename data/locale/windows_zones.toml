@@ -1,0 +1,201 @@
+# SPDX-License-Identifier: MIT
+#
+# IANA timezone -> Windows TimeZone ID mapping, used by
+# winpodx.utils.locale.iana_to_windows() to translate the host's
+# detected IANA zone (e.g. "Asia/Seoul") into the value tzutil.exe
+# expects on the Windows guest (e.g. "Korea Standard Time").
+#
+# Source: Unicode CLDR `common/supplemental/windowsZones.xml` (BCP 47
+# subtag mapping). This file ships the "001" (territory wildcard)
+# entries from that table -- the canonical IANA <-> Windows mapping
+# without per-country variants. The CLDR data is itself MIT-licensed.
+#
+# Refresh: `scripts/ci/refresh_windows_zones.py` (planned) pulls the
+# latest CLDR XML and regenerates this file. Until that lands, hand-
+# bump entries against
+#   https://github.com/unicode-org/cldr/blob/main/common/supplemental/windowsZones.xml
+#
+# Only IANA names are keys; values are the literal strings tzutil
+# /s "<id>" expects. Quoted on the right because some Windows IDs
+# contain spaces ("Korea Standard Time") and TOML bare keys can't.
+
+[mapping]
+
+# --- UTC / GMT family ---
+"Etc/UTC" = "UTC"
+"Etc/GMT" = "UTC"
+"UTC" = "UTC"
+
+# --- Africa ---
+"Africa/Abidjan" = "Greenwich Standard Time"
+"Africa/Accra" = "Greenwich Standard Time"
+"Africa/Algiers" = "W. Central Africa Standard Time"
+"Africa/Cairo" = "Egypt Standard Time"
+"Africa/Casablanca" = "Morocco Standard Time"
+"Africa/Johannesburg" = "South Africa Standard Time"
+"Africa/Khartoum" = "Sudan Standard Time"
+"Africa/Lagos" = "W. Central Africa Standard Time"
+"Africa/Nairobi" = "E. Africa Standard Time"
+"Africa/Tripoli" = "Libya Standard Time"
+"Africa/Tunis" = "W. Central Africa Standard Time"
+"Africa/Windhoek" = "Namibia Standard Time"
+
+# --- America ---
+"America/Anchorage" = "Alaskan Standard Time"
+"America/Argentina/Buenos_Aires" = "Argentina Standard Time"
+"America/Asuncion" = "Paraguay Standard Time"
+"America/Bogota" = "SA Pacific Standard Time"
+"America/Caracas" = "Venezuela Standard Time"
+"America/Chicago" = "Central Standard Time"
+"America/Chihuahua" = "Central Standard Time (Mexico)"
+"America/Costa_Rica" = "Central America Standard Time"
+"America/Denver" = "Mountain Standard Time"
+"America/Detroit" = "Eastern Standard Time"
+"America/Edmonton" = "Mountain Standard Time"
+"America/Fortaleza" = "SA Eastern Standard Time"
+"America/Godthab" = "Greenland Standard Time"
+"America/Halifax" = "Atlantic Standard Time"
+"America/Havana" = "Cuba Standard Time"
+"America/Indiana/Indianapolis" = "US Eastern Standard Time"
+"America/Indianapolis" = "US Eastern Standard Time"
+"America/La_Paz" = "SA Western Standard Time"
+"America/Lima" = "SA Pacific Standard Time"
+"America/Los_Angeles" = "Pacific Standard Time"
+"America/Mazatlan" = "Mountain Standard Time (Mexico)"
+"America/Mexico_City" = "Central Standard Time (Mexico)"
+"America/Montevideo" = "Montevideo Standard Time"
+"America/Montreal" = "Eastern Standard Time"
+"America/New_York" = "Eastern Standard Time"
+"America/Noronha" = "UTC-02"
+"America/Panama" = "SA Pacific Standard Time"
+"America/Phoenix" = "US Mountain Standard Time"
+"America/Port-au-Prince" = "Haiti Standard Time"
+"America/Puerto_Rico" = "SA Western Standard Time"
+"America/Regina" = "Canada Central Standard Time"
+"America/Santiago" = "Pacific SA Standard Time"
+"America/Santo_Domingo" = "SA Western Standard Time"
+"America/Sao_Paulo" = "E. South America Standard Time"
+"America/St_Johns" = "Newfoundland Standard Time"
+"America/Tegucigalpa" = "Central America Standard Time"
+"America/Tijuana" = "Pacific Standard Time (Mexico)"
+"America/Toronto" = "Eastern Standard Time"
+"America/Vancouver" = "Pacific Standard Time"
+"America/Winnipeg" = "Central Standard Time"
+
+# --- Antarctica ---
+"Antarctica/Casey" = "Central Pacific Standard Time"
+"Antarctica/McMurdo" = "New Zealand Standard Time"
+"Antarctica/South_Pole" = "New Zealand Standard Time"
+
+# --- Asia ---
+"Asia/Almaty" = "Central Asia Standard Time"
+"Asia/Amman" = "Jordan Standard Time"
+"Asia/Baghdad" = "Arabic Standard Time"
+"Asia/Bahrain" = "Arab Standard Time"
+"Asia/Baku" = "Azerbaijan Standard Time"
+"Asia/Bangkok" = "SE Asia Standard Time"
+"Asia/Beirut" = "Middle East Standard Time"
+"Asia/Calcutta" = "India Standard Time"
+"Asia/Chongqing" = "China Standard Time"
+"Asia/Colombo" = "Sri Lanka Standard Time"
+"Asia/Damascus" = "Syria Standard Time"
+"Asia/Dhaka" = "Bangladesh Standard Time"
+"Asia/Dubai" = "Arabian Standard Time"
+"Asia/Hong_Kong" = "China Standard Time"
+"Asia/Irkutsk" = "North Asia East Standard Time"
+"Asia/Jakarta" = "SE Asia Standard Time"
+"Asia/Jayapura" = "Tokyo Standard Time"
+"Asia/Jerusalem" = "Israel Standard Time"
+"Asia/Kabul" = "Afghanistan Standard Time"
+"Asia/Karachi" = "Pakistan Standard Time"
+"Asia/Kathmandu" = "Nepal Standard Time"
+"Asia/Kolkata" = "India Standard Time"
+"Asia/Krasnoyarsk" = "North Asia Standard Time"
+"Asia/Kuala_Lumpur" = "Singapore Standard Time"
+"Asia/Kuwait" = "Arab Standard Time"
+"Asia/Magadan" = "Magadan Standard Time"
+"Asia/Manila" = "Singapore Standard Time"
+"Asia/Muscat" = "Arabian Standard Time"
+"Asia/Nicosia" = "E. Europe Standard Time"
+"Asia/Novosibirsk" = "N. Central Asia Standard Time"
+"Asia/Pyongyang" = "North Korea Standard Time"
+"Asia/Qatar" = "Arab Standard Time"
+"Asia/Riyadh" = "Arab Standard Time"
+"Asia/Saigon" = "SE Asia Standard Time"
+"Asia/Seoul" = "Korea Standard Time"
+"Asia/Shanghai" = "China Standard Time"
+"Asia/Singapore" = "Singapore Standard Time"
+"Asia/Taipei" = "Taipei Standard Time"
+"Asia/Tashkent" = "West Asia Standard Time"
+"Asia/Tbilisi" = "Georgian Standard Time"
+"Asia/Tehran" = "Iran Standard Time"
+"Asia/Tokyo" = "Tokyo Standard Time"
+"Asia/Ulaanbaatar" = "Ulaanbaatar Standard Time"
+"Asia/Urumqi" = "Central Asia Standard Time"
+"Asia/Vladivostok" = "Vladivostok Standard Time"
+"Asia/Yakutsk" = "Yakutsk Standard Time"
+"Asia/Yekaterinburg" = "Ekaterinburg Standard Time"
+"Asia/Yerevan" = "Caucasus Standard Time"
+
+# --- Atlantic ---
+"Atlantic/Azores" = "Azores Standard Time"
+"Atlantic/Bermuda" = "Atlantic Standard Time"
+"Atlantic/Cape_Verde" = "Cape Verde Standard Time"
+"Atlantic/Reykjavik" = "Greenwich Standard Time"
+
+# --- Australia ---
+"Australia/Adelaide" = "Cen. Australia Standard Time"
+"Australia/Brisbane" = "E. Australia Standard Time"
+"Australia/Darwin" = "AUS Central Standard Time"
+"Australia/Hobart" = "Tasmania Standard Time"
+"Australia/Melbourne" = "AUS Eastern Standard Time"
+"Australia/Perth" = "W. Australia Standard Time"
+"Australia/Sydney" = "AUS Eastern Standard Time"
+
+# --- Europe ---
+"Europe/Amsterdam" = "W. Europe Standard Time"
+"Europe/Athens" = "GTB Standard Time"
+"Europe/Belgrade" = "Central European Standard Time"
+"Europe/Berlin" = "W. Europe Standard Time"
+"Europe/Brussels" = "Romance Standard Time"
+"Europe/Bucharest" = "GTB Standard Time"
+"Europe/Budapest" = "Central European Standard Time"
+"Europe/Chisinau" = "E. Europe Standard Time"
+"Europe/Copenhagen" = "Romance Standard Time"
+"Europe/Dublin" = "GMT Standard Time"
+"Europe/Helsinki" = "FLE Standard Time"
+"Europe/Istanbul" = "Turkey Standard Time"
+"Europe/Kaliningrad" = "Kaliningrad Standard Time"
+"Europe/Kiev" = "FLE Standard Time"
+"Europe/Lisbon" = "GMT Standard Time"
+"Europe/London" = "GMT Standard Time"
+"Europe/Madrid" = "Romance Standard Time"
+"Europe/Minsk" = "Belarus Standard Time"
+"Europe/Moscow" = "Russian Standard Time"
+"Europe/Oslo" = "W. Europe Standard Time"
+"Europe/Paris" = "Romance Standard Time"
+"Europe/Prague" = "Central Europe Standard Time"
+"Europe/Riga" = "FLE Standard Time"
+"Europe/Rome" = "W. Europe Standard Time"
+"Europe/Samara" = "Russia Time Zone 3"
+"Europe/Sofia" = "FLE Standard Time"
+"Europe/Stockholm" = "W. Europe Standard Time"
+"Europe/Tallinn" = "FLE Standard Time"
+"Europe/Vienna" = "W. Europe Standard Time"
+"Europe/Vilnius" = "FLE Standard Time"
+"Europe/Warsaw" = "Central European Standard Time"
+"Europe/Zagreb" = "Central European Standard Time"
+"Europe/Zurich" = "W. Europe Standard Time"
+
+# --- Indian Ocean ---
+"Indian/Mauritius" = "Mauritius Standard Time"
+
+# --- Pacific ---
+"Pacific/Apia" = "Samoa Standard Time"
+"Pacific/Auckland" = "New Zealand Standard Time"
+"Pacific/Fiji" = "Fiji Standard Time"
+"Pacific/Guam" = "West Pacific Standard Time"
+"Pacific/Honolulu" = "Hawaiian Standard Time"
+"Pacific/Pago_Pago" = "UTC-11"
+"Pacific/Port_Moresby" = "West Pacific Standard Time"
+"Pacific/Tongatapu" = "Tonga Standard Time"

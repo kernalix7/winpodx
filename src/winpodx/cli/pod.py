@@ -18,6 +18,8 @@ def handle_pod(args: argparse.Namespace) -> None:
         _status()
     elif cmd == "restart":
         _restart()
+    elif cmd == "recreate":
+        _recreate(wipe_storage=getattr(args, "wipe_storage", False))
     elif cmd == "apply-fixes":
         _apply_fixes()
     elif cmd == "sync-password":
@@ -36,7 +38,7 @@ def handle_pod(args: argparse.Namespace) -> None:
         sys.exit(handle_install_resume(args))
     else:
         print(
-            "Usage: winpodx pod {start|stop|status|restart|apply-fixes|"
+            "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
             "sync-password|multi-session|wait-ready|install-status|install-resume}"
         )
         sys.exit(1)
@@ -584,6 +586,145 @@ def _restart() -> None:
     else:
         print(f"Failed to restart: {status.error}", file=sys.stderr)
         sys.exit(1)
+
+
+def _recreate(*, wipe_storage: bool) -> None:
+    """Regenerate compose.yaml + destroy and re-create the container (#254).
+
+    Differs from ``_restart`` in two ways:
+
+    * Regenerates ``compose.yaml`` from the current config before bringing
+      the container up, so first-boot env knobs (language / region /
+      keyboard / timezone / edition / backend) that were edited via
+      ``winpodx config set`` actually reach dockur.
+    * Optionally wipes the Windows storage volume / bind-mount when
+      ``--wipe-storage`` is set, so dockur re-runs the full Windows install
+      (necessary for language / edition changes to actually take effect --
+      dockur honors those env vars only on the initial install, so without
+      wiping the disk the changes silently no-op past first boot).
+    """
+    from winpodx.core.compose import generate_compose
+    from winpodx.core.config import Config
+    from winpodx.core.pod import PodState, start_pod, stop_pod
+
+    cfg = Config.load()
+
+    if wipe_storage:
+        # Refuse to run with a non-empty storage_path that points outside
+        # winpodx's owned roots -- a typo'd config could ``rm -rf`` the
+        # wrong directory. ``_sanitise_storage_path`` in config.py
+        # already coerces dangerous values to "" at load time, so by the
+        # time we get here a non-empty value is winpodx-owned. We still
+        # confirm explicitly because wipe_storage is destructive.
+        print(
+            "WARNING: --wipe-storage will destroy the Windows disk image. Type 'WIPE' to confirm: ",
+            end="",
+            flush=True,
+        )
+        try:
+            answer = input().strip()
+        except EOFError:
+            answer = ""
+        if answer != "WIPE":
+            print("Aborted (no confirmation).")
+            sys.exit(2)
+
+    print("Stopping pod...")
+    stop_pod(cfg)
+
+    if wipe_storage:
+        _wipe_pod_storage(cfg)
+
+    print("Regenerating compose.yaml from current config...")
+    try:
+        generate_compose(cfg)
+    except Exception as e:  # noqa: BLE001
+        print(f"Failed to regenerate compose.yaml: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print("Starting pod with new compose...")
+    status = start_pod(cfg)
+
+    if status.state in (PodState.RUNNING, PodState.STARTING):
+        if wipe_storage:
+            print(
+                "Pod recreated with fresh storage. Windows reinstall will "
+                "take ~5-10 minutes (ISO download + Sysprep + OEM apply); "
+                "watch progress with `winpodx pod wait-ready --logs`."
+            )
+        else:
+            print(
+                "Pod recreated. Container picked up the new compose; "
+                "note that dockur applies language / region / keyboard / "
+                "edition only on the initial Windows install, so those "
+                "specific knobs require --wipe-storage to actually reach "
+                "the guest. Timezone, backend, and runtime knobs apply "
+                "without a wipe."
+            )
+    else:
+        print(f"Failed to start: {status.error}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
+    """Destroy the Windows disk image so dockur re-runs the install.
+
+    Two storage regimes (see ``compose._render_storage_blocks``):
+
+    * Named volume mode (``cfg.pod.storage_path == ""``): the legacy
+      ``winpodx-data`` named volume holds the raw disk. We remove it
+      via ``podman volume rm`` / ``docker volume rm``.
+    * Bind-mount mode (``cfg.pod.storage_path`` set): the disk lives
+      at an explicit host path winpodx owns. We ``rm -rf`` that path's
+      contents (preserving the directory itself + its ``chattr +C``
+      attribute on btrfs, set by ``setup --migrate-storage``).
+
+    Only callable from the ``--wipe-storage`` path of ``pod recreate``,
+    which prompts for a typed confirmation first.
+    """
+    import shutil
+    import subprocess as sp
+    from pathlib import Path
+
+    raw_storage = (cfg.pod.storage_path or "").strip()
+
+    if not raw_storage:
+        backend = cfg.pod.backend
+        volume_name = "winpodx-data"
+        if backend == "podman":
+            cmd = ["podman", "volume", "rm", "-f", volume_name]
+        elif backend == "docker":
+            cmd = ["docker", "volume", "rm", "-f", volume_name]
+        else:
+            print(
+                f"  Backend {backend!r} has no named-volume wipe path; "
+                "manually destroy the guest disk and re-run setup."
+            )
+            return
+        result = sp.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            print(f"  Removed volume {volume_name}.")
+        else:
+            stderr = result.stderr.strip()
+            if "no such" in stderr.lower():
+                print(f"  Volume {volume_name} already absent.")
+            else:
+                print(f"  WARNING: volume rm returned {result.returncode}: {stderr}")
+        return
+
+    bind_path = Path(raw_storage).expanduser()
+    if not bind_path.is_dir():
+        print(f"  Bind-mount path {bind_path} is absent; nothing to wipe.")
+        return
+    print(f"  Wiping bind-mount contents under {bind_path} ...")
+    for item in bind_path.iterdir():
+        try:
+            if item.is_dir() and not item.is_symlink():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        except OSError as e:
+            print(f"  WARNING: could not remove {item}: {e}")
 
 
 def _wait_for_oem_reboot(cfg, timeout: int) -> bool:  # type: ignore[no-untyped-def]

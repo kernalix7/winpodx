@@ -28,6 +28,17 @@ verbatim.
 ### Fixed
 -->
 
+### Added
+
+- **`cfg.pod.timezone` — Windows guest timezone wiring (#254, phase 1).** New config knob. Empty string (the default) triggers host autodetection at compose time via `timedatectl show --property=Timezone --value`, falling back to `readlink /etc/localtime` then `/etc/timezone` then `UTC`. The IANA result is translated to a Windows TZ ID through the CLDR-derived `data/locale/windows_zones.toml` table (~150 entries from the `001` wildcard subset). The resolved Windows TZ ID lands in `<oem_dir>/timezone.txt`; the OEM `install.bat` reads it on first boot and runs `tzutil /s "<id>"` instead of the previous unconditional `tzutil /s "UTC"`. Explicit IANA names or bare Windows TZ IDs in the TOML are honored; detection-failure UTC skips the file so the guest stays on its current zone rather than being forced onto UTC. Host autodetection covers the @ismikes report (#204) that fresh installs default the Windows guest to UTC regardless of host locale.
+- **`winpodx pod recreate [--wipe-storage]` subcommand (#254, phase 1).** Regenerates `compose.yaml` from the current config, then destroys and re-creates the container -- a cleaner primitive than `winpodx pod restart` for picking up first-boot env knob changes (timezone, edition, backend). `--wipe-storage` also destroys the Windows disk volume / bind-mount so dockur re-runs the full install, which is required for language / region / keyboard / edition changes to actually reach the guest (dockur honors those env vars only on the initial Windows install). The wipe path prompts for an explicit `WIPE` confirmation.
+- **`config/oem/install.bat` reads `C:\OEM\timezone.txt` if present (#254, phase 1).** Falls back to the previous `tzutil /s "UTC"` behaviour when the file is absent.
+- **`data/locale/windows_zones.toml` — IANA -> Windows TZ ID mapping table (#254, phase 1).** Shipped under `share/winpodx/data/locale/` via the pyproject shared-data layout. Refresh helper (`scripts/ci/refresh_windows_zones.py`) deferred to a follow-up.
+
+### Fixed
+
+- **`Config.save()` now persists `pod.language` / `pod.region` / `pod.keyboard` / `pod.timezone` / `pod.tuning_profile` (#254, phase 1).** Pre-this fix those five fields were loaded from `winpodx.toml` but never written back -- programmatic changes (`winpodx config set pod.language ...`) were silently dropped on the next save. Hand-edited values still survived because nothing was overwriting them. Now all five fields round-trip through save/load.
+
 ## [0.5.6] - 2026-05-21
 
 Hotfix release driven by @ismikes (#214). Fixes the "Launching... but no RDP window appears" symptom on modern rootless podman + pasta (Ubuntu/Kubuntu 26.04 default), corrects the `winpodx info` VNC reachability false negative, and adds a belt-and-braces tray sweep at the end of `uninstall.sh`.

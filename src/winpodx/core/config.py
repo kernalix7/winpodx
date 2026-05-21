@@ -213,6 +213,15 @@ class PodConfig:
     language: str = "English"
     region: str = "en-001"
     keyboard: str = "en-US"
+    # v0.5.7+: Windows guest timezone (#254). Empty string = autodetect
+    # from the host at compose time (timedatectl / /etc/localtime /
+    # /etc/timezone fallback chain in ``utils/locale.py``). IANA name
+    # like "Asia/Seoul" gets translated to the Windows TZ ID via the
+    # CLDR-derived table in ``data/locale/windows_zones.toml``. A bare
+    # Windows TZ ID like "Korea Standard Time" passes through verbatim
+    # so users on niche territories (Russia Time Zone N, etc.) the CLDR
+    # 001 wildcard doesn't cover can still hand-set it.
+    timezone: str = ""
     # Host-adaptive performance tuning (#215).
     #
     # * "auto"  — detect host capability (invtsc, io_uring, hugepages,
@@ -316,6 +325,23 @@ class PodConfig:
                 setattr(self, field_name, default_val)
             else:
                 setattr(self, field_name, val.strip())
+        # timezone (#254): free-form string with the same YAML-injection
+        # sanitization as language/region/keyboard. Empty string = auto-
+        # detect at compose time; non-empty values are either an IANA
+        # name ("Asia/Seoul") or a Windows TZ ID ("Korea Standard Time").
+        # We deliberately do NOT validate against a known list here --
+        # utils/locale.resolve_timezone_for_oem handles the runtime
+        # translation + UTC fallback for unknown values.
+        if not isinstance(self.timezone, str):
+            self.timezone = ""
+        elif any(ch in _DANGEROUS_YAML_CHARS for ch in self.timezone):
+            logging.getLogger(__name__).warning(
+                "timezone=%r contains characters reserved by YAML / shell; coercing to autodetect",
+                self.timezone,
+            )
+            self.timezone = ""
+        else:
+            self.timezone = self.timezone.strip()
         # tuning_profile: restricted enum. Coerce unknown / empty values
         # to "auto" silently — a hand-edited TOML must never disable all
         # tunings via a typo, and the auto profile is always safe.
@@ -518,6 +544,11 @@ class Config:
                 "disk_size": self.pod.disk_size,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
+                "language": self.pod.language,
+                "region": self.pod.region,
+                "keyboard": self.pod.keyboard,
+                "timezone": self.pod.timezone,
+                "tuning_profile": self.pod.tuning_profile,
             },
             "reverse_open": {
                 "enabled": self.reverse_open.enabled,
