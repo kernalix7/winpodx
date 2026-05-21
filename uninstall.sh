@@ -270,6 +270,20 @@ if [[ -d "$INSTALL_DIR" ]]; then
     fi
 fi
 
+# --- Final tray / GUI sweep ---
+# Belt-and-braces against tray respawn paths the section-0a kill +
+# WINPODX_NO_TRAY_SPAWN env didn't cover. Examples:
+#   - User had a GUI window open in another terminal that spawned
+#     a tray via maybe_spawn_tray() *before* uninstall.sh started.
+#   - A KDE/GNOME autostart-triggered launch raced the env export.
+#   - dbus-activated launch path bypasses cli/main.py's spawn check.
+# Section 0a only sweeps what's alive at the start of the script;
+# this final pass catches anything that came up during the 10-30 s
+# uninstall window. Quiet by default -- absence of victims is
+# normal and noisy logging would distract from the summary below.
+pkill -f 'python.*winpodx' 2>/dev/null || true
+pkill -f 'winpodx-app' 2>/dev/null || true
+
 # --- Summary ---
 echo ""
 if ! [[ "$PURGE" == true ]]; then
