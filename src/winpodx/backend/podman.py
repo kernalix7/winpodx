@@ -6,7 +6,7 @@ import logging
 import subprocess
 import time
 
-from winpodx.backend.base import Backend
+from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
 log = logging.getLogger(__name__)
@@ -96,78 +96,8 @@ class PodmanBackend(Backend):
         return "paused" in self._container_state()
 
     def uptime_secs(self) -> int | None:
-        """Seconds since the container was last started, or None on probe failure.
-
-        Tries inspect first by the configured container name and falls
-        back to the compose-prefixed name (``{project}_{name}``) +
-        ``--format`` variants. podman-compose sometimes overrides the
-        explicit ``container_name:`` directive with the project prefix,
-        so a bare inspect on ``cfg.pod.container_name`` will fail with
-        ``no such object`` even though the container is running. The
-        legacy ``is_running`` uses ``ps -a --filter name=^X$`` which
-        does a regex match, so it succeeds with either naming.
-        """
-        import datetime
-        import subprocess
-
-        candidates = [
-            self.cfg.pod.container_name,
-            # podman-compose project-prefixed variants (project name is
-            # `name:` in compose.yaml = "winpodx").
-            f"winpodx_{self.cfg.pod.container_name}",
-            f"winpodx_{self.cfg.pod.container_name}_1",
-        ]
-        ts = ""
-        last_stderr = ""
-        for name in candidates:
-            try:
-                result = subprocess.run(
-                    ["podman", "inspect", "-f", "{{.State.StartedAt}}", name],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
-                )
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                return None
-            if result.returncode == 0 and result.stdout.strip():
-                ts = result.stdout.strip()
-                break
-            last_stderr = (result.stderr or "").strip()
-
-        if not ts:
-            log.debug(
-                "podman inspect StartedAt failed for all candidates %r: %s",
-                candidates,
-                last_stderr,
-            )
-            return None
-        # podman prints RFC3339 (`2026-05-20T14:00:00.123456789Z`). Python's
-        # fromisoformat handles `+00:00` but not bare `Z` until 3.11, and
-        # the nanoseconds suffix until 3.11 either — strip both for the
-        # 3.9 / 3.10 fallback path.
-        ts = ts.replace("Z", "+00:00")
-        if "." in ts:
-            head, _, tail = ts.partition(".")
-            # Truncate fractional seconds to microseconds (6 digits) so
-            # the parser accepts it across Python versions.
-            frac, _, tz = tail.partition("+")
-            if tz:
-                ts = f"{head}.{frac[:6]}+{tz}"
-            else:
-                ts = f"{head}.{frac[:6]}"
-        try:
-            started = datetime.datetime.fromisoformat(ts)
-        except ValueError:
-            log.debug("Could not parse podman StartedAt timestamp %r", ts)
-            return None
-        # Guard against the Go zero time ``0001-01-01T00:00:00Z`` that
-        # podman emits for containers that never started.
-        if started.year < 2000:
-            return None
-        now = datetime.datetime.now(tz=started.tzinfo)
-        delta = (now - started).total_seconds()
-        return max(0, int(delta))
+        """Seconds since the container was last started, or None on probe failure."""
+        return _container_uptime_secs("podman", self.cfg.pod.container_name)
 
     def get_ip(self) -> str:
         return self.cfg.rdp.ip or "127.0.0.1"

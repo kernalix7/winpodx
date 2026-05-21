@@ -6,7 +6,7 @@ import logging
 import subprocess
 import time
 
-from winpodx.backend.base import Backend
+from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
 log = logging.getLogger(__name__)
@@ -91,54 +91,8 @@ class DockerBackend(Backend):
         return "paused" in self._container_state()
 
     def uptime_secs(self) -> int | None:
-        """Seconds since the container was last started, or None on probe failure.
-
-        Falls back to compose-prefixed names the same way the podman
-        backend does — ``docker compose`` follows the same naming
-        convention so the candidate list is identical.
-        """
-        import datetime
-        import subprocess
-
-        candidates = [
-            self.cfg.pod.container_name,
-            f"winpodx_{self.cfg.pod.container_name}",
-            f"winpodx_{self.cfg.pod.container_name}_1",
-        ]
-        ts = ""
-        for name in candidates:
-            try:
-                result = subprocess.run(
-                    ["docker", "inspect", "-f", "{{.State.StartedAt}}", name],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
-                )
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                return None
-            if result.returncode == 0 and result.stdout.strip():
-                ts = result.stdout.strip()
-                break
-
-        if not ts:
-            return None
-        ts = ts.replace("Z", "+00:00")
-        if "." in ts:
-            head, _, tail = ts.partition(".")
-            frac, _, tz = tail.partition("+")
-            if tz:
-                ts = f"{head}.{frac[:6]}+{tz}"
-            else:
-                ts = f"{head}.{frac[:6]}"
-        try:
-            started = datetime.datetime.fromisoformat(ts)
-        except ValueError:
-            return None
-        if started.year < 2000:
-            return None
-        now = datetime.datetime.now(tz=started.tzinfo)
-        return max(0, int((now - started).total_seconds()))
+        """Seconds since the container was last started, or None on probe failure."""
+        return _container_uptime_secs("docker", self.cfg.pod.container_name)
 
     def get_ip(self) -> str:
         return self.cfg.rdp.ip or "127.0.0.1"
