@@ -1,3 +1,35 @@
+winpodx (0.5.7) unstable; urgency=medium
+
+  * feat(debloat): #247 four-phase rollout of the per-item debloat
+    picker. data/debloat/items.toml catalog (11 items, 4 presets),
+    per-item .ps1 scripts + undo siblings under
+    scripts/windows/debloat/, %ProgramData%\winpodx\debloat-applied.json
+    state tracking. CLI flags --list / --preset / --items / --undo /
+    --menu. Qt picker dialog at gui/debloat_picker.py with risk
+    badges + preset radios + Custom override. Text-mode picker via
+    --menu for headless / SSH installs.
+  * feat(locale): #254 three-phase wiring of cfg.pod.timezone +
+    Windows-guest TZ. Now redesigned (#267) around dockur's native
+    TZ env var so the OEM dir doesn't need per-config files. Host
+    detection via timedatectl / readlink /etc/localtime / /etc/timezone
+    fallback chain (utils/locale.py). GUI Settings -> Container/VM
+    gains Language / Region / Keyboard / Timezone dropdowns with
+    Auto-detect first option. CLI: winpodx config set pod.timezone
+    --auto, winpodx pod recreate [--wipe-storage].
+  * fix(compose): OEM cp Permission denied cascade on umask 077 hosts
+    (#267). #254 P1's always-copy OEM dir path re-introduced the
+    parent-dir traversal trap PR #95 originally dodged. Reverted to
+    bundle-direct fast path now that the TZ env var route eliminates
+    the need for always-copy.
+  * fix(config): Config.save() now persists pod.language / pod.region
+    / pod.keyboard / pod.timezone / pod.tuning_profile. Pre-this
+    fix those five fields were loaded but never written back, so
+    'winpodx config set pod.<field> ...' silently dropped on next
+    save. Hand-edited values survived because nothing overwrote
+    them.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Thu, 21 May 2026 22:30:00 +0000
+
 winpodx (0.5.6) unstable; urgency=medium
 
   * fix(rdp): drop podman unshare --rootless-netns wrap so FreeRDP

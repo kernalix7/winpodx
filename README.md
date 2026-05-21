@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 [![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![tests](https://img.shields.io/badge/tests-1170%2B-2EA44F?style=flat-square)](#testing)
+[![tests](https://img.shields.io/badge/tests-1240%2B-2EA44F?style=flat-square)](#testing)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
 [![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### Status: Beta
-> winpodx is in active development (**v0.5.6**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is now default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile (`+invtsc`, `platform_tick`, more flags gated by host capability) plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions, so a long-idle pod no longer needs `winpodx pod restart` to come back. v0.5.6 fixes "Launching… but no RDP window" on modern rootless podman + pasta (Kubuntu 26.04 default). First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> winpodx is in active development (**v0.5.7**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile (`+invtsc`, `platform_tick`, more flags gated by host capability) plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions. v0.5.7 fixes "Launching… but no RDP window" on modern rootless podman + pasta. v0.5.7 lands the Windows-guest timezone wiring via dockur's `TZ` env var (auto-detected from the host), a per-item debloat picker (CLI `--list` / `--preset` / `--items` / `--undo` / `--menu` plus a Qt picker dialog with risk badges), `winpodx pod recreate [--wipe-storage]`, and Settings → Container/VM dropdowns for Language / Region / Keyboard / Timezone. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated, both directions. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
@@ -88,10 +88,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — grab the matching .deb from the latest release
-sudo apt install ./winpodx_0.5.6_all_debian13.deb
+sudo apt install ./winpodx_0.5.7_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — grab the matching .rpm
-sudo dnf install ./winpodx-0.5.6-0.noarch.el10.rpm
+sudo dnf install ./winpodx-0.5.7-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx
@@ -212,7 +212,7 @@ Each tag push (`v*.*.*`) publishes to all channels automatically — see [packag
 ```bash
 # From repo root (no install needed)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/    # 1170+ tests
+python3 -m pytest tests/    # 1240+ tests
 ruff check src/ tests/      # Lint
 ruff format --check src/ tests/
 ```

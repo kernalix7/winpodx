@@ -28,6 +28,20 @@ verbatim.
 ### Fixed
 -->
 
+## [0.5.7] - 2026-05-21
+
+Feature release wrapping up #247 (per-item debloat picker, four phases) and #254 (locale + edition save flow, three phases), plus the OEM-perm regression #266/#267 caught at the same time.
+
+### Highlights
+
+**Per-item debloat with CLI + Qt + TTY pickers, Windows-guest timezone wiring via dockur's TZ env var, GUI Settings → Container/VM Localization dropdowns + auto-recreate on save, and `winpodx pod recreate [--wipe-storage]`.**
+
+- `winpodx debloat` -- per-item catalog driven by `data/debloat/items.toml` (11 items, 4 presets). `--list` / `--preset` / `--items` / `--undo` / `--menu` on the CLI plus a Qt picker dialog with checkboxes + risk badges (#247).
+- Windows guest timezone is now host-autodetected and passed to dockur via the `TZ` env var; `cfg.pod.timezone` GUI dropdown + `winpodx config set pod.timezone --auto` + setup-wizard prompt all wired (#254).
+- Settings → Container/VM gains Language / Region / Keyboard / Timezone dropdowns alongside the existing Edition picker, with a unified save flow that auto-runs `_recreate_container` (or `_wipe_pod_storage` first when language/edition changed) on dirty fields (#254 P3).
+- `winpodx pod recreate [--wipe-storage]` -- regenerates `compose.yaml` + destroys/recreates the container (Windows disk preserved by default; `--wipe-storage` triggers a fresh Windows install for language/edition changes) (#254 P1).
+- `Config.save()` now persists `pod.language` / `pod.region` / `pod.keyboard` / `pod.timezone` / `pod.tuning_profile` -- pre-this fix those five fields were loaded but never written back, silently dropping `winpodx config set` on the next save.
+
 ### Added
 
 - **`winpodx debloat --menu` text-mode picker (#247, phase 4).** Headless-friendly alternative to the Qt dialog for users on SSH / TTY-only installs. Pure `input()` + `print()` -- no curses dependency, no display server, no terminal capability sniffing. Loop renders the catalog as a numbered list with current selection state + preset name + risk badges + `(one-way)` tags, then prompts for a command: `<N>` toggles item N, `<name>` toggles by name, `p` lists presets, `p <name>` switches preset, `a` applies, `q` quits, `h` shows help. `run_menu` accepts injectable `input_fn` / `print_fn` so the same code path drives interactive shells and CI integration tests with mocked stdin.
@@ -42,8 +56,13 @@ verbatim.
 - **`config/oem/install.bat` reads `C:\OEM\timezone.txt` if present (#254, phase 1).** Falls back to the previous `tzutil /s "UTC"` behaviour when the file is absent.
 - **`data/locale/windows_zones.toml` — IANA -> Windows TZ ID mapping table (#254, phase 1).** Shipped under `share/winpodx/data/locale/` via the pyproject shared-data layout. Refresh helper (`scripts/ci/refresh_windows_zones.py`) deferred to a follow-up.
 
+### Changed
+
+- **Timezone wiring redesigned around dockur's native `TZ` env var (#267, refactor of #254 P1).** The original P1 design dropped a `timezone.txt` file into the OEM bind-mount dir and added a `tzutil` block to `install.bat` to consume it. That forced an always-copy OEM dir path so per-config files could land without polluting the source bundle, which re-introduced the parent-dir traversal problem PR #95 originally dodged: dockur's in-container OEM cp runs as a non-root sub-UID that can't traverse a 0700 `~/.config` or `~/.local` ancestor, producing `cp: cannot stat /oem/./<file>: Permission denied` for every OEM file at first boot. Switching to dockur's `TZ` env var (which already drives the `<TimeZone>` element in its Sysprep unattend.xml) removes the OEM-file requirement entirely, lets `_find_oem_dir` go back to its pre-#254 two-regime layout (bundle-direct when user-writable / copy when read-only), and eliminates the umask-077 perm trap. `install.bat`'s old `tzutil` block was removed; `utils/locale.py` (host detection + IANA→Win mapping table) stays in place for GUI display and the wizard's auto-default.
+
 ### Fixed
 
+- **OEM cp `Permission denied` cascade on fresh installs with umask 077 (#267).** Symptom: dockur's first-boot OEM-copy step failed with `cp: cannot stat '/oem/./<file>': Permission denied` for every OEM file -- container's non-root sub-UID couldn't traverse the 0700 `~/.config/` ancestor introduced by #254 P1's always-copy OEM dir path. Fixed by reverting to bundle-direct OEM mounting when the user owns the bundle (see Changed entry above for the deeper refactor).
 - **`Config.save()` now persists `pod.language` / `pod.region` / `pod.keyboard` / `pod.timezone` / `pod.tuning_profile` (#254, phase 1).** Pre-this fix those five fields were loaded from `winpodx.toml` but never written back -- programmatic changes (`winpodx config set pod.language ...`) were silently dropped on the next save. Hand-edited values still survived because nothing was overwriting them. Now all five fields round-trip through save/load.
 
 ## [0.5.6] - 2026-05-21

@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 [![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](../LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![tests](https://img.shields.io/badge/tests-1170%2B-2EA44F?style=flat-square)](#테스트)
+[![tests](https://img.shields.io/badge/tests-1240%2B-2EA44F?style=flat-square)](#테스트)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
 [![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### 상태: 베타
-> winpodx 는 활발히 개발 중입니다 (**v0.5.6**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — 은 이제 default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 (`+invtsc`, `platform_tick` 등 호스트 capability gating) 과 stalled RDP 세션의 자동 `UNRESPONSIVE → recover` 추가 — 오래 idle 된 pod 가 더 이상 `winpodx pod restart` 없이 살아남. v0.5.6 은 모던 rootless podman + pasta (Kubuntu 26.04 기본) 에서 "Launching… 인데 RDP 창 안 뜸" 수정. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+> winpodx 는 활발히 개발 중입니다 (**v0.5.7**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 (`+invtsc`, `platform_tick` 등 호스트 capability gating) 과 stalled RDP 세션의 자동 `UNRESPONSIVE → recover` 추가. v0.5.7 은 모던 rootless podman + pasta 에서 "Launching… 인데 RDP 창 안 뜸" 수정. v0.5.7 은 dockur 의 `TZ` env var 통한 Windows 게스트 타임존 wiring (호스트 자동 감지), 항목별 debloat picker (CLI `--list` / `--preset` / `--items` / `--undo` / `--menu` + Qt picker 다이얼로그 with 리스크 뱃지), `winpodx pod recreate [--wipe-storage]`, Settings → Container/VM 의 Language / Region / Keyboard / Timezone dropdown 추가. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — 진짜 아이콘, pin 가능, alt-tab, 파일 연결 양방향. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
@@ -88,10 +88,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — 최신 release 에서 맞는 .deb 다운로드 후
-sudo apt install ./winpodx_0.5.6_all_debian13.deb
+sudo apt install ./winpodx_0.5.7_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — 최신 release 에서 맞는 .rpm
-sudo dnf install ./winpodx-0.5.6-0.noarch.el10.rpm
+sudo dnf install ./winpodx-0.5.7-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx
@@ -212,7 +212,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 ```bash
 # 리포 루트에서 (설치 불필요)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/    # 1170+ 테스트
+python3 -m pytest tests/    # 1240+ 테스트
 ruff check src/ tests/      # 린트
 ruff format --check src/ tests/
 ```
