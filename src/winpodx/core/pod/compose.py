@@ -181,8 +181,22 @@ def _prepare_oem_dir(cfg: Config | None) -> str:
     user_oem = config_dir() / "oem"
 
     user_oem.mkdir(parents=True, exist_ok=True, mode=0o755)
+    # Explicit chmod on user_oem AND its parent ``~/.config/winpodx/``.
+    # ``mkdir(mode=0o755)`` is umask-adjusted, so on a host with the
+    # default umask 077 we'd get 0o700 and dockur's in-container ``cp``
+    # (running as a non-root user) couldn't traverse the parent to
+    # reach /oem at all -- the symptom is ``cp: cannot stat
+    # '/oem/./<file>': Permission denied`` for every file at first
+    # boot. PR #95 originally dodged this by returning the bundle dir
+    # directly when user-writable; #254 P1 had to drop that fast path
+    # to land per-config files (timezone.txt) without polluting the
+    # bundle, so we re-establish the traversal perms explicitly.
     try:
         os.chmod(user_oem, 0o755)
+    except OSError:
+        pass
+    try:
+        os.chmod(user_oem.parent, 0o755)
     except OSError:
         pass
 
