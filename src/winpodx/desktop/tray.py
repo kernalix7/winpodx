@@ -448,18 +448,22 @@ def run_tray() -> None:
             log.debug("stop_pod during tray-quit failed: %s", e)
 
         # 2. Close any winpodx GUI / dashboard process the user may
-        #    have open. The wrapper script execs into ``python3 -m
-        #    winpodx gui``; the regex matches that shape. An earlier
-        #    anchored variant tried to avoid hypothetical false
-        #    positives (``vim winpodx-gui.md``) but missed real wrapper
-        #    invocations and the Quit silently no-op'd -- realistic
-        #    false positives are approximately zero, and Quit is an
-        #    explicit user click, so over-killing is the safer mode.
+        #    have open. Three launcher cmdline shapes exist:
+        #      (a) install.sh wrapper:  python -m winpodx gui
+        #      (b) pip / venv entry pt: python /.../venv/bin/winpodx gui
+        #      (c) source path-style:   python /.../src/winpodx/__main__.py gui
+        #    A "python ... winpodx ... gui" pattern catches all three.
+        #    Earlier we tried to anchor to ``-m winpodx gui`` only --
+        #    that missed the venv entry-point shape and Quit silently
+        #    no-op'd against a tray running under dev install. Quit is
+        #    an explicit user click, so over-killing (the worst case is
+        #    a stray pytest run that happens to have ``winpodx`` and
+        #    ``gui`` in argv) is the safer failure mode.
         try:
             import subprocess as _sp
 
             _sp.run(
-                ["pkill", "-f", r"python.*-m[[:space:]]+winpodx[[:space:]]+gui"],
+                ["pkill", "-f", r"python.*winpodx.*gui"],
                 capture_output=True,
                 timeout=5,
                 check=False,

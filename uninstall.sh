@@ -71,19 +71,27 @@ fi
 # recovery-attempt notifications fire against a now-gone container.
 #
 # Uninstall is intentional + user-initiated, so kill every winpodx
-# Python process broadly via the launcher cmdline shape ``python ... -m
-# winpodx ...`` (covers gui / tray / app / host-open / setup -- all
-# subcommands). The earlier attempt at narrow anchored regexes missed
-# wrapper-script invocations whose cmdline didn't include the ``app``
-# token, so live tray + GUI survived the uninstall and held the
-# install dir open. Listing the pids first makes the kill observable.
-WINPODX_PROCS=$(pgrep -fa 'python.*-m[[:space:]]+winpodx' 2>/dev/null || true)
+# Python process broadly. Three launcher cmdline shapes exist in the
+# wild:
+#   (a) install.sh wrapper:   python -m winpodx tray
+#   (b) pip / venv entry pt:  python /.../venv/bin/winpodx tray
+#   (c) source path-style:    python /.../src/winpodx/__main__.py tray
+# Common substring: "python" ... "winpodx" ... <subcommand>. The
+# pattern below matches all three. False positives (e.g. pytest
+# tests/test_winpodx_*.py) are acceptable -- uninstall is explicit
+# and ``--purge`` is the expected mode, so over-killing is the
+# safer failure shape than leaving FDs open into the dir we're
+# about to rm -rf.
+#
+# Listing the matched pids before the kill makes the action
+# observable so a surprise hit is at least obvious in the output.
+WINPODX_PROCS=$(pgrep -fa 'python.*winpodx' 2>/dev/null || true)
 if [[ -n "$WINPODX_PROCS" ]]; then
     log "Stopping winpodx processes:"
     while IFS= read -r line; do
         log "  $line"
     done <<<"$WINPODX_PROCS"
-    pkill -f 'python.*-m[[:space:]]+winpodx' 2>/dev/null || true
+    pkill -f 'python.*winpodx' 2>/dev/null || true
     REMOVED=$((REMOVED + 1))
 fi
 # Brief grace so the killed processes release their file handles
