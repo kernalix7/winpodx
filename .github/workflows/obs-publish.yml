@@ -134,6 +134,7 @@ jobs:
       - name: Discover repos and download RPMs
         run: |
           mkdir -p dist-rpms
+          version="${{ steps.tag.outputs.version }}"
 
           # Parse enabled repos from project _meta (public, no auth)
           meta=$(curl -sS -f "$OBS_PUBLIC_API/source/$OBS_PROJECT/_meta")
@@ -172,7 +173,14 @@ jobs:
               # directly instead of anchoring on `href="winpodx-`.
               listing=$(curl -sSL "$base/" || true)
               [ -z "$listing" ] && continue
-              rpms=$(echo "$listing" | grep -oE 'winpodx-[^"]+\.rpm' | sort -u)
+              # Anchor the filename match to the current tag's version so a
+              # stale older RPM still in the OBS publish index (Tumbleweed /
+              # Slowroll rolling-release repos are slow to garbage-collect)
+              # doesn't get downloaded and re-uploaded as a v${version}
+              # release asset. The release-asset rename further down would
+              # otherwise produce e.g. winpodx-0.5.4-...openSUSE_Tumbleweed.rpm
+              # alongside the real 0.5.5 RPMs, which already happened on v0.5.5.
+              rpms=$(echo "$listing" | grep -oE "winpodx-${version}-[^\"]+\.rpm" | sort -u)
               for f in $rpms; do
                 case "$f" in
                   *debuginfo*|*debugsource*|*.src.rpm) continue ;;
