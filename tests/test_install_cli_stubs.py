@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for `winpodx pod install-status` and `winpodx pod install-resume` CLI stubs.
 
 Phase 1 surface — argument parsing and stub behaviour only.

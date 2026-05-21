@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Migrate the Windows VM disk image from podman's named volume to a
 host-local bind mount, optionally with btrfs Copy-on-Write disabled.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Live health probes — `winpodx check` + GUI status panel.
 
 Each probe runs in bounded time and returns a Probe(name, status, detail,

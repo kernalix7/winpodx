@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Header-chrome builder mixin for ``WinpodxWindow``.
 
 Holds the methods that build the persistent top-of-window chrome:

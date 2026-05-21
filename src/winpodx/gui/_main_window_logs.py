@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Logs-page mixin for ``WinpodxWindow``.
 
 Holds the methods that drive the Logs tab: appending coloured rows, running

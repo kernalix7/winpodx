@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Static checks for config/oem/install.bat first-boot glue."""
 
 from pathlib import Path

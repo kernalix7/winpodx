@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``cfg.install`` (agent-first install flow).
 
 See ``docs/design/AGENT_FIRST_INSTALL_DESIGN.md`` §"Config schema

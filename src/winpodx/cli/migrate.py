@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Post-upgrade migration wizard for winpodx.
 
 Invoked automatically by ``install.sh`` when an existing winpodx

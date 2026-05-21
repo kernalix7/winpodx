@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.core.pod — focused on Bug B's RDP recovery helper."""
 
 from __future__ import annotations

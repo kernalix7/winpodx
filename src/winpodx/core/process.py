@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Process tracking for active RDP sessions.
 
 Maintains .cproc files in the runtime directory to track which

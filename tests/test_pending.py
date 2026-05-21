@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for utils.pending — partial-install resume marker (v0.2.1)."""
 
 from __future__ import annotations

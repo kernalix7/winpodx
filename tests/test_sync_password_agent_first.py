@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Agent-first behaviour for ``winpodx pod sync-password``.
 
 Same drive-redirect bug that affected ``rotate-password`` blocked the

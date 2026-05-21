@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """XDG-compliant path management for winpodx."""
 
 from __future__ import annotations

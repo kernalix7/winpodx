@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """MIME type registration for Windows applications."""
 
 from __future__ import annotations

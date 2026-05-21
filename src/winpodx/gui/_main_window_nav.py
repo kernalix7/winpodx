@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Navigation + first-launch mixin for ``WinpodxWindow``.
 
 Holds page-switch behaviour (start/stop the app-log tail and the

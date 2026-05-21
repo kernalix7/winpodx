@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Backward compatibility with winapps configuration."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for RDP session management."""
 
 from __future__ import annotations

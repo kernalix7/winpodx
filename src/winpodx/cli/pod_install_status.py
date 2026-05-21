@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Stub for `winpodx pod install-status`. Phase 1 ships the CLI
 surface; Phase 3 fills in the implementation. See
 docs/design/AGENT_FIRST_INSTALL_DESIGN.md §"Host side: winpodx pod install-status"."""

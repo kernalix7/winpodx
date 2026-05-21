@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for `core.pod.recovery.try_recover_rdp` — agent-driven RDP recovery.
 
 Covers the three terminal RecoveryAction outcomes plus the "RDP comes back

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Maintenance-tab mixin for ``WinpodxWindow``.
 
 Holds the Tools-tab page builder, the shared ``_make_action_row``

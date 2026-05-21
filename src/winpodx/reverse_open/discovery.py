@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Scan the Linux host's installed apps for reverse-open registration.
 
 Walks the XDG_DATA_HOME / XDG_DATA_DIRS application directories the same

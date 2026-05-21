@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.core.storage_migration — named-volume → bind-mount move."""
 
 from __future__ import annotations

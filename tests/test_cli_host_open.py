@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx host-open`` CLI subcommands.
 
 Invokes the dispatcher through ``winpodx.cli.main.main`` so the

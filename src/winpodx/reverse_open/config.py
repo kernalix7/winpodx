@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Reverse-open feature configuration schema.
 
 Persisted under ``[reverse_open]`` in ``winpodx.toml`` alongside the

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``core/agent_install_state.py``.
 
 Covers marker primitives, ``RetryCounter``, the redactor, and

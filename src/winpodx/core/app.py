@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Windows application discovery, registration, and launching."""
 
 from __future__ import annotations

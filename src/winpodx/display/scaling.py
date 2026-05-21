@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """DPI and display scaling detection."""
 
 from __future__ import annotations

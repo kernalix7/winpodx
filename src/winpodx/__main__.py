@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Allow running winpodx as `python -m winpodx`."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for the auto bring-up workflow (BringUpMixin, v0.5.1).
 
 The Qt dialog (``BringUpProgressDialog``) is GUI-smoke territory; the

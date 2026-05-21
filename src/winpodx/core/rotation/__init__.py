@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Windows RDP password rotation.
 
 Extracted from ``winpodx.core.provisioner`` (Track A Sprint 1 Step 2).

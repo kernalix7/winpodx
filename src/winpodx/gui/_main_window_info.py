@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Info-tab mixin for ``WinpodxWindow``.
 
 Holds the methods that drive the Info tab: card scaffolding, health-card

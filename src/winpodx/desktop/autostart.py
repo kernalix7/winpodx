@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Manage `~/.config/autostart/winpodx-tray.desktop` for boot-time tray launch.
 
 Using the XDG autostart spec (rather than systemd user units or a

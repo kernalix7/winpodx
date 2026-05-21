@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Dynamic discovery of installed Windows apps on the guest.
 
 Invokes a guest-side PowerShell script (``scripts/windows/discover_apps.ps1``,

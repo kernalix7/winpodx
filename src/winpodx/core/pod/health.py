@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """RDP-port liveness probes and pod recovery helpers."""
 
 from __future__ import annotations

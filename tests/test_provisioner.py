@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for auto-provisioning engine."""
 
 from __future__ import annotations

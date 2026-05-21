@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.sync``.
 
 The agent network call is mocked through ``unittest.mock`` so the

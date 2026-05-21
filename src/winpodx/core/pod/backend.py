@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pod state types, backend factory, and status query."""
 
 from __future__ import annotations

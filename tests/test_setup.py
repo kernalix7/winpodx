@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for setup_cmd's half-uninstalled state guard.
 
 Covers the case where ``winpodx setup --non-interactive`` is invoked

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for the host-side AgentClient (Phase 1: /health, Phase 2: /exec)."""
 
 from __future__ import annotations

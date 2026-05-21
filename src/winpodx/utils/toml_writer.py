@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Minimal TOML writer (replaces tomli-w dependency)."""
 
 from __future__ import annotations

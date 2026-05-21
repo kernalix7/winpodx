@@ -1,3 +1,4 @@
+' SPDX-License-Identifier: MIT
 ' launch_uwp.vbs -- RemoteApp-friendly UWP launcher
 '
 ' RemoteApp invokes a single program; this VBS is that program. wscript.exe

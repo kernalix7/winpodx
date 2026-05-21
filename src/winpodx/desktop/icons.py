@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Icon installation and cache management."""
 
 from __future__ import annotations

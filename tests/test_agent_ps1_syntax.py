@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Sanity checks for config/oem/agent/agent.ps1 (Phase 2).
 
 The .ps1 script runs inside Windows, so we cannot exercise it from CI.

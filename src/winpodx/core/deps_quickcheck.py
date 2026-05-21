@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """First-run quick-check snapshot for the GUI Quick Start dialog (v0.2.1).
 
 Returns a flat dict of strings so the dialog can render bullets without

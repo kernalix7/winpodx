@@ -1,3 +1,4 @@
+' SPDX-License-Identifier: MIT
 ' hidden-launcher.vbs -- universal "run any command, never show a window"
 '
 ' wscript.exe runs as a GUI-subsystem process (no console of its own), and

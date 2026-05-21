@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # agent-respawn.ps1 -- kill the running agent.ps1 process and spawn a fresh
 # one via the hidden-launcher.vbs wrapper.
 #

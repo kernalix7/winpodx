@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """dispatch() — pick the best available Transport for cfg.
 
 Default policy: prefer the agent (fast HTTP) when it answers /health,

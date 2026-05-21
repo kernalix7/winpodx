@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Interactive setup wizard, no external dependencies."""
 
 from __future__ import annotations

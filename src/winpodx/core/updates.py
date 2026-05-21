@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 r"""Windows Update toggle via FreeRDP RemoteApp PowerShell.
 
 The actual toggle logic lives in ``config/oem/toggle_updates.ps1`` which

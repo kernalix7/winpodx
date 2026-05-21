@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Lint test: prevent regression to the broken `podman exec ... powershell.exe` path.
 
 v0.1.9.5 migrated every host-to-Windows command path to

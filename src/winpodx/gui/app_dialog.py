@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Add/Edit app profile dialog."""
 
 from __future__ import annotations

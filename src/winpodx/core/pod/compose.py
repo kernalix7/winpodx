@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Compose template generation for Podman/Docker backends."""
 
 from __future__ import annotations

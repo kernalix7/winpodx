@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Freedesktop .desktop entry file generation and management."""
 
 from __future__ import annotations

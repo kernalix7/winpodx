@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Main CLI entry point for winpodx, zero external dependencies."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Auto-recovery for `PodState.UNRESPONSIVE` — restart Windows RDP service.
 
 When `pod_status()` reports ``UNRESPONSIVE`` (container running long enough

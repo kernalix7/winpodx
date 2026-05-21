@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Manual backend: direct RDP connection to an existing Windows machine."""
 
 from __future__ import annotations

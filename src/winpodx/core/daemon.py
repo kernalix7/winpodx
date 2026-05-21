@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Background daemon for automatic pod management.
 
 Handles:

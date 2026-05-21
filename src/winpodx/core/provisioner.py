@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Auto-provisioning on first launch."""
 
 from __future__ import annotations

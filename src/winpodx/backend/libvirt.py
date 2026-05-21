@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """libvirt/KVM backend for running Windows VM."""
 
 from __future__ import annotations

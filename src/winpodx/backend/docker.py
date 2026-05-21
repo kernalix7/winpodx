@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Docker backend for running Windows via dockur/windows container."""
 
 from __future__ import annotations

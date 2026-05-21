@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """winpodx design system: GitHub Dark palette."""
 
 from __future__ import annotations

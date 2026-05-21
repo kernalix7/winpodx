@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for backend abstraction."""
 
 from unittest.mock import MagicMock, patch

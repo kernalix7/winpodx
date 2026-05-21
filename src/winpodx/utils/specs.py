@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Host CPU + RAM detection and VM tier presets (v0.2.1).
 
 Reads `/proc/meminfo` for total RAM and `os.cpu_count()` for CPU

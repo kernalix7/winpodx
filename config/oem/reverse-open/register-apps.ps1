@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # =====================================================================
 # winpodx reverse-open — register the Linux app handlers in Windows.
 #

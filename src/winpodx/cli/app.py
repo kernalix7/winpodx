@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """CLI handlers for Windows app management."""
 
 from __future__ import annotations

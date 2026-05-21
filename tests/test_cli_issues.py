@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for CLI issues 7-22 (4th audit) and H2, H7, M3, M6, M7 (5th audit)."""
 
 from __future__ import annotations

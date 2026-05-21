@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.core.install_state``.
 
 See ``docs/design/AGENT_FIRST_INSTALL_DESIGN.md`` §"Guest install state

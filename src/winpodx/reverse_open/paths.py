@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """UNC -> POSIX path translation for incoming reverse-open requests.
 
 Mirror of ``core.rdp.linux_to_unc``. The Windows guest's shim writes

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """License-tab mixin for ``WinpodxWindow``.
 
 Surfaces the project license (MIT) plus third-party acknowledgments

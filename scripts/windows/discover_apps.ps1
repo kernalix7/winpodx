@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # discover_apps.ps1 -- enumerate installed Windows apps and emit JSON on stdout
 #
 # Consumed by winpodx.core.discovery. Four sources are scanned inside the

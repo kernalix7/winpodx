@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Library-page mixin for ``WinpodxWindow``.
 
 Holds the methods that build and drive the Apps tab: the toolbar

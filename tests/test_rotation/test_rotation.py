@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.core.rotation — moved from tests/test_provisioner.py
 in Track A Sprint 1 Step 2."""
 

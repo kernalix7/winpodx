@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.utils.btrfs — per-path Copy-on-Write helper.
 
 The module deliberately does NOT operate on podman's graph root; tests

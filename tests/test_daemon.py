@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for daemon module (lock files, suspend, time sync)."""
 
 from pathlib import Path

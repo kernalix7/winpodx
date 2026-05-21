@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for the redesigned ``core.discovery`` public API (Step 3).
 
 Pins the contract that:

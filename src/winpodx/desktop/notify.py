@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Desktop notification integration via D-Bus / libnotify."""
 
 from __future__ import annotations

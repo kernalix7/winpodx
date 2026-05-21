@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Abstract base class for Windows pod backends."""
 
 from __future__ import annotations

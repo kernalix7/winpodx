@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """btrfs Copy-on-Write detection and per-path disable helper.
 
 dockur prints `Warning: you are using the BTRFS filesystem for /storage,

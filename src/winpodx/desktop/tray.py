@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """System tray icon using Qt (QSystemTrayIcon)."""
 
 from __future__ import annotations

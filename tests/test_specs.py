@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for utils.specs — host CPU/RAM detection + tier presets (v0.2.1)."""
 
 from __future__ import annotations

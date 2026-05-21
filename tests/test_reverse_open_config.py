@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for :class:`winpodx.reverse_open.config.ReverseOpenConfig`.
 
 Phase 1, PR 1: pure host-side schema. These tests pin the contract

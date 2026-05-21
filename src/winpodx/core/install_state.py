@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Host-side mirror of the guest install state machine.
 
 See ``docs/design/AGENT_FIRST_INSTALL_DESIGN.md`` §"Guest install state

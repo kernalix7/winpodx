@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Reverse file-association layer (#48).
 
 Mirror of winpodx's primary direction (Windows app → Linux ``.desktop``

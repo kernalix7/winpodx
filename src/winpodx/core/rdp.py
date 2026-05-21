@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """FreeRDP session management."""
 
 from __future__ import annotations

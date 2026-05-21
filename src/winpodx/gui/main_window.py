@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """winpodx main GUI: top-nav app launcher and pod manager."""
 
 from __future__ import annotations

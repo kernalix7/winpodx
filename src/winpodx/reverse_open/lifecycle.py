@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Daemonise the reverse-open listener via fork-fork-pipe.
 
 The host-side listener runs as a background daemon per pod. We start

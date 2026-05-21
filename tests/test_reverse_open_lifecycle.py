@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.lifecycle``.
 
 Daemonisation involves ``fork()`` + ``setsid()`` + writing to

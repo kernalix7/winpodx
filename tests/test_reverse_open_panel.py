@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for the pure-Python helpers in ``winpodx.gui.reverse_open_panel``.
 
 The Qt widget builder (:func:`build_panel`) requires PySide6 and an

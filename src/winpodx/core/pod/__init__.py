@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pod lifecycle management.
 
 This package was split out of the former ``winpodx.core.pod`` module. The

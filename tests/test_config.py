@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for configuration management."""
 
 from winpodx.core.config import Config, PodConfig, RDPConfig

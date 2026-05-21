@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for the host-side agent bearer token helpers."""
 
 from __future__ import annotations

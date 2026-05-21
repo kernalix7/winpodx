@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for display detection."""
 
 from winpodx.display.detector import desktop_environment, session_type

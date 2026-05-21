@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # winpodx Windows debloat script
 # Disables telemetry, ads, and unnecessary services for a clean RDP experience.
 # Run once after Windows installation.

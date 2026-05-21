@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for transport.base — dataclass shapes, exception hierarchy, ABC."""
 
 from __future__ import annotations

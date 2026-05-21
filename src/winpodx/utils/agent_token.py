@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Host-side bearer token for the guest HTTP agent.
 
 The same token is read by:

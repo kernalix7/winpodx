@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Podman backend for running Windows container."""
 
 from __future__ import annotations

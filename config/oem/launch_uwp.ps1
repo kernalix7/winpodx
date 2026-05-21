@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # launch_uwp.ps1 -- activate a UWP/MSIX app by AUMID via COM, no explorer.exe
 #
 # The default RemoteApp UWP launch (`explorer.exe shell:AppsFolder\<AUMID>`)

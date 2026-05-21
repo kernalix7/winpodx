@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pure widget-construction helpers extracted from main_window.py.
 
 These functions have no dependency on ``WinpodxWindow`` state — they take

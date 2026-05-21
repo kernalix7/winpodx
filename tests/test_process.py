@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for RDP process tracking."""
 
 from __future__ import annotations

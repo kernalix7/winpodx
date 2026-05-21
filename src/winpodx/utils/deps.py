@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """System dependency checking."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Architecture-aware compose template generation tests.
 
 Issue #141 Phase 2: the QEMU ``ARGUMENTS:`` value must differ between

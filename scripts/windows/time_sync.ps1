@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Synchronize Windows time with host
 # Run on Windows startup to prevent clock drift after sleep/wake
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.listener``.
 
 Spawning is mocked via the ``spawn`` constructor argument so no real

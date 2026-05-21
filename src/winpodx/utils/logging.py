@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Structured logging configuration for winpodx."""
 
 from __future__ import annotations

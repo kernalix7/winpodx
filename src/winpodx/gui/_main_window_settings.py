@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Settings-page mixin for ``WinpodxWindow``.
 
 Holds the Settings-tab builder, the shared ``_settings_card`` factory,

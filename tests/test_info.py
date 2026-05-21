@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.core.info — the 5-section snapshot consumed by CLI + GUI."""
 
 from __future__ import annotations

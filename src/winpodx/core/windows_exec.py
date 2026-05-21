@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 r"""Execute PowerShell inside the Windows guest via FreeRDP RemoteApp.
 
 Why this module exists

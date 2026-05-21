@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pod lifecycle: start_pod / stop_pod."""
 
 from __future__ import annotations

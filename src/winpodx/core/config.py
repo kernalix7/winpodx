@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Configuration management for winpodx.
 
 Persists ``[rdp]``, ``[pod]``, ``[reverse_open]``, and ``[install]``

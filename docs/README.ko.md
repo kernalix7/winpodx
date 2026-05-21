@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../CI.svg" alt="winpodx" width="320">
+<img src="images/CI.svg" alt="winpodx" width="320">
 
 ### 앱 클릭하면 Word 가 뜬다. 끝.
 

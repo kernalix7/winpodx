@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Resolve freedesktop icon names + convert PNG / SVG to Windows ICO.
 
 The Windows side of reverse-open registers each Linux app as a Windows

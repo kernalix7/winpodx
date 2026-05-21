@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # rdprrap-activate.ps1 -- single source of truth for rdprrap activation,
 # usable both at OEM Sysprep time (synchronous from install.bat) and at
 # runtime (detached from `winpodx pod multi-session on`).

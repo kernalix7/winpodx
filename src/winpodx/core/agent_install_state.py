@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Host-side helpers for the agent-first guest install state.
 
 Three groups of primitives:

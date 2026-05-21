@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Qt worker objects used by the main winpodx window."""
 
 from __future__ import annotations

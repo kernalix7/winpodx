@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Shared helper for launching the winpodx tray as a detached subprocess.
 
 The tray icon is the only place where UNRESPONSIVE auto-recovery runs

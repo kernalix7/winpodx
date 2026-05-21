@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # media_monitor.ps1 - Auto-map USB drives as network drives in Explorer
 # Uses FileSystemWatcher (event-driven, no polling) to detect USB mount/unmount.
 # Maps new USB subfolders in \\tsclient\media to drive letters (E:, F:, ...).

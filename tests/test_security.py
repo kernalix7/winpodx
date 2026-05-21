@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Security-focused tests for winpodx."""
 
 from __future__ import annotations

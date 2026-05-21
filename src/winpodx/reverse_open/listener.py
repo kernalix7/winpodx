@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Reverse-open listener — process incoming guest requests safely.
 
 The Windows guest writes a JSON file per "Open with → <Linux app>"

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Host-side HTTP client for the guest agent (agent-v2).
 
 Complements ``config/oem/agent/agent.ps1`` running inside the Windows VM.

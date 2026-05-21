@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """FreerdpTransport — Transport over the FreeRDP RemoteApp channel.
 
 Wraps ``winpodx.core.windows_exec.run_in_windows`` (the existing PS-via-

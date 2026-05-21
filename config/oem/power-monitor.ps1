@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # winpodx guest-side power monitor.
 #
 # Subscribes to Win32_PowerManagementEvent and restarts TermService when

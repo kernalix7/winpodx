@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """App-CRUD + discovery mixin for ``WinpodxWindow``.
 
 Holds the methods that drive Add/Edit/Delete profile flows and the

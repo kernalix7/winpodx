@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Compatibility shim — compose generation moved to ``winpodx.core.pod.compose``.
 
 Step S1A-1 of the feat/redesign refactor (see .priv-storage/WINPODX_REDESIGN.md)

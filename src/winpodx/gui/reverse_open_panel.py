@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Settings-page panel for the reverse-open feature (#48).
 
 Split out of :mod:`main_window` so the daemon-status logic + the

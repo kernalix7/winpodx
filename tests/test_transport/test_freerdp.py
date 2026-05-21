@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for FreerdpTransport — wraps run_in_windows + check_rdp_port."""
 
 from __future__ import annotations

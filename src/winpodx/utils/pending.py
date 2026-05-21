@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pending-setup tracker (v0.2.1).
 
 Records steps that ``install.sh`` couldn't complete on first run so the

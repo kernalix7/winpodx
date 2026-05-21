@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.core.windows_exec — FreeRDP RemoteApp PowerShell channel."""
 
 from __future__ import annotations

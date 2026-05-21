@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """``winpodx host-open`` — manage Linux apps registered with the Windows guest.
 
 This is the CLI front of the reverse-open feature (#48). Subcommands:

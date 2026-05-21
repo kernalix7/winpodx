@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for app management.
 
 v0.1.9 dropped the bundled profile set entirely; the loader now sources

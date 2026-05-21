@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Auto bring-up mixin for ``WinpodxWindow`` (v0.5.1).
 
 After ``_save_settings`` triggers a container recreate (CPU / RAM / port /

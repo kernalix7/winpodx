@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.discovery``.
 
 The XDG_* env vars are isolated per-test by ``conftest._isolate_xdg_and_home``,

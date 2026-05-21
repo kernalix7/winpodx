@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.paths``.
 
 Phase 1 PR 1 (issue #48): UNC -> POSIX translation, strict subtree

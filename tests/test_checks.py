@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for winpodx.core.checks — health probes feed `winpodx check` + GUI."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Push the host-staged manifest + icons into the Windows guest.
 
 Pairs with the guest-side :file:`config/oem/reverse-open/

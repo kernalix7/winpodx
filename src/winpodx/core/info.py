@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Aggregate system/display/deps/pod/config snapshot for `winpodx info` + GUI Info page.
 
 The CLI handler and the Qt main_window Info page both consume the same

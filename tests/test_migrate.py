@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for cli.migrate — post-upgrade wizard.
 
 Covers version tuple parsing, installed-version I/O, fresh-install vs

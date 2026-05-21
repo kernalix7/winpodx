@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Transport ABC + result types for the host->guest command channel.
 
 See ``docs/TRANSPORT_ABC.md`` for the full contract. This module defines

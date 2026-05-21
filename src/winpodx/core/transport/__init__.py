@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Public API for the host->guest Transport layer.
 
 See ``docs/TRANSPORT_ABC.md`` for the full contract. Concrete transports

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Persistent ring buffer of processed UUIDs (replay defence).
 
 The reverse-open listener processes a guest-supplied JSON request,

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.icons``.
 
 The PIL dependency is a soft import; if Pillow isn't installed in the

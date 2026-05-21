@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for dispatch() — pick agent if up, else freerdp."""
 
 from __future__ import annotations

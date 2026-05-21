@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Load the staged ``apps.json`` manifest into an in-memory lookup table.
 
 The listener (``listener.py``) consults this database on every incoming

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.seen_uuids``.
 
 Phase 1 PR 1 of the reverse-open feature (#48). Covers the persistent

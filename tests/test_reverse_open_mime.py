@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for ``winpodx.reverse_open.mime`` (#48 phase 1).
 
 Covers the curated table, the defensive contract (never raises,

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """AgentTransport — wraps ``AgentClient`` for the host->guest command channel.
 
 Implements the Transport ABC v1 by delegating to the existing

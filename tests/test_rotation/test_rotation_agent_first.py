@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Agent-first password rotation with FreeRDP fallback.
 
 Covers ``_change_windows_password`` after rule #6 was superseded

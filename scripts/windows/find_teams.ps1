@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # find_teams.ps1 - Locate the New Teams (MSIX) executable on the guest.
 # Prints absolute path to stdout (exit 0); prints nothing on failure (exit 1).
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File find_teams.ps1

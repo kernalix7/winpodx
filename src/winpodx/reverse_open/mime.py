@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """MIME type → Windows file-extension mapping (#48, design decision #1).
 
 The reverse-open layer needs to ask, for every Linux ``.desktop`` we

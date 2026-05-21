@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Display server detection (X11 vs Wayland)."""
 
 from __future__ import annotations

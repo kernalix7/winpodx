@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pod-control + transport-status mixin for ``WinpodxWindow``.
 
 Holds the methods that drive pod start/stop, the launch path

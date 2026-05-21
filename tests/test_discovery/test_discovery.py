@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for core.discovery — dynamic Windows app enumeration.
 
 Covers:

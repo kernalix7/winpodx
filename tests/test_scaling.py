@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for DPI scaling detection."""
 
 from winpodx.display.scaling import detect_scale_factor

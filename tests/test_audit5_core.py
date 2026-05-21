@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests added by the 5th-round core-team audit."""
 
 from __future__ import annotations
