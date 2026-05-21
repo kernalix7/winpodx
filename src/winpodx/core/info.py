@@ -19,7 +19,7 @@ from typing import Any
 
 from winpodx import __version__
 from winpodx.core.config import Config, check_session_budget
-from winpodx.core.pod import PodState, check_rdp_port, pod_status
+from winpodx.core.pod import PodState, check_rdp_port, check_tcp_port, pod_status
 from winpodx.utils.paths import bundle_dir
 
 log = logging.getLogger(__name__)
@@ -181,7 +181,12 @@ def _pod_section(cfg: Config) -> dict[str, Any]:
         state = "unknown"
 
     rdp_ok = check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=_PORT_PROBE_TIMEOUT)
-    vnc_ok = check_rdp_port(cfg.rdp.ip, cfg.pod.vnc_port, timeout=_PORT_PROBE_TIMEOUT)
+    # VNC speaks RFB, not RDP -- the X.224 handshake probe used by
+    # check_rdp_port gets no TPKT response and always returns False, so
+    # `winpodx info` would print "VNC unreachable" even when NoVNC is
+    # actually serving. A plain TCP accept check is the right liveness
+    # signal here. See #214.
+    vnc_ok = check_tcp_port(cfg.rdp.ip, cfg.pod.vnc_port, timeout=_PORT_PROBE_TIMEOUT)
 
     return {
         "state": state,

@@ -257,13 +257,14 @@ def build_rdp_command(
 
     binary, variant = found
 
-    # Rootless podman needs --rootless-netns to reach port-mapped containers.
-    cmd: list[str] = []
-
-    if cfg.pod.backend == "podman" and shutil.which("podman"):
-        cmd += ["podman", "unshare", "--rootless-netns"]
-
-    cmd += shlex.split(binary)
+    # FreeRDP runs directly on the host. Rootless podman publishes the
+    # container's 3389 to the host's 127.0.0.1:<rdp_port> via pasta /
+    # slirp4netns, which is reachable from the host loopback without
+    # entering the container's net namespace. The legacy `podman unshare
+    # --rootless-netns` wrap put FreeRDP *inside* the container's net ns
+    # where the host-side publish is invisible -- which broke the launch
+    # on modern podman + pasta (Ubuntu/Kubuntu 26.04 default). See #214.
+    cmd: list[str] = shlex.split(binary)
 
     cmd += [
         f"/v:{cfg.rdp.ip}:{cfg.rdp.port}",
@@ -298,7 +299,7 @@ def build_rdp_command(
         cmd.append(f"/scale-desktop:{cfg.rdp.dpi}")
 
     # /p: exposes the password in /proc/pid/cmdline (same-uid-readable only);
-    # /from-stdin:force is not viable under podman unshare (no tty) or GUI launches.
+    # /from-stdin:force is not viable under GUI launches (no controlling tty).
     password = _resolve_password(cfg)
     if password:
         cmd.append(f"/p:{password}")
@@ -389,7 +390,9 @@ def build_rdp_command(
         cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
 
-    # TLS for all backends: install.bat forces SecurityLayer=2 and podman unshare breaks NLA.
+    # TLS for all backends. install.bat forces SecurityLayer=2 on the
+    # guest side; matching /sec:tls on the client avoids the NLA path
+    # that would otherwise need credentials cached in CredSSP.
     cmd.append("/sec:tls")
 
     if cfg.rdp.ip in ("127.0.0.1", "localhost", "::1"):

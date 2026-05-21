@@ -20,13 +20,14 @@ from winpodx.core.pod.backend import (
     get_backend,
     pod_status,
 )
-from winpodx.core.pod.health import check_rdp_port, recover_rdp_if_needed
+from winpodx.core.pod.health import check_rdp_port, check_tcp_port, recover_rdp_if_needed
 from winpodx.core.pod.lifecycle import start_pod, stop_pod
 
 __all__ = [
     "PodState",
     "PodStatus",
     "check_rdp_port",
+    "check_tcp_port",
     "get_backend",
     "pod_status",
     "recover_rdp_if_needed",

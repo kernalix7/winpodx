@@ -101,14 +101,22 @@ def test_bundled_rdprrap_version_keeps_first_line_only(monkeypatch, tmp_path):
 
 
 def _stub_probes(monkeypatch, *, rdp_alive: bool, vnc_alive: bool):
-    """Override the network probes deterministically."""
+    """Override the network probes deterministically.
 
-    def probe(ip, port, timeout=5.0):
-        if port == 8007:
-            return vnc_alive
+    Two probes are patched because info.py uses ``check_rdp_port`` for the
+    RDP port (X.224 handshake) and ``check_tcp_port`` for the VNC port
+    (plain TCP accept -- VNC speaks RFB, not RDP, so the handshake probe
+    would always fail; see #214 fix).
+    """
+
+    def rdp_probe(ip, port, timeout=5.0):
         return rdp_alive
 
-    monkeypatch.setattr("winpodx.core.info.check_rdp_port", probe)
+    def vnc_probe(ip, port, timeout=5.0):
+        return vnc_alive
+
+    monkeypatch.setattr("winpodx.core.info.check_rdp_port", rdp_probe)
+    monkeypatch.setattr("winpodx.core.info.check_tcp_port", vnc_probe)
 
 
 def _stub_pod_status(monkeypatch, state_value: str):

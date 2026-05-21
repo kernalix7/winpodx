@@ -28,6 +28,11 @@ verbatim.
 ### Fixed
 -->
 
+### Fixed
+
+- **App launch no longer hangs at "Launching..." on modern rootless podman + pasta (#214).** Reported by @ismikes on Kubuntu 26.04 (Wayland + Plasma 6 + FreeRDP 3.24.2); diagnosis from @smoore100. `core/rdp.py` previously wrapped every FreeRDP invocation in `podman unshare --rootless-netns`, putting xfreerdp3 *inside* the container's network namespace where the host-side port publish is invisible — so "Launching..." printed but no RDP window appeared. The wrap is removed; FreeRDP now runs on the host loopback directly, where `127.0.0.1:<rdp_port>` is reachable via the existing podman publish. Side benefits: removes an implicit dependency on the `podman` binary being on PATH for the FreeRDP launch path (flatpak-FreeRDP-only setups now work), and the `-Plasma 6 / Wayland / FreeRDP 3.24` edge case from #214 is unblocked.
+- **`winpodx info` no longer falsely reports "VNC unreachable" while NoVNC is serving (#214).** The VNC port (8007 by default) was probed with `check_rdp_port`, which sends an X.224 Connection Request and waits for a TPKT reply — meaningless against an RFB-speaking VNC server, so the probe always returned False. VNC now uses `check_tcp_port` (plain TCP accept), which matches what "is the NoVNC endpoint accepting connections" actually means.
+
 ## [0.5.5] - 2026-05-21
 
 User-report follow-up release driven by @tolistim (#216) and @ismikes (#215). Fixes a setup-rerun lockout that desynced the host config from the Windows guest password, lands a host-adaptive Windows-on-KVM tuning profile so safe perf tweaks turn themselves on without user configuration, and ends the "tray stuck on starting forever" symptom that long-idle pods used to show.
