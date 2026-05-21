@@ -112,17 +112,30 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     #      pod restart and resets Windows uptime; the fallback when the
     #      agent isn't reachable or stage 1 didn't bring RDP back.
     if not check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
-        from winpodx.core.pod import recover_rdp_if_needed
-        from winpodx.core.pod.recovery import try_recover_rdp
+        # Skip recovery while install.sh is mid-flight. The
+        # ``[3/4]`` / ``[4/4]`` install phases legitimately have RDP
+        # down for minutes while Sysprep / the OEM reboot pass runs;
+        # restarting the container during that window blows away the
+        # in-progress install.
+        from winpodx.desktop.tray_spawn import _install_in_progress
 
-        result = try_recover_rdp(cfg)
-        log.info(
-            "ensure_ready: agent recovery returned action=%s success=%s",
-            result.action.value,
-            result.success,
-        )
-        if not result.success:
-            recover_rdp_if_needed(cfg)
+        if _install_in_progress():
+            log.info(
+                "ensure_ready: install.sh in progress; skipping RDP recovery, "
+                "letting wait-ready phases drive readiness."
+            )
+        else:
+            from winpodx.core.pod import recover_rdp_if_needed
+            from winpodx.core.pod.recovery import try_recover_rdp
+
+            result = try_recover_rdp(cfg)
+            log.info(
+                "ensure_ready: agent recovery returned action=%s success=%s",
+                result.action.value,
+                result.success,
+            )
+            if not result.success:
+                recover_rdp_if_needed(cfg)
 
     # Discovery is no longer auto-fired here (Step 3 of the redesign).
     # The "populate the menu on first boot" UX is owned by install.sh

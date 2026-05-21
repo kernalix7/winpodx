@@ -220,10 +220,21 @@ def run_tray() -> None:
                 and prev != PodState.UNRESPONSIVE
                 and not state_cache["recovery_inflight"]
             ):
-                from winpodx.desktop.notify import notify_pod_unresponsive
+                # Suppress UNRESPONSIVE-driven recovery while install.sh
+                # is running. [3/4] "Waiting for Windows activation" and
+                # [4/4] "Waiting for OEM reboot pass" both legitimately
+                # have RDP down for several minutes while Windows is in
+                # Sysprep or rebooting -- firing TermService restart
+                # against a guest that's still on its first boot loops
+                # the install path and shows the user spurious
+                # "Pod stopped responding" notifications.
+                from winpodx.desktop.tray_spawn import _install_in_progress
 
-                notify_pod_unresponsive(s.ip or cfg.rdp.ip)
-                _trigger_unresponsive_recovery(cfg)
+                if not _install_in_progress():
+                    from winpodx.desktop.notify import notify_pod_unresponsive
+
+                    notify_pod_unresponsive(s.ip or cfg.rdp.ip)
+                    _trigger_unresponsive_recovery(cfg)
             state_cache["prev"] = s.state
         except Exception as e:
             log.warning("Failed to get pod status: %s", e)

@@ -152,6 +152,25 @@ detect_distro() {
 DISTRO=$(detect_distro)
 log "Detected distro: $DISTRO"
 
+# Mark the install as in-progress so child winpodx CLI invocations
+# (winpodx setup, pod wait-ready, migrate, app refresh, host-open
+# refresh, ...) skip the tray auto-spawn AND the tray's UNRESPONSIVE
+# auto-recovery transition. Without this, install.sh's [3/4]
+# "Waiting for Windows activation" + [4/4] "Waiting for OEM reboot
+# pass" windows -- where the guest is genuinely booting and RDP
+# legitimately isn't reachable -- would have the tray fire a
+# "Pod stopped responding" notification + try to Restart-Service
+# TermService against a guest that's still running first-boot
+# Sysprep. Marker is removed at script exit via trap so a
+# Ctrl+C / network failure / signal doesn't leave the flag stuck.
+WINPODX_INSTALL_MARKER="${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/.install_in_progress"
+mkdir -p "$(dirname "$WINPODX_INSTALL_MARKER")"
+echo "$$" > "$WINPODX_INSTALL_MARKER"
+cleanup_install_marker() {
+    rm -f "$WINPODX_INSTALL_MARKER"
+}
+trap cleanup_install_marker EXIT INT TERM
+
 # Detect host architecture. winpodx ships two dockur image variants:
 #
 #   x86_64  → dockurr/windows (x86_64 Windows guest, native via KVM)
