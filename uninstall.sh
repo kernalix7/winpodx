@@ -2,6 +2,17 @@
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
+# Suppress auto-spawn of the system tray during uninstall. install.sh
+# uses a marker file for this; uninstall.sh uses an env var instead
+# because the marker would block tray spawn far longer than we want
+# (uninstall is expected to be short, and leaving a stale marker would
+# leak into the next install / GUI session). Every ``winpodx`` CLI call
+# this script makes (host-open stop-listener, unregister-guest, etc.)
+# inherits the env, so ``maybe_spawn_tray`` short-circuits cleanly --
+# without this the section-0a pkill below was promptly undone by the
+# next CLI subcommand auto-spawning a fresh tray.
+export WINPODX_NO_TRAY_SPAWN=1
+
 ###############################################################################
 # winpodx uninstaller
 #
