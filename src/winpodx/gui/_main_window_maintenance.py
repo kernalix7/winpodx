@@ -44,7 +44,6 @@ from winpodx.gui.theme import (
     C,
     accent_color,
 )
-from winpodx.utils.paths import bundle_dir
 
 
 class MaintenanceMixin:
@@ -328,33 +327,51 @@ class MaintenanceMixin:
         self._refresh_pod_status()
 
     def _on_debloat(self) -> None:
+        """Run the ``normal`` debloat preset against the guest.
+
+        #247 P1 split the monolithic ``debloat.ps1`` into a per-item
+        catalog driven by ``winpodx.core.debloat``. The Tools / Debloat
+        button keeps the previous "click once -> safe defaults" UX by
+        running the ``normal`` preset (telemetry + ads). #247 P3 will
+        replace this with a picker dialog that surfaces every catalog
+        item with risk badges + selective apply; until then, power
+        users get richer selection via ``winpodx debloat --preset
+        full|performance|speed`` or ``--items <list>`` on the CLI.
+        """
         reply = QMessageBox.question(
             self,
             "Debloat",
-            "This will disable telemetry, ads, and bloat in Windows.\nProceed?",
+            "This will disable telemetry and ads in Windows (normal preset).\n"
+            "Other presets (full / performance / speed) are available via\n"
+            "`winpodx debloat --preset ...` on the CLI; a GUI picker is\n"
+            "tracked under #247.\n\nProceed?",
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        self.info_label.setText("Running debloat...")
+        self.info_label.setText("Running debloat (normal preset)...")
 
         def _do() -> None:
+            from winpodx.core.debloat import (
+                DebloatCatalogError,
+                build_run_script,
+                load_catalog,
+                resolve_selection,
+            )
             from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
             cfg = Config.load()
-            script = bundle_dir() / "scripts" / "windows" / "debloat.ps1"
-            if not script.exists():
-                self.app_launch_failed.emit("Debloat script not found")
+            try:
+                catalog = load_catalog()
+                selection = resolve_selection(catalog, preset="normal", items=None)
+                payload = build_run_script(catalog, selection)
+            except DebloatCatalogError as e:
+                self.app_launch_failed.emit(f"Debloat catalog error: {e}")
                 return
 
+            description = "debloat (" + ",".join(selection) + ")"
             try:
-                payload = script.read_text(encoding="utf-8")
-            except OSError as e:
-                self.app_launch_failed.emit(f"Cannot read debloat script: {e}")
-                return
-
-            try:
-                result = run_via_transport(cfg, payload, description="debloat", timeout=180)
+                result = run_via_transport(cfg, payload, description=description, timeout=300)
             except WindowsExecError as e:
                 self.app_launch_failed.emit(f"Debloat channel failure: {e}")
                 return
