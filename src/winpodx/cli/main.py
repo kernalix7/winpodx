@@ -289,7 +289,34 @@ def cli(argv: list[str] | None = None) -> None:
     )
     sub.add_parser("cleanup", help="Remove Office lock files")
     sub.add_parser("timesync", help="Force Windows time sync")
-    sub.add_parser("debloat", help="Run Windows debloat script")
+    debloat_p = sub.add_parser(
+        "debloat",
+        help="Run Windows debloat. Default = normal preset (telemetry + ads).",
+    )
+    debloat_p.add_argument(
+        "--list",
+        action="store_true",
+        help="Print the item catalog + preset definitions and exit.",
+    )
+    debloat_p.add_argument(
+        "--preset",
+        choices=["normal", "full", "performance", "speed"],
+        default=None,
+        help=(
+            "Run a curated preset. normal = telemetry + ads (current default); "
+            "full = + onedrive / web_search / widgets / scheduled_tasks; "
+            "performance = + sysmain / startup_programs / visual_effects; "
+            "speed = + search_indexing / transparency."
+        ),
+    )
+    debloat_p.add_argument(
+        "--items",
+        default=None,
+        help=(
+            "Comma-separated list of debloat item names (see --list). "
+            "Mutually exclusive with --preset; explicit list wins."
+        ),
+    )
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
@@ -391,7 +418,7 @@ def _dispatch(args: argparse.Namespace) -> None:
     elif cmd == "timesync":
         _cmd_timesync()
     elif cmd == "debloat":
-        _cmd_debloat()
+        _cmd_debloat(args)
     elif cmd == "uninstall":
         _cmd_uninstall(args)
     elif cmd == "power":
@@ -556,36 +583,73 @@ def _cmd_timesync() -> None:
         print("Time sync failed. Is the pod running?")
 
 
-def _cmd_debloat() -> None:
-    """Run debloat.ps1 inside the Windows VM via FreeRDP RemoteApp.
+def _cmd_debloat(args: argparse.Namespace) -> None:
+    """Run debloat against the Windows VM (#247 phase 1).
 
-    v0.1.9.5: was on the broken `podman cp + podman exec` path which
-    couldn't reach the Windows VM. Now reads the script body locally
-    and pipes it through ``windows_exec.run_in_windows``.
+    Switches on three argparse args:
+
+      * ``--list``  -- print the catalog + presets and exit (no guest
+                        traffic).
+      * ``--preset`` / ``--items`` -- pick what to run. Resolution rules
+                        live in ``winpodx.core.debloat.resolve_selection``;
+                        defaults to the ``normal`` preset (telemetry +
+                        ads) when both are absent for back-compat with
+                        the pre-#247 ``winpodx debloat`` invocation.
+
+    The selected items are concatenated into a single PowerShell
+    payload by ``build_run_script`` and sent through the existing
+    ``run_via_transport`` channel.
     """
     from winpodx.core.config import Config
-    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
-    from winpodx.utils.paths import bundle_dir
+    from winpodx.core.debloat import (
+        DebloatCatalogError,
+        build_run_script,
+        format_catalog_listing,
+        load_catalog,
+        resolve_selection,
+    )
+
+    try:
+        catalog = load_catalog()
+    except DebloatCatalogError as e:
+        print(f"Debloat catalog error: {e}")
+        return
+
+    if getattr(args, "list", False):
+        print(format_catalog_listing(catalog))
+        return
+
+    raw_items = getattr(args, "items", None)
+    items_list = (
+        [name.strip() for name in raw_items.split(",") if name.strip()] if raw_items else None
+    )
+    try:
+        selection = resolve_selection(
+            catalog,
+            preset=getattr(args, "preset", None),
+            items=items_list,
+        )
+    except DebloatCatalogError as e:
+        print(f"Debloat selection error: {e}")
+        return
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
         print("Debloat only supported for Podman/Docker backends.")
         return
 
-    script = bundle_dir() / "scripts" / "windows" / "debloat.ps1"
-    if not script.exists():
-        print(f"Debloat script not found: {script}")
+    try:
+        payload = build_run_script(catalog, selection)
+    except DebloatCatalogError as e:
+        print(f"Debloat payload build error: {e}")
         return
 
-    try:
-        payload = script.read_text(encoding="utf-8")
-    except OSError as e:
-        print(f"Cannot read debloat script {script}: {e}")
-        return
+    description = "debloat (" + ",".join(selection) + ")"
+    print(f"Running debloat ({len(selection)} item(s); may take a minute)...")
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
-    print("Running debloat (this may take a minute)...")
     try:
-        result = run_via_transport(cfg, payload, description="debloat", timeout=180)
+        result = run_via_transport(cfg, payload, description=description, timeout=300)
     except WindowsExecError as e:
         print(f"Debloat channel failure: {e}")
         return
