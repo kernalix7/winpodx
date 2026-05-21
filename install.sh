@@ -173,7 +173,19 @@ chmod 600 "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
 cleanup_install_marker() {
     rm -f "$WINPODX_INSTALL_MARKER"
 }
-trap cleanup_install_marker EXIT INT TERM
+# Ctrl+C / SIGTERM has to actually abort the rest of install.sh, not
+# just clean up the marker and fall through to the next command in
+# the script. Pre-fix behaviour: Ctrl+C during ``[1/4]`` wait-ready
+# killed the foreground winpodx process, the trap ran, then install
+# proceeded straight into the migrate step + apply-fixes prompt --
+# user saw "Start the pod now and apply?" against a pod that was
+# mid-install. Explicit ``exit 130`` (SIGINT) / ``143`` (SIGTERM) so
+# the script stops where the user asked.
+cleanup_and_exit_int() { cleanup_install_marker; exit 130; }
+cleanup_and_exit_term() { cleanup_install_marker; exit 143; }
+trap cleanup_install_marker EXIT
+trap cleanup_and_exit_int INT
+trap cleanup_and_exit_term TERM
 
 # Detect host architecture. winpodx ships two dockur image variants:
 #
@@ -792,7 +804,12 @@ export WINPODX_REQUIRE_AGENT=1
 # `|| true` keeps install.sh's exit code clean if migrate fails.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
-    "$HOME/.local/bin/winpodx" migrate || mark_pending "migrate"
+    # ``--non-interactive`` so migrate doesn't prompt mid-install --
+    # install.sh runs its own confirmation up top and the user shouldn't
+    # have to answer "Start the pod now and apply?" / "Run app discovery
+    # now?" again from a subprocess. The wizard still records the
+    # version stamp + applies the idempotent runtime-fix chain.
+    "$HOME/.local/bin/winpodx" migrate --non-interactive || mark_pending "migrate"
 fi
 
 # --- Wait for agent to settle after migrate's apply chain ---
