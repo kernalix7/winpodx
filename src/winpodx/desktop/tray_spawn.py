@@ -84,6 +84,14 @@ def maybe_spawn_tray() -> bool:
     tray downgrades to "no auto-recovery on idle stall" but never breaks
     the GUI / CLI itself.
     """
+    # Caller explicitly opted out of tray spawn via env var. uninstall.sh
+    # sets this so the ``winpodx host-open stop-listener`` /
+    # ``unregister-guest`` calls it runs to tear down reverse-open don't
+    # auto-respawn a fresh tray right after the pkill in section 0a.
+    if os.environ.get("WINPODX_NO_TRAY_SPAWN"):
+        log.debug("WINPODX_NO_TRAY_SPAWN set; skipping tray auto-spawn")
+        return False
+
     if _install_in_progress():
         log.debug("install.sh in progress; skipping tray auto-spawn")
         return False
