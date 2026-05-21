@@ -47,6 +47,132 @@ from winpodx.gui.theme import (
     C,
 )
 
+# Curated dropdown options for the Localization section (#254 phase 3).
+# Mirrors dockur/windows' README ordering so cross-referencing the
+# upstream docs sees the same names. Empty string is reserved as the
+# "Auto (detected)" sentinel and is prepended by ``_build_locale_combo``.
+# Out-of-list values from hand-edited TOML surface as "(custom)" entries
+# via the same fallback pattern win_version uses above.
+_DOCKUR_LANGUAGES: list[tuple[str, str]] = [
+    ("English", "English"),
+    ("Arabic", "Arabic"),
+    ("Bulgarian", "Bulgarian"),
+    ("Chinese (Simplified)", "Chinese"),
+    ("Chinese (Traditional)", "Traditional Chinese"),
+    ("Croatian", "Croatian"),
+    ("Czech", "Czech"),
+    ("Danish", "Danish"),
+    ("Dutch", "Dutch"),
+    ("Estonian", "Estonian"),
+    ("Finnish", "Finnish"),
+    ("French", "French"),
+    ("German", "German"),
+    ("Greek", "Greek"),
+    ("Hebrew", "Hebrew"),
+    ("Hungarian", "Hungarian"),
+    ("Italian", "Italian"),
+    ("Japanese", "Japanese"),
+    ("Korean", "Korean"),
+    ("Latvian", "Latvian"),
+    ("Lithuanian", "Lithuanian"),
+    ("Norwegian", "Norwegian"),
+    ("Polish", "Polish"),
+    ("Portuguese", "Portuguese"),
+    ("Portuguese (Brazil)", "Brazilian Portuguese"),
+    ("Romanian", "Romanian"),
+    ("Russian", "Russian"),
+    ("Serbian", "Serbian"),
+    ("Slovak", "Slovak"),
+    ("Slovenian", "Slovenian"),
+    ("Spanish", "Spanish"),
+    ("Spanish (Mexico)", "Mexican Spanish"),
+    ("Swedish", "Swedish"),
+    ("Thai", "Thai"),
+    ("Turkish", "Turkish"),
+    ("Ukrainian", "Ukrainian"),
+]
+
+_DOCKUR_REGIONS: list[tuple[str, str]] = [
+    ("English (World) — en-001", "en-001"),
+    ("English (US) — en-US", "en-US"),
+    ("English (UK) — en-GB", "en-GB"),
+    ("Arabic (SA) — ar-SA", "ar-SA"),
+    ("Chinese (CN) — zh-CN", "zh-CN"),
+    ("Chinese (TW) — zh-TW", "zh-TW"),
+    ("Czech (CZ) — cs-CZ", "cs-CZ"),
+    ("Danish (DK) — da-DK", "da-DK"),
+    ("Dutch (NL) — nl-NL", "nl-NL"),
+    ("Finnish (FI) — fi-FI", "fi-FI"),
+    ("French (FR) — fr-FR", "fr-FR"),
+    ("German (DE) — de-DE", "de-DE"),
+    ("Greek (GR) — el-GR", "el-GR"),
+    ("Hebrew (IL) — he-IL", "he-IL"),
+    ("Hungarian (HU) — hu-HU", "hu-HU"),
+    ("Italian (IT) — it-IT", "it-IT"),
+    ("Japanese (JP) — ja-JP", "ja-JP"),
+    ("Korean (KR) — ko-KR", "ko-KR"),
+    ("Norwegian (NO) — nb-NO", "nb-NO"),
+    ("Polish (PL) — pl-PL", "pl-PL"),
+    ("Portuguese (PT) — pt-PT", "pt-PT"),
+    ("Portuguese (BR) — pt-BR", "pt-BR"),
+    ("Russian (RU) — ru-RU", "ru-RU"),
+    ("Spanish (ES) — es-ES", "es-ES"),
+    ("Spanish (MX) — es-MX", "es-MX"),
+    ("Swedish (SE) — sv-SE", "sv-SE"),
+    ("Thai (TH) — th-TH", "th-TH"),
+    ("Turkish (TR) — tr-TR", "tr-TR"),
+    ("Ukrainian (UA) — uk-UA", "uk-UA"),
+]
+
+_DOCKUR_KEYBOARDS: list[tuple[str, str]] = _DOCKUR_REGIONS
+
+# Subset of CLDR's IANA list -- the ~50 zones most users actually live
+# in. Hand-edited TOML can carry any IANA name; out-of-list values get
+# the "(custom)" tag at build time. Sourced from windows_zones.toml's
+# coverage, sorted by UTC offset for scannability.
+_COMMON_TIMEZONES: list[tuple[str, str]] = [
+    ("(GMT-10:00) Honolulu — Pacific/Honolulu", "Pacific/Honolulu"),
+    ("(GMT-09:00) Anchorage — America/Anchorage", "America/Anchorage"),
+    ("(GMT-08:00) Los Angeles — America/Los_Angeles", "America/Los_Angeles"),
+    ("(GMT-08:00) Vancouver — America/Vancouver", "America/Vancouver"),
+    ("(GMT-07:00) Denver — America/Denver", "America/Denver"),
+    ("(GMT-07:00) Phoenix — America/Phoenix", "America/Phoenix"),
+    ("(GMT-06:00) Chicago — America/Chicago", "America/Chicago"),
+    ("(GMT-06:00) Mexico City — America/Mexico_City", "America/Mexico_City"),
+    ("(GMT-05:00) New York — America/New_York", "America/New_York"),
+    ("(GMT-05:00) Toronto — America/Toronto", "America/Toronto"),
+    ("(GMT-04:00) Halifax — America/Halifax", "America/Halifax"),
+    ("(GMT-03:00) São Paulo — America/Sao_Paulo", "America/Sao_Paulo"),
+    ("(GMT-03:00) Buenos Aires — America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires"),
+    ("(GMT+00:00) London — Europe/London", "Europe/London"),
+    ("(GMT+00:00) UTC", "UTC"),
+    ("(GMT+01:00) Berlin — Europe/Berlin", "Europe/Berlin"),
+    ("(GMT+01:00) Paris — Europe/Paris", "Europe/Paris"),
+    ("(GMT+01:00) Madrid — Europe/Madrid", "Europe/Madrid"),
+    ("(GMT+01:00) Rome — Europe/Rome", "Europe/Rome"),
+    ("(GMT+01:00) Amsterdam — Europe/Amsterdam", "Europe/Amsterdam"),
+    ("(GMT+02:00) Athens — Europe/Athens", "Europe/Athens"),
+    ("(GMT+02:00) Helsinki — Europe/Helsinki", "Europe/Helsinki"),
+    ("(GMT+02:00) Cairo — Africa/Cairo", "Africa/Cairo"),
+    ("(GMT+02:00) Johannesburg — Africa/Johannesburg", "Africa/Johannesburg"),
+    ("(GMT+03:00) Moscow — Europe/Moscow", "Europe/Moscow"),
+    ("(GMT+03:00) Istanbul — Europe/Istanbul", "Europe/Istanbul"),
+    ("(GMT+03:00) Riyadh — Asia/Riyadh", "Asia/Riyadh"),
+    ("(GMT+04:00) Dubai — Asia/Dubai", "Asia/Dubai"),
+    ("(GMT+05:30) Kolkata — Asia/Kolkata", "Asia/Kolkata"),
+    ("(GMT+07:00) Bangkok — Asia/Bangkok", "Asia/Bangkok"),
+    ("(GMT+08:00) Singapore — Asia/Singapore", "Asia/Singapore"),
+    ("(GMT+08:00) Hong Kong — Asia/Hong_Kong", "Asia/Hong_Kong"),
+    ("(GMT+08:00) Shanghai — Asia/Shanghai", "Asia/Shanghai"),
+    ("(GMT+08:00) Taipei — Asia/Taipei", "Asia/Taipei"),
+    ("(GMT+09:00) Seoul — Asia/Seoul", "Asia/Seoul"),
+    ("(GMT+09:00) Tokyo — Asia/Tokyo", "Asia/Tokyo"),
+    ("(GMT+09:30) Adelaide — Australia/Adelaide", "Australia/Adelaide"),
+    ("(GMT+10:00) Sydney — Australia/Sydney", "Australia/Sydney"),
+    ("(GMT+10:00) Melbourne — Australia/Melbourne", "Australia/Melbourne"),
+    ("(GMT+12:00) Auckland — Pacific/Auckland", "Pacific/Auckland"),
+]
+
 
 class SettingsPageMixin:
     """Settings page: builds the form, validates input, persists changes."""
@@ -226,6 +352,56 @@ class SettingsPageMixin:
             "Changing this requires recreating the container."
         )
 
+        # Localization picks (#254 phase 3). Language / Region / Keyboard
+        # land on the Windows guest only during first install (dockur's
+        # USERNAME / LANGUAGE / REGION / KEYBOARD env vars are first-
+        # boot-only), so a change here requires a container recreate
+        # with --wipe-storage to actually reach the guest. Timezone is
+        # OEM-applied via tzutil and applies on every (re)create. The
+        # save handler surfaces the recreate prompt when any localization
+        # row is dirty, mirroring the existing edition / cpu / ram path.
+        self.input_language = self._build_locale_combo(
+            cfg_value=self.cfg.pod.language,
+            options=_DOCKUR_LANGUAGES,
+            empty_label="Auto (English)",
+        )
+        self.input_language.setToolTip(
+            "Windows installation language (dockur LANGUAGE env). "
+            "Applied on first install only; changing this on an existing "
+            "guest requires `winpodx pod recreate --wipe-storage`."
+        )
+        self.input_region = self._build_locale_combo(
+            cfg_value=self.cfg.pod.region,
+            options=_DOCKUR_REGIONS,
+            empty_label="Auto (en-001)",
+        )
+        self.input_region.setToolTip(
+            "Windows locale region in BCP-47 form (dockur REGION env). First-install only."
+        )
+        self.input_keyboard = self._build_locale_combo(
+            cfg_value=self.cfg.pod.keyboard,
+            options=_DOCKUR_KEYBOARDS,
+            empty_label="Auto (en-US)",
+        )
+        self.input_keyboard.setToolTip(
+            "Windows keyboard layout (dockur KEYBOARD env). First-install only."
+        )
+
+        from winpodx.utils.locale import detect_timezone
+
+        detected_tz = detect_timezone()
+        self.input_timezone = self._build_locale_combo(
+            cfg_value=self.cfg.pod.timezone,
+            options=_COMMON_TIMEZONES,
+            empty_label=f"Auto (detected: {detected_tz})",
+        )
+        self.input_timezone.setToolTip(
+            "Windows guest timezone (IANA name). Empty = host autodetect "
+            "at compose time. Applied via OEM `tzutil /s <id>` on every "
+            "container (re)create -- unlike language/region/keyboard, "
+            "this does NOT require --wipe-storage."
+        )
+
         pod_card = self._settings_card(
             "▨  Container / VM",
             "Backend and resource allocation",
@@ -236,6 +412,10 @@ class SettingsPageMixin:
                 ("RAM (GB)", self.input_ram),
                 ("Idle Timeout", self.input_idle),
                 ("Max Sessions (1-50)", self.input_max_sessions),
+                ("Language", self.input_language),
+                ("Region", self.input_region),
+                ("Keyboard", self.input_keyboard),
+                ("Timezone", self.input_timezone),
             ],
         )
         cols.addWidget(pod_card)
@@ -388,6 +568,39 @@ class SettingsPageMixin:
         else:
             self.budget_warning_label.setVisible(False)
 
+    def _build_locale_combo(
+        self,
+        *,
+        cfg_value: str,
+        options: list[tuple[str, str]],
+        empty_label: str,
+    ) -> QComboBox:
+        """Build a localization dropdown with an ``Auto`` first option.
+
+        Storage contract: the empty string ``""`` represents "let
+        compose-time autodetect pick the value". Selecting the first
+        ("Auto ...") row stores ``""``; any other row stores the
+        canonical dockur value from the (label, value) tuple list.
+        Out-of-list ``cfg_value`` is appended as a ``(custom)`` entry
+        and shown selected -- mirrors the existing ``input_win_version``
+        handling so hand-edited TOML values stay round-trippable.
+        """
+        combo = QComboBox()
+        combo.addItem(empty_label, "")
+        for label, value in options:
+            combo.addItem(label, value)
+
+        idx = combo.findData(cfg_value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        else:
+            # Out-of-curated-list value from hand-edited TOML -- expose
+            # it as a (custom) entry so the visible state matches the
+            # underlying config.
+            combo.addItem(f"{cfg_value} (custom)", cfg_value)
+            combo.setCurrentIndex(combo.count() - 1)
+        return combo
+
     def _save_settings(self) -> None:
         try:
             port = int(self.input_port.text() or str(self.cfg.rdp.port))
@@ -410,14 +623,37 @@ class SettingsPageMixin:
         # injected for an out-of-list winpodx.toml value at build time.
         new_win_version = self.input_win_version.currentData()
 
+        # Localization picks (#254 phase 3). Empty string == autodetect.
+        new_language = self.input_language.currentData() or ""
+        new_region = self.input_region.currentData() or ""
+        new_keyboard = self.input_keyboard.currentData() or ""
+        new_timezone = self.input_timezone.currentData() or ""
+
         old_cfg = Config.load()
+        # ``needs_container`` is true when any first-boot env knob is
+        # dirty. Language / region / keyboard / edition only take effect
+        # on a fresh Windows install -- the recreate prompt below warns
+        # the user that a plain recreate won't reach the guest, and the
+        # --wipe-storage flow is the only path that does. Timezone is
+        # OEM-applied via tzutil on every container (re)create so it's
+        # treated alongside CPU / RAM / port / user as "recreate
+        # without wipe is enough".
         needs_container = (
             cpu != old_cfg.pod.cpu_cores
             or ram != old_cfg.pod.ram_gb
             or port != old_cfg.rdp.port
             or self.input_user.text() != old_cfg.rdp.user
             or new_win_version != old_cfg.pod.win_version
+            or new_timezone != old_cfg.pod.timezone
         )
+        needs_wipe = (
+            new_win_version != old_cfg.pod.win_version
+            or new_language != old_cfg.pod.language
+            or new_region != old_cfg.pod.region
+            or new_keyboard != old_cfg.pod.keyboard
+        )
+        if needs_wipe:
+            needs_container = True
 
         self.cfg.rdp.user = self.input_user.text()
         self.cfg.rdp.ip = self.input_ip.text()
@@ -432,31 +668,70 @@ class SettingsPageMixin:
         self.cfg.pod.ram_gb = ram
         self.cfg.pod.idle_timeout = idle
         self.cfg.pod.max_sessions = max_sessions
+        self.cfg.pod.language = new_language
+        self.cfg.pod.region = new_region
+        self.cfg.pod.keyboard = new_keyboard
+        self.cfg.pod.timezone = new_timezone
         # Let __post_init__ clamp max_sessions to [1, 50] before save.
         self.cfg.pod.__post_init__()
         self.cfg.save()
 
         if needs_container and self.cfg.pod.backend in ("podman", "docker"):
+            if needs_wipe:
+                prompt = (
+                    "Windows edition or installation locale (language / "
+                    "region / keyboard) changed.\n\n"
+                    "These values are baked into Windows on the initial "
+                    "install -- applying them requires destroying the "
+                    "Windows disk and re-installing.\n\n"
+                    "The Windows VM will reboot and re-install (~5-10 "
+                    "minutes for ISO download + Sysprep + OEM apply).\n\n"
+                    "Wipe and reinstall now?"
+                )
+            else:
+                prompt = (
+                    "CPU, RAM, port, user, or timezone changed.\n"
+                    "Container must be recreated to apply (Windows disk "
+                    "preserved).\n\nRestart now?"
+                )
             reply = QMessageBox.question(
                 self,
                 "Restart Container",
-                "CPU, RAM, port, user, or Windows edition changed.\n"
-                "Container must be recreated to apply.\n\nRestart now?",
+                prompt,
             )
             if reply == QMessageBox.StandardButton.Yes:
-                self.info_label.setText("Recreating container...")
+                self.info_label.setText(
+                    "Wiping Windows disk + recreating..."
+                    if needs_wipe
+                    else "Recreating container..."
+                )
                 QApplication.processEvents()
+                wipe_storage = needs_wipe
 
                 def _recreate() -> None:
                     try:
+                        from winpodx.cli.pod import _wipe_pod_storage
                         from winpodx.cli.setup_cmd import (
                             _generate_compose,
                             _recreate_container,
                         )
+                        from winpodx.core.pod import stop_pod
+
+                        if wipe_storage:
+                            # Stop before wipe -- can't remove a volume
+                            # that's still attached to a running container,
+                            # and bind-mount contents under an active
+                            # container risk EBUSY on rmtree.
+                            stop_pod(self.cfg)
+                            _wipe_pod_storage(self.cfg)
 
                         _generate_compose(self.cfg)
                         _recreate_container(self.cfg)
-                        self.app_launched.emit("Container restarted")
+                        self.app_launched.emit(
+                            "Container recreated; Windows reinstalling"
+                            if wipe_storage
+                            else "Container restarted"
+                        )
                     except Exception as e:  # noqa: BLE001
                         self.app_launch_failed.emit(f"Restart failed: {e}")
                         return
