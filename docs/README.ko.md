@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 [![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](../LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![tests](https://img.shields.io/badge/tests-1090%2B-2EA44F?style=flat-square)](#테스트)
+[![tests](https://img.shields.io/badge/tests-1170%2B-2EA44F?style=flat-square)](#테스트)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
 [![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### 상태: 베타
-> winpodx 는 활발히 개발 중입니다 (**v0.5.0**). v0.5.0 의 헤드라인은 **reverse-open**: Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 기본으로 노출, 앱별 정확한 아이콘과 함께. 게스트 안에서 `.txt` 더블클릭, 메뉴에서 Kate 선택 → 실제 호스트 파일 경로로 Linux Kate 에서 열림. host→guest 파이프라인 (`127.0.0.1:8765` bearer-auth HTTP agent, FreeRDP RemoteApp 폴백) 은 v0.3.x 부터 그대로. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+> winpodx 는 활발히 개발 중입니다 (**v0.5.6**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — 은 이제 default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 (`+invtsc`, `platform_tick` 등 호스트 capability gating) 과 stalled RDP 세션의 자동 `UNRESPONSIVE → recover` 추가 — 오래 idle 된 pod 가 더 이상 `winpodx pod restart` 없이 살아남. v0.5.6 은 모던 rootless podman + pasta (Kubuntu 26.04 기본) 에서 "Launching… 인데 RDP 창 안 뜸" 수정. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — 진짜 아이콘, pin 가능, alt-tab, 파일 연결 양방향. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
@@ -88,10 +88,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — 최신 release 에서 맞는 .deb 다운로드 후
-sudo apt install ./winpodx_0.5.0_all_debian13.deb
+sudo apt install ./winpodx_0.5.6_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — 최신 release 에서 맞는 .rpm
-sudo dnf install ./winpodx-0.5.0-0.noarch.el10.rpm
+sudo dnf install ./winpodx-0.5.6-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx
@@ -117,7 +117,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 <table>
 <tr><td width="50%">
 
-**Reverse-open (v0.5.0 신규)**
+**Reverse-open**
 - Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 기본 노출
 - 짧은 메뉴 + 긴 "다른 앱 선택" 다이얼로그 양쪽에 앱별 정확한 아이콘
 - 선택 시 호스트 `xdg-open` 으로 파일 열기 round-trip
@@ -158,6 +158,8 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 
 **자동화 & 보안**
 - 자동 suspend / resume: idle 시 컨테이너 pause, 다음 실행 시 resume
+- UNRESPONSIVE → 자동 복구 (v0.5.5): stalled RDP 게스트 감지 후 in-guest TermService 사이클로 self-heal — `pod restart` 불필요
+- 호스트 적응형 Windows-on-KVM 튜닝 프로파일 (v0.5.5): `+invtsc`, `platform_tick` 등 호스트 capability gating — `tuning_profile = auto|safe|off`
 - 비밀번호 자동 회전: 20자 암호학적 비밀번호, 7일 주기, atomic rollback
 - 스마트 DPI 스케일링: GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb 자동 감지
 - Windows debloat: 텔레메트리, 광고, Cortana, 검색 인덱싱 기본 비활성
@@ -196,9 +198,9 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 | Distro | 패키지 매니저 | 상태 |
 |--------|-----------------|--------|
 | openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll | zypper | Tested |
-| Fedora 42 / 43 / 44 | dnf | Supported |
+| Fedora 42 / 43 / 44 / Rawhide | dnf | Supported |
 | Fedora Silverblue / Kinoite / Sericea / Bluefin / Bazzite (42 / 43 / 44) | rpm-ostree (OBS, `--apply-live`) | Supported |
-| Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 | apt | Supported |
+| Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 / 26.04 | apt | Supported |
 | AlmaLinux / Rocky / RHEL 9 / 10 | dnf | Supported |
 | Arch / Manjaro | pacman + `yay -S winpodx` | Supported |
 | NixOS (와 모든 distro 위의 Nix) | nix flake | Supported |
@@ -210,7 +212,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 ```bash
 # 리포 루트에서 (설치 불필요)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/    # 1090+ 테스트
+python3 -m pytest tests/    # 1170+ 테스트
 ruff check src/ tests/      # 린트
 ruff format --check src/ tests/
 ```

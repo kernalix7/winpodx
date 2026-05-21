@@ -6,7 +6,7 @@ The full feature set: peripherals & sharing, multi-session RDP, app profiles, an
 
 ## Reverse-open (Linux apps in Windows "Open with…")
 
-**New in v0.5.0.** Right-click any file inside the Windows guest and your Linux-side handler appears in the "Open with…" menu — Kate for `.txt`, gwenview for `.png`, Firefox for `.html`, and so on. Picking one round-trips the file open back to the host's `xdg-open` so it lands in the Linux app you actually configured.
+Shipped in v0.5.0, default-on since. Right-click any file inside the Windows guest and your Linux-side handler appears in the "Open with…" menu — Kate for `.txt`, gwenview for `.png`, Firefox for `.html`, and so on. Picking one round-trips the file open back to the host's `xdg-open` so it lands in the Linux app you actually configured.
 
 How it works:
 
