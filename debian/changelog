@@ -1,3 +1,34 @@
+winpodx (0.5.6) unstable; urgency=medium
+
+  * fix(rdp): drop podman unshare --rootless-netns wrap so FreeRDP
+    runs on the host loopback where the rootless publish is actually
+    reachable (#214, reported by @ismikes on Kubuntu 26.04 + Plasma 6
+    + FreeRDP 3.24, diagnosed by @smoore100). The wrap put xfreerdp3
+    inside the container's network namespace where the host-side
+    publish was invisible, so app launches printed "Launching..."
+    but no RDP window ever appeared. Side benefit: FreeRDP launch
+    path no longer needs the podman binary on PATH (flatpak-only
+    FreeRDP setups now work).
+  * fix(info): VNC reachability probe switched from check_rdp_port
+    (X.224 handshake) to check_tcp_port (plain TCP accept). VNC
+    speaks RFB, not RDP, so the handshake probe always returned
+    False and "winpodx info" printed "VNC unreachable" even while
+    NoVNC was serving. Reported via #214.
+  * fix(uninstall): final tray/GUI sweep right before the summary,
+    so processes that came up *during* the uninstall window (other-
+    terminal GUI launches, XDG-autostart races, dbus activation)
+    still get killed. WINPODX_NO_TRAY_SPAWN + section-0a pkill cover
+    the case where uninstall.sh is the only thing touching the tray
+    but miss races against the uninstall window itself.
+  * internal: packaging/obs/obs-publish.yml anchors the download
+    grep to the current tag version so stale older RPMs left in the
+    OBS publish index by rolling-release repos (Tumbleweed / Slow-
+    roll lazy GC) don't get re-uploaded as release assets. v0.5.5
+    surfaced this with two stale 0.5.4 RPMs that had to be deleted
+    by hand from the Release page.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Thu, 21 May 2026 06:00:00 +0000
+
 winpodx (0.5.5) unstable; urgency=medium
 
   * winpodx setup rerun no longer silently overwrites the Windows
