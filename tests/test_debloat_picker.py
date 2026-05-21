@@ -73,9 +73,7 @@ class TestPresetToggling:
         dlg = DebloatPickerDialog(catalog)
         try:
             dlg._preset_buttons["performance"].setChecked(True)
-            assert set(dlg.selected_items()) == set(
-                catalog.items_for_preset("performance")
-            )
+            assert set(dlg.selected_items()) == set(catalog.items_for_preset("performance"))
         finally:
             dlg.deleteLater()
 

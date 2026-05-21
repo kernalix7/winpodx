@@ -328,6 +328,17 @@ def cli(argv: list[str] | None = None) -> None:
             "with --preset <name> to undo a whole preset."
         ),
     )
+    debloat_p.add_argument(
+        "--menu",
+        action="store_true",
+        help=(
+            "Open the interactive text-mode picker. Lists every catalog "
+            "item with current selection state; commands: <N> toggle, "
+            "'p <preset>' switch, 'a' apply, 'q' quit, 'h' help. "
+            "Use this on SSH / TTY-only installs where the Qt GUI "
+            "picker is unavailable."
+        ),
+    )
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
@@ -631,19 +642,29 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
         print(format_catalog_listing(catalog))
         return
 
-    raw_items = getattr(args, "items", None)
-    items_list = (
-        [name.strip() for name in raw_items.split(",") if name.strip()] if raw_items else None
-    )
-    try:
-        selection = resolve_selection(
-            catalog,
-            preset=getattr(args, "preset", None),
-            items=items_list,
+    if getattr(args, "menu", False):
+        from winpodx.cli.debloat_menu import run_menu
+
+        initial = getattr(args, "preset", None) or "normal"
+        menu_selection = run_menu(catalog, initial_preset=initial)
+        if menu_selection is None:
+            # User quit.
+            return
+        selection = menu_selection
+    else:
+        raw_items = getattr(args, "items", None)
+        items_list = (
+            [name.strip() for name in raw_items.split(",") if name.strip()] if raw_items else None
         )
-    except DebloatCatalogError as e:
-        print(f"Debloat selection error: {e}")
-        return
+        try:
+            selection = resolve_selection(
+                catalog,
+                preset=getattr(args, "preset", None),
+                items=items_list,
+            )
+        except DebloatCatalogError as e:
+            print(f"Debloat selection error: {e}")
+            return
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
