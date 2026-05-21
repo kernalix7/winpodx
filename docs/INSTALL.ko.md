@@ -117,6 +117,13 @@ keyboard = "ko-KR"
 
 미리 빌드된 RPM 과 `.deb` 패키지가 모든 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) 에 첨부됨 — openSUSE/Fedora RPM 은 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) 에서, 나머지는 GitHub Actions 에서. [`winpodx` AUR 패키지](https://aur.archlinux.org/packages/winpodx) 는 v0.5.2 부터 라이브 — Arch 사용자는 `yay -S winpodx` 또는 `paru -S winpodx` 로 설치.
 
+> **패키지 매니저 설치 후엔 `winpodx setup` 한번 실행.** 패키지 payload 는 바이너리 + 데스크탑 entry + 아이콘 + man page 만 — Windows VM provisioning 자동 트리거하는 post-install 훅 없음. 이유: (a) `winpodx setup` 가 인터랙티브 (backend / 자격증명 prompt), (b) `winpodx pod start` 는 ~7.5 GB Windows ISO 다운로드 + Sysprep + OEM apply (보통 회선 5–10분) 트리거, (c) `apt install` / `dnf install` / `yay -S` 가 root 로 돌며 사용자 네임스페이스 rootless podman provisioning 발화시키면 곤란. curl 원라이너는 동일한 `winpodx setup --non-interactive` + `winpodx pod wait-ready` 체인을 자체 실행해서 수동 setup 단계 안 보임. 첫 실행 흐름:
+>
+> ```bash
+> winpodx setup                # 인터랙티브: backend / 자격증명 / 사양 / locale
+> winpodx app run desktop      # 첫 호출시 pod 자동 provision (~5–10분)
+> ```
+
 ### openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll
 
 ```bash
