@@ -448,18 +448,18 @@ def run_tray() -> None:
             log.debug("stop_pod during tray-quit failed: %s", e)
 
         # 2. Close any winpodx GUI / dashboard process the user may
-        #    have open. Use an anchored regex that matches the actual
-        #    launcher invocations only -- a bare ``pkill -f 'winpodx
-        #    gui'`` would also kill an editor session whose argv
-        #    contained that substring (e.g. ``vim winpodx-gui.md``).
-        # The two known launch shapes:
-        #   * wrapper script: ``python3 -m winpodx gui``
-        #   * direct entrypoint: ``... /winpodx-app/src/winpodx/__main__.py gui``
+        #    have open. The wrapper script execs into ``python3 -m
+        #    winpodx gui``; the regex matches that shape. An earlier
+        #    anchored variant tried to avoid hypothetical false
+        #    positives (``vim winpodx-gui.md``) but missed real wrapper
+        #    invocations and the Quit silently no-op'd -- realistic
+        #    false positives are approximately zero, and Quit is an
+        #    explicit user click, so over-killing is the safer mode.
         try:
             import subprocess as _sp
 
             _sp.run(
-                ["pkill", "-f", r"(python.*-m\s+winpodx\s+gui|winpodx[/_]?app.*gui)$"],
+                ["pkill", "-f", r"python.*-m[[:space:]]+winpodx[[:space:]]+gui"],
                 capture_output=True,
                 timeout=5,
                 check=False,

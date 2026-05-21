@@ -62,26 +62,30 @@ elif command -v docker &>/dev/null; then
     RUNTIME="docker"
 fi
 
-# --- 0a. Stop running winpodx processes (tray + GUI) ---
-# Both processes hold open file handles into ~/.local/bin/winpodx-app/
-# and the runtime / config directories we're about to remove. The tray
-# also owns the flock under $XDG_RUNTIME_DIR/winpodx/tray.lock and the
-# UNRESPONSIVE recovery worker -- leaving it alive across the uninstall
-# means the user sees recovery-attempt notifications fire against a
-# now-gone container.
+# --- 0a. Stop running winpodx processes (tray + GUI + any helper) ---
+# Both GUI and tray hold open file handles into
+# ~/.local/bin/winpodx-app/ and the runtime / config directories we're
+# about to remove. The tray additionally owns the flock under
+# $XDG_RUNTIME_DIR/winpodx/tray.lock and drives UNRESPONSIVE recovery
+# notifications -- leaving it alive across the uninstall surfaces
+# recovery-attempt notifications fire against a now-gone container.
 #
-# pkill patterns are anchored to the actual launcher invocations so an
-# editor session whose argv contains "winpodx gui" (e.g. ``vim
-# winpodx-gui.md``) isn't killed by mistake.
-for pattern in \
-    '(python.*-m[[:space:]]+winpodx[[:space:]]+gui|winpodx[/_]?app.*gui)$' \
-    '(python.*-m[[:space:]]+winpodx[[:space:]]+tray|winpodx[/_]?app.*tray)$'; do
-    if pgrep -fa "$pattern" >/dev/null 2>&1; then
-        log "Stopping winpodx process matching: $pattern"
-        pkill -f "$pattern" 2>/dev/null || true
-        REMOVED=$((REMOVED + 1))
-    fi
-done
+# Uninstall is intentional + user-initiated, so kill every winpodx
+# Python process broadly via the launcher cmdline shape ``python ... -m
+# winpodx ...`` (covers gui / tray / app / host-open / setup -- all
+# subcommands). The earlier attempt at narrow anchored regexes missed
+# wrapper-script invocations whose cmdline didn't include the ``app``
+# token, so live tray + GUI survived the uninstall and held the
+# install dir open. Listing the pids first makes the kill observable.
+WINPODX_PROCS=$(pgrep -fa 'python.*-m[[:space:]]+winpodx' 2>/dev/null || true)
+if [[ -n "$WINPODX_PROCS" ]]; then
+    log "Stopping winpodx processes:"
+    while IFS= read -r line; do
+        log "  $line"
+    done <<<"$WINPODX_PROCS"
+    pkill -f 'python.*-m[[:space:]]+winpodx' 2>/dev/null || true
+    REMOVED=$((REMOVED + 1))
+fi
 # Brief grace so the killed processes release their file handles
 # before later steps rm -rf their install directory.
 sleep 1
