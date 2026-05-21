@@ -257,6 +257,33 @@ class SettingsPageMixin:
                 "reverse-open panel failed to build; Settings page continues without it"
             )
 
+        # Autostart-at-login toggle. File existence under
+        # ``~/.config/autostart/winpodx-tray.desktop`` is the source of
+        # truth -- no cfg.toml field needed, and the user can drop the
+        # .desktop file by hand to opt out without launching the GUI.
+        from PySide6.QtWidgets import QCheckBox
+
+        from winpodx.desktop.autostart import (
+            is_tray_autostart_enabled,
+            set_tray_autostart,
+        )
+
+        self.checkbox_autostart_tray = QCheckBox(
+            "Launch winpodx tray at login (system tray icon + idle-stall auto-recovery)"
+        )
+        self.checkbox_autostart_tray.setChecked(is_tray_autostart_enabled())
+
+        def _on_autostart_toggled(checked: bool) -> None:
+            # Apply immediately — no Save Settings click needed; the
+            # autostart entry lives outside winpodx.toml.
+            try:
+                set_tray_autostart(bool(checked))
+            except OSError as e:
+                logging.getLogger(__name__).warning("Could not toggle tray autostart: %s", e)
+
+        self.checkbox_autostart_tray.toggled.connect(_on_autostart_toggled)
+        layout.addWidget(self.checkbox_autostart_tray)
+
         # Budget warning — only visible when max_sessions over-subscribes ram_gb.
         # Live-updates as the user types in either field.
         self.budget_warning_label = QLabel("")
