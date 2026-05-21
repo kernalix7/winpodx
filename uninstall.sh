@@ -68,10 +68,16 @@ fi
 # UNRESPONSIVE recovery worker -- leaving it alive across the uninstall
 # means the user sees recovery-attempt notifications fire against a
 # now-gone container.
-for proc in "winpodx gui" "winpodx tray"; do
-    if pgrep -fa "$proc" >/dev/null 2>&1; then
-        log "Stopping $proc..."
-        pkill -f "$proc" 2>/dev/null || true
+#
+# pkill patterns are anchored to the actual launcher invocations so an
+# editor session whose argv contains "winpodx gui" (e.g. ``vim
+# winpodx-gui.md``) isn't killed by mistake.
+for pattern in \
+    '(python.*-m[[:space:]]+winpodx[[:space:]]+gui|winpodx[/_]?app.*gui)$' \
+    '(python.*-m[[:space:]]+winpodx[[:space:]]+tray|winpodx[/_]?app.*tray)$'; do
+    if pgrep -fa "$pattern" >/dev/null 2>&1; then
+        log "Stopping winpodx process matching: $pattern"
+        pkill -f "$pattern" 2>/dev/null || true
         REMOVED=$((REMOVED + 1))
     fi
 done

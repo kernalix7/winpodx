@@ -166,6 +166,9 @@ log "Detected distro: $DISTRO"
 WINPODX_INSTALL_MARKER="${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/.install_in_progress"
 mkdir -p "$(dirname "$WINPODX_INSTALL_MARKER")"
 echo "$$" > "$WINPODX_INSTALL_MARKER"
+# Tighten perms for parity with other winpodx state files in
+# ~/.config/winpodx (agent_token.txt, winpodx.toml).
+chmod 600 "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
 cleanup_install_marker() {
     rm -f "$WINPODX_INSTALL_MARKER"
 }

@@ -10,7 +10,7 @@ pkgver=__PKGVER__
 pkgrel=1
 pkgdesc="Windows app integration for Linux desktop (Podman/FreeRDP RemoteApp)"
 arch=('any')
-url="https://github.com/Kernalix7/winpodx"
+url="https://github.com/kernalix7/winpodx"
 license=('MIT')
 # Arch's `python` is rolling and already >= 3.13, so tomllib is stdlib and
 # the tomli fallback is a no-op here (marker-gated in pyproject.toml).
@@ -30,7 +30,7 @@ makedepends=(
   'python-hatchling'
   'python-wheel'
 )
-source=("$pkgname-$pkgver.tar.gz::https://github.com/Kernalix7/winpodx/archive/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/kernalix7/winpodx/archive/v$pkgver.tar.gz")
 sha256sums=('__SHA256__')
 
 build() {
@@ -42,6 +42,7 @@ package() {
   cd "$pkgname-$pkgver"
   python -m installer --destdir="$pkgdir" dist/*.whl
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 THIRD_PARTY_LICENSES.md "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_LICENSES.md"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
   install -Dm644 data/winpodx.desktop \

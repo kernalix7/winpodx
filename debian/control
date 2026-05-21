@@ -12,9 +12,9 @@ Build-Depends:
  python3-pip,
  pybuild-plugin-pyproject
 Standards-Version: 4.6.2
-Homepage: https://github.com/Kernalix7/winpodx
-Vcs-Git: https://github.com/Kernalix7/winpodx.git
-Vcs-Browser: https://github.com/Kernalix7/winpodx
+Homepage: https://github.com/kernalix7/winpodx
+Vcs-Git: https://github.com/kernalix7/winpodx.git
+Vcs-Browser: https://github.com/kernalix7/winpodx
 Rules-Requires-Root: no
 
 Package: winpodx

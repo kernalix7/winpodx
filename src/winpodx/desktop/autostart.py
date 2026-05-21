@@ -62,6 +62,8 @@ def _resolve_tray_command() -> str:
 
 def enable_tray_autostart() -> Path:
     """Create the .desktop entry. Returns the path written."""
+    import os
+
     target = autostart_file_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     exec_line = _resolve_tray_command()
@@ -77,12 +79,16 @@ def enable_tray_autostart() -> Path:
         "X-GNOME-Autostart-enabled=true\n"
         "NoDisplay=true\n"
         "StartupNotify=false\n"
-    )
-    target.write_text(contents, encoding="utf-8")
+    ).encode("utf-8")
+    # ``os.open`` with an explicit mode skips the umask-dependent
+    # window where ``write_text`` then ``chmod`` would briefly leave
+    # the file at 0664 on permissive umasks. Truncate-and-rewrite is
+    # idempotent across repeat enables.
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
-        target.chmod(0o644)
-    except OSError:
-        pass
+        os.write(fd, contents)
+    finally:
+        os.close(fd)
     log.info("Wrote tray autostart entry: %s", target)
     return target
 
