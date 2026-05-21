@@ -131,22 +131,12 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v TargetReleas
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v DeferFeatureUpdates /t REG_DWORD /d 1 /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v DeferFeatureUpdatesPeriodInDays /t REG_DWORD /d 365 /f
 
-REM Timezone: prefer C:\OEM\timezone.txt (winpodx host-detected, #254),
-REM fall back to UTC. The file is single-line, contains a literal Windows
-REM TZ ID like "Korea Standard Time". winpodx skips writing it when host
-REM autodetect resolves to UTC, so the guest stays on whatever default
-REM Windows picked rather than being forced onto UTC.
-if exist "C:\OEM\timezone.txt" (
-    set "WINPODX_TZ="
-    for /f "usebackq delims=" %%T in ("C:\OEM\timezone.txt") do if not defined WINPODX_TZ set "WINPODX_TZ=%%T"
-    if defined WINPODX_TZ (
-        tzutil /s "%WINPODX_TZ%"
-    ) else (
-        tzutil /s "UTC"
-    )
-) else (
-    tzutil /s "UTC"
-)
+REM Timezone is handled upstream now: winpodx sets the dockur TZ env var
+REM in compose.yaml from cfg.pod.timezone (or host autodetect), and
+REM dockur writes the <TimeZone> element into the Sysprep unattend.xml
+REM on first boot. No tzutil call needed here -- Windows reads the
+REM Sysprep value during OOBE. Leaving this block as a no-op marker so
+REM the OEM script structure stays predictable across releases.
 
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search" /v AllowCortana /t REG_DWORD /d 0 /f
 
