@@ -31,6 +31,16 @@ function Write-PowerLog {
 
 Write-PowerLog "power-monitor: starting (pid $PID)"
 
+# Rate-limit guard. A flapping power source (laptop adapter loose,
+# UPS click-clack, KVM switch hot-key, etc.) could fire EventType 7
+# or 18 several times within a few seconds; cycling TermService
+# every time would DoS the user's RDP session through repeated
+# disconnect / reconnect storms (each TermService restart drops
+# every open RemoteApp). $script:LastRestartUtc tracks the last
+# successful restart -- subsequent resume events within 60 s are
+# logged but skipped.
+$script:LastRestartUtc = [DateTime]::MinValue
+
 Register-WmiEvent `
     -Query "SELECT * FROM Win32_PowerManagementEvent" `
     -SourceIdentifier 'WinpodxPowerEvent' `
@@ -40,10 +50,21 @@ Register-WmiEvent `
         $logPath = 'C:\winpodx\power-monitor.log'
         try { Add-Content -Path $logPath -Value "$stamp event=$evt" } catch { }
         if ($evt -eq 7 -or $evt -eq 18) {
+            $now = [DateTime]::UtcNow
+            if (($now - $script:LastRestartUtc).TotalSeconds -lt 60) {
+                try {
+                    Add-Content -Path $logPath -Value (
+                        "$stamp termservice=skipped_rate_limit " +
+                        "(last_restart=$($script:LastRestartUtc.ToString('o')))"
+                    )
+                } catch { }
+                return
+            }
             # Resume. Wait for NIC to stabilise then cycle TermService.
             Start-Sleep -Seconds 5
             try {
                 Restart-Service -Force TermService -ErrorAction Stop
+                $script:LastRestartUtc = [DateTime]::UtcNow
                 try { Add-Content -Path $logPath -Value "$stamp termservice=restarted" } catch { }
             } catch {
                 try { Add-Content -Path $logPath -Value "$stamp termservice=restart_failed $($_.Exception.Message)" } catch { }

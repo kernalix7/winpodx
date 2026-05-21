@@ -12,6 +12,8 @@ venv/
 .ruff_cache/
 *.so
 .mypy_cache/
+.hypothesis/
+env/
 
 # AI config (actual files in .priv-storage/, root has symlinks)
 .priv-storage/
@@ -42,17 +44,26 @@ htmlcov/
 # Editor / OS scratch files.
 *.tmp
 *.bak
+*.old
+*.orig
 *.swp
+*.swo
 *~
 .DS_Store
+Thumbs.db
 .idea/
+*.iml
 
 # Secret-shaped files — defensive denylist so a stray .env / key never
 # slips into a commit. Currently no such files in tree.
+.env
+.env.*
 *.env
 *.pem
 *.key
+*.crt
 *.p12
+*.pfx
 id_rsa*
 id_ed25519*
 

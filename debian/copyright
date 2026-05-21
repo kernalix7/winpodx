@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: winpodx
 Upstream-Contact: Kim DaeHyun <kernalix7@kodenet.io>
-Source: https://github.com/Kernalix7/winpodx
+Source: https://github.com/kernalix7/winpodx
 
 Files: *
 Copyright: 2026 Kim DaeHyun <kernalix7@kodenet.io>
@@ -31,6 +31,15 @@ Comment: Pre-built binary bundle of rdprrap (https://github.com/kernalix7/rdprra
  winpodx 0.1.6 and earlier bundled rdprrap 0.1.0, which upstream later
  withdrew for missing these attribution files. Upgrade to winpodx
  0.1.7 or later.
+
+Files: config/oem/reverse-open/shim/bin/rcedit.exe
+Copyright: 2013-2024 GitHub Inc.
+License: MIT
+Comment: Pre-built binary of electron/rcedit
+ (https://github.com/electron/rcedit) bundled to patch Windows PE
+ metadata on the per-app reverse-open shim during OEM install.
+ LICENSE-rcedit.txt sits beside the binary in the same directory and
+ is also surfaced in the GUI License tab + THIRD_PARTY_LICENSES.md.
 
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a

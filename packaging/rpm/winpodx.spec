@@ -9,7 +9,7 @@ Version:        0.1.5
 Release:        0
 Summary:        Windows app integration for Linux desktop
 License:        MIT
-URL:            https://github.com/Kernalix7/winpodx
+URL:            https://github.com/kernalix7/winpodx
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch
@@ -76,6 +76,7 @@ MIME handlers, icons, and a Qt tray.
 
 %files
 %license LICENSE
+%license THIRD_PARTY_LICENSES.md
 %doc README.md CHANGELOG.md
 %{_bindir}/winpodx
 # Use a glob for dist-info so a pyproject.toml version that has drifted past
@@ -94,4 +95,4 @@ MIME handlers, icons, and a Qt tray.
 
 %changelog
 * Mon Apr 20 2026 Kim DaeHyun <kernalix7@kodenet.io> - 0.1.0-0
-- See https://github.com/Kernalix7/winpodx/releases for per-version release notes.
+- See https://github.com/kernalix7/winpodx/releases for per-version release notes.

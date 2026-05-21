@@ -94,6 +94,7 @@ exclude = [
 "scripts" = "share/winpodx/scripts"
 "LICENSE" = "share/winpodx/LICENSE"
 "README.md" = "share/winpodx/README.md"
+"THIRD_PARTY_LICENSES.md" = "share/winpodx/THIRD_PARTY_LICENSES.md"
 
 [tool.ruff]
 target-version = "py39"
