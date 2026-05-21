@@ -28,7 +28,7 @@ verbatim.
 ### Fixed
 -->
 
-## [0.5.5] - 2026-05-20
+## [0.5.5] - 2026-05-21
 
 User-report follow-up release driven by @tolistim (#216) and @ismikes (#215). Fixes a setup-rerun lockout that desynced the host config from the Windows guest password, lands a host-adaptive Windows-on-KVM tuning profile so safe perf tweaks turn themselves on without user configuration, and ends the "tray stuck on starting forever" symptom that long-idle pods used to show.
 
@@ -70,6 +70,14 @@ User-report follow-up release driven by @tolistim (#216) and @ismikes (#215). Fi
 - **`install.sh` no longer falsely reports success when hardware virtualisation is off (#220).** Reported by @pnogaret2019-code on Linux Mint LMDE 7. The install loop treated `qemu-system-x86` already being present as "all dependencies installed successfully" while `/dev/kvm` stayed absent because the BIOS had VT-x disabled. install.sh now (a) emits a much more prominent pre-install warning that walks the user through the three real causes (BIOS, kernel module, kvm group) with diagnostic commands, and (b) re-verifies `/dev/kvm` after the install loop and aborts with live `lscpu` / `lsmod` / `id` output when it's still missing. README + Korean mirror gain a new "Minimum requirements" section with the same three-row check table, so users see the gating requirements before they ever copy-paste the curl-install line. Catches the largest single source of "install ran fine but Windows never boots" bug reports.
 
 - **`install.sh` Ubuntu 24.04+ / Debian 13 picks the real `qemu-system-*` package instead of the now-virtual `qemu-kvm` (#200).** Reported by @n-osennij on xubuntu 26.04 inside VirtualBox. apt errored with `E: Package 'qemu-kvm' has no installation candidate` because newer Ubuntu / Debian made `qemu-kvm` a virtual package whose providers are `qemu-system-x86` (or `qemu-system-x86-hwe`). `pkg_name()` now uses the same `apt-cache show` probe pattern as the freerdp2 → freerdp3 selector from PR #198: probes `qemu-system-x86` first (or `qemu-system-arm` on aarch64), falls back to `qemu-system-x86-hwe`, then `qemu-kvm` for older distros. The VirtualBox-side nested-virtualisation requirement is host-environment and outside winpodx's scope — covered by the new "Minimum requirements" README section.
+
+- **dockur/windows image pin bumped to v5.15 (#223, #224).** `DOCKUR_IMAGE_PIN` / `DOCKUR_IMAGE_ARM_PIN` + `config/oem/VERSIONS.txt` track the new digests (`sha256:32abe0836aee...` x86_64, `sha256:5775bcfd335b...` aarch64). Picks up upstream's accumulated fixes since v5.14 without changing the winpodx-side compose surface.
+
+- **`install.sh` aborts cleanly on Ctrl+C instead of marching past `Pod is starting, not running. Start the pod now and apply? [Y/n]`.** The old install loop used a single `EXIT INT TERM` trap that only cleaned up the install marker; SIGINT then fell through to the next step. Split into three traps (`EXIT` cleanup-only, `INT` cleanup + `exit 130`, `TERM` cleanup + `exit 143`) and wrapped the `wait-ready | tee` pipeline with `set +e` so `PIPESTATUS[0]` survives the `|| true` rescue and the SIGINT-vs-real-failure branch can act on the real wait-ready rc.
+
+- **`winpodx setup --non-interactive` flag for install.sh-driven migration.** install.sh calls setup migration after the initial install; without `--non-interactive` the migration would block on the storage-path prompt and stall the curl-install. Setup gains the flag and treats every interactive prompt as "accept default" when set.
+
+- **`uninstall.sh` tray no longer respawns mid-uninstall.** Section 0a `pkill`'d the tray, then section 0b ran `winpodx host-open stop-listener` / `unregister-guest` to tear down reverse-open. `cli/main.py` auto-spawns the tray for every subcommand outside the `{setup, gui, tray}` skiplist, so `host-open` triggered a fresh tray spawn and section 0a's work was immediately undone. `uninstall.sh` now exports `WINPODX_NO_TRAY_SPAWN=1`; `maybe_spawn_tray()` short-circuits when set, so every `winpodx` CLI subprocess uninstall.sh runs inherits the env and skips the spawn.
 
 ## [0.5.4] - 2026-05-19
 
