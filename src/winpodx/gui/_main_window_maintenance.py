@@ -24,6 +24,7 @@ import threading
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -327,46 +328,47 @@ class MaintenanceMixin:
         self._refresh_pod_status()
 
     def _on_debloat(self) -> None:
-        """Run the ``normal`` debloat preset against the guest.
+        """Open the debloat picker dialog and run the selection (#247 P3).
 
-        #247 P1 split the monolithic ``debloat.ps1`` into a per-item
-        catalog driven by ``winpodx.core.debloat``. The Tools / Debloat
-        button keeps the previous "click once -> safe defaults" UX by
-        running the ``normal`` preset (telemetry + ads). #247 P3 will
-        replace this with a picker dialog that surfaces every catalog
-        item with risk badges + selective apply; until then, power
-        users get richer selection via ``winpodx debloat --preset
-        full|performance|speed`` or ``--items <list>`` on the CLI.
+        Replaces the pre-P3 single-button "run normal preset" behaviour
+        with a richer dialog that surfaces every catalog item + risk
+        badge + preset radio. The dialog itself is pure UI; this
+        handler is responsible for taking the accepted selection and
+        firing the orchestrator payload via run_via_transport.
         """
-        reply = QMessageBox.question(
-            self,
-            "Debloat",
-            "This will disable telemetry and ads in Windows (normal preset).\n"
-            "Other presets (full / performance / speed) are available via\n"
-            "`winpodx debloat --preset ...` on the CLI; a GUI picker is\n"
-            "tracked under #247.\n\nProceed?",
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        from winpodx.core.debloat import DebloatCatalogError, load_catalog
+        from winpodx.gui.debloat_picker import DebloatPickerDialog
+
+        try:
+            catalog = load_catalog()
+        except DebloatCatalogError as e:
+            QMessageBox.warning(self, "Debloat", f"Catalog error: {e}")
             return
 
-        self.info_label.setText("Running debloat (normal preset)...")
+        dialog = DebloatPickerDialog(catalog, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selection = dialog.selected_items()
+        if not selection:
+            return
+
+        self.info_label.setText(f"Running debloat ({len(selection)} item(s))...")
 
         def _do() -> None:
             from winpodx.core.debloat import (
-                DebloatCatalogError,
+                DebloatCatalogError as _CatalogError,
+            )
+            from winpodx.core.debloat import (
                 build_run_script,
-                load_catalog,
-                resolve_selection,
             )
             from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
             cfg = Config.load()
             try:
-                catalog = load_catalog()
-                selection = resolve_selection(catalog, preset="normal", items=None)
                 payload = build_run_script(catalog, selection)
-            except DebloatCatalogError as e:
-                self.app_launch_failed.emit(f"Debloat catalog error: {e}")
+            except _CatalogError as e:
+                self.app_launch_failed.emit(f"Debloat payload build error: {e}")
                 return
 
             description = "debloat (" + ",".join(selection) + ")"
@@ -377,7 +379,7 @@ class MaintenanceMixin:
                 return
 
             if result.rc == 0:
-                self.app_launched.emit("Debloat complete")
+                self.app_launched.emit(f"Debloat complete ({len(selection)} item(s))")
             else:
                 self.app_launch_failed.emit(
                     f"Debloat failed (rc={result.rc}): "
