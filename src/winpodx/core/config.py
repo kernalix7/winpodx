@@ -87,10 +87,10 @@ _DISK_SIZE_RE = re.compile(r"^[1-9][0-9]{0,4}[KMGTkmgt]?$")
 # current ``:latest`` digest, paste below. See ``winpodx setup --update
 # -image`` for the runtime equivalent users invoke explicitly.
 #
-# As of 2026-05-02:
+# As of 2026-05-21 (dockur/windows v5.15):
 DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
-    "20b398ab935465f97ec8ab06489f7a85a5ad58e74e036ce66cc3c9172e7dbea8"
+    "32abe0836aeeb744b8ff8af25688fcd348cc66016a1378fe1bd0768c8c67022c"
 )
 
 # Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``
@@ -100,10 +100,10 @@ DOCKUR_IMAGE_PIN = (
 # OCI index, so container runtimes pick the right platform manifest
 # (amd64 or arm64) automatically.
 #
-# As of 2026-05-13:
+# As of 2026-05-21 (dockur/windows-arm v5.15):
 DOCKUR_IMAGE_ARM_PIN = (
     "docker.io/dockurr/windows-arm@sha256:"
-    "9c13f28f484bdf129fb8d951efb3fe3ff0cff20828efa5ed4b62ff1597a62611"
+    "5775bcfd335bad14fe35001460dd6640e131eb660601c2f3c90af43005a9532a"
 )
 
 

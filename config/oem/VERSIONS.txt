@@ -18,7 +18,7 @@
 # describes what winpodx deliberately uses.
 #
 # Format: <key>=<value>
-dockur=v5.14
-dockur-digest=sha256:272b42c66e7377dc68e5da5d06d011308cf48f7a62201bc63f3caf973b87cdd9
-dockur-arm=v5.14
-dockur-arm-digest=sha256:a19114b03bed6433d95f61df39ea7ef249c953647973968b8f1fda495975f821
+dockur=v5.15
+dockur-digest=sha256:32abe0836aeeb744b8ff8af25688fcd348cc66016a1378fe1bd0768c8c67022c
+dockur-arm=v5.15
+dockur-arm-digest=sha256:5775bcfd335bad14fe35001460dd6640e131eb660601c2f3c90af43005a9532a
