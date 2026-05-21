@@ -366,8 +366,35 @@ def cli(argv: list[str] | None = None) -> None:
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
-    unsub = sub.add_parser("uninstall", help="Remove winpodx files (keeps container)")
-    unsub.add_argument("--purge", action="store_true", help="Also remove config")
+    unsub = sub.add_parser(
+        "uninstall",
+        help=(
+            "Remove winpodx user state. Default: stop container, kill tray/GUI/listener, "
+            "remove desktop entries/icons/data dir/autostart, keep config + container disk. "
+            "--purge also removes container, podman volume, storage path, and config dir."
+        ),
+    )
+    unsub.add_argument(
+        "--purge",
+        action="store_true",
+        help=(
+            "Full wipe: container stop+rm, podman volume rm, storage bind-mount contents "
+            "rm, config dir rm. Matches 'apt purge' semantics."
+        ),
+    )
+    unsub.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the preview/confirm prompt. Used by scripts / CI.",
+    )
+    unsub.add_argument(
+        "--no-package-prompt",
+        action="store_true",
+        help=(
+            "Skip the 'Also remove system package via sudo?' prompt at the end. Used "
+            "by packaging postrm hooks (the package is already being removed)."
+        ),
+    )
 
     power_p = sub.add_parser("power", help="Manage pod power state")
     power_p.add_argument("--suspend", action="store_true", help="Suspend (pause) the pod")
@@ -762,54 +789,19 @@ def _cmd_power(args: argparse.Namespace) -> None:
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> None:
-    import shutil
+    """Route to the consolidated uninstall flow (#255 PR 3).
 
-    from winpodx.utils.paths import applications_dir, config_dir, data_dir, icons_dir, runtime_dir
+    Old behaviour (pre-#255): swept user data dirs only, left container
+    + listener + tray running, didn't detect install source. New
+    behaviour: apt-style preview + confirm, uninstall.sh parity (kill
+    processes, stop container, stop listener, scrub UI surface),
+    optional sudo package-removal prompt when the install came from a
+    package manager. See ``winpodx.cli.uninstall`` for the full step
+    list and the --purge / --yes / --no-package-prompt flag semantics.
+    """
+    from winpodx.cli.uninstall import handle_uninstall
 
-    purge = args.purge
-    removed = 0
-
-    app_dir = applications_dir()
-    desktop_files = list(app_dir.glob("winpodx-*.desktop"))
-    if desktop_files:
-        for f in desktop_files:
-            f.unlink()
-        print(f"  Removed {len(desktop_files)} desktop entries")
-        removed += len(desktop_files)
-
-    icon_base = icons_dir()
-    if icon_base.exists():
-        for icon in icon_base.rglob("winpodx-*"):
-            icon.unlink()
-            removed += 1
-        print(f"  Removed icons from {icon_base}")
-
-    dd = data_dir()
-    if dd.exists():
-        shutil.rmtree(dd)
-        print(f"  Removed {dd}")
-        removed += 1
-
-    rd = runtime_dir()
-    if rd.exists():
-        shutil.rmtree(rd)
-        removed += 1
-
-    cd = config_dir()
-    if cd.exists():
-        if purge:
-            shutil.rmtree(cd)
-            print(f"  Removed {cd}")
-            removed += 1
-        else:
-            print(f"  Config preserved at {cd} (use --purge to remove)")
-
-    from winpodx.core.config import Config as _Config
-
-    _container = _Config.load().pod.container_name
-    print(f"\nUninstall complete ({removed} items removed).")
-    print(f"Container '{_container}' was NOT removed.")
-    print(f"To remove it: podman stop {_container} && podman rm {_container}")
+    handle_uninstall(args)
 
 
 def _format_version_string() -> str:
