@@ -193,4 +193,14 @@ def run_gui() -> None:
 
     window = WinpodxWindow()
     window.show()
+
+    # Spawn the tray subprocess so the user gets system-tray + auto-
+    # recovery (RUNNING -> UNRESPONSIVE detection + agent-driven RDP
+    # repair) without having to manually run `winpodx tray &`. tray.py
+    # acquires a flock on its lockfile, so a second invocation when one
+    # is already running exits silently instead of stacking icons.
+    from winpodx.desktop.tray_spawn import maybe_spawn_tray
+
+    maybe_spawn_tray()
+
     sys.exit(app.exec())

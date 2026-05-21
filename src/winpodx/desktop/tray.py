@@ -8,8 +8,55 @@ import sys
 log = logging.getLogger(__name__)
 
 
+_TRAY_LOCK_FH = None  # held for the lifetime of the tray process
+
+
+def _acquire_tray_lock() -> bool:
+    """Return True if we got the tray flock, False if another tray owns it.
+
+    The lockfile lives under ``$XDG_RUNTIME_DIR/winpodx/`` (falls back to
+    ``~/.config/winpodx/``); the file handle is kept on the module so
+    the lock survives until the process exits. ``GUI`` calls
+    ``_maybe_spawn_tray`` which already does a ``pgrep`` pre-check, so
+    this lock is the second line of defence -- catches the case where
+    pgrep is unavailable or the user manually runs `winpodx tray` while
+    one is already up.
+    """
+    import fcntl
+    import os
+    from pathlib import Path
+
+    global _TRAY_LOCK_FH
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime and Path(runtime).is_dir():
+        lock_dir = Path(runtime) / "winpodx"
+    else:
+        from winpodx.utils.paths import config_dir
+
+        lock_dir = config_dir()
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / "tray.lock"
+    try:
+        fh = open(lock_path, "w")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError):
+        return False
+    try:
+        fh.truncate(0)
+        fh.write(str(os.getpid()))
+        fh.flush()
+    except OSError:
+        pass
+    _TRAY_LOCK_FH = fh
+    return True
+
+
 def run_tray() -> None:
     """Launch the system tray icon application."""
+    if not _acquire_tray_lock():
+        log.info("winpodx tray already running; exiting.")
+        return
+
     try:
         from PySide6.QtCore import QTimer
         from PySide6.QtGui import QAction
@@ -29,10 +76,27 @@ def run_tray() -> None:
     app.setApplicationName("winpodx")
     app.setQuitOnLastWindowClosed(False)
 
+    # Resolve the bundled SVG so the system-tray icon actually shows up.
+    # Without ``tray.setIcon`` Qt logs ``QSystemTrayIcon::setVisible: No
+    # Icon set`` and most DEs (KDE Plasma, GNOME extensions) just don't
+    # render the indicator at all.
+    from PySide6.QtGui import QIcon
+
+    from winpodx.desktop.icons import bundled_data_path
+
+    icon_path = bundled_data_path("winpodx-icon.svg")
+    tray_icon = QIcon(str(icon_path)) if icon_path is not None else QIcon.fromTheme("computer")
+    app.setWindowIcon(tray_icon)
+
     tray = QSystemTrayIcon()
+    tray.setIcon(tray_icon)
     tray.setToolTip("winpodx - Windows App Integration")
 
     menu = QMenu()
+
+    dashboard_action = QAction("Open Dashboard")
+    menu.addAction(dashboard_action)
+    menu.addSeparator()
 
     status_action = QAction("Status: checking...")
     status_action.setEnabled(False)
@@ -47,6 +111,39 @@ def run_tray() -> None:
     start_action = QAction("Start Pod")
     stop_action = QAction("Stop Pod")
     restart_action = QAction("Restart Pod")
+
+    def _open_dashboard() -> None:
+        """Launch the main GUI window as a detached subprocess.
+
+        Single-process GUI + tray would be ideal but the GUI's
+        QApplication lifecycle clashes with the tray's
+        ``setQuitOnLastWindowClosed(False)``. Spawning is the cleanest
+        win until we unify the two into one process.
+        """
+        import os
+        import shutil as _shutil
+        import subprocess as _sp
+
+        cmd = _shutil.which("winpodx") or sys.executable
+        args = [cmd, "gui"] if cmd != sys.executable else [cmd, "-m", "winpodx", "gui"]
+        try:
+            _sp.Popen(
+                args,
+                stdin=_sp.DEVNULL,
+                stdout=_sp.DEVNULL,
+                stderr=_sp.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+                env=os.environ.copy(),
+            )
+        except OSError as e:
+            tray.showMessage(
+                "winpodx",
+                f"Could not open dashboard: {e}",
+                QSystemTrayIcon.MessageIcon.Warning,
+            )
+
+    dashboard_action.triggered.connect(_open_dashboard)
 
     # Cache the previous state across refresh ticks so the tray can drive
     # state-transition behaviour — currently the RUNNING → UNRESPONSIVE
@@ -304,8 +401,59 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    quit_action = QAction("Quit")
-    quit_action.triggered.connect(app.quit)
+    quit_action = QAction("Quit winpodx")
+
+    def _confirmed_quit() -> None:
+        """Tear down GUI + pod before closing the tray.
+
+        User asked the tray Quit to be a real exit -- stop the Windows
+        pod, close any dashboard window the user may have open, then
+        exit the tray itself. A QMessageBox confirms first so a stray
+        click doesn't cycle the pod (~30s recreate cost + RDP session
+        loss).
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            None,
+            "winpodx",
+            "winpodx 를 완전히 종료할까요?\n\nWindows 컨테이너를 멈추고 "
+            "열려 있는 dashboard 창도 닫습니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # 1. Stop the Windows pod (best-effort -- a running session
+        #    survives a tray-quit only if the user explicitly chose to,
+        #    which is what the confirmation above is for).
+        try:
+            from winpodx.core.pod import stop_pod
+
+            stop_pod(Config.load())
+        except Exception as e:  # noqa: BLE001
+            log.debug("stop_pod during tray-quit failed: %s", e)
+
+        # 2. Close any winpodx GUI / dashboard process the user may
+        #    have open. pkill matches both ``python3 -m winpodx gui``
+        #    and the wrapper launcher's ``winpodx gui`` line.
+        try:
+            import subprocess as _sp
+
+            _sp.run(
+                ["pkill", "-f", "winpodx gui"],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (FileNotFoundError, _sp.TimeoutExpired):
+            pass
+
+        # 3. Quit the tray itself.
+        app.quit()
+
+    quit_action.triggered.connect(_confirmed_quit)
     menu.addAction(quit_action)
 
     tray.setContextMenu(menu)

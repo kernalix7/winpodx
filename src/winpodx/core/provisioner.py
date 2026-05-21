@@ -103,10 +103,26 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # itself is dead while VNC is fine. Probe and try to revive TermService
     # before handing the cfg to the caller — the alternative is the FreeRDP
     # launch failing with a connection-refused that the user has to debug.
-    from winpodx.core.pod import recover_rdp_if_needed
-
+    #
+    # Two-stage recovery (cheap before expensive):
+    #   1. Agent-driven TermService cycle (try_recover_rdp). Costs ~5-30 s
+    #      and keeps the container + Windows uptime; the right fix when the
+    #      stall is just a wedged RDP listener.
+    #   2. Whole-container restart via recover_rdp_if_needed. Costs ~30 s
+    #      pod restart and resets Windows uptime; the fallback when the
+    #      agent isn't reachable or stage 1 didn't bring RDP back.
     if not check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
-        recover_rdp_if_needed(cfg)
+        from winpodx.core.pod import recover_rdp_if_needed
+        from winpodx.core.pod.recovery import try_recover_rdp
+
+        result = try_recover_rdp(cfg)
+        log.info(
+            "ensure_ready: agent recovery returned action=%s success=%s",
+            result.action.value,
+            result.success,
+        )
+        if not result.success:
+            recover_rdp_if_needed(cfg)
 
     # Discovery is no longer auto-fired here (Step 3 of the redesign).
     # The "populate the menu on first boot" UX is owned by install.sh

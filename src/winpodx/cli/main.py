@@ -283,6 +283,24 @@ def cli(argv: list[str] | None = None) -> None:
         parser.print_help()
         return
 
+    # Best-effort: ensure the tray subprocess is up before dispatching
+    # any CLI command. The tray is the only driver for the UNRESPONSIVE
+    # auto-recovery flow, so even users who only ever touch winpodx via
+    # the CLI get the same idle-stall recovery the GUI users get.
+    # ``setup`` / ``gui`` / ``tray`` skip this:
+    #   * ``setup`` runs during install before the tray is wanted;
+    #   * ``gui`` spawns the tray itself from run_gui();
+    #   * ``tray`` IS the tray -- spawning a second copy is what
+    #     tray_spawn's pgrep + tray.py's flock are guarding against, but
+    #     short-circuiting here is cheaper than relying on those.
+    if args.command not in ("setup", "gui", "tray"):
+        try:
+            from winpodx.desktop.tray_spawn import maybe_spawn_tray
+
+            maybe_spawn_tray()
+        except Exception:  # noqa: BLE001 — best-effort, never crash CLI
+            pass
+
     _dispatch(args)
 
 
