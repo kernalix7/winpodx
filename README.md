@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 [![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![tests](https://img.shields.io/badge/tests-1090%2B-2EA44F?style=flat-square)](#testing)
+[![tests](https://img.shields.io/badge/tests-1170%2B-2EA44F?style=flat-square)](#testing)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
 [![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### Status: Beta
-> winpodx is in active development (**v0.5.0**). The headline of v0.5.0 is **reverse-open**: Linux apps now appear in the Windows guest's right-click "Open with…" menu by default, with correct per-app icons. Double-click a `.txt` inside the guest, pick Kate from the menu, and it opens in your Linux Kate against the real host file path. The host→guest pipeline (bearer-authed HTTP agent on `127.0.0.1:8765`, FreeRDP RemoteApp fallback) is unchanged from v0.3.x. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> winpodx is in active development (**v0.5.6**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is now default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile (`+invtsc`, `platform_tick`, more flags gated by host capability) plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions, so a long-idle pod no longer needs `winpodx pod restart` to come back. v0.5.6 fixes "Launching… but no RDP window" on modern rootless podman + pasta (Kubuntu 26.04 default). First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated, both directions. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
@@ -88,10 +88,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — grab the matching .deb from the latest release
-sudo apt install ./winpodx_0.5.0_all_debian13.deb
+sudo apt install ./winpodx_0.5.6_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — grab the matching .rpm
-sudo dnf install ./winpodx-0.5.0-0.noarch.el10.rpm
+sudo dnf install ./winpodx-0.5.6-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx
@@ -117,7 +117,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 <table>
 <tr><td width="50%">
 
-**Reverse-open (new in v0.5.0)**
+**Reverse-open**
 - Linux apps appear in the Windows guest's right-click "Open with…" menu by default
 - Correct per-app icons in both the short menu and the long "Choose another app" dialog
 - Selecting one round-trips the file open to host `xdg-open`
@@ -158,6 +158,8 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 
 **Automation & security**
 - Auto suspend / resume: container pauses when idle, resumes on next launch
+- UNRESPONSIVE → recover (v0.5.5): stalled RDP guest is detected on `RUNNING → UNRESPONSIVE` and self-healed via in-guest TermService cycle, no `pod restart` needed
+- Host-adaptive Windows-on-KVM tuning profile (v0.5.5): `+invtsc`, `platform_tick` and more, gated by host capability — `tuning_profile = auto|safe|off`
 - Password auto-rotation: 20-char cryptographic password, 7-day cycle with atomic rollback
 - Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
 - Windows debloat: telemetry, ads, Cortana, search indexing disabled by default
@@ -196,9 +198,9 @@ See [docs/FEATURES.md](docs/FEATURES.md) for deep dives, including multi-session
 | Distro | Package manager | Status |
 |--------|-----------------|--------|
 | openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll | zypper | Tested |
-| Fedora 42 / 43 / 44 | dnf | Supported |
+| Fedora 42 / 43 / 44 / Rawhide | dnf | Supported |
 | Fedora Silverblue / Kinoite / Sericea / Bluefin / Bazzite (42 / 43 / 44) | rpm-ostree (OBS, `--apply-live`) | Supported |
-| Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 | apt | Supported |
+| Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 / 26.04 | apt | Supported |
 | AlmaLinux / Rocky / RHEL 9 / 10 | dnf | Supported |
 | Arch / Manjaro | pacman + `yay -S winpodx` | Supported |
 | NixOS (and Nix on any distro) | nix flake | Supported |
@@ -210,7 +212,7 @@ Each tag push (`v*.*.*`) publishes to all channels automatically — see [packag
 ```bash
 # From repo root (no install needed)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/    # 1090+ tests
+python3 -m pytest tests/    # 1170+ tests
 ruff check src/ tests/      # Lint
 ruff format --check src/ tests/
 ```

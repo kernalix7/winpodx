@@ -14,7 +14,7 @@ Detects your distro, installs missing system dependencies (Podman, FreeRDP, KVM,
 
 > **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). winpodx does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
 
-By default the installer pins to the **latest published GitHub release** (currently `v0.5.0`). Pre-release / development versions stay opt-in.
+By default the installer pins to the **latest published GitHub release** (currently `v0.5.6`). Pre-release / development versions stay opt-in.
 
 ## Choose a version
 
@@ -28,11 +28,11 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main
 
 # Install a specific tag, branch, or commit
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --ref v0.5.0
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --ref v0.5.6
 
 # Env-var equivalent (works under curl | bash without -s --)
 WINPODX_REF=main   curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-WINPODX_REF=v0.5.0 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+WINPODX_REF=v0.5.6 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
 ## Offline / air-gapped install

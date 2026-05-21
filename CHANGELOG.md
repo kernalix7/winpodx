@@ -28,10 +28,27 @@ verbatim.
 ### Fixed
 -->
 
+## [0.5.6] - 2026-05-21
+
+Hotfix release driven by @ismikes (#214). Fixes the "Launching... but no RDP window appears" symptom on modern rootless podman + pasta (Ubuntu/Kubuntu 26.04 default), corrects the `winpodx info` VNC reachability false negative, and adds a belt-and-braces tray sweep at the end of `uninstall.sh`.
+
+### Highlights
+
+**RDP launches that hung at "Launching..." on Kubuntu 26.04 work again, and `winpodx info` stops lying about VNC reachability (#214).**
+
+- `core/rdp.py` no longer wraps FreeRDP in `podman unshare --rootless-netns` — the wrap put xfreerdp3 inside the container's net ns where the host-side publish was invisible. Reported by @ismikes, diagnosed by @smoore100, both confirmed the fix.
+- `winpodx info` VNC reachability probe switched from RDP X.224 handshake to plain TCP accept (VNC speaks RFB, not RDP).
+- `uninstall.sh` adds a final tray/GUI sweep so processes that came up *during* the uninstall window (other-terminal GUI launches, XDG-autostart races, dbus activation) still get killed before the script exits.
+
 ### Fixed
 
-- **App launch no longer hangs at "Launching..." on modern rootless podman + pasta (#214).** Reported by @ismikes on Kubuntu 26.04 (Wayland + Plasma 6 + FreeRDP 3.24.2); diagnosis from @smoore100. `core/rdp.py` previously wrapped every FreeRDP invocation in `podman unshare --rootless-netns`, putting xfreerdp3 *inside* the container's network namespace where the host-side port publish is invisible — so "Launching..." printed but no RDP window appeared. The wrap is removed; FreeRDP now runs on the host loopback directly, where `127.0.0.1:<rdp_port>` is reachable via the existing podman publish. Side benefits: removes an implicit dependency on the `podman` binary being on PATH for the FreeRDP launch path (flatpak-FreeRDP-only setups now work), and the `-Plasma 6 / Wayland / FreeRDP 3.24` edge case from #214 is unblocked.
+- **App launch no longer hangs at "Launching..." on modern rootless podman + pasta (#214).** Reported by @ismikes on Kubuntu 26.04 (Wayland + Plasma 6 + FreeRDP 3.24.2); diagnosis from @smoore100. `core/rdp.py` previously wrapped every FreeRDP invocation in `podman unshare --rootless-netns`, putting xfreerdp3 *inside* the container's network namespace where the host-side port publish is invisible — so "Launching..." printed but no RDP window appeared. The wrap is removed; FreeRDP now runs on the host loopback directly, where `127.0.0.1:<rdp_port>` is reachable via the existing podman publish. Side benefits: removes an implicit dependency on the `podman` binary being on PATH for the FreeRDP launch path (flatpak-FreeRDP-only setups now work), and the Plasma 6 / Wayland / FreeRDP 3.24 edge case from #214 is unblocked.
 - **`winpodx info` no longer falsely reports "VNC unreachable" while NoVNC is serving (#214).** The VNC port (8007 by default) was probed with `check_rdp_port`, which sends an X.224 Connection Request and waits for a TPKT reply — meaningless against an RFB-speaking VNC server, so the probe always returned False. VNC now uses `check_tcp_port` (plain TCP accept), which matches what "is the NoVNC endpoint accepting connections" actually means.
+- **`uninstall.sh` final tray/GUI sweep before exit.** `WINPODX_NO_TRAY_SPAWN=1` + the section-0a `pkill` cover the case where uninstall.sh is the only thing touching the tray, but they miss tray/GUI processes that came up *during* the uninstall window — a GUI window opened in another terminal that already spawned a tray, a KDE/GNOME XDG-autostart race, a dbus-activated launch that bypasses `cli/main.py`'s spawn check. A quiet final `pkill -f 'python.*winpodx'` + `pkill -f winpodx-app` pass right before the summary catches those.
+
+### Internal
+
+- **`packaging/obs/obs-publish.yml` anchors the download grep to the current tag version** so stale older RPMs left in the OBS publish index by rolling-release repos (Tumbleweed / Slowroll lazy GC) don't get re-uploaded as release assets. v0.5.5 was the first release to surface this — two stale 0.5.4 RPMs landed in the Release page and had to be deleted by hand.
 
 ## [0.5.5] - 2026-05-21
 

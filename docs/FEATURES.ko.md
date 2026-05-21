@@ -6,7 +6,7 @@
 
 ## Reverse-open (Linux 앱이 Windows "Open with…" 에)
 
-**v0.5.0 신규.** Windows 게스트 안에서 아무 파일이나 우클릭하면 Linux 측 핸들러가 "Open with…" 메뉴에 등장 — `.txt` 는 Kate, `.png` 는 gwenview, `.html` 은 Firefox 등. 하나 선택하면 파일 열기가 호스트의 `xdg-open` 으로 round-trip 해서 실제로 Linux 에서 설정한 앱에 도착.
+v0.5.0 에 ship, 이후 기본 활성. Windows 게스트 안에서 아무 파일이나 우클릭하면 Linux 측 핸들러가 "Open with…" 메뉴에 등장 — `.txt` 는 Kate, `.png` 는 gwenview, `.html` 은 Firefox 등. 하나 선택하면 파일 열기가 호스트의 `xdg-open` 으로 round-trip 해서 실제로 Linux 에서 설정한 앱에 도착.
 
 동작 방식:
 
