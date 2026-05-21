@@ -559,6 +559,32 @@ def handle_setup(args: argparse.Namespace) -> None:
                 print(f"Invalid number, using default: {tier.ram_gb}")
                 cfg.pod.ram_gb = tier.ram_gb
 
+        # Timezone prompt (#254 phase 2). Empty input or empty
+        # cfg.pod.timezone defers to autodetect at compose time. The
+        # detection is cheap; we surface the resolved value here so
+        # users can see what would land on the guest. Non-interactive
+        # mode leaves cfg.pod.timezone alone (default "" -> autodetect).
+        if not non_interactive:
+            from winpodx.utils.locale import detect_timezone
+
+            detected = detect_timezone()
+            current = cfg.pod.timezone or detected
+            tz_input = _ask(
+                f"Windows timezone (IANA name, e.g. Asia/Seoul) [{current}]: ",
+                default=current,
+            )
+            # User answered with the same value we showed as default ->
+            # store the detected IANA name explicitly so a later config
+            # show / GUI display reflects the user's confirmation rather
+            # than re-running detection every compose. Edge case: user
+            # may have explicitly entered "" intending autodetect; the
+            # _ask helper coerces that to the default, so we lose that
+            # signal. Acceptable trade-off -- explicit autodetect is
+            # available via the upcoming `winpodx config set
+            # pod.timezone --auto` shorthand or hand-editing the TOML.
+            cfg.pod.timezone = tz_input
+            cfg.pod.__post_init__()
+
         # Pick a storage mode for podman/docker before compose is
         # rendered. Three cases:
         #   1. cfg.pod.storage_path already set → keep it (returning user

@@ -191,7 +191,26 @@ def cli(argv: list[str] | None = None) -> None:
 
     set_p = cfg_sub.add_parser("set", help="Set a config value")
     set_p.add_argument("key", help="e.g. rdp.user, pod.backend")
-    set_p.add_argument("value", help="New value to set")
+    set_p.add_argument(
+        "value",
+        nargs="?",
+        default=None,
+        help=(
+            "New value to set. Omit when passing --auto. Reserved sentinel "
+            "values: explicit empty string ('') stores the empty default."
+        ),
+    )
+    set_p.add_argument(
+        "--auto",
+        action="store_true",
+        help=(
+            "Use the host-detected value for this key instead of supplying "
+            "one positionally. Currently supported keys: pod.timezone (host "
+            "IANA zone from timedatectl / /etc/localtime / /etc/timezone, "
+            "translated to a Windows TZ ID via the CLDR table). Other keys "
+            "will gain auto-detect in follow-up phases of #254."
+        ),
+    )
 
     cfg_sub.add_parser("import", help="Import winapps.conf")
 

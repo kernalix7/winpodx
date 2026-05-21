@@ -13,7 +13,7 @@ def handle_config(args: argparse.Namespace) -> None:
     if cmd == "show":
         _show()
     elif cmd == "set":
-        _set(args.key, args.value)
+        _set(args.key, args.value, auto=getattr(args, "auto", False))
     elif cmd == "import":
         _import_config()
     else:
@@ -50,7 +50,7 @@ def _show() -> None:
         print(f"WARNING: {warning}", file=sys.stderr)
 
 
-def _set(key: str, value: str) -> None:
+def _set(key: str, value: str | None, *, auto: bool = False) -> None:
     from winpodx.core.config import Config, check_session_budget
 
     cfg = Config.load()
@@ -63,6 +63,24 @@ def _set(key: str, value: str) -> None:
     target = getattr(cfg, section, None)
     if target is None or not hasattr(target, field):
         print(f"Unknown config key: {key}")
+        sys.exit(1)
+
+    if auto:
+        if value is not None:
+            print("--auto and a positional value are mutually exclusive.")
+            sys.exit(1)
+        resolved = _resolve_auto_value(section, field)
+        if resolved is None:
+            print(
+                f"--auto not yet supported for {key}. Currently supported: "
+                "pod.timezone. Other keys will gain auto-detect in follow-up "
+                "phases of #254 -- pass a value explicitly for now."
+            )
+            sys.exit(1)
+        value = resolved
+
+    if value is None:
+        print("Missing value. Either pass a positional value or --auto.")
         sys.exit(1)
 
     current = getattr(target, field)
@@ -92,6 +110,27 @@ def _set(key: str, value: str) -> None:
         warning = check_session_budget(cfg)
         if warning:
             print(f"WARNING: {warning}", file=sys.stderr)
+
+
+def _resolve_auto_value(section: str, field: str) -> str | None:
+    """Return the host-detected value for ``<section>.<field>``, or None.
+
+    Currently wired (#254 phase 2):
+
+    * ``pod.timezone`` -- IANA zone from
+      :func:`winpodx.utils.locale.detect_timezone`. We store the IANA
+      name verbatim rather than translating to a Windows TZ ID, so the
+      TOML stays human-readable and the compose generator can re-resolve
+      to the matching Windows ID via the CLDR table at run time.
+
+    Returns ``None`` for keys that don't have a detection helper yet --
+    the caller surfaces a clear error and exits non-zero.
+    """
+    if section == "pod" and field == "timezone":
+        from winpodx.utils.locale import detect_timezone
+
+        return detect_timezone()
+    return None
 
 
 def _import_config() -> None:
