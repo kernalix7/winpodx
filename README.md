@@ -100,6 +100,8 @@ yay -S winpodx
 nix run github:kernalix7/winpodx
 ```
 
+> **After a package-manager install:** run `winpodx setup` once to generate `~/.config/winpodx/winpodx.toml` + compose.yaml. The curl one-liner does this for you (and waits ~5–10 min for the Windows first boot); package installs ship the binary only so `apt install` / `dnf install` / `yay -S` don't trigger a 10-minute Windows ISO download out of the blue. After setup, just launching an app (`winpodx app run desktop`) auto-provisions the pod the first time.
+
 See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, and uninstall.
 
 ## Launch

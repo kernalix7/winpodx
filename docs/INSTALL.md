@@ -116,6 +116,13 @@ For the complete list of supported languages and region codes, see the [dockur/w
 
 Prebuilt RPM and `.deb` packages are attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions. The [`winpodx` AUR package](https://aur.archlinux.org/packages/winpodx) is live as of v0.5.2 — Arch users can install via `yay -S winpodx` or `paru -S winpodx`.
 
+> **After any package-manager install, run `winpodx setup` once.** The package payload is binary + desktop entry + icon + man page only -- no post-install hook fires the Windows VM provisioning, because (a) `winpodx setup` is interactive (backend / credentials prompts), (b) `winpodx pod start` triggers a ~7.5 GB Windows ISO download + Sysprep + OEM apply (5–10 min on typical connections), and (c) `apt install` / `dnf install` / `yay -S` running as root shouldn't fire user-namespace rootless podman provisioning. The curl one-liner does the same `winpodx setup --non-interactive` + `winpodx pod wait-ready` chain itself, which is why it appears not to need a manual setup step. First-time flow:
+>
+> ```bash
+> winpodx setup                # interactive: backend / credentials / specs / locale
+> winpodx app run desktop      # auto-provisions the pod on first call (~5–10 min)
+> ```
+
 ### openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll
 
 ```bash
