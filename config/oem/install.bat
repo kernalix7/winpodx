@@ -131,7 +131,22 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v TargetReleas
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v DeferFeatureUpdates /t REG_DWORD /d 1 /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v DeferFeatureUpdatesPeriodInDays /t REG_DWORD /d 365 /f
 
-tzutil /s "UTC"
+REM Timezone: prefer C:\OEM\timezone.txt (winpodx host-detected, #254),
+REM fall back to UTC. The file is single-line, contains a literal Windows
+REM TZ ID like "Korea Standard Time". winpodx skips writing it when host
+REM autodetect resolves to UTC, so the guest stays on whatever default
+REM Windows picked rather than being forced onto UTC.
+if exist "C:\OEM\timezone.txt" (
+    set "WINPODX_TZ="
+    for /f "usebackq delims=" %%T in ("C:\OEM\timezone.txt") do if not defined WINPODX_TZ set "WINPODX_TZ=%%T"
+    if defined WINPODX_TZ (
+        tzutil /s "%WINPODX_TZ%"
+    ) else (
+        tzutil /s "UTC"
+    )
+) else (
+    tzutil /s "UTC"
+)
 
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search" /v AllowCortana /t REG_DWORD /d 0 /f
 

@@ -98,6 +98,29 @@ def cli(argv: list[str] | None = None) -> None:
     pod_sub.add_parser("stop", help="Stop the pod")
     pod_sub.add_parser("status", help="Show pod status")
     pod_sub.add_parser("restart", help="Restart the pod")
+    recreate_p = pod_sub.add_parser(
+        "recreate",
+        help=(
+            "Regenerate compose.yaml from current config + destroy and "
+            "re-create the container (Windows disk preserved). Use after "
+            "editing first-boot env knobs (language, region, keyboard, "
+            "timezone, edition, backend) so the new values reach dockur. "
+            "Note: dockur honors language / region / keyboard / edition "
+            "only on the *initial* Windows install; recreating with these "
+            "changed but the disk preserved will not re-run Sysprep. Pass "
+            "--wipe-storage to also destroy the Windows disk and trigger "
+            "a fresh install (~10 minutes)."
+        ),
+    )
+    recreate_p.add_argument(
+        "--wipe-storage",
+        action="store_true",
+        help=(
+            "Also destroy the Windows storage volume / bind-mount so dockur "
+            "re-runs the full Windows install. Required for language / "
+            "edition changes to actually reach the guest. ~10 minute cost."
+        ),
+    )
     pod_sub.add_parser(
         "apply-fixes",
         help=(

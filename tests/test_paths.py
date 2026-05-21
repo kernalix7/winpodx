@@ -54,31 +54,29 @@ class TestBundleDir:
 
 
 class TestFindOemDir:
-    """_find_oem_dir() returns the bundle path directly when user-owned,
-    otherwise copies the OEM tree into ~/.config/winpodx/oem/ and returns
-    that. Two regimes; both regression-tested."""
+    """_find_oem_dir() / _prepare_oem_dir() always return the user OEM
+    dir under ~/.config/winpodx/oem/, populated by copy from the bundle
+    OEM tree. Pre-#254 the function had a fast-path that returned the
+    bundle dir directly when it was user-writable, but #254 needs to
+    drop per-config files (timezone.txt) into the OEM dir without
+    polluting the source bundle, so the always-copy path is now the
+    single regime. Both call shapes are covered."""
 
-    def test_returns_bundle_path_when_user_writable(self, tmp_path, monkeypatch):
-        """Common case (curl install / source checkout / Nix profile):
-        the user owns the bundle dir, so we use it directly without
-        copying. Pre-PR this always copied -- the unconditional copy
-        on opensuse with restrictive ~/.config/winpodx/ parent perms
-        triggered ``cp: cannot stat '/oem/./install.bat': Permission
-        denied`` from dockur's in-container OEM-copy step."""
+    def test_returns_user_oem_path_always(self, tmp_path, monkeypatch):
+        """Even when the bundle is user-writable, the function returns
+        a copy under ``~/.config/winpodx/oem/`` rather than the bundle
+        path. Lets the compose generator safely drop ``timezone.txt``
+        (and future per-config files) without touching the source
+        checkout."""
         from winpodx.core.pod.compose import _find_oem_dir
 
-        # Real bundle dir on the source checkout is user-writable
-        # (test runner owns the worktree). Set XDG_CONFIG_HOME just
-        # so any fallback would be visible if it fired.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         result = Path(_find_oem_dir())
 
-        # Returned path must NOT be under tmp_path/winpodx/oem -- the
-        # user_oem fallback shouldn't fire when the bundle is writable.
         user_oem = tmp_path / "winpodx" / "oem"
-        assert result != user_oem, "user_oem fallback fired despite bundle being user-writable"
-        # Returned path must be the actual bundle OEM dir on disk.
-        assert (result / "install.bat").exists(), "bundle OEM not at returned path"
+        assert result == user_oem, "expected always-copy path under user_oem"
+        # Bundle OEM contents must be present under the user_oem copy.
+        assert (result / "install.bat").exists(), "bundle OEM files should be copied"
 
     def test_copies_to_user_dir_when_bundle_readonly(self, tmp_path, monkeypatch):
         """Fedora/RPM case: bundle dir is root-owned + read-only to

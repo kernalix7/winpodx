@@ -139,50 +139,46 @@ def _yaml_escape(val: str) -> str:
 def _find_oem_dir() -> str:
     """Return a user-writable OEM directory for the compose bind mount.
 
-    Two regimes:
+    Back-compat wrapper around :func:`_prepare_oem_dir` for callers
+    that don't have a Config in hand (e.g. setup_cmd's agent-token
+    staging before the wizard has finished). Equivalent to
+    ``_prepare_oem_dir(cfg=None)``.
+    """
+    return _prepare_oem_dir(cfg=None)
 
-    1. **Bundle dir is user-writable** (curl install, source checkout,
-       Nix profile install -- anything where the user owns the bundle
-       tree). Return bundle path directly. No copy needed: Podman's
-       ``:Z`` relabel works fine because the user owns the source.
-       This is the common case and matches the pre-PR-#95 behavior.
 
-    2. **Bundle dir is read-only to current user** (RPM/wheel install
-       under ``/usr/share/winpodx/`` -- root-owned, world-readable
-       only). Copy the OEM tree into ``~/.config/winpodx/oem/`` and
-       return that. Necessary because rootless Podman can't lsetxattr
-       root-owned files for ``:Z`` -- pgarciaq's GH-93. Files are
-       chmod'd 0644 + dirs 0755 after copy so the dockur container
-       process can read them regardless of the user's umask.
+def _prepare_oem_dir(cfg: Config | None) -> str:
+    """Return a user-writable OEM directory, populated for *cfg*.
 
-    Pre-this-fix (PR #95) the function *always* copied -- and dockur's
-    cp inside the container then hit ``Permission denied`` on the
-    user-OEM files when ``~/.config/winpodx/`` had a 0700 default
-    parent mode. Branching on user-writability lets us keep the
-    SELinux fix for Fedora/RPM users while not running the copy on
-    systems where it isn't needed (the curl-install majority).
+    Always uses ``~/.config/winpodx/oem`` and copies the bundle OEM
+    tree in (idempotent via ``dirs_exist_ok``). Pre-#254 the function
+    had a fast-path that returned the bundle dir directly when it was
+    user-writable, but #254 needs to drop per-config files into the
+    OEM dir (``timezone.txt`` for the OEM ``tzutil`` step) without
+    touching the source bundle, so the always-copy path is now the
+    single regime.
 
-    Falls back to the user OEM path string when the bundle OEM dir is
+    With *cfg* provided, also writes:
+
+    * ``timezone.txt`` -- single line, Windows TZ ID resolved from
+      ``cfg.pod.timezone`` via :func:`utils.locale.resolve_timezone_for_oem`.
+      Empty when resolution returns ``"UTC"`` AND ``cfg.pod.timezone``
+      was explicitly empty (host autodetect found nothing usable) -- we
+      skip the file in that case so install.bat short-circuits past
+      the tzutil step instead of forcing UTC on guests that may have
+      a sensible default.
+
+    Permissions on copied files: 0644 / 0755. Necessary because dockur's
+    in-container ``cp`` runs as a non-root user the first time it pulls
+    /oem into C:\\OEM; a default 0600 umask blocks the copy and
+    install.bat never runs.
+
+    Falls back to the empty user OEM path when the bundle OEM dir is
     missing (broken install), so callers still get a path for error
     messages.
     """
     bundle_oem = bundle_dir() / "config" / "oem"
-
-    # Case 1 -- user owns the bundle. Use it directly. No copy.
-    # Compose's ``:Z`` relabel is a no-op or in-place relabel on
-    # user-owned files; rootless Podman handles it fine.
-    if bundle_oem.is_dir() and os.access(bundle_oem, os.R_OK | os.W_OK):
-        return str(bundle_oem)
-
-    # Case 2 -- bundle is read-only (or missing). Copy into user space
-    # so ``:Z`` can relabel. Permissions explicitly set to 0644 / 0755
-    # so dockur's in-container cp can read regardless of umask.
     user_oem = config_dir() / "oem"
-    if not bundle_oem.is_dir():
-        # Broken install: bundle dir doesn't exist at all. Nothing to
-        # copy; return the user_oem path for the caller's error
-        # message but don't create the dir.
-        return str(user_oem)
 
     user_oem.mkdir(parents=True, exist_ok=True, mode=0o755)
     try:
@@ -190,29 +186,77 @@ def _find_oem_dir() -> str:
     except OSError:
         pass
 
-    for item in bundle_oem.iterdir():
-        dest = user_oem / item.name
-        if item.is_dir():
-            shutil.copytree(item, dest, dirs_exist_ok=True)
-            for root_dir, _dirs, files in os.walk(dest):
-                root_path = Path(root_dir)
-                try:
-                    os.chmod(root_path, 0o755)
-                except OSError:
-                    pass
-                for f in files:
+    if bundle_oem.is_dir():
+        for item in bundle_oem.iterdir():
+            dest = user_oem / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+                for root_dir, _dirs, files in os.walk(dest):
+                    root_path = Path(root_dir)
                     try:
-                        os.chmod(root_path / f, 0o644)
+                        os.chmod(root_path, 0o755)
                     except OSError:
                         pass
-        else:
-            shutil.copy2(item, dest)
-            try:
-                os.chmod(dest, 0o644)
-            except OSError:
-                pass
+                    for f in files:
+                        try:
+                            os.chmod(root_path / f, 0o644)
+                        except OSError:
+                            pass
+            else:
+                shutil.copy2(item, dest)
+                try:
+                    os.chmod(dest, 0o644)
+                except OSError:
+                    pass
+
+    if cfg is not None:
+        _write_oem_timezone(user_oem, cfg)
 
     return str(user_oem)
+
+
+def _write_oem_timezone(oem_dir: Path, cfg: Config) -> None:
+    """Drop ``oem_dir/timezone.txt`` with the Windows TZ ID for install.bat.
+
+    Resolution rules and skip-conditions live in
+    :func:`utils.locale.resolve_timezone_for_oem`. We treat
+    ``cfg.pod.timezone == ""`` AND a resolved value of ``"UTC"`` as
+    "host detection failed; let install.bat skip the tzutil step
+    rather than force UTC", because most users on UTC-via-detection-
+    failure are actually on a real zone and we'd rather not silently
+    change their system clock to UTC. An explicit ``timezone = "UTC"``
+    in the TOML, or any other resolved value, is written verbatim.
+    """
+    from winpodx.utils.locale import resolve_timezone_for_oem
+
+    configured = (cfg.pod.timezone or "").strip()
+    win_tz = resolve_timezone_for_oem(configured)
+
+    target = oem_dir / "timezone.txt"
+    # Detection fell all the way back to UTC: don't write the file so
+    # install.bat skips the tzutil call. Users on UTC who *want* UTC
+    # set it explicitly in the TOML and we honour that.
+    if not configured and win_tz == "UTC":
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    try:
+        target.write_text(win_tz + "\n", encoding="utf-8")
+        os.chmod(target, 0o644)
+    except OSError as e:
+        # Non-fatal: install.bat will skip tzutil if the file is
+        # missing, and the guest stays on its current TZ. Surface
+        # the failure to the user in logs so they can diagnose.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "could not write %s: %s; Windows guest TZ will stay on its current value",
+            target,
+            e,
+        )
 
 
 def _render_storage_blocks(cfg: Config) -> tuple[str, str]:
@@ -281,7 +325,7 @@ def _build_compose_content(cfg: Config) -> str:
         keyboard=_yaml_escape(cfg.pod.keyboard),
         rdp_port=cfg.rdp.port,
         vnc_port=cfg.pod.vnc_port,
-        oem_dir=_find_oem_dir(),
+        oem_dir=_prepare_oem_dir(cfg),
         top_volumes=top_volumes,
         storage_mount=storage_mount,
         qemu_arguments=_qemu_arguments_for_host(cfg),
