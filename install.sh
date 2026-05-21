@@ -759,9 +759,30 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
     # into a single flush at the end). Without this, `[1/3] container
     # ...`, the [container] log tail, and `OK ...` lines all arrive at
     # once when the step completes — see Task #45 / PR #143 regression.
+    # Disable ``set -e`` for the pipeline so we can inspect the wait-
+    # ready rc + tee'd output below. The previous ``|| true`` after the
+    # pipeline silently rewrote ``${PIPESTATUS[0]}`` to ``true``'s rc
+    # (bash updates PIPESTATUS for the last executed pipeline, and
+    # ``true`` is a single-command pipeline), so signal-driven exits
+    # (Ctrl+C -> 130, SIGTERM -> 143) looked like clean successes and
+    # install.sh marched on to the migrate step. Capture PIPESTATUS
+    # while it's still the pipeline's, then handle.
+    set +e
     PYTHONUNBUFFERED=1 "$HOME/.local/bin/winpodx" pod wait-ready --timeout 3600 --logs 2>&1 \
-        | tee "$WAIT_READY_OUT" || true
+        | tee "$WAIT_READY_OUT"
     WAIT_READY_RC="${PIPESTATUS[0]}"
+    set -e
+    # Ctrl+C / SIGTERM: bail out. The trap also fires on signal receipt
+    # in the parent shell, but the check here covers the case where the
+    # child winpodx died from the signal and the parent didn't get
+    # SIGINT directly (e.g. piped install via ``curl ... | bash`` where
+    # job control may not propagate the signal upward).
+    if [ "$WAIT_READY_RC" -eq 130 ] || [ "$WAIT_READY_RC" -eq 143 ]; then
+        err "Install cancelled (winpodx pod wait-ready returned $WAIT_READY_RC)."
+        err "Re-run install.sh to continue from where you left off."
+        rm -f "$WAIT_READY_OUT"
+        exit "$WAIT_READY_RC"
+    fi
     if [ "$WAIT_READY_RC" -ne 0 ]; then
         if grep -q "no such container" "$WAIT_READY_OUT"; then
             warn "Container is missing — likely from a partial uninstall."
