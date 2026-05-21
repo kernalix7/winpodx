@@ -61,7 +61,25 @@ elif command -v docker &>/dev/null; then
     RUNTIME="docker"
 fi
 
-# --- 0. Reverse-open teardown (BEFORE container removal) ---
+# --- 0a. Stop running winpodx processes (tray + GUI) ---
+# Both processes hold open file handles into ~/.local/bin/winpodx-app/
+# and the runtime / config directories we're about to remove. The tray
+# also owns the flock under $XDG_RUNTIME_DIR/winpodx/tray.lock and the
+# UNRESPONSIVE recovery worker -- leaving it alive across the uninstall
+# means the user sees recovery-attempt notifications fire against a
+# now-gone container.
+for proc in "winpodx gui" "winpodx tray"; do
+    if pgrep -fa "$proc" >/dev/null 2>&1; then
+        log "Stopping $proc..."
+        pkill -f "$proc" 2>/dev/null || true
+        REMOVED=$((REMOVED + 1))
+    fi
+done
+# Brief grace so the killed processes release their file handles
+# before later steps rm -rf their install directory.
+sleep 1
+
+# --- 0b. Reverse-open teardown (BEFORE container removal) ---
 # Stops the host-side listener daemon so the runtime/winpodx/ cleanup
 # below doesn't leave an orphan process when the pid file is deleted.
 #
@@ -171,6 +189,19 @@ RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/winpodx"
 if [[ -d "$RUNTIME_DIR" ]]; then
     rm -rf "$RUNTIME_DIR"
     log "Removed runtime files"
+    REMOVED=$((REMOVED + 1))
+fi
+
+# --- 6b. Autostart entry (XDG ~/.config/autostart/winpodx-tray.desktop) ---
+# The Settings-page "Launch winpodx tray at login" checkbox writes this
+# file via the XDG autostart spec; leaving it around after uninstall
+# means the user gets a "winpodx tray" command-not-found at next login.
+# Always remove regardless of purge mode -- the .desktop is winpodx-
+# specific and useless without the binary.
+AUTOSTART_DESKTOP="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/winpodx-tray.desktop"
+if [[ -e "$AUTOSTART_DESKTOP" ]]; then
+    rm -f "$AUTOSTART_DESKTOP"
+    log "Removed $AUTOSTART_DESKTOP"
     REMOVED=$((REMOVED + 1))
 fi
 
