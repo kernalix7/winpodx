@@ -1,0 +1,134 @@
+# SPDX-License-Identifier: MIT
+#
+# Catalog of debloat items consumed by ``winpodx.core.debloat`` and
+# exposed via ``winpodx debloat --list`` (and a future GUI picker).
+#
+# Each item is a TOML table:
+#
+#   * ``label``       -- short user-facing name (shown in CLI / GUI lists).
+#   * ``description`` -- one-line explanation of what it disables / why.
+#   * ``script``      -- path under ``scripts/windows/debloat/`` to the
+#                        PowerShell snippet that performs the action.
+#                        Resolved against ``bundle_dir()`` at run time.
+#   * ``risk``        -- one of ``low`` / ``medium`` / ``high``.
+#                        ``low``    = pure noise removal, no UX regression.
+#                        ``medium`` = removes a feature some users want
+#                                     (OneDrive, common startup apps).
+#                        ``high``   = trades a real capability for VM
+#                                     perf (Windows Search indexing).
+#
+# Presets in ``items_presets`` reference these item names. Adding a new
+# item requires:
+#
+#   1. Append a ``[<name>]`` table here.
+#   2. Drop the matching ``.ps1`` under ``scripts/windows/debloat/``.
+#   3. Add the name to whichever preset(s) it belongs to.
+#
+# Future fields planned but not consumed yet:
+#
+#   * ``undo_script`` -- path to the reverse-action ``.ps1`` (#247 P2).
+
+[items.telemetry]
+label = "Telemetry & diagnostics"
+description = "Disable DiagTrack / dmwappushservice services + AllowTelemetry policy."
+script = "telemetry.ps1"
+risk = "low"
+
+[items.ads]
+label = "Ads & suggestions"
+description = "Disable Start menu / lock-screen / settings ads (ContentDeliveryManager keys)."
+script = "ads.ps1"
+risk = "low"
+
+[items.onedrive]
+label = "OneDrive"
+description = "Remove OneDrive integration (uninstall + remove from File Explorer pane)."
+script = "onedrive.ps1"
+risk = "medium"
+
+[items.sysmain]
+label = "SuperFetch (SysMain)"
+description = "Disable SysMain -- VM has no spinning disk; SuperFetch wastes RAM."
+script = "sysmain.ps1"
+risk = "low"
+
+[items.web_search]
+label = "Cortana + Windows web search"
+description = "Disable Cortana + Start menu web result lookups."
+script = "web_search.ps1"
+risk = "low"
+
+[items.widgets]
+label = "Widgets / news panel"
+description = "Disable taskbar widgets + sliding news panel."
+script = "widgets.ps1"
+risk = "low"
+
+[items.scheduled_tasks]
+label = "Unnecessary scheduled tasks"
+description = "Disable App Experience / Autochk / CEIP / Disk Diagnostic / Maps / RetailDemo / WER."
+script = "scheduled_tasks.ps1"
+risk = "low"
+
+[items.startup_programs]
+label = "Common startup bloat"
+description = "Disable common autostart entries (OneDrive, Teams, Skype, Spotify, Discord, OEM updaters)."
+script = "startup_programs.ps1"
+risk = "medium"
+
+[items.visual_effects]
+label = "Visual effects -> best performance"
+description = "Disable animations; keep thumbnails, font smoothing, drag-window contents (sysguides recipe)."
+script = "visual_effects.ps1"
+risk = "low"
+
+[items.search_indexing]
+label = "Search indexing service"
+description = "Disable the WSearch service. Tradeoff: Start menu search becomes file-system-walk slow."
+script = "search_indexing.ps1"
+risk = "high"
+
+[items.transparency]
+label = "Window transparency"
+description = "Disable Windows acrylic / transparency effects (saves GPU + scanout bandwidth)."
+script = "transparency.ps1"
+risk = "low"
+
+# ---------------------------------------------------------------------------
+# Preset definitions. Each preset is an ordered list of item names; presets
+# *seed* the picker's checkbox state, the actual run applies whatever the
+# user has selected (which may diverge from any preset).
+# ---------------------------------------------------------------------------
+
+[presets]
+# Current default. Conservative -- only zero-regression items.
+normal = ["telemetry", "ads"]
+# Adds OS-noise removal that some users notice (OneDrive, web search,
+# widgets, scheduled tasks).
+full = ["telemetry", "ads", "onedrive", "web_search", "widgets", "scheduled_tasks"]
+# Adds VM-perf wins (SuperFetch, startup bloat, visual effects).
+performance = [
+    "telemetry",
+    "ads",
+    "onedrive",
+    "web_search",
+    "widgets",
+    "scheduled_tasks",
+    "sysmain",
+    "startup_programs",
+    "visual_effects",
+]
+# Everything. Search indexing + transparency cost real UX in trade.
+speed = [
+    "telemetry",
+    "ads",
+    "onedrive",
+    "web_search",
+    "widgets",
+    "scheduled_tasks",
+    "sysmain",
+    "startup_programs",
+    "visual_effects",
+    "search_indexing",
+    "transparency",
+]
