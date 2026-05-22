@@ -396,23 +396,39 @@ def _remove_autostart_entry() -> int:
 
 
 def _remove_curl_install_dir() -> int:
+    """Clean curl-install artifacts: bundle dir + launcher symlinks.
+
+    The bundle dir and the launcher symlinks are removed independently
+    -- previously the symlink cleanup was gated on the bundle dir
+    removal succeeding, so a botched earlier uninstall that wiped only
+    the dir would leave ``~/.local/bin/winpodx`` +
+    ``~/.local/bin/winpodx-run`` pointing at nothing forever (and
+    ``winpodx`` still on PATH, calling into a python wrapper that
+    can't find the bundle).
+    """
+    count = 0
     install_dir = Path.home() / ".local" / "bin" / "winpodx-app"
-    if not install_dir.is_dir():
-        return 0
-    try:
-        shutil.rmtree(install_dir)
-    except OSError:
-        return 0
-    print(f"  Removed curl install dir {install_dir}")
-    # Also clean the launcher symlinks if present.
+    if install_dir.is_dir():
+        try:
+            shutil.rmtree(install_dir)
+            print(f"  Removed curl install dir {install_dir}")
+            count += 1
+        except OSError as e:
+            print(f"  WARNING: could not remove {install_dir}: {e}")
+
+    # Launcher symlinks + wrapper script -- clean independently of the
+    # bundle dir. install.sh creates these even if a prior uninstall
+    # already wiped the bundle dir.
     for name in ("winpodx", "winpodx-run"):
         link = Path.home() / ".local" / "bin" / name
-        if link.is_symlink() or link.exists():
+        if link.is_symlink() or link.is_file():
             try:
                 link.unlink()
-            except OSError:
-                pass
-    return 1
+                print(f"  Removed launcher {link}")
+                count += 1
+            except OSError as e:
+                print(f"  WARNING: could not remove {link}: {e}")
+    return count
 
 
 def _remove_config_dir() -> int:
