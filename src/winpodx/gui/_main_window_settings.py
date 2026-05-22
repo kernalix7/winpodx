@@ -41,9 +41,20 @@ from winpodx.gui._widget_helpers import add_shadow
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     COMBO,
+    FONT_BODY,
+    FONT_CAPTION,
+    FONT_HEADER,
+    FONT_HERO,
     INPUT,
+    RADIUS_S,
     SCROLL_AREA,
     SETTINGS_SECTION,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XL,
+    SPACE_XS,
+    SPACE_XXL,
     C,
 )
 
@@ -188,21 +199,24 @@ class SettingsPageMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
 
         title = QLabel("Settings")
         title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
+            f"background: transparent; color: {C.TEXT}; "
+            f"font-size: {FONT_HERO}px; font-weight: bold;"
         )
         layout.addWidget(title)
 
         sub = QLabel("Configure RDP and container settings")
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
+        sub.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_BODY}px;"
+        )
         layout.addWidget(sub)
-        layout.addSpacing(20)
+        layout.addSpacing(SPACE_S)
 
         cols = QHBoxLayout()
-        cols.setSpacing(16)
+        cols.setSpacing(SPACE_L)
 
         self.input_user = QLineEdit(self.cfg.rdp.user)
         self.input_ip = QLineEdit(self.cfg.rdp.ip)
@@ -439,9 +453,17 @@ class SettingsPageMixin:
             "will prompt."
         )
 
-        pod_card = self._settings_card(
-            "▨  Container / VM",
-            "Backend and resource allocation",
+        # PR B (UI polish): split the old "Container / VM" card into
+        # two narrower cards. The combined card had 10 form rows --
+        # taller than the 7-row RDP card next to it and visually
+        # asymmetric. Splitting hardware (Backend / Edition / CPU /
+        # RAM / Idle / Max Sessions = 6 rows) from localization
+        # (Language / Region / Keyboard / Timezone = 4 rows) gives a
+        # roughly height-balanced two-column row up top, with the
+        # Localization card flowing full-width below.
+        hardware_card = self._settings_card(
+            "▨  Hardware",
+            "Backend, edition, and resource allocation",
             [
                 ("Backend", self.input_backend),
                 ("Windows Edition", self.input_win_version),
@@ -449,15 +471,23 @@ class SettingsPageMixin:
                 ("RAM (GB)", self.input_ram),
                 ("Idle Timeout", self.input_idle),
                 ("Max Sessions (1-50)", self.input_max_sessions),
+            ],
+        )
+        cols.addWidget(hardware_card)
+
+        layout.addLayout(cols)
+
+        localization_card = self._settings_card(
+            "🌐  Localization",
+            "Windows install language / region / keyboard / timezone",
+            [
                 ("Language", self.input_language),
                 ("Region", self.input_region),
                 ("Keyboard", self.input_keyboard),
                 ("Timezone", self.input_timezone),
             ],
         )
-        cols.addWidget(pod_card)
-
-        layout.addLayout(cols)
+        layout.addWidget(localization_card)
 
         # #245 + PR A: Performance Tuning lives in its own card below
         # the two top cards. Card contains the dropdown + a live
@@ -531,8 +561,8 @@ class SettingsPageMixin:
         self.budget_warning_label = QLabel("")
         self.budget_warning_label.setWordWrap(True)
         self.budget_warning_label.setStyleSheet(
-            f"color: {C.YELLOW if hasattr(C, 'YELLOW') else '#e5c07b'}; "
-            f"background: transparent; font-size: 12px; padding: 4px 8px;"
+            f"color: {C.YELLOW}; background: transparent; "
+            f"font-size: {FONT_CAPTION}px; padding: {SPACE_XS}px {SPACE_S}px;"
         )
         self.budget_warning_label.setVisible(False)
         layout.addWidget(self.budget_warning_label)
@@ -540,7 +570,7 @@ class SettingsPageMixin:
         self.input_max_sessions.textChanged.connect(self._update_budget_warning)
         self._update_budget_warning()
 
-        layout.addSpacing(20)
+        layout.addSpacing(SPACE_L)
 
         save_btn = QPushButton("Save Settings")
         save_btn.setStyleSheet(BTN_PRIMARY)
@@ -566,46 +596,52 @@ class SettingsPageMixin:
         card.setObjectName("settingsSection")
         card.setStyleSheet(
             SETTINGS_SECTION
-            + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
+            + f"QLabel {{ color: {C.TEXT}; font-size: {FONT_BODY}px; background: transparent; }}"
             + INPUT
             + COMBO
         )
         add_shadow(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(4)
+        layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+        layout.setSpacing(SPACE_XS)
 
         header = QLabel("◨  Performance Tuning")
         header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
+            f"background: transparent; color: {C.BLUE}; "
+            f"font-size: {FONT_HEADER}px; font-weight: bold;"
         )
         layout.addWidget(header)
 
         sub = QLabel("QEMU + Windows-on-KVM knob preset")
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
+        sub.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
         layout.addWidget(sub)
 
         accent_line = QFrame()
         accent_line.setFixedHeight(1)
         accent_line.setStyleSheet(f"background: {C.SURFACE1};")
         layout.addWidget(accent_line)
-        layout.addSpacing(14)
+        layout.addSpacing(SPACE_M)
 
         form = QGridLayout()
-        form.setVerticalSpacing(10)
-        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(SPACE_S + 2)
+        form.setHorizontalSpacing(SPACE_M)
         lbl = QLabel("Profile")
-        lbl.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 13px;")
+        lbl.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
+        )
         form.addWidget(lbl, 0, 0)
         form.addWidget(profile_combo, 0, 1)
         layout.addLayout(form)
 
-        layout.addSpacing(12)
+        layout.addSpacing(SPACE_M)
 
         summary_header = QLabel("Detection summary (this host)")
         summary_header.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px; font-weight: bold;"
+            f"background: transparent; color: {C.SUBTEXT0}; "
+            f"font-size: {FONT_CAPTION}px; font-weight: bold;"
         )
         layout.addWidget(summary_header)
 
@@ -615,17 +651,16 @@ class SettingsPageMixin:
         # frame itself.
         summary_frame = QFrame()
         summary_frame.setStyleSheet(
-            f"background: {C.MANTLE if hasattr(C, 'MANTLE') else '#1e1e2e'}; "
-            f"border-radius: 6px; padding: 6px;"
+            f"background: {C.MANTLE}; border-radius: {RADIUS_S}px; padding: {SPACE_S - 2}px;"
         )
         summary_layout = QVBoxLayout(summary_frame)
-        summary_layout.setContentsMargins(10, 8, 10, 8)
+        summary_layout.setContentsMargins(SPACE_S + 2, SPACE_S, SPACE_S + 2, SPACE_S)
         summary_layout.setSpacing(0)
         self.tuning_summary_label = QLabel(summary_text)
         self.tuning_summary_label.setStyleSheet(
             f"background: transparent; font-family: 'JetBrainsMono Nerd Font', "
             f"'Cascadia Code', 'Fira Code', monospace; "
-            f"font-size: 11px; color: {C.SUBTEXT1 if hasattr(C, 'SUBTEXT1') else '#bac2de'};"
+            f"font-size: {FONT_CAPTION}px; color: {C.SUBTEXT1};"
         )
         self.tuning_summary_label.setWordWrap(False)
         summary_layout.addWidget(self.tuning_summary_label)
@@ -644,39 +679,44 @@ class SettingsPageMixin:
         card.setObjectName("settingsSection")
         card.setStyleSheet(
             SETTINGS_SECTION
-            + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
+            + f"QLabel {{ color: {C.TEXT}; font-size: {FONT_BODY}px; background: transparent; }}"
             + INPUT
             + COMBO
         )
         add_shadow(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(4)
+        layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+        layout.setSpacing(SPACE_XS)
 
         header = QLabel(title)
         header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
+            f"background: transparent; color: {C.BLUE}; "
+            f"font-size: {FONT_HEADER}px; font-weight: bold;"
         )
         layout.addWidget(header)
 
         sub = QLabel(subtitle)
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
+        sub.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
         layout.addWidget(sub)
 
         accent_line = QFrame()
         accent_line.setFixedHeight(1)
         accent_line.setStyleSheet(f"background: {C.SURFACE1};")
         layout.addWidget(accent_line)
-        layout.addSpacing(14)
+        layout.addSpacing(SPACE_M + 2)
 
         form = QGridLayout()
-        form.setVerticalSpacing(10)
-        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(SPACE_S + 2)
+        form.setHorizontalSpacing(SPACE_M)
 
         for row, (label, widget) in enumerate(fields):
             lbl = QLabel(label)
-            lbl.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 13px;")
+            lbl.setStyleSheet(
+                f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
+            )
             form.addWidget(lbl, row, 0)
             form.addWidget(widget, row, 1)
 
