@@ -366,6 +366,16 @@ def cli(argv: list[str] | None = None) -> None:
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
+    sub.add_parser(
+        "doctor",
+        help=(
+            "Diagnose common winpodx state issues (orphan container, stale "
+            "config, missing deps, half-installed state, broken autostart). "
+            "Read-only -- prints per-check findings + suggested next "
+            "command. Exits non-zero on FAIL findings."
+        ),
+    )
+
     unsub = sub.add_parser(
         "uninstall",
         help=(
@@ -507,6 +517,10 @@ def _dispatch(args: argparse.Namespace) -> None:
         _cmd_debloat(args)
     elif cmd == "uninstall":
         _cmd_uninstall(args)
+    elif cmd == "doctor":
+        from winpodx.cli.doctor import handle_doctor
+
+        handle_doctor(args)
     elif cmd == "power":
         _cmd_power(args)
     elif cmd == "migrate":
