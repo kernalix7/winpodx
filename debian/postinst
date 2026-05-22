@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Post-install banner for the winpodx debian package (#255 PR 4).
+#
+# Prints a hint that the user needs to run `winpodx setup` to finish
+# provisioning -- the package install only drops the binary + desktop
+# entry. We don't auto-trigger setup because dpkg postinst runs as
+# root with no TTY, and setup expects user-namespace context + a
+# ~10 min Windows ISO download nobody would expect from a
+# 'sudo apt install' line.
+
+set -e
+
+case "$1" in
+    configure)
+        cat <<'EOF'
+
+[winpodx] Package installed. Next step:
+  - Open winpodx from your application menu (GUI) OR
+  - Run 'winpodx' in a terminal
+First-run prompt will offer auto setup / customize wizard / skip.
+
+For the curl-like all-in-one experience, run:
+  winpodx setup
+
+Full docs: https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md
+
+EOF
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+#
+# Pacman scriptlet for winpodx (#255 PR 4).
+# Referenced from PKGBUILD's `install=winpodx.install`.
+
+# Post-install banner. pacman shows this output above the progress bar
+# right after the package files land. Keep terse -- full guidance is in
+# docs/INSTALL.md.
+post_install() {
+    cat <<'EOF'
+
+[winpodx] Package installed. Next step:
+  - Open winpodx from your application menu (GUI) OR
+  - Run 'winpodx' in a terminal
+First-run prompt will offer auto setup / customize wizard / skip.
+
+For the curl-like all-in-one experience, run:
+  winpodx setup
+
+Full docs: https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md
+
+EOF
+}
+
+post_upgrade() {
+    # No banner on upgrade; existing users don't need the first-run hint.
+    :
+}
+
+# Pacman has no purge concept; both pacman -R and pacman -Rns drop the
+# package files but leave user state. We still run the stage-1 cleanup
+# (kill processes + stop listener) so the user isn't left with stale
+# tray pointing at a deleted binary, and we tell them how to do the
+# full wipe themselves.
+post_remove() {
+    if [ -x /usr/share/winpodx/packaging/postrm-common.sh ]; then
+        /usr/share/winpodx/packaging/postrm-common.sh remove || true
+    fi
+    cat <<'EOF'
+
+[winpodx] Package removed. User-side state (containers, configs,
+reverse-open daemon, autostart) was NOT touched. To wipe everything:
+  winpodx uninstall --purge --yes
+
+EOF
+}

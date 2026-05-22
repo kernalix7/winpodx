@@ -73,6 +73,49 @@ MIME handlers, icons, and a Qt tray.
 
 %install
 %pyproject_install
+install -Dm755 packaging/scripts/postrm-common.sh \
+    %{buildroot}%{_datadir}/winpodx/packaging/postrm-common.sh
+
+%post
+# #255 PR 4: post-install banner pointing users at 'winpodx setup'.
+# The package install only drops the binary + desktop entry; the
+# Windows VM provisioning is deferred to the first-run prompt (CLI
+# or GUI). Banner stays terse -- full guidance in docs/INSTALL.md.
+if [ "$1" -eq 1 ]; then
+    cat <<'EOF'
+
+[winpodx] Package installed. Next step:
+  - Open winpodx from your application menu (GUI) OR
+  - Run 'winpodx' in a terminal
+First-run prompt will offer auto setup / customize wizard / skip.
+
+For the curl-like all-in-one experience, run:
+  winpodx setup
+
+Full docs: https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md
+
+EOF
+fi
+exit 0
+
+%postun
+# #255 PR 4: post-remove cleanup. rpm passes $1 = number of remaining
+# installs (0 = uninstall, >=1 = upgrade). Delegate to the shared
+# helper which iterates /home/* users and pkill's tray/GUI/listener.
+# rpm has no purge concept; tell the user how to do the full wipe.
+if [ -x %{_datadir}/winpodx/packaging/postrm-common.sh ]; then
+    %{_datadir}/winpodx/packaging/postrm-common.sh "$1" || true
+fi
+if [ "$1" -eq 0 ]; then
+    cat <<'EOF'
+
+[winpodx] Package removed. User-side state (containers, configs,
+reverse-open daemon, autostart) was NOT touched. To wipe everything:
+  winpodx uninstall --purge --yes
+
+EOF
+fi
+exit 0
 
 %files
 %license LICENSE

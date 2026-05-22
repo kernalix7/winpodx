@@ -32,6 +32,7 @@ makedepends=(
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/kernalix7/winpodx/archive/v$pkgver.tar.gz")
 sha256sums=('__SHA256__')
+install=winpodx.install
 
 build() {
   cd "$pkgname-$pkgver"
@@ -51,4 +52,8 @@ package() {
     "$pkgdir/usr/share/icons/hicolor/256x256/apps/winpodx.svg"
   install -Dm644 data/winpodx.toml.example \
     "$pkgdir/usr/share/winpodx/winpodx.toml.example"
+  # #255 PR 4: post-remove cleanup helper, called from winpodx.install's
+  # post_remove(). Shared with debian/postrm and the rpm %postun.
+  install -Dm755 packaging/scripts/postrm-common.sh \
+    "$pkgdir/usr/share/winpodx/packaging/postrm-common.sh"
 }

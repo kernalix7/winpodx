@@ -104,6 +104,13 @@ jobs:
         with:
           pkgname: winpodx
           pkgbuild: packaging/aur/PKGBUILD
+          # #255 PR 4: ship the install scriptlet alongside PKGBUILD so
+          # pacman's install= directive resolves at install time. Without
+          # this, the post_install / post_remove banners + cleanup hook
+          # don't fire (the PKGBUILD references winpodx.install but the
+          # AUR repo wouldn't have the file).
+          assets: |
+            packaging/aur/winpodx.install
           commit_username: kernalix7
           commit_email: kernalix7@kodenet.io
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

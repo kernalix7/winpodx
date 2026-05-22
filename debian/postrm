@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Post-remove hook for the winpodx debian package (#255 PR 4).
+#
+# $1 is the action: remove, purge, upgrade, failed-upgrade, abort-
+# install, abort-upgrade, disappear. We hand the value off to the
+# shared packaging/scripts/postrm-common.sh which normalises across
+# debian / rpm / aur and runs the two-stage cleanup (process kill on
+# remove, full user-cleanup on purge).
+#
+# The script lives at /usr/share/winpodx/packaging/postrm-common.sh
+# after install (see debian/winpodx.docs + dh_install rule).
+
+set -e
+
+ACTION="$1"
+
+# Bail on failed-upgrade / abort-* paths -- the package isn't actually
+# going away, leave user state alone.
+case "$ACTION" in
+    remove|purge)
+        # Run the common hook. Fall back to in-line minimal cleanup
+        # if the helper isn't installed (paranoid: should always be
+        # present alongside this script).
+        if [ -x /usr/share/winpodx/packaging/postrm-common.sh ]; then
+            /usr/share/winpodx/packaging/postrm-common.sh "$ACTION" || true
+        else
+            # Inline fallback: kill processes for each user. Skip the
+            # full cleanup -- we don't want to do that without the
+            # canonical 'winpodx uninstall --purge' path.
+            for home in /home/*; do
+                [ -d "$home" ] || continue
+                user=$(basename "$home")
+                runuser -u "$user" -- pkill -f 'python.*winpodx' >/dev/null 2>&1 || true
+                runuser -u "$user" -- pkill -f 'winpodx-app' >/dev/null 2>&1 || true
+            done
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
