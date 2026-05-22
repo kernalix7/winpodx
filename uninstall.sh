@@ -149,6 +149,20 @@ detect_install_source() {
         return 0
     fi
 
+    # pip / source install detection: resolved binary lands in a
+    # site-packages tree (system or venv) or inside a /src/winpodx/
+    # dev checkout. Heuristic only -- no package manager owns the
+    # file, and we don't know the venv path to drive `pip uninstall`
+    # for the user, so we just print the canonical command as a hint.
+    if [[ -n "$bin" ]]; then
+        local resolved
+        resolved="$(readlink -f "$bin" 2>/dev/null || echo "$bin")"
+        if [[ "$resolved" == *site-packages* ]] || [[ "$resolved" == */src/winpodx/* ]]; then
+            echo "pip||pip uninstall winpodx"
+            return 0
+        fi
+    fi
+
     echo "unknown||"
 }
 
@@ -215,6 +229,16 @@ if [[ "$FROM_POSTRM" != true ]]; then
                 warn "  (You can run '$SRC_CMD' later to remove the package itself.)"
                 echo ""
             fi
+            ;;
+        pip)
+            SRC_CMD="$(echo "$SRC" | cut -d'|' -f3)"
+            echo " Install source: pip / source (site-packages or dev checkout)"
+            echo ""
+            echo " This script will clean up user-side state (containers, configs,"
+            echo " desktop entries, launchers). To remove the winpodx Python package"
+            echo " itself, run after this script finishes:"
+            echo "   $SRC_CMD"
+            echo ""
             ;;
         curl|unknown)
             : # No package manager involved; proceed.
