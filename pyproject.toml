@@ -92,6 +92,7 @@ exclude = [
 "data" = "share/winpodx/data"
 "config" = "share/winpodx/config"
 "scripts" = "share/winpodx/scripts"
+"uninstall.sh" = "share/winpodx/uninstall.sh"
 "LICENSE" = "share/winpodx/LICENSE"
 "README.md" = "share/winpodx/README.md"
 "THIRD_PARTY_LICENSES.md" = "share/winpodx/THIRD_PARTY_LICENSES.md"

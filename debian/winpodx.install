@@ -1,1 +1,2 @@
 packaging/scripts/postrm-common.sh usr/share/winpodx/packaging/
+uninstall.sh usr/share/winpodx/

@@ -395,15 +395,7 @@ def cli(argv: list[str] | None = None) -> None:
     unsub.add_argument(
         "--yes",
         action="store_true",
-        help="Skip the preview/confirm prompt. Used by scripts / CI.",
-    )
-    unsub.add_argument(
-        "--no-package-prompt",
-        action="store_true",
-        help=(
-            "Skip the 'Also remove system package via sudo?' prompt at the end. Used "
-            "by packaging postrm hooks (the package is already being removed)."
-        ),
+        help="Skip interactive prompts. Used by scripts / CI.",
     )
 
     power_p = sub.add_parser("power", help="Manage pod power state")
@@ -803,16 +795,7 @@ def _cmd_power(args: argparse.Namespace) -> None:
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> None:
-    """Route to the consolidated uninstall flow (#255 PR 3).
-
-    Old behaviour (pre-#255): swept user data dirs only, left container
-    + listener + tray running, didn't detect install source. New
-    behaviour: apt-style preview + confirm, uninstall.sh parity (kill
-    processes, stop container, stop listener, scrub UI surface),
-    optional sudo package-removal prompt when the install came from a
-    package manager. See ``winpodx.cli.uninstall`` for the full step
-    list and the --purge / --yes / --no-package-prompt flag semantics.
-    """
+    """Hand off to the canonical bash uninstaller (#255)."""
     from winpodx.cli.uninstall import handle_uninstall
 
     handle_uninstall(args)

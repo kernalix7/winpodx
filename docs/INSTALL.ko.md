@@ -252,17 +252,38 @@ python3 -m winpodx app run word
 
 ## 언인스톨
 
-파이프 환경에서는 `--confirm` 또는 `--purge` 필수 (curl 이 stdin 을 소비하는 동안 대화형 프롬프트가 터미널에서 읽을 수 없음):
+설치 경로 (curl / pip / deb / rpm / aur) 무관하게 동일한 canonical 스크립트 하나.
+
+두 진입점 동일 동작:
 
 ```bash
-# winpodx 파일만 제거, Windows 컨테이너 + 데이터 유지
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+# 모든 동작 중단, Windows 컨테이너 + config 유지 (apt remove 의미)
+./uninstall.sh
+# 또는
+winpodx uninstall
 
-# 완전 삭제: 컨테이너, 볼륨, config, 런처, 전부
+# 완전 삭제: 컨테이너 + 볼륨 + ~50GB Windows 디스크 + config + 런처 (apt purge 의미)
+./uninstall.sh --purge --yes
+# 또는
+winpodx uninstall --purge --yes
+```
+
+`winpodx uninstall` 은 thin wrapper — 셋 중 하나에서 `uninstall.sh` 찾아서 exec: `/usr/share/winpodx/uninstall.sh` (deb/rpm/aur), `~/.local/bin/winpodx-app/uninstall.sh` (curl), wheel shared-data 디렉토리 (pip).
+
+파이프 환경에서는 `--yes` 또는 `--purge` 필수 (curl 이 stdin 을 소비하는 동안 대화형 프롬프트가 터미널에서 읽을 수 없음):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --yes
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
 ```
 
-**언인스톨은 winpodx 파일만 제거.** 다음은 절대 건드리지 않음:
-- Podman 컨테이너 / 볼륨 (Windows VM 데이터) — `--purge` 없이는 그대로
-- 시스템 패키지 (podman, freerdp, python3)
-- 홈 디렉토리 파일들
+패키지 매니저 (apt/dnf/zypper/pacman) 로 설치한 경우, `uninstall.sh` 가 이를 감지하고 패키지 제거를 먼저 권장 — 올바른 순서: 패키지 매니저의 post-remove hook 이 `uninstall.sh` 를 user-side cleanup 용으로 재실행, 패키지 DB 와 디스크 상태 동기화.
+
+**기본 모드는 절대 안 건드림** (전부 지우려면 `--purge`):
+- Podman 컨테이너 / 볼륨 (Windows VM 디스크, ~50GB)
+- `~/.config/winpodx/` config + compose.yaml
+- Storage bind-mount 내용
+
+**둘 다 절대 안 건드림:**
+- 시스템 패키지 (podman, freerdp, python3) — 패키지 매니저 제거 prompt 가 처리
+- 홈 디렉토리의 다른 파일들

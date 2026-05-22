@@ -251,17 +251,38 @@ python3 -m winpodx app run word
 
 ## Uninstall
 
-`--confirm` or `--purge` is required under pipe (the interactive prompts can't read from a terminal while bash consumes stdin from curl):
+One canonical script -- same behavior regardless of how winpodx was installed (curl / pip / deb / rpm / aur).
+
+Two equivalent entry points:
 
 ```bash
-# Remove winpodx files, keep the Windows container + its data
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm
+# Stop everything, keep Windows container + config (apt-remove semantics)
+./uninstall.sh
+# OR
+winpodx uninstall
 
-# Full wipe: container, volume, config, launcher, everything
+# Full wipe: container, volume, ~50 GB Windows disk, config, launcher (apt-purge semantics)
+./uninstall.sh --purge --yes
+# OR
+winpodx uninstall --purge --yes
+```
+
+`winpodx uninstall` is a thin wrapper that locates and execs the same `uninstall.sh` shipped at one of: `/usr/share/winpodx/uninstall.sh` (deb/rpm/aur), `~/.local/bin/winpodx-app/uninstall.sh` (curl), or the wheel's shared-data dir (pip).
+
+`--yes` or `--purge` is required when piping from curl (interactive prompts can't read from a terminal while bash consumes stdin):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --yes
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
 ```
 
-**Uninstall only removes winpodx files.** It never touches:
-- Your Podman containers / volumes (Windows VM data) unless `--purge` is passed
-- System packages (podman, freerdp, python3)
-- Your home directory files
+If installed via a package manager (apt/dnf/zypper/pacman), `uninstall.sh` detects this and prompts you to run the package-manager removal first -- that's the correct order: the package manager's post-remove hook re-runs `uninstall.sh` for the user-side cleanup, keeping the package database in sync with disk state.
+
+**Default mode never touches** (use `--purge` to also remove these):
+- Podman container / volumes (Windows VM disk, ~50 GB)
+- `~/.config/winpodx/` config + compose.yaml
+- Storage bind-mount contents
+
+**Never removed by either mode:**
+- System packages (podman, freerdp, python3) -- the package-manager removal prompt handles those
+- Other files in your home directory

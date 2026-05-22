@@ -75,6 +75,8 @@ MIME handlers, icons, and a Qt tray.
 %pyproject_install
 install -Dm755 packaging/scripts/postrm-common.sh \
     %{buildroot}%{_datadir}/winpodx/packaging/postrm-common.sh
+install -Dm755 uninstall.sh \
+    %{buildroot}%{_datadir}/winpodx/uninstall.sh
 
 %post
 # #255 PR 4: post-install banner pointing users at 'winpodx setup'.

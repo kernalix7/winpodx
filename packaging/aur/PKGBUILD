@@ -56,4 +56,9 @@ package() {
   # post_remove(). Shared with debian/postrm and the rpm %postun.
   install -Dm755 packaging/scripts/postrm-common.sh \
     "$pkgdir/usr/share/winpodx/packaging/postrm-common.sh"
+  # #255 consolidation: canonical uninstaller. Same bash script ships
+  # via deb, rpm, aur, pip wheel, and the curl install bundle so the
+  # behaviour is identical regardless of install source.
+  install -Dm755 uninstall.sh \
+    "$pkgdir/usr/share/winpodx/uninstall.sh"
 }
