@@ -64,8 +64,35 @@ def detect(binary_path: Path | str | None = None) -> InstallSource:
         if result is not None:
             return result
 
-    # Curl install drops the bundle at ~/.local/bin/winpodx-app/.
-    if "/.local/bin/winpodx-app" in str(path):
+    # Curl install heuristics. Check several signals because the launcher
+    # `~/.local/bin/winpodx` is a symlink to `~/.local/bin/winpodx-run`,
+    # which is itself a python wrapper script, NOT inside the bundle
+    # dir. _resolve_path follows symlinks, so the path we got back may
+    # be the launcher script (not `winpodx-app/`), and the substring
+    # match against `winpodx-app` alone misses curl installs:
+    #
+    #   ~/.local/bin/winpodx          (symlink, what `which winpodx` returns)
+    #     → ~/.local/bin/winpodx-run  (launcher wrapper, what resolve gives)
+    #         → references ~/.local/bin/winpodx-app/src on PYTHONPATH
+    #
+    # Strongest signal: the bundle dir ``~/.local/bin/winpodx-app/``
+    # itself exists. install.sh always creates it; package installs
+    # never put files there. Fall back to a launcher / pre-resolve
+    # path match for paranoia.
+    home = Path.home()
+    curl_bundle = home / ".local" / "bin" / "winpodx-app"
+    curl_launcher = home / ".local" / "bin" / "winpodx-run"
+    unresolved = _which_winpodx_unresolved() if binary_path is None else None
+    path_str = str(path)
+    unresolved_str = str(unresolved or "")
+    if (
+        curl_bundle.is_dir()
+        or curl_launcher.exists()
+        or "/.local/bin/winpodx-app" in path_str
+        or "/.local/bin/winpodx-run" in path_str
+        or "/.local/bin/winpodx-app" in unresolved_str
+        or "/.local/bin/winpodx-run" in unresolved_str
+    ):
         return InstallSource(
             kind="curl",
             label="curl install (~/.local/bin/winpodx-app)",
@@ -77,7 +104,7 @@ def detect(binary_path: Path | str | None = None) -> InstallSource:
 
     # site-packages -- either a source checkout via ``pip install -e .``
     # or a wheel install. Both share the same path shape.
-    if "site-packages" in str(path) or "/src/winpodx/" in str(path):
+    if "site-packages" in path_str or "/src/winpodx/" in path_str:
         return InstallSource(
             kind="source",
             label="pip install (source / wheel)",
@@ -85,6 +112,12 @@ def detect(binary_path: Path | str | None = None) -> InstallSource:
         )
 
     return InstallSource(kind="unknown", label=f"install source not detected ({path})")
+
+
+def _which_winpodx_unresolved() -> Path | None:
+    """Return the pre-symlink-resolve path of ``winpodx`` on PATH."""
+    found = shutil.which("winpodx")
+    return Path(found) if found else None
 
 
 def _resolve_path(binary_path: Path | str | None) -> Path | None:
