@@ -174,8 +174,7 @@ def _check_container_backend() -> list[Finding]:
                 "fail",
                 f"configured backend {backend!r} not on PATH",
                 suggestion=(
-                    f"Install {backend} or change backend via "
-                    "`winpodx config set pod.backend ...`."
+                    f"Install {backend} or change backend via `winpodx config set pod.backend ...`."
                 ),
             )
         ]
@@ -195,8 +194,7 @@ def _check_config_state() -> Finding:
             "winpodx binary present but config missing",
             detail=f"binary: {binary_path}; expected config: {config_path}",
             suggestion=(
-                "Run `winpodx setup` (or just `winpodx` -- first-run "
-                "prompt will offer setup)."
+                "Run `winpodx setup` (or just `winpodx` -- first-run prompt will offer setup)."
             ),
         )
     if config_path.exists() and not binary_path:
@@ -291,8 +289,7 @@ def _check_pending_setup() -> Finding:
         f"pending setup steps detected ({len(steps)} item(s))",
         detail=", ".join(steps) if steps else "(marker present but empty)",
         suggestion=(
-            "Run any `winpodx <cmd>` to auto-resume, or "
-            "`winpodx pod wait-ready` to retry manually."
+            "Run any `winpodx <cmd>` to auto-resume, or `winpodx pod wait-ready` to retry manually."
         ),
     )
 
