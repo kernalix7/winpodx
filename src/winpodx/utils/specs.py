@@ -117,6 +117,11 @@ class TuningCapability:
     dedicated_host: bool
     kernel_version: tuple[int, int] | None
     cpu_vendor: str  # "intel" | "amd" | "arm" | "unknown"
+    # #245: nested-KVM expose. True when /sys/module/kvm_intel/parameters/nested
+    # or /sys/module/kvm_amd/parameters/nested reports Y (or the boot
+    # cmdline equivalent). Gates the +vmx/+svm CPU feature pass-through
+    # and the hv-evmcs (Intel) optimisation.
+    nested_kvm: bool = False
 
 
 @dataclass
@@ -130,6 +135,25 @@ class TuningProfile:
     apply_cpu_pinning: bool
     apply_platform_tick: bool
     apply_no_balloon: bool
+    # #245: extended Windows-on-KVM tuning set.
+    #   apply_hv_enlightenments -- emit the hv-* CPU sub-options that tell
+    #     Windows it's running under a paravirtualised hypervisor (relaxed,
+    #     vapic, vpindex, runtime, synic, reset, frequencies,
+    #     reenlightenment, tlbflush, ipi, spinlocks=0x1fff, stimer,
+    #     stimer-direct) + the -no-hpet QEMU machine arg. Always safe on
+    #     Windows guests; significant scheduling / timer wins.
+    #   apply_virtio_rng -- expose virtio-rng-pci backed by /dev/urandom
+    #     so Windows entropy pool fills quickly on first boot (avoids
+    #     CryptoAPI / TLS handshake stalls).
+    #   apply_evmcs -- Intel-only nested-VMCS optimisation; no-op overhead
+    #     when guest isn't running nested VMs but speeds them up when it
+    #     is.
+    #   apply_nested_virt -- expose +vmx (Intel) / +svm (AMD) CPU feature
+    #     so Windows guest can host Hyper-V / WSL2 / Docker Desktop.
+    apply_hv_enlightenments: bool = False
+    apply_virtio_rng: bool = False
+    apply_evmcs: bool = False
+    apply_nested_virt: bool = False
 
 
 _PROFILE_OFF = TuningProfile(
@@ -140,6 +164,10 @@ _PROFILE_OFF = TuningProfile(
     apply_cpu_pinning=False,
     apply_platform_tick=False,
     apply_no_balloon=False,
+    apply_hv_enlightenments=False,
+    apply_virtio_rng=False,
+    apply_evmcs=False,
+    apply_nested_virt=False,
 )
 
 
@@ -199,6 +227,28 @@ def _read_hugepages_total() -> int:
     return 0
 
 
+def _read_nested_kvm() -> bool:
+    """Return True when the host kernel exposes nested-KVM.
+
+    Probes ``/sys/module/kvm_intel/parameters/nested`` and the AMD
+    equivalent. The kernel renders the value as ``Y`` / ``N`` (newer
+    kernels) or ``1`` / ``0`` (older). Either signal is accepted; any
+    other content or read error reports "feature absent" so callers
+    safely skip the +vmx/+svm + hv-evmcs pass-through.
+
+    Only one module is loaded at a time per host (vendor-specific), so a
+    successful read from either path is sufficient.
+    """
+    for module in ("kvm_intel", "kvm_amd"):
+        try:
+            val = Path(f"/sys/module/{module}/parameters/nested").read_text().strip()
+        except OSError:
+            continue
+        if val and val[0] in ("Y", "y", "1"):
+            return True
+    return False
+
+
 def _idle_cpu_count() -> int:
     """Best-effort estimate of CPUs currently idle.
 
@@ -244,6 +294,7 @@ def detect_tuning_capability(*, vm_cpu_cores: int, vm_ram_gb: int) -> TuningCapa
         dedicated_host=dedicated,
         kernel_version=kernel,
         cpu_vendor=_read_cpu_vendor(),
+        nested_kvm=_read_nested_kvm(),
     )
 
 
@@ -262,10 +313,12 @@ def recommend_tuning_profile(cap: TuningCapability, *, user_pref: str = "auto") 
     if user_pref == "off":
         return _PROFILE_OFF
 
+    is_x86 = cap.cpu_vendor in ("intel", "amd")
+
     if user_pref in ("safe", "manual"):
         return TuningProfile(
             name=user_pref,
-            apply_invtsc=cap.invtsc and cap.cpu_vendor in ("intel", "amd"),
+            apply_invtsc=cap.invtsc and is_x86,
             apply_io_uring=False,
             apply_hugepages=False,
             apply_cpu_pinning=False,
@@ -275,16 +328,33 @@ def recommend_tuning_profile(cap: TuningCapability, *, user_pref: str = "auto") 
             # timer win.
             apply_platform_tick=True,
             apply_no_balloon=False,
+            # #245: hv-* + virtio-rng are Windows-guest-safe + no host
+            # setup needed -- include in "safe" so the conservative
+            # profile still gets the scheduling / entropy wins. evmcs +
+            # nested-virt need explicit host-side nested KVM module
+            # option => excluded from "safe" by definition.
+            apply_hv_enlightenments=is_x86,
+            apply_virtio_rng=True,
+            apply_evmcs=False,
+            apply_nested_virt=False,
         )
 
     return TuningProfile(
         name="auto",
-        apply_invtsc=cap.invtsc and cap.cpu_vendor in ("intel", "amd"),
+        apply_invtsc=cap.invtsc and is_x86,
         apply_io_uring=cap.io_uring,
         apply_hugepages=cap.hugepages_enabled,
         apply_cpu_pinning=cap.dedicated_host,
         apply_platform_tick=True,
         apply_no_balloon=cap.dedicated_host,
+        # #245: hv-* + virtio-rng always on under auto when host is x86.
+        # evmcs (Intel-only) + nested-virt (Intel/AMD) gated on detected
+        # nested-KVM module option -- a no-op for users who haven't
+        # opted in.
+        apply_hv_enlightenments=is_x86,
+        apply_virtio_rng=True,
+        apply_evmcs=cap.nested_kvm and cap.cpu_vendor == "intel",
+        apply_nested_virt=cap.nested_kvm and is_x86,
     )
 
 
@@ -300,6 +370,7 @@ def format_tuning_summary(cap: TuningCapability, profile: TuningProfile) -> str:
         f"  io_uring:      {yn(cap.io_uring):<4}  (kernel {kv}, need >= 5.6)",
         f"  hugepages:     {yn(cap.hugepages_enabled):<4}  (sysctl vm.nr_hugepages)",
         f"  dedicated:     {yn(cap.dedicated_host):<4}",
+        f"  nested_kvm:    {yn(cap.nested_kvm):<4}  (/sys/module/kvm_*/parameters/nested)",
         "",
         f"  Profile: {profile.name}",
         f"    +invtsc:        {yn(profile.apply_invtsc)}",
@@ -308,5 +379,9 @@ def format_tuning_summary(cap: TuningCapability, profile: TuningProfile) -> str:
         f"    CPU pinning:    {yn(profile.apply_cpu_pinning)}",
         f"    platform_tick:  {yn(profile.apply_platform_tick)}",
         f"    no balloon:     {yn(profile.apply_no_balloon)}",
+        f"    hv-* + no-hpet: {yn(profile.apply_hv_enlightenments)}",
+        f"    virtio-rng:     {yn(profile.apply_virtio_rng)}",
+        f"    nested virt:    {yn(profile.apply_nested_virt)}",
+        f"    hv-evmcs:       {yn(profile.apply_evmcs)}",
     ]
     return "\n".join(lines)

@@ -402,6 +402,38 @@ class SettingsPageMixin:
             "this does NOT require --wipe-storage."
         )
 
+        # #245: tuning profile dropdown -- maps to cfg.pod.tuning_profile.
+        # "auto" picks every enabled-by-host knob (invtsc, hv-*, virtio-rng,
+        # io_uring aio, hugepages, cpu pinning, nested-virt when /sys/module
+        # /kvm_*/parameters/nested == Y). "safe" sticks to the Windows-guest
+        # -safe subset (no host setup needed). "off" disables everything.
+        # "manual" leaves the resolver in safe shape; users wanting per-knob
+        # overrides edit ``[pod.tuning_*]`` keys in winpodx.toml directly.
+        self.input_tuning_profile = QComboBox()
+        tuning_options = [
+            ("Auto (recommended)", "auto"),
+            ("Safe (Windows-guest-only tunings)", "safe"),
+            ("Off (baseline dockur defaults)", "off"),
+            ("Manual (edit winpodx.toml)", "manual"),
+        ]
+        for label, value in tuning_options:
+            self.input_tuning_profile.addItem(label, value)
+        current_tp = self.cfg.pod.tuning_profile
+        tp_idx = self.input_tuning_profile.findData(current_tp)
+        if tp_idx >= 0:
+            self.input_tuning_profile.setCurrentIndex(tp_idx)
+        else:
+            self.input_tuning_profile.addItem(f"{current_tp} (unknown)", current_tp)
+            self.input_tuning_profile.setCurrentIndex(self.input_tuning_profile.count() - 1)
+        self.input_tuning_profile.setToolTip(
+            "Windows-on-KVM performance tuning. 'auto' applies every knob the host\n"
+            "can support (invtsc, Hyper-V enlightenments, virtio-rng, io_uring AIO,\n"
+            "hugepages, CPU pinning, nested-virt when the kernel exposes it).\n"
+            "'safe' applies only the always-safe Windows-guest subset.\n"
+            "Changing this requires a container recreate -- the save flow will\n"
+            "prompt."
+        )
+
         pod_card = self._settings_card(
             "▨  Container / VM",
             "Backend and resource allocation",
@@ -416,9 +448,39 @@ class SettingsPageMixin:
                 ("Region", self.input_region),
                 ("Keyboard", self.input_keyboard),
                 ("Timezone", self.input_timezone),
+                ("Tuning Profile", self.input_tuning_profile),
             ],
         )
         cols.addWidget(pod_card)
+
+        # #245: live detection summary -- what the *resolved* profile
+        # actually applies on this host right now. Read-only label so
+        # users see whether "auto" is buying them io_uring + hugepages or
+        # not without having to read the docs. Renders once at build
+        # time; users wanting a fresh probe re-open Settings.
+        try:
+            from winpodx.utils.specs import (
+                detect_tuning_capability,
+                format_tuning_summary,
+                recommend_tuning_profile,
+            )
+
+            tuning_cap = detect_tuning_capability(
+                vm_cpu_cores=self.cfg.pod.cpu_cores, vm_ram_gb=self.cfg.pod.ram_gb
+            )
+            tuning_summary = format_tuning_summary(
+                tuning_cap,
+                recommend_tuning_profile(tuning_cap, user_pref=self.cfg.pod.tuning_profile),
+            )
+        except Exception:  # noqa: BLE001 -- never block Settings rendering
+            tuning_summary = "  (tuning detection failed; see `winpodx info` for details)"
+        self.tuning_summary_label = QLabel(tuning_summary)
+        self.tuning_summary_label.setStyleSheet(
+            "background: transparent; font-family: monospace; "
+            "font-size: 11px; color: #888; padding: 4px 12px;"
+        )
+        self.tuning_summary_label.setWordWrap(False)
+        layout.addWidget(self.tuning_summary_label)
 
         layout.addLayout(cols)
 
@@ -628,6 +690,7 @@ class SettingsPageMixin:
         new_region = self.input_region.currentData() or ""
         new_keyboard = self.input_keyboard.currentData() or ""
         new_timezone = self.input_timezone.currentData() or ""
+        new_tuning_profile = self.input_tuning_profile.currentData() or "auto"
 
         old_cfg = Config.load()
         # ``needs_container`` is true when any first-boot env knob is
@@ -645,6 +708,11 @@ class SettingsPageMixin:
             or self.input_user.text() != old_cfg.rdp.user
             or new_win_version != old_cfg.pod.win_version
             or new_timezone != old_cfg.pod.timezone
+            # #245: tuning_profile changes the QEMU ARGUMENTS env in
+            # compose.yaml. Container recreate is required to pick up
+            # the new -cpu sub-options (+vmx/+svm, hv-*, +invtsc) and
+            # -device args (virtio-rng-pci).
+            or new_tuning_profile != old_cfg.pod.tuning_profile
         )
         needs_wipe = (
             new_win_version != old_cfg.pod.win_version
@@ -672,6 +740,7 @@ class SettingsPageMixin:
         self.cfg.pod.region = new_region
         self.cfg.pod.keyboard = new_keyboard
         self.cfg.pod.timezone = new_timezone
+        self.cfg.pod.tuning_profile = new_tuning_profile
         # Let __post_init__ clamp max_sessions to [1, 50] before save.
         self.cfg.pod.__post_init__()
         self.cfg.save()

@@ -155,6 +155,7 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
   io_uring:      yes   (kernel 6.18, need >= 5.6)
   hugepages:     no    (sysctl vm.nr_hugepages)
   dedicated:     yes
+  nested_kvm:    yes   (/sys/module/kvm_*/parameters/nested)
 
   Profile: auto
     +invtsc:        yes
@@ -163,16 +164,35 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
     CPU pinning:    yes
     platform_tick:  yes
     no balloon:     yes
+    hv-* + no-hpet: yes
+    virtio-rng:     yes
+    nested virt:    yes
+    hv-evmcs:       yes
 ```
 
 프로파일:
 
 | `tuning_profile` | 동작 |
 |---|---|
-| `auto` (기본) | 호스트 capability 감지 + 호스트가 지원하는 모든 안전 튜닝 적용. 대부분 사용자에게 권장. |
-| `safe` | 호스트 설정에 의존하지 않는 Tier-1 튜닝만 적용 — 현재는 `+invtsc` (지원 시) + Windows `platform_tick` BCD 변경. |
+| `auto` (기본) | 호스트 capability 감지 + 호스트가 지원하는 모든 안전 튜닝 적용 (Hyper-V enlightenments, virtio-rng, `/sys/module/kvm_*/parameters/nested == Y` 시 nested-virt pass-through 포함). 대부분 사용자에게 권장. |
+| `safe` | 호스트 설정 무관한 Windows-guest-only 부분만 적용: `+invtsc` (지원 시), `platform_tick` BCD, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), `virtio-rng`. 호스트 측 명시적 opt-in 필요한 nested-virt + `hv-evmcs` 는 제외. |
 | `off` | 아무것도 적용 안 함; dockur 기본만 유지. 튜닝 간섭 디버깅 시 사용. |
 | `manual` | `safe` 와 동일 shape; 향후 개별 knob override 용 예약. |
+
+### 각 튜닝 설명
+
+* **`+invtsc`** — invariant TSC 노출, Windows 가 HPET 대신 TSC 를 clock source 로 사용 (IRQ overhead 감소).
+* **`hv-*` enlightenments + `-no-hpet`** (#245) — Windows 에게 paravirtualised hypervisor 환경임을 알림. spinlock / VM-exit overhead 모든 워크로드에서 감소; multi-vCPU 게스트에서 효과 큼. `hv-spinlocks=0x1fff` 은 upstream 권장 retry 한도.
+* **`virtio-rng-pci` (`/dev/urandom` backed)** (#245) — Windows 엔트로피 풀 빠르게 채움, 첫 부팅 시 CryptoAPI / TLS handshake stall 방지.
+* **`+vmx` / `+svm` nested virt** (#245) — `/sys/module/kvm_intel/parameters/nested` 또는 `kvm_amd` 가 `Y` 일때 자동 활성화. Windows 게스트 안에서 Hyper-V / WSL2 / Docker Desktop 실행 필수. 호스트 kernel 미 opt-in 시 무영향.
+* **`hv-evmcs`** (#245) — Intel 전용 nested-VMCS 최적화, `+vmx` 와 페어. nested VM 미실행 시 overhead zero.
+* **`io_uring` AIO** — kernel ≥ 5.6 디스크 I/O backend; 기존 thread 보다 latency 낮음.
+* **Hugepages** — QEMU 메모리를 2 MB 페이지로 backing. 호스트 `vm.nr_hugepages` 예약 필요 (winpodx 자동 예약 없음).
+* **CPU pinning** — 호스트 idle CPU + RAM ≥ VM 할당의 2배일때 `dedicated` flag 세움, QEMU vCPU pinning 적용.
+
+### One-shot override
+
+`winpodx pod start --tuning {auto,safe,off,manual}` 이 컨테이너 실행 동안만 `cfg.pod.tuning_profile` 을 override. `winpodx.toml` 의 사용자 영구 설정은 그대로. A/B 테스트 시 `winpodx config set` round-trip 없이 왔다 갔다 가능.
 
 ### 호스트 사전 설정 필요 항목 (자동 적용 안 됨)
 

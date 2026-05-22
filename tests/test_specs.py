@@ -91,6 +91,7 @@ def _cap(**overrides) -> TuningCapability:
         "dedicated_host": True,
         "kernel_version": (6, 18),
         "cpu_vendor": "intel",
+        "nested_kvm": False,
     }
     base.update(overrides)
     return TuningCapability(**base)
@@ -101,12 +102,17 @@ class TestRecommendTuningProfile:
     host state; the user_pref dial decides how aggressive to be."""
 
     def test_off_disables_everything(self):
-        p = recommend_tuning_profile(_cap(), user_pref="off")
+        p = recommend_tuning_profile(_cap(nested_kvm=True), user_pref="off")
         assert p.name == "off"
         assert not p.apply_invtsc
         assert not p.apply_platform_tick
         assert not p.apply_io_uring
         assert not p.apply_cpu_pinning
+        # #245: new flags also gated off.
+        assert not p.apply_hv_enlightenments
+        assert not p.apply_virtio_rng
+        assert not p.apply_evmcs
+        assert not p.apply_nested_virt
 
     def test_safe_applies_only_t1_tunings(self):
         p = recommend_tuning_profile(_cap(), user_pref="safe")
@@ -118,9 +124,17 @@ class TestRecommendTuningProfile:
         assert not p.apply_hugepages
         assert not p.apply_cpu_pinning
         assert not p.apply_no_balloon
+        # #245: hv-* + virtio-rng safe -> on. evmcs + nested-virt need
+        # explicit host-side opt-in -> off under "safe".
+        assert p.apply_hv_enlightenments
+        assert p.apply_virtio_rng
+        assert not p.apply_evmcs
+        assert not p.apply_nested_virt
 
     def test_auto_applies_everything_supported(self):
-        p = recommend_tuning_profile(_cap(hugepages_enabled=True), user_pref="auto")
+        p = recommend_tuning_profile(
+            _cap(hugepages_enabled=True, nested_kvm=True), user_pref="auto"
+        )
         assert p.name == "auto"
         assert p.apply_invtsc
         assert p.apply_io_uring
@@ -128,9 +142,15 @@ class TestRecommendTuningProfile:
         assert p.apply_cpu_pinning  # dedicated host
         assert p.apply_platform_tick
         assert p.apply_no_balloon
+        # #245: hv-* + virtio-rng always on under auto for x86 hosts.
+        assert p.apply_hv_enlightenments
+        assert p.apply_virtio_rng
+        # nested-virt + evmcs gated on nested_kvm; here it's True.
+        assert p.apply_evmcs  # intel
+        assert p.apply_nested_virt
 
     def test_auto_skips_unsupported_capabilities(self):
-        cap = _cap(invtsc=False, io_uring=False, dedicated_host=False)
+        cap = _cap(invtsc=False, io_uring=False, dedicated_host=False, nested_kvm=False)
         p = recommend_tuning_profile(cap, user_pref="auto")
         assert not p.apply_invtsc
         assert not p.apply_io_uring
@@ -138,6 +158,12 @@ class TestRecommendTuningProfile:
         assert not p.apply_no_balloon
         # platform_tick is guest-side + always safe.
         assert p.apply_platform_tick
+        # #245: hv-* + virtio-rng still on (x86 + always-safe). evmcs +
+        # nested-virt gated on nested_kvm -> off here.
+        assert p.apply_hv_enlightenments
+        assert p.apply_virtio_rng
+        assert not p.apply_evmcs
+        assert not p.apply_nested_virt
 
     def test_invtsc_requires_x86_vendor(self):
         # invtsc is x86-only; ARM TSC story is different. The recommender
@@ -145,6 +171,30 @@ class TestRecommendTuningProfile:
         # the named flags (unlikely but defensive).
         p = recommend_tuning_profile(_cap(cpu_vendor="arm"), user_pref="auto")
         assert not p.apply_invtsc
+        # #245: hv-* + nested-virt are also x86-only.
+        assert not p.apply_hv_enlightenments
+        assert not p.apply_nested_virt
+        assert not p.apply_evmcs
+        # virtio-rng is generic; on for any vendor.
+        assert p.apply_virtio_rng
+
+    def test_auto_nested_virt_intel_uses_vmx(self):
+        # Intel + nested_kvm => +vmx + hv-evmcs.
+        p = recommend_tuning_profile(_cap(cpu_vendor="intel", nested_kvm=True), user_pref="auto")
+        assert p.apply_nested_virt
+        assert p.apply_evmcs
+
+    def test_auto_nested_virt_amd_uses_svm_no_evmcs(self):
+        # AMD + nested_kvm => +svm. evmcs is Intel-only -> stays off.
+        p = recommend_tuning_profile(_cap(cpu_vendor="amd", nested_kvm=True), user_pref="auto")
+        assert p.apply_nested_virt
+        assert not p.apply_evmcs
+
+    def test_auto_evmcs_requires_nested_kvm(self):
+        # Intel without nested_kvm exposed -> evmcs off (no-op without nesting).
+        p = recommend_tuning_profile(_cap(cpu_vendor="intel", nested_kvm=False), user_pref="auto")
+        assert not p.apply_evmcs
+        assert not p.apply_nested_virt
 
     def test_unknown_pref_falls_back_to_auto(self):
         # Defensive: a hand-edited TOML slipping past Config validation
@@ -164,6 +214,12 @@ class TestFormatTuningSummary:
         assert "hugepages" in out
         assert "Profile: auto" in out
         assert "+invtsc:" in out
+        # #245: new rows.
+        assert "nested_kvm" in out
+        assert "hv-* + no-hpet" in out
+        assert "virtio-rng" in out
+        assert "nested virt" in out
+        assert "hv-evmcs" in out
 
 
 class TestDetectTuningCapabilityIntegration:

@@ -98,6 +98,17 @@ def cli(argv: list[str] | None = None) -> None:
         default=300,
         help="Wait timeout in seconds (1-3600)",
     )
+    start_p.add_argument(
+        "--tuning",
+        choices=["auto", "safe", "off", "manual"],
+        default=None,
+        help=(
+            "One-shot override of cfg.pod.tuning_profile for this invocation. "
+            "Does not persist to winpodx.toml. Useful for A/B-testing a profile "
+            "without committing to it. See `winpodx info` for what each profile "
+            "would resolve to on this host."
+        ),
+    )
 
     pod_sub.add_parser("stop", help="Stop the pod")
     pod_sub.add_parser("status", help="Show pod status")

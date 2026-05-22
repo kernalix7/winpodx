@@ -93,7 +93,12 @@ def test_compose_arguments_invtsc_off_profile_does_not_append(monkeypatch):
 
 def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatch):
     """``tuning_profile = "auto"`` + invtsc-capable host appends ``+invtsc``
-    so the Windows guest sees an invariant TSC clocksource (#215)."""
+    so the Windows guest sees an invariant TSC clocksource (#215).
+
+    #245: auto also now appends hv-* enlightenments, virtio-rng, and
+    -no-hpet. Assert each piece is present rather than pinning the full
+    string — the assertion stays meaningful even when the list grows.
+    """
     import winpodx.utils.specs as specs
 
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
@@ -108,12 +113,25 @@ def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatc
             dedicated_host=False,
             kernel_version=(6, 18),
             cpu_vendor="amd",
+            nested_kvm=False,
         ),
     )
     cfg = _cfg()
     cfg.pod.tuning_profile = "auto"
     content = _build_compose_content(cfg)
-    assert 'ARGUMENTS: "-cpu host,arch_capabilities=off,+invtsc"' in content
+    # invtsc still on the -cpu sub-option line.
+    assert "+invtsc" in content
+    # #245: hv-* enlightenments + virtio-rng + -no-hpet always on under
+    # auto for x86 hosts. nested_kvm=False so +svm / hv-evmcs stay off.
+    assert "hv-relaxed" in content
+    assert "hv-spinlocks=0x1fff" in content
+    assert "hv-stimer-direct" in content
+    assert "-no-hpet" in content
+    assert "virtio-rng-pci,rng=rng0" in content
+    assert "rng-random,id=rng0,filename=/dev/urandom" in content
+    # AMD + nested_kvm=False => no +svm, no hv-evmcs.
+    assert "+svm" not in content
+    assert "hv-evmcs" not in content
 
 
 def test_compose_arguments_invtsc_skipped_when_host_lacks_flag(monkeypatch):
@@ -134,6 +152,7 @@ def test_compose_arguments_invtsc_skipped_when_host_lacks_flag(monkeypatch):
             dedicated_host=False,
             kernel_version=(6, 18),
             cpu_vendor="intel",
+            nested_kvm=False,
         ),
     )
     cfg = _cfg()
@@ -159,6 +178,7 @@ def test_compose_arguments_aarch64_ignores_tuning_profile(monkeypatch):
             dedicated_host=True,
             kernel_version=(6, 18),
             cpu_vendor="arm",
+            nested_kvm=False,
         ),
     )
     cfg = _cfg()

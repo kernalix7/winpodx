@@ -155,6 +155,7 @@ If you ran `winpodx setup` on an older release and can no longer log in:
   io_uring:      yes   (kernel 6.18, need >= 5.6)
   hugepages:     no    (sysctl vm.nr_hugepages)
   dedicated:     yes
+  nested_kvm:    yes   (/sys/module/kvm_*/parameters/nested)
 
   Profile: auto
     +invtsc:        yes
@@ -163,16 +164,35 @@ If you ran `winpodx setup` on an older release and can no longer log in:
     CPU pinning:    yes
     platform_tick:  yes
     no balloon:     yes
+    hv-* + no-hpet: yes
+    virtio-rng:     yes
+    nested virt:    yes
+    hv-evmcs:       yes
 ```
 
 Profiles:
 
 | `tuning_profile` | What it does |
 |---|---|
-| `auto` (default) | Detect host capability + apply every safe tuning the host can support. Recommended for most users. |
-| `safe` | Apply only Tier-1 tunings that don't depend on host configuration — currently `+invtsc` (when supported) and the Windows `platform_tick` BCD tweak. |
+| `auto` (default) | Detect host capability + apply every safe tuning the host can support, including the Hyper-V enlightenments, virtio-rng, and nested-virt pass-through when `/sys/module/kvm_*/parameters/nested` is set. Recommended for most users. |
+| `safe` | Apply the Windows-guest-only subset that requires no host configuration: `+invtsc` (when supported), `platform_tick` BCD tweak, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), and `virtio-rng`. Excludes nested-virt + `hv-evmcs` which need explicit host-side opt-in. |
 | `off` | Apply nothing; the dockur defaults stand. Use when troubleshooting suspected tuning interaction. |
 | `manual` | Same shape as `safe`; reserved for future per-knob overrides. |
+
+### What each tuning does
+
+* **`+invtsc`** — exposes invariant TSC so Windows uses TSC as the clock source instead of HPET (lower IRQ overhead).
+* **`hv-*` enlightenments + `-no-hpet`** (#245) — tells Windows it's running under a paravirtualised hypervisor. Cuts spinlock / VM-exit overhead on every workload; doubly noticeable on multi-vCPU guests. `hv-spinlocks=0x1fff` is the upstream-recommended retry budget.
+* **`virtio-rng-pci` backed by `/dev/urandom`** (#245) — fills the Windows entropy pool quickly on first boot so CryptoAPI / TLS handshakes don't stall waiting for kernel randomness.
+* **`+vmx` / `+svm` nested virt** (#245) — auto-enabled when `/sys/module/kvm_intel/parameters/nested` or `kvm_amd` reads `Y`. Required for Hyper-V / WSL2 / Docker Desktop inside the Windows guest. No effect when the host kernel hasn't opted in.
+* **`hv-evmcs`** (#245) — Intel-only nested-VMCS optimisation, paired with `+vmx`. Zero overhead when the guest doesn't run nested VMs.
+* **`io_uring` AIO** — kernel ≥ 5.6 disk I/O backend; lower latency than legacy threads.
+* **Hugepages** — backs the QEMU memory with 2 MB pages. Requires `vm.nr_hugepages` reserved on the host (winpodx does not auto-reserve).
+* **CPU pinning** — winpodx flags the host as `dedicated` and applies QEMU vCPU pinning when host idle CPU + RAM ≥ 2× VM allocation.
+
+### One-shot override
+
+`winpodx pod start --tuning {auto,safe,off,manual}` overrides `cfg.pod.tuning_profile` for the lifetime of that container run only. The user's persisted preference in `winpodx.toml` is left untouched. Useful for A/B testing — flip back and forth without `winpodx config set` round-trips.
 
 ### Items that require host-side setup (not auto-applied)
 

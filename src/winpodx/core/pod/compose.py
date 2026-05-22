@@ -104,25 +104,86 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     ``Property 'host-arm-cpu.arch_capabilities' not found`` (issue
     #140); we pass only ``-cpu host`` there.
 
-    When ``cfg`` is given and ``cfg.pod.tuning_profile`` resolves to a
-    profile with ``apply_invtsc`` set, ``+invtsc`` is appended on
-    x86_64 so the Windows guest sees an invariant TSC clocksource (#215).
-    aarch64 ignores the profile because invtsc is x86-specific.
+    The tuning profile (``cfg.pod.tuning_profile`` resolved by
+    :mod:`winpodx.utils.specs`) decides whether each x86-only knob is
+    appended:
+
+    * ``apply_invtsc`` (#215) — ``+invtsc`` -cpu sub-option exposing
+      invariant TSC.
+    * ``apply_hv_enlightenments`` (#245) — Hyper-V paravirt hints
+      (relaxed, vapic, vpindex, runtime, synic, reset, frequencies,
+      reenlightenment, tlbflush, ipi, spinlocks=0x1fff, stimer,
+      stimer-direct) plus ``-no-hpet`` so the guest uses the Hyper-V
+      clock.
+    * ``apply_evmcs`` (#245) — ``hv-evmcs`` nested-VMCS optimisation
+      (Intel only).
+    * ``apply_nested_virt`` (#245) — ``+vmx`` (Intel) / ``+svm`` (AMD)
+      so the Windows guest can host Hyper-V / WSL2 / Docker Desktop.
+    * ``apply_virtio_rng`` (#245) — adds ``-device virtio-rng-pci`` +
+      ``-object rng-random,filename=/dev/urandom`` so the guest's
+      entropy pool fills quickly on first boot.
+
+    aarch64 ignores the profile entirely because invtsc + hv-* + the
+    nested-virt CPU sub-options are x86 facts.
     """
     if platform.machine() == "aarch64":
         return "-cpu host"
 
-    cpu = "-cpu host,arch_capabilities=off"
+    cpu_sub: list[str] = ["host", "arch_capabilities=off"]
+    extra_args: list[str] = []
+
     if cfg is None:
-        return cpu
+        return f"-cpu {','.join(cpu_sub)}"
 
     from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
 
     cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
     profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
+
     if profile.apply_invtsc:
-        cpu += ",+invtsc"
-    return cpu
+        cpu_sub.append("+invtsc")
+
+    if profile.apply_hv_enlightenments:
+        cpu_sub.extend(
+            [
+                "hv-relaxed",
+                "hv-vapic",
+                "hv-vpindex",
+                "hv-runtime",
+                "hv-synic",
+                "hv-reset",
+                "hv-frequencies",
+                "hv-reenlightenment",
+                "hv-tlbflush",
+                "hv-ipi",
+                "hv-spinlocks=0x1fff",
+                "hv-stimer",
+                "hv-stimer-direct",
+            ]
+        )
+        extra_args.append("-no-hpet")
+
+    if profile.apply_evmcs:
+        cpu_sub.append("hv-evmcs")
+
+    if profile.apply_nested_virt:
+        if cap.cpu_vendor == "intel":
+            cpu_sub.append("+vmx")
+        elif cap.cpu_vendor == "amd":
+            cpu_sub.append("+svm")
+
+    if profile.apply_virtio_rng:
+        extra_args.extend(
+            [
+                "-device",
+                "virtio-rng-pci,rng=rng0",
+                "-object",
+                "rng-random,id=rng0,filename=/dev/urandom",
+            ]
+        )
+
+    pieces = [f"-cpu {','.join(cpu_sub)}", *extra_args]
+    return " ".join(pieces)
 
 
 def _yaml_escape(val: str) -> str:

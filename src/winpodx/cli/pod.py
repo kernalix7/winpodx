@@ -11,7 +11,7 @@ def handle_pod(args: argparse.Namespace) -> None:
     """Route pod subcommands."""
     cmd = args.pod_command
     if cmd == "start":
-        _start(args.wait, args.timeout)
+        _start(args.wait, args.timeout, tuning_override=getattr(args, "tuning", None))
     elif cmd == "stop":
         _stop()
     elif cmd == "status":
@@ -44,13 +44,23 @@ def handle_pod(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _start(wait: bool, timeout: int) -> None:
+def _start(wait: bool, timeout: int, tuning_override: str | None = None) -> None:
     from winpodx.core.pod import PodState, get_backend, start_pod
     from winpodx.core.provisioner import _ensure_compose, _ensure_config
     from winpodx.desktop.notify import notify_pod_started
 
     timeout = max(1, min(3600, timeout))
     cfg = _ensure_config()
+    # #245: ``--tuning`` is a one-shot override of cfg.pod.tuning_profile.
+    # The override never reaches disk -- we mutate the in-memory cfg only,
+    # so _ensure_compose() regenerates compose.yaml with the new ARGUMENTS
+    # for this invocation but the user's persisted preference is intact.
+    if tuning_override is not None and tuning_override != cfg.pod.tuning_profile:
+        print(
+            f"Overriding tuning_profile for this run: "
+            f"{cfg.pod.tuning_profile!r} -> {tuning_override!r}"
+        )
+        cfg.pod.tuning_profile = tuning_override
     if cfg.pod.backend in ("podman", "docker"):
         _ensure_compose(cfg)
 
