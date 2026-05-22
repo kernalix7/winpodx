@@ -26,7 +26,7 @@ from winpodx.utils.paths import config_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps
 
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
-_VALID_TUNING_PROFILES = frozenset({"auto", "safe", "off", "manual"})
+_VALID_TUNING_PROFILES = frozenset({"auto", "performance", "safe", "off", "manual"})
 
 # Windows edition strings winpodx ships explicit support for. Subset
 # of dockur/windows' full VERSION set, restricted to Windows 10-era

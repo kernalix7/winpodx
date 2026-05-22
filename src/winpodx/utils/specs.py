@@ -306,6 +306,17 @@ def recommend_tuning_profile(cap: TuningCapability, *, user_pref: str = "auto") 
       * `"safe"` — only Tier-1 tunings that don't require host setup
         (currently: `+invtsc`, `platform_tick`).
       * `"auto"` (default) — apply everything the host can support.
+        Soft-gated knobs (CPU pinning, no-balloon) check
+        ``cap.dedicated_host`` so we don't starve other workloads on a
+        shared workstation.
+      * `"performance"` — same shape as ``auto`` but the soft-gates are
+        bypassed. CPU pinning + no-balloon flip on regardless of
+        ``cap.dedicated_host``. The user is telling us "treat this box
+        as dedicated to winpodx -- minimise guest latency at the cost
+        of other host workloads". Hard-gated knobs (``+invtsc``,
+        ``io_uring`` -- the ones QEMU would reject or the kernel would
+        crash on if applied unsupported) still respect capability
+        detection.
       * `"manual"` — return `safe` shape; callers are expected to override
         individual flags from `cfg.pod.tuning_*` keys instead. Helper
         stays pure (no Config read) so it's easy to test.
@@ -314,6 +325,8 @@ def recommend_tuning_profile(cap: TuningCapability, *, user_pref: str = "auto") 
         return _PROFILE_OFF
 
     is_x86 = cap.cpu_vendor in ("intel", "amd")
+    # "performance" forces soft-gated knobs on; "auto" defers to detection.
+    treat_as_dedicated = (user_pref == "performance") or cap.dedicated_host
 
     if user_pref in ("safe", "manual"):
         return TuningProfile(
@@ -339,14 +352,17 @@ def recommend_tuning_profile(cap: TuningCapability, *, user_pref: str = "auto") 
             apply_nested_virt=False,
         )
 
+    # auto + performance share the same code path; only the
+    # treat_as_dedicated flag differs (auto respects detection,
+    # performance forces it).
     return TuningProfile(
-        name="auto",
+        name="performance" if user_pref == "performance" else "auto",
         apply_invtsc=cap.invtsc and is_x86,
         apply_io_uring=cap.io_uring,
         apply_hugepages=cap.hugepages_enabled,
-        apply_cpu_pinning=cap.dedicated_host,
+        apply_cpu_pinning=treat_as_dedicated,
         apply_platform_tick=True,
-        apply_no_balloon=cap.dedicated_host,
+        apply_no_balloon=treat_as_dedicated,
         # #245: hv-* + virtio-rng always on under auto when host is x86.
         # evmcs (Intel-only) + nested-virt (Intel/AMD) gated on detected
         # nested-KVM module option -- a no-op for users who haven't

@@ -174,7 +174,8 @@ Profiles:
 
 | `tuning_profile` | What it does |
 |---|---|
-| `auto` (default) | Detect host capability + apply every safe tuning the host can support, including the Hyper-V enlightenments, virtio-rng, and nested-virt pass-through when `/sys/module/kvm_*/parameters/nested` is set. Recommended for most users. |
+| `auto` (default) | Detect host capability + apply every safe tuning the host can support, including the Hyper-V enlightenments, virtio-rng, and nested-virt pass-through when `/sys/module/kvm_*/parameters/nested` is set. CPU pinning + no-balloon gated on `dedicated_host` (idle CPU + free RAM ≥ 2× VM allocation) so we don't starve other host workloads. Recommended for most users. |
+| `performance` | Same as `auto` but bypasses the `dedicated_host` gate: CPU pinning + no-balloon flip on regardless of current host load. Use when the box is mostly dedicated to winpodx and you want minimum guest latency at the cost of other host workloads. Hard-gated knobs (`+invtsc`, `io_uring`) still respect capability detection -- `performance` can't force a CPU flag QEMU would reject or a kernel feature that crashes. |
 | `safe` | Apply the Windows-guest-only subset that requires no host configuration: `+invtsc` (when supported), `platform_tick` BCD tweak, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), and `virtio-rng`. Excludes nested-virt + `hv-evmcs` which need explicit host-side opt-in. |
 | `off` | Apply nothing; the dockur defaults stand. Use when troubleshooting suspected tuning interaction. |
 | `manual` | Same shape as `safe`; reserved for future per-knob overrides. |

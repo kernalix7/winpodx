@@ -196,6 +196,54 @@ class TestRecommendTuningProfile:
         assert not p.apply_evmcs
         assert not p.apply_nested_virt
 
+    def test_performance_forces_pinning_and_no_balloon(self):
+        # `performance` bypasses cap.dedicated_host so soft-gated knobs
+        # (CPU pinning + no-balloon) come on even on a shared host.
+        cap = _cap(dedicated_host=False)
+        p = recommend_tuning_profile(cap, user_pref="performance")
+        assert p.name == "performance"
+        assert p.apply_cpu_pinning
+        assert p.apply_no_balloon
+        # Hard-gated knobs still respect capability detection.
+        assert p.apply_invtsc  # invtsc=True in fixture
+        assert p.apply_io_uring  # io_uring=True in fixture
+        # hv-* + virtio-rng same as auto.
+        assert p.apply_hv_enlightenments
+        assert p.apply_virtio_rng
+
+    def test_performance_still_skips_unsupported_hard_gates(self):
+        # invtsc + io_uring are HARD-gated -- performance can't force a
+        # CPU flag QEMU would reject or a kernel feature that crashes.
+        cap = _cap(invtsc=False, io_uring=False, dedicated_host=False)
+        p = recommend_tuning_profile(cap, user_pref="performance")
+        assert not p.apply_invtsc
+        assert not p.apply_io_uring
+        # Soft-gated knobs forced on regardless.
+        assert p.apply_cpu_pinning
+        assert p.apply_no_balloon
+
+    def test_performance_matches_auto_when_host_already_dedicated(self):
+        # On a dedicated host, performance and auto resolve to the same
+        # set of apply_* flags (only the .name differs).
+        cap = _cap(dedicated_host=True, nested_kvm=True)
+        perf = recommend_tuning_profile(cap, user_pref="performance")
+        auto = recommend_tuning_profile(cap, user_pref="auto")
+        for field in (
+            "apply_invtsc",
+            "apply_io_uring",
+            "apply_hugepages",
+            "apply_cpu_pinning",
+            "apply_platform_tick",
+            "apply_no_balloon",
+            "apply_hv_enlightenments",
+            "apply_virtio_rng",
+            "apply_evmcs",
+            "apply_nested_virt",
+        ):
+            assert getattr(perf, field) == getattr(auto, field), (
+                f"{field} differs between performance and auto on dedicated host"
+            )
+
     def test_unknown_pref_falls_back_to_auto(self):
         # Defensive: a hand-edited TOML slipping past Config validation
         # with a typo like "automatic" should be treated as auto, not

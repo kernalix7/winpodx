@@ -174,7 +174,8 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
 
 | `tuning_profile` | 동작 |
 |---|---|
-| `auto` (기본) | 호스트 capability 감지 + 호스트가 지원하는 모든 안전 튜닝 적용 (Hyper-V enlightenments, virtio-rng, `/sys/module/kvm_*/parameters/nested == Y` 시 nested-virt pass-through 포함). 대부분 사용자에게 권장. |
+| `auto` (기본) | 호스트 capability 감지 + 호스트가 지원하는 모든 안전 튜닝 적용 (Hyper-V enlightenments, virtio-rng, `/sys/module/kvm_*/parameters/nested == Y` 시 nested-virt pass-through 포함). CPU pinning + no-balloon 은 `dedicated_host` (idle CPU + free RAM ≥ VM 할당의 2배) gate 통과 시에만 — 다른 호스트 워크로드 starve 방지. 대부분 사용자에게 권장. |
+| `performance` | `auto` 와 동일하나 `dedicated_host` gate 우회: CPU pinning + no-balloon 이 호스트 현재 부하 무관하게 강제 on. 박스가 winpodx 에 거의 dedicated 이고 다른 호스트 워크로드 희생해서라도 게스트 latency 최소화하고 싶을 때 사용. Hard-gated 항목 (`+invtsc`, `io_uring`) 은 여전히 capability 감지 존중 — `performance` 가 QEMU 가 거부할 CPU flag 나 kernel crash 일으킬 feature 를 강제할 수는 없음. |
 | `safe` | 호스트 설정 무관한 Windows-guest-only 부분만 적용: `+invtsc` (지원 시), `platform_tick` BCD, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), `virtio-rng`. 호스트 측 명시적 opt-in 필요한 nested-virt + `hv-evmcs` 는 제외. |
 | `off` | 아무것도 적용 안 함; dockur 기본만 유지. 튜닝 간섭 디버깅 시 사용. |
 | `manual` | `safe` 와 동일 shape; 향후 개별 knob override 용 예약. |

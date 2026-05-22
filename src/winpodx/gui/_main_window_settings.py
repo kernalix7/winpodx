@@ -403,15 +403,14 @@ class SettingsPageMixin:
         )
 
         # #245: tuning profile dropdown -- maps to cfg.pod.tuning_profile.
-        # "auto" picks every enabled-by-host knob (invtsc, hv-*, virtio-rng,
-        # io_uring aio, hugepages, cpu pinning, nested-virt when /sys/module
-        # /kvm_*/parameters/nested == Y). "safe" sticks to the Windows-guest
-        # -safe subset (no host setup needed). "off" disables everything.
-        # "manual" leaves the resolver in safe shape; users wanting per-knob
-        # overrides edit ``[pod.tuning_*]`` keys in winpodx.toml directly.
+        # PR A: "performance" added; relocated from Container/VM card into
+        # its own dedicated card so the summary panel + dropdown live
+        # inside one frame (the previous orphan label outside the card
+        # looked unmoored).
         self.input_tuning_profile = QComboBox()
         tuning_options = [
             ("Auto (recommended)", "auto"),
+            ("Performance (force pinning + no balloon)", "performance"),
             ("Safe (Windows-guest-only tunings)", "safe"),
             ("Off (baseline dockur defaults)", "off"),
             ("Manual (edit winpodx.toml)", "manual"),
@@ -426,12 +425,18 @@ class SettingsPageMixin:
             self.input_tuning_profile.addItem(f"{current_tp} (unknown)", current_tp)
             self.input_tuning_profile.setCurrentIndex(self.input_tuning_profile.count() - 1)
         self.input_tuning_profile.setToolTip(
-            "Windows-on-KVM performance tuning. 'auto' applies every knob the host\n"
-            "can support (invtsc, Hyper-V enlightenments, virtio-rng, io_uring AIO,\n"
-            "hugepages, CPU pinning, nested-virt when the kernel exposes it).\n"
-            "'safe' applies only the always-safe Windows-guest subset.\n"
-            "Changing this requires a container recreate -- the save flow will\n"
-            "prompt."
+            "Windows-on-KVM performance tuning.\n"
+            "  auto         -- apply every host-supported knob, but respect\n"
+            "                  idle-CPU + free-RAM gates (don't starve other\n"
+            "                  host workloads).\n"
+            "  performance  -- like auto + force CPU pinning + no-balloon\n"
+            "                  regardless of host idle headroom. Use when\n"
+            "                  this box is mostly dedicated to winpodx.\n"
+            "  safe         -- Windows-guest-only knobs (hv-*, virtio-rng,\n"
+            "                  +invtsc, platform_tick) -- no host setup.\n"
+            "  off          -- dockur defaults only.\n"
+            "Changing this requires a container recreate -- the save flow\n"
+            "will prompt."
         )
 
         pod_card = self._settings_card(
@@ -448,16 +453,17 @@ class SettingsPageMixin:
                 ("Region", self.input_region),
                 ("Keyboard", self.input_keyboard),
                 ("Timezone", self.input_timezone),
-                ("Tuning Profile", self.input_tuning_profile),
             ],
         )
         cols.addWidget(pod_card)
 
-        # #245: live detection summary -- what the *resolved* profile
-        # actually applies on this host right now. Read-only label so
-        # users see whether "auto" is buying them io_uring + hugepages or
-        # not without having to read the docs. Renders once at build
-        # time; users wanting a fresh probe re-open Settings.
+        layout.addLayout(cols)
+
+        # #245 + PR A: Performance Tuning lives in its own card below
+        # the two top cards. Card contains the dropdown + a live
+        # detection summary panel rendering `format_tuning_summary()`
+        # output. Renders once at build time -- users wanting a fresh
+        # probe re-open Settings.
         try:
             from winpodx.utils.specs import (
                 detect_tuning_capability,
@@ -474,15 +480,8 @@ class SettingsPageMixin:
             )
         except Exception:  # noqa: BLE001 -- never block Settings rendering
             tuning_summary = "  (tuning detection failed; see `winpodx info` for details)"
-        self.tuning_summary_label = QLabel(tuning_summary)
-        self.tuning_summary_label.setStyleSheet(
-            "background: transparent; font-family: monospace; "
-            "font-size: 11px; color: #888; padding: 4px 12px;"
-        )
-        self.tuning_summary_label.setWordWrap(False)
-        layout.addWidget(self.tuning_summary_label)
-
-        layout.addLayout(cols)
+        tuning_card = self._build_tuning_card(self.input_tuning_profile, tuning_summary)
+        layout.addWidget(tuning_card)
 
         # Reverse-open (#48) — Linux apps in the Windows guest's right-
         # click "Open with…" menu. The panel is self-contained — its
@@ -553,6 +552,86 @@ class SettingsPageMixin:
         scroll.setWidget(content)
         outer.addWidget(scroll)
         return page
+
+    def _build_tuning_card(self, profile_combo: QComboBox, summary_text: str) -> QFrame:
+        """Build the Performance Tuning settings card (#245, PR A).
+
+        Same visual shell as :meth:`_settings_card` so it slots into the
+        Settings page without theme drift, but adds a read-only monospace
+        summary panel below the dropdown -- inside the same frame, so the
+        previously-orphan summary label is no longer floating outside any
+        card.
+        """
+        card = QFrame()
+        card.setObjectName("settingsSection")
+        card.setStyleSheet(
+            SETTINGS_SECTION
+            + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
+            + INPUT
+            + COMBO
+        )
+        add_shadow(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(4)
+
+        header = QLabel("◨  Performance Tuning")
+        header.setStyleSheet(
+            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
+        )
+        layout.addWidget(header)
+
+        sub = QLabel("QEMU + Windows-on-KVM knob preset")
+        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
+        layout.addWidget(sub)
+
+        accent_line = QFrame()
+        accent_line.setFixedHeight(1)
+        accent_line.setStyleSheet(f"background: {C.SURFACE1};")
+        layout.addWidget(accent_line)
+        layout.addSpacing(14)
+
+        form = QGridLayout()
+        form.setVerticalSpacing(10)
+        form.setHorizontalSpacing(12)
+        lbl = QLabel("Profile")
+        lbl.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 13px;")
+        form.addWidget(lbl, 0, 0)
+        form.addWidget(profile_combo, 0, 1)
+        layout.addLayout(form)
+
+        layout.addSpacing(12)
+
+        summary_header = QLabel("Detection summary (this host)")
+        summary_header.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px; font-weight: bold;"
+        )
+        layout.addWidget(summary_header)
+
+        # Inner frame so the monospace block reads as a code panel rather
+        # than free-floating text. Subtle surface tint + slight padding
+        # gives it visual containment without competing with the card
+        # frame itself.
+        summary_frame = QFrame()
+        summary_frame.setStyleSheet(
+            f"background: {C.MANTLE if hasattr(C, 'MANTLE') else '#1e1e2e'}; "
+            f"border-radius: 6px; padding: 6px;"
+        )
+        summary_layout = QVBoxLayout(summary_frame)
+        summary_layout.setContentsMargins(10, 8, 10, 8)
+        summary_layout.setSpacing(0)
+        self.tuning_summary_label = QLabel(summary_text)
+        self.tuning_summary_label.setStyleSheet(
+            f"background: transparent; font-family: 'JetBrainsMono Nerd Font', "
+            f"'Cascadia Code', 'Fira Code', monospace; "
+            f"font-size: 11px; color: {C.SUBTEXT1 if hasattr(C, 'SUBTEXT1') else '#bac2de'};"
+        )
+        self.tuning_summary_label.setWordWrap(False)
+        summary_layout.addWidget(self.tuning_summary_label)
+        layout.addWidget(summary_frame)
+
+        return card
 
     def _settings_card(
         self,

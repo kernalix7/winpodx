@@ -100,13 +100,14 @@ def cli(argv: list[str] | None = None) -> None:
     )
     start_p.add_argument(
         "--tuning",
-        choices=["auto", "safe", "off", "manual"],
+        choices=["auto", "performance", "safe", "off", "manual"],
         default=None,
         help=(
             "One-shot override of cfg.pod.tuning_profile for this invocation. "
-            "Does not persist to winpodx.toml. Useful for A/B-testing a profile "
-            "without committing to it. See `winpodx info` for what each profile "
-            "would resolve to on this host."
+            "Does not persist to winpodx.toml. `performance` = auto + force CPU "
+            "pinning + no-balloon regardless of host idle headroom. Useful for "
+            "A/B-testing a profile without committing to it. See `winpodx info` "
+            "for what each profile would resolve to on this host."
         ),
     )
 
