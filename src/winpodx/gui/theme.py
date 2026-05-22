@@ -36,6 +36,41 @@ class C:
     CRUST = "#010409"
 
 
+# --------------------------------------------------------------------------- #
+# Design tokens.
+#
+# These are *named* magic numbers. Use them in new widget code so the design
+# system stays consistent and a future "tighten / loosen everything by N px"
+# pass is a single edit here rather than a grep across every page module.
+#
+# Spacing -- 4 px base unit, 1.5x scale.
+# Used for QVBoxLayout / QHBoxLayout setSpacing, addSpacing(), and layout
+# setContentsMargins.
+# --------------------------------------------------------------------------- #
+SPACE_XS = 4
+SPACE_S = 8
+SPACE_M = 12
+SPACE_L = 16
+SPACE_XL = 24
+SPACE_XXL = 32
+
+# Border radius scale. Match button / card / input visual weight.
+RADIUS_XS = 4  # inline chips, badges
+RADIUS_S = 6  # secondary controls, terminal panel
+RADIUS_M = 8  # inputs, buttons, primary controls
+RADIUS_L = 10  # search bar, terminal dock
+RADIUS_XL = 12  # cards, app tiles
+RADIUS_XXL = 14  # settings sections, app cards (grid view)
+
+# Type scale. Keep narrow -- five sizes cover everything from caption to title.
+FONT_CAPTION = 11  # secondary detail, summaries, helper text
+FONT_BODY = 13  # default text, inputs, buttons
+FONT_SUBHEAD = 14  # section labels, search bar
+FONT_HEADER = 15  # card headers
+FONT_TITLE = 18  # page titles
+FONT_HERO = 22  # main window title, top-of-page heroes
+
+
 _AVATAR_PALETTE = [
     C.BLUE,
     C.MAUVE,
