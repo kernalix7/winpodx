@@ -818,9 +818,17 @@ def _register_all_desktop_entries() -> None:
     """Register all app definitions as .desktop entries."""
     from winpodx.core.app import list_available_apps
     from winpodx.desktop.entry import install_desktop_entry
-    from winpodx.desktop.icons import install_winpodx_icon, update_icon_cache
+    from winpodx.desktop.icons import (
+        install_gui_launcher_desktop,
+        install_winpodx_icon,
+        update_icon_cache,
+    )
 
     install_winpodx_icon()
+    # G7: install the GUI launcher .desktop so `winpodx setup` standalone
+    # (pip, dev checkout, package install missing the entry) leaves the
+    # GUI discoverable in the app menu. No-ops if a system copy exists.
+    install_gui_launcher_desktop()
 
     apps = list_available_apps()
     for app_info in apps:

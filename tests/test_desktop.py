@@ -403,6 +403,78 @@ def test_install_winpodx_icon_refuses_symlink_source(tmp_path, monkeypatch):
     assert not dest.exists(), "must not copy symlink target contents"
 
 
+class TestInstallGuiLauncherDesktop:
+    """G7 (#255): `winpodx setup` registers the GUI launcher .desktop file."""
+
+    def test_copies_bundled_desktop_to_user_applications(self, tmp_path, monkeypatch):
+        from winpodx.desktop import icons as icons_mod
+
+        # Sandbox HOME and bundle a fake .desktop file.
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        bundled = tmp_path / "bundle" / "winpodx.desktop"
+        bundled.parent.mkdir(parents=True)
+        bundled.write_text("[Desktop Entry]\nExec=winpodx gui\n", encoding="utf-8")
+        monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *_p: bundled)
+        # No system copy on this sandbox.
+        monkeypatch.setattr(
+            "pathlib.Path.is_file",
+            lambda self: (
+                str(self) != "/usr/share/applications/winpodx.desktop"
+                and Path.__dict__["is_file"].__wrapped__(self)
+                if False
+                else (str(self) != "/usr/share/applications/winpodx.desktop" and self.exists())
+            ),
+        )
+
+        result = icons_mod.install_gui_launcher_desktop()
+
+        assert result is True
+        dest = tmp_path / ".local" / "share" / "applications" / "winpodx.desktop"
+        assert dest.is_file()
+        assert "Exec=winpodx gui" in dest.read_text()
+
+    def test_skips_when_system_copy_exists(self, tmp_path, monkeypatch):
+        from winpodx.desktop import icons as icons_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        # Pretend /usr/share/applications/winpodx.desktop exists.
+        monkeypatch.setattr(
+            "pathlib.Path.is_file",
+            lambda self: str(self) == "/usr/share/applications/winpodx.desktop",
+        )
+
+        result = icons_mod.install_gui_launcher_desktop()
+
+        assert result is False
+        dest = tmp_path / ".local" / "share" / "applications" / "winpodx.desktop"
+        assert not dest.exists()
+
+    def test_refuses_symlink_source(self, tmp_path, monkeypatch):
+        from winpodx.desktop import icons as icons_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        secret = tmp_path / "secret.key"
+        secret.write_text("SECRET", encoding="utf-8")
+        symlink = tmp_path / "winpodx.desktop"
+        symlink.symlink_to(secret)
+        monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *_p: symlink)
+        # No system copy.
+        monkeypatch.setattr(
+            "pathlib.Path.is_file",
+            lambda self: (
+                False
+                if str(self) == "/usr/share/applications/winpodx.desktop"
+                else self.exists() and not self.is_symlink()
+            ),
+        )
+
+        result = icons_mod.install_gui_launcher_desktop()
+
+        assert result is False
+        dest = tmp_path / ".local" / "share" / "applications" / "winpodx.desktop"
+        assert not dest.exists()
+
+
 def test_bundled_data_path_accepts_regular_file(tmp_path, monkeypatch):
     # Regression: ordinary files in the data dir still work.
     from winpodx.desktop import icons as icons_mod

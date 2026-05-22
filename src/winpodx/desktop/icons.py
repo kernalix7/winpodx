@@ -58,6 +58,41 @@ def install_winpodx_icon() -> bool:
     return True
 
 
+def install_gui_launcher_desktop() -> bool:
+    """Install the winpodx GUI launcher ``.desktop`` into ~/.local/share/applications.
+
+    install.sh handles this for curl installs; deb / rpm / aur ship it under
+    /usr/share/applications. ``winpodx setup`` invoked manually (pip, dev
+    checkout, or a curl install where the launcher copy got lost) needs to
+    register it explicitly so the GUI shows up in the app menu without
+    re-running install.sh.
+
+    Skips when /usr/share/applications/winpodx.desktop already exists -- that
+    means a package install owns it, and dropping a user-level copy would
+    shadow the package version with a stale Exec= path on later upgrades.
+    """
+    if Path("/usr/share/applications/winpodx.desktop").is_file():
+        log.debug("System winpodx.desktop already present; skipping user copy")
+        return False
+
+    src = bundled_data_path("winpodx.desktop")
+    if src is None:
+        log.warning("Bundled winpodx.desktop not found")
+        return False
+
+    if src.is_symlink():
+        log.warning("Refusing to install .desktop from symlink: %s", src)
+        return False
+
+    dest_dir = Path.home() / ".local" / "share" / "applications"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "winpodx.desktop"
+
+    shutil.copy2(src, dest, follow_symlinks=False)
+    log.info("Installed winpodx GUI launcher: %s", dest)
+    return True
+
+
 def _ensure_index_theme(icon_dir: Path) -> None:
     """Ensure index.theme exists so gtk cache and KDE Plasma can discover icons."""
     index = icon_dir / "index.theme"
