@@ -111,6 +111,34 @@ chmod +x winpodx-*-x86_64.AppImage
 
 See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, and uninstall.
 
+## First-time setup
+
+If you used the `curl install.sh` one-liner, setup already ran and the Windows VM is booting -- skip to [Launch](#launch). For every other install path (package managers, AppImage, source, pip) run setup once before the first app launch:
+
+```bash
+# Auto setup -- host-detected defaults, no prompts
+winpodx setup
+
+# Interactive wizard -- pick backend, cores, RAM, edition, language, timezone, debloat preset
+winpodx setup --customize
+```
+
+Setup writes `~/.config/winpodx/winpodx.toml` + `compose.yaml`, registers the GUI launcher, and confirms the host has FreeRDP + Podman / Docker + KVM. If any of those are missing, the output ends with a per-distro install command (e.g. `sudo apt install xfreerdp3 podman podman-compose` on Debian / Ubuntu, `sudo dnf install ...` on Fedora) -- run it and re-run `winpodx setup`.
+
+The first app launch then provisions the pod, pulls the dockur image, runs the Windows ISO download + Sysprep + OEM apply, and reaches a usable RDP session in ~5-10 min. `winpodx pod wait-ready --logs` tails container progress live so you can watch each phase:
+
+```bash
+winpodx app run desktop          # First launch -- ~5-10 min, subsequent launches near-instant
+winpodx pod wait-ready --logs    # Optional: watch first-boot progress live
+```
+
+Run `winpodx doctor` any time afterwards to re-check host state and surface the next fix command if something drifts:
+
+```bash
+winpodx doctor                   # Read-only -- prints what would need fixing
+winpodx pod apply-fixes          # Re-applies guest-side runtime fixes (RDP timeouts, NIC power-save, etc.)
+```
+
 ## Launch
 
 ```bash
