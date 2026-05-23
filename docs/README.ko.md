@@ -111,6 +111,34 @@ chmod +x winpodx-*-x86_64.AppImage
 
 오프라인 / 에어갭 빌드, 소스 설치, 버전 pin, 언인스톨은 [docs/INSTALL.ko.md](INSTALL.ko.md) 참조.
 
+## 첫 실행 설정
+
+`curl install.sh` 원라이너 썼으면 setup 이 이미 돌았고 Windows VM 부팅 중 — [실행](#실행) 으로 skip. 그 외 install 경로 (패키지 매니저, AppImage, source, pip) 는 첫 앱 실행 전에 setup 한번 돌려야 함:
+
+```bash
+# 자동 setup — 호스트 자동감지 기본값, 프롬프트 없음
+winpodx setup
+
+# 대화형 wizard — backend, cores, RAM, edition, language, timezone, debloat preset 선택
+winpodx setup --customize
+```
+
+Setup 이 `~/.config/winpodx/winpodx.toml` + `compose.yaml` 작성, GUI 런처 등록, 호스트의 FreeRDP + Podman / Docker + KVM 확인. 부족하면 출력 마지막에 distro 별 설치 명령 (예: Debian / Ubuntu 면 `sudo apt install xfreerdp3 podman podman-compose`, Fedora 면 `sudo dnf install ...`) — 실행 후 `winpodx setup` 재실행.
+
+첫 앱 실행이 pod provision, dockur 이미지 pull, Windows ISO 다운로드 + Sysprep + OEM apply 거쳐 사용 가능한 RDP 세션까지 ~5-10분. `winpodx pod wait-ready --logs` 가 컨테이너 진행 라이브 출력:
+
+```bash
+winpodx app run desktop          # 첫 실행 ~5-10분, 이후 실행은 거의 즉시
+winpodx pod wait-ready --logs    # 선택: 첫 부팅 진행상황 라이브 보기
+```
+
+이후 언제든 `winpodx doctor` 로 호스트 상태 재확인 + drift 시 다음 fix 명령 surface:
+
+```bash
+winpodx doctor                   # read-only — 필요한 fix 만 출력
+winpodx pod apply-fixes          # guest 측 런타임 fix 재적용 (RDP timeout, NIC power-save 등)
+```
+
 ## 실행
 
 ```bash

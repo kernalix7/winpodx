@@ -255,9 +255,7 @@ def test_compose_287_workaround_no_longer_needed(monkeypatch):
     for profile in ("off", "safe", "auto", "performance", "manual"):
         cfg.pod.tuning_profile = profile
         content = _build_compose_content(cfg)
-        assert "-msg timestamp=on" not in content, (
-            f"marker leaked back in under profile={profile}"
-        )
+        assert "-msg timestamp=on" not in content, f"marker leaked back in under profile={profile}"
         # And -cpu host, never appears in ARGUMENTS (the whole point).
         # We only need to check that ARGUMENTS lines don't contain it.
         for line in content.splitlines():
