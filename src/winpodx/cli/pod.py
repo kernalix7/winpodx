@@ -867,8 +867,11 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     Windows ISO download is parsed in the log-drain thread and used to
     extend the wait window if the user's connection is slow enough that
     the static timeout would expire mid-download (xiyeming #126: 86min
-    ISO download exceeded the 60min default). Capped at 4h to bound
-    runaway extensions on broken networks. No-op for fast connections.
+    ISO download exceeded the 60min default). No upper bound -- we
+    trust the ETA wget itself reports. If the download genuinely
+    stalls, no new ETA arrives, the deadline stops moving, and the
+    wait expires naturally on the last extension. No-op for fast
+    connections (their ETA always fits inside the current deadline).
     """
     import threading
     import time as _time
@@ -887,9 +890,9 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     start = _time.monotonic()
 
     # Mutable deadline so the log-drain thread can extend it when slow
-    # download progress is observed. Ceiling at 4h to bound the
-    # extension on stuck / aborted downloads.
-    _DEADLINE_CEILING = start + 4 * 3600
+    # download progress is observed. No ceiling -- we trust wget's
+    # ETA. A genuinely stalled download stops producing ETA lines, so
+    # the deadline stops advancing and the wait expires naturally.
     _BOOT_BUFFER_SECS = 600  # 10min after download for Sysprep / OEM apply
     _ANNOUNCE_STEP_SECS = 600  # only re-announce when deadline jumps 10min+
     deadline_state = {
@@ -903,10 +906,7 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         enough (single-key dict writes are atomic under the GIL; we
         accept eventual consistency)."""
         now = _time.monotonic()
-        projected_done = now + eta_remaining_secs + _BOOT_BUFFER_SECS
-        if projected_done <= deadline_state["value"]:
-            return
-        new_deadline = min(projected_done, _DEADLINE_CEILING)
+        new_deadline = now + eta_remaining_secs + _BOOT_BUFFER_SECS
         if new_deadline <= deadline_state["value"]:
             return
         deadline_state["value"] = new_deadline
