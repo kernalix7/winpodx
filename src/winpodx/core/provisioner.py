@@ -210,7 +210,7 @@ def _apply_max_sessions(cfg: Config) -> None:
     log.info("max_sessions: %s", result.stdout.strip())
 
 
-def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
+def wait_for_windows_responsive(cfg: Config, timeout: int = 300) -> bool:
     """Poll until the Windows guest is ready to accept commands.
 
     Two-stage readiness probe:

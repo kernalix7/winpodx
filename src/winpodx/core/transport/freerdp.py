@@ -37,7 +37,7 @@ assert SPEC_VERSION == 1, "FreerdpTransport built against Transport spec v1"
 
 log = logging.getLogger(__name__)
 
-_HEALTH_PROBE_TIMEOUT = 2.0
+_HEALTH_PROBE_TIMEOUT = 5.0
 
 
 class FreerdpTransport(Transport):

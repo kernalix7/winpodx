@@ -88,7 +88,7 @@ class AgentClient:
     """HTTP client for the guest agent on ``127.0.0.1:8765``."""
 
     DEFAULT_BASE_URL = "http://127.0.0.1:8765"
-    HEALTH_TIMEOUT = 2.0
+    HEALTH_TIMEOUT = 5.0
 
     def __init__(
         self,

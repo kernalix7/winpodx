@@ -21,20 +21,24 @@ class DockerBackend(Backend):
         return ["docker", "compose", "-f", self._compose_file()]
 
     def start(self) -> None:
+        # Match podman backend: large hard cap so first-run image pull
+        # on slow connections doesn't fail. Docker doesn't need the
+        # activity-based wrapper because the docker daemon handles its
+        # own pull progress; only the wall-clock timeout is at risk.
         try:
             subprocess.run(
                 [*self._compose_cmd(), "up", "-d"],
                 check=True,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=4 * 3600,
             )
             log.info("Pod started (docker)")
         except subprocess.CalledProcessError as e:
             log.error("docker compose up failed: %s", e.stderr.strip())
             raise
         except subprocess.TimeoutExpired:
-            log.error("docker compose up timed out (120s)")
+            log.error("docker compose up timed out (4h hard cap)")
             raise
 
     def stop(self) -> None:
@@ -43,7 +47,7 @@ class DockerBackend(Backend):
                 [*self._compose_cmd(), "down"],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=180,
             )
             if result.returncode != 0:
                 log.warning(
@@ -52,7 +56,7 @@ class DockerBackend(Backend):
                     result.stderr.strip(),
                 )
         except subprocess.TimeoutExpired:
-            log.error("docker compose down timed out (60s)")
+            log.error("docker compose down timed out (180s)")
 
     def _container_state(self) -> str:
         """Return the lower-cased container state, or empty string if unavailable."""

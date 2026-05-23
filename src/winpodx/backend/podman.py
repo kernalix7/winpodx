@@ -43,21 +43,93 @@ class PodmanBackend(Backend):
         )
 
     def start(self) -> None:
+        # Activity-based timeout: as long as podman is printing progress
+        # lines (image pull layers, container creation, etc.) we let it
+        # keep going. Only fail when the output goes silent for too long.
+        # The previous fixed 120s budget failed on slow connections during
+        # the first-run dockur image pull (#288-class issue). Idle limit
+        # 5min absorbs network blips while still failing cleanly on a
+        # genuinely stalled pull.
         try:
-            subprocess.run(
+            self._run_streaming(
                 [*self._compose_cmd(), "up", "-d"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=120,
+                idle_limit=300,
+                hard_cap=4 * 3600,
+                description="podman compose up",
             )
             log.info("Pod started (podman)")
         except subprocess.CalledProcessError as e:
-            log.error("podman compose up failed: %s", e.stderr.strip())
+            log.error("podman compose up failed: %s", e.stderr.strip() if e.stderr else "")
             raise
         except subprocess.TimeoutExpired:
-            log.error("podman compose up timed out (120s)")
+            log.error("podman compose up went idle for >300s")
             raise
+
+    def _run_streaming(
+        self,
+        cmd: list[str],
+        *,
+        idle_limit: int,
+        hard_cap: int,
+        description: str,
+    ) -> None:
+        """Run a subprocess while watching its output for activity.
+
+        Kills the process when its combined stdout+stderr stream goes
+        silent for ``idle_limit`` seconds, or when total wall time
+        exceeds ``hard_cap``. Raises ``CalledProcessError`` on non-zero
+        exit, ``TimeoutExpired`` on idle or cap.
+        """
+        import threading
+        import time
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        last_activity = [time.monotonic()]
+        captured: list[str] = []
+
+        def _drain() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                last_activity[0] = time.monotonic()
+                captured.append(line)
+
+        t = threading.Thread(target=_drain, daemon=True)
+        t.start()
+        start = time.monotonic()
+        while True:
+            try:
+                rc = proc.wait(timeout=2)
+                break
+            except subprocess.TimeoutExpired:
+                now = time.monotonic()
+                if now - last_activity[0] > idle_limit:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    raise subprocess.TimeoutExpired(
+                        cmd=cmd,
+                        timeout=idle_limit,
+                        output="".join(captured),
+                        stderr=None,
+                    ) from None
+                if now - start > hard_cap:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    raise subprocess.TimeoutExpired(
+                        cmd=cmd,
+                        timeout=hard_cap,
+                        output="".join(captured),
+                        stderr=None,
+                    ) from None
+        t.join(timeout=5)
+        out = "".join(captured)
+        if rc != 0:
+            raise subprocess.CalledProcessError(returncode=rc, cmd=cmd, output=out, stderr=out)
 
     def stop(self) -> None:
         try:
@@ -65,7 +137,7 @@ class PodmanBackend(Backend):
                 [*self._compose_cmd(), "down"],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=180,
             )
             if result.returncode != 0:
                 log.warning(
@@ -74,7 +146,7 @@ class PodmanBackend(Backend):
                     result.stderr.strip(),
                 )
         except subprocess.TimeoutExpired:
-            log.error("podman compose down timed out (60s)")
+            log.error("podman compose down timed out (180s)")
 
     def _container_state(self) -> str:
         """Return the lower-cased container state, or empty string if unavailable."""

@@ -61,7 +61,7 @@ def test_agent_ok_skips_freerdp_and_recovery_prompt(_cfg, monkeypatch):
     transport.exec.assert_called_once()
     _, kwargs = transport.exec.call_args
     assert kwargs.get("description") == "sync-password"
-    assert kwargs.get("timeout") == 30
+    assert kwargs.get("timeout") == 90
     rin.assert_not_called()
 
 
@@ -89,7 +89,7 @@ def test_agent_unavailable_falls_back_to_freerdp(_cfg, monkeypatch):
     assert "net user" in args[1]
     assert "target-pw" in args[1]  # the value from cfg, not the recovery
     assert kwargs.get("description") == "sync-password"
-    assert kwargs.get("timeout") == 45
+    assert kwargs.get("timeout") == 120
 
 
 def test_agent_auth_error_does_not_fall_back(_cfg, monkeypatch, capsys):
