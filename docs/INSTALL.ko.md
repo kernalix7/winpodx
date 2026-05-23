@@ -209,22 +209,36 @@ paru -S winpodx
 
 PKGBUILD 는 [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) 에 있고, 태그 푸시 (`v*.*.*`) 마다 버전 + tarball sha256 자동 stamp 후 `aur.archlinux.org/winpodx.git` 로 푸시.
 
-## AppImage
+## AppImage (fat 번들: Python + Qt + FreeRDP + Podman + podman-compose)
 
-distro 무관 winpodx AppImage 가 태그 release 마다 asset 으로 ship 됨. Python 런타임 + winpodx + Qt6 (PySide6) 를 단일 실행 파일에 번들. **호스트의 FreeRDP / Podman 또는 Docker / KVM 은 여전히 필요** -- 이 시스템 컴포넌트들은 AppImage 안에 번들해도 의미 있게 동작하지 않음 (FreeRDP 는 호스트 X/Wayland 세션 통합 필요, `/dev/kvm` 은 호스트 커널 기능, podman 의 rootless setup 은 `/etc/subuid` 매핑이 필요한데 root 만 쓸 수 있음). 부족하면 `winpodx setup` 과 `winpodx doctor` 가 distro 별 설치 명령 출력 -- curl 원라이너와 동일한 동작.
+distro 무관 winpodx AppImage 가 태그 release 마다 asset 으로 ship 됨. 초기에 ship 된 lean Python-only AppImage (#302) 와 달리 현재는 **fat 번들**: Python 3.11, winpodx, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`), Podman, podman-compose, conmon, crun, netavark, slirp4netns, passt/pasta + transitive 라이브러리 의존성까지 포함.
+
+번들 크기 ~290 MB, user space 에서 패키지 가능한 모든 것 self-contained. **호스트 측 남은 요구사항**:
+
+- 호스트 커널이 `/dev/kvm` 노출 (BIOS 에서 VT-x / AMD-V 활성화 시 대부분 distro 기본 동작)
+- 현재 사용자가 `kvm` 그룹 멤버이고 rootless Podman 용 `/etc/subuid` + `/etc/subgid` 엔트리 존재
+
+두 가지 다 root 권한 필요 — AppImage 가 user space 에서 못 함. winpodx 가 pkexec 위저드로 한 번의 polkit 프롬프트로 모두 처리:
 
 ```bash
 # 1. 최신 GitHub release 에서 AppImage 다운로드
-#    -> winpodx-<version>-x86_64.AppImage
+#    -> winpodx-fat-x86_64.AppImage
 
 # 2. 실행 권한 부여
-chmod +x winpodx-*-x86_64.AppImage
+chmod +x winpodx-fat-x86_64.AppImage
 
-# 3. 첫 실행 setup (backend / cores / RAM / timezone 질문; 다른 설치 방법 후 `winpodx setup` 과 동일한 흐름)
-./winpodx-*-x86_64.AppImage setup
+# 3. 첫 실행 호스트 setup — polkit 프롬프트 한 번, 수동 sudo 없음
+./winpodx-fat-x86_64.AppImage setup-host          # detect + 대화형 프롬프트
+./winpodx-fat-x86_64.AppImage setup-host --apply  # 프롬프트 없이 적용
+./winpodx-fat-x86_64.AppImage setup-host --status # detect 만, mutation 없음
 
-# 4. 데스크탑 (또는 설치된 Windows 앱 이름) 실행
-./winpodx-*-x86_64.AppImage app run desktop
+# 4. 로그아웃 + 재로그인 — 새 kvm 그룹 멤버십 적용
+
+# 5. 표준 winpodx setup (cores / RAM / timezone 자동감지)
+./winpodx-fat-x86_64.AppImage setup
+
+# 6. 데스크탑 (또는 설치된 Windows 앱 이름) 실행
+./winpodx-fat-x86_64.AppImage app run desktop
 ```
 
 권장 사용 환경:

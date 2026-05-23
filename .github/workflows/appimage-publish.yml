@@ -30,44 +30,111 @@ jobs:
       - name: Install build prerequisites
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --upgrade build python-appimage
+          python -m pip install --upgrade build
 
-      - name: Install FUSE runtime for appimagetool
-        # ubuntu-24.04 runners ship without libfuse2; python-appimage's
-        # downloaded appimagetool tries to FUSE-mount itself and fails
-        # silently when libfuse2 is missing, producing no AppImage and
-        # the next step bombs with "No AppImage produced." libfuse2t64
-        # is the 24.04 transition package that provides libfuse.so.2.
-        run: sudo apt-get update && sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
+      - name: Pre-install appimagetool (extract-and-wrap, FUSE-free)
+        # GitHub Actions ubuntu-24.04 runners cannot mount AppImages
+        # via FUSE in the sandboxed environment. Download appimagetool
+        # ourselves, extract its squashfs payload, and put a thin
+        # wrapper on PATH at /usr/local/bin/appimagetool that exec's
+        # into the extracted AppRun.
+        run: |
+          cd /tmp
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract >/dev/null
+          sudo mv squashfs-root /opt/appimagetool
+          sudo tee /usr/local/bin/appimagetool >/dev/null <<'WRAPPER'
+          #!/bin/sh
+          exec /opt/appimagetool/AppRun "$@"
+          WRAPPER
+          sudo chmod +x /usr/local/bin/appimagetool
+          appimagetool --version || true
 
       - name: Build winpodx wheel
         run: python -m build --wheel --outdir dist
 
-      - name: Pin AppImage recipe to the freshly-built wheel
+      - name: Stage AppDir with portable Python + winpodx
+        # Bypass python-appimage entirely -- it does its own
+        # appimagetool download that ignores our PATH wrapper and
+        # silently fails on CI. Instead: drop a python-build-standalone
+        # portable Python 3.11 into AppDir, install winpodx into its
+        # site-packages, write AppRun + desktop + icon, then hand off
+        # to bundle-system-bins.sh for the system-binary overlay.
         run: |
+          set -euo pipefail
+          mkdir -p AppDir/opt AppDir/usr/bin AppDir/usr/lib
+          # Portable Python 3.11 with linked OpenSSL, gnu-linux x86_64.
+          # Pinned to a known-good astral-sh python-build-standalone release.
+          # Bump the tag + version pair together when refreshing.
+          PYBUILD_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20240909/cpython-3.11.10+20240909-x86_64-unknown-linux-gnu-install_only.tar.gz"
+          curl -fsSL "${PYBUILD_URL}" -o /tmp/python-standalone.tar.gz
+          tar -xzf /tmp/python-standalone.tar.gz -C AppDir/opt/
+          # Tarball extracts to AppDir/opt/python/ on the install_only build.
+          AppDir/opt/python/bin/python3 -m pip install --upgrade pip
           WHEEL="$(ls -t dist/winpodx-*.whl | head -n1)"
-          if [ -z "${WHEEL}" ]; then
-              echo "No wheel produced under dist/; aborting." >&2
-              exit 1
-          fi
-          echo "Using wheel: ${WHEEL}"
-          WHEEL_ABS="$(readlink -f "${WHEEL}")"
-          printf '%s[gui,reverse-open]\n' "${WHEEL_ABS}" > packaging/appimage/recipe/requirements.txt
+          AppDir/opt/python/bin/python3 -m pip install --no-cache-dir "${WHEEL}[gui,reverse-open]"
+          # AppRun
+          cat > AppDir/AppRun <<'APPRUN'
+          #!/bin/sh
+          APPDIR="$(dirname "$(readlink -f "$0")")"
+          export PATH="$APPDIR/usr/bin:$APPDIR/opt/python/bin:$PATH"
+          export LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/opt/python/lib:$LD_LIBRARY_PATH"
+          export PYTHONPATH="$APPDIR/opt/python/lib/python3.11/site-packages:$PYTHONPATH"
+          exec "$APPDIR/opt/python/bin/winpodx" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+          # Desktop + icon -- appimagetool expects them in AppDir root.
+          cp packaging/appimage/recipe/winpodx.desktop AppDir/
+          cp packaging/appimage/recipe/winpodx.png AppDir/
+          # Symlink common icon location too (some launchers look here)
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          cp packaging/appimage/recipe/winpodx.png AppDir/usr/share/icons/hicolor/256x256/apps/winpodx.png
+          du -sh AppDir
 
-      - name: Build AppImage
-        working-directory: packaging/appimage
+      - name: Bundle system binaries (FreeRDP + Podman) via Fedora 41
+        # Fat-bundle stage: pulls xfreerdp3, podman, podman-compose,
+        # conmon, crun, netavark, slirp4netns, passt out of a Fedora 41
+        # container and traverses ldd to bring in transitive lib deps.
+        # Host-critical libs (glibc, libX11, libwayland, libGL, ...)
+        # stay on the host -- they cannot be bundled without breaking
+        # desktop integration or hard-crashing on glibc mismatch.
+        run: |
+          docker run --rm \
+              -v "$PWD/AppDir:/AppDir" \
+              -v "$PWD/packaging/appimage:/scripts" \
+              fedora:41 bash -c '
+                  set -euo pipefail
+                  dnf install -y --setopt=install_weak_deps=False \
+                      freerdp \
+                      freerdp-libs \
+                      libwinpr \
+                      podman \
+                      podman-compose \
+                      conmon \
+                      crun \
+                      netavark \
+                      slirp4netns \
+                      passt \
+                      file
+                  echo "[provenance] freerdp binaries provided:"
+                  rpm -ql freerdp | grep -E "^(/usr/bin|/usr/libexec)/.*freerdp.*" || true
+                  bash /scripts/bundle-system-bins.sh /AppDir
+              '
+
+      - name: Repack as fat AppImage
         env:
-          # Belt-and-braces: even with libfuse2 present, some appimagetool
-          # nightlies refuse to FUSE-mount on minimal CI shells. This env
-          # tells appimagetool to extract itself + re-exec rather than
-          # mount, which always works in a container/CI environment.
-          APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: python -m python_appimage build app -p 3.11 recipe/
+          ARCH: x86_64
+        run: |
+          OUT="winpodx-fat-x86_64.AppImage"
+          appimagetool AppDir "${OUT}"
+          chmod +x "${OUT}"
+          ls -lh "${OUT}"
 
       - name: Locate built AppImage
         id: locate
         run: |
-          APPIMAGE="$(ls -t packaging/appimage/winpodx-*-x86_64.AppImage | head -n1)"
+          APPIMAGE="$(ls -t winpodx-fat-x86_64.AppImage | head -n1)"
           if [ -z "${APPIMAGE}" ]; then
               echo "No AppImage produced." >&2
               exit 1
