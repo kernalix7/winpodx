@@ -73,7 +73,11 @@ def _current_username() -> str:
 
 def _user_in_group(group: str) -> bool:
     try:
-        return group in [g.gr_name for g in grp.getgrall() if os.getuid() in g.gr_mem or _current_username() in g.gr_mem]
+        user = _current_username()
+        return any(
+            g.gr_name == group and (os.getuid() in g.gr_mem or user in g.gr_mem)
+            for g in grp.getgrall()
+        )
     except OSError:
         return False
 

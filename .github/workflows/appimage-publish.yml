@@ -65,7 +65,9 @@ jobs:
           set -euo pipefail
           mkdir -p AppDir/opt AppDir/usr/bin AppDir/usr/lib
           # Portable Python 3.11 with linked OpenSSL, gnu-linux x86_64.
-          PYBUILD_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20251104/cpython-3.11.14+20251104-x86_64-unknown-linux-gnu-install_only.tar.gz"
+          # Pinned to a known-good astral-sh python-build-standalone release.
+          # Bump the tag + version pair together when refreshing.
+          PYBUILD_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20240909/cpython-3.11.10+20240909-x86_64-unknown-linux-gnu-install_only.tar.gz"
           curl -fsSL "${PYBUILD_URL}" -o /tmp/python-standalone.tar.gz
           tar -xzf /tmp/python-standalone.tar.gz -C AppDir/opt/
           # Tarball extracts to AppDir/opt/python/ on the install_only build.

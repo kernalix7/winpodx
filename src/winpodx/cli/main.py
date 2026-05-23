@@ -399,6 +399,27 @@ def cli(argv: list[str] | None = None) -> None:
         ),
     )
 
+    host_p = sub.add_parser(
+        "setup-host",
+        help=(
+            "Host-side setup wizard. Detects + (with --apply) fixes via "
+            "pkexec the host bits the AppImage cannot bundle: kvm group "
+            "membership, /etc/subuid + /etc/subgid entries for rootless "
+            "podman, kvm module persistence. Safe on already-set-up "
+            "hosts (no-op if everything's in place)."
+        ),
+    )
+    host_p.add_argument(
+        "--status",
+        action="store_true",
+        help="Print the host state report and exit. No mutation.",
+    )
+    host_p.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply via pkexec without prompting for confirmation.",
+    )
+
     unsub = sub.add_parser(
         "uninstall",
         help=(
@@ -536,6 +557,15 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.doctor import handle_doctor
 
         handle_doctor(args)
+    elif cmd == "setup-host":
+        from winpodx.setup_wizard.__main__ import main as setup_host_main
+
+        wizard_argv: list[str] = []
+        if getattr(args, "status", False):
+            wizard_argv.append("--status")
+        if getattr(args, "apply", False):
+            wizard_argv.append("--apply")
+        sys.exit(setup_host_main(wizard_argv))
     elif cmd == "power":
         _cmd_power(args)
     elif cmd == "migrate":

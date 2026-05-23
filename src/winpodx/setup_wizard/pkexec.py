@@ -64,7 +64,8 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
             "# kvm group membership -- only adds if user is missing.",
             f"if ! id -nG {user} | tr ' ' '\\n' | grep -qx kvm; then",
             f"    usermod -aG kvm {user}",
-            f"    echo '[wizard] Added {username} to kvm group (log out + back in for it to take effect).'",
+            f"    echo '[wizard] Added {username} to kvm group "
+            "(log out + back in for it to take effect).'",
             "else",
             f"    echo '[wizard] {username} already in kvm group; skipping.'",
             "fi",
@@ -74,7 +75,7 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
         lines += [
             "",
             "# /etc/subuid -- rootless podman uid mapping.",
-            f"if ! grep -q \"^{username}:\" /etc/subuid 2>/dev/null; then",
+            f'if ! grep -q "^{username}:" /etc/subuid 2>/dev/null; then',
             f"    echo '{username}:100000:65536' >> /etc/subuid",
             f"    echo '[wizard] Added subuid entry for {username}.'",
             "else",
@@ -86,7 +87,7 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
         lines += [
             "",
             "# /etc/subgid -- rootless podman gid mapping.",
-            f"if ! grep -q \"^{username}:\" /etc/subgid 2>/dev/null; then",
+            f'if ! grep -q "^{username}:" /etc/subgid 2>/dev/null; then',
             f"    echo '{username}:100000:65536' >> /etc/subgid",
             f"    echo '[wizard] Added subgid entry for {username}.'",
             "else",
@@ -107,7 +108,8 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
             "            echo kvm_amd",
             "        fi",
             "    } > /etc/modules-load.d/kvm-winpodx.conf",
-            "    echo '[wizard] Wrote /etc/modules-load.d/kvm-winpodx.conf so kvm module persists across reboot.'",
+            "    echo '[wizard] Wrote /etc/modules-load.d/kvm-winpodx.conf "
+            "so kvm module persists across reboot.'",
             "else",
             "    echo '[wizard] /etc/modules-load.d/kvm-winpodx.conf already present; skipping.'",
             "fi",
