@@ -396,7 +396,18 @@ if ! command -v podman >/dev/null 2>&1; then
     MISSING+=("podman")
 fi
 
-if ! command -v podman-compose >/dev/null 2>&1 && ! podman compose version >/dev/null 2>&1; then
+# Require podman-compose proper. `podman compose` (the subcommand)
+# delegates to whatever compose provider it finds first, and on systems
+# that have the docker-compose CLI plugin installed (Fedora / Nobara
+# default) that delegation succeeds while silently routing through
+# docker-compose. docker-compose does not understand podman's
+# `group_add: [keep-groups]` magic value (required for rootless
+# /dev/kvm access), so the container fails to start with:
+#   "looking up supplemental groups for container ...: Unable to find
+#    group keep-groups: no matching entries in group file"
+# See #288 (magicdiablo, Nobara). Don't rely on `podman compose
+# version` succeeding -- it lies via delegation.
+if ! command -v podman-compose >/dev/null 2>&1; then
     MISSING+=("podman-compose")
 fi
 

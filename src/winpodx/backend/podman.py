@@ -18,12 +18,29 @@ class PodmanBackend(Backend):
         return str(config_dir() / "compose.yaml")
 
     def _compose_cmd(self) -> list[str]:
-        # Prefer podman-compose directly (avoids docker-compose plugin hijacking)
+        # We require podman-compose proper -- the `podman compose`
+        # subcommand delegates to whatever compose provider it finds,
+        # and on Fedora-family systems with the docker-compose CLI
+        # plugin installed (Nobara default) it routes through
+        # docker-compose. docker-compose does not understand podman's
+        # `group_add: [keep-groups]` magic value (which we need for
+        # rootless /dev/kvm access), so the container start fails with
+        # "looking up supplemental groups ... Unable to find group
+        # keep-groups". See #288 (magicdiablo).
         import shutil
 
         if shutil.which("podman-compose"):
             return ["podman-compose", "-f", self._compose_file()]
-        return ["podman", "compose", "-f", self._compose_file()]
+        raise RuntimeError(
+            "podman-compose not found on PATH. winpodx requires podman-compose "
+            "(not the `podman compose` subcommand, which delegates to "
+            "docker-compose and breaks our keep-groups extension -- see #288). "
+            "Install it with your package manager: "
+            "Fedora/Nobara: `sudo dnf install podman-compose`, "
+            "Debian/Ubuntu: `sudo apt install podman-compose`, "
+            "Arch: `sudo pacman -S podman-compose`, "
+            "openSUSE: `sudo zypper install podman-compose`."
+        )
 
     def start(self) -> None:
         try:
