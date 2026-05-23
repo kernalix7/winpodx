@@ -8,7 +8,12 @@ Name:           %{pypi_name}
 Version:        0.1.5
 Release:        0
 Summary:        Windows app integration for Linux desktop
-License:        MIT
+# MIT covers winpodx + bundled rdprrap (same MIT terms).
+# Apache-2.0 covers stascorp/rdpwrap, ported into rdprrap and
+# redistributed inside config/oem/rdprrap-*-windows-x64.zip. See
+# debian/copyright + THIRD_PARTY_LICENSES.md for the full breakdown.
+# Combined SPDX expression follows Fedora packaging guidelines.
+License:        MIT AND Apache-2.0
 URL:            https://github.com/kernalix7/winpodx
 Source0:        %{name}-%{version}.tar.gz
 
