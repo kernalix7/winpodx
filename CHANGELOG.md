@@ -28,6 +28,10 @@ verbatim.
 ### Fixed
 -->
 
+### Changed
+
+- **OEM `install.bat` drops the powercfg + PlatformAoAcOverride block.** PR #219 (v0.5.5) added 22 lines that zeroed every powercfg timeout and forced `PlatformAoAcOverride=0` to keep Modern Standby from suspending the virtio NIC on the Windows guest. The root cause of the NIC-stall issues that block was meant to fix turned out to be elsewhere (`proc.sh:137` agent-never-installs, see #287 below), and the v0.5.5 layered recovery (PodState.UNRESPONSIVE + tray auto-recovery cycling TermService + power-monitor.ps1 SYSTEM task watching Win32_PowerManagementEvent) already catches a natural NIC drop. With the proactive override removed, install.bat first-boot becomes 22 lines shorter and no longer relies on Windows accepting the Desktop platform-role override.
+
 ### Fixed
 
 - **`-no-hpet` removed -- QEMU 10 (dockur v5.15+) rejects it as invalid option.** PR #281's hv-enlightenments work appended `-no-hpet` to the QEMU ARGUMENTS when the auto / safe / performance profiles selected the Hyper-V machine timer. dockur v5.15 ships QEMU 10.x via the qemus/qemu v7.30 base image; QEMU 10 dropped the `-no-hpet` flag entirely (replacement is `-machine ...,hpet=off`, which would override dockur's machine type). Container start now bombs with `qemu-system-x86_64: -no-hpet: invalid option`. Dropping the flag has no functional impact -- the `hv-stimer` + `hv-stimer-direct` enlightenments already steer Windows off HPET as the clock source. Reported by @ismikes on Kubuntu 26.04 against main HEAD after PR #289 merged.
