@@ -208,24 +208,38 @@ paru -S winpodx
 
 The PKGBUILD lives at [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD); each tag push (`v*.*.*`) auto-stamps the version + tarball sha256 and pushes to `aur.archlinux.org/winpodx.git`.
 
-## AppImage
+## AppImage (fat bundle: Python + Qt + FreeRDP + Podman + podman-compose)
 
-A distro-agnostic AppImage of winpodx ships as a release asset on every tagged release. It bundles the Python runtime + winpodx + Qt6 (PySide6) into a single executable file, but **still requires the host's FreeRDP, Podman / Docker, and KVM** -- those system-level components cannot be packaged inside an AppImage in a usable way (FreeRDP needs to integrate with the host's X / Wayland session, `/dev/kvm` is a host kernel feature, podman's rootless setup needs `/etc/subuid` mappings that only root can write). If any of those are missing, `winpodx setup` and `winpodx doctor` print per-distro install commands -- this matches what the curl one-liner would have done.
+A distro-agnostic AppImage of winpodx ships as a release asset on every tagged release. Unlike the lean Python-only AppImage shipped initially (#302), the current AppImage is a **fat bundle**: it carries Python 3.11, winpodx, Qt6 (PySide6), the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`), Podman, podman-compose, conmon, crun, netavark, slirp4netns, and passt/pasta + their transitive library dependencies.
+
+The bundle is ~290 MB and self-contained for everything that can be packaged in user space. The **only** host-side requirements left are:
+
+- `/dev/kvm` exposed by the host kernel (most distros do this by default once VT-x / AMD-V is enabled in BIOS).
+- The current user belongs to the `kvm` group AND has `/etc/subuid` + `/etc/subgid` entries for rootless Podman.
+
+Both of those need root, which an AppImage cannot do from user space. winpodx ships a one-shot pkexec wizard that performs all three in a single polkit prompt:
 
 ```bash
 # 1. Download the AppImage from the latest GitHub release
-#    -> winpodx-<version>-x86_64.AppImage
+#    -> winpodx-fat-x86_64.AppImage
 
 # 2. Make it executable
-chmod +x winpodx-*-x86_64.AppImage
+chmod +x winpodx-fat-x86_64.AppImage
 
-# 3. First-run setup (asks for backend / cores / RAM / timezone; same
-#    prompt as `winpodx setup` after any other install method).
-./winpodx-*-x86_64.AppImage setup
+# 3. First-run host setup -- one polkit prompt, no manual sudo dance
+./winpodx-fat-x86_64.AppImage setup-host          # detect + interactive prompt
+./winpodx-fat-x86_64.AppImage setup-host --apply  # apply without prompt
+./winpodx-fat-x86_64.AppImage setup-host --status # detect only, no mutation
 
-# 4. Launch the desktop (or any installed Windows app by name)
-./winpodx-*-x86_64.AppImage app run desktop
+# 4. Log out + back in so the new kvm group membership takes effect.
+
+# 5. Standard winpodx setup (auto-detect cores / RAM / timezone)
+./winpodx-fat-x86_64.AppImage setup
+
+# 6. Launch the desktop (or any installed Windows app by name)
+./winpodx-fat-x86_64.AppImage app run desktop
 ```
+
 
 Best fit for:
 
