@@ -199,6 +199,17 @@ def cli(argv: list[str] | None = None) -> None:
     add_install_status(pod_sub)
     add_install_resume(pod_sub)
 
+    pod_sub.add_parser(
+        "recover-oem",
+        help=(
+            "Re-stage C:\\OEM in the Windows guest when dockur's automatic "
+            "first-boot OEM copy failed (#287). Tars /oem inside the "
+            "container, starts an HTTP server, and prints the noVNC "
+            "PowerShell commands the user must paste to download + run "
+            "install.bat manually. podman/docker backends only."
+        ),
+    )
+
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")
     cfg_sub = cfg_parser.add_subparsers(dest="config_command")

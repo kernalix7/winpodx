@@ -36,10 +36,13 @@ def handle_pod(args: argparse.Namespace) -> None:
         from winpodx.cli.pod_install_resume import handle as handle_install_resume
 
         sys.exit(handle_install_resume(args))
+    elif cmd == "recover-oem":
+        _recover_oem()
     else:
         print(
             "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
-            "sync-password|multi-session|wait-ready|install-status|install-resume}"
+            "sync-password|multi-session|wait-ready|install-status|install-resume|"
+            "recover-oem}"
         )
         sys.exit(1)
 
@@ -998,3 +1001,175 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                     log_proc.kill()
                 except Exception:  # noqa: BLE001
                     pass
+
+
+def _recover_oem() -> None:
+    """Recover from a failed dockur OEM-copy by re-staging C:\\OEM\\ manually.
+
+    Workaround for #287: in some host environments dockur's first-boot
+    ``/oem -> C:\\OEM\\`` copy silently fails, leaving the guest with
+    no ``install.bat``, no agent, and no rdprrap. The host then sees
+    port 8765 RST and ``winpodx pod wait-ready`` times out.
+
+    This command:
+
+    1. Verifies the container is running and ``/oem/install.bat`` is
+       present inside the container (i.e. host-side OEM mount is OK
+       and only the guest-side copy is what failed).
+    2. Tars ``/oem`` to ``/storage/oem.tar.gz`` inside the container.
+    3. Starts a one-shot Python HTTP server on container port 9999
+       (reachable from the Windows guest via QEMU's NAT gateway
+       ``10.0.2.2``).
+    4. Prints the exact PowerShell commands the user must paste into
+       the noVNC console to download, extract, and run ``install.bat``.
+
+    We do not push to the guest automatically because the failure mode
+    of #287 leaves the agent dead -- there is no working host->guest
+    channel. noVNC PowerShell paste is the only reliable path until the
+    agent is up.
+    """
+    import shutil as _shutil
+    import subprocess
+    import time
+
+    from winpodx.core.provisioner import _ensure_config
+
+    cfg = _ensure_config()
+    container = cfg.pod.container_name
+    backend_name = cfg.pod.backend
+
+    if backend_name not in ("podman", "docker"):
+        print(
+            f"Error: recover-oem only supports podman/docker backends "
+            f"(current: {backend_name}). For libvirt/manual backends, "
+            f"copy /oem into the guest manually."
+        )
+        sys.exit(1)
+
+    cmd = backend_name
+    if not _shutil.which(cmd):
+        print(f"Error: {cmd} not found on PATH.")
+        sys.exit(1)
+
+    print(f"[winpodx] Checking container '{container}' is running...")
+    try:
+        result = subprocess.run(
+            [
+                cmd,
+                "ps",
+                "--filter",
+                f"name={container}",
+                "--filter",
+                "status=running",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"Error: '{cmd} ps' timed out (10s).")
+        sys.exit(1)
+    if container not in result.stdout:
+        print(
+            f"Error: container '{container}' not running. Start it first with 'winpodx pod start'."
+        )
+        sys.exit(1)
+
+    print("[winpodx] Verifying /oem/install.bat exists inside container...")
+    try:
+        check = subprocess.run(
+            [cmd, "exec", container, "sh", "-c", "test -f /oem/install.bat"],
+            capture_output=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        print("Error: container exec timed out (10s).")
+        sys.exit(1)
+    if check.returncode != 0:
+        print(
+            "Error: /oem/install.bat not found inside container. "
+            "The host-side OEM mount itself is missing -- recreate "
+            "the pod with 'winpodx pod recreate' before retrying."
+        )
+        sys.exit(1)
+
+    print("[winpodx] Tarring /oem into /storage/oem.tar.gz inside container...")
+    try:
+        subprocess.run(
+            [
+                cmd,
+                "exec",
+                container,
+                "sh",
+                "-c",
+                "cd / && tar czf /storage/oem.tar.gz oem && ls -la /storage/oem.tar.gz",
+            ],
+            check=True,
+            timeout=60,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error: tar failed (rc={e.returncode}).")
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print("Error: tar timed out (60s).")
+        sys.exit(1)
+
+    print("[winpodx] Starting HTTP server on container port 9999...")
+    # Best-effort cleanup of any prior server on 9999.
+    subprocess.run(
+        [
+            cmd,
+            "exec",
+            container,
+            "sh",
+            "-c",
+            "pkill -f 'http.server 9999' 2>/dev/null; true",
+        ],
+        capture_output=True,
+        timeout=5,
+    )
+    time.sleep(1)
+    # `-d` detaches the exec so the server keeps running after we return.
+    subprocess.run(
+        [
+            cmd,
+            "exec",
+            "-d",
+            container,
+            "sh",
+            "-c",
+            "cd /storage && nohup python3 -m http.server 9999 >/tmp/recover-oem-http.log 2>&1 &",
+        ],
+        timeout=10,
+    )
+    time.sleep(2)
+
+    print()
+    print("=" * 70)
+    print("Paste these commands into the Windows guest via noVNC PowerShell:")
+    print()
+    print("  noVNC URL: http://127.0.0.1:8007/")
+    print()
+    print("  # Download OEM bundle from container (10.0.2.2 = QEMU NAT gateway)")
+    print("  Invoke-WebRequest http://10.0.2.2:9999/oem.tar.gz -OutFile C:\\oem.tar.gz")
+    print()
+    print("  # Extract to C:\\OEM\\ (Windows 10/11 ships bsdtar in System32)")
+    print("  cd C:\\")
+    print("  tar -xzf C:\\oem.tar.gz")
+    print()
+    print("  # Verify: should list install.bat, agent\\, rdprrap\\, scripts\\, etc.")
+    print("  dir C:\\OEM")
+    print()
+    print("  # Run install.bat -- guest will reboot at the end")
+    print("  C:\\OEM\\install.bat")
+    print()
+    print("=" * 70)
+    print()
+    print("After the post-install reboot, on this host:")
+    print("  winpodx pod wait-ready")
+    print("  winpodx check")
+    print()
+    print("To stop the HTTP server when finished:")
+    print(f"  {cmd} exec {container} pkill -f 'http.server 9999'")
