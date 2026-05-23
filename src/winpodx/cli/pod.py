@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 
 
@@ -821,6 +822,31 @@ def _wait_for_oem_reboot(cfg, timeout: int) -> bool:  # type: ignore[no-untyped-
     return False
 
 
+# Wget progress line format dockur prints during Windows ISO download:
+#
+#   6488064K ........ ........ ........ ........ 78% 4.55M 21m22s
+#                                                %    speed remaining
+#
+# We only match the "remaining" form (space-separated time after speed),
+# not the "= elapsed" form (4.55M=21m22s) that wget prints when it
+# hasn't seen enough samples for an ETA yet. The space anchor before
+# the time group is load-bearing -- it discriminates the two forms.
+_WGET_ETA_RE = re.compile(r"\d+%\s+\d+\.?\d*[KMG]?\s+(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?\s*$")
+
+
+def _parse_wget_eta_secs(line: str) -> int | None:
+    """Extract wget's "remaining time" estimate (seconds) from a dockur
+    progress line. Returns None if the line doesn't carry a usable ETA
+    (no match, or all-zero groups).
+    """
+    m = _WGET_ETA_RE.search(line)
+    if m is None:
+        return None
+    h, mn, s = m.groups()
+    secs = (int(h) if h else 0) * 3600 + (int(mn) if mn else 0) * 60 + (int(s) if s else 0)
+    return secs if secs > 0 else None
+
+
 def _wait_ready(timeout: int, show_logs: bool) -> None:
     """v0.2.0.5: multi-phase wait for the Windows VM to finish first-boot.
 
@@ -836,6 +862,16 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     and surfaced as ``[container] ...`` lines so the user can see Windows
     actually doing work (Sysprep, OEM apply, etc.) instead of a black
     box.
+
+    The deadline is dynamic when ``--logs`` is on: wget's ETA from the
+    Windows ISO download is parsed in the log-drain thread and used to
+    extend the wait window if the user's connection is slow enough that
+    the static timeout would expire mid-download (xiyeming #126: 86min
+    ISO download exceeded the 60min default). No upper bound -- we
+    trust the ETA wget itself reports. If the download genuinely
+    stalls, no new ETA arrives, the deadline stops moving, and the
+    wait expires naturally on the last extension. No-op for fast
+    connections (their ETA always fits inside the current deadline).
     """
     import threading
     import time as _time
@@ -852,6 +888,43 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
 
     timeout = max(60, min(7200, int(timeout)))
     start = _time.monotonic()
+
+    # Mutable deadline so the log-drain thread can extend it when slow
+    # download progress is observed. No ceiling -- we trust wget's
+    # ETA. A genuinely stalled download stops producing ETA lines, so
+    # the deadline stops advancing and the wait expires naturally.
+    # The buffer is wider than the post-download Sysprep / OEM apply
+    # actually needs (typically 2-8min) because real-world downloads
+    # have brief network blips and a transient stall shouldn't fail
+    # the wait outright -- we'd rather wait an extra ~hour than mark
+    # a recoverable hiccup as a hard timeout.
+    _BOOT_BUFFER_SECS = 3600  # 60min slack for blips + post-download boot
+    _ANNOUNCE_STEP_SECS = 600  # only re-announce when deadline jumps 10min+
+    deadline_state = {
+        "value": start + timeout,
+        "last_announced": None,
+    }
+
+    def _maybe_extend_deadline(eta_remaining_secs: int) -> None:
+        """Extend deadline if wget ETA suggests the current one will
+        expire before the download finishes. Idempotent + threadsafe
+        enough (single-key dict writes are atomic under the GIL; we
+        accept eventual consistency)."""
+        now = _time.monotonic()
+        new_deadline = now + eta_remaining_secs + _BOOT_BUFFER_SECS
+        if new_deadline <= deadline_state["value"]:
+            return
+        deadline_state["value"] = new_deadline
+        last = deadline_state["last_announced"]
+        if last is None or new_deadline - last >= _ANNOUNCE_STEP_SECS:
+            total_min = int((new_deadline - start) / 60)
+            eta_min = max(1, eta_remaining_secs // 60)
+            print(
+                f"[winpodx] Slow Windows ISO download detected "
+                f"(~{eta_min}m remaining). "
+                f"Extending wait to {total_min}m total."
+            )
+            deadline_state["last_announced"] = new_deadline
 
     def elapsed() -> str:
         s = int(_time.monotonic() - start)
@@ -916,6 +989,12 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                         and "you are using the BTRFS filesystem for /storage" in line
                     ):
                         line = "(btrfs warning suppressed: NoCoW bind mount in use)"
+                    # Watch dockur's wget progress for slow downloads --
+                    # extend the wait deadline when the ETA suggests the
+                    # static timeout would expire mid-download (#126).
+                    eta_secs = _parse_wget_eta_secs(line)
+                    if eta_secs is not None:
+                        _maybe_extend_deadline(eta_secs)
                     print(f"       [container] {_rewrite_vnc_url(line)}")
 
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
@@ -927,8 +1006,7 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     try:
         # --- [1/4] Container running ---
         print(f"[1/4] Waiting for container to start...      ({elapsed()})")
-        deadline = start + timeout
-        while _time.monotonic() < deadline:
+        while _time.monotonic() < deadline_state["value"]:
             try:
                 if pod_status(cfg).state == PodState.RUNNING:
                     print(f"      OK Container running                   ({elapsed()})")
@@ -942,7 +1020,7 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
 
         # --- [2/4] RDP port open ---
         print(f"[2/4] Waiting for Windows RDP service...     ({elapsed()})")
-        while _time.monotonic() < deadline:
+        while _time.monotonic() < deadline_state["value"]:
             if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
                 print(f"      OK RDP port {cfg.rdp.port} open                  ({elapsed()})")
                 break
@@ -953,7 +1031,7 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
 
         # --- [3/4] FreeRDP RemoteApp activation ---
         print(f"[3/4] Waiting for Windows activation...      ({elapsed()})")
-        remaining = max(60, int(deadline - _time.monotonic()))
+        remaining = max(60, int(deadline_state["value"] - _time.monotonic()))
         if wait_for_windows_responsive(cfg, timeout=remaining):
             print(f"      OK Windows ready                         ({elapsed()})")
         else:
@@ -981,7 +1059,7 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         # silently — `apply-fixes` will surface the pending-reboot
         # condition separately if it matters.
         print(f"[4/4] Waiting for OEM reboot pass...         ({elapsed()})")
-        remaining = max(60, int(deadline - _time.monotonic()))
+        remaining = max(60, int(deadline_state["value"] - _time.monotonic()))
         if _wait_for_oem_reboot(cfg, timeout=remaining):
             print(f"      OK OEM reboot pass complete             ({elapsed()})")
         else:

@@ -774,7 +774,7 @@ mark_pending() {
 }
 
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
-    log "Waiting for Windows VM to finish first-boot (up to 60 min)..."
+    log "Waiting for Windows VM to finish first-boot (60 min default, auto-extends to match observed ISO download speed)..."
     log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply."
     log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
     # Capture wait-ready output so we can discriminate the "no such
@@ -823,7 +823,8 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
             warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge'
             warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main'
         else
-            warn "Windows first-boot didn't complete in 60 minutes."
+            warn "Windows first-boot didn't complete in time (default 60min,"
+            warn "auto-extended based on observed wget ETA -- see #126)."
             warn "Marking remaining steps as pending — they will auto-resume on next"
             warn "\`winpodx\` CLI invocation or when you open \`winpodx gui\`."
             mark_pending "wait_ready"
