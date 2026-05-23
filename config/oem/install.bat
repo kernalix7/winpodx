@@ -160,21 +160,28 @@ net stop DiagTrack 2>nul
 
 powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
-REM TEST BRANCH (#269 investigation): the powercfg-timeout + PlatformAoAcOverride
-REM block added in #219 (v0.5.5) is REMOVED here. ismikes' #269 narrows the
-REM v0.5.4 -> v0.5.5 regression to a fresh-install-only failure where 3390
-REM RDP and 8765 agent accept TCP but RST mid-handshake. The dockur v5.14
-REM revert + the podman unshare wrap revival both failed to fix it; the
-REM remaining v0.5.5 fresh-install delta is this OEM block + the end-of-
-REM install reboot + the power-monitor task. Removing the AoAc / powercfg
-REM block tests whether the platform-role override is what's wedging the
-REM virtio NIC / RDP listener after the registry takes effect on reboot.
-REM
-REM If a natural Modern-Standby NIC drop happens, the v0.5.5 UNRESPONSIVE
-REM auto-recovery (tray cycles TermService) + power-monitor.ps1 (cycles
-REM TermService on host suspend/resume) should still recover -- so the
-REM only loss from removing this block is the proactive "don't drop in
-REM the first place" guarantee.
+REM Force every idle timeout to "never" so the RDP service / virtio NIC
+REM don't get suspended out from under the host while the user is on a
+REM coffee break. Without this the host pod_status() probe sees RDP
+REM unreachable on a healthy container and shows "starting" forever
+REM (#TBD, observed by kernalix7).
+powercfg /change standby-timeout-ac 0
+powercfg /change standby-timeout-dc 0
+powercfg /change hibernate-timeout-ac 0
+powercfg /change hibernate-timeout-dc 0
+powercfg /change monitor-timeout-ac 0
+powercfg /change monitor-timeout-dc 0
+powercfg /change disk-timeout-ac 0
+powercfg /change disk-timeout-dc 0
+REM Modern Standby (S0 low-power idle) -- even with the timeouts above
+REM it can drop the NIC. The platform role registry key forces
+REM Desktop class so Modern Standby logic is bypassed.
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Power" /v PlatformAoAcOverride /t REG_DWORD /d 0 /f
+REM Belt-and-braces: disable hardware-initiated wake / sleep transitions
+REM via the AC profile too.
+powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0 2>nul
+powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 0 2>nul
+powercfg /setactive SCHEME_CURRENT 2>nul
 
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /t REG_DWORD /d 0 /f
 
