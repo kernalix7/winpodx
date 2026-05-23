@@ -70,20 +70,66 @@ jobs:
           WHEEL_ABS="$(readlink -f "${WHEEL}")"
           printf '%s[gui,reverse-open]\n' "${WHEEL_ABS}" > packaging/appimage/recipe/requirements.txt
 
-      - name: Build AppImage
+      - name: Build lean AppImage (Python + winpodx + Qt only)
         working-directory: packaging/appimage
         env:
-          # Belt-and-braces: even with libfuse2 present, some appimagetool
-          # nightlies refuse to FUSE-mount on minimal CI shells. This env
-          # tells appimagetool to extract itself + re-exec rather than
-          # mount, which always works in a container/CI environment.
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: python -m python_appimage build app -p 3.11 recipe/
+
+      - name: Extract lean AppImage for system-bin overlay
+        working-directory: packaging/appimage
+        run: |
+          LEAN="$(ls -t winpodx-*-x86_64.AppImage | head -n1)"
+          if [ -z "${LEAN}" ]; then
+              echo "python-appimage produced no AppImage." >&2
+              exit 1
+          fi
+          echo "Lean AppImage: ${LEAN}"
+          chmod +x "${LEAN}"
+          ./"${LEAN}" --appimage-extract >/dev/null
+          mv squashfs-root AppDir
+          rm "${LEAN}"
+          ls AppDir
+
+      - name: Bundle system binaries (FreeRDP + Podman) via Fedora 41
+        # Fat-bundle stage: pulls xfreerdp3, podman, podman-compose,
+        # conmon, crun, netavark, slirp4netns, pasta out of a Fedora 41
+        # container and traverses ldd to bring in transitive lib deps.
+        # Host-critical libs (glibc, libX11, libwayland, libGL, ...)
+        # stay on the host -- they cannot be bundled without breaking
+        # desktop integration or hard-crashing on glibc mismatch.
+        run: |
+          docker run --rm \
+              -v "$PWD/packaging/appimage:/work" \
+              fedora:41 bash -c '
+                  set -euo pipefail
+                  dnf install -y --setopt=install_weak_deps=False \
+                      freerdp \
+                      podman \
+                      podman-compose \
+                      conmon \
+                      crun \
+                      netavark \
+                      slirp4netns \
+                      passt \
+                      file
+                  bash /work/bundle-system-bins.sh /work/AppDir
+              '
+
+      - name: Repack as fat AppImage
+        working-directory: packaging/appimage
+        run: |
+          # appimagetool reads /AppDir/winpodx.desktop + /AppDir/winpodx.png
+          # + /AppDir/AppRun (python-appimage put a usable AppRun there).
+          OUT="winpodx-fat-x86_64.AppImage"
+          appimagetool AppDir "${OUT}"
+          chmod +x "${OUT}"
+          ls -lh "${OUT}"
 
       - name: Locate built AppImage
         id: locate
         run: |
-          APPIMAGE="$(ls -t packaging/appimage/winpodx-*-x86_64.AppImage | head -n1)"
+          APPIMAGE="$(ls -t packaging/appimage/winpodx-fat-x86_64.AppImage | head -n1)"
           if [ -z "${APPIMAGE}" ]; then
               echo "No AppImage produced." >&2
               exit 1

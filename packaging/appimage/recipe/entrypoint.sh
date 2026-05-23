@@ -4,16 +4,24 @@
 # ${APPDIR}/opt/python<MAJ>.<MIN>/ and the winpodx entry script at
 # ${APPDIR}/opt/python<MAJ>.<MIN>/bin/winpodx.
 #
-# winpodx itself handles first-run setup (cli/first_run.py -> setup_cmd
-# wizard) and dependency detection (cli/doctor.py). We do not duplicate
-# that logic here -- the AppImage is "just another install method" from
-# the rest of the codebase's perspective. System dependencies that the
-# AppImage cannot bundle (KVM access via the kvm group, /dev/kvm itself,
-# rootless podman subuid/subgid mappings, optionally xfreerdp3 + podman
-# if not yet bundled into the AppImage) are surfaced through the normal
-# `winpodx setup` / `winpodx doctor` paths with their existing per-distro
-# install hints.
+# Fat AppImage layout (CI bundles these via bundle-system-bins.sh):
+#   ${APPDIR}/usr/bin/      -- xfreerdp3, podman, podman-compose, etc.
+#   ${APPDIR}/usr/lib/      -- transitive .so deps (host-critical libs
+#                              like libX11 / libGL / glibc stay on host)
+#
+# We prepend the bundled bin + lib paths to PATH / LD_LIBRARY_PATH so
+# winpodx's subprocess calls find the bundled binaries first, falling
+# back to the host if a bundled copy is absent (e.g. lean-build AppImage
+# without the system-bin overlay).
 set -euo pipefail
+
+# Prefer bundled binaries + libs.
+if [ -d "${APPDIR}/usr/bin" ]; then
+    export PATH="${APPDIR}/usr/bin:${PATH:-}"
+fi
+if [ -d "${APPDIR}/usr/lib" ]; then
+    export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${LD_LIBRARY_PATH:-}"
+fi
 
 # Resolve the bundled python entrypoint that python-appimage placed
 # under opt/. There is exactly one python<MAJ>.<MIN> directory; the
