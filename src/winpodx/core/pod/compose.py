@@ -55,6 +55,8 @@ name: "winpodx"
       REGION: "{region}"
       KEYBOARD: "{keyboard}"
       TZ: "{timezone}"
+      CPU_FLAGS: "{cpu_flags}"
+      VMX: "{vmx}"
       ARGUMENTS: "{qemu_arguments}"
       USER_PORTS: "8765"
     volumes:
@@ -94,49 +96,54 @@ def _build_compose_template(backend: str) -> str:
     return template
 
 
-def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
-    """Return the QEMU ``ARGUMENTS:`` value for the host + tuning profile.
+def _cpu_flags_for_host(cfg: Config | None = None) -> str:
+    """Return the dockur ``CPU_FLAGS:`` env value for the host + profile.
 
-    On x86_64 we pass ``arch_capabilities=off`` so QEMU doesn't expose
-    Intel-CPU-only capability bits the guest's Windows kernel sometimes
-    trips over. On aarch64 (Raspberry Pi 5, Ampere, Graviton, …) that
-    sub-option doesn't exist — passing it crashes QEMU with
-    ``Property 'host-arm-cpu.arch_capabilities' not found`` (issue
-    #140); we pass only ``-cpu host`` there.
+    This replaces the older approach of injecting ``-cpu host,<sub-flags>``
+    through ``ARGUMENTS``. dockur's ``proc.sh`` already exposes a
+    ``CPU_FLAGS`` env var that gets appended to its own
+    ``-cpu $CPU_MODEL,$CPU_FEATURES,$CPU_FLAGS`` assembly line, so the
+    right place for our additions is that env var, not ARGUMENTS.
 
-    The tuning profile (``cfg.pod.tuning_profile`` resolved by
-    :mod:`winpodx.utils.specs`) decides whether each x86-only knob is
-    appended:
+    Going through ``CPU_FLAGS`` avoids:
 
-    * ``apply_invtsc`` (#215) — ``+invtsc`` -cpu sub-option exposing
-      invariant TSC.
-    * ``apply_hv_enlightenments`` (#245) — Hyper-V paravirt hints
-      (relaxed, vapic, vpindex, runtime, synic, reset, frequencies,
-      reenlightenment, tlbflush, ipi, spinlocks=0x1fff, stimer,
-      stimer-direct) so the guest sees a paravirtualised hypervisor.
-      ``-no-hpet`` was previously appended here but removed in QEMU 10
-      (the dockur v5.15+ base image ships QEMU 10.x); the Hyper-V
-      synthetic timer plus ``hv-stimer`` already steers Windows away
-      from HPET so the explicit machine flag isn't necessary.
-    * ``apply_evmcs`` (#245) — ``hv-evmcs`` nested-VMCS optimisation
-      (Intel only).
-    * ``apply_nested_virt`` (#245) — ``+vmx`` (Intel) / ``+svm`` (AMD)
-      so the Windows guest can host Hyper-V / WSL2 / Docker Desktop.
-    * ``apply_virtio_rng`` (#245) — adds ``-device virtio-rng-pci`` +
-      ``-object rng-random,filename=/dev/urandom`` so the guest's
-      entropy pool fills quickly on first boot.
+    * the ``proc.sh:137`` strip-and-slice bug -- if there's no
+      ``-cpu host,...`` token in ARGUMENTS, the strip code path never
+      runs, so the ``${args::-1}`` bash slice on an empty string never
+      executes. The ``-msg timestamp=on`` marker workaround from #287
+      is no longer needed.
+    * duplication with dockur's Hyper-V enlightenments. dockur emits
+      ``hv_passthrough`` (default ``HV=Y``) + a conditional
+      ``-hv-evmcs`` when the host CPU can't actually nest. Our PR #281
+      explicitly added ``hv-evmcs`` on top, which produced QEMU 10's
+      ``Ambiguous CPU model string`` warning. dockur owns the hv-*
+      set; we no longer touch it.
 
-    aarch64 ignores the profile entirely because invtsc + hv-* + the
-    nested-virt CPU sub-options are x86 facts.
+    Returns a comma-separated string of sub-flags suitable for the
+    ``CPU_FLAGS:`` compose env. Empty string for aarch64 (dockur picks
+    the right CPU on ARM hosts).
+
+    Sub-flags we still emit:
+
+    * ``arch_capabilities=off`` on x86 (#141 / #140 history -- Windows
+      guest crashes when the Intel-only capability bits leak through).
+    * ``+invtsc`` (#215) when the host CPU supports invariant TSC --
+      not part of dockur's defaults, our addition.
+
+    Sub-flags we now delegate to dockur:
+
+    * ``hv-*`` enlightenments (HV=Y default)
+    * ``hv-evmcs`` (conditional disable by dockur)
+    * ``+vmx`` / ``+svm`` nested-virt (``VMX=Y`` env -- see
+      :func:`_vmx_env_for_host`)
     """
     if platform.machine() == "aarch64":
-        return "-cpu host"
+        return ""
 
-    cpu_sub: list[str] = ["host", "arch_capabilities=off"]
-    extra_args: list[str] = []
+    sub_flags: list[str] = ["arch_capabilities=off"]
 
     if cfg is None:
-        return f"-cpu {','.join(cpu_sub)}"
+        return ",".join(sub_flags)
 
     from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
 
@@ -144,45 +151,55 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
 
     if profile.apply_invtsc:
-        cpu_sub.append("+invtsc")
+        sub_flags.append("+invtsc")
 
-    if profile.apply_hv_enlightenments:
-        cpu_sub.extend(
-            [
-                "hv-relaxed",
-                "hv-vapic",
-                "hv-vpindex",
-                "hv-runtime",
-                "hv-synic",
-                "hv-reset",
-                "hv-frequencies",
-                "hv-reenlightenment",
-                "hv-tlbflush",
-                "hv-ipi",
-                "hv-spinlocks=0x1fff",
-                "hv-stimer",
-                "hv-stimer-direct",
-            ]
-        )
-        # NOTE: ``-no-hpet`` was here in the initial #245 implementation
-        # but QEMU 10 (shipped by dockur v5.15+ via qemus/qemu v7.30)
-        # removed the flag entirely -- it now errors with
-        # ``invalid option`` and the container refuses to start. The
-        # Hyper-V synthetic timer (``hv-stimer``, ``hv-stimer-direct``)
-        # already steers the Windows guest away from HPET, so dropping
-        # the machine-level flag has no functional impact on the
-        # tuning win. If we need the hard "no HPET at all" guarantee
-        # later, the QEMU-10 path is ``-machine ...,hpet=off`` -- but
-        # that overrides dockur's machine type spec, which is risky.
+    return ",".join(sub_flags)
 
-    if profile.apply_evmcs:
-        cpu_sub.append("hv-evmcs")
 
-    if profile.apply_nested_virt:
-        if cap.cpu_vendor == "intel":
-            cpu_sub.append("+vmx")
-        elif cap.cpu_vendor == "amd":
-            cpu_sub.append("+svm")
+def _vmx_env_for_host(cfg: Config | None = None) -> str:
+    """Return the dockur ``VMX:`` env value (``Y`` or ``N``).
+
+    dockur's ``proc.sh`` reads ``VMX`` (default ``N``) and handles the
+    ``+vmx`` / ``+svm`` / ``-hv-evmcs`` matrix per CPU vendor itself.
+    Our #245 ``apply_nested_virt`` flag now maps directly to this env
+    var -- dockur does the actual CPU sub-flag selection.
+
+    Returns ``"Y"`` when the resolved tuning profile wants nested virt
+    and the host kernel has nested-KVM exposed. ``"N"`` otherwise.
+    """
+    if cfg is None:
+        return "N"
+
+    from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
+
+    cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
+    profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
+    return "Y" if profile.apply_nested_virt else "N"
+
+
+def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
+    """Return the ``ARGUMENTS:`` env value -- non-CPU QEMU args only.
+
+    After the #287 refactor, CPU-related sub-flags (``arch_capabilities``,
+    ``+invtsc``, etc.) live in the dedicated ``CPU_FLAGS`` env via
+    :func:`_cpu_flags_for_host`. ``ARGUMENTS`` carries only the QEMU
+    args that don't belong to ``-cpu`` -- currently the virtio-rng
+    device pair (entropy pool seed for fast first-boot CryptoAPI / TLS).
+
+    aarch64 returns empty -- dockur picks the right device list itself.
+    """
+    if platform.machine() == "aarch64":
+        return ""
+
+    if cfg is None:
+        return ""
+
+    from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
+
+    cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
+    profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
+
+    extra_args: list[str] = []
 
     if profile.apply_virtio_rng:
         extra_args.extend(
@@ -194,27 +211,7 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
             ]
         )
 
-    pieces = [f"-cpu {','.join(cpu_sub)}", *extra_args]
-    # #287 workaround: dockur's proc.sh (src/proc.sh:137 of qemus/qemu)
-    # strips the first ``-cpu host,<sub-flags>`` token out of ARGUMENTS and
-    # reassembles it via its own CPU_FLAGS pipeline. When ARGUMENTS consists
-    # of nothing but ``-cpu host,...`` the post-strip string is empty, and
-    # the next line (``ARGUMENTS="${args::-1}"``) does a bash slice on an
-    # empty string -- ``-1: substring expression < 0`` -- which is fatal
-    # for proc.sh. The container then never reaches the OEM-copy step,
-    # so ``C:\OEM\`` stays empty in the guest, ``install.bat`` never runs,
-    # the agent service never installs, and ``winpodx pod wait-ready``
-    # times out at 60 min with 3389 / 8765 accepting TCP but RST'ing every
-    # handshake (because the Windows-side service is absent).
-    #
-    # Append a benign ``-msg timestamp=on`` (timestamp QEMU log lines) when
-    # ``extra_args`` is empty -- ensures proc.sh's strip leaves at least
-    # one space-separated token in ARGUMENTS, sidestepping the bash slice.
-    # No-op on functionality; dockur doesn't ship its own ``-msg`` so
-    # there's no collision risk.
-    if not extra_args:
-        pieces.append("-msg timestamp=on")
-    return " ".join(pieces)
+    return " ".join(extra_args)
 
 
 def _yaml_escape(val: str) -> str:
@@ -398,6 +395,8 @@ def _build_compose_content(cfg: Config) -> str:
         oem_dir=_find_oem_dir(),
         top_volumes=top_volumes,
         storage_mount=storage_mount,
+        cpu_flags=_cpu_flags_for_host(cfg),
+        vmx=_vmx_env_for_host(cfg),
         qemu_arguments=_qemu_arguments_for_host(cfg),
     )
 

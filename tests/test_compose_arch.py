@@ -1,11 +1,19 @@
 # SPDX-License-Identifier: MIT
 """Architecture-aware compose template generation tests.
 
-Issue #141 Phase 2: the QEMU ``ARGUMENTS:`` value must differ between
-x86_64 and aarch64 hosts. On x86_64 we pass
-``-cpu host,arch_capabilities=off``; on aarch64 the ``arch_capabilities``
-sub-option doesn't exist and crashes QEMU at boot (issue #140), so we
-emit only ``-cpu host``.
+After the #287 refactor, CPU sub-flags live in the dedicated
+``CPU_FLAGS:`` env (consumed by dockur's ``proc.sh``) rather than being
+injected through ``ARGUMENTS:``. ``ARGUMENTS:`` now carries only the
+non-``-cpu`` extras (virtio-rng device pair). dockur owns the hv-*
+enlightenments via its ``HV=Y`` default and the nested-virt sub-flags
+via the ``VMX=Y`` env.
+
+The remaining x86 vs aarch64 split is in ``CPU_FLAGS``:
+
+- x86_64: ``arch_capabilities=off`` (#141 / #140 -- Intel-only bits
+  crash Windows when leaked through) plus ``+invtsc`` when supported
+  (#215).
+- aarch64: empty CPU_FLAGS -- dockur picks the right CPU on ARM.
 """
 
 from __future__ import annotations
@@ -25,26 +33,22 @@ def _cfg() -> Config:
     cfg.pod.vnc_port = 8007
     cfg.pod.container_name = "winpodx-windows"
     # Baseline architecture tests must stay independent of host capability
-    # detection (#215). Turn off the auto tuner so the QEMU args reflect
+    # detection (#215). Turn off the auto tuner so the CPU_FLAGS reflects
     # only the architecture branch under test.
     cfg.pod.tuning_profile = "off"
     return cfg
 
 
-def test_compose_arguments_x86_64(monkeypatch):
-    """x86_64 hosts emit ``-cpu host,arch_capabilities=off`` plus the #287
-    proc.sh marker (``_cfg()`` uses tuning_profile=off, which produces no
-    extras, so the marker token is appended).
-    """
+def test_compose_cpu_flags_x86_64(monkeypatch):
+    """x86_64 hosts emit ``arch_capabilities=off`` via CPU_FLAGS env."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     content = _build_compose_content(_cfg())
-    assert "-cpu host,arch_capabilities=off" in content
-    assert "-msg timestamp=on" in content  # #287 workaround
+    assert 'CPU_FLAGS: "arch_capabilities=off"' in content
 
 
-def test_compose_arguments_aarch64(monkeypatch):
-    """aarch64 hosts emit ``-cpu host`` only (no arch_capabilities).
+def test_compose_cpu_flags_aarch64(monkeypatch):
+    """aarch64 hosts emit empty CPU_FLAGS -- dockur picks the host CPU.
 
     Regression guard for issue #140: passing ``arch_capabilities=off`` on
     aarch64 crashes QEMU with ``Property 'host-arm-cpu.arch_capabilities'
@@ -53,32 +57,25 @@ def test_compose_arguments_aarch64(monkeypatch):
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "aarch64")
     content = _build_compose_content(_cfg())
-    assert 'ARGUMENTS: "-cpu host"' in content
+    assert 'CPU_FLAGS: ""' in content
     assert "arch_capabilities" not in content
 
 
-def test_compose_arguments_unknown_arch_falls_through_to_x86(monkeypatch):
+def test_compose_cpu_flags_unknown_arch_falls_through_to_x86(monkeypatch):
     """Unknown / unexpected machine() value falls through to the x86_64
-    behaviour. This is intentional: an unsupported platform should get the
-    "wrong" arguments and surface a clear QEMU error at pod start rather
-    than silently using a partially-correct ARM config.
+    behaviour. Intentional: an unsupported platform should surface a
+    clear QEMU error at pod start rather than silently using a partly-
+    correct ARM config.
     """
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "riscv64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "riscv64")
     content = _build_compose_content(_cfg())
-    assert "-cpu host,arch_capabilities=off" in content
-    assert "-msg timestamp=on" in content  # #287 workaround
+    assert 'CPU_FLAGS: "arch_capabilities=off"' in content
 
 
-def test_compose_arguments_invtsc_off_profile_does_not_append(monkeypatch):
-    """``cfg.pod.tuning_profile = "off"`` must produce the baseline x86
-    args (no `+invtsc`, no hv-*) even on an invtsc-capable host (#215).
-
-    Also asserts the #287 proc.sh workaround: when no extra QEMU args
-    would be emitted (off profile), `-msg timestamp=on` is appended so
-    dockur's proc.sh:137 bash slice doesn't blow up on an empty post-
-    strip ARGUMENTS string.
-    """
+def test_compose_cpu_flags_invtsc_off_profile_does_not_append(monkeypatch):
+    """``cfg.pod.tuning_profile = "off"`` keeps CPU_FLAGS at the baseline
+    (``arch_capabilities=off`` only) even on an invtsc-capable host."""
     import winpodx.utils.specs as specs
 
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
@@ -93,69 +90,20 @@ def test_compose_arguments_invtsc_off_profile_does_not_append(monkeypatch):
             dedicated_host=False,
             kernel_version=(6, 18),
             cpu_vendor="intel",
+            nested_kvm=False,
         ),
     )
     cfg = _cfg()
     cfg.pod.tuning_profile = "off"
     content = _build_compose_content(cfg)
-    # Baseline -cpu sub-options still emitted.
-    assert "-cpu host,arch_capabilities=off" in content
+    assert 'CPU_FLAGS: "arch_capabilities=off"' in content
     assert "+invtsc" not in content
-    # #287 workaround: marker token appended when no other extra args.
-    assert "-msg timestamp=on" in content
 
 
-def test_compose_arguments_287_workaround_marker_only_when_no_extras(monkeypatch):
-    """#287: when tuning produces no extra QEMU args, append a marker
-    token so dockur's proc.sh:137 strip doesn't leave ARGUMENTS empty
-    (the bash slice ``${args::-1}`` fails on an empty string).
-
-    When tuning produces real extras (auto / safe with hv-* + virtio-rng),
-    the marker should NOT be appended -- the real extras already serve
-    the same purpose.
-    """
-    import winpodx.utils.specs as specs
-
-    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(
-        specs,
-        "detect_tuning_capability",
-        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
-            invtsc=True,
-            io_uring=True,
-            hugepages_enabled=False,
-            dedicated_host=False,
-            kernel_version=(6, 18),
-            cpu_vendor="intel",
-        ),
-    )
-    cfg = _cfg()
-
-    cfg.pod.tuning_profile = "auto"
-    content_auto = _build_compose_content(cfg)
-    # Auto profile adds hv-* + virtio-rng -- marker not needed.
-    assert "-msg timestamp=on" not in content_auto
-    # virtio-rng -device is the always-on auto extra; hv-* is in -cpu sub-opts.
-    assert "virtio-rng-pci" in content_auto
-
-    cfg.pod.tuning_profile = "off"
-    content_off = _build_compose_content(cfg)
-    # Off profile produces no extras -- marker added.
-    assert "-msg timestamp=on" in content_off
-
-
-def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatch):
-    """``tuning_profile = "auto"`` + invtsc-capable host appends ``+invtsc``
-    so the Windows guest sees an invariant TSC clocksource (#215).
-
-    #245: auto also now appends hv-* enlightenments + virtio-rng. Assert
-    each piece is present rather than pinning the full string -- the
-    assertion stays meaningful even when the list grows.
-
-    NOTE: ``-no-hpet`` was previously asserted here; QEMU 10 (shipped by
-    dockur v5.15+) removed the flag, so it no longer appears in the
-    output. The Hyper-V synthetic timer steers Windows off HPET anyway.
+def test_compose_cpu_flags_invtsc_auto_profile_appends_when_supported(monkeypatch):
+    """``tuning_profile = "auto"`` + invtsc-capable host appends
+    ``+invtsc`` to CPU_FLAGS (#215). hv-* enlightenments are NOT
+    emitted by us -- dockur's HV=Y handles those.
     """
     import winpodx.utils.specs as specs
 
@@ -177,26 +125,28 @@ def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatc
     cfg = _cfg()
     cfg.pod.tuning_profile = "auto"
     content = _build_compose_content(cfg)
-    # invtsc still on the -cpu sub-option line.
-    assert "+invtsc" in content
-    # #245: hv-* enlightenments + virtio-rng always on under auto for x86
-    # hosts. nested_kvm=False so +svm / hv-evmcs stay off.
-    assert "hv-relaxed" in content
-    assert "hv-spinlocks=0x1fff" in content
-    assert "hv-stimer-direct" in content
+    # +invtsc lands in CPU_FLAGS env now, not ARGUMENTS.
+    assert 'CPU_FLAGS: "arch_capabilities=off,+invtsc"' in content
+    # virtio-rng -device pair stays in ARGUMENTS (dockur doesn't add it).
     assert "virtio-rng-pci,rng=rng0" in content
     assert "rng-random,id=rng0,filename=/dev/urandom" in content
+    # We no longer emit hv-* explicitly -- dockur owns those via HV=Y.
+    assert "hv-relaxed" not in content
+    assert "hv-evmcs" not in content
+    # nested-virt CPU sub-flags also delegated -- we set VMX env instead.
+    assert "+svm" not in content
+    assert "+vmx" not in content
     # QEMU 10 dropped -no-hpet -- regression guard.
     assert "-no-hpet" not in content
-    # AMD + nested_kvm=False => no +svm, no hv-evmcs.
-    assert "+svm" not in content
-    assert "hv-evmcs" not in content
+    # nested_kvm=False so VMX env reads N.
+    assert 'VMX: "N"' in content
 
 
-def test_compose_arguments_invtsc_skipped_when_host_lacks_flag(monkeypatch):
+def test_compose_cpu_flags_invtsc_skipped_when_host_lacks_flag(monkeypatch):
     """Even with ``tuning_profile = "auto"``, a host without
-    ``constant_tsc + nonstop_tsc`` must not get ``+invtsc`` — QEMU
-    would either silently drop it or refuse to start."""
+    ``constant_tsc + nonstop_tsc`` must not get ``+invtsc`` in CPU_FLAGS
+    -- QEMU would either silently drop it or refuse to start.
+    """
     import winpodx.utils.specs as specs
 
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
@@ -220,9 +170,9 @@ def test_compose_arguments_invtsc_skipped_when_host_lacks_flag(monkeypatch):
     assert "+invtsc" not in content
 
 
-def test_compose_arguments_aarch64_ignores_tuning_profile(monkeypatch):
-    """aarch64 returns ``-cpu host`` regardless of profile — invtsc is
-    x86-only."""
+def test_compose_cpu_flags_aarch64_ignores_tuning_profile(monkeypatch):
+    """aarch64 returns empty CPU_FLAGS regardless of profile -- invtsc
+    and arch_capabilities are x86-only."""
     import winpodx.utils.specs as specs
 
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "aarch64")
@@ -243,6 +193,75 @@ def test_compose_arguments_aarch64_ignores_tuning_profile(monkeypatch):
     cfg = _cfg()
     cfg.pod.tuning_profile = "auto"
     content = _build_compose_content(cfg)
-    assert 'ARGUMENTS: "-cpu host"' in content
+    assert 'CPU_FLAGS: ""' in content
     assert "+invtsc" not in content
     assert "arch_capabilities" not in content
+
+
+def test_compose_vmx_env_reflects_nested_virt(monkeypatch):
+    """VMX env reads ``Y`` when tuning profile resolves nested virt on,
+    ``N`` otherwise. dockur's proc.sh handles the actual +vmx/+svm
+    sub-flag selection per CPU vendor.
+    """
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=True,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=False,
+            kernel_version=(6, 18),
+            cpu_vendor="intel",
+            nested_kvm=True,
+        ),
+    )
+    cfg = _cfg()
+    cfg.pod.tuning_profile = "auto"
+    content = _build_compose_content(cfg)
+    # nested_kvm=True + auto profile -> VMX=Y.
+    assert 'VMX: "Y"' in content
+
+
+def test_compose_287_workaround_no_longer_needed(monkeypatch):
+    """After the refactor, no ``-cpu host,...`` token ever lands in
+    ARGUMENTS, so dockur's proc.sh:137 strip code path doesn't trigger
+    and the ``-msg timestamp=on`` workaround (#287) is no longer
+    appended. Regression guard.
+    """
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=True,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=False,
+            kernel_version=(6, 18),
+            cpu_vendor="intel",
+            nested_kvm=False,
+        ),
+    )
+    cfg = _cfg()
+    # Every profile shape -- marker should never appear.
+    for profile in ("off", "safe", "auto", "performance", "manual"):
+        cfg.pod.tuning_profile = profile
+        content = _build_compose_content(cfg)
+        assert "-msg timestamp=on" not in content, (
+            f"marker leaked back in under profile={profile}"
+        )
+        # And -cpu host, never appears in ARGUMENTS (the whole point).
+        # We only need to check that ARGUMENTS lines don't contain it.
+        for line in content.splitlines():
+            if "ARGUMENTS:" in line:
+                assert "-cpu" not in line, (
+                    f"-cpu leaked into ARGUMENTS under profile={profile}: {line}"
+                )
