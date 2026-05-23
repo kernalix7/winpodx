@@ -32,11 +32,15 @@ def _cfg() -> Config:
 
 
 def test_compose_arguments_x86_64(monkeypatch):
-    """x86_64 hosts emit ``-cpu host,arch_capabilities=off``."""
+    """x86_64 hosts emit ``-cpu host,arch_capabilities=off`` plus the #287
+    proc.sh marker (``_cfg()`` uses tuning_profile=off, which produces no
+    extras, so the marker token is appended).
+    """
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     content = _build_compose_content(_cfg())
-    assert 'ARGUMENTS: "-cpu host,arch_capabilities=off"' in content
+    assert "-cpu host,arch_capabilities=off" in content
+    assert "-msg timestamp=on" in content  # #287 workaround
 
 
 def test_compose_arguments_aarch64(monkeypatch):
@@ -62,12 +66,19 @@ def test_compose_arguments_unknown_arch_falls_through_to_x86(monkeypatch):
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "riscv64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "riscv64")
     content = _build_compose_content(_cfg())
-    assert 'ARGUMENTS: "-cpu host,arch_capabilities=off"' in content
+    assert "-cpu host,arch_capabilities=off" in content
+    assert "-msg timestamp=on" in content  # #287 workaround
 
 
 def test_compose_arguments_invtsc_off_profile_does_not_append(monkeypatch):
     """``cfg.pod.tuning_profile = "off"`` must produce the baseline x86
-    args even on an invtsc-capable host (#215)."""
+    args (no `+invtsc`, no hv-*) even on an invtsc-capable host (#215).
+
+    Also asserts the #287 proc.sh workaround: when no extra QEMU args
+    would be emitted (off profile), `-msg timestamp=on` is appended so
+    dockur's proc.sh:137 bash slice doesn't blow up on an empty post-
+    strip ARGUMENTS string.
+    """
     import winpodx.utils.specs as specs
 
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
@@ -87,8 +98,50 @@ def test_compose_arguments_invtsc_off_profile_does_not_append(monkeypatch):
     cfg = _cfg()
     cfg.pod.tuning_profile = "off"
     content = _build_compose_content(cfg)
-    assert 'ARGUMENTS: "-cpu host,arch_capabilities=off"' in content
+    # Baseline -cpu sub-options still emitted.
+    assert "-cpu host,arch_capabilities=off" in content
     assert "+invtsc" not in content
+    # #287 workaround: marker token appended when no other extra args.
+    assert "-msg timestamp=on" in content
+
+
+def test_compose_arguments_287_workaround_marker_only_when_no_extras(monkeypatch):
+    """#287: when tuning produces no extra QEMU args, append a marker
+    token so dockur's proc.sh:137 strip doesn't leave ARGUMENTS empty
+    (the bash slice ``${args::-1}`` fails on an empty string).
+
+    When tuning produces real extras (auto / safe with hv-* + virtio-rng),
+    the marker should NOT be appended -- the real extras already serve
+    the same purpose.
+    """
+    import winpodx.utils.specs as specs
+
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        specs,
+        "detect_tuning_capability",
+        lambda *, vm_cpu_cores, vm_ram_gb: specs.TuningCapability(
+            invtsc=True,
+            io_uring=True,
+            hugepages_enabled=False,
+            dedicated_host=False,
+            kernel_version=(6, 18),
+            cpu_vendor="intel",
+        ),
+    )
+    cfg = _cfg()
+
+    cfg.pod.tuning_profile = "auto"
+    content_auto = _build_compose_content(cfg)
+    # Auto profile adds hv-* + virtio-rng -- marker not needed.
+    assert "-msg timestamp=on" not in content_auto
+    assert "-no-hpet" in content_auto  # actual extra from auto
+
+    cfg.pod.tuning_profile = "off"
+    content_off = _build_compose_content(cfg)
+    # Off profile produces no extras -- marker added.
+    assert "-msg timestamp=on" in content_off
 
 
 def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatch):

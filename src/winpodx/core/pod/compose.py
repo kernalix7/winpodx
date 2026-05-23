@@ -183,6 +183,25 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
         )
 
     pieces = [f"-cpu {','.join(cpu_sub)}", *extra_args]
+    # #287 workaround: dockur's proc.sh (src/proc.sh:137 of qemus/qemu)
+    # strips the first ``-cpu host,<sub-flags>`` token out of ARGUMENTS and
+    # reassembles it via its own CPU_FLAGS pipeline. When ARGUMENTS consists
+    # of nothing but ``-cpu host,...`` the post-strip string is empty, and
+    # the next line (``ARGUMENTS="${args::-1}"``) does a bash slice on an
+    # empty string -- ``-1: substring expression < 0`` -- which is fatal
+    # for proc.sh. The container then never reaches the OEM-copy step,
+    # so ``C:\OEM\`` stays empty in the guest, ``install.bat`` never runs,
+    # the agent service never installs, and ``winpodx pod wait-ready``
+    # times out at 60 min with 3389 / 8765 accepting TCP but RST'ing every
+    # handshake (because the Windows-side service is absent).
+    #
+    # Append a benign ``-msg timestamp=on`` (timestamp QEMU log lines) when
+    # ``extra_args`` is empty -- ensures proc.sh's strip leaves at least
+    # one space-separated token in ARGUMENTS, sidestepping the bash slice.
+    # No-op on functionality; dockur doesn't ship its own ``-msg`` so
+    # there's no collision risk.
+    if not extra_args:
+        pieces.append("-msg timestamp=on")
     return " ".join(pieces)
 
 
