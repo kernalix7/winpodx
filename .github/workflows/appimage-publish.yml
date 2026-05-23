@@ -32,6 +32,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade build python-appimage
 
+      - name: Install FUSE runtime for appimagetool
+        # ubuntu-24.04 runners ship without libfuse2; python-appimage's
+        # downloaded appimagetool tries to FUSE-mount itself and fails
+        # silently when libfuse2 is missing, producing no AppImage and
+        # the next step bombs with "No AppImage produced." libfuse2t64
+        # is the 24.04 transition package that provides libfuse.so.2.
+        run: sudo apt-get update && sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
+
       - name: Build winpodx wheel
         run: python -m build --wheel --outdir dist
 
@@ -48,6 +56,12 @@ jobs:
 
       - name: Build AppImage
         working-directory: packaging/appimage
+        env:
+          # Belt-and-braces: even with libfuse2 present, some appimagetool
+          # nightlies refuse to FUSE-mount on minimal CI shells. This env
+          # tells appimagetool to extract itself + re-exec rather than
+          # mount, which always works in a container/CI environment.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: python -m python_appimage build app -p 3.11 recipe/
 
       - name: Locate built AppImage
