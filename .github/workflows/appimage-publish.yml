@@ -7,8 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.5.7)"
-        required: true
+        description: "Optional release tag to build from (e.g. v0.5.8). Leave empty to build from the selected ref (usually main) -- useful for verifying the recipe before cutting a tag."
+        required: false
+        default: ""
 
 permissions:
   contents: write
