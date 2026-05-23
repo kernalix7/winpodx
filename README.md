@@ -98,9 +98,16 @@ yay -S winpodx
 
 # Nix
 nix run github:kernalix7/winpodx
+
+# AppImage (distro-agnostic, single file)
+# Download winpodx-<version>-x86_64.AppImage from the latest GitHub release
+chmod +x winpodx-*-x86_64.AppImage
+./winpodx-*-x86_64.AppImage setup
 ```
 
-> **After a package-manager install:** run `winpodx setup` once to generate `~/.config/winpodx/winpodx.toml` + compose.yaml. The curl one-liner does this for you (and waits ~5–10 min for the Windows first boot); package installs ship the binary only so `apt install` / `dnf install` / `yay -S` don't trigger a 10-minute Windows ISO download out of the blue. After setup, just launching an app (`winpodx app run desktop`) auto-provisions the pod the first time.
+> **After a package-manager / AppImage install:** run `winpodx setup` once to generate `~/.config/winpodx/winpodx.toml` + compose.yaml. The curl one-liner does this for you (and waits ~5–10 min for the Windows first boot); package installs ship the binary only so `apt install` / `dnf install` / `yay -S` / first AppImage launch don't trigger a 10-minute Windows ISO download out of the blue. After setup, just launching an app (`winpodx app run desktop`) auto-provisions the pod the first time.
+>
+> The AppImage bundles Python + Qt + winpodx itself but still relies on the host's FreeRDP, Podman / Docker, and KVM. If any are missing, `winpodx setup` and `winpodx doctor` surface per-distro install hints.
 
 See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, and uninstall.
 
@@ -186,7 +193,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for deep dives, including multi-session
 
 | Document | What's inside |
 |----------|---------------|
-| [INSTALL.md](docs/INSTALL.md) | Every install path — one-liner, package managers, offline, Nix, source |
+| [INSTALL.md](docs/INSTALL.md) | Every install path — one-liner, package managers, AppImage, offline, Nix, source |
 | [USAGE.md](docs/USAGE.md) | CLI reference, Qt6 GUI tour, health checks, configuration file |
 | [FEATURES.md](docs/FEATURES.md) | Reverse-open, multi-session RDP, peripherals, app profiles, auto-discovery |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works (diagram), tech stack, source tree, data flows |

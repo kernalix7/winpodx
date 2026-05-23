@@ -28,6 +28,14 @@ verbatim.
 ### Fixed
 -->
 
+### Added
+
+- **AppImage release artefact (#227).** `packaging/appimage/` recipe + `.github/workflows/appimage-publish.yml` CI workflow. Every tag push (`v*.*.*`) builds an `x86_64.AppImage` via [python-appimage](https://github.com/niess/python-appimage) and attaches it to the GitHub release alongside the wheel / `.deb` / `.rpm` artefacts. Lean bundle -- Python 3.11 runtime + winpodx wheel + Qt6 (PySide6) + reverse-open extras. Host-side FreeRDP + Podman + KVM are still required; winpodx's existing `winpodx setup` / `winpodx doctor` flows surface per-distro install hints when any are missing. Target audience: immutable distros (Silverblue / Kinoite / Aeon / Steam Deck), locked-down environments where `curl ... | bash` isn't an option, and quick "try it on a friend's laptop" sessions. README + INSTALL.md (en + ko) gain an AppImage section. Suggested by @leandromqrs.
+
+### Fixed
+
+- **RPM spec `License:` tag widened to `MIT AND Apache-2.0` (#301).** `packaging/rpm/winpodx.spec` declared `License: MIT` but `config/oem/rdprrap-*-windows-x64.zip` bundles stascorp/rdpwrap (Apache-2.0). Fedora packaging guidelines require the SPDX expression to enumerate every license that applies to the redistributed binary content. `debian/copyright` and `THIRD_PARTY_LICENSES.md` already broke this out correctly; the RPM spec now matches.
+
 ### Changed
 
 - **CPU sub-flags moved from `ARGUMENTS` to dedicated `CPU_FLAGS` + `VMX` env vars; hv-* delegated to dockur.** Three problems collapse into one refactor: (1) PR #289's `-msg timestamp=on` workaround for dockur `proc.sh:137` bash slice on empty post-strip ARGUMENTS, (2) PR #281's hv-* enlightenments duplicating dockur's own `hv_passthrough` (default `HV=Y`) causing QEMU 10's `Ambiguous CPU model string. Don't mix both "-hv-evmcs" and "hv-evmcs=on"` warning, (3) PR #281's explicit `+vmx` / `+svm` nested-virt injection duplicating dockur's `VMX` env handling. winpodx now uses dockur's documented env-var interface: `CPU_FLAGS: "arch_capabilities=off,+invtsc"` on x86 (the two sub-flags dockur doesn't add itself), `VMX: "Y"` when nested-virt is wanted (dockur picks the right `+vmx` / `+svm` per host CPU). ARGUMENTS carries only the virtio-rng device pair now. proc.sh:137 strip code path is never triggered (no `-cpu host,` in ARGUMENTS) so the `-msg timestamp=on` marker is removed. The ambiguous-string warning goes away (we don't add `hv-evmcs` -- dockur owns the entire hv-* set). And winpodx is decoupled from QEMU sub-flag deprecation: when QEMU 11/12 changes hv-* syntax, dockur handles it, we don't.

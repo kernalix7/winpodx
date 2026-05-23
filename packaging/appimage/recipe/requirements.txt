@@ -1,0 +1,6 @@
+# Built locally / in CI -- the build pipeline replaces this with the
+# repo's own wheel (../dist/winpodx-<version>-py3-none-any.whl) so the
+# AppImage always carries the current branch's code instead of whatever
+# is on PyPI. Listed bare here so `python-appimage build` validates the
+# recipe shape; the actual wheel pin is wired in build.sh / CI.
+winpodx[gui,reverse-open]

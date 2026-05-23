@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=winpodx
+GenericName=Windows app integration for Linux
+Comment=Run Windows apps natively on Linux via FreeRDP + Podman
+Exec=winpodx app run desktop
+Icon=winpodx
+Terminal=false
+Categories=Utility;System;
+Keywords=windows;rdp;freerdp;podman;remote;

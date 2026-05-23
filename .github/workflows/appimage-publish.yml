@@ -1,0 +1,77 @@
+name: AppImage
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.5.7)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # workflow_dispatch input: explicit tag; tag push: ref already there.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build prerequisites
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade build python-appimage
+
+      - name: Build winpodx wheel
+        run: python -m build --wheel --outdir dist
+
+      - name: Pin AppImage recipe to the freshly-built wheel
+        run: |
+          WHEEL="$(ls -t dist/winpodx-*.whl | head -n1)"
+          if [ -z "${WHEEL}" ]; then
+              echo "No wheel produced under dist/; aborting." >&2
+              exit 1
+          fi
+          echo "Using wheel: ${WHEEL}"
+          WHEEL_ABS="$(readlink -f "${WHEEL}")"
+          printf '%s[gui,reverse-open]\n' "${WHEEL_ABS}" > packaging/appimage/recipe/requirements.txt
+
+      - name: Build AppImage
+        working-directory: packaging/appimage
+        run: python -m python_appimage build app -p 3.11 recipe/
+
+      - name: Locate built AppImage
+        id: locate
+        run: |
+          APPIMAGE="$(ls -t packaging/appimage/winpodx-*-x86_64.AppImage | head -n1)"
+          if [ -z "${APPIMAGE}" ]; then
+              echo "No AppImage produced." >&2
+              exit 1
+          fi
+          echo "appimage_path=${APPIMAGE}" >> "$GITHUB_OUTPUT"
+          ls -lh "${APPIMAGE}"
+
+      - name: Upload as workflow artefact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: winpodx-appimage-x86_64
+          path: ${{ steps.locate.outputs.appimage_path }}
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release (tag push only)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.locate.outputs.appimage_path }}
+          # Don't create the release if it doesn't already exist --
+          # release.yml (REL- marker tag) owns release creation.
+          fail_on_unmatched_files: true

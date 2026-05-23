@@ -209,6 +209,37 @@ paru -S winpodx
 
 PKGBUILD 는 [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) 에 있고, 태그 푸시 (`v*.*.*`) 마다 버전 + tarball sha256 자동 stamp 후 `aur.archlinux.org/winpodx.git` 로 푸시.
 
+## AppImage
+
+distro 무관 winpodx AppImage 가 태그 release 마다 asset 으로 ship 됨. Python 런타임 + winpodx + Qt6 (PySide6) 를 단일 실행 파일에 번들. **호스트의 FreeRDP / Podman 또는 Docker / KVM 은 여전히 필요** -- 이 시스템 컴포넌트들은 AppImage 안에 번들해도 의미 있게 동작하지 않음 (FreeRDP 는 호스트 X/Wayland 세션 통합 필요, `/dev/kvm` 은 호스트 커널 기능, podman 의 rootless setup 은 `/etc/subuid` 매핑이 필요한데 root 만 쓸 수 있음). 부족하면 `winpodx setup` 과 `winpodx doctor` 가 distro 별 설치 명령 출력 -- curl 원라이너와 동일한 동작.
+
+```bash
+# 1. 최신 GitHub release 에서 AppImage 다운로드
+#    -> winpodx-<version>-x86_64.AppImage
+
+# 2. 실행 권한 부여
+chmod +x winpodx-*-x86_64.AppImage
+
+# 3. 첫 실행 setup (backend / cores / RAM / timezone 질문; 다른 설치 방법 후 `winpodx setup` 과 동일한 흐름)
+./winpodx-*-x86_64.AppImage setup
+
+# 4. 데스크탑 (또는 설치된 Windows 앱 이름) 실행
+./winpodx-*-x86_64.AppImage app run desktop
+```
+
+권장 사용 환경:
+
+- **Immutable distro** (Fedora Silverblue / Kinoite, openSUSE Aeon, Steam Deck) — system package layering 이 무겁거나 불가
+- **잠긴 환경** — `curl ... | bash` 못 돌지만 다운로드 받은 단일 실행 파일은 돌 수 있는 경우
+- **친구 노트북 임시 시도** — 시스템 install 안 하고 빠르게 테스트
+
+비권장:
+
+- 시스템 패키지 매니저 통합 선호 (위 RPM / DEB / AUR 경로 추천)
+- 시스템 업데이트 cycle 로 자동 업데이트 받기 원함 (AppImage 는 수동 다운로드 + 교체; AppImageUpdate 연동 별도 작업)
+
+레시피와 CI 는 `packaging/appimage/` 에 — 로컬 빌드는 `packaging/appimage/README.md` 참조.
+
 ## Nix
 
 NixOS / nix-on-any-distro 사용자를 위한 flake 제공:

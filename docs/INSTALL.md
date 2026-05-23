@@ -208,6 +208,38 @@ paru -S winpodx
 
 The PKGBUILD lives at [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD); each tag push (`v*.*.*`) auto-stamps the version + tarball sha256 and pushes to `aur.archlinux.org/winpodx.git`.
 
+## AppImage
+
+A distro-agnostic AppImage of winpodx ships as a release asset on every tagged release. It bundles the Python runtime + winpodx + Qt6 (PySide6) into a single executable file, but **still requires the host's FreeRDP, Podman / Docker, and KVM** -- those system-level components cannot be packaged inside an AppImage in a usable way (FreeRDP needs to integrate with the host's X / Wayland session, `/dev/kvm` is a host kernel feature, podman's rootless setup needs `/etc/subuid` mappings that only root can write). If any of those are missing, `winpodx setup` and `winpodx doctor` print per-distro install commands -- this matches what the curl one-liner would have done.
+
+```bash
+# 1. Download the AppImage from the latest GitHub release
+#    -> winpodx-<version>-x86_64.AppImage
+
+# 2. Make it executable
+chmod +x winpodx-*-x86_64.AppImage
+
+# 3. First-run setup (asks for backend / cores / RAM / timezone; same
+#    prompt as `winpodx setup` after any other install method).
+./winpodx-*-x86_64.AppImage setup
+
+# 4. Launch the desktop (or any installed Windows app by name)
+./winpodx-*-x86_64.AppImage app run desktop
+```
+
+Best fit for:
+
+- **Immutable distros** (Fedora Silverblue / Kinoite, openSUSE Aeon, Steam Deck) where layering system packages is heavy or unavailable.
+- **Locked-down environments** where users can't run `curl ... | bash` but can run a single downloaded executable.
+- **Quick try-it-on-a-friend's-laptop** without committing to a system install.
+
+Not the best fit if you prefer:
+
+- Native package-manager integration (use the RPM / DEB / AUR paths above instead).
+- Auto-update from the system update cycle (the AppImage is downloaded + replaced manually unless you wire it into AppImageUpdate yourself).
+
+Recipe and CI live under `packaging/appimage/` -- see `packaging/appimage/README.md` for local-build instructions if you want to roll your own.
+
 ## Nix
 
 A flake is provided for NixOS / nix-on-any-distro users:

@@ -98,9 +98,16 @@ yay -S winpodx
 
 # Nix
 nix run github:kernalix7/winpodx
+
+# AppImage (distro-agnostic, single file)
+# 최신 GitHub release 에서 winpodx-<version>-x86_64.AppImage 다운로드
+chmod +x winpodx-*-x86_64.AppImage
+./winpodx-*-x86_64.AppImage setup
 ```
 
-> **패키지 매니저 설치 후:** `winpodx setup` 한번 실행 → `~/.config/winpodx/winpodx.toml` + compose.yaml 생성. curl 원라이너는 이 단계를 자동으로 해주고 Windows 첫 부팅까지 ~5–10분 대기; 패키지 설치는 바이너리만 ship — `apt install` / `dnf install` / `yay -S` 가 갑자기 10분짜리 Windows ISO 다운로드 트리거하지 않게. setup 후엔 그냥 앱 실행 (`winpodx app run desktop`) 만 해도 첫 실행시 pod 자동 provision.
+> **패키지 매니저 / AppImage 설치 후:** `winpodx setup` 한번 실행 → `~/.config/winpodx/winpodx.toml` + compose.yaml 생성. curl 원라이너는 이 단계를 자동으로 해주고 Windows 첫 부팅까지 ~5–10분 대기; 패키지 설치는 바이너리만 ship — `apt install` / `dnf install` / `yay -S` / 첫 AppImage 실행이 갑자기 10분짜리 Windows ISO 다운로드 트리거하지 않게. setup 후엔 그냥 앱 실행 (`winpodx app run desktop`) 만 해도 첫 실행시 pod 자동 provision.
+>
+> AppImage 는 Python + Qt + winpodx 자체를 번들하지만 호스트의 FreeRDP / Podman / Docker / KVM 은 그대로 사용. 부족하면 `winpodx setup` 과 `winpodx doctor` 가 distro 별 설치 안내 출력.
 
 오프라인 / 에어갭 빌드, 소스 설치, 버전 pin, 언인스톨은 [docs/INSTALL.ko.md](INSTALL.ko.md) 참조.
 
@@ -186,7 +193,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 
 | 문서 | 내용 |
 |----------|---------------|
-| [INSTALL.ko.md](INSTALL.ko.md) | 모든 설치 경로 — 원라인, 패키지 매니저, 오프라인, Nix, 소스 |
+| [INSTALL.ko.md](INSTALL.ko.md) | 모든 설치 경로 — 원라인, 패키지 매니저, AppImage, 오프라인, Nix, 소스 |
 | [USAGE.ko.md](USAGE.ko.md) | CLI 레퍼런스, Qt6 GUI 투어, 헬스 체크, 설정 파일 |
 | [FEATURES.ko.md](FEATURES.ko.md) | Reverse-open, 멀티세션 RDP, 주변기기, 앱 프로필, 자동 discovery |
 | [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md) | 동작 방식 (다이어그램), 기술 스택, 소스 트리, 데이터 흐름 |
