@@ -43,6 +43,11 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 # move around.
 BINARIES=(
     xfreerdp3
+    xfreerdp
+    wlfreerdp3
+    wlfreerdp
+    sdl-freerdp3
+    sdl-freerdp
     podman
     podman-compose
     conmon
@@ -63,6 +68,22 @@ for bin in "${BINARIES[@]}"; do
             break
         fi
     done
+done
+
+# Defensive sweep: if the FreeRDP package shipped any /usr/bin/*freerdp*
+# binary we didn't enumerate, grab it. Fedora package naming for the
+# FreeRDP 3 client has changed across releases (xfreerdp / xfreerdp3 /
+# freerdp / sdl-freerdp + arch suffix); this catches whichever variant
+# is present in the install.
+echo "[bundle] Defensive freerdp glob:"
+for path in /usr/bin/*freerdp* /usr/libexec/*freerdp*; do
+    if [ -f "$path" ]; then
+        base="$(basename "$path")"
+        if [ ! -f "$APPDIR/usr/bin/$base" ]; then
+            cp -L "$path" "$APPDIR/usr/bin/"
+            echo "  + $base (from $path, defensive)"
+        fi
+    fi
 done
 
 # Library exclude list -- these MUST come from the host even on

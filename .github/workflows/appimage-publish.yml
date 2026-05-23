@@ -107,6 +107,8 @@ jobs:
                   set -euo pipefail
                   dnf install -y --setopt=install_weak_deps=False \
                       freerdp \
+                      freerdp-libs \
+                      libwinpr \
                       podman \
                       podman-compose \
                       conmon \
@@ -115,6 +117,8 @@ jobs:
                       slirp4netns \
                       passt \
                       file
+                  echo "[provenance] freerdp binaries provided:"
+                  rpm -ql freerdp | grep -E "^(/usr/bin|/usr/libexec)/.*freerdp.*" || true
                   bash /scripts/bundle-system-bins.sh /AppDir
               '
 
