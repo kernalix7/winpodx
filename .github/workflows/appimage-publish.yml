@@ -32,13 +32,29 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade build python-appimage
 
-      - name: Install FUSE runtime for appimagetool
-        # ubuntu-24.04 runners ship without libfuse2; python-appimage's
-        # downloaded appimagetool tries to FUSE-mount itself and fails
-        # silently when libfuse2 is missing, producing no AppImage and
-        # the next step bombs with "No AppImage produced." libfuse2t64
-        # is the 24.04 transition package that provides libfuse.so.2.
-        run: sudo apt-get update && sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
+      - name: Pre-install appimagetool (extract-and-wrap, FUSE-free)
+        # ubuntu-24.04 runners cannot mount AppImages via FUSE in the
+        # GitHub runner environment regardless of libfuse2 being apt-
+        # installed (sandbox / SECCOMP restrictions on user_namespaces).
+        # python-appimage downloads its own appimagetool and runs it
+        # without honouring APPIMAGE_EXTRACT_AND_RUN, so we shortcut
+        # the entire FUSE path: download appimagetool ourselves,
+        # extract its squashfs payload, and put a thin wrapper on PATH
+        # that exec's into the extracted AppRun. python-appimage's
+        # `which("appimagetool")` finds our wrapper and skips its own
+        # download path.
+        run: |
+          cd /tmp
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract >/dev/null
+          sudo mv squashfs-root /opt/appimagetool
+          sudo tee /usr/local/bin/appimagetool >/dev/null <<'WRAPPER'
+          #!/bin/sh
+          exec /opt/appimagetool/AppRun "$@"
+          WRAPPER
+          sudo chmod +x /usr/local/bin/appimagetool
+          appimagetool --version || true
 
       - name: Build winpodx wheel
         run: python -m build --wheel --outdir dist
