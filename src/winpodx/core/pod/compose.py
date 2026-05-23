@@ -113,8 +113,11 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     * ``apply_hv_enlightenments`` (#245) — Hyper-V paravirt hints
       (relaxed, vapic, vpindex, runtime, synic, reset, frequencies,
       reenlightenment, tlbflush, ipi, spinlocks=0x1fff, stimer,
-      stimer-direct) plus ``-no-hpet`` so the guest uses the Hyper-V
-      clock.
+      stimer-direct) so the guest sees a paravirtualised hypervisor.
+      ``-no-hpet`` was previously appended here but removed in QEMU 10
+      (the dockur v5.15+ base image ships QEMU 10.x); the Hyper-V
+      synthetic timer plus ``hv-stimer`` already steers Windows away
+      from HPET so the explicit machine flag isn't necessary.
     * ``apply_evmcs`` (#245) — ``hv-evmcs`` nested-VMCS optimisation
       (Intel only).
     * ``apply_nested_virt`` (#245) — ``+vmx`` (Intel) / ``+svm`` (AMD)
@@ -161,7 +164,16 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
                 "hv-stimer-direct",
             ]
         )
-        extra_args.append("-no-hpet")
+        # NOTE: ``-no-hpet`` was here in the initial #245 implementation
+        # but QEMU 10 (shipped by dockur v5.15+ via qemus/qemu v7.30)
+        # removed the flag entirely -- it now errors with
+        # ``invalid option`` and the container refuses to start. The
+        # Hyper-V synthetic timer (``hv-stimer``, ``hv-stimer-direct``)
+        # already steers the Windows guest away from HPET, so dropping
+        # the machine-level flag has no functional impact on the
+        # tuning win. If we need the hard "no HPET at all" guarantee
+        # later, the QEMU-10 path is ``-machine ...,hpet=off`` -- but
+        # that overrides dockur's machine type spec, which is risky.
 
     if profile.apply_evmcs:
         cpu_sub.append("hv-evmcs")

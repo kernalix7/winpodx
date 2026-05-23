@@ -136,7 +136,8 @@ def test_compose_arguments_287_workaround_marker_only_when_no_extras(monkeypatch
     content_auto = _build_compose_content(cfg)
     # Auto profile adds hv-* + virtio-rng -- marker not needed.
     assert "-msg timestamp=on" not in content_auto
-    assert "-no-hpet" in content_auto  # actual extra from auto
+    # virtio-rng -device is the always-on auto extra; hv-* is in -cpu sub-opts.
+    assert "virtio-rng-pci" in content_auto
 
     cfg.pod.tuning_profile = "off"
     content_off = _build_compose_content(cfg)
@@ -148,9 +149,13 @@ def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatc
     """``tuning_profile = "auto"`` + invtsc-capable host appends ``+invtsc``
     so the Windows guest sees an invariant TSC clocksource (#215).
 
-    #245: auto also now appends hv-* enlightenments, virtio-rng, and
-    -no-hpet. Assert each piece is present rather than pinning the full
-    string — the assertion stays meaningful even when the list grows.
+    #245: auto also now appends hv-* enlightenments + virtio-rng. Assert
+    each piece is present rather than pinning the full string -- the
+    assertion stays meaningful even when the list grows.
+
+    NOTE: ``-no-hpet`` was previously asserted here; QEMU 10 (shipped by
+    dockur v5.15+) removed the flag, so it no longer appears in the
+    output. The Hyper-V synthetic timer steers Windows off HPET anyway.
     """
     import winpodx.utils.specs as specs
 
@@ -174,14 +179,15 @@ def test_compose_arguments_invtsc_auto_profile_appends_when_supported(monkeypatc
     content = _build_compose_content(cfg)
     # invtsc still on the -cpu sub-option line.
     assert "+invtsc" in content
-    # #245: hv-* enlightenments + virtio-rng + -no-hpet always on under
-    # auto for x86 hosts. nested_kvm=False so +svm / hv-evmcs stay off.
+    # #245: hv-* enlightenments + virtio-rng always on under auto for x86
+    # hosts. nested_kvm=False so +svm / hv-evmcs stay off.
     assert "hv-relaxed" in content
     assert "hv-spinlocks=0x1fff" in content
     assert "hv-stimer-direct" in content
-    assert "-no-hpet" in content
     assert "virtio-rng-pci,rng=rng0" in content
     assert "rng-random,id=rng0,filename=/dev/urandom" in content
+    # QEMU 10 dropped -no-hpet -- regression guard.
+    assert "-no-hpet" not in content
     # AMD + nested_kvm=False => no +svm, no hv-evmcs.
     assert "+svm" not in content
     assert "hv-evmcs" not in content
