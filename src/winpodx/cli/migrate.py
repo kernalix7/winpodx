@@ -527,7 +527,7 @@ def _probe_password_sync(non_interactive: bool) -> None:
     from winpodx.core.provisioner import wait_for_windows_responsive
 
     print("\nProbing Windows-side authentication...")
-    if not wait_for_windows_responsive(cfg, timeout=180):
+    if not wait_for_windows_responsive(cfg, timeout=600):
         print("  (probe deferred — guest still booting; will retry on next ensure_ready)")
         return
 
@@ -727,7 +727,7 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
     from winpodx.core.provisioner import wait_for_windows_responsive
 
     print("  Waiting for Windows guest to finish booting (up to 180s)...")
-    if not wait_for_windows_responsive(cfg, timeout=180):
+    if not wait_for_windows_responsive(cfg, timeout=600):
         print(
             "  Windows guest still booting after 180s — skipping runtime apply.\n"
             "  Run `winpodx pod apply-fixes` once `winpodx pod status` reports "
@@ -969,7 +969,7 @@ def _attempt_refresh() -> None:
     from winpodx.core.provisioner import wait_for_windows_responsive
 
     print("\n  Waiting for Windows guest to be ready (up to 180s)...")
-    if not wait_for_windows_responsive(cfg, timeout=180):
+    if not wait_for_windows_responsive(cfg, timeout=600):
         print(
             "  Windows guest still booting — skipping discovery for now.\n"
             "  Re-run later with: winpodx app refresh"

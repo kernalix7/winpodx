@@ -103,11 +103,11 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
     try:
         transport = dispatch(cfg, prefer="agent")
-        result = transport.exec(payload, description="rotate-password", timeout=30)
+        result = transport.exec(payload, description="rotate-password", timeout=90)
     except TransportUnavailable:
         log.info("Agent unavailable for password rotation; falling back to FreeRDP")
         try:
-            result = run_in_windows(cfg, payload, description="rotate-password", timeout=45)
+            result = run_in_windows(cfg, payload, description="rotate-password", timeout=120)
         except WindowsExecError as e:
             log.warning("Password change channel failure: %s", e)
             return False

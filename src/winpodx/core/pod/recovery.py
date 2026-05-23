@@ -78,7 +78,7 @@ def try_recover_rdp(cfg: Config) -> RecoveryResult:
         )
 
     try:
-        result = transport.exec(_RESTART_TERMSERVICE, timeout=20)
+        result = transport.exec(_RESTART_TERMSERVICE, timeout=60)
     except (TransportUnavailable, TransportTimeoutError) as e:
         return RecoveryResult(
             success=False,

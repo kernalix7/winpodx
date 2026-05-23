@@ -48,7 +48,7 @@ def suspend_pod(cfg: Config) -> bool:
     if cfg.pod.backend not in ("podman", "docker"):
         return False  # libvirt/manual don't support pause
     cmd = [cfg.pod.backend, "pause", cfg.pod.container_name]
-    result = _run_container_cmd(cfg, cmd, timeout=30, timeout_msg="Pod suspend timed out after 30s")
+    result = _run_container_cmd(cfg, cmd, timeout=90, timeout_msg="Pod suspend timed out after 90s")
     if result is None:
         return False
     if result.returncode == 0:
@@ -63,7 +63,7 @@ def resume_pod(cfg: Config) -> bool:
     if cfg.pod.backend not in ("podman", "docker"):
         return False
     cmd = [cfg.pod.backend, "unpause", cfg.pod.container_name]
-    result = _run_container_cmd(cfg, cmd, timeout=30, timeout_msg="Pod resume timed out after 30s")
+    result = _run_container_cmd(cfg, cmd, timeout=90, timeout_msg="Pod resume timed out after 90s")
     if result is None:
         return False
     if result.returncode == 0:
@@ -78,7 +78,7 @@ def is_pod_paused(cfg: Config) -> bool:
     if cfg.pod.backend not in ("podman", "docker"):
         return False
     cmd = [cfg.pod.backend, "inspect", "--format", "{{.State.Status}}", cfg.pod.container_name]
-    result = _run_container_cmd(cfg, cmd, timeout=10, timeout_msg="Pod inspect timed out after 10s")
+    result = _run_container_cmd(cfg, cmd, timeout=30, timeout_msg="Pod inspect timed out after 30s")
     if result is None:
         return False
     if result.returncode != 0:
@@ -161,7 +161,7 @@ def sync_windows_time(cfg: Config) -> bool:
     from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
     try:
-        result = run_via_transport(cfg, payload, description="sync-time", timeout=30)
+        result = run_via_transport(cfg, payload, description="sync-time", timeout=90)
     except WindowsExecError as e:
         log.warning("Time sync channel failure: %s", e)
         return False

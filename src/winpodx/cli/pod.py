@@ -218,7 +218,7 @@ def _apply_fixes() -> None:
     from winpodx.core.provisioner import wait_for_windows_responsive
 
     print("Waiting for Windows guest to finish booting (up to 180s)...")
-    if not wait_for_windows_responsive(cfg, timeout=180):
+    if not wait_for_windows_responsive(cfg, timeout=600):
         print(
             "Windows guest still booting after 180s. Wait a bit longer, "
             "then re-run `winpodx pod apply-fixes`."
@@ -300,7 +300,7 @@ def _sync_password(non_interactive: bool) -> None:
     if transport is not None:
         print("Resetting Windows account password via agent...")
         try:
-            result = transport.exec(payload, description="sync-password", timeout=30)
+            result = transport.exec(payload, description="sync-password", timeout=90)
         except TransportAuthError as e:
             print(f"FAIL: agent rejected the request (auth): {e}")
             print(
@@ -354,7 +354,7 @@ def _sync_password(non_interactive: bool) -> None:
 
     print("Authenticating with recovery password and resetting Windows account...")
     try:
-        result = run_in_windows(rescue_cfg, payload, description="sync-password", timeout=45)
+        result = run_in_windows(rescue_cfg, payload, description="sync-password", timeout=120)
     except WindowsExecError as e:
         print(f"FAIL: channel failure with recovery password: {e}")
         print(
@@ -466,7 +466,7 @@ def _multi_session_enable(cfg) -> None:  # type: ignore[no-untyped-def]
 
     print("Queuing multi-session activation (detached)...")
     try:
-        result = run_via_transport(cfg, payload, description="multi-session-enable", timeout=20)
+        result = run_via_transport(cfg, payload, description="multi-session-enable", timeout=60)
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)
@@ -521,7 +521,7 @@ def _multi_session_disable(cfg) -> None:  # type: ignore[no-untyped-def]
 
     print("Disabling multi-session RDP via rdprrap...")
     try:
-        result = run_via_transport(cfg, payload, description="multi-session-disable", timeout=45)
+        result = run_via_transport(cfg, payload, description="multi-session-disable", timeout=120)
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)
@@ -573,7 +573,7 @@ def _multi_session_status(cfg) -> None:  # type: ignore[no-untyped-def]
 
     print("Querying multi-session status...")
     try:
-        result = run_via_transport(cfg, payload, description="multi-session-status", timeout=20)
+        result = run_via_transport(cfg, payload, description="multi-session-status", timeout=60)
     except WindowsExecError as e:
         print(f"FAIL: channel failure: {e}")
         sys.exit(3)

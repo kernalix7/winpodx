@@ -1385,7 +1385,7 @@ def run_if_first_boot(cfg: Config) -> None:
         # the guest is not yet activation-responsive.
         from winpodx.core.provisioner import wait_for_windows_responsive
 
-        if not wait_for_windows_responsive(cfg, timeout=180):
+        if not wait_for_windows_responsive(cfg, timeout=600):
             log.info("Windows guest still booting; deferring discovery to a later run.")
             return
         apps = scan(cfg)

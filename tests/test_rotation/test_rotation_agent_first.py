@@ -76,7 +76,7 @@ def test_agent_unavailable_falls_back_to_freerdp(_rotate_cfg, monkeypatch):
     assert args[0] is _rotate_cfg
     assert "net user" in args[1]
     assert kwargs.get("description") == "rotate-password"
-    assert kwargs.get("timeout") == 45
+    assert kwargs.get("timeout") == 120
 
 
 def test_agent_auth_error_does_not_fall_back(_rotate_cfg, monkeypatch, caplog):

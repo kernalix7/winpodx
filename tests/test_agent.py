@@ -72,7 +72,7 @@ class TestHealth:
         assert result == {"ok": True, "version": "0.2.2"}
         assert captured["url"] == "http://127.0.0.1:8765/health"
         assert captured["method"] == "GET"
-        assert captured["timeout"] == 2.0
+        assert captured["timeout"] == 5.0
         # No Authorization header on /health.
         header_keys = {k.lower() for k in captured["headers"]}
         assert "authorization" not in header_keys

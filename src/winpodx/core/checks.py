@@ -139,7 +139,7 @@ def probe_guest_exec(cfg: Config) -> Probe:
 
         client = AgentClient(cfg)
         try:
-            result = client.exec("Write-Output ok\n", timeout=10.0)
+            result = client.exec("Write-Output ok\n", timeout=30.0)
         except AgentTimeoutError as e:
             return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
@@ -206,7 +206,7 @@ def probe_guest_summary(cfg: Config) -> Probe:
 
         client = AgentClient(cfg)
         try:
-            result = client.exec(script, timeout=15.0)
+            result = client.exec(script, timeout=45.0)
         except AgentTimeoutError as e:
             return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
