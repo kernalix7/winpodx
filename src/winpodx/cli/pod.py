@@ -893,7 +893,12 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     # download progress is observed. No ceiling -- we trust wget's
     # ETA. A genuinely stalled download stops producing ETA lines, so
     # the deadline stops advancing and the wait expires naturally.
-    _BOOT_BUFFER_SECS = 600  # 10min after download for Sysprep / OEM apply
+    # The buffer is wider than the post-download Sysprep / OEM apply
+    # actually needs (typically 2-8min) because real-world downloads
+    # have brief network blips and a transient stall shouldn't fail
+    # the wait outright -- we'd rather wait an extra ~hour than mark
+    # a recoverable hiccup as a hard timeout.
+    _BOOT_BUFFER_SECS = 3600  # 60min slack for blips + post-download boot
     _ANNOUNCE_STEP_SECS = 600  # only re-announce when deadline jumps 10min+
     deadline_state = {
         "value": start + timeout,
