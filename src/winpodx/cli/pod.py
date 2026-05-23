@@ -1017,7 +1017,7 @@ def _recover_oem() -> None:
        present inside the container (i.e. host-side OEM mount is OK
        and only the guest-side copy is what failed).
     2. Tars ``/oem`` to ``/storage/oem.tar.gz`` inside the container.
-    3. Starts a one-shot Python HTTP server on container port 9999
+    3. Starts a one-shot Python HTTP server on container port 8766
        (reachable from the Windows guest via QEMU's NAT gateway
        ``10.0.2.2``).
     4. Prints the exact PowerShell commands the user must paste into
@@ -1116,8 +1116,12 @@ def _recover_oem() -> None:
         print("Error: tar timed out (60s).")
         sys.exit(1)
 
-    print("[winpodx] Starting HTTP server on container port 9999...")
-    # Best-effort cleanup of any prior server on 9999.
+    # Port 8766: one above the winpodx agent port (8765) so anyone
+    # debugging with `lsof -i :876*` sees both. Container-internal only;
+    # not forwarded to the host. Reachable from the Windows guest via
+    # QEMU's NAT gateway 10.0.2.2:8766.
+    print("[winpodx] Starting HTTP server on container port 8766...")
+    # Best-effort cleanup of any prior server on 8766.
     subprocess.run(
         [
             cmd,
@@ -1125,7 +1129,7 @@ def _recover_oem() -> None:
             container,
             "sh",
             "-c",
-            "pkill -f 'http.server 9999' 2>/dev/null; true",
+            "pkill -f 'http.server 8766' 2>/dev/null; true",
         ],
         capture_output=True,
         timeout=5,
@@ -1140,7 +1144,7 @@ def _recover_oem() -> None:
             container,
             "sh",
             "-c",
-            "cd /storage && nohup python3 -m http.server 9999 >/tmp/recover-oem-http.log 2>&1 &",
+            "cd /storage && nohup python3 -m http.server 8766 >/tmp/recover-oem-http.log 2>&1 &",
         ],
         timeout=10,
     )
@@ -1153,7 +1157,7 @@ def _recover_oem() -> None:
     print("  noVNC URL: http://127.0.0.1:8007/")
     print()
     print("  # Download OEM bundle from container (10.0.2.2 = QEMU NAT gateway)")
-    print("  Invoke-WebRequest http://10.0.2.2:9999/oem.tar.gz -OutFile C:\\oem.tar.gz")
+    print("  Invoke-WebRequest http://10.0.2.2:8766/oem.tar.gz -OutFile C:\\oem.tar.gz")
     print()
     print("  # Extract to C:\\OEM\\ (Windows 10/11 ships bsdtar in System32)")
     print("  cd C:\\")
@@ -1172,4 +1176,4 @@ def _recover_oem() -> None:
     print("  winpodx check")
     print()
     print("To stop the HTTP server when finished:")
-    print(f"  {cmd} exec {container} pkill -f 'http.server 9999'")
+    print(f"  {cmd} exec {container} pkill -f 'http.server 8766'")
