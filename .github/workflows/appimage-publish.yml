@@ -130,12 +130,16 @@ jobs:
               -v "$PWD/packaging/appimage:/scripts" \
               fedora:41 bash -c '
                   set -euo pipefail
-                  # tsflags= overrides the fedora image default
-                  # `tsflags=nodocs`, which strips /usr/share/licenses on
-                  # install -- without it the fail-closed license check
-                  # below aborts because podman/freerdp-libs/... then ship
-                  # no license dir in the doc-stripped image.
-                  dnf install -y --setopt=install_weak_deps=False --setopt=tsflags= \
+                  # The fedora:41 image sets `tsflags=nodocs` in
+                  # /etc/dnf/dnf.conf, which strips /usr/share/licenses on
+                  # install -- the fail-closed license check below then
+                  # aborts because podman/freerdp-libs/... ship no license
+                  # dir. `--setopt=tsflags=` is NOT honored by dnf5 here
+                  # (config value wins), so delete the line from the conf
+                  # outright; that is dnf4/dnf5-agnostic and verified to
+                  # repopulate /usr/share/licenses.
+                  sed -i "/^tsflags/d" /etc/dnf/dnf.conf
+                  dnf install -y --setopt=install_weak_deps=False \
                       freerdp \
                       freerdp-libs \
                       libwinpr \
