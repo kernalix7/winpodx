@@ -473,7 +473,7 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     # reserved.
     tuning = (
         _ask(
-            f"Tuning profile (auto / performance / safe / off / manual) [{cfg.pod.tuning_profile}]: ",
+            f"Tuning profile (auto/performance/safe/off/manual) [{cfg.pod.tuning_profile}]: ",
             default=cfg.pod.tuning_profile,
         )
         .strip()
