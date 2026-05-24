@@ -1,3 +1,42 @@
+winpodx (0.5.8) unstable; urgency=medium
+
+  * fix(oem): #269 agent 8765 HttpListener bind failed with "conflicts
+    with an existing registration" on the non-admin autologon User.
+    install.bat now reserves the urlacl via sddl=D:(A;;GX;;;WD) (World
+    SID, locale-proof) + deletes overlapping reservations first;
+    agent.ps1 retries the bind + dumps urlacl state on persistent
+    failure. OEM bundle 24 -> 25. Diagnosed with @ismikes.
+  * feat(packaging): #227 fat AppImage bundling FreeRDP + Podman +
+    podman-compose + a python3 -m launch shim, plus `winpodx
+    setup-host` pkexec wizard for kvm group / subuid. Tag pushes
+    auto-build + attach it to the release. Requested by @leandromqrs.
+  * fix(install): #288 require podman-compose proper instead of
+    trusting `podman compose` delegation (which routes through
+    docker-compose and breaks the keep-groups extension). Reported by
+    @magicdiablo.
+  * feat(pod): #287 `winpodx pod recover-oem` re-stages C:\OEM + runs
+    install.bat when dockur's first-boot OEM copy fails. Driver:
+    @ankranidiotis.
+  * feat(pod): #126 wait-ready deadline auto-extends from dockur's
+    wget ETA so slow ISO downloads don't trip the 60min timeout;
+    other fixed timeouts widened + compose-up made activity-based.
+    Reported by @xiyeming.
+  * feat(setup): #255 `winpodx setup --customize` wizard now walks
+    edition / language / region / keyboard / tuning; a standalone
+    `winpodx setup` runs the full provision flow (wait-ready +
+    discovery + reverse-open) like install.sh.
+  * feat(tuning): #245 extended profile (hv-* enlightenments,
+    virtio-rng, nested-virt autodetect) + `performance` profile.
+    Suggested by @ismikes.
+  * fix(rpm): #301 License tag widened to MIT AND Apache-2.0 for the
+    bundled rdpwrap (Apache-2.0) inside rdprrap.
+  * Plus #254 locale/timezone wiring, #247 debloat picker, #255
+    doctor / uninstall consolidation / first-run prompt, and the
+    QEMU 10 / dockur v5.15 compose fixes (-no-hpet drop, CPU_FLAGS
+    refactor).
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sun, 24 May 2026 12:00:00 +0000
+
 winpodx (0.5.7) unstable; urgency=medium
 
   * feat(debloat): #247 four-phase rollout of the per-item debloat
