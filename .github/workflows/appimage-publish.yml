@@ -130,10 +130,7 @@ jobs:
               -v "$PWD/packaging/appimage:/scripts" \
               fedora:41 bash -c '
                   set -euo pipefail
-                  # keepcache=1 keeps every installed .rpm under
-                  # /var/cache/libdnf5/.../packages so we can harvest license
-                  # texts straight out of the package payloads below.
-                  dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=1 \
+                  dnf install -y --setopt=install_weak_deps=False \
                       freerdp \
                       freerdp-libs \
                       libwinpr \
@@ -144,8 +141,7 @@ jobs:
                       netavark \
                       slirp4netns \
                       passt \
-                      file \
-                      cpio
+                      file
                   echo "[provenance] freerdp binaries provided:"
                   rpm -ql freerdp | grep -E "^(/usr/bin|/usr/libexec)/.*freerdp.*" || true
                   bash /scripts/bundle-system-bins.sh /AppDir
@@ -153,58 +149,38 @@ jobs:
                   # (Apache-2.0: FreeRDP/Podman/conmon/crun/netavark/
                   # slirp4netns/passt; GPL-2.0: podman-compose).
                   #
-                  # NB: the fedora image installs with `tsflags=nodocs`, which
-                  # strips /usr/share/licenses off the installed filesystem,
-                  # and overriding that (sed dnf.conf / --setopt) proved
-                  # unreliable on the CI runner. The rpm *payload* always
-                  # carries the %license files regardless of install-time
-                  # tsflags, so harvest them from the cached rpms (kept by
-                  # keepcache=1 above) via rpm2cpio -- no second download, no
-                  # dnf plugin, no network. nodocs-proof and deterministic.
+                  # These are VENDORED in-repo at packaging/appimage/licenses/
+                  # (mounted here at /scripts/licenses), harvested verbatim
+                  # from the Fedora rpm payloads -- see that dir`s README for
+                  # provenance + refresh steps. We do NOT read them off the
+                  # installed filesystem: the fedora image installs with
+                  # `tsflags=nodocs`, which strips /usr/share/licenses, and
+                  # every attempt to defeat that on the CI runner (sed
+                  # dnf.conf, --setopt=tsflags=, --setopt=keepcache + rpm2cpio,
+                  # a second dnf download) silently produced nothing even
+                  # though each works in a local fedora:41 of the same digest.
+                  # Vendoring removes the CI dependency entirely.
                   dst=/AppDir/usr/share/doc/winpodx/third-party
                   mkdir -p "$dst"
-                  harvest=$(mktemp -d)
-                  ( cd "$harvest"
-                    find /var/cache/libdnf5 -name "*.rpm" 2>/dev/null | while read -r r; do
-                        rpm2cpio "$r" | cpio -idmu --quiet 2>/dev/null || true
-                    done )
-                  lic="$harvest/usr/share/licenses"
-                  echo "[provenance] harvested license dirs:"
-                  ls -1 "$lic" 2>/dev/null || echo "(none harvested)"
-                  # REQUIRED license dirs fail the build if missing -- these
-                  # carry the hard redistribution obligations of the primary
-                  # bundled tools (Apache-2.0 NOTICE/LICENSE for Podman; the
-                  # FreeRDP stack's Apache-2.0/LGPL-2.1 texts live in the
-                  # -libs subpackage, not the `freerdp` metapackage). A
-                  # future Fedora image dropping one must not silently ship a
-                  # non-compliant AppImage, so fail closed.
-                  for pkg in podman freerdp-libs libwinpr; do
-                      if [ ! -d "$lic/$pkg" ]; then
-                          echo "FATAL: license payload for $pkg not found -- cannot ship a" >&2
-                          echo "license-compliant AppImage without it. Aborting." >&2
+                  src=/scripts/licenses
+                  # REQUIRED license texts fail the build if missing -- these
+                  # carry the hard redistribution obligations: Apache-2.0
+                  # LICENSE for Podman, the FreeRDP stack`s combined texts
+                  # (freerdp-libs + libwinpr), and the GPL-2.0 text of the one
+                  # copyleft component, podman-compose. A regression that drops
+                  # any of them must not silently ship a non-compliant AppImage.
+                  for pkg in podman freerdp-libs libwinpr podman-compose; do
+                      if [ ! -d "$src/$pkg" ]; then
+                          echo "FATAL: vendored license dir $src/$pkg missing -- cannot ship a" >&2
+                          echo "license-compliant AppImage. Re-run packaging/appimage/licenses refresh." >&2
                           exit 1
                       fi
-                      cp -rL "$lic/$pkg" "$dst/$pkg"
+                      cp -rL "$src/$pkg" "$dst/$pkg"
                   done
-                  # REQUIRED GPL-2.0 text for podman-compose. Fedora ships it
-                  # in the wheel dist-info (NOT /usr/share/licenses), so glob
-                  # the dist-info LICENSE and fail closed if absent -- this is
-                  # the one copyleft component, its text is non-negotiable.
-                  pcl=$(find /usr/lib/python3*/site-packages \
-                            -path "*podman_compose-*.dist-info/LICENSE" 2>/dev/null | head -1)
-                  if [ -z "$pcl" ]; then
-                      echo "FATAL: podman-compose dist-info LICENSE not found -- cannot" >&2
-                      echo "ship its GPL-2.0 text. Aborting." >&2
-                      exit 1
-                  fi
-                  mkdir -p "$dst/podman-compose"
-                  cp -L "$pcl" "$dst/podman-compose/LICENSE"
-                  # OPTIONAL licenses -- best-effort (some pkgs ship no license
-                  # dir on Fedora, e.g. the `freerdp` metapackage is covered by
-                  # freerdp-libs above, and slirp4netns carries none).
-                  for pkg in conmon crun netavark passt slirp4netns freerdp; do
-                      if [ -d "$lic/$pkg" ]; then
-                          cp -rL "$lic/$pkg" "$dst/$pkg" 2>/dev/null || true
+                  # OPTIONAL: the remaining Apache-2.0/BSD bundled tools.
+                  for pkg in conmon crun netavark passt slirp4netns; do
+                      if [ -d "$src/$pkg" ]; then
+                          cp -rL "$src/$pkg" "$dst/$pkg" 2>/dev/null || true
                       fi
                   done
                   # podman-compose source-offer note (GPL-2.0 binary
