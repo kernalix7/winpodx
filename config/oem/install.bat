@@ -508,6 +508,7 @@ REM   3. Single PS round-trip writes both WinpodxAgent and WinpodxMedia,
 REM      replacing the two separate reg-add lines + the WinpodxMedia
 REM      special case below.
 echo [winpodx] Registering HKCU\Run entries...
+echo [agent-install] step=hkcu-run-register status=enter>>"%SETUP_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
   "$haveWrap = Test-Path -LiteralPath $wrap;" ^
@@ -521,10 +522,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  $agent = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1';" ^
   "  $media = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\winpodx\media_monitor.ps1';" ^
   "}" ^
-  "Set-ItemProperty -Path $key -Name 'WinpodxAgent' -Value $agent -Force;" ^
-  "Set-ItemProperty -Path $key -Name 'WinpodxMedia' -Value $media -Force;" ^
-    "Write-Output ('reg-add: WinpodxAgent=' + $agent);" ^
-    "Write-Output ('reg-add: WinpodxMedia=' + $media);" >>"%SETUP_LOG%" 2>&1
+  "try {" ^
+  "  Set-ItemProperty -Path $key -Name 'WinpodxAgent' -Value $agent -Force;" ^
+  "  Set-ItemProperty -Path $key -Name 'WinpodxMedia' -Value $media -Force;" ^
+    "  Write-Output ('reg-add: WinpodxAgent=' + $agent);" ^
+    "  Write-Output ('reg-add: WinpodxMedia=' + $media);" ^
+  "} catch {" ^
+    "  Write-Output ('reg-add: ERROR ' + $_.Exception.GetType().FullName + ': ' + $_.Exception.Message);" ^
+  "}" >>"%SETUP_LOG%" 2>&1
+echo [agent-install] step=hkcu-run-register status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 
 REM Start the agent NOW (install.bat-time spawn) -- not just register it
 REM in HKCU\Run for future sessions. Reasoning: HKCU\Run fires once per
@@ -543,16 +549,43 @@ REM split as the HKCU\Run registration above. Spawned via
 REM Start-Process detached so install.bat doesn't block on the agent's
 REM event loop.
 echo [winpodx] Starting guest agent...
+echo [agent-install] step=spawn status=enter>>"%SETUP_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
-  "if (Test-Path -LiteralPath $wrap) {" ^
-  "  $startArgs = @($wrap, 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\OEM\agent.ps1');" ^
-  "  Start-Process wscript.exe -ArgumentList $startArgs -WindowStyle Hidden | Out-Null;" ^
-    "  Write-Output 'agent-spawn: wscript+hidden-launcher.vbs';" ^
-  "} else {" ^
-  "  Start-Process powershell.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\OEM\agent.ps1') -WindowStyle Hidden | Out-Null;" ^
-    "  Write-Output 'agent-spawn: direct-powershell-fallback (brief flash)';" ^
+  "$agentScript = 'C:\OEM\agent.ps1';" ^
+  "Write-Output ('agent-spawn: wrap=' + $wrap + ' wrapExists=' + (Test-Path -LiteralPath $wrap));" ^
+  "Write-Output ('agent-spawn: agentScript=' + $agentScript + ' scriptExists=' + (Test-Path -LiteralPath $agentScript));" ^
+  "try {" ^
+  "  if (Test-Path -LiteralPath $wrap) {" ^
+  "    $startArgs = @($wrap, 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $agentScript);" ^
+  "    $p = Start-Process wscript.exe -ArgumentList $startArgs -WindowStyle Hidden -PassThru;" ^
+    "    Write-Output ('agent-spawn: wscript+hidden-launcher.vbs pid=' + $p.Id);" ^
+  "  } else {" ^
+  "    $p = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $agentScript) -WindowStyle Hidden -PassThru;" ^
+    "    Write-Output ('agent-spawn: direct-powershell-fallback pid=' + $p.Id);" ^
+  "  }" ^
+  "} catch {" ^
+    "  Write-Output ('agent-spawn: ERROR ' + $_.Exception.GetType().FullName + ': ' + $_.Exception.Message);" ^
     "}" >>"%SETUP_LOG%" 2>&1
+echo [agent-install] step=spawn status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
+
+REM Quick post-spawn health probe -- give the agent 5s to bind 8765,
+REM then log whether the listener is up. If it's not, we know agent.ps1
+REM either failed to start or crashed before HttpListener.Start(), and
+REM the user / next debugger has a clear breadcrumb without needing
+REM to chase Start-Process exit codes.
+echo [agent-install] step=post-spawn-probe status=enter>>"%SETUP_LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Start-Sleep -Seconds 5;" ^
+  "$listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue;" ^
+  "if ($listener) {" ^
+  "  Write-Output ('post-spawn-probe: 8765 listener up (PID ' + ($listener | Select-Object -First 1 -ExpandProperty OwningProcess) + ')');" ^
+  "} else {" ^
+    "  Write-Output 'post-spawn-probe: 8765 NOT listening 5s after spawn';" ^
+    "  Get-ChildItem C:\OEM\agent.log -ErrorAction SilentlyContinue | ForEach-Object { Write-Output ('post-spawn-probe: agent.log size=' + $_.Length) };" ^
+    "  Get-Content C:\OEM\agent.log -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Output ('agent.log: ' + $_) };" ^
+    "}" >>"%SETUP_LOG%" 2>&1
+echo [agent-install] step=post-spawn-probe status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 
 REM Token is delivered via the OEM bind mount - no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
