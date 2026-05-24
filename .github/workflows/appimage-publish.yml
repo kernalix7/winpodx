@@ -130,7 +130,10 @@ jobs:
               -v "$PWD/packaging/appimage:/scripts" \
               fedora:41 bash -c '
                   set -euo pipefail
-                  dnf install -y --setopt=install_weak_deps=False \
+                  # keepcache=1 keeps every installed .rpm under
+                  # /var/cache/libdnf5/.../packages so we can harvest license
+                  # texts straight out of the package payloads below.
+                  dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=1 \
                       freerdp \
                       freerdp-libs \
                       libwinpr \
@@ -151,24 +154,23 @@ jobs:
                   # slirp4netns/passt; GPL-2.0: podman-compose).
                   #
                   # NB: the fedora image installs with `tsflags=nodocs`, which
-                  # strips /usr/share/licenses off the installed filesystem --
+                  # strips /usr/share/licenses off the installed filesystem,
                   # and overriding that (sed dnf.conf / --setopt) proved
                   # unreliable on the CI runner. The rpm *payload* always
                   # carries the %license files regardless of install-time
-                  # tsflags, so harvest them straight out of the downloaded
-                  # rpms via rpm2cpio. This is nodocs-proof and deterministic.
+                  # tsflags, so harvest them from the cached rpms (kept by
+                  # keepcache=1 above) via rpm2cpio -- no second download, no
+                  # dnf plugin, no network. nodocs-proof and deterministic.
                   dst=/AppDir/usr/share/doc/winpodx/third-party
                   mkdir -p "$dst"
                   harvest=$(mktemp -d)
                   ( cd "$harvest"
-                    dnf download --setopt=install_weak_deps=False \
-                        podman freerdp-libs libwinpr conmon crun netavark \
-                        passt slirp4netns >/dev/null 2>&1 || true
-                    for r in *.x86_64.rpm *.noarch.rpm; do
-                        [ -e "$r" ] || continue
+                    find /var/cache/libdnf5 -name "*.rpm" 2>/dev/null | while read -r r; do
                         rpm2cpio "$r" | cpio -idmu --quiet 2>/dev/null || true
                     done )
                   lic="$harvest/usr/share/licenses"
+                  echo "[provenance] harvested license dirs:"
+                  ls -1 "$lic" 2>/dev/null || echo "(none harvested)"
                   # REQUIRED license dirs fail the build if missing -- these
                   # carry the hard redistribution obligations of the primary
                   # bundled tools (Apache-2.0 NOTICE/LICENSE for Podman; the
