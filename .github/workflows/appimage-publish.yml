@@ -153,8 +153,24 @@ jobs:
                   # clauses (Apache 4(d), GPL-2.0 1/3, etc.).
                   dst=/AppDir/usr/share/doc/winpodx/third-party
                   mkdir -p "$dst"
-                  for pkg in freerdp freerdp-libs libwinpr podman podman-compose \
-                             conmon crun netavark slirp4netns passt; do
+                  # REQUIRED licenses fail the build if missing -- these
+                  # carry hard redistribution obligations (GPL-2.0 text +
+                  # the Apache-2.0 NOTICE of the primary bundled tools).
+                  # A future Fedora image dropping one of these must not
+                  # silently ship a non-compliant AppImage, so fail closed.
+                  for pkg in podman-compose freerdp podman; do
+                      if [ ! -d "/usr/share/licenses/$pkg" ]; then
+                          echo "FATAL: /usr/share/licenses/$pkg missing -- cannot ship a" >&2
+                          echo "license-compliant AppImage without it. Aborting." >&2
+                          exit 1
+                      fi
+                      cp -rL "/usr/share/licenses/$pkg" "$dst/$pkg"
+                  done
+                  # OPTIONAL licenses -- best-effort (several share a
+                  # license dir with their parent package on Fedora, so a
+                  # missing dir is not necessarily a compliance gap).
+                  for pkg in freerdp-libs libwinpr conmon crun netavark \
+                             slirp4netns passt; do
                       if [ -d "/usr/share/licenses/$pkg" ]; then
                           cp -rL "/usr/share/licenses/$pkg" "$dst/$pkg" 2>/dev/null || true
                       fi
