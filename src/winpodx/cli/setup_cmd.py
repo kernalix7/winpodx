@@ -429,6 +429,136 @@ def _resolve_credentials(cfg: Config, *, non_interactive: bool, config_existed: 
         cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
 
 
+def _prompt_edition_locale_tuning(cfg: Config) -> None:
+    """Wizard prompts for the knobs the GUI Settings page exposes but the
+    CLI wizard historically skipped (#255 PR 7): Windows edition, UI
+    language, regional format, keyboard layout, and the host tuning
+    profile. Each reaches dockur as an env var and only takes effect on
+    the initial Windows install. Enter accepts the shown default.
+    """
+    print("\n--- Edition / locale / tuning (Enter = keep default) ---")
+
+    # Windows edition. Bare-token list mirrors _KNOWN_WIN_VERSIONS; the
+    # common picks are surfaced inline, the rest accepted if typed.
+    edition = _ask(
+        f"Windows edition (11, 10, ltsc11, iot11, tiny11, 2025, ...) [{cfg.pod.win_version}]: ",
+        default=cfg.pod.win_version,
+    )
+    cfg.pod.win_version = edition
+
+    # UI language (dockur LANGUAGE env). Full English name, e.g. "English",
+    # "German", "Korean". dockur maps it to the matching ISO at download.
+    cfg.pod.language = _ask(
+        f"Windows UI language [{cfg.pod.language}]: ",
+        default=cfg.pod.language,
+    )
+
+    # Regional format (dockur REGION env). BCP-47, e.g. en-US, en-GB,
+    # ko-KR. Default en-001 = "English (World)"; suggest the more common
+    # en-US for US date / number formatting (#293).
+    cfg.pod.region = _ask(
+        f"Regional format (BCP-47, e.g. en-US) [{cfg.pod.region}]: ",
+        default=cfg.pod.region,
+    )
+
+    # Keyboard layout (dockur KEYBOARD env). BCP-47, e.g. en-US, de-DE.
+    cfg.pod.keyboard = _ask(
+        f"Keyboard layout (BCP-47, e.g. en-US) [{cfg.pod.keyboard}]: ",
+        default=cfg.pod.keyboard,
+    )
+
+    # Host tuning profile (#215 / #245). auto = detect + apply every safe
+    # KVM tweak the host supports; performance = auto + force CPU pinning
+    # / no-balloon; safe = Tier-1 only; off = dockur defaults; manual =
+    # reserved.
+    tuning = (
+        _ask(
+            f"Tuning profile (auto / performance / safe / off / manual) [{cfg.pod.tuning_profile}]: ",
+            default=cfg.pod.tuning_profile,
+        )
+        .strip()
+        .lower()
+    )
+    if tuning in ("auto", "performance", "safe", "off", "manual"):
+        cfg.pod.tuning_profile = tuning
+    else:
+        print(f"  unknown profile {tuning!r}, keeping {cfg.pod.tuning_profile!r}")
+
+    # Re-run validation so any normalization (win_version casing, etc.)
+    # lands before compose generation.
+    cfg.pod.__post_init__()
+
+
+def _run_full_provision(cfg: Config) -> None:
+    """Drive the same post-container-create provisioning that install.sh
+    orchestrates in bash, so a standalone `winpodx setup` finishes like a
+    complete install instead of stopping at "container created".
+
+    Sequence (each step tolerant of the guest still booting):
+      1. wait-ready -- block until the Windows first-boot + OEM apply +
+         reboot pass complete (auto-extends on slow ISO downloads).
+      2. apply-fixes -- idempotent Windows-side runtime fixes.
+      3. app discovery -- scan the guest + register desktop entries.
+      4. reverse-open -- stage host apps into the guest "Open with" menu
+         (only when cfg.reverse_open.enabled).
+
+    Skipped for non-podman/docker backends and when --create-only is set
+    (install.sh path -- it runs its own bash version of these steps).
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    print("\n" + "=" * 40)
+    print(" Provisioning Windows (first boot)")
+    print("=" * 40)
+    print("First install downloads ~7.5GB ISO + runs Sysprep + OEM apply.")
+    print("This can take ~5-10 min (longer on slow connections).\n")
+
+    # 1. wait-ready -- reuse the CLI implementation with live logs.
+    from winpodx.cli.pod import _wait_ready
+
+    try:
+        _wait_ready(timeout=3600, show_logs=True)
+    except SystemExit as e:
+        # _wait_ready exits non-zero on timeout. Don't abort the whole
+        # setup -- the pending-steps machinery + next `winpodx app run`
+        # will resume. Surface it and stop the provision chain.
+        print(
+            f"\n  wait-ready did not complete (exit {e.code}). "
+            "Remaining steps will auto-resume on your next "
+            "`winpodx app run` / `winpodx gui`."
+        )
+        return
+
+    # 2. apply-fixes -- idempotent guest runtime fixes.
+    try:
+        from winpodx.core.provisioner import apply_windows_runtime_fixes
+
+        print("\nApplying Windows-side runtime fixes...")
+        apply_windows_runtime_fixes(cfg)
+    except Exception as e:  # noqa: BLE001 -- best-effort, never fatal
+        print(f"  apply-fixes skipped ({e})")
+
+    # 3. discovery -- populate the app menu from the running guest.
+    try:
+        from winpodx.cli.app import _refresh_apps
+
+        print("\nDiscovering installed Windows apps...")
+        _refresh_apps(as_json=False, timeout=120)
+    except Exception as e:  # noqa: BLE001
+        print(f"  discovery skipped ({e}) -- run `winpodx app refresh` later")
+
+    # 4. reverse-open -- host apps into the guest "Open with" menu.
+    if getattr(cfg.reverse_open, "enabled", False):
+        try:
+            from winpodx.cli.host_open import _cmd_refresh
+
+            print("\nSetting up reverse-open (Linux apps in Windows 'Open with')...")
+            _cmd_refresh(argparse.Namespace(include_nodisplay=False, skip_icons=False, json=False))
+        except Exception as e:  # noqa: BLE001
+            print(f"  reverse-open setup skipped ({e})")
+
+
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
     import sys
@@ -594,6 +724,14 @@ def handle_setup(args: argparse.Namespace) -> None:
             cfg.pod.timezone = tz_input
             cfg.pod.__post_init__()
 
+        # Edition / locale / tuning wizard (#255 PR 7 -- the knobs the
+        # GUI Settings page already exposes, now reachable from the CLI
+        # wizard too). All reach dockur as env vars and apply on the
+        # initial Windows install that _recreate_container triggers
+        # below. Non-interactive mode leaves the cfg defaults untouched.
+        if not non_interactive and cfg.pod.backend in ("podman", "docker"):
+            _prompt_edition_locale_tuning(cfg)
+
         # Pick a storage mode for podman/docker before compose is
         # rendered. Three cases:
         #   1. cfg.pod.storage_path already set → keep it (returning user
@@ -689,8 +827,25 @@ def handle_setup(args: argparse.Namespace) -> None:
         compose_path = config_dir() / "compose.yaml"
         print(f"  Compose:  {compose_path}")
     print()
-    print("Apps are now in your application menu.")
-    print("Just click any app. winpodx handles the rest automatically.")
+
+    # Full-provision flow: a standalone `winpodx setup` should finish
+    # like a complete install (wait for Windows first-boot + discover
+    # apps + reverse-open), not stop at "container created". install.sh
+    # passes --create-only because it drives those steps itself in bash;
+    # skipping here avoids doing the work twice.
+    create_only = bool(getattr(args, "create_only", False))
+    if create_only or cfg.pod.backend not in ("podman", "docker"):
+        print("Apps are now in your application menu.")
+        print("Just click any app. winpodx handles the rest automatically.")
+        if cfg.pod.backend in ("podman", "docker") and create_only:
+            print(
+                "\nWindows is booting in the background. "
+                "Run `winpodx pod wait-ready --logs` to watch, or just "
+                "`winpodx app run desktop` (it waits on first launch)."
+            )
+    else:
+        _run_full_provision(cfg)
+        print("\nSetup + provisioning complete. Launch with `winpodx app run desktop`.")
 
 
 def _recreate_container(cfg: Config) -> None:

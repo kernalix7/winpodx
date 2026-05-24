@@ -704,7 +704,11 @@ if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
     log "  Run 'winpodx' (CLI or GUI) to finish setup. Prompt will offer auto, customize, or skip."
 else
     log "Running winpodx setup..."
-    SETUP_ARGS=(--non-interactive)
+    # --create-only: install.sh orchestrates wait-ready / migrate /
+    # discovery / reverse-open itself (below), so setup should stop after
+    # creating the container. A standalone `winpodx setup` (no
+    # --create-only) runs that full flow on its own.
+    SETUP_ARGS=(--non-interactive --create-only)
     if [ -n "$WINPODX_WIN_VERSION" ]; then
         SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
         log "Installing Windows edition: $WINPODX_WIN_VERSION"

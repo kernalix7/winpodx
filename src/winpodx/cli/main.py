@@ -279,6 +279,17 @@ def cli(argv: list[str] | None = None) -> None:
         ),
     )
     setup_p.add_argument(
+        "--create-only",
+        action="store_true",
+        help=(
+            "Stop after writing config + creating the container. Skip the "
+            "full provision flow (wait-ready, apply-fixes, app discovery, "
+            "reverse-open). install.sh passes this because it orchestrates "
+            "those steps itself; a standalone `winpodx setup` runs the full "
+            "flow so it finishes like a complete install."
+        ),
+    )
+    setup_p.add_argument(
         "--update-image",
         action="store_true",
         help=(
