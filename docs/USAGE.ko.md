@@ -36,7 +36,8 @@ winpodx pod apply-fixes           # Windows 측 런타임 fix 재적용 (idempot
 winpodx pod sync-password         # 비밀번호 drift 복구 (cfg ↔ Windows)
 winpodx pod multi-session on      # bundled rdprrap 멀티세션 RDP 토글
 winpodx pod multi-session status
-winpodx pod wait-ready --logs     # Windows 첫 부팅 대기 + 진행 + 컨테이너 로그
+winpodx pod wait-ready --logs     # Windows 첫 부팅 대기 + 진행 + 컨테이너 로그 (느린 ISO 다운로드 시 자동 연장)
+winpodx pod recover-oem           # dockur 첫 부팅 OEM 복사 실패 시 C:\OEM 재stage + install.bat 실행 (#287)
 
 # 전원 관리
 winpodx power --suspend           # 컨테이너 pause (CPU 해제, 메모리 유지)
@@ -65,7 +66,10 @@ winpodx uninstall                 # winpodx 파일 제거 (컨테이너 유지)
 winpodx uninstall --purge         # config 포함 전부 제거
 
 # 시스템
-winpodx setup                     # 대화형 설정 마법사
+winpodx setup                     # full 셋업: config + 컨테이너 + wait-ready + discovery + reverse-open
+winpodx setup --customize         # wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
+winpodx setup-host                # 호스트 준비 wizard (kvm 그룹, /etc/subuid, kvm 모듈) pkexec 한 번 — AppImage 사용자
+winpodx doctor                    # read-only 헬스 진단 + per-check fix 힌트
 winpodx info                      # 디스플레이, 의존성, config 진단
 winpodx check                     # 모든 헬스 프로브 실행 (pod / RDP / agent / disk / …)
 winpodx check --json              # 같은 프로브, machine-readable JSON

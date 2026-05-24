@@ -36,7 +36,8 @@ winpodx pod apply-fixes           # Re-apply Windows-side runtime fixes (idempot
 winpodx pod sync-password         # Recover from password drift (cfg ↔ Windows)
 winpodx pod multi-session on      # Toggle bundled rdprrap multi-session RDP
 winpodx pod multi-session status
-winpodx pod wait-ready --logs     # Wait for Windows first-boot with progress + container logs
+winpodx pod wait-ready --logs     # Wait for Windows first-boot with progress + container logs (auto-extends on slow ISO download)
+winpodx pod recover-oem           # Re-stage C:\OEM + run install.bat when dockur's first-boot OEM copy failed (#287)
 
 # Power management
 winpodx power --suspend           # Pause container (free CPU, keep memory)
@@ -65,7 +66,10 @@ winpodx uninstall                 # Remove winpodx files (keeps container)
 winpodx uninstall --purge         # Remove everything including config
 
 # System
-winpodx setup                     # Interactive setup wizard
+winpodx setup                     # Full setup: config + container + wait-ready + discovery + reverse-open
+winpodx setup --customize         # Wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
+winpodx setup-host                # Host prep wizard (kvm group, /etc/subuid, kvm module) via one pkexec prompt — AppImage users
+winpodx doctor                    # Read-only health diagnostic with per-check fix hints
 winpodx info                      # Display, dependencies, config diagnostics
 winpodx check                     # Run all health probes (pod / RDP / agent / disk / …)
 winpodx check --json              # Same probes, machine-readable JSON

@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### 상태: 베타
-> winpodx 는 활발히 개발 중입니다 (**v0.5.7**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 (`+invtsc`, `platform_tick` 등 호스트 capability gating) 과 stalled RDP 세션의 자동 `UNRESPONSIVE → recover` 추가. v0.5.7 은 모던 rootless podman + pasta 에서 "Launching… 인데 RDP 창 안 뜸" 수정. v0.5.7 은 dockur 의 `TZ` env var 통한 Windows 게스트 타임존 wiring (호스트 자동 감지), 항목별 debloat picker (CLI `--list` / `--preset` / `--items` / `--undo` / `--menu` + Qt picker 다이얼로그 with 리스크 뱃지), `winpodx pod recreate [--wipe-storage]`, Settings → Container/VM 의 Language / Region / Keyboard / Timezone dropdown 추가. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+> winpodx 는 활발히 개발 중입니다 (**v0.5.8**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 + stalled RDP 세션 자동 `UNRESPONSIVE → recover` 추가. v0.5.8 은 두 fresh-install 막힘을 수정 — guest agent 가 8765 포트 bind 실패 (urlacl 잘못된 소유자, #269) + dockur 첫 부팅 OEM 복사가 `install.bat` 미실행 (`winpodx pod recover-oem` 로 재stage, #287). 또한 FreeRDP + Podman + podman-compose 를 번들하는 distro 무관 **fat AppImage** + 호스트 측 작업용 `winpodx setup-host` pkexec 위저드 (#227), 느린 ISO 다운로드에 `pod wait-ready` 자동 연장 (#126), standalone setup 이 end-to-end provision 하도록 `winpodx setup --customize` wizard 완성. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — 진짜 아이콘, pin 가능, alt-tab, 파일 연결 양방향. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
@@ -88,10 +88,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — 최신 release 에서 맞는 .deb 다운로드 후
-sudo apt install ./winpodx_0.5.7_all_debian13.deb
+sudo apt install ./winpodx_0.5.8_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — 최신 release 에서 맞는 .rpm
-sudo dnf install ./winpodx-0.5.7-0.noarch.el10.rpm
+sudo dnf install ./winpodx-0.5.8-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx

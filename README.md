@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### Status: Beta
-> winpodx is in active development (**v0.5.7**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile (`+invtsc`, `platform_tick`, more flags gated by host capability) plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions. v0.5.7 fixes "Launching… but no RDP window" on modern rootless podman + pasta. v0.5.7 lands the Windows-guest timezone wiring via dockur's `TZ` env var (auto-detected from the host), a per-item debloat picker (CLI `--list` / `--preset` / `--items` / `--undo` / `--menu` plus a Qt picker dialog with risk badges), `winpodx pod recreate [--wipe-storage]`, and Settings → Container/VM dropdowns for Language / Region / Keyboard / Timezone. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> winpodx is in active development (**v0.5.8**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions. v0.5.8 fixes the two big fresh-install dead-ends — the guest agent failing to bind port 8765 (urlacl reserved for the wrong owner, #269) and dockur's first-boot OEM copy never running `install.bat` (`winpodx pod recover-oem` re-stages it, #287). It also ships a distro-agnostic **fat AppImage** that bundles FreeRDP + Podman + podman-compose with a `winpodx setup-host` pkexec wizard for the host-side bits (#227), makes `pod wait-ready` auto-extend on slow ISO downloads (#126), and completes the `winpodx setup --customize` wizard so a standalone setup provisions end-to-end. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated, both directions. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
@@ -88,10 +88,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — grab the matching .deb from the latest release
-sudo apt install ./winpodx_0.5.7_all_debian13.deb
+sudo apt install ./winpodx_0.5.8_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — grab the matching .rpm
-sudo dnf install ./winpodx-0.5.7-0.noarch.el10.rpm
+sudo dnf install ./winpodx-0.5.8-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx

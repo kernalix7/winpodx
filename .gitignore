@@ -8,6 +8,10 @@ build/
 *.egg
 .venv/
 venv/
+
+# AppImage build artifacts (packaging/appimage/ local builds)
+*.AppImage
+squashfs-root/
 .pytest_cache/
 .ruff_cache/
 *.so

@@ -100,7 +100,10 @@ def test_apply_script_full_selection() -> None:
         },
         "bob",
     )
-    assert "usermod -aG kvm bob" in script
+    # Username is bound to $wpu once (shlex-quoted) then referenced --
+    # the raw name appears only in the `wpu=` assignment.
+    assert "wpu=bob" in script
+    assert 'usermod -aG kvm "$wpu"' in script
     assert "/etc/subuid" in script
     assert "/etc/subgid" in script
     assert "/etc/modules-load.d/kvm-winpodx.conf" in script

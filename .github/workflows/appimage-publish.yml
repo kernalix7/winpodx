@@ -69,6 +69,12 @@ jobs:
           # Bump the tag + version pair together when refreshing.
           PYBUILD_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20240909/cpython-3.11.10+20240909-x86_64-unknown-linux-gnu-install_only.tar.gz"
           curl -fsSL "${PYBUILD_URL}" -o /tmp/python-standalone.tar.gz
+          # Supply-chain: verify against the upstream .sha256 sidecar
+          # (astral-sh publishes one per asset). The portable interpreter
+          # executes winpodx's code -- a tampered asset would run with the
+          # user's RDP password + agent token, so fail closed on mismatch.
+          curl -fsSL "${PYBUILD_URL}.sha256" -o /tmp/python-standalone.sha256
+          echo "$(cat /tmp/python-standalone.sha256)  /tmp/python-standalone.tar.gz" | sha256sum -c -
           tar -xzf /tmp/python-standalone.tar.gz -C AppDir/opt/
           # Tarball extracts to AppDir/opt/python/ on the install_only build.
           AppDir/opt/python/bin/python3 -m pip install --upgrade pip
@@ -96,6 +102,19 @@ jobs:
           # Symlink common icon location too (some launchers look here)
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           cp packaging/appimage/recipe/winpodx.png AppDir/usr/share/icons/hicolor/256x256/apps/winpodx.png
+          # License texts (LGPL/GPL/Apache/PSF redistribution obligation --
+          # the fat AppImage redistributes third-party binaries, so their
+          # license + NOTICE texts must travel with it). winpodx's own MIT
+          # LICENSE + the aggregate THIRD_PARTY_LICENSES.md go at the doc
+          # root; the Fedora-bundled binaries' texts are added by the
+          # docker step below under third-party/. PyPI deps (PySide6/Qt,
+          # Pillow, cairosvg, pyxdg) already carry their license in their
+          # site-packages *.dist-info inside AppDir/opt/python.
+          mkdir -p AppDir/usr/share/doc/winpodx/third-party
+          cp LICENSE THIRD_PARTY_LICENSES.md AppDir/usr/share/doc/winpodx/
+          # python-build-standalone ships its license files; surface them.
+          find AppDir/opt/python -maxdepth 3 -iname "LICENSE*" -path "*python*" \
+              -exec cp {} AppDir/usr/share/doc/winpodx/third-party/python-LICENSE.txt \; 2>/dev/null || true
           du -sh AppDir
 
       - name: Bundle system binaries (FreeRDP + Podman) via Fedora 41
@@ -126,6 +145,47 @@ jobs:
                   echo "[provenance] freerdp binaries provided:"
                   rpm -ql freerdp | grep -E "^(/usr/bin|/usr/libexec)/.*freerdp.*" || true
                   bash /scripts/bundle-system-bins.sh /AppDir
+                  # License + NOTICE texts for every bundled package
+                  # (Apache-2.0: FreeRDP/Podman/conmon/crun/netavark/
+                  # slirp4netns/passt; GPL-2.0: podman-compose). Fedora
+                  # keeps them under /usr/share/licenses/<pkg>/. Copying
+                  # them into the AppImage satisfies the redistribution
+                  # clauses (Apache 4(d), GPL-2.0 1/3, etc.).
+                  dst=/AppDir/usr/share/doc/winpodx/third-party
+                  mkdir -p "$dst"
+                  # REQUIRED licenses fail the build if missing -- these
+                  # carry hard redistribution obligations (GPL-2.0 text +
+                  # the Apache-2.0 NOTICE of the primary bundled tools).
+                  # A future Fedora image dropping one of these must not
+                  # silently ship a non-compliant AppImage, so fail closed.
+                  for pkg in podman-compose freerdp podman; do
+                      if [ ! -d "/usr/share/licenses/$pkg" ]; then
+                          echo "FATAL: /usr/share/licenses/$pkg missing -- cannot ship a" >&2
+                          echo "license-compliant AppImage without it. Aborting." >&2
+                          exit 1
+                      fi
+                      cp -rL "/usr/share/licenses/$pkg" "$dst/$pkg"
+                  done
+                  # OPTIONAL licenses -- best-effort (several share a
+                  # license dir with their parent package on Fedora, so a
+                  # missing dir is not necessarily a compliance gap).
+                  for pkg in freerdp-libs libwinpr conmon crun netavark \
+                             slirp4netns passt; do
+                      if [ -d "/usr/share/licenses/$pkg" ]; then
+                          cp -rL "/usr/share/licenses/$pkg" "$dst/$pkg" 2>/dev/null || true
+                      fi
+                  done
+                  # podman-compose source-offer note (GPL-2.0 binary
+                  # redistribution; upstream is pure-Python so source ==
+                  # the shipped script, but record the canonical offer).
+                  {
+                      echo "podman-compose is GPL-2.0. winpodx invokes it as a separate"
+                      echo "program (subprocess) -- mere aggregation, winpodx stays MIT."
+                      echo "Corresponding source: https://github.com/containers/podman-compose"
+                      echo "at the version bundled by Fedora 41 (rpm -q podman-compose for exact NVR)."
+                  } > "$dst/podman-compose-SOURCE-OFFER.txt"
+                  echo "[provenance] bundled license dirs:"
+                  ls -1 "$dst" || true
               '
 
       - name: Repack as fat AppImage
