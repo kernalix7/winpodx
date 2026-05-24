@@ -49,10 +49,17 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
     Each item is rendered as a conditional block: re-check state, mutate
     if still needed, log either way.
     """
+    # Bind the username to a shell variable ONCE via a shlex-quoted
+    # literal, then reference "$wpu" everywhere else. This keeps every
+    # interpolation shell-safe even in single-/double-quoted echo + grep
+    # contexts -- the raw name never re-enters the script text after this
+    # line. (Defense-in-depth: the name is the caller's own account, but
+    # consistency here removes the whole class of quoting bugs.)
     user = shlex.quote(username)
     lines: list[str] = [
         "#!/usr/bin/env bash",
         "set -uo pipefail",
+        f"wpu={user}",
         "echo '[wizard] Running pkexec-elevated host setup'",
     ]
 
@@ -62,12 +69,12 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
         lines += [
             "",
             "# kvm group membership -- only adds if user is missing.",
-            f"if ! id -nG {user} | tr ' ' '\\n' | grep -qx kvm; then",
-            f"    usermod -aG kvm {user}",
-            f"    echo '[wizard] Added {username} to kvm group "
-            "(log out + back in for it to take effect).'",
+            "if ! id -nG \"$wpu\" | tr ' ' '\\n' | grep -qx kvm; then",
+            '    usermod -aG kvm "$wpu"',
+            '    echo "[wizard] Added $wpu to kvm group '
+            '(log out + back in for it to take effect)."',
             "else",
-            f"    echo '[wizard] {username} already in kvm group; skipping.'",
+            '    echo "[wizard] $wpu already in kvm group; skipping."',
             "fi",
         ]
 
@@ -75,11 +82,11 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
         lines += [
             "",
             "# /etc/subuid -- rootless podman uid mapping.",
-            f'if ! grep -q "^{username}:" /etc/subuid 2>/dev/null; then',
-            f"    echo '{username}:100000:65536' >> /etc/subuid",
-            f"    echo '[wizard] Added subuid entry for {username}.'",
+            'if ! grep -q "^$wpu:" /etc/subuid 2>/dev/null; then',
+            '    echo "$wpu:100000:65536" >> /etc/subuid',
+            '    echo "[wizard] Added subuid entry for $wpu."',
             "else",
-            f"    echo '[wizard] subuid entry for {username} already present; skipping.'",
+            '    echo "[wizard] subuid entry for $wpu already present; skipping."',
             "fi",
         ]
 
@@ -87,11 +94,11 @@ def _build_apply_script(items: Iterable[str], username: str) -> str:
         lines += [
             "",
             "# /etc/subgid -- rootless podman gid mapping.",
-            f'if ! grep -q "^{username}:" /etc/subgid 2>/dev/null; then',
-            f"    echo '{username}:100000:65536' >> /etc/subgid",
-            f"    echo '[wizard] Added subgid entry for {username}.'",
+            'if ! grep -q "^$wpu:" /etc/subgid 2>/dev/null; then',
+            '    echo "$wpu:100000:65536" >> /etc/subgid',
+            '    echo "[wizard] Added subgid entry for $wpu."',
             "else",
-            f"    echo '[wizard] subgid entry for {username} already present; skipping.'",
+            '    echo "[wizard] subgid entry for $wpu already present; skipping."',
             "fi",
         ]
 

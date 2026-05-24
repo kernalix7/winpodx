@@ -41,6 +41,14 @@ Comment: Pre-built binary of electron/rcedit
  LICENSE-rcedit.txt sits beside the binary in the same directory and
  is also surfaced in the GUI License tab + THIRD_PARTY_LICENSES.md.
 
+Files: config/oem/reverse-open/shim/bin/winpodx-reverse-open-shim.exe
+Copyright: 2026 Kim DaeHyun <kernalix7@kodenet.io>
+License: MIT
+Comment: Pre-built winpodx-owned Rust stub (source at
+ config/oem/reverse-open/shim/) that Windows Explorer invokes from the
+ "Open with" menu to relay a file-open request back to the host's
+ reverse-open listener. Same MIT terms as winpodx.
+
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a
  copy of this software and associated documentation files (the

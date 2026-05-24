@@ -1173,7 +1173,14 @@ def _recover_oem() -> None:
         )
         sys.exit(1)
 
-    print("[winpodx] Tarring /oem into /storage/oem.tar.gz inside container...")
+    # Tar /oem into a DEDICATED serve dir (not /storage) so the HTTP
+    # server below exposes only oem.tar.gz -- never /storage/data.img
+    # (the multi-GB Windows disk) or anything else in /storage. The OEM
+    # tarball contains agent_token.txt; the guest already holds that
+    # token (it's at C:\OEM\agent_token.txt), so this doesn't cross a
+    # new trust boundary, but serving the whole /storage would.
+    serve_dir = "/tmp/winpodx-recover"
+    print(f"[winpodx] Tarring /oem into {serve_dir}/oem.tar.gz inside container...")
     try:
         subprocess.run(
             [
@@ -1182,7 +1189,8 @@ def _recover_oem() -> None:
                 container,
                 "sh",
                 "-c",
-                "cd / && tar czf /storage/oem.tar.gz oem && ls -la /storage/oem.tar.gz",
+                f"rm -rf {serve_dir} && mkdir -p {serve_dir} && cd / && "
+                f"tar czf {serve_dir}/oem.tar.gz oem && ls -la {serve_dir}/oem.tar.gz",
             ],
             check=True,
             timeout=60,
@@ -1197,7 +1205,8 @@ def _recover_oem() -> None:
     # Port 8766: one above the winpodx agent port (8765) so anyone
     # debugging with `lsof -i :876*` sees both. Container-internal only;
     # not forwarded to the host. Reachable from the Windows guest via
-    # QEMU's NAT gateway 10.0.2.2:8766.
+    # QEMU's NAT gateway 10.0.2.2:8766. Serves only the dedicated
+    # recover dir (one file), not /storage.
     print("[winpodx] Starting HTTP server on container port 8766...")
     # Best-effort cleanup of any prior server on 8766.
     subprocess.run(
@@ -1222,7 +1231,8 @@ def _recover_oem() -> None:
             container,
             "sh",
             "-c",
-            "cd /storage && nohup python3 -m http.server 8766 >/tmp/recover-oem-http.log 2>&1 &",
+            f"cd {serve_dir} && nohup python3 -m http.server 8766 "
+            ">/tmp/recover-oem-http.log 2>&1 &",
         ],
         timeout=10,
     )

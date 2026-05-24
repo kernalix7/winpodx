@@ -38,6 +38,23 @@ licenses govern.
 > `vendor/licenses/`. 0.1.7 onward bundles 0.1.3 and is the first
 > license-compliant winpodx release for this component.
 
+### rcedit
+
+- Upstream: https://github.com/electron/rcedit
+- License: MIT (`Copyright (c) 2013 GitHub Inc.`)
+- Bundled as: `config/oem/reverse-open/shim/bin/rcedit.exe`
+- Role: patches PE metadata on the per-app reverse-open shim during OEM
+  install. `LICENSE-rcedit.txt` ships beside the binary in the same
+  directory.
+
+### winpodx-reverse-open-shim
+
+- Own code (`config/oem/reverse-open/shim/`, `Cargo.toml` declares MIT).
+- License: MIT (same as winpodx).
+- Bundled as: `config/oem/reverse-open/shim/bin/winpodx-reverse-open-shim.exe`
+- Role: stub Windows Explorer invokes from "Open with" to relay a
+  file-open request back to the host's reverse-open listener.
+
 ## Runtime dependency (always required)
 
 | Package | License | When | Notes |
@@ -70,9 +87,36 @@ import level.
 
 Dev dependencies are not shipped in the wheel / sdist / distro packages.
 
+## Fat AppImage release artifact (DOES redistribute the components below)
+
+The **source tree, wheel, `.deb`, and `.rpm` do not vendor** FreeRDP / Podman
+/ Qt / Python — they are runtime dependencies the host provides (see the next
+section). **The fat AppImage release artifact is the exception**: since v0.5.8,
+`winpodx-fat-x86_64.AppImage` bundles, for self-contained operation on
+immutable distros:
+
+- **Python 3.11** (astral-sh python-build-standalone) — PSF
+- **PySide6 / Qt6** — LGPL-3.0 (dynamically loaded; the AppImage SquashFS is
+  user-extractable via `--appimage-extract`, satisfying LGPL relinking)
+- **Pillow** (HPND), **cairosvg** (LGPL-3.0), **pyxdg** (LGPL-2.0)
+- **FreeRDP** (xfreerdp / wlfreerdp / sdl-freerdp) — Apache-2.0
+- **Podman**, **conmon**, **crun**, **netavark**, **slirp4netns**, **passt** —
+  Apache-2.0
+- **podman-compose** — GPL-2.0, invoked by winpodx as a **separate executable
+  via subprocess** (mere aggregation under GPLv2 §2 — winpodx itself stays
+  MIT; the GPL does not reach across the exec boundary)
+
+Each bundled component's license + NOTICE text is shipped inside the AppImage
+at `usr/share/doc/winpodx/third-party/`, alongside winpodx's own `LICENSE` and
+this file at `usr/share/doc/winpodx/`. A GPL-2.0 source offer for
+podman-compose is included there too. The CI build step that collects these is
+in `.github/workflows/appimage-publish.yml`.
+
 ## Runtime system dependencies (not vendored)
 
-Installed by `install.sh` via the host's package manager, or by the user:
+Installed by `install.sh` via the host's package manager, or by the user
+(this is the default for the wheel / `.deb` / `.rpm` / curl install — only
+the fat AppImage above bundles them):
 
 - **FreeRDP 3+** — Apache-2.0
 - **Podman** / Docker / libvirt — Apache-2.0 / Apache-2.0 / LGPL-2.1-or-later
