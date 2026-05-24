@@ -153,12 +153,14 @@ jobs:
                   # clauses (Apache 4(d), GPL-2.0 1/3, etc.).
                   dst=/AppDir/usr/share/doc/winpodx/third-party
                   mkdir -p "$dst"
-                  # REQUIRED licenses fail the build if missing -- these
-                  # carry hard redistribution obligations (GPL-2.0 text +
-                  # the Apache-2.0 NOTICE of the primary bundled tools).
-                  # A future Fedora image dropping one of these must not
-                  # silently ship a non-compliant AppImage, so fail closed.
-                  for pkg in podman-compose freerdp podman; do
+                  # REQUIRED license dirs fail the build if missing -- these
+                  # carry the hard redistribution obligations of the primary
+                  # bundled tools (Apache-2.0 NOTICE/LICENSE for Podman; the
+                  # FreeRDP stack's Apache-2.0/LGPL-2.1 texts live in the
+                  # -libs subpackage, not the `freerdp` metapackage). A
+                  # future Fedora image dropping one must not silently ship a
+                  # non-compliant AppImage, so fail closed.
+                  for pkg in podman freerdp-libs libwinpr; do
                       if [ ! -d "/usr/share/licenses/$pkg" ]; then
                           echo "FATAL: /usr/share/licenses/$pkg missing -- cannot ship a" >&2
                           echo "license-compliant AppImage without it. Aborting." >&2
@@ -166,11 +168,23 @@ jobs:
                       fi
                       cp -rL "/usr/share/licenses/$pkg" "$dst/$pkg"
                   done
-                  # OPTIONAL licenses -- best-effort (several share a
-                  # license dir with their parent package on Fedora, so a
-                  # missing dir is not necessarily a compliance gap).
-                  for pkg in freerdp-libs libwinpr conmon crun netavark \
-                             slirp4netns passt; do
+                  # REQUIRED GPL-2.0 text for podman-compose. Fedora ships it
+                  # in the wheel dist-info (NOT /usr/share/licenses), so glob
+                  # the dist-info LICENSE and fail closed if absent -- this is
+                  # the one copyleft component, its text is non-negotiable.
+                  pcl=$(find /usr/lib/python3*/site-packages \
+                            -path "*podman_compose-*.dist-info/LICENSE" 2>/dev/null | head -1)
+                  if [ -z "$pcl" ]; then
+                      echo "FATAL: podman-compose dist-info LICENSE not found -- cannot" >&2
+                      echo "ship its GPL-2.0 text. Aborting." >&2
+                      exit 1
+                  fi
+                  mkdir -p "$dst/podman-compose"
+                  cp -L "$pcl" "$dst/podman-compose/LICENSE"
+                  # OPTIONAL licenses -- best-effort (some pkgs ship no license
+                  # dir on Fedora, e.g. the `freerdp` metapackage is covered by
+                  # freerdp-libs above, and slirp4netns carries none).
+                  for pkg in conmon crun netavark passt slirp4netns freerdp; do
                       if [ -d "/usr/share/licenses/$pkg" ]; then
                           cp -rL "/usr/share/licenses/$pkg" "$dst/$pkg" 2>/dev/null || true
                       fi
