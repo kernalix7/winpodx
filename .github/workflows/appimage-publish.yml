@@ -130,7 +130,12 @@ jobs:
               -v "$PWD/packaging/appimage:/scripts" \
               fedora:41 bash -c '
                   set -euo pipefail
-                  dnf install -y --setopt=install_weak_deps=False \
+                  # tsflags= overrides the fedora image default
+                  # `tsflags=nodocs`, which strips /usr/share/licenses on
+                  # install -- without it the fail-closed license check
+                  # below aborts because podman/freerdp-libs/... then ship
+                  # no license dir in the doc-stripped image.
+                  dnf install -y --setopt=install_weak_deps=False --setopt=tsflags= \
                       freerdp \
                       freerdp-libs \
                       libwinpr \
