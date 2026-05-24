@@ -81,7 +81,13 @@ jobs:
           export PATH="$APPDIR/usr/bin:$APPDIR/opt/python/bin:$PATH"
           export LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/opt/python/lib:$LD_LIBRARY_PATH"
           export PYTHONPATH="$APPDIR/opt/python/lib/python3.11/site-packages:$PYTHONPATH"
-          exec "$APPDIR/opt/python/bin/winpodx" "$@"
+          # Invoke via `python3 -m winpodx`, NOT the pip-generated
+          # bin/winpodx console script. pip bakes an absolute build-time
+          # shebang (#!/home/runner/work/.../AppDir/opt/python/bin/python3)
+          # into bin/winpodx that doesn't exist at AppImage-extract time
+          # -> "bad interpreter". The -m form runs the module through the
+          # bundled interpreter directly and ignores the broken shebang.
+          exec "$APPDIR/opt/python/bin/python3" -m winpodx "$@"
           APPRUN
           chmod +x AppDir/AppRun
           # Desktop + icon -- appimagetool expects them in AppDir root.
