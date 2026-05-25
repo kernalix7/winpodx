@@ -182,15 +182,47 @@ _USAGE_PS = (
     "@{ total = [int64]$v.Size; free = [int64]$v.SizeRemaining }))"
 )
 
-# PowerShell: extend C: to the maximum contiguous size the disk now offers.
-# No-op (returns success) when C: is already at the supported max.
-_EXTEND_PS = (
-    "$max = (Get-PartitionSupportedSize -DriveLetter C -ErrorAction Stop).SizeMax; "
-    "$cur = (Get-Partition -DriveLetter C -ErrorAction Stop).Size; "
-    "if ($max -gt $cur) { "
-    "Resize-Partition -DriveLetter C -Size $max -ErrorAction Stop; "
-    "Write-Output 'extended' } else { Write-Output 'already-max' }"
-)
+# PowerShell: extend C: into the new space at the end of the disk.
+#
+# The simple case (`SizeMax > current`) means the free space is directly
+# after C: -- just resize. But dockur's Windows layout puts a small WinRE
+# **Recovery partition immediately after C:**, so the space a grow adds lands
+# *after* that recovery partition and C: can't reach it: SizeMax == current
+# and a naive resize reports "already-max" while the disk has unallocated
+# tail space (exactly what @drjwhitty hit -- disk 96G, C: 64G, 32G free
+# stranded behind the recovery partition).
+#
+# When that's the case, detach WinRE, delete the blocking recovery partition,
+# extend C: to fill, and re-enable WinRE (it falls back to C:\Windows when no
+# dedicated partition exists -- fine for a VM). Guarded so it only ever
+# removes a partition typed Recovery that sits at/after C:'s end.
+_EXTEND_PS = r"""
+$ErrorActionPreference = 'Stop'
+$c = Get-Partition -DriveLetter C
+$max = (Get-PartitionSupportedSize -DriveLetter C).SizeMax
+if ($max -gt $c.Size) {
+    Resize-Partition -DriveLetter C -Size $max
+    Write-Output 'extended'
+} else {
+    $disk = Get-Disk -Number $c.DiskNumber
+    $tailFree = $disk.Size - ($c.Offset + $c.Size)
+    $cEnd = $c.Offset + $c.Size
+    $rec = Get-Partition -DiskNumber $c.DiskNumber |
+        Where-Object { $_.Type -eq 'Recovery' -and $_.Offset -ge $cEnd } |
+        Sort-Object Offset | Select-Object -First 1
+    if ($rec -and $tailFree -gt 0) {
+        try { reagentc /disable | Out-Null } catch {}
+        $dn = $rec.DiskNumber; $pn = $rec.PartitionNumber
+        Remove-Partition -DiskNumber $dn -PartitionNumber $pn -Confirm:$false
+        $max2 = (Get-PartitionSupportedSize -DriveLetter C).SizeMax
+        Resize-Partition -DriveLetter C -Size $max2
+        try { reagentc /enable | Out-Null } catch {}
+        Write-Output 'extended-after-recovery-removal'
+    } else {
+        Write-Output 'already-max'
+    }
+}
+""".strip()
 
 
 def get_guest_disk_usage(cfg: Config, *, timeout: int = 30) -> DiskUsage | None:
