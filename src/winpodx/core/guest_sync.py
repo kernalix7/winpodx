@@ -393,14 +393,32 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
 
 def maybe_autosync(cfg: Config) -> bool:
     """Trigger hook: sync the guest when the host is newer. Returns True when
-    a sync ran. Honours ``pod.guest_autosync``; safe no-op when current."""
+    a sync ran. Honours ``pod.guest_autosync``; safe no-op when current.
+
+    Crucially, this only auto-syncs when a stamp is **present and older**. An
+    *absent* stamp is treated as "fresh install or pre-stamp pod": we record
+    the current version but do NOT sync. Auto-syncing on a fresh install
+    would fire mid-first-boot and the agent restart races install.bat's own
+    agent bring-up, leaving the agent down (observed on a fresh opensuse
+    install). A genuinely stale pre-stamp pod can be refreshed once with
+    ``winpodx pod sync-guest --force``; after that its stamp drives future
+    auto-syncs.
+    """
     if not getattr(cfg.pod, "guest_autosync", True):
         return False
     if cfg.pod.backend not in ("podman", "docker"):
         return False
-    if not guest_sync_needed(cfg):
+
+    guest = read_guest_version(cfg)
+    if guest is None:
+        # No stamp -> fresh install / pre-stamp. Record version, never sync.
+        if write_guest_version(cfg, host_version()):
+            log.info("guest has no version stamp; recorded %s without syncing", host_version())
         return False
-    log.info("guest is older than host (%s); auto-syncing", host_version())
+    if guest == host_version():
+        return False
+
+    log.info("guest %s older than host %s; auto-syncing", guest, host_version())
     try:
         sync_guest(cfg)
     except GuestSyncError as e:

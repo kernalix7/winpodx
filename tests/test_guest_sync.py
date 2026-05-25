@@ -70,7 +70,7 @@ def test_maybe_autosync_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_maybe_autosync_skips_when_current(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("winpodx.core.guest_sync.guest_sync_needed", lambda cfg: False)
+    monkeypatch.setattr("winpodx.core.guest_sync.read_guest_version", lambda cfg: host_version())
     monkeypatch.setattr(
         "winpodx.core.guest_sync.sync_guest",
         lambda *a, **k: pytest.fail("sync should not run when current"),
@@ -78,8 +78,11 @@ def test_maybe_autosync_skips_when_current(monkeypatch: pytest.MonkeyPatch) -> N
     assert maybe_autosync(_cfg()) is False
 
 
-def test_maybe_autosync_runs_when_needed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("winpodx.core.guest_sync.guest_sync_needed", lambda cfg: True)
+def test_maybe_autosync_runs_when_stamp_older(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "winpodx.core.guest_sync.read_guest_version",
+        lambda cfg: GuestVersion(winpodx="0.0.1", oem_bundle="1"),
+    )
     calls = {"n": 0}
     monkeypatch.setattr(
         "winpodx.core.guest_sync.sync_guest",
@@ -87,6 +90,23 @@ def test_maybe_autosync_runs_when_needed(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     assert maybe_autosync(_cfg()) is True
     assert calls["n"] == 1
+
+
+def test_maybe_autosync_absent_stamp_records_no_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fresh install / pre-stamp pod: must NOT sync (would disrupt first-boot
+    # agent bring-up) -- just record the version.
+    monkeypatch.setattr("winpodx.core.guest_sync.read_guest_version", lambda cfg: None)
+    wrote = {"n": 0}
+    monkeypatch.setattr(
+        "winpodx.core.guest_sync.write_guest_version",
+        lambda *a, **k: wrote.__setitem__("n", wrote["n"] + 1) or True,
+    )
+    monkeypatch.setattr(
+        "winpodx.core.guest_sync.sync_guest",
+        lambda *a, **k: pytest.fail("sync must not run when stamp absent (fresh install)"),
+    )
+    assert maybe_autosync(_cfg()) is False
+    assert wrote["n"] == 1
 
 
 def test_maybe_autosync_skips_unsupported_backend(monkeypatch: pytest.MonkeyPatch) -> None:
