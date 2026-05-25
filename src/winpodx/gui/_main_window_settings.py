@@ -536,22 +536,23 @@ class SettingsPageMixin:
         from PySide6.QtWidgets import QCheckBox
 
         from winpodx.desktop.autostart import (
-            is_tray_autostart_enabled,
-            set_tray_autostart,
+            is_autostart_enabled,
+            set_autostart,
         )
 
         self.checkbox_autostart_tray = QCheckBox(
-            "Launch winpodx tray at login (system tray icon + idle-stall auto-recovery)"
+            "Start the Windows pod at login (launches the tray + boots the pod)"
         )
-        self.checkbox_autostart_tray.setChecked(is_tray_autostart_enabled())
+        self.checkbox_autostart_tray.setChecked(is_autostart_enabled())
 
         def _on_autostart_toggled(checked: bool) -> None:
-            # Apply immediately — no Save Settings click needed; the
-            # autostart entry lives outside winpodx.toml.
+            # Apply immediately — no Save Settings click needed. Unified
+            # toggle: installs/removes the tray autostart entry AND flips
+            # cfg.pod.auto_start so the tray brings the pod up on login.
             try:
-                set_tray_autostart(bool(checked))
+                set_autostart(bool(checked))
             except OSError as e:
-                logging.getLogger(__name__).warning("Could not toggle tray autostart: %s", e)
+                logging.getLogger(__name__).warning("Could not toggle autostart: %s", e)
 
         self.checkbox_autostart_tray.toggled.connect(_on_autostart_toggled)
         layout.addWidget(self.checkbox_autostart_tray)

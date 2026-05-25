@@ -78,6 +78,7 @@ winpodx setup-host                # Host prep wizard (kvm group, /etc/subuid, kv
 winpodx doctor                    # Read-only health diagnostic with per-check fix hints
 winpodx info                      # Display, dependencies, config diagnostics
 winpodx check                     # Run all health probes (pod / RDP / agent / disk / …)
+winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off by default)
 winpodx check --json              # Same probes, machine-readable JSON
 winpodx gui                       # Launch Qt6 main window (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon

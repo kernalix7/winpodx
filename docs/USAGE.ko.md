@@ -78,6 +78,7 @@ winpodx setup-host                # 호스트 준비 wizard (kvm 그룹, /etc/su
 winpodx doctor                    # read-only 헬스 진단 + per-check fix 힌트
 winpodx info                      # 디스플레이, 의존성, config 진단
 winpodx check                     # 모든 헬스 프로브 실행 (pod / RDP / agent / disk / …)
+winpodx autostart on|off|status   # 로그인 시 Windows pod 자동시작 (opt-in; 기본 꺼짐)
 winpodx check --json              # 같은 프로브, machine-readable JSON
 winpodx gui                       # Qt6 메인 윈도 실행 (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Qt 시스템 트레이 아이콘 실행

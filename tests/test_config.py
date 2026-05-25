@@ -11,7 +11,8 @@ def test_config_defaults():
     assert cfg.rdp.port == 3390
     assert cfg.rdp.scale == 100
     assert cfg.pod.backend == "podman"
-    assert cfg.pod.auto_start is True
+    # auto_start is opt-in (off by default); `winpodx autostart on` flips it.
+    assert cfg.pod.auto_start is False
 
 
 def test_rdp_config_port_clamping():

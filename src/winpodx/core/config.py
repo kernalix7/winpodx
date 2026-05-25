@@ -164,7 +164,11 @@ class PodConfig:
     # via the auto-tier (low/mid/high) presets.
     ram_gb: int = 6
     vnc_port: int = 8007
-    auto_start: bool = True
+    # Opt-in: pod auto-start on login is OFF by default. `winpodx autostart on`
+    # (or the GUI checkbox) flips this True and installs the tray autostart
+    # entry, so booting Windows on every login is an explicit user choice
+    # (it's heavy) -- never forced by a plain install.
+    auto_start: bool = False
     idle_timeout: int = 0  # 0 = disabled
     boot_timeout: int = 300  # seconds, max wait for RDP after start_pod
     # Container image for dockur/windows. Pinned to a specific digest by

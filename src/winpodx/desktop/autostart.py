@@ -114,3 +114,27 @@ def set_tray_autostart(enabled: bool) -> None:
         enable_tray_autostart()
     else:
         disable_tray_autostart()
+
+
+def set_autostart(enabled: bool) -> None:
+    """Unified opt-in toggle for "start the Windows pod on login".
+
+    Ties the two layers together: the tray autostart ``.desktop`` (so the
+    tray launches on login) and ``cfg.pod.auto_start`` (so the tray, on
+    launch, brings the pod up). One user-facing switch -- CLI
+    ``winpodx autostart on/off`` and the GUI checkbox both call this.
+    """
+    set_tray_autostart(enabled)
+    from winpodx.core.config import Config
+
+    cfg = Config.load()
+    if cfg.pod.auto_start != enabled:
+        cfg.pod.auto_start = enabled
+        cfg.save()
+
+
+def is_autostart_enabled() -> bool:
+    """True when login pod auto-start is on (tray entry present + auto_start)."""
+    from winpodx.core.config import Config
+
+    return is_tray_autostart_enabled() and bool(Config.load().pod.auto_start)

@@ -396,6 +396,21 @@ def cli(argv: list[str] | None = None) -> None:
     sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")
     sub.add_parser("tray", help="Launch system tray icon")
     sub.add_parser("info", help="Show system information")
+    autostart_p = sub.add_parser(
+        "autostart",
+        help=(
+            "Toggle starting the Windows pod on login (opt-in, off by default). "
+            "`on` installs the tray autostart entry + sets auto_start so the pod "
+            "comes up at login; `off` disables it; `status` reports state."
+        ),
+    )
+    autostart_p.add_argument(
+        "action",
+        nargs="?",
+        choices=("on", "off", "status"),
+        default="status",
+        help="on / off / status (default: status)",
+    )
     check_p = sub.add_parser(
         "check",
         help="Run all health probes (pod, RDP, agent, password age, disk, …)",
@@ -612,6 +627,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.desktop.tray import run_tray
 
         run_tray()
+    elif cmd == "autostart":
+        _cmd_autostart(getattr(args, "action", "status"))
     elif cmd == "info":
         _cmd_info()
     elif cmd == "check":
@@ -647,6 +664,29 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.host_open import handle as handle_host_open
 
         sys.exit(handle_host_open(args))
+
+
+def _cmd_autostart(action: str) -> None:
+    """on/off/status for login pod auto-start (opt-in)."""
+    from winpodx.desktop.autostart import (
+        is_autostart_enabled,
+        is_tray_autostart_enabled,
+        set_autostart,
+    )
+
+    if action == "on":
+        set_autostart(True)
+        print("Autostart ON: the Windows pod will start when you log in.")
+        print("  (tray autostart entry installed + auto_start enabled)")
+    elif action == "off":
+        set_autostart(False)
+        print("Autostart OFF: the pod will not start on login.")
+    else:  # status
+        on = is_autostart_enabled()
+        print(f"Login pod auto-start: {'ON' if on else 'OFF'}")
+        print(f"  tray autostart entry: {'present' if is_tray_autostart_enabled() else 'absent'}")
+        if not on:
+            print("  enable with: winpodx autostart on")
 
 
 def _cmd_info() -> None:

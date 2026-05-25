@@ -984,17 +984,10 @@ def _register_all_desktop_entries() -> None:
     # (pip, dev checkout, package install missing the entry) leaves the
     # GUI discoverable in the app menu. No-ops if a system copy exists.
     install_gui_launcher_desktop()
-
-    # Enable the tray autostart entry so the tray launches on login/reboot.
-    # The tray, when cfg.pod.auto_start is on (default), then brings the pod
-    # up automatically -- so a reboot restores a working Windows session
-    # without the user re-running anything. Idempotent.
-    try:
-        from winpodx.desktop.autostart import enable_tray_autostart
-
-        enable_tray_autostart()
-    except Exception as e:  # noqa: BLE001 -- never fail setup on this
-        print(f"  (tray autostart not enabled: {e})")
+    # NB: tray autostart / pod auto-start are opt-in -- setup does NOT enable
+    # them. Run `winpodx autostart on` (or the GUI checkbox) to have the pod
+    # come up on login. Booting Windows every login is heavy, so it's an
+    # explicit choice, never forced by install.
 
     apps = list_available_apps()
     for app_info in apps:
