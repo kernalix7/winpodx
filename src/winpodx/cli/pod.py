@@ -1269,8 +1269,13 @@ def _recover_oem() -> None:
     print()
     print("  noVNC URL: http://127.0.0.1:8007/")
     print()
-    print("  # Download OEM bundle from container (10.0.2.2 = QEMU NAT gateway)")
-    print("  Invoke-WebRequest http://10.0.2.2:8766/oem.tar.gz -OutFile C:\\oem.tar.gz")
+    print("  # Download OEM bundle from the container via the guest's default")
+    print("  # gateway (QEMU slirp = 10.0.2.2, podman bridge = 10.89.0.1, etc.)")
+    print(
+        "  $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | "
+        "Sort-Object RouteMetric | Select-Object -First 1).NextHop"
+    )
+    print('  Invoke-WebRequest "http://${gw}:8766/oem.tar.gz" -OutFile C:\\oem.tar.gz')
     print()
     print("  # Extract to C:\\OEM\\ (Windows 10/11 ships bsdtar in System32)")
     print("  cd C:\\")

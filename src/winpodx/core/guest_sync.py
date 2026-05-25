@@ -250,16 +250,26 @@ def _stop_oem_server(cfg: Config) -> None:
         pass
 
 
-# PowerShell run in the guest: pull oem.tar.gz from the container gateway and
-# extract over C:\OEM (refreshes agent.ps1, rdprrap, shim, rcedit, scripts).
+# PowerShell run in the guest: pull oem.tar.gz from the container over the
+# guest's *default gateway* and extract over C:\OEM (refreshes agent.ps1,
+# rdprrap, shim, rcedit, scripts).
+#
+# The gateway is discovered at runtime, NOT hardcoded: dockur's network mode
+# decides what the guest sees -- QEMU slirp gives 10.0.2.2, but a podman
+# bridge gives e.g. 10.89.0.1 (verified on @drjwhitty's host) and other
+# setups give 20.20.20.1. The container's http.server (0.0.0.0:8766) is
+# reachable from the guest at whatever its default route's NextHop is.
 _PULL_OEM_PS = (
-    rf"Invoke-WebRequest http://10.0.2.2:{_OEM_HTTP_PORT}/oem.tar.gz "
-    r"-OutFile C:\oem.tar.gz -UseBasicParsing; "
+    r"$gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | "
+    r"Sort-Object RouteMetric | Select-Object -First 1).NextHop; "
+    r"if (-not $gw) { throw 'no default gateway' }; "
+    f'Invoke-WebRequest "http://${{gw}}:{_OEM_HTTP_PORT}/oem.tar.gz" '
+    r"-OutFile C:\oem.tar.gz -UseBasicParsing -TimeoutSec 120; "
     r"if (-not (Test-Path C:\oem.tar.gz)) { throw 'download failed' }; "
     r"cmd /c 'cd /d C:\ && tar -xzf C:\oem.tar.gz'; "
     r"Remove-Item C:\oem.tar.gz -ErrorAction SilentlyContinue; "
     r"if (-not (Test-Path C:\OEM\agent.ps1)) { throw 'extract failed: agent.ps1 missing' }; "
-    r"Write-Output 'oem-refreshed'"
+    r'Write-Output "oem-refreshed via $gw"'
 )
 
 
