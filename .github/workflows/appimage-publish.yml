@@ -80,6 +80,12 @@ jobs:
           AppDir/opt/python/bin/python3 -m pip install --upgrade pip
           WHEEL="$(ls -t dist/winpodx-*.whl | head -n1)"
           AppDir/opt/python/bin/python3 -m pip install --no-cache-dir "${WHEEL}[gui,reverse-open]"
+          # podman-compose is a pure-Python tool; install it into the bundled
+          # interpreter so the `podman_compose` module is present (#322 -- the
+          # Fedora /usr/bin/podman-compose launcher alone left the module
+          # missing -> ModuleNotFoundError). A usr/bin/podman-compose wrapper
+          # added after the binary bundle invokes this via the bundled python.
+          AppDir/opt/python/bin/python3 -m pip install --no-cache-dir podman-compose
           # AppRun
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
@@ -195,6 +201,25 @@ jobs:
                   echo "[provenance] bundled license dirs:"
                   ls -1 "$dst" || true
               '
+
+      - name: Install podman-compose wrapper (#322)
+        # The Fedora podman-compose launcher is NOT bundled (pure-Python; its
+        # module can't be ldd-bundled). podman-compose was pip-installed into
+        # the bundled interpreter above; drop a wrapper on PATH that runs it
+        # through that interpreter as a module -- a pip console script can't
+        # be used directly (its shebang is the absolute build-time python
+        # path, dead at AppImage-extract time, same reason AppRun uses
+        # `python3 -m winpodx`). $APPDIR is exported by AppRun at runtime.
+        run: |
+          mkdir -p AppDir/usr/bin
+          cat > AppDir/usr/bin/podman-compose <<'PC'
+          #!/bin/sh
+          # winpodx fat AppImage: run the bundled podman_compose module.
+          : "${APPDIR:=$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
+          exec "$APPDIR/opt/python/bin/python3" -m podman_compose "$@"
+          PC
+          chmod +x AppDir/usr/bin/podman-compose
+          echo "[wrapper] podman-compose -> opt/python python3 -m podman_compose"
 
       - name: Repack as fat AppImage
         env:

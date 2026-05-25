@@ -41,6 +41,12 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 # script tolerates missing entries so it can be re-used on newer
 # distros where some helpers (e.g. `passt` superseded by `pasta`)
 # move around.
+# NB: podman-compose is intentionally NOT here. It's a pure-Python script
+# (`from podman_compose import main`), not an ELF -- ldd can't bundle its
+# module. The AppImage build pip-installs podman-compose into the bundled
+# python and drops a wrapper at usr/bin/podman-compose (see
+# appimage-publish.yml). #322: bundling just the Fedora launcher script left
+# the podman_compose module missing -> ModuleNotFoundError on atomic distros.
 BINARIES=(
     xfreerdp3
     xfreerdp
@@ -49,7 +55,6 @@ BINARIES=(
     sdl-freerdp3
     sdl-freerdp
     podman
-    podman-compose
     conmon
     crun
     runc
