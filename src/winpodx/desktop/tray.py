@@ -486,6 +486,36 @@ def run_tray() -> None:
     timer.timeout.connect(refresh_status)
     timer.start(30000)
 
+    # Auto-start the pod on tray launch (i.e. on login / reboot, since the
+    # autostart .desktop runs `winpodx tray`). Gated on cfg.pod.auto_start
+    # (default on). Runs on a background thread so the icon appears
+    # immediately; resumes a suspended pod, otherwise cold-starts it, and is
+    # a no-op when it's already running. Best-effort -- a failure just leaves
+    # the pod stopped and is logged, never crashes the tray.
+    def _autostart_pod() -> None:
+        try:
+            c = Config.load()
+            if not getattr(c.pod, "auto_start", True):
+                return
+            if c.pod.backend not in ("podman", "docker"):
+                return
+            if pod_status(c).state == PodState.RUNNING:
+                return
+            from winpodx.core.daemon import is_pod_paused, resume_pod
+
+            if is_pod_paused(c):
+                log.info("auto-start: resuming suspended pod on tray launch")
+                resume_pod(c)
+            else:
+                log.info("auto-start: starting pod on tray launch")
+                start_pod(c)
+        except Exception as e:  # noqa: BLE001 -- never crash the tray
+            log.warning("auto-start failed: %s", e)
+
+    import threading
+
+    threading.Thread(target=_autostart_pod, daemon=True).start()
+
     # systemd-logind PrepareForSleep listener (issue #TBD). On host
     # resume the QEMU guest sees a wall-clock jump and its RDP TCP
     # listener goes stale -- the user sees the tray frozen on

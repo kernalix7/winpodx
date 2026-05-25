@@ -985,6 +985,17 @@ def _register_all_desktop_entries() -> None:
     # GUI discoverable in the app menu. No-ops if a system copy exists.
     install_gui_launcher_desktop()
 
+    # Enable the tray autostart entry so the tray launches on login/reboot.
+    # The tray, when cfg.pod.auto_start is on (default), then brings the pod
+    # up automatically -- so a reboot restores a working Windows session
+    # without the user re-running anything. Idempotent.
+    try:
+        from winpodx.desktop.autostart import enable_tray_autostart
+
+        enable_tray_autostart()
+    except Exception as e:  # noqa: BLE001 -- never fail setup on this
+        print(f"  (tray autostart not enabled: {e})")
+
     apps = list_available_apps()
     for app_info in apps:
         install_desktop_entry(app_info)
