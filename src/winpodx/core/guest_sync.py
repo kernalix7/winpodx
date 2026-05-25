@@ -299,6 +299,24 @@ _PULL_OEM_PS = (
 )
 
 
+def _write_stamp_with_retry(cfg: Config, *, attempts: int = 4, wait: float = 5.0) -> bool:
+    """Write the guest stamp, retrying while the agent settles.
+
+    rdprrap re-activation in the preceding fix step briefly drops the RDP
+    session + agent, so the first stamp write can hit an unreachable guest.
+    Retry a few times (the agent rebinds within seconds) before giving up.
+    """
+    import time
+
+    for i in range(attempts):
+        if write_guest_version(cfg, host_version()):
+            return True
+        if i < attempts - 1:
+            log.info("stamp write attempt %d/%d failed; waiting for agent", i + 1, attempts)
+            time.sleep(wait)
+    return False
+
+
 def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
     """Push the host's current guest artifacts into the running guest.
 
@@ -349,13 +367,13 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
     # 4. Stamp the guest -- BEFORE the agent restart. The restart kills the
     # agent we're /exec-ing through (a ~5s scheduled task), so the stamp
     # write must land while the agent is still up; doing it after races the
-    # restart and times out on the RDP fallback.
+    # restart and times out on the RDP fallback. The preceding multi_session
+    # / rdprrap re-activation also briefly disrupts the RDP session + agent,
+    # so retry a few times to let it settle before giving up.
     delivery_ok = results.get("oem_delivery") == "ok"
     fixes_ok = all(not v.startswith("failed") for k, v in results.items() if k.startswith("fix:"))
     if delivery_ok and fixes_ok:
-        results["stamp"] = (
-            "ok" if write_guest_version(cfg, host_version()) else "failed: stamp write"
-        )
+        results["stamp"] = "ok" if _write_stamp_with_retry(cfg) else "failed: stamp write"
     else:
         results["stamp"] = "skipped (a step failed; will retry next sync)"
 
