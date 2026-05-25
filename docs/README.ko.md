@@ -42,6 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 [![RHEL family](https://img.shields.io/badge/RHEL%20%2F%20Alma%20%2F%20Rocky-EE0000?style=flat-square&logo=redhat&logoColor=white)](https://www.redhat.com/)
 [![Arch](https://img.shields.io/badge/Arch-1793D1?style=flat-square&logo=archlinux&logoColor=white)](https://archlinux.org/)
 [![NixOS](https://img.shields.io/badge/NixOS-5277C3?style=flat-square&logo=nixos&logoColor=white)](INSTALL.ko.md#nix)
+[![AppImage](https://img.shields.io/badge/AppImage-any%20distro-6F42C1?style=flat-square&logo=appimage&logoColor=white)](INSTALL.ko.md)
 
 <sub>[English](../README.md) &nbsp;·&nbsp; **한국어** &nbsp;·&nbsp; [설치](INSTALL.ko.md) &nbsp;·&nbsp; [사용법](USAGE.ko.md) &nbsp;·&nbsp; [기능](FEATURES.ko.md) &nbsp;·&nbsp; [아키텍처](ARCHITECTURE.ko.md) &nbsp;·&nbsp; [비교](COMPARISON.ko.md)</sub>
 
@@ -107,7 +108,7 @@ chmod +x winpodx-*-x86_64.AppImage
 
 > **패키지 매니저 / AppImage 설치 후:** `winpodx setup` 한번 실행 → `~/.config/winpodx/winpodx.toml` + compose.yaml 생성. curl 원라이너는 이 단계를 자동으로 해주고 Windows 첫 부팅까지 ~5–10분 대기; 패키지 설치는 바이너리만 ship — `apt install` / `dnf install` / `yay -S` / 첫 AppImage 실행이 갑자기 10분짜리 Windows ISO 다운로드 트리거하지 않게. setup 후엔 그냥 앱 실행 (`winpodx app run desktop`) 만 해도 첫 실행시 pod 자동 provision.
 >
-> AppImage 는 Python + Qt + winpodx 자체를 번들하지만 호스트의 FreeRDP / Podman / Docker / KVM 은 그대로 사용. 부족하면 `winpodx setup` 과 `winpodx doctor` 가 distro 별 설치 안내 출력.
+> fat AppImage 는 Python + Qt + winpodx 에 더해 **FreeRDP + Podman + podman-compose 까지 번들** — 그래서 호스트 측에 못 담는 건 KVM 자체뿐 (`/dev/kvm`, `kvm` 그룹, rootless Podman 용 `/etc/subuid` / `/etc/subgid`). `winpodx setup-host` 가 `pkexec` 한 번으로 처리하고, `winpodx doctor` 가 그래도 부족한 걸 안내.
 
 오프라인 / 에어갭 빌드, 소스 설치, 버전 pin, 언인스톨은 [docs/INSTALL.ko.md](INSTALL.ko.md) 참조.
 
