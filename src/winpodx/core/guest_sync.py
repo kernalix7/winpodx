@@ -132,16 +132,28 @@ _URLACL_PS = (
     "cmd /c 'netsh http add urlacl url=http://+:8765/ sddl=D:(A;;GX;;;WD)'"
 )
 
-# The restart script that runs detached in the guest. Kept as a plain
-# multi-line PowerShell source; delivered to the guest base64-encoded (see
-# _restart_agent_ps) so none of its quoting survives a wrapper round-trip.
+# The restart script that runs detached in the guest. Relaunches the agent
+# the same way HKCU\Run does -- through the wscript hidden-launcher.vbs
+# wrapper -- so there is NO PowerShell console flash (a bare
+# `powershell.exe -WindowStyle Hidden` still flashes a window briefly). Falls
+# back to hidden powershell only if the launcher is somehow missing. Kept as
+# a plain multi-line source; delivered base64-encoded so its quoting can't be
+# mangled by the /exec wrapper.
+_LAUNCHER_VBS = r"C:\Users\Public\winpodx\launchers\hidden-launcher.vbs"
 _RESTART_AGENT_SCRIPT = (
     "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" |\n"
     "  Where-Object { $_.CommandLine -like '*agent.ps1*' } |\n"
     "  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\n"
     "Start-Sleep -Seconds 2\n"
-    "Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "
+    f"$wrap = '{_LAUNCHER_VBS}'\n"
+    "if (Test-Path -LiteralPath $wrap) {\n"
+    "  Start-Process wscript.exe -ArgumentList "
+    '("`"$wrap`"",\'"powershell.exe"\',\'"-NoProfile"\',\'"-ExecutionPolicy"\','
+    "'\"Bypass\"','\"-File\"','\"C:\\OEM\\agent.ps1\"')\n"
+    "} else {\n"
+    "  Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "
     "'-NoProfile','-ExecutionPolicy','Bypass','-File','C:\\OEM\\agent.ps1'\n"
+    "}\n"
 )
 
 
@@ -150,7 +162,11 @@ def _restart_agent_ps() -> str:
 
     The agent serves this very /exec, so it can't Stop-Process itself
     synchronously. We drop a restart script and a one-shot scheduled task
-    (~5 s out) that does the stop+relaunch after this call returns.
+    (~5 s out) that does the stop+relaunch after this call returns. The task
+    itself runs the restart script through the wscript hidden-launcher (or
+    hidden powershell as a fallback) so the task firing causes no console
+    flash either. Registered via the ScheduledTasks cmdlets so -Execute /
+    -Argument are real strings (no schtasks /tr quoting hell).
     """
     import base64
 
@@ -158,10 +174,20 @@ def _restart_agent_ps() -> str:
     return (
         f"$s = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')); "
         r"Set-Content -Path 'C:\OEM\restart-agent.ps1' -Value $s -Encoding UTF8; "
-        r"$when = (Get-Date).AddSeconds(5).ToString('HH:mm:ss'); "
-        r"schtasks /create /tn 'WinpodxAgentRestart' /tr "
-        r"'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden "
-        r"-File C:\OEM\restart-agent.ps1' /sc once /st $when /f | Out-Null"
+        f"$wrap = '{_LAUNCHER_VBS}'; "
+        "if (Test-Path -LiteralPath $wrap) { "
+        "$exe = 'wscript.exe'; "
+        '$arg = \'"\' + $wrap + \'" "powershell.exe" "-NoProfile" '
+        '"-ExecutionPolicy" "Bypass" "-File" "C:\\OEM\\restart-agent.ps1"\' '
+        "} else { "
+        "$exe = 'powershell.exe'; "
+        "$arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden "
+        "-File C:\\OEM\\restart-agent.ps1' "
+        "}; "
+        "$act = New-ScheduledTaskAction -Execute $exe -Argument $arg; "
+        "$trg = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(5); "
+        "Register-ScheduledTask -TaskName 'WinpodxAgentRestart' -Action $act "
+        "-Trigger $trg -Force | Out-Null"
     )
 
 
@@ -320,16 +346,10 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
     for name, res in apply_windows_runtime_fixes(cfg).items():
         results[f"fix:{name}"] = res
 
-    # 4. Restart the agent (one-shot scheduled task; fire-and-forget).
-    try:
-        r = run_in_windows(
-            cfg, _restart_agent_ps(), timeout=60, description="guest-sync-agent-restart"
-        )
-        results["agent_restart"] = "ok" if r.ok else f"failed: rc={r.rc}"
-    except WindowsExecError as e:
-        results["agent_restart"] = f"failed: {e}"
-
-    # 5. Stamp the guest if delivery + fixes landed (agent restart is async).
+    # 4. Stamp the guest -- BEFORE the agent restart. The restart kills the
+    # agent we're /exec-ing through (a ~5s scheduled task), so the stamp
+    # write must land while the agent is still up; doing it after races the
+    # restart and times out on the RDP fallback.
     delivery_ok = results.get("oem_delivery") == "ok"
     fixes_ok = all(not v.startswith("failed") for k, v in results.items() if k.startswith("fix:"))
     if delivery_ok and fixes_ok:
@@ -338,6 +358,17 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
         )
     else:
         results["stamp"] = "skipped (a step failed; will retry next sync)"
+
+    # 5. Restart the agent LAST (one-shot scheduled task; fire-and-forget) so
+    # it picks up the refreshed agent.ps1 + urlacl. Nothing else runs over
+    # /exec after this.
+    try:
+        r = run_in_windows(
+            cfg, _restart_agent_ps(), timeout=60, description="guest-sync-agent-restart"
+        )
+        results["agent_restart"] = "ok" if r.ok else f"failed: rc={r.rc}"
+    except WindowsExecError as e:
+        results["agent_restart"] = f"failed: {e}"
 
     return results
 
