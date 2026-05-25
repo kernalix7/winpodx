@@ -42,6 +42,8 @@ winpodx pod disk-usage            # Show Windows C: size / free / used% + auto-g
 winpodx pod grow-disk             # Add the auto-grow increment (default 32G) to the disk + extend C: (#318)
 winpodx pod grow-disk 128G        # Grow to an absolute size
 winpodx pod grow-disk --extend-only   # Just extend C: into existing unallocated space
+winpodx pod sync-guest            # Push host updates (agent / urlacl / rdprrap / fixes) into the guest — no reinstall
+winpodx pod sync-guest --force    # Re-sync even when the guest version stamp already matches
 
 # Power management
 winpodx power --suspend           # Pause container (free CPU, keep memory)
@@ -243,6 +245,7 @@ disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-
 disk_autogrow_target_free_pct = 30               # Grow is sized to restore this much free (not a flat step)
 disk_autogrow_increment = "32G"                  # Grow granularity / minimum step
 disk_max_size = ""                               # Optional hard ceiling; empty = bounded only by host free space
+guest_autosync = true                            # After a host upgrade, push updated guest artifacts in (no reinstall)
 
 [reverse_open]
 enabled = true                                   # Default since v0.5.0

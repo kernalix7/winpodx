@@ -1,0 +1,350 @@
+# SPDX-License-Identifier: MIT
+"""Apply host-side updates to a running guest without a reinstall.
+
+See ``docs/design/GUEST_SYNC_DESIGN.md``. Upgrading winpodx on the host
+leaves the guest's ``agent.ps1`` / urlacl / rdprrap / shim stale until a
+wipe-reinstall. ``/oem`` is a live bind mount of the host's ``config/oem``,
+so after a host upgrade the container already has the new files; this module
+delivers them into the running guest (same channel as ``pod recover-oem``,
+but automated over the agent ``/exec``), re-applies the idempotent fixes,
+restarts the agent, and stamps the guest version.
+
+A guest version stamp (``C:\\winpodx\\install-state\\guest_version.json``)
+records the ``(winpodx, oem_bundle)`` pair that last provisioned the guest;
+``guest_sync_needed`` compares it to the host's current pair.
+
+Guest-side ``/exec`` work -- covered by the real-Windows smoke gate, not
+unit tests.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import shutil
+import subprocess
+from dataclasses import dataclass
+
+from winpodx.core.config import Config
+
+log = logging.getLogger(__name__)
+
+# Where the guest records what provisioned it.
+_STAMP_PATH = r"C:\winpodx\install-state\guest_version.json"
+# Container-internal HTTP port for OEM delivery (shared with recover-oem).
+_OEM_HTTP_PORT = 8766
+_SERVE_DIR = "/tmp/winpodx-sync"
+
+
+@dataclass
+class GuestVersion:
+    winpodx: str
+    oem_bundle: str
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, GuestVersion)
+            and self.winpodx == other.winpodx
+            and self.oem_bundle == other.oem_bundle
+        )
+
+
+def host_version() -> GuestVersion:
+    """The (winpodx, oem_bundle) pair this host install ships."""
+    from winpodx import __version__
+    from winpodx.core.info import _bundled_oem_version
+
+    return GuestVersion(winpodx=__version__, oem_bundle=str(_bundled_oem_version()))
+
+
+# PowerShell: print the guest stamp JSON (empty string if absent).
+_READ_STAMP_PS = (
+    rf"if (Test-Path '{_STAMP_PATH}') {{ Get-Content -Raw '{_STAMP_PATH}' }} "
+    r"else { Write-Output '' }"
+)
+
+
+def read_guest_version(cfg: Config, *, timeout: int = 30) -> GuestVersion | None:
+    """Read the guest version stamp via ``/exec``. None when absent/unreachable."""
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    try:
+        result = run_in_windows(cfg, _READ_STAMP_PS, timeout=timeout, description="guest-version")
+    except WindowsExecError as e:
+        log.debug("guest-version read exec failed: %s", e)
+        return None
+    if not result.ok:
+        return None
+    raw = result.stdout.strip()
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        return GuestVersion(
+            winpodx=str(data.get("winpodx", "")),
+            oem_bundle=str(data.get("oem_bundle", "")),
+        )
+    except (ValueError, TypeError) as e:
+        log.debug("guest-version stamp unparseable %r: %s", raw, e)
+        return None
+
+
+def write_guest_version(cfg: Config, ver: GuestVersion, *, timeout: int = 30) -> bool:
+    """Write the guest version stamp via ``/exec``."""
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    payload = json.dumps({"winpodx": ver.winpodx, "oem_bundle": ver.oem_bundle})
+    # Base64 the JSON so quoting can't corrupt it inside the PS wrapper.
+    import base64
+
+    b64 = base64.b64encode(payload.encode("utf-8")).decode("ascii")
+    ps = (
+        r"$dir = 'C:\winpodx\install-state'; "
+        r"if (-not (Test-Path $dir)) "
+        r"{ New-Item -ItemType Directory -Force -Path $dir | Out-Null }; "
+        f"$json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')); "
+        f"Set-Content -Path '{_STAMP_PATH}' -Value $json -Encoding UTF8"
+    )
+    try:
+        result = run_in_windows(cfg, ps, timeout=timeout, description="guest-version-write")
+    except WindowsExecError as e:
+        log.warning("guest-version write failed: %s", e)
+        return False
+    return result.ok
+
+
+def guest_sync_needed(cfg: Config) -> bool:
+    """True when the guest stamp is absent or differs from the host pair."""
+    guest = read_guest_version(cfg)
+    if guest is None:
+        return True
+    return guest != host_version()
+
+
+# ---- guest-mutating steps (smoke-gated) ----------------------------------
+
+# urlacl reservation, ported from install.bat (#269). Idempotent: delete the
+# overlapping 8765 reservations, then add the World-SID (WD) reservation.
+_URLACL_PS = (
+    "cmd /c 'netsh http delete urlacl url=http://127.0.0.1:8765/ >nul 2>&1'; "
+    "cmd /c 'netsh http delete urlacl url=http://*:8765/ >nul 2>&1'; "
+    "cmd /c 'netsh http delete urlacl url=http://+:8765/ >nul 2>&1'; "
+    "cmd /c 'netsh http add urlacl url=http://+:8765/ sddl=D:(A;;GX;;;WD)'"
+)
+
+# The restart script that runs detached in the guest. Kept as a plain
+# multi-line PowerShell source; delivered to the guest base64-encoded (see
+# _restart_agent_ps) so none of its quoting survives a wrapper round-trip.
+_RESTART_AGENT_SCRIPT = (
+    "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" |\n"
+    "  Where-Object { $_.CommandLine -like '*agent.ps1*' } |\n"
+    "  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\n"
+    "Start-Sleep -Seconds 2\n"
+    "Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "
+    "'-NoProfile','-ExecutionPolicy','Bypass','-File','C:\\OEM\\agent.ps1'\n"
+)
+
+
+def _restart_agent_ps() -> str:
+    """Build the /exec payload that stages the restart script + schedules it.
+
+    The agent serves this very /exec, so it can't Stop-Process itself
+    synchronously. We drop a restart script and a one-shot scheduled task
+    (~5 s out) that does the stop+relaunch after this call returns.
+    """
+    import base64
+
+    b64 = base64.b64encode(_RESTART_AGENT_SCRIPT.encode("utf-8")).decode("ascii")
+    return (
+        f"$s = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')); "
+        r"Set-Content -Path 'C:\OEM\restart-agent.ps1' -Value $s -Encoding UTF8; "
+        r"$when = (Get-Date).AddSeconds(5).ToString('HH:mm:ss'); "
+        r"schtasks /create /tn 'WinpodxAgentRestart' /tr "
+        r"'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden "
+        r"-File C:\OEM\restart-agent.ps1' /sc once /st $when /f | Out-Null"
+    )
+
+
+def _backend_exec(
+    cfg: Config, args: list[str], *, timeout: int = 60
+) -> subprocess.CompletedProcess:
+    """Run ``<backend> <args>`` (podman/docker). Raises on missing backend."""
+    cmd = cfg.pod.backend
+    if cmd not in ("podman", "docker") or not shutil.which(cmd):
+        raise GuestSyncError(f"backend {cmd!r} not available for guest sync")
+    return subprocess.run([cmd, *args], capture_output=True, text=True, timeout=timeout)
+
+
+class GuestSyncError(Exception):
+    """Raised when guest sync can't proceed (backend / delivery failure)."""
+
+
+def _serve_oem(cfg: Config) -> None:
+    """Tar the container's ``/oem`` into a dedicated dir and serve it on
+    :8766 (container-internal). Mirrors ``pod recover-oem``'s delivery."""
+    import time
+
+    container = cfg.pod.container_name
+    check = _backend_exec(
+        cfg, ["exec", container, "sh", "-c", "test -f /oem/install.bat"], timeout=10
+    )
+    if check.returncode != 0:
+        raise GuestSyncError("/oem/install.bat missing in container; recreate the pod first")
+    tar = _backend_exec(
+        cfg,
+        [
+            "exec",
+            container,
+            "sh",
+            "-c",
+            f"rm -rf {_SERVE_DIR} && mkdir -p {_SERVE_DIR} && cd / && "
+            f"tar czf {_SERVE_DIR}/oem.tar.gz oem",
+        ],
+        timeout=60,
+    )
+    if tar.returncode != 0:
+        raise GuestSyncError(f"tar /oem failed: {tar.stderr.strip()}")
+    # Best-effort kill any prior server, then start detached.
+    _backend_exec(
+        cfg,
+        [
+            "exec",
+            container,
+            "sh",
+            "-c",
+            f"pkill -f 'http.server {_OEM_HTTP_PORT}' 2>/dev/null; true",
+        ],
+        timeout=5,
+    )
+    time.sleep(1)
+    _backend_exec(
+        cfg,
+        [
+            "exec",
+            "-d",
+            container,
+            "sh",
+            "-c",
+            f"cd {_SERVE_DIR} && nohup python3 -m http.server {_OEM_HTTP_PORT} "
+            ">/tmp/sync-oem-http.log 2>&1 &",
+        ],
+        timeout=10,
+    )
+    time.sleep(2)
+
+
+def _stop_oem_server(cfg: Config) -> None:
+    try:
+        _backend_exec(
+            cfg,
+            [
+                "exec",
+                cfg.pod.container_name,
+                "sh",
+                "-c",
+                f"pkill -f 'http.server {_OEM_HTTP_PORT}'",
+            ],
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, GuestSyncError):
+        pass
+
+
+# PowerShell run in the guest: pull oem.tar.gz from the container gateway and
+# extract over C:\OEM (refreshes agent.ps1, rdprrap, shim, rcedit, scripts).
+_PULL_OEM_PS = (
+    rf"Invoke-WebRequest http://10.0.2.2:{_OEM_HTTP_PORT}/oem.tar.gz "
+    r"-OutFile C:\oem.tar.gz -UseBasicParsing; "
+    r"if (-not (Test-Path C:\oem.tar.gz)) { throw 'download failed' }; "
+    r"cmd /c 'cd /d C:\ && tar -xzf C:\oem.tar.gz'; "
+    r"Remove-Item C:\oem.tar.gz -ErrorAction SilentlyContinue; "
+    r"if (-not (Test-Path C:\OEM\agent.ps1)) { throw 'extract failed: agent.ps1 missing' }; "
+    r"Write-Output 'oem-refreshed'"
+)
+
+
+def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
+    """Push the host's current guest artifacts into the running guest.
+
+    Returns a per-step result map (``"ok"`` / ``"failed: ..."`` / ``"skipped"``)
+    for CLI/GUI rendering. Raises :class:`GuestSyncError` only on a
+    precondition failure (wrong backend, ``/oem`` missing). Each step is
+    idempotent; the version stamp is written only when delivery + fixes
+    succeed so an interrupted run re-syncs on the next trigger.
+    """
+    from winpodx.core.provisioner import apply_windows_runtime_fixes
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    if cfg.pod.backend not in ("podman", "docker"):
+        return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
+
+    if not force and not guest_sync_needed(cfg):
+        return {"sync": "skipped (guest already current)"}
+
+    results: dict[str, str] = {}
+
+    # 1. Deliver refreshed /oem into the guest.
+    try:
+        _serve_oem(cfg)
+        pull = run_in_windows(cfg, _PULL_OEM_PS, timeout=180, description="guest-sync-oem")
+        if not pull.ok:
+            raise GuestSyncError(
+                f"guest OEM pull failed: {pull.stderr.strip() or pull.stdout.strip()}"
+            )
+        results["oem_delivery"] = "ok"
+    except (GuestSyncError, WindowsExecError) as e:
+        results["oem_delivery"] = f"failed: {e}"
+        _stop_oem_server(cfg)
+        return results  # nothing downstream is meaningful without the new files
+    finally:
+        _stop_oem_server(cfg)
+
+    # 2. urlacl reservation (#269).
+    try:
+        r = run_in_windows(cfg, _URLACL_PS, timeout=60, description="guest-sync-urlacl")
+        results["urlacl"] = "ok" if r.ok else f"failed: rc={r.rc}"
+    except WindowsExecError as e:
+        results["urlacl"] = f"failed: {e}"
+
+    # 3. Idempotent registry / runtime fixes + rdprrap re-activation.
+    for name, res in apply_windows_runtime_fixes(cfg).items():
+        results[f"fix:{name}"] = res
+
+    # 4. Restart the agent (one-shot scheduled task; fire-and-forget).
+    try:
+        r = run_in_windows(
+            cfg, _restart_agent_ps(), timeout=60, description="guest-sync-agent-restart"
+        )
+        results["agent_restart"] = "ok" if r.ok else f"failed: rc={r.rc}"
+    except WindowsExecError as e:
+        results["agent_restart"] = f"failed: {e}"
+
+    # 5. Stamp the guest if delivery + fixes landed (agent restart is async).
+    delivery_ok = results.get("oem_delivery") == "ok"
+    fixes_ok = all(not v.startswith("failed") for k, v in results.items() if k.startswith("fix:"))
+    if delivery_ok and fixes_ok:
+        results["stamp"] = (
+            "ok" if write_guest_version(cfg, host_version()) else "failed: stamp write"
+        )
+    else:
+        results["stamp"] = "skipped (a step failed; will retry next sync)"
+
+    return results
+
+
+def maybe_autosync(cfg: Config) -> bool:
+    """Trigger hook: sync the guest when the host is newer. Returns True when
+    a sync ran. Honours ``pod.guest_autosync``; safe no-op when current."""
+    if not getattr(cfg.pod, "guest_autosync", True):
+        return False
+    if cfg.pod.backend not in ("podman", "docker"):
+        return False
+    if not guest_sync_needed(cfg):
+        return False
+    log.info("guest is older than host (%s); auto-syncing", host_version())
+    try:
+        sync_guest(cfg)
+    except GuestSyncError as e:
+        log.warning("guest auto-sync skipped: %s", e)
+        return False
+    return True

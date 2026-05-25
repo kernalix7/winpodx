@@ -48,11 +48,13 @@ def handle_pod(args: argparse.Namespace) -> None:
         )
     elif cmd == "disk-usage":
         _disk_usage()
+    elif cmd == "sync-guest":
+        _sync_guest(force=getattr(args, "force", False))
     else:
         print(
             "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
             "sync-password|multi-session|wait-ready|install-status|install-resume|"
-            "recover-oem|grow-disk|disk-usage}"
+            "recover-oem|grow-disk|disk-usage|sync-guest}"
         )
         sys.exit(1)
 
@@ -1089,6 +1091,20 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                 except Exception:  # noqa: BLE001
                     pass
 
+    # Guest now responsive. If the host has been upgraded since this guest
+    # was provisioned, push the refreshed guest artifacts (agent.ps1,
+    # urlacl, rdprrap/shim, registry fixes) instead of forcing a reinstall.
+    # Gated on `initialized` so a fresh first-boot install -- whose guest is
+    # already current -- doesn't sync redundantly; idempotent regardless.
+    if getattr(cfg.pod, "initialized", False) and getattr(cfg.pod, "guest_autosync", True):
+        try:
+            from winpodx.core.guest_sync import maybe_autosync
+
+            if maybe_autosync(cfg):
+                print("      Guest synced to the upgraded host (agent restarting).")
+        except Exception as e:  # noqa: BLE001 -- never fail wait-ready on sync
+            print(f"      WARN guest auto-sync skipped: {e}")
+
 
 def _recover_oem() -> None:
     """Recover from a failed dockur OEM-copy by re-staging C:\\OEM\\ manually.
@@ -1371,3 +1387,43 @@ def _grow_disk(
         print("C: extended to fill the new space.")
     elif result.note:
         print(result.note)
+
+
+def _sync_guest(*, force: bool) -> None:
+    """Push refreshed guest artifacts into the running guest (#guest-sync)."""
+    from winpodx.core.config import Config
+    from winpodx.core.guest_sync import (
+        GuestSyncError,
+        host_version,
+        read_guest_version,
+        sync_guest,
+    )
+
+    cfg = Config.load()
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(f"sync-guest only supports podman/docker, not {cfg.pod.backend!r}.")
+        sys.exit(1)
+
+    hv = host_version()
+    gv = read_guest_version(cfg)
+    print(f"host:  winpodx {hv.winpodx}, OEM bundle {hv.oem_bundle}")
+    if gv is None:
+        print("guest: version stamp not found (will sync)")
+    else:
+        print(f"guest: winpodx {gv.winpodx}, OEM bundle {gv.oem_bundle}")
+
+    print("Syncing guest (deliver /oem, urlacl, runtime fixes, restart agent)...")
+    try:
+        results = sync_guest(cfg, force=force)
+    except GuestSyncError as e:
+        print(f"Sync failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    for step, outcome in results.items():
+        mark = "OK  " if outcome == "ok" or outcome.startswith("skipped") else "FAIL"
+        print(f"  [{mark}] {step}: {outcome}")
+
+    if any(v.startswith("failed") for v in results.values()):
+        print("\nSome steps failed -- re-run `winpodx pod sync-guest` once the guest is up.")
+        sys.exit(1)
+    print("\nGuest synced. The agent restarts in ~5s; run `winpodx check` to confirm.")

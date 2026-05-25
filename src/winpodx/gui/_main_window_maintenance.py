@@ -122,6 +122,12 @@ class MaintenanceMixin:
                 "Add space to the Windows disk and extend C: to fill it",
                 self._on_grow_disk,
             ),
+            (
+                "↻",
+                "Sync Guest",
+                "Push host updates (agent, fixes, rdprrap) into the guest -- no reinstall",
+                self._on_sync_guest,
+            ),
         ]
         for i, (icon, label, desc, handler) in enumerate(sys_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
@@ -301,6 +307,50 @@ class MaintenanceMixin:
                     f"Disk grown {result.old_size} → {result.new_size}. "
                     + (result.note or "C: not extended yet.")
                 )
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_sync_guest(self) -> None:
+        """Push refreshed guest artifacts into the running guest (guest-sync).
+
+        Runs the deliver / fixes / agent-restart lifecycle on a worker thread.
+        """
+        cfg = Config.load()
+        if cfg.pod.backend not in ("podman", "docker"):
+            QMessageBox.information(
+                self,
+                "Sync Guest",
+                f"Guest sync is only supported on podman / docker, not {cfg.pod.backend!r}.",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Sync Guest",
+            "Push this host's updated guest files (agent, urlacl, rdprrap, "
+            "registry fixes) into the running Windows guest? The agent restarts "
+            "briefly at the end. Windows data is untouched.\n\nProceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.info_label.setText("Syncing guest...")
+
+        def _do() -> None:
+            from winpodx.core.guest_sync import GuestSyncError, sync_guest
+
+            try:
+                results = sync_guest(cfg, force=True)
+            except GuestSyncError as e:
+                self.app_launch_failed.emit(f"Guest sync failed: {e}")
+                return
+            failed = [k for k, v in results.items() if v.startswith("failed")]
+            if failed:
+                self.app_launch_failed.emit("Guest sync had failures: " + ", ".join(failed))
+            else:
+                self.app_launched.emit("Guest synced; agent restarting (~5s).")
 
         threading.Thread(target=_do, daemon=True).start()
 

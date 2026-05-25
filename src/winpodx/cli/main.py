@@ -255,6 +255,21 @@ def cli(argv: list[str] | None = None) -> None:
         help="Show the Windows C: drive size / free / used%% and auto-grow status (#318).",
     )
 
+    sync_p = pod_sub.add_parser(
+        "sync-guest",
+        help=(
+            "Push refreshed guest artifacts (agent.ps1, urlacl, rdprrap/shim, "
+            "registry fixes) into the running guest after a host upgrade, "
+            "instead of a wipe-reinstall. Runs automatically on pod start when "
+            "the guest is older than the host. podman/docker only."
+        ),
+    )
+    sync_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-sync even when the guest version stamp already matches the host.",
+    )
+
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")
     cfg_sub = cfg_parser.add_subparsers(dest="config_command")

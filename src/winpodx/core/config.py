@@ -207,6 +207,13 @@ class PodConfig:
     # a safety reserve). Set a dockur size (e.g. "512G", "1T") to impose an
     # explicit upper bound regardless of host capacity.
     disk_max_size: str = ""
+    # v0.5.x: guest sync. After a host upgrade, push the refreshed guest
+    # artifacts (agent.ps1, urlacl, rdprrap/shim, registry fixes) into the
+    # running guest instead of forcing a wipe-reinstall. Auto-runs once per
+    # pod start when the guest version stamp is older than the host; the same
+    # op backs ``winpodx pod sync-guest``. Default-on; set
+    # ``guest_autosync = false`` to only sync manually.
+    guest_autosync: bool = True
     # Maximum concurrent RemoteApp sessions. Writes
     # HKLM:\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount
     # + clears fSingleSessionPerUser in the guest so rdprrap can hand
@@ -354,6 +361,8 @@ class PodConfig:
             self.disk_max_size = self.disk_max_size.strip()
             if self.disk_max_size and not _DISK_SIZE_RE.match(self.disk_max_size):
                 self.disk_max_size = ""
+        if not isinstance(self.guest_autosync, bool):
+            self.guest_autosync = True
         # storage_path: keep empty (named-volume mode) or coerce to a
         # safe absolute string under the user's home or under a known
         # winpodx-managed root. The caller responsible for materialising
@@ -611,6 +620,7 @@ class Config:
                 "disk_autogrow_target_free_pct": self.pod.disk_autogrow_target_free_pct,
                 "disk_autogrow_increment": self.pod.disk_autogrow_increment,
                 "disk_max_size": self.pod.disk_max_size,
+                "guest_autosync": self.pod.guest_autosync,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
                 "language": self.pod.language,
