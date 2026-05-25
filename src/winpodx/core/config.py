@@ -184,6 +184,29 @@ class PodConfig:
     image: str = field(default_factory=_default_pod_image)
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
+    # v0.5.x: disk auto-grow. When the Windows system volume fills past
+    # ``disk_autogrow_threshold_pct`` and the pod is idle, winpodx grows the
+    # virtual disk enough to restore ``disk_autogrow_target_free_pct`` free
+    # space (rounded up to whole ``disk_autogrow_increment`` steps),
+    # recreates the container so dockur grows the image, then extends the
+    # C: partition in the guest to fill it. Default-on; set
+    # ``disk_autogrow = false`` to manage size manually. The same grow op
+    # backs ``winpodx pod grow-disk`` (manual) and the GUI button.
+    disk_autogrow: bool = True
+    # Used-space percentage that triggers an auto-grow. Clamped to [50, 99].
+    disk_autogrow_threshold_pct: int = 80
+    # After an auto-grow, aim to leave this much of the disk free (the grow
+    # is sized to hit it, not a flat step). Clamped to [10, 50].
+    disk_autogrow_target_free_pct: int = 30
+    # Minimum / granularity step for a grow (dockur size shape, e.g. "32G").
+    # Auto-grow rounds the computed target up to a whole multiple of this;
+    # bare ``winpodx pod grow-disk`` adds exactly one.
+    disk_autogrow_increment: str = "32G"
+    # Optional hard ceiling for auto + manual grow. Empty string (default)
+    # means no fixed cap -- the real limit is the host's free space (minus
+    # a safety reserve). Set a dockur size (e.g. "512G", "1T") to impose an
+    # explicit upper bound regardless of host capacity.
+    disk_max_size: str = ""
     # Maximum concurrent RemoteApp sessions. Writes
     # HKLM:\...\Terminal Server\WinStations\RDP-Tcp\MaxInstanceCount
     # + clears fSingleSessionPerUser in the guest so rdprrap can hand
@@ -299,6 +322,38 @@ class PodConfig:
             self.disk_size = "64G"
         else:
             self.disk_size = self.disk_size.strip()
+        # disk auto-grow knobs: validate the size-shaped strings the same
+        # way as disk_size, clamp the threshold, coerce the bool.
+        if not isinstance(self.disk_autogrow, bool):
+            self.disk_autogrow = True
+        try:
+            self.disk_autogrow_threshold_pct = max(
+                50, min(99, int(self.disk_autogrow_threshold_pct))
+            )
+        except (TypeError, ValueError):
+            self.disk_autogrow_threshold_pct = 80
+        try:
+            self.disk_autogrow_target_free_pct = max(
+                10, min(50, int(self.disk_autogrow_target_free_pct))
+            )
+        except (TypeError, ValueError):
+            self.disk_autogrow_target_free_pct = 30
+        if not isinstance(self.disk_autogrow_increment, str) or not _DISK_SIZE_RE.match(
+            self.disk_autogrow_increment.strip()
+            if isinstance(self.disk_autogrow_increment, str)
+            else ""
+        ):
+            self.disk_autogrow_increment = "32G"
+        else:
+            self.disk_autogrow_increment = self.disk_autogrow_increment.strip()
+        # disk_max_size is optional: empty string = no fixed cap (host free
+        # space is the real bound). A non-empty value must be a valid size.
+        if not isinstance(self.disk_max_size, str):
+            self.disk_max_size = ""
+        else:
+            self.disk_max_size = self.disk_max_size.strip()
+            if self.disk_max_size and not _DISK_SIZE_RE.match(self.disk_max_size):
+                self.disk_max_size = ""
         # storage_path: keep empty (named-volume mode) or coerce to a
         # safe absolute string under the user's home or under a known
         # winpodx-managed root. The caller responsible for materialising
@@ -551,6 +606,11 @@ class Config:
                 "boot_timeout": self.pod.boot_timeout,
                 "image": self.pod.image,
                 "disk_size": self.pod.disk_size,
+                "disk_autogrow": self.pod.disk_autogrow,
+                "disk_autogrow_threshold_pct": self.pod.disk_autogrow_threshold_pct,
+                "disk_autogrow_target_free_pct": self.pod.disk_autogrow_target_free_pct,
+                "disk_autogrow_increment": self.pod.disk_autogrow_increment,
+                "disk_max_size": self.pod.disk_max_size,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
                 "language": self.pod.language,

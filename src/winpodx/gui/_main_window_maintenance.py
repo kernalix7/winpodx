@@ -116,6 +116,12 @@ class MaintenanceMixin:
                 "Re-apply RDP timeout / NIC / TermService recovery to existing pod",
                 self._on_apply_fixes,
             ),
+            (
+                "⊕",
+                "Grow Disk",
+                "Add space to the Windows disk and extend C: to fill it",
+                self._on_grow_disk,
+            ),
         ]
         for i, (icon, label, desc, handler) in enumerate(sys_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
@@ -238,6 +244,65 @@ class MaintenanceMixin:
         removed = cleanup_lock_files()
         msg = f"Removed {len(removed)} lock files" if removed else "No lock files found"
         self.info_label.setText(msg)
+
+    def _on_grow_disk(self) -> None:
+        """Grow the Windows virtual disk by one increment + extend C: (#318).
+
+        Mirrors ``winpodx pod grow-disk``: confirm, then run the stop /
+        recreate / extend lifecycle on a worker thread so the UI stays
+        responsive (the op reboots the guest and can take minutes).
+        """
+        from winpodx.core.disk import DiskError, compute_grow_target
+
+        cfg = Config.load()
+        if cfg.pod.backend not in ("podman", "docker"):
+            QMessageBox.information(
+                self,
+                "Grow Disk",
+                f"Disk grow is only supported on the podman / docker backends, "
+                f"not {cfg.pod.backend!r}.",
+            )
+            return
+        try:
+            new_size = compute_grow_target(cfg)
+        except DiskError as e:
+            QMessageBox.information(self, "Grow Disk", f"Cannot grow disk: {e}")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Grow Disk",
+            f"Grow the Windows disk {cfg.pod.disk_size} → {new_size}?\n\n"
+            "This stops the pod, recreates the container so the virtual disk "
+            "grows, then extends C: to fill it. Windows data is preserved, but "
+            "the guest will reboot and this can take a few minutes.\n\nProceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.info_label.setText(f"Growing disk {cfg.pod.disk_size} → {new_size}...")
+
+        def _do() -> None:
+            from winpodx.core.disk import DiskError, grow_disk
+
+            try:
+                result = grow_disk(cfg)
+            except DiskError as e:
+                self.app_launch_failed.emit(f"Grow failed: {e}")
+                return
+            if result.partition_extended:
+                self.app_launched.emit(
+                    f"Disk grown {result.old_size} → {result.new_size}; C: extended to fill."
+                )
+            else:
+                self.app_launched.emit(
+                    f"Disk grown {result.old_size} → {result.new_size}. "
+                    + (result.note or "C: not extended yet.")
+                )
+
+        threading.Thread(target=_do, daemon=True).start()
 
     def _refresh_update_status(self) -> None:
         def _do() -> None:

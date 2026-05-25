@@ -210,6 +210,51 @@ def cli(argv: list[str] | None = None) -> None:
         ),
     )
 
+    grow_p = pod_sub.add_parser(
+        "grow-disk",
+        help=(
+            "Grow the Windows virtual disk and extend C: to fill it (#318). "
+            "Bumps disk_size (capped at disk_max_size), recreates the "
+            "container so dockur grows the image, then extends C:. Windows "
+            "data is preserved. podman/docker backends only."
+        ),
+    )
+    grow_p.add_argument(
+        "size",
+        nargs="?",
+        default=None,
+        metavar="SIZE",
+        help=(
+            "Absolute target size (e.g. 128G). Omit to add the auto-grow "
+            "increment (default 32G) to the current size."
+        ),
+    )
+    grow_p.add_argument(
+        "--increment",
+        default=None,
+        metavar="SIZE",
+        help="Amount to add to the current size instead of the configured default (e.g. 64G).",
+    )
+    grow_p.add_argument(
+        "--extend-only",
+        action="store_true",
+        help=(
+            "Skip the resize; only extend C: into existing unallocated space "
+            "(finishes a grow whose guest wasn't responsive yet)."
+        ),
+    )
+    grow_p.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt.",
+    )
+
+    pod_sub.add_parser(
+        "disk-usage",
+        help="Show the Windows C: drive size / free / used%% and auto-grow status (#318).",
+    )
+
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")
     cfg_sub = cfg_parser.add_subparsers(dest="config_command")

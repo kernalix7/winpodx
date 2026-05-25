@@ -28,6 +28,10 @@ verbatim.
 ### Fixed
 -->
 
+### Added
+
+- **Windows disk auto-grow + manual grow (#318).** The Windows C: drive now grows on its own: when the system volume fills past `disk_autogrow_threshold_pct` (default 80%) and the pod is idle, winpodx grows the virtual disk *enough to restore `disk_autogrow_target_free_pct` free space* (default 30%, in whole `disk_autogrow_increment` steps — not a flat bump), recreates the container so dockur grows the image, then extends C: to fill via `Resize-Partition` — no manual Disk Management step. The grow is bounded by the host's free space (minus a safety reserve); `disk_max_size` is now an *optional* explicit ceiling (empty by default) rather than a fixed cap. The same operation is exposed manually: `winpodx pod grow-disk` (add one increment), `winpodx pod grow-disk 128G` (absolute target), `winpodx pod grow-disk --extend-only` (just extend C: into existing unallocated space), and `winpodx pod disk-usage` (size / free / used%). The GUI Tools page gains a **Grow Disk** action. Auto-grow runs only while idle so it never interrupts a live RemoteApp session, and the guest-side work reuses the agent `/exec` path (no agent change). Default-on; set `disk_autogrow = false` to manage size manually. Note: dockur has no online disk resize, so each grow recreates the container (a quick guest reboot) — winpodx schedules auto-grows during idle for exactly this reason. Reported by @drjwhitty (Linux Mint 22.2).
+
 ## [0.5.8] - 2026-05-24
 
 Reliability + reach release: fixes the two big fresh-install failures users reported (#269 agent can't bind 8765, #287 install.bat never runs), ships a distro-agnostic fat AppImage, and rounds out the setup wizard so a standalone `winpodx setup` provisions end-to-end.

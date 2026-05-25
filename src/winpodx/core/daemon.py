@@ -194,6 +194,11 @@ def run_idle_monitor(
 
     log.info("Idle monitor started (timeout=%ds)", idle_timeout)
     idle_since: float | None = None
+    # Throttle the disk auto-grow probe: checking C: usage hits the guest
+    # over /exec, so only do it every ~10 min while idle (a grow drops
+    # usage well below the threshold, so it won't re-fire next tick).
+    autogrow_interval = 600.0
+    last_autogrow_check: float | None = None
 
     while not stop_event.is_set():
         sessions = list_active_sessions()
@@ -201,6 +206,29 @@ def run_idle_monitor(
         if sessions:
             idle_since = None  # Reset idle timer
         else:
+            # Disk auto-grow runs only while idle so a grow (which recreates
+            # the container) never interrupts a live RemoteApp session.
+            if (
+                cfg.pod.disk_autogrow
+                and not is_pod_paused(cfg)
+                and (
+                    last_autogrow_check is None
+                    or time.monotonic() - last_autogrow_check >= autogrow_interval
+                )
+            ):
+                last_autogrow_check = time.monotonic()
+                try:
+                    from winpodx.core.disk import maybe_autogrow
+
+                    if maybe_autogrow(cfg):
+                        # Pod was recreated -- restart the idle timer so the
+                        # freshly-grown pod isn't suspended immediately.
+                        idle_since = None
+                        stop_event.wait(30)
+                        continue
+                except Exception as e:  # noqa: BLE001 -- never kill the monitor
+                    log.warning("auto-grow check failed: %s", e)
+
             if idle_since is None:
                 idle_since = time.monotonic()
                 log.debug("No active sessions, starting idle timer")

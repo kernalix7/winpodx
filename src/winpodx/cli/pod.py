@@ -39,11 +39,20 @@ def handle_pod(args: argparse.Namespace) -> None:
         sys.exit(handle_install_resume(args))
     elif cmd == "recover-oem":
         _recover_oem()
+    elif cmd == "grow-disk":
+        _grow_disk(
+            target_size=getattr(args, "size", None),
+            increment=getattr(args, "increment", None),
+            extend_only=getattr(args, "extend_only", False),
+            assume_yes=getattr(args, "yes", False),
+        )
+    elif cmd == "disk-usage":
+        _disk_usage()
     else:
         print(
             "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
             "sync-password|multi-session|wait-ready|install-status|install-resume|"
-            "recover-oem}"
+            "recover-oem|grow-disk|disk-usage}"
         )
         sys.exit(1)
 
@@ -1265,3 +1274,100 @@ def _recover_oem() -> None:
     print()
     print("To stop the HTTP server when finished:")
     print(f"  {cmd} exec {container} pkill -f 'http.server 8766'")
+
+
+def _disk_usage() -> None:
+    """Print the guest C: volume size / free / used%."""
+    from winpodx.core.config import Config
+    from winpodx.core.disk import get_guest_disk_usage
+
+    cfg = Config.load()
+    usage = get_guest_disk_usage(cfg)
+    if usage is None:
+        print(
+            "Could not read guest disk usage (is the pod running and the agent up?).\n"
+            "Try `winpodx pod wait-ready` first."
+        )
+        sys.exit(1)
+
+    def _gib(n: int) -> str:
+        return f"{n / (1024**3):.1f} GiB"
+
+    cap = cfg.pod.disk_max_size or "host free space"
+    print("Windows C: drive")
+    print(f"  configured disk_size : {cfg.pod.disk_size}  (max: {cap})")
+    print(f"  total                : {_gib(usage.total_bytes)}")
+    print(f"  free                 : {_gib(usage.free_bytes)}")
+    print(f"  used                 : {_gib(usage.used_bytes)}  ({usage.used_pct:.1f}%)")
+    if cfg.pod.disk_autogrow:
+        print(
+            f"  auto-grow            : on at {cfg.pod.disk_autogrow_threshold_pct}% "
+            f"(+{cfg.pod.disk_autogrow_increment} per step, idle only)"
+        )
+    else:
+        print("  auto-grow            : off")
+
+
+def _grow_disk(
+    *,
+    target_size: str | None,
+    increment: str | None,
+    extend_only: bool,
+    assume_yes: bool,
+) -> None:
+    """Grow the Windows virtual disk and extend C: to fill it (#318)."""
+    from winpodx.core.config import Config
+    from winpodx.core.disk import (
+        DiskError,
+        compute_grow_target,
+        extend_guest_system_volume,
+        grow_disk,
+    )
+
+    cfg = Config.load()
+
+    # --extend-only: skip the resize, just extend C: into existing
+    # unallocated space (used to finish a grow whose guest wasn't up yet).
+    if extend_only:
+        print("Extending C: into unallocated space...")
+        if extend_guest_system_volume(cfg):
+            print("C: extended (or already at max).")
+        else:
+            print("Failed to extend C: -- see logs; the guest may be unreachable.")
+            sys.exit(1)
+        return
+
+    try:
+        new_size = compute_grow_target(cfg, target_size=target_size, increment=increment)
+    except DiskError as e:
+        print(f"Cannot grow disk: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not assume_yes:
+        print(
+            f"Grow Windows disk {cfg.pod.disk_size} -> {new_size}?\n"
+            "This stops the pod, recreates the container so dockur grows the\n"
+            "virtual disk, then extends C: to fill it. Existing Windows data is\n"
+            "preserved. Type 'y' to continue: ",
+            end="",
+            flush=True,
+        )
+        try:
+            if input().strip().lower() not in ("y", "yes"):
+                print("Aborted.")
+                sys.exit(2)
+        except EOFError:
+            print("Aborted (no confirmation).")
+            sys.exit(2)
+
+    try:
+        result = grow_disk(cfg, target_size=target_size, increment=increment)
+    except DiskError as e:
+        print(f"Grow failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Disk grown {result.old_size} -> {result.new_size}.")
+    if result.partition_extended:
+        print("C: extended to fill the new space.")
+    elif result.note:
+        print(result.note)

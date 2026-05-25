@@ -38,6 +38,10 @@ winpodx pod multi-session on      # bundled rdprrap 멀티세션 RDP 토글
 winpodx pod multi-session status
 winpodx pod wait-ready --logs     # Windows 첫 부팅 대기 + 진행 + 컨테이너 로그 (느린 ISO 다운로드 시 자동 연장)
 winpodx pod recover-oem           # dockur 첫 부팅 OEM 복사 실패 시 C:\OEM 재stage + install.bat 실행 (#287)
+winpodx pod disk-usage            # Windows C: 크기 / 여유 / 사용% + 자동확장 상태 (#318)
+winpodx pod grow-disk             # 자동확장 increment(기본 32G) 만큼 디스크 확장 + C: extend (#318)
+winpodx pod grow-disk 128G        # 절대 크기로 확장
+winpodx pod grow-disk --extend-only   # 기존 미할당 공간으로 C: 만 확장
 
 # 전원 관리
 winpodx power --suspend           # 컨테이너 pause (CPU 해제, 메모리 유지)
@@ -233,7 +237,12 @@ auto_start = true                                # 앱 실행 시 pod 자동 시
 idle_timeout = 0                                 # 자동 suspend 까지 초 (0 = 비활성)
 boot_timeout = 300                               # 첫 부팅 unattended 설치 대기 초
 image = "docker.io/dockurr/windows:latest"       # 컨테이너 이미지 (에어갭 미러용 override)
-disk_size = "64G"                                # dockur 에 전달하는 가상 디스크 크기
+disk_size = "64G"                                # dockur 에 전달하는 가상 디스크 크기 (`pod grow-disk` 로 확장)
+disk_autogrow = true                             # C: 가 임계 넘으면 자동 확장 (idle 일 때만)
+disk_autogrow_threshold_pct = 80                 # 자동 확장 트리거 사용% (50-99)
+disk_autogrow_target_free_pct = 30               # 확장 후 회복할 여유 비율 (고정 step 아님)
+disk_autogrow_increment = "32G"                  # 확장 granularity / 최소 step
+disk_max_size = ""                               # 선택적 상한; 빈값 = host 여유공간만이 한계
 
 [reverse_open]
 enabled = true                                   # v0.5.0 부터 기본 활성

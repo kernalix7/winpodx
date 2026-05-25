@@ -38,6 +38,10 @@ winpodx pod multi-session on      # Toggle bundled rdprrap multi-session RDP
 winpodx pod multi-session status
 winpodx pod wait-ready --logs     # Wait for Windows first-boot with progress + container logs (auto-extends on slow ISO download)
 winpodx pod recover-oem           # Re-stage C:\OEM + run install.bat when dockur's first-boot OEM copy failed (#287)
+winpodx pod disk-usage            # Show Windows C: size / free / used% + auto-grow status (#318)
+winpodx pod grow-disk             # Add the auto-grow increment (default 32G) to the disk + extend C: (#318)
+winpodx pod grow-disk 128G        # Grow to an absolute size
+winpodx pod grow-disk --extend-only   # Just extend C: into existing unallocated space
 
 # Power management
 winpodx power --suspend           # Pause container (free CPU, keep memory)
@@ -233,7 +237,12 @@ auto_start = true                                # Start pod automatically when 
 idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
-disk_size = "64G"                                # Virtual disk size passed to dockur
+disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `pod grow-disk`)
+disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
+disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)
+disk_autogrow_target_free_pct = 30               # Grow is sized to restore this much free (not a flat step)
+disk_autogrow_increment = "32G"                  # Grow granularity / minimum step
+disk_max_size = ""                               # Optional hard ceiling; empty = bounded only by host free space
 
 [reverse_open]
 enabled = true                                   # Default since v0.5.0
