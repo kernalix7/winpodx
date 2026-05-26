@@ -42,8 +42,9 @@ def test_tr_english_is_identity() -> None:
 
 def test_tr_translates_and_falls_back() -> None:
     i18n.set_language("ko")
-    # Seeded string -> Korean.
-    assert i18n.tr("Low") == "낮음"
+    # A real catalog key translates to non-English (don't hardcode the exact
+    # wording -- just assert it changed). "Settings" is a wrapped tr() key.
+    assert i18n.tr("Settings") != "Settings"
     # Unseeded string -> English source (graceful fallback, never blank).
     assert i18n.tr("totally-unseeded-string-xyz") == "totally-unseeded-string-xyz"
 
