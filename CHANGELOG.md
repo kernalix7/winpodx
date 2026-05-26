@@ -9,6 +9,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Highlights
+
+**Multilingual UI, self-growing disk, and a guest that updates without a reinstall.**
+
+- The whole tray / GUI / CLI is now translatable and **fully translated to 7 languages** (en/ko/zh/ja/de/fr/it) — picked from your system locale, switchable with `winpodx language` or the GUI dropdown (fixes the stray-Korean reports, #335).
+- The Windows C: drive **grows on its own** when it fills up — and can be grown by hand with `winpodx pod grow-disk` — including past the WinRE recovery partition dockur leaves behind (#318).
+- **Guest sync**: upgrading winpodx on the host now pushes the new agent / fixes / binaries into a running guest with no wipe-reinstall (`winpodx pod sync-guest`, automatic on pod start).
+- **Pod auto-start on login** is now a real, opt-in feature (`winpodx autostart on`).
+- Fixes: USB shortcut erroring with no media mounted, RemoteApp painting the logon screen (#332), AppImage `podman-compose ModuleNotFoundError` on atomic distros (#322), and a too-tight install agent-wait that gave up early.
+
 <!--
 Template for each new version section — copy this stanza when cutting a release.
 Keep `### Highlights` at the very top: it is the first thing users see on the

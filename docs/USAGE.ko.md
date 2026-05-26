@@ -79,6 +79,8 @@ winpodx doctor                    # read-only 헬스 진단 + per-check fix 힌�
 winpodx info                      # 디스플레이, 의존성, config 진단
 winpodx check                     # 모든 헬스 프로브 실행 (pod / RDP / agent / disk / …)
 winpodx autostart on|off|status   # 로그인 시 Windows pod 자동시작 (opt-in; 기본 꺼짐)
+winpodx language                  # 현재 UI 언어 표시
+winpodx language ko               # UI 언어 설정: auto | en | ko | zh | ja | de | fr | it (auto = 호스트 로케일)
 winpodx check --json              # 같은 프로브, machine-readable JSON
 winpodx gui                       # Qt6 메인 윈도 실행 (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Qt 시스템 트레이 아이콘 실행
@@ -236,7 +238,7 @@ win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | i
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007
-auto_start = true                                # 앱 실행 시 pod 자동 시작
+auto_start = false                               # opt-in 로그인 자동시작: 로그인 시 트레이가 pod 시작 (`winpodx autostart on|off|status` 로 토글)
 idle_timeout = 0                                 # 자동 suspend 까지 초 (0 = 비활성)
 boot_timeout = 300                               # 첫 부팅 unattended 설치 대기 초
 image = "docker.io/dockurr/windows:latest"       # 컨테이너 이미지 (에어갭 미러용 override)
@@ -247,6 +249,9 @@ disk_autogrow_target_free_pct = 30               # 확장 후 회복할 여유 �
 disk_autogrow_increment = "32G"                  # 확장 granularity / 최소 step
 disk_max_size = ""                               # 선택적 상한; 빈값 = host 여유공간만이 한계
 guest_autosync = true                            # host 업데이트 후 guest 아티팩트 자동 푸시 (재설치 없이)
+
+[ui]
+language = "auto"                                # UI 언어: auto | en | ko | zh | ja | de | fr | it (auto = 호스트 로케일, 영어로 폴백; `winpodx language` 또는 GUI 설정으로 변경)
 
 [reverse_open]
 enabled = true                                   # v0.5.0 부터 기본 활성

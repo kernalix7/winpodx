@@ -79,6 +79,8 @@ winpodx doctor                    # Read-only health diagnostic with per-check f
 winpodx info                      # Display, dependencies, config diagnostics
 winpodx check                     # Run all health probes (pod / RDP / agent / disk / …)
 winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off by default)
+winpodx language                  # Show the current UI language
+winpodx language ko               # Set UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale)
 winpodx check --json              # Same probes, machine-readable JSON
 winpodx gui                       # Launch Qt6 main window (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
@@ -236,7 +238,7 @@ win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | i
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007
-auto_start = true                                # Start pod automatically when launching an app
+auto_start = false                               # Opt-in login auto-start: tray starts the pod on login (toggle via `winpodx autostart on|off|status`)
 idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
@@ -247,6 +249,9 @@ disk_autogrow_target_free_pct = 30               # Grow is sized to restore this
 disk_autogrow_increment = "32G"                  # Grow granularity / minimum step
 disk_max_size = ""                               # Optional hard ceiling; empty = bounded only by host free space
 guest_autosync = true                            # After a host upgrade, push updated guest artifacts in (no reinstall)
+
+[ui]
+language = "auto"                                # UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale, falls back to English; change via `winpodx language` or GUI Settings)
 
 [reverse_open]
 enabled = true                                   # Default since v0.5.0
