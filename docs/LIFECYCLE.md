@@ -18,7 +18,10 @@ End-to-end reference for how a winpodx pod is installed, upgraded, migrated, and
 8. [Container image pinning](#8-container-image-pinning)
 9. [Discovery (`winpodx app refresh`)](#9-discovery-winpodx-app-refresh)
 10. [Transport selection](#10-transport-selection-agent-vs-freerdp)
-11. [Recovery scenarios](#11-recovery-scenarios)
+11. [Guest sync (`winpodx pod sync-guest`)](#11-guest-sync-winpodx-pod-sync-guest)
+12. [Disk auto-grow](#12-disk-auto-grow)
+13. [Pod auto-start on login](#13-pod-auto-start-on-login-opt-in)
+14. [Recovery scenarios](#14-recovery-scenarios)
 
 ---
 
@@ -425,9 +428,142 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 ---
 
-## 11. Recovery scenarios
+## 11. Guest sync (`winpodx pod sync-guest`)
 
-### 11.1 Agent dies and stays dead
+**Code.** `src/winpodx/core/guest_sync.py::sync_guest`. Full design notes: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
+
+**Goal.** Upgrading winpodx on the host updates the host binary, but the
+guest-side artifacts staged at first install go stale until the user wipes and
+reinstalls Windows: `C:\OEM\agent.ps1`, the urlacl reservation, rdprrap /
+`shim.exe` / `rcedit.exe`, and the helper scripts. The apply chain ([§6](#6-apply-chain-apply_windows_runtime_fixes))
+re-applies *some* idempotent registry fixes but does **not** refresh `agent.ps1`,
+the urlacl reservation, or the guest binaries. Guest sync closes that gap without
+a reinstall.
+
+**Key enabler.** `/oem` is a **live bind mount** of the host's `config/oem`
+(`{oem_dir}:/oem:Z` in `compose.py`), so after a host upgrade the running
+container's `/oem` *already* holds the new files — no image rebuild. Delivery
+into the guest is the same channel `winpodx pod recover-oem` uses (tar `/oem`
+in the container → one-shot HTTP server on `127.0.0.1:8766` → guest pulls via
+the QEMU NAT gateway `10.0.2.2`), except sync runs over the bearer-authed
+`/exec` endpoint because the agent is alive.
+
+**When it runs.** **Once per pod start**, after the pod is responsive
+(`provisioner.ensure_ready()` / `pod wait-ready` tail), when
+`cfg.pod.guest_autosync` (default `True`) is set and the guest stamp is stale.
+Gated to podman/docker.
+
+**Staleness gate.** Host current = `winpodx.__version__` +
+`core.info._bundled_oem_version()`. `read_guest_version()` reads
+`C:\winpodx\install-state\guest_version.json` (`{winpodx, oem_bundle}`) via
+`/exec`. `guest_sync_needed(cfg)` returns True only when the stamp is **present
+and older** than the host pair. A **missing** stamp is recorded only, *not*
+synced — this avoids disrupting a first-boot install that is still mid-flight
+(install.bat has not yet written its own state). A present-and-equal stamp is a
+cheap no-op.
+
+**Sync flow** (every step idempotent; ordered so a partial failure is safe to
+re-run):
+
+1. **Deliver `/oem` to the guest** — guest `Invoke-WebRequest http://10.0.2.2:8766/oem.tar.gz`
+   → `tar -xzf` into `C:\OEM`. Refreshes `agent.ps1`, rdprrap, `shim.exe`,
+   `rcedit.exe`, and helper scripts in one shot. **`install.bat` is NOT re-run**
+   — it carries one-shot first-boot logic (autologon, account setup) that must
+   not fire on a live install.
+2. **urlacl reservation** ([#269](https://github.com/winpodx/winpodx/issues/269)) — ports install.bat's netsh block to `/exec`:
+   delete the overlapping `:8765` reservations, then re-add `http://+:8765/`
+   with the `WD` SID SDDL.
+3. **Idempotent registry / runtime fixes** — calls
+   `apply_windows_runtime_fixes(cfg)` (the same chain as [§6](#6-apply-chain-apply_windows_runtime_fixes)).
+   This also re-activates rdprrap against the refreshed binaries.
+4. **Restart the agent** — the agent serves the `/exec` it runs through, so it
+   can't `Stop-Process` itself synchronously. A **one-shot scheduled task**
+   fires ~5 s later to stop the current agent process and relaunch the
+   `HKCU\Run` command (`C:\OEM\agent.ps1`). The `/exec` call returns *before*
+   the task fires; the new agent rebinds `:8765` under the now-correct urlacl.
+5. **Write the version stamp** — `guest_version.json` is written **only after**
+   steps 1–3 succeed (step 4 is fire-and-forget; readiness is reconfirmed by the
+   caller). On a partial failure the stamp stays stale, so the next pod start
+   retries.
+
+`sync_guest` returns a per-step result map (like `apply_windows_runtime_fixes`)
+so the CLI and GUI Tools → Sync Guest action can render rows.
+
+**Manual.** `winpodx pod sync-guest [--force]`. `--force` re-syncs even when the
+stamp matches the host pair (a clean no-op on an up-to-date guest — same
+artifacts re-delivered, no session disruption).
+
+---
+
+## 12. Disk auto-grow
+
+**Code.** `src/winpodx/core/disk.py` (sizing + guest extend), invoked from
+`src/winpodx/core/daemon.py` (idle path) and at pod start.
+
+**Goal.** dockur only grows the virtual disk *image* when `cfg.pod.disk_size`
+increases and the container is recreated — it never extends the guest's C:
+partition, and it has **no online resize**. Auto-grow handles both ends so a
+filling-up guest doesn't run out of space.
+
+**Trigger.** On pod start / idle, if C: used% exceeds
+`cfg.pod.disk_autogrow_threshold_pct` (default 80) **and** the pod is idle.
+
+**Why idle-only.** Since dockur has no online resize, every grow **recreates
+the container** (a quick guest reboot). Scheduling it idle-only guarantees it
+never interrupts a live RemoteApp session — the daemon only fires it on the
+idle path.
+
+**Sizing** (`compute_grow_target`). Rather than a flat step, grow just enough
+that `used%` drops back to `cfg.pod.disk_autogrow_target_free_pct` free
+(default 30%), rounded up to whole `cfg.pod.disk_autogrow_increment` steps
+(default `32G`). The ceiling is the smaller of:
+
+- the optional `cfg.pod.disk_max_size` (empty = no fixed cap), and
+- *what the host can actually back* — `current + (host_free − reserve)`, where
+  the reserve keeps auto-grow from consuming the last of the host disk.
+
+If neither headroom is available (at cap / no host room), the grow is skipped
+with a log line and the pod runs on at its current size.
+
+**Guest extend.** After the image grows and the container is recreated, the new
+space lands at the **end** of the disk but C: still ends where it did. The
+extend runs over `/exec`: `Resize-Partition -DriveLetter C`. dockur's Windows
+layout puts a small WinRE Recovery partition **right after** C:, blocking the
+extend — so the step:
+
+1. `reagentc /disable` (detach WinRE),
+2. delete the blocking recovery partition (the one at C:'s end),
+3. `Resize-Partition -DriveLetter C` to fill the new space,
+4. `reagentc /enable` (re-enable WinRE; falls back to `C:\Windows` when no
+   dedicated partition is present).
+
+---
+
+## 13. Pod auto-start on login (opt-in)
+
+**Config.** `cfg.pod.auto_start` (bool, **off by default**), plus the tray's
+autostart `.desktop` entry.
+
+**Goal.** Have the Windows pod ready without the user manually running
+`winpodx pod start` after each login.
+
+**Flow.** When `cfg.pod.auto_start` is enabled, the tray's autostart `.desktop`
+entry is registered so the tray launches at login; on startup the tray brings
+the pod up — **starting** it if stopped, or **resuming** it if suspended
+([auto resume](#1-phases-overview)). The work is **best-effort and runs in the
+background**: a failure to reach the pod doesn't block login or surface a
+blocking error, it just leaves the pod for the next on-demand launch to bring
+up.
+
+This is opt-in because a cold pod start pulls the (already-present) image and
+boots Windows, which is wasted work for users who only occasionally launch a
+Windows app.
+
+---
+
+## 14. Recovery scenarios
+
+### 14.1 Agent dies and stays dead
 
 **Symptom.** `curl http://127.0.0.1:8765/health` exits 56 / no response.
 
@@ -437,7 +573,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 **Prevention.** PR #85 (ServiceDll cross-check before activation) avoids the most common case where activation was redundant. install.bat OEM v15+ writes the marker correctly so subsequent applies hit the fast path.
 
-### 11.2 PS console flashes on every app launch
+### 14.2 PS console flashes on every app launch
 
 **Symptom.** Brief black console appears for ~50 ms after each launch (UWP or Win32, doesn't matter).
 
@@ -448,7 +584,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 **Fix.** `winpodx pod apply-fixes` rewrites both entries (the `vbs_launchers` step is conditional on legacy entries existing, so it's safe to re-run).
 
-### 11.3 "Select a session to reconnect to" dialog
+### 14.3 "Select a session to reconnect to" dialog
 
 **Symptom.** Multi-session not active. Each new app launch replaces the previous session.
 
@@ -457,7 +593,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 - `C:\Program Files\RDP Wrapper\termwrap.dll` → rdprrap registry-patched. Multi-session should work; if dialog still appears, TermService loaded the old `termsrv.dll` and never cycled. Run `winpodx pod multi-session on` to cycle it (~10 s disconnect, then OK).
 - `C:\Windows\System32\termsrv.dll` → not patched. Run `winpodx pod multi-session on` to install + activate.
 
-### 11.4 Container recreated unexpectedly
+### 14.4 Container recreated unexpectedly
 
 **Symptom.** Pod restarts unexpectedly. dockur logs show fresh Windows install or ISO redownload.
 
@@ -465,7 +601,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 **Fix.** Migrate (PR #83's `_ensure_canonical_image_pin`) rewrites compose to a pinned digest. Future `:latest` pushes don't disturb the user.
 
-### 11.5 Discovery returns empty / partial
+### 14.5 Discovery returns empty / partial
 
 **Symptom.** `winpodx app refresh` finishes but the menu only shows a handful of apps, or no UWP entries.
 
@@ -473,7 +609,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 **Fix.** PR #86 layered race avoidance. Look at the script's stderr output (visible in `apply-fixes` logs) for `[discover] stable (...) — proceeding` (good) vs `[discover] stability budget exceeded` (the pod really took >60 s to settle). Re-run `winpodx app refresh` if you suspect the budget was hit.
 
-### 11.6 Agent token mismatch
+### 14.6 Agent token mismatch
 
 **Symptom.** All `/exec` calls fail with 401.
 
@@ -481,7 +617,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 **Fix.** Re-run `winpodx setup --non-interactive` — `_ensure_oem_token_staged()` regenerates and stages a fresh token. Restart the pod for the agent to pick it up.
 
-### 11.7 Pod won't start
+### 14.7 Pod won't start
 
 **Symptom.** `winpodx pod start` reports the container is up but `wait-ready` never gets past phase 1 or 2.
 

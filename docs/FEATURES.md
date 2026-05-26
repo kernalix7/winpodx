@@ -55,6 +55,15 @@ Per-slug icons render in both the short Open With menu and the long "Choose anot
 - Auto-discovery on first boot scans the running Windows guest and registers every installed app (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) with the real binary's icon
 - Manual rescan any time via `winpodx app refresh` or the GUI Refresh button
 - Interactive setup wizard for advanced configuration
+- Optional pod auto-start on login (opt-in, off by default): `winpodx autostart on|off|status` or the GUI checkbox installs an XDG autostart `.desktop` entry (`~/.config/autostart/winpodx-tray.desktop`) so the tray launches on login and warms the Windows pod before your first app click
+
+## Multilingual UI
+
+The tray, GUI, and CLI are fully translated into 7 languages: English, Korean (한국어), Chinese (中文), Japanese (日本語), German (Deutsch), French (Français), and Italian (Italiano).
+
+- Auto-detected from the system locale on first run; falls back to English when the locale isn't covered
+- Switch any time with `winpodx language <code>` (e.g. `winpodx language ja`) or the GUI language dropdown
+- Persisted in config under `[ui] language`
 
 ## Peripherals & Sharing
 
@@ -64,7 +73,7 @@ Per-slug icons render in both the short Open With menu and the long "Choose anot
 | **Sound** | Audio streaming via ALSA (`/sound:sys:alsa`) | Enabled |
 | **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
 | **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
-| **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders | Enabled |
+| **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders. The guest-side USB shortcut always resolves even when no media is mounted | Enabled |
 | **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
 | **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
 | **Reverse file open** | Linux apps appear in the Windows guest's right-click "Open with…" menu; selecting one round-trips the file open to host `xdg-open` | Enabled |
@@ -100,6 +109,21 @@ Windows Explorer shows E: drive
 - High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS
 - Time sync: force Windows clock resync after host sleep/wake
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
+
+## Windows disk auto-grow
+
+The Windows `C:` drive grows itself as it fills, so you don't have to pre-provision a huge virtual disk or run out of space mid-install.
+
+- **Auto-grow** runs only while the pod is idle, expands `C:` when it's nearly full, and is bounded by available host free space so it never overcommits the underlying storage. It correctly handles dockur's WinRE recovery partition that sits at the end of the disk.
+- **Manual control**: `winpodx pod grow-disk [SIZE|--extend-only]` to add space (or just extend the partition into existing free space), and `winpodx pod disk-usage` to inspect current allocation.
+- Config keys: `disk_autogrow*` (enable / thresholds / step) and `disk_max_size` (hard ceiling).
+
+## Guest sync
+
+Push host-side updates into a running Windows guest without reinstalling it. When winpodx ships a newer guest agent, urlacl reservation, rdprrap build, or post-install fix, the guest picks it up in place.
+
+- **Automatic** on pod start when `guest_autosync` is enabled — the guest is reconciled to the current host version every time it comes up.
+- **Manual**: `winpodx pod sync-guest [--force]` to reconcile on demand (`--force` re-pushes even when versions already match).
 
 ## App Profiles
 

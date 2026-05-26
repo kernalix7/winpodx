@@ -55,6 +55,15 @@ winpodx host-open disable       # 기능 전체 끄기
 - 첫 부팅 시 자동 discovery 가 실행 중인 Windows 게스트 스캔, 설치된 모든 앱 (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) 을 실제 바이너리 아이콘과 함께 등록
 - `winpodx app refresh` 또는 GUI Refresh 버튼으로 언제든 수동 재스캔
 - 고급 설정용 대화형 setup 마법사
+- 로그인 시 pod 자동 시작 옵션 (opt-in, 기본 꺼짐): `winpodx autostart on|off|status` 또는 GUI 체크박스가 XDG autostart `.desktop` 엔트리(`~/.config/autostart/winpodx-tray.desktop`)를 설치 — 로그인 시 트레이가 떠 첫 앱 클릭 전에 Windows pod 이 미리 준비됨
+
+## 다국어 UI
+
+트레이, GUI, CLI 가 7개 언어로 완전 번역: 영어, 한국어, 중국어 (中文), 일본어 (日本語), 독일어 (Deutsch), 프랑스어 (Français), 이탈리아어 (Italiano).
+
+- 첫 실행 시 시스템 로케일에서 자동 감지; 미지원 로케일은 영어로 fallback
+- `winpodx language <code>` (예: `winpodx language ja`) 또는 GUI 언어 드롭다운으로 언제든 전환
+- config `[ui] language` 에 저장
 
 ## 주변기기 & 공유
 
@@ -64,7 +73,7 @@ winpodx host-open disable       # 기능 전체 끄기
 | **사운드** | ALSA 통한 오디오 스트리밍 (`/sound:sys:alsa`) | 활성 |
 | **프린터** | Linux 프린터가 Windows 에 공유 (`/printer`) | 활성 |
 | **홈 디렉토리** | `\\tsclient\home` 으로 공유 (`+home-drive`) | 활성 |
-| **USB 드라이브** | media 폴더가 `\\tsclient\media` 로 공유 (`/drive:media`); 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능 | 활성 |
+| **USB 드라이브** | media 폴더가 `\\tsclient\media` 로 공유 (`/drive:media`); 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능. 마운트된 미디어가 없어도 게스트 측 USB 바로가기가 항상 정상 동작 | 활성 |
 | **USB 디바이스 패스스루** | 네이티브 USB 리디렉션 (`/usb:auto`) — FreeRDP urbdrc 플러그인 필요 | **Opt-in** (`extra_flags` 에 추가) |
 | **USB 드라이브 매핑** | Windows 측 스크립트가 FileSystemWatcher 로 USB 서브폴더를 드라이브 레터 (E:, F:, ...) 로 자동 매핑 | 활성 |
 | **Reverse 파일 열기** | Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 등장; 선택 시 호스트 `xdg-open` 으로 round-trip | 활성 |
@@ -100,6 +109,21 @@ Windows Explorer 에 E: 드라이브 표시
 - 고성능 전원 플랜 + hibernation off + tzutil UTC + Cloudflare DNS
 - 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 resync
 - FreeRDP `extra_flags` allowlist (regex 검증) 가 사용자 input 안전 경계
+
+## Windows 디스크 자동 확장
+
+Windows `C:` 드라이브가 채워질수록 스스로 커짐 — 거대한 가상 디스크를 미리 잡아둘 필요도, 설치 도중 공간이 떨어질 일도 없음.
+
+- **자동 확장** 은 pod 이 idle 일 때만 동작, `C:` 가 거의 가득 차면 확장, 호스트 여유 공간으로 bounded 되어 기반 스토리지를 절대 overcommit 하지 않음. 디스크 끝에 있는 dockur 의 WinRE 복구 파티션도 올바르게 처리.
+- **수동 제어**: `winpodx pod grow-disk [SIZE|--extend-only]` 로 공간 추가 (또는 기존 여유 공간으로 파티션만 확장), `winpodx pod disk-usage` 로 현재 할당 확인.
+- Config 키: `disk_autogrow*` (활성 / 임계값 / 단계) 와 `disk_max_size` (상한).
+
+## 게스트 동기화
+
+실행 중인 Windows 게스트에 재설치 없이 호스트 측 업데이트를 push. winpodx 가 더 새로운 guest agent, urlacl 예약, rdprrap 빌드, post-install fix 를 ship 하면 게스트가 그 자리에서 받아감.
+
+- **자동**: `guest_autosync` 활성 시 pod 시작마다 — 게스트가 올라올 때마다 현재 호스트 버전으로 reconcile.
+- **수동**: `winpodx pod sync-guest [--force]` 로 on-demand reconcile (`--force` 는 버전이 이미 일치해도 재-push).
 
 ## 앱 프로필
 

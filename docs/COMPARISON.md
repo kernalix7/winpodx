@@ -25,10 +25,13 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | Discovery (auto-scan installed apps) | No | No | Yes | **Yes (Registry + Start Menu + UWP + choco/scoop)** |
 | Multi-session RDP | No | No | Not documented | **Yes (bundled rdprrap, up to 10)** |
 | Reverse file open (guest → host xdg-open) | No | No | No | **Yes (Linux apps in Windows "Open with…" menu)** |
+| Windows disk auto-grow | No | No | No | **Yes (idle, bounded by host free space)** |
+| Guest sync (in-place update, no reinstall) | No | No | No | **Yes (auto on pod start + `sync-guest`)** |
+| Multilingual UI | English only | English only | English only | **Yes (7 languages, locale auto-detect)** |
 | Offline / air-gapped install | No | No | No | **Yes (`--source` + `--image-tar`)** |
 | License | MIT | AGPL-3.0 | MIT | MIT |
 
-> winboat is the closest peer in scope and was an inspiration. We focus on a different mix — stdlib-leaning Python + Qt6 instead of Electron, deeper auto-config (auto suspend, 7-day password rotation, multi-DE HiDPI), reverse-open (the only project where Linux apps appear in the Windows "Open with…" menu by default), and an explicit air-gapped install path. Both projects build on dockur/windows; that ecosystem is bigger than any one app.
+> winboat is the closest peer in scope and was an inspiration. We focus on a different mix — stdlib-leaning Python + Qt6 instead of Electron, deeper auto-config (auto suspend, 7-day password rotation, multi-DE HiDPI), reverse-open (the only project where Linux apps appear in the Windows "Open with…" menu by default), a multilingual UI (7 languages, auto-detected from the locale), self-managing Windows disk that auto-grows as it fills, in-place guest sync that pushes host updates into a running guest without reinstalling, and an explicit air-gapped install path. Both projects build on dockur/windows; that ecosystem is bigger than any one app.
 
 ## winpodx vs Wine
 

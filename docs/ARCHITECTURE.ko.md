@@ -47,6 +47,7 @@ Pod 의 명령 채널은 게스트 안에서 `127.0.0.1:8765` 에 listen 하는 
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, vendored rcedit 로 슬러그별 아이콘 embed) |
+| i18n | `winpodx.core.i18n` (영어 원문을 key 로, 언어별 flat JSON 카탈로그) |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
 
 ## 프로젝트 구조
@@ -85,6 +86,89 @@ winpodx/
 - **자동 resume.** `provisioner` → `daemon.ensure_pod_awake()` → `podman unpause` → RDP 대기.
 - **비밀번호 회전.** `ensure_ready()` → `password_max_age` 확인 → 새 비밀번호 생성 → config + compose 저장 → 컨테이너 재생성 → 실패 시 rollback.
 - **Reverse-open (guest → host).** Windows Explorer "Open with..." → 슬러그별 `winpodx-<slug>.exe` shim → `\\tsclient\home\.local\share\winpodx\reverse-open\incoming\<uuid>.json` 에 atomic JSON 쓰기 → host listener 가 픽업 → `safe_open_unc` TOCTOU-safe 경로 해소 → 호스트에서 `xdg-open` 호출.
+
+## Guest sync 서브시스템
+
+**코드.** `src/winpodx/core/guest_sync.py`. 설계 노트: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
+
+호스트의 winpodx 를 업그레이드하면 호스트 바이너리는 갱신되지만, 첫 설치
+때 staging 된 게스트 측 아티팩트 (`C:\OEM\agent.ps1`, urlacl 예약,
+rdprrap / `shim.exe` / `rcedit.exe`, 헬퍼 스크립트) 는 사용자가 Windows 를
+밀고 재설치하기 전까지 stale 상태로 남습니다. Guest sync 가 재설치 없이 이
+간극을 메웁니다.
+
+**핵심 enabler.** `/oem` 은 호스트 `config/oem` 의 **live bind mount**
+(`compose.py` 의 `{oem_dir}:/oem:Z`) — 즉 호스트 업그레이드 후 동작 중인
+컨테이너의 `/oem` 에 *이미* 새 파일이 들어 있음 (이미지 재빌드 없음).
+게스트 전달은 `winpodx pod recover-oem` 과 동일 채널 재사용: 컨테이너에서
+`/oem` tar → `127.0.0.1:8766` 일회성 HTTP 서버로 serve → 게스트가 QEMU NAT
+게이트웨이 `10.0.2.2` 로 pull. sync 중에는 agent 가 살아 있으므로 pull 과
+후속 fix 가 noVNC paste 대신 bearer-auth `/exec` 엔드포인트로 동작.
+
+`sync_guest` 는 부분 실패 후 재실행이 안전하도록 순서가 잡혀 있음:
+
+1. **`/oem` 전달** — 게스트 `Invoke-WebRequest` + `tar -xzf` → `C:\OEM`.
+   `install.bat` 은 **재실행 안 함** (autologon / 계정 설정 같은 one-shot
+   첫 부팅 로직을 담고 있어 live install 에서 재발사하면 안 됨).
+2. **urlacl 예약** — install.bat 의 netsh 블록을 `/exec` 로 재적용
+   (겹치는 `:8765` 예약 삭제 후 `WD` SID SDDL 로 `http://+:8765/` 재등록).
+3. **Idempotent 레지스트리 / runtime fix** — `apply_windows_runtime_fixes(cfg)`
+   호출 (apply-fixes 와 동일 체인). 갱신된 바이너리에 대해 rdprrap 도 재활성화.
+4. **agent 재시작** — agent 는 자신이 실행되는 `/exec` 를 제공하므로 동기적으로
+   스스로를 `Stop-Process` 할 수 없음. **one-shot scheduled task** 가 ~5초 뒤
+   발사해 현재 agent 를 멈추고 `C:\OEM\agent.ps1` 을 재기동; `/exec` 호출이 먼저
+   반환된 뒤 새 agent 가 교정된 urlacl 로 `:8765` 재바인드.
+5. **버전 stamp** — 1–3 단계가 성공한 경우에만
+   `C:\winpodx\install-state\guest_version.json` (`{winpodx, oem_bundle}`) 작성.
+
+**Staleness 판정.** 호스트 current = `winpodx.__version__` +
+`core.info._bundled_oem_version()`. `guest_sync_needed(cfg)` 가 `/exec` 로 stamp
+읽음; stamp 가 존재 **하고** 오래됐으면 sync 발사, stamp 부재면 기록만 (진행 중인
+첫 부팅 install 을 방해 안 함). pod readiness 후 `cfg.pod.guest_autosync`
+(default `True`) 면 자동 실행, podman/docker 로 gate. 수동:
+`winpodx pod sync-guest [--force]` 와 GUI Tools → Sync Guest 액션. `sync_guest`
+는 CLI/GUI 가 행을 렌더링할 수 있도록 단계별 결과 맵 반환.
+
+## Disk auto-grow 서브시스템
+
+**코드.** `src/winpodx/core/disk.py` (sizing + 게스트 extend),
+`src/winpodx/core/daemon.py` (idle 경로) 에서 트리거.
+
+dockur 는 `cfg.pod.disk_size` 가 증가하고 컨테이너가 재생성될 때만 가상 디스크
+*이미지*를 키울 뿐, 게스트의 C: 파티션은 절대 확장 안 하고 **online resize 도
+없음**. winpodx 가 양쪽을 처리하는 idle-time auto-grow 를 추가.
+
+**트리거.** pod start / idle 시, C: used% 가
+`cfg.pod.disk_autogrow_threshold_pct` (default 80) 를 넘고 **동시에** pod 이 idle 일 때.
+
+**Sizing.** `cfg.pod.disk_autogrow_target_free_pct` 여유 (default 30%) 를 복원할
+만큼만 키우되 `cfg.pod.disk_autogrow_increment` 단위 (default `32G`) 로 올림.
+ceiling 은 선택적 `cfg.pod.disk_max_size` 와 *호스트가 실제로 back 가능한 양* —
+`current + (host_free − reserve)` (reserve 가 auto-grow 의 호스트 디스크 고갈 방지)
+중 작은 쪽. 어느 headroom 도 없으면 로그 한 줄과 함께 grow 스킵.
+
+**왜 idle 전용.** dockur 에 online resize 가 없으므로 매 grow 가 **컨테이너를
+재생성** (빠른 게스트 reboot). idle 전용 스케줄링이 live RemoteApp 세션을 절대
+중단 안 함을 보장.
+
+**게스트 extend.** 이미지가 커지면 새 공간은 디스크 끝에 붙지만 C: 는 원래
+위치에서 끝남. extend 는 `/exec` 로 동작: `Resize-Partition -DriveLetter C`.
+dockur 의 Windows 레이아웃은 C: **바로 뒤**에 작은 WinRE Recovery 파티션을 두어
+extend 를 막으므로 — 단계가 WinRE 를 detach (`reagentc /disable`), 막는 recovery
+파티션 삭제, C: extend, 그 다음 WinRE 재활성화 (`reagentc /enable`, 전용 파티션이
+없으면 `C:\Windows` 로 폴백).
+
+## UI 국제화 (i18n)
+
+**코드.** `src/winpodx/core/i18n.py`; 카탈로그 `src/winpodx/locale/<lang>.json`.
+
+Linux 측 UI 텍스트 (tray, GUI, CLI) 는 `winpodx.core.i18n.tr(text)` 로 감쌈.
+**영어 원문이 카탈로그 key** — `tr()` 이 활성 언어 카탈로그에서 원문을 찾고,
+miss 시 동일 영어 원문으로 문자열별 폴백 → 카탈로그가 불완전해도 UI 가 비지 않음.
+카탈로그는 flat `{ "<english>": "<translation>" }` JSON. 활성 언어는
+`[ui] language` (default `auto` — 호스트 로케일을 `$LC_ALL` / `$LC_MESSAGES` /
+`$LANG` 에서 매핑, unknown → 영어) 에서 해소. 7개 언어 제공: en, ko, zh, ja, de,
+fr, it. (`pod.language` 와는 별개 — 그건 *Windows 게스트* 설치 언어.)
 
 ## 고급: 커스텀 Windows ISO
 

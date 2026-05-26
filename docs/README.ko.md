@@ -188,7 +188,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 - **사운드**: RDP 오디오 스트리밍 (`/sound:sys:alsa`) — 기본 활성
 - **프린터**: Linux 프린터가 Windows 에 공유 — 기본 활성
 - **홈 디렉토리**: `\\tsclient\home` 으로 공유
-- **USB 드라이브**: FileSystemWatcher 통한 드라이브 레터 (E:, F:, …) 자동 매핑; 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능
+- **USB 드라이브**: FileSystemWatcher 통한 드라이브 레터 (E:, F:, …) 자동 매핑; 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능; USB 데스크톱 바로가기 (`\\tsclient\media`) 가 항상 열림 — 마운트된 미디어 없으면 에러 대신 빈 폴더로 열림
 - **USB 디바이스 패스스루**: `extra_flags` 에 `/usb:auto` 추가하면 opt-in
 
 </td></tr>
@@ -196,6 +196,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 
 **자동화 & 보안**
 - 자동 suspend / resume: idle 시 컨테이너 pause, 다음 실행 시 resume
+- 로그인 시 pod 자동 시작 (v0.5.9, opt-in): `winpodx autostart on` 이 트레이 autostart 엔트리 설치 → 로그인 시 pod 시작/resume. 기본 off (`autostart off|status`, 또는 GUI Settings 체크박스)
 - UNRESPONSIVE → 자동 복구 (v0.5.5): stalled RDP 게스트 감지 후 in-guest TermService 사이클로 self-heal — `pod restart` 불필요
 - 호스트 적응형 Windows-on-KVM 튜닝 프로파일 (v0.5.5): `+invtsc`, `platform_tick` 등 호스트 capability gating — `tuning_profile = auto|safe|off`
 - 비밀번호 자동 회전: 20자 암호학적 비밀번호, 7일 주기, atomic rollback
@@ -207,6 +208,9 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 </td><td width="50%">
 
 **운영 & 회복력**
+- 다국어 UI (v0.5.9): 트레이 / GUI / CLI 가 7개 언어로 완전 번역 (en / ko / zh / ja / de / fr / it), `$LANG` 에서 자동 감지 — `winpodx language <code>` 또는 GUI Settings → "winpodx UI language" 로 변경
+- Windows 디스크 자동 확장 (v0.5.9): C: 가 idle 중 임계치 넘게 차면 호스트 여유 공간 한도 내에서 스스로 확장 — 수동은 `winpodx pod grow-disk [SIZE]`, `winpodx pod disk-usage`, GUI Tools → Grow Disk
+- Guest sync (v0.5.9): 호스트 업그레이드 후 갱신된 agent / urlacl / rdprrap / fixes 를 실행 중인 게스트에 push — pod 시작 시 1회 자동, 또는 `winpodx pod sync-guest [--force]`
 - 오프라인 / 에어갭 설치 (`--source` + `--image-tar`)
 - 원라인 언인스톨 (Windows VM 데이터 유지; `--purge` 로 전부 삭제)
 - `winpodx check` 통한 헬스 체크 (pod / RDP / agent / disk / round-trip / 비밀번호 age)

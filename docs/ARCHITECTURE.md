@@ -47,6 +47,7 @@ The pod's command channel is a bearer-authed HTTP agent listening on `127.0.0.1:
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, embedded per-slug icon via vendored rcedit) |
+| i18n | `winpodx.core.i18n` (English-source-as-key, flat JSON catalogs per language) |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
 
 ## Project Structure
@@ -85,6 +86,99 @@ winpodx/
 - **Auto resume.** `provisioner` → `daemon.ensure_pod_awake()` → `podman unpause` → wait for RDP.
 - **Password rotation.** `ensure_ready()` → check `password_max_age` → generate new password → save config + compose → recreate container → rollback on failure.
 - **Reverse-open (guest → host).** Windows Explorer "Open with..." → per-slug `winpodx-<slug>.exe` shim → atomic JSON write to `\\tsclient\home\.local\share\winpodx\reverse-open\incoming\<uuid>.json` → host listener picks it up → `safe_open_unc` TOCTOU-safe path resolution → `xdg-open` invocation on the host.
+
+## Guest sync subsystem
+
+**Code.** `src/winpodx/core/guest_sync.py`. Design notes: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
+
+Upgrading winpodx on the host updates the host binary, but the guest-side
+artifacts staged at first install (`C:\OEM\agent.ps1`, the urlacl reservation,
+rdprrap / `shim.exe` / `rcedit.exe`, helper scripts) would otherwise go stale
+until the user wipes and reinstalls Windows. Guest sync closes that gap
+without a reinstall.
+
+**Key enabler.** `/oem` is a **live bind mount** of the host's `config/oem`
+(`{oem_dir}:/oem:Z` in `compose.py`), so after a host upgrade the running
+container's `/oem` *already* holds the new files — no image rebuild. Delivery
+into the guest reuses the same channel as `winpodx pod recover-oem`: tar `/oem`
+in the container → serve it over a one-shot HTTP server on `127.0.0.1:8766`
+→ guest pulls via the QEMU NAT gateway `10.0.2.2`. Because the agent is alive
+during sync, the pull and follow-up fixes run over the bearer-authed `/exec`
+endpoint rather than the noVNC paste path.
+
+`sync_guest` is ordered so a partial failure is safe to re-run:
+
+1. **Deliver `/oem`** — guest `Invoke-WebRequest` + `tar -xzf` into `C:\OEM`.
+   `install.bat` is **not** re-run (it carries one-shot first-boot logic —
+   autologon, account setup — that must not fire on a live install).
+2. **urlacl reservation** — re-applies install.bat's netsh block over `/exec`
+   (delete overlapping `:8765` reservations, re-add `http://+:8765/` with the
+   `WD` SID SDDL).
+3. **Idempotent registry / runtime fixes** — calls
+   `apply_windows_runtime_fixes(cfg)` (same chain as apply-fixes), which also
+   re-activates rdprrap against the refreshed binaries.
+4. **Restart the agent** — the agent serves the `/exec` it runs through, so it
+   can't `Stop-Process` itself synchronously. A **one-shot scheduled task**
+   fires ~5 s later to stop and relaunch `C:\OEM\agent.ps1`; the `/exec` call
+   returns first, then the new agent rebinds `:8765` under the corrected urlacl.
+5. **Stamp version** — writes `C:\winpodx\install-state\guest_version.json`
+   (`{winpodx, oem_bundle}`) only after steps 1–3 succeed.
+
+**Staleness check.** Host current = `winpodx.__version__` +
+`core.info._bundled_oem_version()`. `guest_sync_needed(cfg)` reads the stamp via
+`/exec`; a stamp that is present **and** older triggers a sync, a missing stamp
+is recorded only (no disruption during a first-boot install still in progress).
+Auto-runs after pod readiness when `cfg.pod.guest_autosync` (default `True`) is
+set, gated to podman/docker. Manual: `winpodx pod sync-guest [--force]` and a
+GUI Tools → Sync Guest action. `sync_guest` returns a per-step result map so
+the CLI/GUI can render rows.
+
+## Disk auto-grow subsystem
+
+**Code.** `src/winpodx/core/disk.py` (sizing + guest extend), triggered from
+`src/winpodx/core/daemon.py` (idle path).
+
+dockur only grows the virtual disk *image* when `cfg.pod.disk_size` increases
+and the container is recreated — it never extends the guest's C: partition, and
+it has **no online resize**. winpodx adds an idle-time auto-grow that handles
+both ends.
+
+**Trigger.** On pod start / idle, if C: used% exceeds
+`cfg.pod.disk_autogrow_threshold_pct` (default 80) **and** the pod is idle.
+
+**Sizing.** Grows the image just enough to restore
+`cfg.pod.disk_autogrow_target_free_pct` free (default 30%), rounded up to whole
+`cfg.pod.disk_autogrow_increment` steps (default `32G`). The ceiling is the
+smaller of the optional `cfg.pod.disk_max_size` and *what the host can actually
+back* — `current + (host_free − reserve)`, where the reserve keeps auto-grow
+from consuming the last of the host disk. If neither headroom is available the
+grow is skipped with a log line.
+
+**Why idle-only.** Since dockur has no online resize, every grow **recreates
+the container** (a quick guest reboot). Scheduling it idle-only guarantees it
+never interrupts a live RemoteApp session.
+
+**Guest extend.** After the image grows, the new space lands at the end of the
+disk but C: still ends where it did. The extend runs over `/exec`:
+`Resize-Partition -DriveLetter C`. dockur's Windows layout puts a small WinRE
+Recovery partition **right after** C:, blocking the extend — so the step
+detaches WinRE (`reagentc /disable`), deletes the blocking recovery partition,
+extends C:, then re-enables WinRE (`reagentc /enable`, which falls back to
+`C:\Windows` when no dedicated partition is present).
+
+## UI internationalization (i18n)
+
+**Code.** `src/winpodx/core/i18n.py`; catalogs in `src/winpodx/locale/<lang>.json`.
+
+The Linux-side UI text (tray, GUI, CLI) is wrapped in
+`winpodx.core.i18n.tr(text)`. The **English string is the catalog key** —
+`tr()` looks the source string up in the active-language catalog and falls back
+to that same English source per-string on a miss, so an incomplete catalog
+never blanks the UI. Catalogs are flat `{ "<english>": "<translation>" }` JSON.
+The active language is resolved from `[ui] language` (default `auto`, which maps
+the host locale from `$LC_ALL` / `$LC_MESSAGES` / `$LANG`, unknown → English).
+Seven languages ship: en, ko, zh, ja, de, fr, it. (Distinct from
+`pod.language`, which is the *Windows guest* install language.)
 
 ## Advanced: Custom Windows ISO
 

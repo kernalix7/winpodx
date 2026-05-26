@@ -188,7 +188,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - **Sound**: RDP audio streaming (`/sound:sys:alsa`) — on by default
 - **Printer**: Linux printers shared to Windows — on by default
 - **Home directory**: shared as `\\tsclient\home`
-- **USB drives**: auto-mapped to drive letters (E:, F:, …) via FileSystemWatcher; subfolders work for drives plugged in after session start
+- **USB drives**: auto-mapped to drive letters (E:, F:, …) via FileSystemWatcher; subfolders work for drives plugged in after session start; the USB desktop shortcut (`\\tsclient\media`) always resolves, opening an empty folder when nothing is mounted instead of erroring
 - **USB device passthrough**: opt-in via `extra_flags` (`/usb:auto`)
 
 </td></tr>
@@ -196,6 +196,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 
 **Automation & security**
 - Auto suspend / resume: container pauses when idle, resumes on next launch
+- Pod auto-start on login (v0.5.9, opt-in): `winpodx autostart on` installs a tray autostart entry so the pod starts/resumes at login — off by default (`autostart off|status`, or a GUI Settings checkbox)
 - UNRESPONSIVE → recover (v0.5.5): stalled RDP guest is detected on `RUNNING → UNRESPONSIVE` and self-healed via in-guest TermService cycle, no `pod restart` needed
 - Host-adaptive Windows-on-KVM tuning profile (v0.5.5): `+invtsc`, `platform_tick` and more, gated by host capability — `tuning_profile = auto|safe|off`
 - Password auto-rotation: 20-char cryptographic password, 7-day cycle with atomic rollback
@@ -207,6 +208,9 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 </td><td width="50%">
 
 **Operations & resilience**
+- Multilingual UI (v0.5.9): tray / GUI / CLI fully translated to 7 languages (en / ko / zh / ja / de / fr / it), auto-detected from `$LANG` — override with `winpodx language <code>` or GUI Settings → "winpodx UI language"
+- Windows disk auto-grow (v0.5.9): C: grows itself when it fills past a threshold while idle, bounded by host free space — or grow on demand (`winpodx pod grow-disk [SIZE]`, `winpodx pod disk-usage`, GUI Tools → Grow Disk)
+- Guest sync (v0.5.9): push updated agent / urlacl / rdprrap / fixes into a running guest after a host upgrade — automatic once per pod start, or `winpodx pod sync-guest [--force]`
 - Offline / air-gapped install (`--source` + `--image-tar`)
 - One-line uninstall (keeps Windows VM data unless `--purge`)
 - Health checks via `winpodx check` (pod / RDP / agent / disk / round-trip / password age)
