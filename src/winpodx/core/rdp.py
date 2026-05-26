@@ -663,8 +663,7 @@ def _wait_session_interactive(cfg: Config, *, timeout: int = 20) -> bool:
             return True
         _time.sleep(2)
     log.warning(
-        "guest session not confirmed interactive within %ds (state=%r); "
-        "launching RemoteApp anyway",
+        "guest session not confirmed interactive within %ds (state=%r); launching RemoteApp anyway",
         timeout,
         state,
     )
