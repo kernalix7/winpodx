@@ -623,6 +623,53 @@ def _raise_if_exited_immediately(session: RDPSession) -> None:
     )
 
 
+_SESSION_STATE_PS = (
+    "if (Get-Process LogonUI -ErrorAction SilentlyContinue) { 'LOCKED' } "
+    "elseif (Get-Process explorer -ErrorAction SilentlyContinue) { 'READY' } "
+    "else { 'NOSHELL' }"
+)
+
+
+def _wait_session_interactive(cfg: Config, *, timeout: int = 20) -> bool:
+    """Best-effort wait until the guest console is logged in + unlocked (#332).
+
+    Polls the **agent only** (never FreeRDP -- a FreeRDP probe would itself
+    flash a RAIL window). `LogonUI.exe` running means the logon / lock screen
+    is up; `explorer.exe` with no LogonUI means the desktop is interactive.
+
+    Returns True once READY is confirmed. Returns False (and the caller
+    proceeds anyway -- this only *reduces* the race, never blocks a launch)
+    when the agent is unreachable or the wait times out.
+    """
+    try:
+        from winpodx.core.agent import AgentClient, AgentError
+    except Exception:  # noqa: BLE001
+        return False
+    client = AgentClient(cfg)
+    try:
+        client.health()
+    except Exception:  # noqa: BLE001 -- agent down: can't gate, let caller proceed
+        return False
+    import time as _time
+
+    deadline = _time.monotonic() + max(1, timeout)
+    state = ""
+    while _time.monotonic() < deadline:
+        try:
+            state = (client.exec(_SESSION_STATE_PS, timeout=10).stdout or "").strip()
+        except AgentError:
+            return False
+        if state == "READY":
+            return True
+        _time.sleep(2)
+    log.warning(
+        "guest session not confirmed interactive within %ds (state=%r); launching RemoteApp anyway",
+        timeout,
+        state,
+    )
+    return False
+
+
 def launch_app(
     cfg: Config,
     app_executable: str | None = None,
@@ -684,6 +731,16 @@ def launch_app(
             "support, or xwayland-satellite for niri/river) and ensure "
             "$DISPLAY is set."
         )
+
+    # #332: don't fire the RemoteApp (RAIL) connection while the guest
+    # session is still at the logon / lock screen. dockur's autologon
+    # session can briefly re-spawn (see rdprrap-activate.ps1), and if the
+    # RAIL window is created during that transition FreeRDP paints the stale
+    # logon framebuffer and never repaints the app -> "app launched but the
+    # screen shows the login background", + `xf_Pointer: Invalid appWindow`
+    # spam. Wait (best-effort, agent-only) until the desktop is interactive.
+    if is_remoteapp and cfg.pod.backend in ("podman", "docker"):
+        _wait_session_interactive(cfg)
 
     log.info("Launching RDP: %s", " ".join(cmd))
 
