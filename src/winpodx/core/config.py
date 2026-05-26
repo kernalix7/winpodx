@@ -544,6 +544,29 @@ class LoggingConfig:
         return self.level == "RAW"
 
 
+# Supported winpodx UI languages (see core/i18n.py). English is the source/
+# baseline (always complete); others fall back to English per-string.
+_UI_LANGUAGES = ("auto", "en", "ko", "zh", "ja", "de", "fr", "it")
+
+
+@dataclass
+class UIConfig:
+    """winpodx's own UI language (the Linux-side tray / GUI / CLI text).
+
+    Distinct from ``pod.language`` (the *Windows guest* install language).
+    ``auto`` (default) picks the UI language from the host locale ($LANG)
+    and falls back to English; set an explicit code to force it.
+    """
+
+    language: str = "auto"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.language, str) or self.language.strip().lower() not in _UI_LANGUAGES:
+            self.language = "auto"
+        else:
+            self.language = self.language.strip().lower()
+
+
 @dataclass
 class Config:
     rdp: RDPConfig = field(default_factory=RDPConfig)
@@ -551,6 +574,7 @@ class Config:
     reverse_open: ReverseOpenConfig = field(default_factory=ReverseOpenConfig)
     install: InstallConfig = field(default_factory=InstallConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    ui: UIConfig = field(default_factory=UIConfig)
 
     @classmethod
     def path(cls) -> Path:
@@ -577,11 +601,13 @@ class Config:
         _apply(cfg.reverse_open, data.get("reverse_open", {}))
         _apply(cfg.install, data.get("install", {}))
         _apply(cfg.logging, data.get("logging", {}))
+        _apply(cfg.ui, data.get("ui", {}))
         cfg.rdp.__post_init__()
         cfg.pod.__post_init__()
         cfg.reverse_open.__post_init__()
         cfg.install.__post_init__()
         cfg.logging.__post_init__()
+        cfg.ui.__post_init__()
         return cfg
 
     def save(self) -> None:
@@ -652,6 +678,9 @@ class Config:
             },
             "logging": {
                 "level": self.logging.level,
+            },
+            "ui": {
+                "language": self.ui.language,
             },
         }
 

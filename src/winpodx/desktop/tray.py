@@ -426,11 +426,15 @@ def run_tray() -> None:
         """
         from PySide6.QtWidgets import QMessageBox
 
+        from winpodx.core.i18n import tr
+
         reply = QMessageBox.question(
             None,
             "winpodx",
-            "Quit winpodx completely?\n\nThis stops the Windows container "
-            "and closes any open dashboard window.",
+            tr(
+                "Quit winpodx completely?\n\nThis stops the Windows container "
+                "and closes any open dashboard window."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

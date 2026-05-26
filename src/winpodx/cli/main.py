@@ -15,6 +15,12 @@ def cli(argv: list[str] | None = None) -> None:
 
     setup_logging()
 
+    # Resolve the UI language (cfg.ui.language, default auto -> host locale)
+    # before any user-facing text is emitted. Best-effort; never blocks.
+    from winpodx.core.i18n import init_from_config
+
+    init_from_config()
+
     # v0.2.1: pick up any pending setup steps from a partial install.sh
     # run BEFORE we route into the user's command. Skip on the
     # uninstall path so a half-installed system can still be torn
