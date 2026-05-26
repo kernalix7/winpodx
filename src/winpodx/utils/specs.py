@@ -43,9 +43,9 @@ class TierPreset:
     ram_gb: int
 
 
-_TIER_LOW = TierPreset(name="low", label="하 (Low)", cpu_cores=2, ram_gb=4)
-_TIER_MID = TierPreset(name="mid", label="중 (Mid)", cpu_cores=4, ram_gb=6)
-_TIER_HIGH = TierPreset(name="high", label="상 (High)", cpu_cores=8, ram_gb=12)
+_TIER_LOW = TierPreset(name="low", label="Low", cpu_cores=2, ram_gb=4)
+_TIER_MID = TierPreset(name="mid", label="Mid", cpu_cores=4, ram_gb=6)
+_TIER_HIGH = TierPreset(name="high", label="High", cpu_cores=8, ram_gb=12)
 
 
 def detect_host_specs() -> HostSpecs:

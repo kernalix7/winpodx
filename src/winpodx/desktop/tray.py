@@ -429,8 +429,8 @@ def run_tray() -> None:
         reply = QMessageBox.question(
             None,
             "winpodx",
-            "winpodx 를 완전히 종료할까요?\n\nWindows 컨테이너를 멈추고 "
-            "열려 있는 dashboard 창도 닫습니다.",
+            "Quit winpodx completely?\n\nThis stops the Windows container "
+            "and closes any open dashboard window.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
