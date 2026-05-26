@@ -109,6 +109,30 @@ def _find_media_base() -> Path | None:
     return None
 
 
+def _media_redirect_base() -> Path:
+    """Directory to expose as ``\\tsclient\\media`` (the guest's USB shortcut).
+
+    install.bat always drops a ``USB`` desktop shortcut pointing at
+    ``\\tsclient\\media``. If we only redirected the drive when removable
+    media is mounted, clicking that shortcut with no USB plugged in failed
+    with "``\\tsclient\\media`` is not accessible ... invalid address"
+    (reported by @camegone-style setups). So always redirect *something*:
+    the real media base when present, otherwise an empty placeholder dir so
+    the shortcut opens to an empty folder instead of erroring.
+    """
+    from winpodx.utils.paths import data_dir
+
+    base = _find_media_base()
+    if base is not None:
+        return base
+    placeholder = data_dir() / "media"
+    try:
+        placeholder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:  # noqa: BLE001
+        log.debug("could not create media placeholder %s: %s", placeholder, e)
+    return placeholder
+
+
 # Success-only cache; a miss is not cached so a mid-session install is picked up.
 _FREERDP_CACHE: tuple[str, str] | None = None
 _FREERDP_MAJOR_CACHE: int | None = None
@@ -287,10 +311,11 @@ def build_rdp_command(
     if (app_executable or launch_uri) and "/dynamic-resolution" in cmd:
         cmd.remove("/dynamic-resolution")
 
-    # Share the media mount directory so USB storage appears under \\tsclient\media.
-    media_base = _find_media_base()
-    if media_base:
-        cmd.append(f"/drive:media,{media_base}")
+    # Share a directory as \\tsclient\media so the guest's USB desktop
+    # shortcut always resolves: the real removable-media base when mounted,
+    # else an empty placeholder (so clicking USB with nothing plugged in
+    # opens an empty folder instead of erroring "invalid address").
+    cmd.append(f"/drive:media,{_media_redirect_base()}")
 
     cmd.append(f"/scale:{cfg.rdp.scale}")
 
