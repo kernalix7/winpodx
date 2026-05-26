@@ -26,6 +26,7 @@ from PySide6.QtCore import QThread, QTimer, Slot
 from PySide6.QtWidgets import QMessageBox
 
 from winpodx.core.app import AppInfo, list_available_apps
+from winpodx.core.i18n import tr
 from winpodx.gui.workers import DiscoveryWorker
 
 
@@ -40,7 +41,7 @@ class AppCrudMixin:
             data = dlg.get_result()
             save_app_profile(data)
             self._reload_apps()
-            self.info_label.setText(f"Added: {data['full_name']}")
+            self.info_label.setText(tr("Added: {name}").format(name=data["full_name"]))
 
     def _on_edit_app(self, app: AppInfo) -> None:
         from winpodx.gui.app_dialog import AppProfileDialog, save_app_profile
@@ -58,14 +59,15 @@ class AppCrudMixin:
             data = dlg.get_result()
             save_app_profile(data)
             self._reload_apps()
-            self.info_label.setText(f"Updated: {data['full_name']}")
+            self.info_label.setText(tr("Updated: {name}").format(name=data["full_name"]))
 
     def _on_delete_app(self, app: AppInfo) -> None:
         reply = QMessageBox.question(
             self,
-            "Delete App",
-            f"Remove '{app.full_name}' profile?\n"
-            "This only removes the profile, not the Windows app.",
+            tr("Delete App"),
+            tr(
+                "Remove '{name}' profile?\nThis only removes the profile, not the Windows app."
+            ).format(name=app.full_name),
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -76,7 +78,7 @@ class AppCrudMixin:
         delete_app_profile(app.name)
         remove_desktop_entry(app.name)
         self._reload_apps()
-        self.info_label.setText(f"Removed: {app.full_name}")
+        self.info_label.setText(tr("Removed: {name}").format(name=app.full_name))
 
     def _reload_apps(self) -> None:
         self.apps = list_available_apps()
@@ -84,7 +86,7 @@ class AppCrudMixin:
         visible = self._visible_apps()
         self._populate_app_view(visible)
         self.search_box.clear()
-        self.app_count_label.setText(f"{len(visible)} apps")
+        self.app_count_label.setText(tr("{n} apps").format(n=len(visible)))
 
     def _on_refresh_apps(self) -> None:
         """Entry point for the "Refresh Apps" button; kicks off the QThread worker."""
@@ -121,10 +123,10 @@ class AppCrudMixin:
         self._refresh_state = state
         scanning = state == "scanning"
         self.refresh_btn.setEnabled(not scanning)
-        self.refresh_btn.setText("Scanning..." if scanning else "Refresh Apps")
+        self.refresh_btn.setText(tr("Scanning...") if scanning else tr("Refresh Apps"))
         self.refresh_progress.setVisible(scanning)
         if scanning:
-            self.info_label.setText("Scanning pod for installed apps...")
+            self.info_label.setText(tr("Scanning pod for installed apps..."))
 
     @Slot(int)
     def _on_refresh_succeeded(self, count: int) -> None:
@@ -136,9 +138,11 @@ class AppCrudMixin:
         # any pending deleteLater on the worker).
         self._reload_apps()
         if count:
-            self.info_label.setText(f"Discovery complete: {count} app(s) updated")
+            self.info_label.setText(
+                tr("Discovery complete: {count} app(s) updated").format(count=count)
+            )
         else:
-            self.info_label.setText("Discovery complete: no new apps found")
+            self.info_label.setText(tr("Discovery complete: no new apps found"))
 
     @Slot()
     def _cleanup_refresh_worker(self) -> None:
@@ -156,7 +160,7 @@ class AppCrudMixin:
     @Slot(str, str)
     def _on_refresh_failed(self, kind: str, detail: str) -> None:
         self._set_refresh_state("idle")
-        self.info_label.setText("App discovery failed")
+        self.info_label.setText(tr("App discovery failed"))
 
         # v0.1.9.1: defer the QMessageBox creation to a clean event-loop tick.
         # PySide6 + Qt 6.x can SEGV in QMessageBox's font-inheritance lookup
@@ -171,11 +175,11 @@ class AppCrudMixin:
         if kind == "pod_not_running":
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("Pod Not Running")
-            box.setText("The Windows pod must be running to scan for apps.")
+            box.setWindowTitle(tr("Pod Not Running"))
+            box.setText(tr("The Windows pod must be running to scan for apps."))
             if detail:
                 box.setInformativeText(detail)
-            start_btn = box.addButton("Start Pod", QMessageBox.ButtonRole.AcceptRole)
+            start_btn = box.addButton(tr("Start Pod"), QMessageBox.ButtonRole.AcceptRole)
             box.addButton(QMessageBox.StandardButton.Cancel)
             box.exec()
             if box.clickedButton() is start_btn:
@@ -190,17 +194,19 @@ class AppCrudMixin:
             # Pod" -- that's wrong. Suggest "Retry" instead.
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("Discovery Session Disconnected")
+            box.setWindowTitle(tr("Discovery Session Disconnected"))
             box.setText(
-                "The discovery session was terminated by the guest before "
-                "results could be written.\n\n"
-                "This can happen when multi-session activation just cycled "
-                "TermService, or the autologon session briefly disconnected. "
-                "The pod itself is running; retrying usually succeeds."
+                tr(
+                    "The discovery session was terminated by the guest before "
+                    "results could be written.\n\n"
+                    "This can happen when multi-session activation just cycled "
+                    "TermService, or the autologon session briefly disconnected. "
+                    "The pod itself is running; retrying usually succeeds."
+                )
             )
             if detail:
                 box.setInformativeText(detail)
-            retry_btn = box.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
+            retry_btn = box.addButton(tr("Retry"), QMessageBox.ButtonRole.AcceptRole)
             box.addButton(QMessageBox.StandardButton.Cancel)
             box.exec()
             if box.clickedButton() is retry_btn:
@@ -210,13 +216,15 @@ class AppCrudMixin:
         if kind == "module_missing":
             QMessageBox.critical(
                 self,
-                "Discovery Unavailable",
-                f"The app discovery module is not available in this install.\n\n{detail}",
+                tr("Discovery Unavailable"),
+                tr("The app discovery module is not available in this install.\n\n{detail}").format(
+                    detail=detail
+                ),
             )
             return
 
         QMessageBox.critical(
             self,
-            "Discovery Failed",
-            detail or "An unexpected error occurred during app discovery.",
+            tr("Discovery Failed"),
+            detail or tr("An unexpected error occurred during app discovery."),
         )

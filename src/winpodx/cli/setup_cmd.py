@@ -18,6 +18,7 @@ from winpodx.core.compose import generate_compose as _generate_compose
 from winpodx.core.compose import generate_compose_to as _generate_compose_to
 from winpodx.core.compose import generate_password as _generate_password
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.utils.agent_token import ensure_agent_token, stage_token_to_oem
 from winpodx.utils.compat import import_winapps_config
 from winpodx.utils.deps import check_all
@@ -79,7 +80,7 @@ def _ensure_oem_token_staged() -> None:
         if oem_dir.exists():
             stage_token_to_oem(oem_dir)
     except OSError as e:
-        print(f"  warning: could not stage agent token to OEM dir ({e})")
+        print(tr("  warning: could not stage agent token to OEM dir ({error})").format(error=e))
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -106,12 +107,16 @@ def _update_image_pin() -> int:
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
-        print(f"--update-image only supports podman/docker (got {cfg.pod.backend!r}).")
+        print(
+            tr("--update-image only supports podman/docker (got {backend}).").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
         return 2
 
     backend = cfg.pod.backend
     if not shutil.which(backend):
-        print(f"`{backend}` not found in PATH.")
+        print(tr("`{backend}` not found in PATH.").format(backend=backend))
         return 2
 
     # Pick the upstream tag matching host architecture. aarch64 hosts
@@ -126,20 +131,20 @@ def _update_image_pin() -> int:
     else:
         upstream_tag = "docker.io/dockurr/windows:latest"
 
-    print(f"Pulling {upstream_tag}...")
+    print(tr("Pulling {tag}...").format(tag=upstream_tag))
     try:
         subprocess.run(
             [backend, "pull", upstream_tag],
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        print(f"FAIL: pull exit={e.returncode}")
+        print(tr("FAIL: pull exit={rc}").format(rc=e.returncode))
         return 3
 
     # Resolve the now-local image's repo-digest. RepoDigests is a list
     # of `<repo>@sha256:...` references — we filter to the docker.io
     # one so the pin always uses the canonical registry path.
-    print("Resolving image digest...")
+    print(tr("Resolving image digest..."))
     try:
         result = subprocess.run(
             [
@@ -155,7 +160,11 @@ def _update_image_pin() -> int:
             text=True,
         )
     except subprocess.CalledProcessError as e:
-        print(f"FAIL: image inspect exit={e.returncode}: {e.stderr.strip()}")
+        print(
+            tr("FAIL: image inspect exit={rc}: {stderr}").format(
+                rc=e.returncode, stderr=e.stderr.strip()
+            )
+        )
         return 3
 
     import json
@@ -168,15 +177,15 @@ def _update_image_pin() -> int:
     if not pinned and digests:
         pinned = digests[0]
     if not pinned or "@sha256:" not in pinned:
-        print(f"FAIL: no usable digest in RepoDigests={digests!r}")
+        print(tr("FAIL: no usable digest in RepoDigests={digests}").format(digests=repr(digests)))
         return 3
 
     if cfg.pod.image == pinned:
-        print(f"Image already pinned to {pinned}. Nothing to do.")
+        print(tr("Image already pinned to {pinned}. Nothing to do.").format(pinned=pinned))
         return 0
 
-    print(f"Old pin: {cfg.pod.image}")
-    print(f"New pin: {pinned}")
+    print(tr("Old pin: {pin}").format(pin=cfg.pod.image))
+    print(tr("New pin: {pin}").format(pin=pinned))
     cfg.pod.image = pinned
     cfg.save()
 
@@ -185,13 +194,15 @@ def _update_image_pin() -> int:
 
         generate_compose(cfg)
     except Exception as e:  # noqa: BLE001
-        print(f"FAIL: compose.yaml regenerate ({e})")
+        print(tr("FAIL: compose.yaml regenerate ({error})").format(error=e))
         return 3
 
     print(
-        "OK: cfg.pod.image + compose.yaml updated.\n"
-        "Next `winpodx pod start` recreates the container with the new image\n"
-        "(~30 s, storage volume preserved — no ISO redownload, no Sysprep)."
+        tr(
+            "OK: cfg.pod.image + compose.yaml updated.\n"
+            "Next `winpodx pod start` recreates the container with the new image\n"
+            "(~30 s, storage volume preserved — no ISO redownload, no Sysprep)."
+        )
     )
     return 0
 
@@ -227,11 +238,15 @@ def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
         mp = get_volume_mountpoint(cfg.pod.backend, resolved)
         if mp is not None and detect_path_fs(mp) == "btrfs":
             print()
-            print(f"  Note: existing {resolved!r} volume is on btrfs ({mp}).")
-            print("    btrfs Copy-on-Write fragments the Windows raw disk image and")
-            print("    slows pod recreates. To migrate to a NoCoW bind mount, run:")
+            print(
+                tr("  Note: existing {volume} volume is on btrfs ({mp}).").format(
+                    volume=repr(resolved), mp=mp
+                )
+            )
+            print(tr("    btrfs Copy-on-Write fragments the Windows raw disk image and"))
+            print(tr("    slows pod recreates. To migrate to a NoCoW bind mount, run:"))
             print("        winpodx setup --migrate-storage")
-            print("    (~5-10 min, preserves the Windows install)")
+            print(tr("    (~5-10 min, preserves the Windows install)"))
             print()
         return
 
@@ -244,22 +259,28 @@ def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
     except OSError as e:
         # If we can't create the dir, fall back to named volume (don't
         # set storage_path) so install still proceeds.
-        print(f"  Note: could not create {target} ({e}); using named volume instead.")
+        print(
+            tr("  Note: could not create {path} ({error}); using named volume instead.").format(
+                path=target, error=e
+            )
+        )
         return
 
     fs = detect_path_fs(target)
     if fs == "btrfs":
         status, detail = disable_cow_on_path(target)
         if status == "disabled":
-            print(f"  btrfs detected — applied chattr +C on {target}")
-            print("    Windows raw disk image will be NoCoW from first boot.")
+            print(tr("  btrfs detected — applied chattr +C on {path}").format(path=target))
+            print(tr("    Windows raw disk image will be NoCoW from first boot."))
         elif status == "already_off":
             # silent — already done in a previous setup run
             pass
         elif status == "failed":
-            print(f"  Note: btrfs detected but chattr +C failed ({detail}).")
-            print("    Pod will work, but VM disk operations may be slow.")
-            print("    You can retry manually: chattr +C", target)
+            print(
+                tr("  Note: btrfs detected but chattr +C failed ({detail}).").format(detail=detail)
+            )
+            print(tr("    Pod will work, but VM disk operations may be slow."))
+            print(tr("    You can retry manually: chattr +C"), target)
     cfg.pod.storage_path = str(target)
 
 
@@ -286,7 +307,7 @@ def _handle_migrate_storage(args: argparse.Namespace) -> int:
 
     plan_or_error = plan_migration(cfg, target=target)
     if isinstance(plan_or_error, str):
-        print(f"--migrate-storage: {plan_or_error}")
+        print(tr("--migrate-storage: {detail}").format(detail=plan_or_error))
         return 2
 
     plan: MigrationPlan = plan_or_error
@@ -295,30 +316,39 @@ def _handle_migrate_storage(args: argparse.Namespace) -> int:
     # tens of gigabytes of disk + recreates the pod; we don't want to
     # surprise anyone.
     print()
-    print("Storage migration plan:")
-    print(f"  Source:  podman volume {plan.source_volume!r}")
-    print(f"           {plan.source_mountpoint}  (~{plan.source_size_bytes // (1 << 30)} GiB)")
-    print(f"  Target:  {plan.target_path}  (fs={plan.target_fs})")
+    print(tr("Storage migration plan:"))
+    print(tr("  Source:  podman volume {volume}").format(volume=repr(plan.source_volume)))
+    print(
+        tr("           {mountpoint}  (~{size_gib} GiB)").format(
+            mountpoint=plan.source_mountpoint,
+            size_gib=plan.source_size_bytes // (1 << 30),
+        )
+    )
+    print(tr("  Target:  {path}  (fs={fs})").format(path=plan.target_path, fs=plan.target_fs))
     if plan.chattr_will_run:
-        print("  chattr:  +C will run on the target (btrfs NoCoW for new files)")
+        print(tr("  chattr:  +C will run on the target (btrfs NoCoW for new files)"))
     if plan.free_bytes_target >= 0:
-        print(f"  Free:    {plan.free_bytes_target // (1 << 30)} GiB available at target")
+        print(
+            tr("  Free:    {free_gib} GiB available at target").format(
+                free_gib=plan.free_bytes_target // (1 << 30)
+            )
+        )
     print()
-    print("Cost: rsync -aS of the entire volume. ~5-10 min on NVMe; longer on")
-    print("spinning rust. The pod is stopped for the duration.")
+    print(tr("Cost: rsync -aS of the entire volume. ~5-10 min on NVMe; longer on"))
+    print(tr("spinning rust. The pod is stopped for the duration."))
     print()
 
     if not getattr(args, "yes", False) and not getattr(args, "non_interactive", False):
-        if not _ask("Proceed? (y/N): ").lower().startswith("y"):
-            print("Aborted.")
+        if not _ask(tr("Proceed? (y/N): ")).lower().startswith("y"):
+            print(tr("Aborted."))
             return 0
 
-    print("\nMigrating...")
+    print(tr("\nMigrating..."))
     result = execute_migration(cfg, plan, start_pod=True)
     if result.status == "ok":
-        print(f"OK: {result.detail}")
+        print(tr("OK: {detail}").format(detail=result.detail))
         return 0
-    print(f"FAIL: {result.detail}")
+    print(tr("FAIL: {detail}").format(detail=result.detail))
     return 3
 
 
@@ -368,21 +398,23 @@ def _heal_missing_container_if_needed(cfg: Config) -> None:
     try:
         state = pod_status(cfg).state
     except Exception as e:  # noqa: BLE001
-        print(f"  warning: could not probe pod state: {e}")
+        print(tr("  warning: could not probe pod state: {error}").format(error=e))
         state = None
 
     if state in (PodState.STOPPED, PodState.ERROR, None) and not _container_exists_on_backend(cfg):
         print(
-            f"  Container '{cfg.pod.container_name}' is missing — "
-            f"creating it from existing config + compose.yaml."
+            tr(
+                "  Container '{container}' is missing — "
+                "creating it from existing config + compose.yaml."
+            ).format(container=cfg.pod.container_name)
         )
         try:
             from winpodx.core.provisioner import ensure_ready
 
             ensure_ready(cfg)
         except Exception as e:  # noqa: BLE001
-            print(f"  WARNING: could not start pod: {e}")
-            print("  Try a full reinstall: uninstall.sh --purge then install.sh")
+            print(tr("  WARNING: could not start pod: {error}").format(error=e))
+            print(tr("  Try a full reinstall: uninstall.sh --purge then install.sh"))
 
 
 def _resolve_credentials(cfg: Config, *, non_interactive: bool, config_existed: bool) -> None:
@@ -409,24 +441,26 @@ def _resolve_credentials(cfg: Config, *, non_interactive: bool, config_existed: 
 
     if config_existed and cfg.rdp.user and cfg.rdp.password:
         print(
-            f"Existing credentials for user {cfg.rdp.user!r} preserved. "
-            "Use `winpodx rotate-password` to change the Windows password."
+            tr(
+                "Existing credentials for user {user} preserved. "
+                "Use `winpodx rotate-password` to change the Windows password."
+            ).format(user=repr(cfg.rdp.user))
         )
         return
 
-    cfg.rdp.user = _ask("Windows username [User]: ", default="User")
+    cfg.rdp.user = _ask(tr("Windows username [User]: "), default="User")
     import getpass
 
     try:
-        entered_pw = getpass.getpass("Windows password (Enter for random): ")
+        entered_pw = getpass.getpass(tr("Windows password (Enter for random): "))
     except EOFError:
         entered_pw = ""
     cfg.rdp.password = entered_pw or _generate_password()
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
     if cfg.pod.backend == "manual":
-        cfg.rdp.ip = _ask("Windows IP address: ")
+        cfg.rdp.ip = _ask(tr("Windows IP address: "))
     else:
-        cfg.rdp.ip = _ask("Windows IP [127.0.0.1]: ", default="127.0.0.1")
+        cfg.rdp.ip = _ask(tr("Windows IP [127.0.0.1]: "), default="127.0.0.1")
 
 
 def _prompt_edition_locale_tuning(cfg: Config) -> None:
@@ -436,12 +470,14 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     profile. Each reaches dockur as an env var and only takes effect on
     the initial Windows install. Enter accepts the shown default.
     """
-    print("\n--- Edition / locale / tuning (Enter = keep default) ---")
+    print(tr("\n--- Edition / locale / tuning (Enter = keep default) ---"))
 
     # Windows edition. Bare-token list mirrors _KNOWN_WIN_VERSIONS; the
     # common picks are surfaced inline, the rest accepted if typed.
     edition = _ask(
-        f"Windows edition (11, 10, ltsc11, iot11, tiny11, 2025, ...) [{cfg.pod.win_version}]: ",
+        tr("Windows edition (11, 10, ltsc11, iot11, tiny11, 2025, ...) [{default}]: ").format(
+            default=cfg.pod.win_version
+        ),
         default=cfg.pod.win_version,
     )
     cfg.pod.win_version = edition
@@ -449,7 +485,7 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     # UI language (dockur LANGUAGE env). Full English name, e.g. "English",
     # "German", "Korean". dockur maps it to the matching ISO at download.
     cfg.pod.language = _ask(
-        f"Windows UI language [{cfg.pod.language}]: ",
+        tr("Windows UI language [{default}]: ").format(default=cfg.pod.language),
         default=cfg.pod.language,
     )
 
@@ -457,13 +493,13 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     # ko-KR. Default en-001 = "English (World)"; suggest the more common
     # en-US for US date / number formatting (#293).
     cfg.pod.region = _ask(
-        f"Regional format (BCP-47, e.g. en-US) [{cfg.pod.region}]: ",
+        tr("Regional format (BCP-47, e.g. en-US) [{default}]: ").format(default=cfg.pod.region),
         default=cfg.pod.region,
     )
 
     # Keyboard layout (dockur KEYBOARD env). BCP-47, e.g. en-US, de-DE.
     cfg.pod.keyboard = _ask(
-        f"Keyboard layout (BCP-47, e.g. en-US) [{cfg.pod.keyboard}]: ",
+        tr("Keyboard layout (BCP-47, e.g. en-US) [{default}]: ").format(default=cfg.pod.keyboard),
         default=cfg.pod.keyboard,
     )
 
@@ -473,7 +509,9 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     # reserved.
     tuning = (
         _ask(
-            f"Tuning profile (auto/performance/safe/off/manual) [{cfg.pod.tuning_profile}]: ",
+            tr("Tuning profile (auto/performance/safe/off/manual) [{default}]: ").format(
+                default=cfg.pod.tuning_profile
+            ),
             default=cfg.pod.tuning_profile,
         )
         .strip()
@@ -482,7 +520,11 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     if tuning in ("auto", "performance", "safe", "off", "manual"):
         cfg.pod.tuning_profile = tuning
     else:
-        print(f"  unknown profile {tuning!r}, keeping {cfg.pod.tuning_profile!r}")
+        print(
+            tr("  unknown profile {profile}, keeping {current}").format(
+                profile=repr(tuning), current=repr(cfg.pod.tuning_profile)
+            )
+        )
 
     # Re-run validation so any normalization (win_version casing, etc.)
     # lands before compose generation.
@@ -509,10 +551,10 @@ def _run_full_provision(cfg: Config) -> None:
         return
 
     print("\n" + "=" * 40)
-    print(" Provisioning Windows (first boot)")
+    print(tr(" Provisioning Windows (first boot)"))
     print("=" * 40)
-    print("First install downloads ~7.5GB ISO + runs Sysprep + OEM apply.")
-    print("This can take ~5-10 min (longer on slow connections).\n")
+    print(tr("First install downloads ~7.5GB ISO + runs Sysprep + OEM apply."))
+    print(tr("This can take ~5-10 min (longer on slow connections).\n"))
 
     # 1. wait-ready -- reuse the CLI implementation with live logs.
     from winpodx.cli.pod import _wait_ready
@@ -524,9 +566,11 @@ def _run_full_provision(cfg: Config) -> None:
         # setup -- the pending-steps machinery + next `winpodx app run`
         # will resume. Surface it and stop the provision chain.
         print(
-            f"\n  wait-ready did not complete (exit {e.code}). "
-            "Remaining steps will auto-resume on your next "
-            "`winpodx app run` / `winpodx gui`."
+            tr(
+                "\n  wait-ready did not complete (exit {code}). "
+                "Remaining steps will auto-resume on your next "
+                "`winpodx app run` / `winpodx gui`."
+            ).format(code=e.code)
         )
         return
 
@@ -534,29 +578,31 @@ def _run_full_provision(cfg: Config) -> None:
     try:
         from winpodx.core.provisioner import apply_windows_runtime_fixes
 
-        print("\nApplying Windows-side runtime fixes...")
+        print(tr("\nApplying Windows-side runtime fixes..."))
         apply_windows_runtime_fixes(cfg)
     except Exception as e:  # noqa: BLE001 -- best-effort, never fatal
-        print(f"  apply-fixes skipped ({e})")
+        print(tr("  apply-fixes skipped ({error})").format(error=e))
 
     # 3. discovery -- populate the app menu from the running guest.
     try:
         from winpodx.cli.app import _refresh_apps
 
-        print("\nDiscovering installed Windows apps...")
+        print(tr("\nDiscovering installed Windows apps..."))
         _refresh_apps(as_json=False, timeout=120)
     except Exception as e:  # noqa: BLE001
-        print(f"  discovery skipped ({e}) -- run `winpodx app refresh` later")
+        print(
+            tr("  discovery skipped ({error}) -- run `winpodx app refresh` later").format(error=e)
+        )
 
     # 4. reverse-open -- host apps into the guest "Open with" menu.
     if getattr(cfg.reverse_open, "enabled", False):
         try:
             from winpodx.cli.host_open import _cmd_refresh
 
-            print("\nSetting up reverse-open (Linux apps in Windows 'Open with')...")
+            print(tr("\nSetting up reverse-open (Linux apps in Windows 'Open with')..."))
             _cmd_refresh(argparse.Namespace(include_nodisplay=False, skip_icons=False, json=False))
         except Exception as e:  # noqa: BLE001
-            print(f"  reverse-open setup skipped ({e})")
+            print(tr("  reverse-open setup skipped ({error})").format(error=e))
 
 
 def handle_setup(args: argparse.Namespace) -> None:
@@ -586,36 +632,38 @@ def handle_setup(args: argparse.Namespace) -> None:
         non_interactive = True
         customize = False
 
-    print("=== winpodx setup ===\n")
+    print(tr("=== winpodx setup ===\n"))
 
-    print("Checking dependencies...")
+    print(tr("Checking dependencies..."))
     deps = check_all()
     for name, dep in deps.items():
         status = "OK" if dep.found else "MISSING"
         print(f"  {name:<15} [{status}] {dep.note}")
 
     if not deps["freerdp"].found:
-        print("\nFreeRDP 3+ is required. Install it and try again.")
+        print(tr("\nFreeRDP 3+ is required. Install it and try again."))
         raise SystemExit(1)
 
     kvm_ok = Path("/dev/kvm").exists()
     kvm_status = "OK" if kvm_ok else "MISSING"
-    print(f"  {'kvm':<15} [{kvm_status}] Hardware virtualization")
+    print(
+        tr("  {name:<15} [{status}] Hardware virtualization").format(name="kvm", status=kvm_status)
+    )
     print()
 
     existing = import_winapps_config()
     if existing and not non_interactive:
-        answer = _ask("Found existing winapps.conf. Import settings? (Y/n): ").lower()
+        answer = _ask(tr("Found existing winapps.conf. Import settings? (Y/n): ")).lower()
         if answer in ("", "y", "yes"):
             existing.save()
-            print(f"Config saved to {Config.path()}")
+            print(tr("Config saved to {path}").format(path=Config.path()))
             return
 
     config_existed = Config.path().exists()
     if config_existed:
         cfg = Config.load()
         if non_interactive:
-            print(f"Existing config found at {Config.path()}, skipping setup.")
+            print(tr("Existing config found at {path}, skipping setup.").format(path=Config.path()))
             _ensure_oem_token_staged()
             # Half-uninstalled detection. If cfg points at a podman/docker
             # pod but the container is gone (user did `uninstall.sh`
@@ -645,14 +693,17 @@ def handle_setup(args: argparse.Namespace) -> None:
         available.append("manual")
 
         if len(available) == 1 and available[0] == "manual":
-            print("No container/VM backends found. Install podman or docker.")
+            print(tr("No container/VM backends found. Install podman or docker."))
 
-        print(f"Available backends: {', '.join(available)}")
-        choice = _ask(f"Select backend [{available[0]}]: ", default=available[0])
+        print(tr("Available backends: {backends}").format(backends=", ".join(available)))
+        choice = _ask(
+            tr("Select backend [{default}]: ").format(default=available[0]),
+            default=available[0],
+        )
         if choice in available:
             cfg.pod.backend = choice
         else:
-            print(f"Invalid choice: {choice}")
+            print(tr("Invalid choice: {choice}").format(choice=choice))
             raise SystemExit(1)
 
     # Apply --win-version before the cfg is saved. PodConfig.__post_init__
@@ -681,21 +732,29 @@ def handle_setup(args: argparse.Namespace) -> None:
             cfg.pod.ram_gb = tier.ram_gb
         else:
             print(
-                f"\nHost specs: {host.cpu_threads} CPU threads, "
-                f"{host.ram_gb} GB RAM. Recommended tier: {tier.label} "
-                f"(VM: {tier.cpu_cores} cores, {tier.ram_gb} GB)."
+                tr(
+                    "\nHost specs: {cpu_threads} CPU threads, "
+                    "{ram_gb} GB RAM. Recommended tier: {label} "
+                    "(VM: {cores} cores, {vm_ram} GB)."
+                ).format(
+                    cpu_threads=host.cpu_threads,
+                    ram_gb=host.ram_gb,
+                    label=tier.label,
+                    cores=tier.cpu_cores,
+                    vm_ram=tier.ram_gb,
+                )
             )
-            cpu_input = _ask(f"CPU cores [{tier.cpu_cores}]: ")
+            cpu_input = _ask(tr("CPU cores [{default}]: ").format(default=tier.cpu_cores))
             try:
                 cfg.pod.cpu_cores = int(cpu_input) if cpu_input else tier.cpu_cores
             except ValueError:
-                print(f"Invalid number, using default: {tier.cpu_cores}")
+                print(tr("Invalid number, using default: {default}").format(default=tier.cpu_cores))
                 cfg.pod.cpu_cores = tier.cpu_cores
-            ram_input = _ask(f"RAM (GB) [{tier.ram_gb}]: ")
+            ram_input = _ask(tr("RAM (GB) [{default}]: ").format(default=tier.ram_gb))
             try:
                 cfg.pod.ram_gb = int(ram_input) if ram_input else tier.ram_gb
             except ValueError:
-                print(f"Invalid number, using default: {tier.ram_gb}")
+                print(tr("Invalid number, using default: {default}").format(default=tier.ram_gb))
                 cfg.pod.ram_gb = tier.ram_gb
 
         # Timezone prompt (#254 phase 2). Empty input or empty
@@ -709,7 +768,9 @@ def handle_setup(args: argparse.Namespace) -> None:
             detected = detect_timezone()
             current = cfg.pod.timezone or detected
             tz_input = _ask(
-                f"Windows timezone (IANA name, e.g. Asia/Seoul) [{current}]: ",
+                tr("Windows timezone (IANA name, e.g. Asia/Seoul) [{default}]: ").format(
+                    default=current
+                ),
                 default=current,
             )
             # User answered with the same value we showed as default ->
@@ -750,19 +811,19 @@ def handle_setup(args: argparse.Namespace) -> None:
         _recreate_container(cfg)
 
     if cfg.pod.backend == "libvirt" and not non_interactive:
-        cfg.pod.vm_name = _ask("VM name [RDPWindows]: ", default="RDPWindows")
+        cfg.pod.vm_name = _ask(tr("VM name [RDPWindows]: "), default="RDPWindows")
 
     from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
 
     detected_scale = detect_scale_factor()
     if detected_scale != 100:
-        print(f"\nDetected display scale: {detected_scale}%")
+        print(tr("\nDetected display scale: {scale}%").format(scale=detected_scale))
         cfg.rdp.scale = detected_scale
 
     raw = detect_raw_scale()
     detected_dpi = round(raw * 100)
     if detected_dpi > 100:
-        print(f"Detected Windows DPI: {detected_dpi}%")
+        print(tr("Detected Windows DPI: {dpi}%").format(dpi=detected_dpi))
         cfg.rdp.dpi = detected_dpi
 
     # #255: mark this install as initialized so the first-run prompt
@@ -770,7 +831,7 @@ def handle_setup(args: argparse.Namespace) -> None:
     # ensures the flag round-trips through TOML.
     cfg.pod.initialized = True
     cfg.save()
-    print(f"\nConfig saved to {Config.path()}")
+    print(tr("\nConfig saved to {path}").format(path=Config.path()))
 
     # Surface the auto-detected tuning profile so the user can see what
     # `winpodx setup` decided about their host (#215). The detection is
@@ -783,7 +844,7 @@ def handle_setup(args: argparse.Namespace) -> None:
 
     cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
     profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
-    print("\n[Tuning]")
+    print(tr("\n[Tuning]"))
     print(format_tuning_summary(cap, profile))
 
     _ensure_oem_token_staged()
@@ -804,7 +865,7 @@ def handle_setup(args: argparse.Namespace) -> None:
         try:
             marker_path.write_text(_winpodx_version + "\n", encoding="utf-8")
         except OSError as e:
-            print(f"  warning: could not stamp install marker ({e})")
+            print(tr("  warning: could not stamp install marker ({error})").format(error=e))
 
     # v0.1.9: bundled profiles were removed. Desktop entries are now created
     # by `winpodx app refresh` (auto-fired on first pod boot via
@@ -813,19 +874,19 @@ def handle_setup(args: argparse.Namespace) -> None:
     _register_all_desktop_entries()
 
     print("\n" + "=" * 40)
-    print(" Setup Complete")
+    print(tr(" Setup Complete"))
     print("=" * 40)
-    print(f"  Backend:  {cfg.pod.backend}")
-    print(f"  User:     {cfg.rdp.user}")
-    print(f"  IP:       {cfg.rdp.ip}")
-    print(f"  Scale:    {cfg.rdp.scale}%")
-    dpi_str = f"{cfg.rdp.dpi}%" if cfg.rdp.dpi > 0 else "auto"
-    print(f"  DPI:      {dpi_str}")
+    print(tr("  Backend:  {backend}").format(backend=cfg.pod.backend))
+    print(tr("  User:     {user}").format(user=cfg.rdp.user))
+    print(tr("  IP:       {ip}").format(ip=cfg.rdp.ip))
+    print(tr("  Scale:    {scale}%").format(scale=cfg.rdp.scale))
+    dpi_str = f"{cfg.rdp.dpi}%" if cfg.rdp.dpi > 0 else tr("auto")
+    print(tr("  DPI:      {dpi}").format(dpi=dpi_str))
     if cfg.pod.backend in ("podman", "docker"):
-        print(f"  CPU:      {cfg.pod.cpu_cores} cores")
-        print(f"  RAM:      {cfg.pod.ram_gb} GB")
+        print(tr("  CPU:      {cores} cores").format(cores=cfg.pod.cpu_cores))
+        print(tr("  RAM:      {ram_gb} GB").format(ram_gb=cfg.pod.ram_gb))
         compose_path = config_dir() / "compose.yaml"
-        print(f"  Compose:  {compose_path}")
+        print(tr("  Compose:  {path}").format(path=compose_path))
     print()
 
     # Full-provision flow: a standalone `winpodx setup` should finish
@@ -835,17 +896,19 @@ def handle_setup(args: argparse.Namespace) -> None:
     # skipping here avoids doing the work twice.
     create_only = bool(getattr(args, "create_only", False))
     if create_only or cfg.pod.backend not in ("podman", "docker"):
-        print("Apps are now in your application menu.")
-        print("Just click any app. winpodx handles the rest automatically.")
+        print(tr("Apps are now in your application menu."))
+        print(tr("Just click any app. winpodx handles the rest automatically."))
         if cfg.pod.backend in ("podman", "docker") and create_only:
             print(
-                "\nWindows is booting in the background. "
-                "Run `winpodx pod wait-ready --logs` to watch, or just "
-                "`winpodx app run desktop` (it waits on first launch)."
+                tr(
+                    "\nWindows is booting in the background. "
+                    "Run `winpodx pod wait-ready --logs` to watch, or just "
+                    "`winpodx app run desktop` (it waits on first launch)."
+                )
             )
     else:
         _run_full_provision(cfg)
-        print("\nSetup + provisioning complete. Launch with `winpodx app run desktop`.")
+        print(tr("\nSetup + provisioning complete. Launch with `winpodx app run desktop`."))
 
 
 def _recreate_container(cfg: Config) -> None:
@@ -876,10 +939,10 @@ def _recreate_container(cfg: Config) -> None:
             compose_cmd = ["docker", "compose"]
 
     if not compose_cmd:
-        print("Compose command not found, skipping container recreation.")
+        print(tr("Compose command not found, skipping container recreation."))
         return
 
-    print("\nRecreating container with new settings...")
+    print(tr("\nRecreating container with new settings..."))
     compose_timeout = _compose_timeout_secs()
     # compose down may fail on fresh setup when no container exists yet
     down = sp.run(
@@ -892,11 +955,17 @@ def _recreate_container(cfg: Config) -> None:
     if down.returncode != 0 and down.stderr:
         stderr = down.stderr.strip()
         if stderr and "no such" not in stderr.lower():
-            print(f"  Warning: compose down returned {down.returncode}: {stderr}")
-    timeout_text = "no cap" if compose_timeout is None else f"{compose_timeout}s"
+            print(
+                tr("  Warning: compose down returned {rc}: {stderr}").format(
+                    rc=down.returncode, stderr=stderr
+                )
+            )
+    timeout_text = tr("no cap") if compose_timeout is None else f"{compose_timeout}s"
     print(
-        f"Running compose up -d (timeout {timeout_text}). "
-        "First-time image pull can take 10+ minutes on slow connections."
+        tr(
+            "Running compose up -d (timeout {timeout}). "
+            "First-time image pull can take 10+ minutes on slow connections."
+        ).format(timeout=timeout_text)
     )
     result = sp.run(
         [*compose_cmd, "up", "-d"],
@@ -906,10 +975,10 @@ def _recreate_container(cfg: Config) -> None:
         timeout=compose_timeout,
     )
     if result.returncode == 0:
-        print("Container started.")
+        print(tr("Container started."))
     else:
         msg = result.stderr.strip()
-        print(f"Failed to start container: {msg}")
+        print(tr("Failed to start container: {msg}").format(msg=msg))
         raise RuntimeError(f"Container start failed: {msg}")
 
 
@@ -925,21 +994,21 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
     cfg = Config.load()
 
     if cfg.pod.backend not in ("podman", "docker"):
-        print("Password rotation is only supported for podman/docker backends.")
+        print(tr("Password rotation is only supported for podman/docker backends."))
         raise SystemExit(1)
 
     status = pod_status(cfg)
     if status.state != PodState.RUNNING:
-        print("Container is not running. Start it first: winpodx pod start --wait")
+        print(tr("Container is not running. Start it first: winpodx pod start --wait"))
         raise SystemExit(1)
 
     new_password = _generate_password()
     old_password = cfg.rdp.password
     old_password_updated = cfg.rdp.password_updated
 
-    print("Changing Windows user password...")
+    print(tr("Changing Windows user password..."))
     if not _change_windows_password(cfg, new_password):
-        print("Failed to change Windows password. Is the container fully booted?")
+        print(tr("Failed to change Windows password. Is the container fully booted?"))
         raise SystemExit(1)
 
     # Validate compose template before touching on-disk config
@@ -962,11 +1031,11 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
         Path(tmp_compose).unlink(missing_ok=True)
         cfg.rdp.password = old_password
         cfg.rdp.password_updated = old_password_updated
-        print("Password rotation failed; config and compose were not modified.")
+        print(tr("Password rotation failed; config and compose were not modified."))
         raise
 
-    print("Password rotated successfully.")
-    print(f"New password saved to {Config.path()}")
+    print(tr("Password rotated successfully."))
+    print(tr("New password saved to {path}").format(path=Config.path()))
 
 
 def _register_all_desktop_entries() -> None:
@@ -995,4 +1064,4 @@ def _register_all_desktop_entries() -> None:
 
     if apps:
         update_icon_cache()
-        print(f"Registered {len(apps)} apps in desktop environment.")
+        print(tr("Registered {count} apps in desktop environment.").format(count=len(apps)))

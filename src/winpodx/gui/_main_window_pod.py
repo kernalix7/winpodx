@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from winpodx.core.app import AppInfo
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.core.pod import pod_status
 from winpodx.gui.theme import C
 
@@ -48,17 +49,17 @@ class PodStatusMixin:
     def _launch_app(self, app: AppInfo) -> None:
         # Per-app cooldown debounced via QTimer; released 3s later.
         if app.name in self._recently_launched:
-            self.app_launch_failed.emit("Just launched. Please wait a moment.")
+            self.app_launch_failed.emit(tr("Just launched. Please wait a moment."))
             return
         self._recently_launched.add(app.name)
         QTimer.singleShot(3000, lambda n=app.name: self._recently_launched.discard(n))
 
-        self.info_label.setText(f"Launching {app.full_name}...")
+        self.info_label.setText(tr("Launching {app}...").format(app=app.full_name))
 
         def _do() -> None:
             # Lock guards ensure_ready + launch_app only; dropped before the wait.
             if not self._launch_lock.acquire(blocking=False):
-                self.app_launch_failed.emit("Another app is launching, please wait.")
+                self.app_launch_failed.emit(tr("Another app is launching, please wait."))
                 return
             session = None
             try:
@@ -94,7 +95,7 @@ class PodStatusMixin:
                 else:
                     time.sleep(0.2)  # let reaper drain stderr
                     stderr = session.stderr_tail.decode(errors="replace")[-500:]
-                    msg = f"FreeRDP exited with code {rc}"
+                    msg = tr("FreeRDP exited with code {code}").format(code=rc)
                     if stderr:
                         msg += f"\n{stderr}"
                     self.app_launch_failed.emit(msg)
@@ -104,7 +105,7 @@ class PodStatusMixin:
         threading.Thread(target=_do, daemon=True).start()
 
     def _on_start_pod(self) -> None:
-        self.info_label.setText("Starting pod...")
+        self.info_label.setText(tr("Starting pod..."))
 
         def _do() -> None:
             try:
@@ -113,7 +114,7 @@ class PodStatusMixin:
                 ensure_ready()
                 self._refresh_pod_status()
             except Exception as e:  # noqa: BLE001
-                self.app_launch_failed.emit(f"Pod start failed: {e}")
+                self.app_launch_failed.emit(tr("Pod start failed: {error}").format(error=e))
 
         threading.Thread(target=_do, daemon=True).start()
 
@@ -125,13 +126,13 @@ class PodStatusMixin:
             names = ", ".join(s.app_name for s in sessions)
             reply = QMessageBox.question(
                 self,
-                "Active Sessions",
-                f"Active sessions: {names}\nStop pod anyway?",
+                tr("Active Sessions"),
+                tr("Active sessions: {names}\nStop pod anyway?").format(names=names),
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        self.info_label.setText("Stopping pod...")
+        self.info_label.setText(tr("Stopping pod..."))
 
         def _do() -> None:
             from winpodx.core.pod import stop_pod
@@ -198,9 +199,13 @@ class PodStatusMixin:
             f"font-size: 10px; font-weight: bold;"
         )
         if agent_ok:
-            tip = f"Guest agent OK ({agent_version})" if agent_version else "Guest agent OK"
+            tip = (
+                tr("Guest agent OK ({version})").format(version=agent_version)
+                if agent_version
+                else tr("Guest agent OK")
+            )
         else:
-            tip = "Guest agent unreachable — host→guest commands fall back to FreeRDP RemoteApp"
+            tip = tr("Guest agent unreachable — host→guest commands fall back to FreeRDP RemoteApp")
         self.agent_dot.setToolTip(tip)
 
         self.rdp_dot.setStyleSheet(
@@ -208,9 +213,9 @@ class PodStatusMixin:
             f"font-size: 10px; font-weight: bold;"
         )
         self.rdp_dot.setToolTip(
-            "RDP port 3390 reachable"
+            tr("RDP port 3390 reachable")
             if rdp_ok
-            else "RDP port 3390 unreachable — apps cannot launch"
+            else tr("RDP port 3390 unreachable — apps cannot launch")
         )
 
     @Slot(str, str)
@@ -260,39 +265,39 @@ class PodStatusMixin:
             self.banner_icon.setStyleSheet(
                 f"background: transparent; color: {C.PEACH}; font-size: 14px;"
             )
-            self.banner_text.setText("Pod is paused")
+            self.banner_text.setText(tr("Pod is paused"))
         elif state == "stopped":
             self.banner_icon.setText("⚠")
             self.banner_icon.setStyleSheet(
                 f"background: transparent; color: {C.YELLOW}; font-size: 14px;"
             )
-            self.banner_text.setText("Pod is not running")
+            self.banner_text.setText(tr("Pod is not running"))
         elif state == "starting":
             self.banner_icon.setText("▶")
             self.banner_icon.setStyleSheet(
                 f"background: transparent; color: {C.BLUE}; font-size: 14px;"
             )
-            self.banner_text.setText("Pod is starting...")
+            self.banner_text.setText(tr("Pod is starting..."))
         elif state == "unresponsive":
             self.banner_icon.setText("⚠")
             self.banner_icon.setStyleSheet(
                 f"background: transparent; color: {C.PEACH}; font-size: 14px;"
             )
             self.banner_text.setText(
-                "Pod is alive but RDP is unresponsive — auto-recovering, or click Restart Pod"
+                tr("Pod is alive but RDP is unresponsive — auto-recovering, or click Restart Pod")
             )
         elif state == "error":
             self.banner_icon.setText("✗")
             self.banner_icon.setStyleSheet(
                 f"background: transparent; color: {C.RED}; font-size: 14px;"
             )
-            self.banner_text.setText("Pod error")
+            self.banner_text.setText(tr("Pod error"))
 
     @Slot(str)
     def _on_app_launched(self, name: str) -> None:
-        self.info_label.setText(f"{name} launched")
+        self.info_label.setText(tr("{name} launched").format(name=name))
 
     @Slot(str)
     def _on_app_launch_failed(self, error: str) -> None:
-        self.info_label.setText(f"Launch failed: {error}")
-        QMessageBox.critical(self, "Launch Error", error)
+        self.info_label.setText(tr("Launch failed: {error}").format(error=error))
+        QMessageBox.critical(self, tr("Launch Error"), error)

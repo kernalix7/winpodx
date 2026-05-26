@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.reverse_open.discovery import LinuxApp, discover_apps
 from winpodx.reverse_open.icons import convert_to_ico, resolve_icon
 from winpodx.reverse_open.lifecycle import (
@@ -173,7 +174,7 @@ def _now_iso() -> str:
 def _print_human_list(apps: list[LinuxApp], stream) -> None:
     """Render the app list in a human-readable column layout."""
     if not apps:
-        print("(no apps)", file=stream)
+        print(tr("(no apps)"), file=stream)
         return
     slug_w = max(len(a.slug) for a in apps)
     name_w = max(len(a.name) for a in apps)
@@ -270,25 +271,40 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         json.dump(out, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")
     else:
-        print(f"Discovered {len(apps)} apps; staged {len(kept)} after filters.")
+        print(
+            tr("Discovered {count} apps; staged {kept} after filters.").format(
+                count=len(apps), kept=len(kept)
+            )
+        )
         if skipped:
-            print(f"  Skipped: {len(skipped)} ({_skip_summary(skipped)})")
+            print(
+                tr("  Skipped: {count} ({summary})").format(
+                    count=len(skipped), summary=_skip_summary(skipped)
+                )
+            )
         if not args.skip_icons:
             real = sum(1 for ok in icon_results.values() if ok)
             ph = sum(1 for ok in icon_results.values() if not ok)
-            print(f"  Icons: {real} resolved, {ph} placeholder.")
+            print(
+                tr("  Icons: {real} resolved, {placeholder} placeholder.").format(
+                    real=real, placeholder=ph
+                )
+            )
         print(f"  Manifest: {apps_json_path}")
         if daemon_reloaded:
-            print("  Daemon: SIGHUP sent; new manifest loaded.")
+            print(tr("  Daemon: SIGHUP sent; new manifest loaded."))
         if sync_pushed_apps is not None:
             print(
-                f"  Guest sync: pushed {sync_pushed_apps} app(s) "
-                f"+ {sync_pushed_icons} icon(s) → registered."
+                tr("  Guest sync: pushed {apps} app(s) + {icons} icon(s) → registered.").format(
+                    apps=sync_pushed_apps, icons=sync_pushed_icons
+                )
             )
         elif sync_error is not None:
-            print(f"  Guest sync: skipped ({sync_error})")
+            print(tr("  Guest sync: skipped ({error})").format(error=sync_error))
         elif not cfg.reverse_open.enabled:
-            print("  Note: reverse-open is disabled; run `winpodx host-open enable` to activate.")
+            print(
+                tr("  Note: reverse-open is disabled; run `winpodx host-open enable` to activate.")
+            )
     return 0
 
 
@@ -318,7 +334,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
                 sys.stdout.write("\n")
             else:
                 print(
-                    "(no cached manifest — run `winpodx host-open refresh` first)",
+                    tr("(no cached manifest — run `winpodx host-open refresh` first)"),
                     file=sys.stderr,
                 )
             return 1
@@ -391,16 +407,20 @@ def _cmd_status(args: argparse.Namespace) -> int:
         json.dump(payload, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")
     else:
-        state = "enabled" if cfg.reverse_open.enabled else "disabled"
-        print(f"reverse-open: {state}")
-        print(f"  allowlist: {len(cfg.reverse_open.allowlist)} slug(s)")
-        print(f"  denylist:  {len(cfg.reverse_open.denylist)} slug(s)")
-        last = cfg.reverse_open.last_synced_at or "(never)"
-        print(f"  last sync: {last}")
+        state = tr("enabled") if cfg.reverse_open.enabled else tr("disabled")
+        print(tr("reverse-open: {state}").format(state=state))
+        print(tr("  allowlist: {count} slug(s)").format(count=len(cfg.reverse_open.allowlist)))
+        print(tr("  denylist:  {count} slug(s)").format(count=len(cfg.reverse_open.denylist)))
+        last = cfg.reverse_open.last_synced_at or tr("(never)")
+        print(tr("  last sync: {last}").format(last=last))
         if cached_count is not None:
-            print(f"  cache:     {cached_count} app(s), generated {cached_generated_at}")
+            print(
+                tr("  cache:     {count} app(s), generated {generated_at}").format(
+                    count=cached_count, generated_at=cached_generated_at
+                )
+            )
         else:
-            print("  cache:     (none — run `winpodx host-open refresh`)")
+            print(tr("  cache:     (none — run `winpodx host-open refresh`)"))
     return 0
 
 
@@ -410,14 +430,16 @@ def _cmd_status(args: argparse.Namespace) -> int:
 def _cmd_enable(args: argparse.Namespace) -> int:
     cfg = Config.load()
     if cfg.reverse_open.enabled:
-        print("reverse-open: already enabled")
+        print(tr("reverse-open: already enabled"))
         return 0
     cfg.reverse_open.enabled = True
     cfg.save()
-    print("reverse-open: enabled")
+    print(tr("reverse-open: enabled"))
     print(
-        "  Run `winpodx host-open refresh` to stage the host app list. "
-        "The guest push happens once the listener daemon ships in Phase 2b."
+        tr(
+            "  Run `winpodx host-open refresh` to stage the host app list. "
+            "The guest push happens once the listener daemon ships in Phase 2b."
+        )
     )
     return 0
 
@@ -425,11 +447,11 @@ def _cmd_enable(args: argparse.Namespace) -> int:
 def _cmd_disable(args: argparse.Namespace) -> int:
     cfg = Config.load()
     if not cfg.reverse_open.enabled:
-        print("reverse-open: already disabled")
+        print(tr("reverse-open: already disabled"))
         return 0
     cfg.reverse_open.enabled = False
     cfg.save()
-    print("reverse-open: disabled")
+    print(tr("reverse-open: disabled"))
     return 0
 
 
@@ -455,7 +477,7 @@ def _cmd_add(args: argparse.Namespace) -> int:
         return 2
 
     if args.slug in target_list:
-        print(f"{target}: {args.slug} already present")
+        print(tr("{target}: {slug} already present").format(target=target, slug=args.slug))
         return 0
 
     # If the slug is on the opposite list, remove it there first so the
@@ -466,7 +488,7 @@ def _cmd_add(args: argparse.Namespace) -> int:
     target_list.append(args.slug)
     target_list.sort()
     cfg.save()
-    print(f"{target}: added {args.slug}")
+    print(tr("{target}: added {slug}").format(target=target, slug=args.slug))
     if args.slug in cfg.reverse_open.denylist and target == "denylist":
         # Mention the DANGEROUS_DEFAULTS fold — if the user added a
         # safe-looking slug to denylist, no comment needed; if they
@@ -489,12 +511,12 @@ def _cmd_remove(args: argparse.Namespace) -> int:
         return 2
 
     if args.slug not in target_list:
-        print(f"{target}: {args.slug} not present")
+        print(tr("{target}: {slug} not present").format(target=target, slug=args.slug))
         return 0
 
     target_list.remove(args.slug)
     cfg.save()
-    print(f"{target}: removed {args.slug}")
+    print(tr("{target}: removed {slug}").format(target=target, slug=args.slug))
     return 0
 
 
@@ -521,7 +543,7 @@ def _cmd_start_listener(args: argparse.Namespace) -> int:
         json.dump({"pid": pid, "incoming_dir": str(listener_cfg.incoming_dir)}, sys.stdout)
         sys.stdout.write("\n")
     else:
-        print(f"reverse-open listener: pid {pid}")
+        print(tr("reverse-open listener: pid {pid}").format(pid=pid))
         print(f"  watching: {listener_cfg.incoming_dir}")
     return 0
 
@@ -532,7 +554,12 @@ def _cmd_stop_listener(args: argparse.Namespace) -> int:
         json.dump({"stopped": sent}, sys.stdout)
         sys.stdout.write("\n")
     else:
-        print("reverse-open listener: stopped" if sent else "reverse-open listener: not running")
+        msg = (
+            tr("reverse-open listener: stopped")
+            if sent
+            else tr("reverse-open listener: not running")
+        )
+        print(msg)
     return 0
 
 
@@ -574,7 +601,7 @@ def _cmd_unregister_guest(args: argparse.Namespace) -> int:
         )
         sys.stdout.write("\n")
     else:
-        print("reverse-open: guest registry scrubbed")
+        print(tr("reverse-open: guest registry scrubbed"))
         if result.stdout.strip():
             print(f"  {result.stdout.strip()}")
     return 0
@@ -598,9 +625,9 @@ def _cmd_daemon_status(args: argparse.Namespace) -> int:
         sys.stdout.write("\n")
     else:
         if pid is None:
-            print("reverse-open listener: not running")
+            print(tr("reverse-open listener: not running"))
         else:
-            print(f"reverse-open listener: running (pid {pid})")
+            print(tr("reverse-open listener: running (pid {pid})").format(pid=pid))
         print(f"  pid file: {paths.pid_file}")
         print(f"  log file: {paths.log_file}")
     return 0
@@ -678,8 +705,10 @@ def handle(args: argparse.Namespace) -> int:
     cmd = getattr(args, "host_open_command", None)
     if not cmd:
         print(
-            "host-open: missing subcommand. "
-            "Try `winpodx host-open status` or `winpodx host-open --help`.",
+            tr(
+                "host-open: missing subcommand. "
+                "Try `winpodx host-open status` or `winpodx host-open --help`."
+            ),
             file=sys.stderr,
         )
         return 2

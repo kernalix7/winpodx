@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow
 from winpodx.gui.theme import (
     BTN_PRIMARY,
@@ -201,14 +202,14 @@ class SettingsPageMixin:
         layout = QVBoxLayout(content)
         layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
 
-        title = QLabel("Settings")
+        title = QLabel(tr("Settings"))
         title.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; "
             f"font-size: {FONT_HERO}px; font-weight: bold;"
         )
         layout.addWidget(title)
 
-        sub = QLabel("Configure RDP and container settings")
+        sub = QLabel(tr("Configure RDP and container settings"))
         sub.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_BODY}px;"
         )
@@ -231,7 +232,7 @@ class SettingsPageMixin:
 
         self.input_dpi = QComboBox()
         dpi_options = [
-            ("Auto", 0),
+            (tr("Auto"), 0),
             ("100%  (96 DPI)", 100),
             ("125%  (120 DPI)", 125),
             ("150%  (144 DPI)", 150),
@@ -252,13 +253,13 @@ class SettingsPageMixin:
 
         self.input_pw_max_age = QComboBox()
         pw_age_options = [
-            ("Disabled", 0),
-            ("1 day", 1),
-            ("3 days", 3),
-            ("7 days (default)", 7),
-            ("14 days", 14),
-            ("30 days", 30),
-            ("90 days", 90),
+            (tr("Disabled"), 0),
+            (tr("1 day"), 1),
+            (tr("3 days"), 3),
+            (tr("7 days (default)"), 7),
+            (tr("14 days"), 14),
+            (tr("30 days"), 30),
+            (tr("90 days"), 90),
         ]
         for label, val in pw_age_options:
             self.input_pw_max_age.addItem(label, val)
@@ -281,28 +282,30 @@ class SettingsPageMixin:
         self.input_extra_flags = QLineEdit(self.cfg.rdp.extra_flags)
         self.input_extra_flags.setPlaceholderText("/gfx:RFX +decorations")
         self.input_extra_flags.setToolTip(
-            "Extra xfreerdp3 flags appended to every launch. Whitelist-filtered.\n"
-            "Common toggles:\n"
-            "  /gfx:RFX          force RemoteFX, skip H.264 negotiation\n"
-            "                    (workaround for cachyos / experimental VAAPI\n"
-            "                     builds where RemoteApp dies at post_connect)\n"
-            "  +decorations      enable RemoteApp window decorations\n"
-            "  -wallpaper        suppress Windows wallpaper rendering\n"
-            "  -bitmap-cache     disable bitmap cache (less RAM, more bandwidth)\n"
-            "See src/winpodx/core/rdp.py _BARE_FLAGS for the full allowlist."
+            tr(
+                "Extra xfreerdp3 flags appended to every launch. Whitelist-filtered.\n"
+                "Common toggles:\n"
+                "  /gfx:RFX          force RemoteFX, skip H.264 negotiation\n"
+                "                    (workaround for cachyos / experimental VAAPI\n"
+                "                     builds where RemoteApp dies at post_connect)\n"
+                "  +decorations      enable RemoteApp window decorations\n"
+                "  -wallpaper        suppress Windows wallpaper rendering\n"
+                "  -bitmap-cache     disable bitmap cache (less RAM, more bandwidth)\n"
+                "See src/winpodx/core/rdp.py _BARE_FLAGS for the full allowlist."
+            )
         )
 
         rdp_card = self._settings_card(
-            "▣  RDP Connection",
-            "Remote Desktop Protocol settings",
+            tr("▣  RDP Connection"),
+            tr("Remote Desktop Protocol settings"),
             [
-                ("Username", self.input_user),
-                ("Host / IP", self.input_ip),
-                ("Port", self.input_port),
-                ("Scale %", self.input_scale),
-                ("Windows DPI", self.input_dpi),
-                ("Password Rotation", self.input_pw_max_age),
-                ("Extra FreeRDP args", self.input_extra_flags),
+                (tr("Username"), self.input_user),
+                (tr("Host / IP"), self.input_ip),
+                (tr("Port"), self.input_port),
+                (tr("Scale %"), self.input_scale),
+                (tr("Windows DPI"), self.input_dpi),
+                (tr("Password Rotation"), self.input_pw_max_age),
+                (tr("Extra FreeRDP args"), self.input_extra_flags),
             ],
         )
         cols.addWidget(rdp_card)
@@ -359,11 +362,13 @@ class SettingsPageMixin:
             self.input_win_version.addItem(f"{current_wv} (custom)", current_wv)
             self.input_win_version.setCurrentIndex(self.input_win_version.count() - 1)
         self.input_win_version.setToolTip(
-            "Windows edition passed to dockur via VERSION env var.\n"
-            "For curated editions, pick from this list.\n"
-            "For custom dockur tags, edit win_version in winpodx.toml\n"
-            "directly — see docs/ARCHITECTURE.md 'Advanced: Custom Windows ISO'.\n"
-            "Changing this requires recreating the container."
+            tr(
+                "Windows edition passed to dockur via VERSION env var.\n"
+                "For curated editions, pick from this list.\n"
+                "For custom dockur tags, edit win_version in winpodx.toml\n"
+                "directly — see docs/ARCHITECTURE.md 'Advanced: Custom Windows ISO'.\n"
+                "Changing this requires recreating the container."
+            )
         )
 
         # Localization picks (#254 phase 3). Language / Region / Keyboard
@@ -377,28 +382,30 @@ class SettingsPageMixin:
         self.input_language = self._build_locale_combo(
             cfg_value=self.cfg.pod.language,
             options=_DOCKUR_LANGUAGES,
-            empty_label="Auto (English)",
+            empty_label=tr("Auto (English)"),
         )
         self.input_language.setToolTip(
-            "Windows installation language (dockur LANGUAGE env). "
-            "Applied on first install only; changing this on an existing "
-            "guest requires `winpodx pod recreate --wipe-storage`."
+            tr(
+                "Windows installation language (dockur LANGUAGE env). "
+                "Applied on first install only; changing this on an existing "
+                "guest requires `winpodx pod recreate --wipe-storage`."
+            )
         )
         self.input_region = self._build_locale_combo(
             cfg_value=self.cfg.pod.region,
             options=_DOCKUR_REGIONS,
-            empty_label="Auto (en-001)",
+            empty_label=tr("Auto (en-001)"),
         )
         self.input_region.setToolTip(
-            "Windows locale region in BCP-47 form (dockur REGION env). First-install only."
+            tr("Windows locale region in BCP-47 form (dockur REGION env). First-install only.")
         )
         self.input_keyboard = self._build_locale_combo(
             cfg_value=self.cfg.pod.keyboard,
             options=_DOCKUR_KEYBOARDS,
-            empty_label="Auto (en-US)",
+            empty_label=tr("Auto (en-US)"),
         )
         self.input_keyboard.setToolTip(
-            "Windows keyboard layout (dockur KEYBOARD env). First-install only."
+            tr("Windows keyboard layout (dockur KEYBOARD env). First-install only.")
         )
 
         from winpodx.utils.locale import detect_timezone
@@ -407,13 +414,15 @@ class SettingsPageMixin:
         self.input_timezone = self._build_locale_combo(
             cfg_value=self.cfg.pod.timezone,
             options=_COMMON_TIMEZONES,
-            empty_label=f"Auto (detected: {detected_tz})",
+            empty_label=tr("Auto (detected: {tz})").format(tz=detected_tz),
         )
         self.input_timezone.setToolTip(
-            "Windows guest timezone (IANA name). Empty = host autodetect "
-            "at compose time. Applied via OEM `tzutil /s <id>` on every "
-            "container (re)create -- unlike language/region/keyboard, "
-            "this does NOT require --wipe-storage."
+            tr(
+                "Windows guest timezone (IANA name). Empty = host autodetect "
+                "at compose time. Applied via OEM `tzutil /s <id>` on every "
+                "container (re)create -- unlike language/region/keyboard, "
+                "this does NOT require --wipe-storage."
+            )
         )
 
         # #245: tuning profile dropdown -- maps to cfg.pod.tuning_profile.
@@ -423,11 +432,11 @@ class SettingsPageMixin:
         # looked unmoored).
         self.input_tuning_profile = QComboBox()
         tuning_options = [
-            ("Auto (recommended)", "auto"),
-            ("Performance (force pinning + no balloon)", "performance"),
-            ("Safe (Windows-guest-only tunings)", "safe"),
-            ("Off (baseline dockur defaults)", "off"),
-            ("Manual (edit winpodx.toml)", "manual"),
+            (tr("Auto (recommended)"), "auto"),
+            (tr("Performance (force pinning + no balloon)"), "performance"),
+            (tr("Safe (Windows-guest-only tunings)"), "safe"),
+            (tr("Off (baseline dockur defaults)"), "off"),
+            (tr("Manual (edit winpodx.toml)"), "manual"),
         ]
         for label, value in tuning_options:
             self.input_tuning_profile.addItem(label, value)
@@ -439,18 +448,20 @@ class SettingsPageMixin:
             self.input_tuning_profile.addItem(f"{current_tp} (unknown)", current_tp)
             self.input_tuning_profile.setCurrentIndex(self.input_tuning_profile.count() - 1)
         self.input_tuning_profile.setToolTip(
-            "Windows-on-KVM performance tuning.\n"
-            "  auto         -- apply every host-supported knob, but respect\n"
-            "                  idle-CPU + free-RAM gates (don't starve other\n"
-            "                  host workloads).\n"
-            "  performance  -- like auto + force CPU pinning + no-balloon\n"
-            "                  regardless of host idle headroom. Use when\n"
-            "                  this box is mostly dedicated to winpodx.\n"
-            "  safe         -- Windows-guest-only knobs (hv-*, virtio-rng,\n"
-            "                  +invtsc, platform_tick) -- no host setup.\n"
-            "  off          -- dockur defaults only.\n"
-            "Changing this requires a container recreate -- the save flow\n"
-            "will prompt."
+            tr(
+                "Windows-on-KVM performance tuning.\n"
+                "  auto         -- apply every host-supported knob, but respect\n"
+                "                  idle-CPU + free-RAM gates (don't starve other\n"
+                "                  host workloads).\n"
+                "  performance  -- like auto + force CPU pinning + no-balloon\n"
+                "                  regardless of host idle headroom. Use when\n"
+                "                  this box is mostly dedicated to winpodx.\n"
+                "  safe         -- Windows-guest-only knobs (hv-*, virtio-rng,\n"
+                "                  +invtsc, platform_tick) -- no host setup.\n"
+                "  off          -- dockur defaults only.\n"
+                "Changing this requires a container recreate -- the save flow\n"
+                "will prompt."
+            )
         )
 
         # PR B (UI polish): split the old "Container / VM" card into
@@ -462,15 +473,15 @@ class SettingsPageMixin:
         # roughly height-balanced two-column row up top, with the
         # Localization card flowing full-width below.
         hardware_card = self._settings_card(
-            "▨  Hardware",
-            "Backend, edition, and resource allocation",
+            tr("▨  Hardware"),
+            tr("Backend, edition, and resource allocation"),
             [
-                ("Backend", self.input_backend),
-                ("Windows Edition", self.input_win_version),
-                ("CPU Cores", self.input_cpu),
-                ("RAM (GB)", self.input_ram),
-                ("Idle Timeout", self.input_idle),
-                ("Max Sessions (1-50)", self.input_max_sessions),
+                (tr("Backend"), self.input_backend),
+                (tr("Windows Edition"), self.input_win_version),
+                (tr("CPU Cores"), self.input_cpu),
+                (tr("RAM (GB)"), self.input_ram),
+                (tr("Idle Timeout"), self.input_idle),
+                (tr("Max Sessions (1-50)"), self.input_max_sessions),
             ],
         )
         cols.addWidget(hardware_card)
@@ -478,13 +489,13 @@ class SettingsPageMixin:
         layout.addLayout(cols)
 
         localization_card = self._settings_card(
-            "🌐  Localization",
-            "Windows install language / region / keyboard / timezone",
+            tr("🌐  Localization"),
+            tr("Windows install language / region / keyboard / timezone"),
             [
-                ("Language", self.input_language),
-                ("Region", self.input_region),
-                ("Keyboard", self.input_keyboard),
-                ("Timezone", self.input_timezone),
+                (tr("Language"), self.input_language),
+                (tr("Region"), self.input_region),
+                (tr("Keyboard"), self.input_keyboard),
+                (tr("Timezone"), self.input_timezone),
             ],
         )
         layout.addWidget(localization_card)
@@ -509,7 +520,7 @@ class SettingsPageMixin:
                 recommend_tuning_profile(tuning_cap, user_pref=self.cfg.pod.tuning_profile),
             )
         except Exception:  # noqa: BLE001 -- never block Settings rendering
-            tuning_summary = "  (tuning detection failed; see `winpodx info` for details)"
+            tuning_summary = tr("  (tuning detection failed; see `winpodx info` for details)")
         tuning_card = self._build_tuning_card(self.input_tuning_profile, tuning_summary)
         layout.addWidget(tuning_card)
 
@@ -541,7 +552,7 @@ class SettingsPageMixin:
         )
 
         self.checkbox_autostart_tray = QCheckBox(
-            "Start the Windows pod at login (launches the tray + boots the pod)"
+            tr("Start the Windows pod at login (launches the tray + boots the pod)")
         )
         self.checkbox_autostart_tray.setChecked(is_autostart_enabled())
 
@@ -573,7 +584,7 @@ class SettingsPageMixin:
 
         layout.addSpacing(SPACE_L)
 
-        save_btn = QPushButton("Save Settings")
+        save_btn = QPushButton(tr("Save Settings"))
         save_btn.setStyleSheet(BTN_PRIMARY)
         save_btn.setFixedWidth(180)
         save_btn.clicked.connect(self._save_settings)
@@ -607,14 +618,14 @@ class SettingsPageMixin:
         layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
         layout.setSpacing(SPACE_XS)
 
-        header = QLabel("◨  Performance Tuning")
+        header = QLabel(tr("◨  Performance Tuning"))
         header.setStyleSheet(
             f"background: transparent; color: {C.BLUE}; "
             f"font-size: {FONT_HEADER}px; font-weight: bold;"
         )
         layout.addWidget(header)
 
-        sub = QLabel("QEMU + Windows-on-KVM knob preset")
+        sub = QLabel(tr("QEMU + Windows-on-KVM knob preset"))
         sub.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
         )
@@ -629,7 +640,7 @@ class SettingsPageMixin:
         form = QGridLayout()
         form.setVerticalSpacing(SPACE_S + 2)
         form.setHorizontalSpacing(SPACE_M)
-        lbl = QLabel("Profile")
+        lbl = QLabel(tr("Profile"))
         lbl.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
         )
@@ -639,7 +650,7 @@ class SettingsPageMixin:
 
         layout.addSpacing(SPACE_M)
 
-        summary_header = QLabel("Detection summary (this host)")
+        summary_header = QLabel(tr("Detection summary (this host)"))
         summary_header.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; "
             f"font-size: {FONT_CAPTION}px; font-weight: bold;"
@@ -745,7 +756,7 @@ class SettingsPageMixin:
         tmp.pod.ram_gb = max(1, ram)
         msg = check_session_budget(tmp)
         if msg:
-            self.budget_warning_label.setText(f"WARNING: {msg}")
+            self.budget_warning_label.setText(tr("WARNING: {msg}").format(msg=msg))
             self.budget_warning_label.setVisible(True)
         else:
             self.budget_warning_label.setVisible(False)
@@ -794,8 +805,8 @@ class SettingsPageMixin:
         except ValueError:
             QMessageBox.warning(
                 self,
-                "Invalid Input",
-                "Port, Scale, CPU, RAM, Idle Timeout, and Max Sessions must be numbers.",
+                tr("Invalid Input"),
+                tr("Port, Scale, CPU, RAM, Idle Timeout, and Max Sessions must be numbers."),
             )
             return
 
@@ -867,7 +878,7 @@ class SettingsPageMixin:
 
         if needs_container and self.cfg.pod.backend in ("podman", "docker"):
             if needs_wipe:
-                prompt = (
+                prompt = tr(
                     "Windows edition or installation locale (language / "
                     "region / keyboard) changed.\n\n"
                     "These values are baked into Windows on the initial "
@@ -878,21 +889,21 @@ class SettingsPageMixin:
                     "Wipe and reinstall now?"
                 )
             else:
-                prompt = (
+                prompt = tr(
                     "CPU, RAM, port, user, or timezone changed.\n"
                     "Container must be recreated to apply (Windows disk "
                     "preserved).\n\nRestart now?"
                 )
             reply = QMessageBox.question(
                 self,
-                "Restart Container",
+                tr("Restart Container"),
                 prompt,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.info_label.setText(
-                    "Wiping Windows disk + recreating..."
+                    tr("Wiping Windows disk + recreating...")
                     if needs_wipe
-                    else "Recreating container..."
+                    else tr("Recreating container...")
                 )
                 QApplication.processEvents()
                 wipe_storage = needs_wipe
@@ -917,12 +928,12 @@ class SettingsPageMixin:
                         _generate_compose(self.cfg)
                         _recreate_container(self.cfg)
                         self.app_launched.emit(
-                            "Container recreated; Windows reinstalling"
+                            tr("Container recreated; Windows reinstalling")
                             if wipe_storage
-                            else "Container restarted"
+                            else tr("Container restarted")
                         )
                     except Exception as e:  # noqa: BLE001
-                        self.app_launch_failed.emit(f"Restart failed: {e}")
+                        self.app_launch_failed.emit(tr("Restart failed: {e}").format(e=e))
                         return
                     # v0.5.1: the freshly-recreated guest has no booted
                     # Windows / no agent / no rdprrap / no apps yet. Run
@@ -935,9 +946,9 @@ class SettingsPageMixin:
                     try:
                         self._run_full_bring_up()
                     except Exception as e:  # noqa: BLE001
-                        self.app_launch_failed.emit(f"Bring-up kickoff failed: {e}")
+                        self.app_launch_failed.emit(tr("Bring-up kickoff failed: {e}").format(e=e))
 
                 threading.Thread(target=_recreate, daemon=True).start()
                 return
 
-        self.info_label.setText("Settings saved")
+        self.info_label.setText(tr("Settings saved"))

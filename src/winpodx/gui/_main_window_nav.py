@@ -27,6 +27,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from winpodx.core.app import list_available_apps
+from winpodx.core.i18n import tr
 from winpodx.gui.theme import C
 
 
@@ -114,18 +115,20 @@ class NavigationMixin:
         from PySide6.QtWidgets import QMessageBox
 
         box = QMessageBox(self)
-        box.setWindowTitle("Set up winpodx")
-        box.setText("winpodx has not been set up yet on this account.\n\nRun setup now?")
+        box.setWindowTitle(tr("Set up winpodx"))
+        box.setText(tr("winpodx has not been set up yet on this account.\n\nRun setup now?"))
         box.setInformativeText(
-            "Auto:      host-detected defaults, no prompts (~5-10 min for "
-            "Windows ISO download + Sysprep + OEM apply)\n"
-            "Customize: wizard -- pick every knob (CPU/RAM, edition, "
-            "language, debloat, tuning, ...)\n"
-            "Skip:      do nothing; you can run `winpodx setup` later"
+            tr(
+                "Auto:      host-detected defaults, no prompts (~5-10 min for "
+                "Windows ISO download + Sysprep + OEM apply)\n"
+                "Customize: wizard -- pick every knob (CPU/RAM, edition, "
+                "language, debloat, tuning, ...)\n"
+                "Skip:      do nothing; you can run `winpodx setup` later"
+            )
         )
-        auto_btn = box.addButton("Auto", QMessageBox.ButtonRole.AcceptRole)
-        customize_btn = box.addButton("Customize", QMessageBox.ButtonRole.ActionRole)
-        skip_btn = box.addButton("Skip", QMessageBox.ButtonRole.RejectRole)
+        auto_btn = box.addButton(tr("Auto"), QMessageBox.ButtonRole.AcceptRole)
+        customize_btn = box.addButton(tr("Customize"), QMessageBox.ButtonRole.ActionRole)
+        skip_btn = box.addButton(tr("Skip"), QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(auto_btn)
         box.exec()
         clicked = box.clickedButton()
@@ -181,20 +184,22 @@ class NavigationMixin:
 
         snapshot = collect_first_run_checks(self.cfg)
         lines = [
-            "Welcome to winpodx!",
+            tr("Welcome to winpodx!"),
             "",
-            "First-run quick check:",
-            f"  · Container backend ({self.cfg.pod.backend}): {snapshot['backend']}",
-            f"  · FreeRDP: {snapshot['freerdp']}",
-            f"  · Pod state: {snapshot['pod_state']}",
-            f"  · RDP listener: {snapshot['rdp_port']}",
-            f"  · Discovered apps: {snapshot['apps_count']}",
+            tr("First-run quick check:"),
+            tr("  · Container backend ({backend}): {status}").format(
+                backend=self.cfg.pod.backend, status=snapshot["backend"]
+            ),
+            tr("  · FreeRDP: {status}").format(status=snapshot["freerdp"]),
+            tr("  · Pod state: {status}").format(status=snapshot["pod_state"]),
+            tr("  · RDP listener: {status}").format(status=snapshot["rdp_port"]),
+            tr("  · Discovered apps: {count}").format(count=snapshot["apps_count"]),
         ]
         if has_pending():
             lines.append("")
-            lines.append("Pending setup steps detected — running them in the background.")
+            lines.append(tr("Pending setup steps detected — running them in the background."))
         lines.append("")
-        lines.append("Tip: Tools → Live (app) tails the winpodx log in real time.")
+        lines.append(tr("Tip: Tools → Live (app) tails the winpodx log in real time."))
 
         marker = Path(self.cfg.path()).parent / ".welcomed"
         try:
@@ -202,4 +207,4 @@ class NavigationMixin:
         except OSError:
             pass
 
-        QMessageBox.information(self, "winpodx — Quick Start", "\n".join(lines))
+        QMessageBox.information(self, tr("winpodx — Quick Start"), "\n".join(lines))

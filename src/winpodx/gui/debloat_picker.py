@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.debloat import DebloatCatalog
+from winpodx.core.i18n import tr
 
 # Color tokens for the risk badge. Pulled inline rather than imported
 # from ``winpodx.gui.theme`` so this module stays usable from tests /
@@ -77,7 +78,7 @@ class DebloatPickerDialog(QDialog):
         # the CLI's --list output prints).
         self._item_boxes: dict[str, QCheckBox] = {}
 
-        self.setWindowTitle("Debloat picker")
+        self.setWindowTitle(tr("Debloat picker"))
         self.setMinimumWidth(560)
         self.setModal(True)
 
@@ -86,15 +87,17 @@ class DebloatPickerDialog(QDialog):
         outer.setSpacing(12)
 
         # --- Title + subtitle --------------------------------------------
-        title = QLabel("Debloat picker")
+        title = QLabel(tr("Debloat picker"))
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         outer.addWidget(title)
 
         subtitle = QLabel(
-            "Pick a preset and (optionally) tweak the per-item checkboxes. "
-            "Selected items will run inside the Windows guest via the agent "
-            "transport. Items with no undo path (one-way) are noted in their "
-            "description."
+            tr(
+                "Pick a preset and (optionally) tweak the per-item checkboxes. "
+                "Selected items will run inside the Windows guest via the agent "
+                "transport. Items with no undo path (one-way) are noted in their "
+                "description."
+            )
         )
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: #888; font-size: 12px;")
@@ -102,7 +105,7 @@ class DebloatPickerDialog(QDialog):
 
         # --- Preset radio group ------------------------------------------
         preset_row = QHBoxLayout()
-        preset_label = QLabel("Preset:")
+        preset_label = QLabel(tr("Preset:"))
         preset_label.setStyleSheet("font-weight: 600;")
         preset_row.addWidget(preset_label)
 
@@ -115,7 +118,7 @@ class DebloatPickerDialog(QDialog):
             self._preset_buttons[preset_name] = btn
             preset_row.addWidget(btn)
 
-        self._custom_button = QRadioButton("Custom")
+        self._custom_button = QRadioButton(tr("Custom"))
         # ``Custom`` isn't a real catalog preset -- it just disables the
         # seed-from-preset behaviour. We do NOT connect its toggled
         # signal because flipping to Custom should leave the current
@@ -160,7 +163,7 @@ class DebloatPickerDialog(QDialog):
             label.setStyleSheet("font-size: 13px;")
             row.addWidget(label, 1)
 
-            one_way = QLabel("(one-way)") if not item.is_reversible else QLabel("")
+            one_way = QLabel(tr("(one-way)")) if not item.is_reversible else QLabel("")
             one_way.setStyleSheet("color: #888; font-size: 11px;")
             row.addWidget(one_way)
 
@@ -243,7 +246,9 @@ class DebloatPickerDialog(QDialog):
     def _refresh_count(self) -> None:
         total = len(self._item_boxes)
         chosen = len(self.selected_items())
-        self._count_label.setText(f"Selected: {chosen} of {total}")
+        self._count_label.setText(
+            tr("Selected: {chosen} of {total}").format(chosen=chosen, total=total)
+        )
 
     def _on_apply(self) -> None:
         names = self.selected_items()

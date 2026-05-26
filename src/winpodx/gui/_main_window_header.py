@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx.core.i18n import tr
 from winpodx.gui.theme import (
     INFO_BAR,
     POD_CHIP,
@@ -96,7 +97,7 @@ class HeaderMixin:
             ("Info", 4),
             ("License", 5),
         ]:
-            btn = QPushButton(label)
+            btn = QPushButton(tr(label))
             btn.setCheckable(True)
             btn.clicked.connect(lambda _, i=idx: self._switch_page(i))
             tabs.addWidget(btn)
@@ -117,10 +118,10 @@ class HeaderMixin:
         self.pod_dot.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: 10px;"
         )
-        self.pod_dot.setToolTip("Pod state")
+        self.pod_dot.setToolTip(tr("Pod state"))
         chip_l.addWidget(self.pod_dot)
 
-        self.pod_label = QLabel("checking")
+        self.pod_label = QLabel(tr("checking"))
         self.pod_label.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;"
         )
@@ -135,14 +136,14 @@ class HeaderMixin:
         self.agent_dot.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: bold;"
         )
-        self.agent_dot.setToolTip("Guest agent (HTTP /health) — probing…")
+        self.agent_dot.setToolTip(tr("Guest agent (HTTP /health) — probing…"))
         chip_l.addWidget(self.agent_dot)
 
         self.rdp_dot = QLabel("R")
         self.rdp_dot.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: bold;"
         )
-        self.rdp_dot.setToolTip("RDP port (3390) — probing…")
+        self.rdp_dot.setToolTip(tr("RDP port (3390) — probing…"))
         chip_l.addWidget(self.rdp_dot)
 
         ctrl_w = QWidget()
@@ -152,12 +153,12 @@ class HeaderMixin:
         ctrl_l.setSpacing(2)
 
         self.btn_start = QPushButton("▶")
-        self.btn_start.setToolTip("Start Pod")
+        self.btn_start.setToolTip(tr("Start Pod"))
         self.btn_start.clicked.connect(self._on_start_pod)
         ctrl_l.addWidget(self.btn_start)
 
         self.btn_stop = QPushButton("■")
-        self.btn_stop.setToolTip("Stop Pod")
+        self.btn_stop.setToolTip(tr("Stop Pod"))
         self.btn_stop.clicked.connect(self._on_stop_pod)
         ctrl_l.addWidget(self.btn_stop)
 
@@ -181,14 +182,14 @@ class HeaderMixin:
         )
         layout.addWidget(self.banner_icon)
 
-        self.banner_text = QLabel("Pod is not running")
+        self.banner_text = QLabel(tr("Pod is not running"))
         self.banner_text.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;"
         )
         layout.addWidget(self.banner_text)
         layout.addStretch()
 
-        start_btn = QPushButton("Start Now")
+        start_btn = QPushButton(tr("Start Now"))
         start_btn.setStyleSheet(
             f"QPushButton {{ background: {C.BLUE}; color: {C.CRUST};"
             f" border: none; border-radius: 6px;"
@@ -210,7 +211,7 @@ class HeaderMixin:
         layout.setContentsMargins(20, 0, 20, 0)
         layout.setSpacing(16)
 
-        self.info_label = QLabel(f"{len(self.apps)} apps available")
+        self.info_label = QLabel(tr("{n} apps available").format(n=len(self.apps)))
         self.info_label.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;"
         )
@@ -223,7 +224,7 @@ class HeaderMixin:
         )
         layout.addWidget(self.info_pod_dot)
 
-        self.info_pod_state = QLabel("checking")
+        self.info_pod_state = QLabel(tr("checking"))
         self.info_pod_state.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;"
         )

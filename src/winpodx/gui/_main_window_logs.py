@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.gui.theme import BTN_GHOST, BTN_PRIMARY, COMBO, TERMINAL, C
 
 log = logging.getLogger(__name__)
@@ -238,7 +239,7 @@ class LogsMixin:
         layout.setContentsMargins(32, 28, 32, 20)
 
         header = QHBoxLayout()
-        title = QLabel("Terminal")
+        title = QLabel(tr("Terminal"))
         title.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
         )
@@ -252,7 +253,7 @@ class LogsMixin:
         # invocations honour the choice. Default is INFO; DEBUG
         # surfaces the chatty per-tick probe / state logs (useful
         # when triaging an "agent not ready" / "starting" stuck state).
-        level_label = QLabel("Log level:")
+        level_label = QLabel(tr("Log level:"))
         level_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;")
         header.addWidget(level_label)
         self.input_log_level = QComboBox()
@@ -269,11 +270,13 @@ class LogsMixin:
         if idx >= 0:
             self.input_log_level.setCurrentIndex(idx)
         self.input_log_level.setToolTip(
-            "Set the winpodx logger level. Lower (DEBUG) shows more\n"
-            "detail in the log file + this terminal; higher (ERROR)\n"
-            "shows only errors. Change persists to winpodx.toml so\n"
-            "future CLI / GUI runs honour the choice. Applied live —\n"
-            "no winpodx restart needed."
+            tr(
+                "Set the winpodx logger level. Lower (DEBUG) shows more\n"
+                "detail in the log file + this terminal; higher (ERROR)\n"
+                "shows only errors. Change persists to winpodx.toml so\n"
+                "future CLI / GUI runs honour the choice. Applied live —\n"
+                "no winpodx restart needed."
+            )
         )
         self.input_log_level.currentIndexChanged.connect(self._on_log_level_changed)
         header.addWidget(self.input_log_level)
@@ -295,7 +298,7 @@ class LogsMixin:
             ("Clear", None),
         ]
         for label, cmd in quick:
-            btn = QPushButton(label)
+            btn = QPushButton(tr(label))
             btn.setStyleSheet(BTN_GHOST)
             if label == "Clear":
                 btn.clicked.connect(lambda: self.log_output.clear())
@@ -326,7 +329,9 @@ class LogsMixin:
 
         self.cmd_input = QLineEdit()
         self.cmd_input.setPlaceholderText(
-            f"Enter command (e.g. podman logs {self.cfg.pod.container_name})"
+            tr("Enter command (e.g. podman logs {container})").format(
+                container=self.cfg.pod.container_name
+            )
         )
         self.cmd_input.setStyleSheet(f"""
             QLineEdit {{
@@ -341,7 +346,7 @@ class LogsMixin:
         self.cmd_input.returnPressed.connect(self._on_cmd_enter)
         cmd_row.addWidget(self.cmd_input)
 
-        run_btn = QPushButton("Run")
+        run_btn = QPushButton(tr("Run"))
         run_btn.setStyleSheet(BTN_PRIMARY)
         run_btn.clicked.connect(self._on_cmd_enter)
         cmd_row.addWidget(run_btn)

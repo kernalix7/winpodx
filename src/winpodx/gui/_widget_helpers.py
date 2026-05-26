@@ -19,6 +19,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
 
 from winpodx.core.app import AppInfo
+from winpodx.core.i18n import tr
 from winpodx.gui.theme import C, avatar_color
 
 
@@ -44,11 +45,11 @@ def make_source_badge(app: AppInfo) -> QLabel | None:
     """
     source = getattr(app, "source", "bundled")
     if source == "discovered":
-        text = "Detected"
+        text = tr("Detected")
         bg = C.SAPPHIRE
         fg = C.CRUST
     elif source == "bundled":
-        text = "Bundled"
+        text = tr("Bundled")
         bg = C.SURFACE2
         fg = C.SUBTEXT1
     else:

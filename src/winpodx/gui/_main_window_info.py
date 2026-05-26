@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow
 from winpodx.gui.theme import BTN_GHOST, SCROLL_AREA, SETTINGS_SECTION, C
 from winpodx.gui.workers import InfoWorker
@@ -66,14 +67,14 @@ class InfoPageMixin:
         layout.setSpacing(16)
 
         header = QHBoxLayout()
-        title = QLabel("Info")
+        title = QLabel(tr("Info"))
         title.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
         )
         header.addWidget(title)
         header.addStretch()
 
-        refresh_btn = QPushButton("Refresh Info")
+        refresh_btn = QPushButton(tr("Refresh Info"))
         refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
         refresh_btn.setStyleSheet(BTN_GHOST)
         refresh_btn.clicked.connect(self._refresh_info)
@@ -126,7 +127,7 @@ class InfoPageMixin:
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(6)
 
-        header = QLabel(title)
+        header = QLabel(tr(title))
         header.setStyleSheet(
             f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
         )
@@ -146,7 +147,7 @@ class InfoPageMixin:
         card.setProperty("info_body", body)
         self._info_card_bodies[title.lower()] = body
         # Initial placeholder
-        loading = QLabel("Loading...")
+        loading = QLabel(tr("Loading..."))
         loading.setStyleSheet(f"color: {C.OVERLAY0};")
         body.addWidget(loading)
         return card
@@ -169,13 +170,13 @@ class InfoPageMixin:
                 w.deleteLater()
 
         if not probes:
-            empty = QLabel("No probes ran (health module unavailable).")
+            empty = QLabel(tr("No probes ran (health module unavailable)."))
             empty.setStyleSheet(f"color: {C.OVERLAY0};")
             body.addWidget(empty)
             return
 
         overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
-        verdict = QLabel(f"Overall: {overall.upper() or 'UNKNOWN'}")
+        verdict = QLabel(tr("Overall: {status}").format(status=overall.upper() or tr("UNKNOWN")))
         verdict.setStyleSheet(f"color: {overall_color}; font-size: 13px; font-weight: bold;")
         body.addWidget(verdict)
         body.addSpacing(4)
@@ -273,62 +274,62 @@ class InfoPageMixin:
             "system",
             [
                 ("winpodx", sys_.get("winpodx", "")),
-                ("OEM bundle", sys_.get("oem_bundle", "")),
+                (tr("OEM bundle"), sys_.get("oem_bundle", "")),
                 ("rdprrap", sys_.get("rdprrap", "")),
-                ("Distro", sys_.get("distro", "")),
-                ("Kernel", sys_.get("kernel", "")),
+                (tr("Distro"), sys_.get("distro", "")),
+                (tr("Kernel"), sys_.get("kernel", "")),
             ],
         )
         disp = info.get("display", {})
         self._set_info_card_rows(
             "display",
             [
-                ("Session type", disp.get("session_type", "")),
-                ("Desktop env", disp.get("desktop_environment", "")),
-                ("Wayland FreeRDP", disp.get("wayland_freerdp", "")),
-                ("Raw scale", disp.get("raw_scale", "")),
-                ("RDP scale", disp.get("rdp_scale", "")),
+                (tr("Session type"), disp.get("session_type", "")),
+                (tr("Desktop env"), disp.get("desktop_environment", "")),
+                (tr("Wayland FreeRDP"), disp.get("wayland_freerdp", "")),
+                (tr("Raw scale"), disp.get("raw_scale", "")),
+                (tr("RDP scale"), disp.get("rdp_scale", "")),
             ],
         )
         deps_rows = []
         for name, dep in info.get("dependencies", {}).items():
             ok = dep.get("found") == "true"
             path = dep.get("path") or ""
-            value = ("OK " + path).strip() if ok else "MISSING"
+            value = (tr("OK") + " " + path).strip() if ok else tr("MISSING")
             deps_rows.append((name, value))
         self._set_info_card_rows("dependencies", deps_rows)
 
         pod = info.get("pod", {})
-        rdp_label = "reachable" if pod.get("rdp_reachable") else "unreachable"
-        vnc_label = "reachable" if pod.get("vnc_reachable") else "unreachable"
+        rdp_label = tr("reachable") if pod.get("rdp_reachable") else tr("unreachable")
+        vnc_label = tr("reachable") if pod.get("vnc_reachable") else tr("unreachable")
         pod_rows = [
-            ("State", str(pod.get("state", ""))),
+            (tr("State"), str(pod.get("state", ""))),
         ]
         if pod.get("uptime"):
-            pod_rows.append(("Started at", str(pod["uptime"])))
+            pod_rows.append((tr("Started at"), str(pod["uptime"])))
         pod_rows.extend(
             [
-                (f"RDP {pod.get('rdp_port', '')}", rdp_label),
-                (f"VNC {pod.get('vnc_port', '')}", vnc_label),
-                ("Active sessions", str(pod.get("active_sessions", 0))),
+                (tr("RDP {port}").format(port=pod.get("rdp_port", "")), rdp_label),
+                (tr("VNC {port}").format(port=pod.get("vnc_port", "")), vnc_label),
+                (tr("Active sessions"), str(pod.get("active_sessions", 0))),
             ]
         )
         self._set_info_card_rows("pod", pod_rows)
 
         conf = info.get("config", {})
         cfg_rows = [
-            ("Path", str(conf.get("path", ""))),
-            ("Backend", str(conf.get("backend", ""))),
-            ("IP", f"{conf.get('ip', '')}:{conf.get('port', '')}"),
-            ("User", str(conf.get("user", ""))),
-            ("Scale", f"{conf.get('scale', '')}%"),
-            ("Idle", f"{conf.get('idle_timeout', 0)}s"),
-            ("Max sessions", str(conf.get("max_sessions", 0))),
-            ("RAM (GB)", str(conf.get("ram_gb", 0))),
+            (tr("Path"), str(conf.get("path", ""))),
+            (tr("Backend"), str(conf.get("backend", ""))),
+            (tr("IP"), f"{conf.get('ip', '')}:{conf.get('port', '')}"),
+            (tr("User"), str(conf.get("user", ""))),
+            (tr("Scale"), f"{conf.get('scale', '')}%"),
+            (tr("Idle"), f"{conf.get('idle_timeout', 0)}s"),
+            (tr("Max sessions"), str(conf.get("max_sessions", 0))),
+            (tr("RAM (GB)"), str(conf.get("ram_gb", 0))),
         ]
         warning = conf.get("budget_warning") or ""
         if warning:
-            cfg_rows.append(("WARNING", warning))
+            cfg_rows.append((tr("WARNING"), warning))
         self._set_info_card_rows("config", cfg_rows)
 
     def _start_info_auto_refresh(self) -> None:

@@ -81,6 +81,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx.core.i18n import tr
+
 log = logging.getLogger(__name__)
 
 
@@ -137,7 +139,7 @@ class BringUpProgressDialog(QDialog):
 
     def __init__(self, parent, *, on_cancel, cfg=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Setting up Windows")
+        self.setWindowTitle(tr("Setting up Windows"))
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setMinimumWidth(560)
         self._on_cancel = on_cancel
@@ -168,7 +170,7 @@ class BringUpProgressDialog(QDialog):
         layout.setSpacing(10)
 
         # ----- header row (phase progress + label) -----------------------
-        self.header = QLabel("Starting...")
+        self.header = QLabel(tr("Starting..."))
         self.header.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.header.setWordWrap(True)
         layout.addWidget(self.header)
@@ -199,7 +201,7 @@ class BringUpProgressDialog(QDialog):
             glyph.setFont(self._mono_font)
             glyph.setFixedWidth(20)
 
-            name = QLabel(f"{idx + 1}. {label}")
+            name = QLabel(f"{idx + 1}. {tr(label)}")
             name.setFont(self._mono_font)
 
             elapsed = QLabel("")
@@ -216,7 +218,7 @@ class BringUpProgressDialog(QDialog):
 
         # ----- pod-log expander -----------------------------------------
         self.pod_log_toggle = QToolButton()
-        self.pod_log_toggle.setText("Pod logs (live)")
+        self.pod_log_toggle.setText(tr("Pod logs (live)"))
         self.pod_log_toggle.setCheckable(True)
         self.pod_log_toggle.setChecked(False)
         self.pod_log_toggle.setArrowType(Qt.ArrowType.RightArrow)
@@ -244,11 +246,11 @@ class BringUpProgressDialog(QDialog):
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.elapsed_label = QLabel("Elapsed 0:00")
+        self.elapsed_label = QLabel(tr("Elapsed 0:00"))
         self.elapsed_label.setStyleSheet("color: #888;")
         footer_layout.addWidget(self.elapsed_label, stretch=1)
 
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("Cancel"))
         self.cancel_btn.clicked.connect(self._handle_cancel)
         footer_layout.addWidget(self.cancel_btn)
 
@@ -270,7 +272,7 @@ class BringUpProgressDialog(QDialog):
         # cannot be interrupted mid-flight. Disable the button and update
         # its label so the user knows the request registered.
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.setText("Cancelling...")
+        self.cancel_btn.setText(tr("Cancelling..."))
         try:
             self._on_cancel()
         except Exception:  # noqa: BLE001
@@ -291,7 +293,11 @@ class BringUpProgressDialog(QDialog):
 
         # Header: "Phase N / 5 . Label"
         if idx >= 0:
-            self.header.setText(f"Phase {idx + 1} / {len(_PHASE_DEFS)}  -  {label}")
+            self.header.setText(
+                tr("Phase {n} / {total}  -  {label}").format(
+                    n=idx + 1, total=len(_PHASE_DEFS), label=tr(label)
+                )
+            )
         else:
             # Legacy label form -- just show it directly.
             self.header.setText(phase_id)
@@ -336,12 +342,12 @@ class BringUpProgressDialog(QDialog):
                 self._phase_done_at[self._active_phase_idx] = now
 
         if success:
-            self.header.setText("Done.")
-            self.sub_detail.setText("Bring-up complete.")
+            self.header.setText(tr("Done."))
+            self.sub_detail.setText(tr("Bring-up complete."))
         else:
-            self.header.setText("Bring-up did not complete")
-            self.sub_detail.setText(error_msg or "(no error message)")
-        self.cancel_btn.setText("Close")
+            self.header.setText(tr("Bring-up did not complete"))
+            self.sub_detail.setText(error_msg or tr("(no error message)"))
+        self.cancel_btn.setText(tr("Close"))
         self.cancel_btn.setEnabled(True)
         try:
             self.cancel_btn.clicked.disconnect()
@@ -373,7 +379,7 @@ class BringUpProgressDialog(QDialog):
     def _on_tick(self) -> None:
         # Wall-clock elapsed label.
         elapsed = self._monotonic() - self._dialog_started_at
-        self.elapsed_label.setText(f"Elapsed {_format_mmss(elapsed)}")
+        self.elapsed_label.setText(tr("Elapsed {time}").format(time=_format_mmss(elapsed)))
         # Per-row elapsed for the in-flight row.
         if not self._done and self._active_phase_idx >= 0:
             self._refresh_checklist()
@@ -430,7 +436,7 @@ class BringUpProgressDialog(QDialog):
             return  # already running
         if self._cfg is None:
             self.pod_log_view.appendPlainText(
-                "(pod log unavailable: dialog has no config reference)"
+                tr("(pod log unavailable: dialog has no config reference)")
             )
             return
 
@@ -448,7 +454,7 @@ class BringUpProgressDialog(QDialog):
                 bufsize=1,
             )
         except (FileNotFoundError, OSError) as e:
-            self.pod_log_view.appendPlainText(f"(pod tail unavailable: {e})")
+            self.pod_log_view.appendPlainText(tr("(pod tail unavailable: {error})").format(error=e))
             self._pod_tail_proc = None
             return
 

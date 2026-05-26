@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from winpodx import __version__
+from winpodx.core.i18n import tr
 from winpodx.utils.paths import config_dir
 
 # Marker-file hardening (Wave 2 audit L2): cap read size and regex-validate
@@ -187,7 +188,11 @@ def run_migrate(args: argparse.Namespace) -> int:
 
     if installed is None:
         _write_installed_version(current)
-        print(f"winpodx {current}: fresh install recorded. No migration needed.")
+        print(
+            tr("winpodx {version}: fresh install recorded. No migration needed.").format(
+                version=current
+            )
+        )
         return 0
 
     cur_cmp = _version_tuple(current)[:3]
@@ -195,7 +200,7 @@ def run_migrate(args: argparse.Namespace) -> int:
 
     if inst_cmp >= cur_cmp:
         _write_installed_version(current)
-        print(f"winpodx {current}: already current.")
+        print(tr("winpodx {version}: already current.").format(version=current))
         # v0.1.9.3: even on "already current" still run the idempotent
         # Windows-side apply. Patch versions (0.1.9.x) collapse to the
         # same (0,1,9) tuple under [:3] truncation, so without this an
@@ -213,7 +218,11 @@ def run_migrate(args: argparse.Namespace) -> int:
         _maybe_auto_migrate_storage(non_interactive)
         return 0
 
-    print(f"winpodx: {installed} -> {current} detected\n")
+    print(
+        tr("winpodx: {installed} -> {current} detected\n").format(
+            installed=installed, current=current
+        )
+    )
     _print_whats_new(installed, current)
 
     non_interactive = bool(getattr(args, "non_interactive", False))
@@ -240,15 +249,15 @@ def run_migrate(args: argparse.Namespace) -> int:
     _maybe_auto_migrate_storage(non_interactive)
 
     if skip_refresh:
-        print("\nSkipping app discovery (--no-refresh).")
+        print(tr("\nSkipping app discovery (--no-refresh)."))
     elif non_interactive:
-        print("\nSkipping app discovery (--non-interactive).")
-    elif _prompt_yes("\nRun app discovery now? (scans Windows pod for installed apps)"):
+        print(tr("\nSkipping app discovery (--non-interactive)."))
+    elif _prompt_yes(tr("\nRun app discovery now? (scans Windows pod for installed apps)")):
         _attempt_refresh()
 
     _write_installed_version(current)
-    print(f"\nMigration complete. Marker updated to {current}.")
-    print("Re-run this wizard any time with: winpodx migrate")
+    print(tr("\nMigration complete. Marker updated to {version}.").format(version=current))
+    print(tr("Re-run this wizard any time with: winpodx migrate"))
     return 0
 
 
@@ -275,21 +284,25 @@ def _maybe_cleanup_legacy_bundled(non_interactive: bool) -> None:
         return
 
     print(
-        f"\nFound {len(stale_desktop)} legacy bundled-app entries from a previous "
-        "winpodx version (these were removed in 0.1.9):"
+        tr(
+            "\nFound {count} legacy bundled-app entries from a previous winpodx version"
+            " (these were removed in 0.1.9):"
+        ).format(count=len(stale_desktop))
     )
     for d in stale_desktop:
         print(f"  - {d.name}")
 
     if non_interactive:
         print(
-            "  (--non-interactive set — skipping cleanup. "
-            "Re-run `winpodx migrate` interactively to remove.)"
+            tr(
+                "  (--non-interactive set — skipping cleanup. "
+                "Re-run `winpodx migrate` interactively to remove.)"
+            )
         )
         return
 
-    if not _prompt_yes("Remove them now?", default=True):
-        print("  Skipped — entries left in place.")
+    if not _prompt_yes(tr("Remove them now?"), default=True):
+        print(tr("  Skipped — entries left in place."))
         return
 
     icon_root = icons_dir()
@@ -299,7 +312,7 @@ def _maybe_cleanup_legacy_bundled(non_interactive: bool) -> None:
             desktop.unlink()
             removed += 1
         except OSError as e:
-            print(f"  warning: could not remove {desktop}: {e}")
+            print(tr("  warning: could not remove {path}: {error}").format(path=desktop, error=e))
             continue
         # Best-effort matching icon cleanup (won't error if absent).
         for ext_dir in ("scalable/apps", "32x32/apps"):
@@ -309,7 +322,11 @@ def _maybe_cleanup_legacy_bundled(non_interactive: bool) -> None:
                     icon_file.unlink()
                 except OSError:
                     pass
-    print(f"  Removed {removed} of {len(stale_desktop)} legacy entries.")
+    print(
+        tr("  Removed {removed} of {total} legacy entries.").format(
+            removed=removed, total=len(stale_desktop)
+        )
+    )
 
 
 def _detect_installed_version() -> Optional[str]:
@@ -424,11 +441,11 @@ def _print_whats_new(installed: str, current: str) -> None:
     relevant.sort()
 
     if not relevant:
-        print("(No user-facing release notes for the versions between installed and current.)")
+        print(tr("(No user-facing release notes for the versions between installed and current.)"))
         return
 
     for _, ver, notes in relevant:
-        print(f"What's new in {ver}:")
+        print(tr("What's new in {ver}:").format(ver=ver))
         for note in notes:
             print(f"  - {note}")
         print()
@@ -891,15 +908,15 @@ def _maybe_auto_migrate_storage(non_interactive: bool) -> None:
         return  # not on btrfs, no benefit
 
     print()
-    print("Detected: legacy 'winpodx-data' volume on btrfs.")
-    print("  btrfs Copy-on-Write fragments the Windows raw disk image and")
-    print("  slows pod recreates. Auto-migrating to a per-user bind mount")
-    print("  with NoCoW so the Windows install becomes 5-10× faster to boot.")
+    print(tr("Detected: legacy 'winpodx-data' volume on btrfs."))
+    print(tr("  btrfs Copy-on-Write fragments the Windows raw disk image and"))
+    print(tr("  slows pod recreates. Auto-migrating to a per-user bind mount"))
+    print(tr("  with NoCoW so the Windows install becomes 5-10× faster to boot."))
 
     plan_or_err = plan_migration(cfg)
     if isinstance(plan_or_err, str):
-        print(f"  Skipping migration: {plan_or_err}")
-        print("  Manual retry: winpodx setup --migrate-storage")
+        print(tr("  Skipping migration: {detail}").format(detail=plan_or_err))
+        print(tr("  Manual retry: winpodx setup --migrate-storage"))
         return
 
     plan = plan_or_err
@@ -911,21 +928,21 @@ def _maybe_auto_migrate_storage(non_interactive: bool) -> None:
     )
 
     if not non_interactive:
-        if not _prompt_yes("\n  Migrate now?", default=True):
-            print("  Skipped — re-run later with: winpodx setup --migrate-storage")
+        if not _prompt_yes(tr("\n  Migrate now?"), default=True):
+            print(tr("  Skipped — re-run later with: winpodx setup --migrate-storage"))
             return
     else:
-        print("  Running automatically (non-interactive mode)...")
+        print(tr("  Running automatically (non-interactive mode)..."))
 
-    print("\nMigrating storage...")
+    print(tr("\nMigrating storage..."))
     result = execute_migration(cfg, plan, start_pod=True)
     if result.status == "ok":
-        print(f"  OK: {result.detail}")
-        print("  Future pod recreates will be NoCoW (5-10× faster on btrfs).")
+        print(tr("  OK: {detail}").format(detail=result.detail))
+        print(tr("  Future pod recreates will be NoCoW (5-10× faster on btrfs)."))
     else:
-        print(f"  FAIL: {result.detail}")
-        print("  The original named volume is preserved; you can retry with:")
-        print("    winpodx setup --migrate-storage")
+        print(tr("  FAIL: {detail}").format(detail=result.detail))
+        print(tr("  The original named volume is preserved; you can retry with:"))
+        print(tr("    winpodx setup --migrate-storage"))
 
 
 def _attempt_refresh() -> None:
@@ -941,24 +958,28 @@ def _attempt_refresh() -> None:
             persist_discovered,
         )
     except ImportError:
-        print("\n  Discovery unavailable in this build. Skipping.")
+        print(tr("\n  Discovery unavailable in this build. Skipping."))
         return
 
     if not _pod_is_running(cfg):
-        if not _prompt_yes("  Pod is not running. Start it first? (first boot can take ~1 minute)"):
-            print("\n  Skipping refresh. Later: `winpodx pod start --wait && winpodx app refresh`")
+        if not _prompt_yes(
+            tr("  Pod is not running. Start it first? (first boot can take ~1 minute)")
+        ):
+            print(
+                tr("\n  Skipping refresh. Later: `winpodx pod start --wait && winpodx app refresh`")
+            )
             return
         try:
             from winpodx.core.provisioner import ProvisionError, ensure_ready
 
-            print("\n  Starting pod...")
+            print(tr("\n  Starting pod..."))
             ensure_ready(cfg)
         except ProvisionError as exc:
-            print(f"\n  Could not start pod: {exc}")
-            print("  Run `winpodx pod start --wait` manually and try again.")
+            print(tr("\n  Could not start pod: {error}").format(error=exc))
+            print(tr("  Run `winpodx pod start --wait` manually and try again."))
             return
         except Exception as exc:  # noqa: BLE001 — surface any startup failure
-            print(f"\n  Could not start pod: {exc}")
+            print(tr("\n  Could not start pod: {error}").format(error=exc))
             return
 
     # v0.2.0.3: discovery hits the same FreeRDP RemoteApp channel as the
@@ -968,11 +989,13 @@ def _attempt_refresh() -> None:
     # sees rc=147 connection-reset right after a fresh install.
     from winpodx.core.provisioner import wait_for_windows_responsive
 
-    print("\n  Waiting for Windows guest to be ready (up to 180s)...")
+    print(tr("\n  Waiting for Windows guest to be ready (up to 180s)..."))
     if not wait_for_windows_responsive(cfg, timeout=600):
         print(
-            "  Windows guest still booting — skipping discovery for now.\n"
-            "  Re-run later with: winpodx app refresh"
+            tr(
+                "  Windows guest still booting — skipping discovery for now.\n"
+                "  Re-run later with: winpodx app refresh"
+            )
         )
         return
 
@@ -986,26 +1009,32 @@ def _attempt_refresh() -> None:
     # 10s spacing covers the respawn cycle plus any HKCU\Run-driven
     # restart race; final failure still prints the retry-later hint so
     # the user knows pending-resume isn't silently kicking in here.
-    print("\n  Scanning Windows pod for installed apps...")
+    print(tr("\n  Scanning Windows pod for installed apps..."))
     last_exc: DiscoveryError | None = None
     for attempt in (1, 2, 3):
         try:
             apps = discover_apps(cfg)
             written = persist_discovered(apps)
-            print(f"  Discovered {len(apps)} app(s); wrote {len(written)} profile(s).")
+            print(
+                tr("  Discovered {count} app(s); wrote {written} profile(s).").format(
+                    count=len(apps), written=len(written)
+                )
+            )
             return
         except DiscoveryError as exc:
             last_exc = exc
             if attempt < 3:
                 print(
-                    f"  attempt {attempt} deferred ({exc}); "
-                    "retrying in 10s (agent may be respawning)..."
+                    tr(
+                        "  attempt {attempt} deferred ({error}); retrying in 10s"
+                        " (agent may be respawning)..."
+                    ).format(attempt=attempt, error=exc)
                 )
                 import time as _time
 
                 _time.sleep(10)
-    print(f"\n  Discovery failed: {last_exc}")
-    print("  Retry later with: winpodx app refresh")
+    print(tr("\n  Discovery failed: {error}").format(error=last_exc))
+    print(tr("  Retry later with: winpodx app refresh"))
 
 
 def _pod_is_running(cfg) -> bool:

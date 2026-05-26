@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx.core.i18n import tr
 from winpodx.gui.theme import SCROLL_AREA, TERMINAL, C
 from winpodx.utils.paths import bundle_dir
 
@@ -155,15 +156,17 @@ class LicensePageMixin:
         layout.setSpacing(14)
 
         # --- License title -------------------------------------------------
-        title = QLabel("License")
+        title = QLabel(tr("License"))
         title.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
         )
         layout.addWidget(title)
 
         subtitle = QLabel(
-            "winpodx is MIT-licensed open source. See LICENSE in the source "
-            "tree for the canonical text."
+            tr(
+                "winpodx is MIT-licensed open source. See LICENSE in the source "
+                "tree for the canonical text."
+            )
         )
         subtitle.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
         subtitle.setWordWrap(True)
@@ -179,7 +182,7 @@ class LicensePageMixin:
         layout.addWidget(license_view)
 
         # --- Third-party acknowledgments -----------------------------------
-        ack_header = QLabel("Third-party components")
+        ack_header = QLabel(tr("Third-party components"))
         ack_header.setStyleSheet(
             f"background: transparent; color: {C.BLUE};"
             " font-size: 15px; font-weight: bold; padding-top: 8px;"
@@ -187,9 +190,11 @@ class LicensePageMixin:
         layout.addWidget(ack_header)
 
         ack_intro = QLabel(
-            "winpodx ships and depends on these upstream projects. Each is "
-            "used under its own license; consult the upstream repository for "
-            "the canonical text."
+            tr(
+                "winpodx ships and depends on these upstream projects. Each is "
+                "used under its own license; consult the upstream repository for "
+                "the canonical text."
+            )
         )
         ack_intro.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
         ack_intro.setWordWrap(True)
@@ -208,7 +213,7 @@ class LicensePageMixin:
             )
             row_layout.addWidget(heading)
 
-            detail = QLabel(purpose)
+            detail = QLabel(tr(purpose))
             detail.setStyleSheet(f"background: transparent; color: {C.SUBTEXT1}; font-size: 12px;")
             detail.setWordWrap(True)
             row_layout.addWidget(detail)
@@ -235,7 +240,7 @@ class LicensePageMixin:
             return path.read_text(encoding="utf-8")
         except Exception:  # noqa: BLE001
             log.warning("Could not read LICENSE from bundle_dir", exc_info=True)
-            return (
+            return tr(
                 "winpodx is MIT-licensed. See the LICENSE file in the "
                 "project repository for the canonical text:\n"
                 "  https://github.com/kernalix7/winpodx/blob/main/LICENSE"

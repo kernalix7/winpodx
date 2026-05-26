@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from winpodx.core.i18n import tr
+
 
 def handle_config(args: argparse.Namespace) -> None:
     """Route config subcommands."""
@@ -17,7 +19,7 @@ def handle_config(args: argparse.Namespace) -> None:
     elif cmd == "import":
         _import_config()
     else:
-        print("Usage: winpodx config {show|set|import}")
+        print(tr("Usage: winpodx config {show|set|import}"))
         sys.exit(1)
 
 
@@ -25,29 +27,29 @@ def _show() -> None:
     from winpodx.core.config import Config, check_session_budget
 
     cfg = Config.load()
-    print("[rdp]")
-    print(f"  user     = {cfg.rdp.user}")
-    print(f"  password = {'***' if cfg.rdp.password else '(not set)'}")
-    print(f"  askpass  = {cfg.rdp.askpass or '(not set)'}")
-    print(f"  domain   = {cfg.rdp.domain or '(not set)'}")
-    print(f"  ip       = {cfg.rdp.ip}")
-    print(f"  port     = {cfg.rdp.port}")
-    print(f"  scale    = {cfg.rdp.scale}")
-    print(f"  dpi      = {cfg.rdp.dpi or 'auto'}")
+    print(tr("[rdp]"))
+    print(tr("  user     = {user}").format(user=cfg.rdp.user))
+    print(tr("  password = {pw}").format(pw="***" if cfg.rdp.password else tr("(not set)")))
+    print(tr("  askpass  = {askpass}").format(askpass=cfg.rdp.askpass or tr("(not set)")))
+    print(tr("  domain   = {domain}").format(domain=cfg.rdp.domain or tr("(not set)")))
+    print(tr("  ip       = {ip}").format(ip=cfg.rdp.ip))
+    print(tr("  port     = {port}").format(port=cfg.rdp.port))
+    print(tr("  scale    = {scale}").format(scale=cfg.rdp.scale))
+    print(tr("  dpi      = {dpi}").format(dpi=cfg.rdp.dpi or tr("auto")))
     print()
-    print("[pod]")
-    print(f"  backend       = {cfg.pod.backend}")
-    print(f"  vm_name       = {cfg.pod.vm_name}")
-    print(f"  cpu_cores     = {cfg.pod.cpu_cores}")
-    print(f"  ram_gb        = {cfg.pod.ram_gb}")
-    print(f"  max_sessions  = {cfg.pod.max_sessions}")
-    print(f"  auto_start    = {cfg.pod.auto_start}")
-    print(f"  idle_timeout  = {cfg.pod.idle_timeout}")
+    print(tr("[pod]"))
+    print(tr("  backend       = {backend}").format(backend=cfg.pod.backend))
+    print(tr("  vm_name       = {vm_name}").format(vm_name=cfg.pod.vm_name))
+    print(tr("  cpu_cores     = {cpu_cores}").format(cpu_cores=cfg.pod.cpu_cores))
+    print(tr("  ram_gb        = {ram_gb}").format(ram_gb=cfg.pod.ram_gb))
+    print(tr("  max_sessions  = {max_sessions}").format(max_sessions=cfg.pod.max_sessions))
+    print(tr("  auto_start    = {auto_start}").format(auto_start=cfg.pod.auto_start))
+    print(tr("  idle_timeout  = {idle_timeout}").format(idle_timeout=cfg.pod.idle_timeout))
 
     warning = check_session_budget(cfg)
     if warning:
         print()
-        print(f"WARNING: {warning}", file=sys.stderr)
+        print(tr("WARNING: {warning}").format(warning=warning), file=sys.stderr)
 
 
 def _set(key: str, value: str | None, *, auto: bool = False) -> None:
@@ -57,30 +59,32 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
 
     section, _, field = key.partition(".")
     if not field:
-        print("Key format: section.field (e.g., rdp.user, pod.backend)")
+        print(tr("Key format: section.field (e.g., rdp.user, pod.backend)"))
         sys.exit(1)
 
     target = getattr(cfg, section, None)
     if target is None or not hasattr(target, field):
-        print(f"Unknown config key: {key}")
+        print(tr("Unknown config key: {key}").format(key=key))
         sys.exit(1)
 
     if auto:
         if value is not None:
-            print("--auto and a positional value are mutually exclusive.")
+            print(tr("--auto and a positional value are mutually exclusive."))
             sys.exit(1)
         resolved = _resolve_auto_value(section, field)
         if resolved is None:
             print(
-                f"--auto not yet supported for {key}. Currently supported: "
-                "pod.timezone. Other keys will gain auto-detect in follow-up "
-                "phases of #254 -- pass a value explicitly for now."
+                tr(
+                    "--auto not yet supported for {key}. Currently supported: "
+                    "pod.timezone. Other keys will gain auto-detect in follow-up "
+                    "phases of #254 -- pass a value explicitly for now."
+                ).format(key=key)
             )
             sys.exit(1)
         value = resolved
 
     if value is None:
-        print("Missing value. Either pass a positional value or --auto.")
+        print(tr("Missing value. Either pass a positional value or --auto."))
         sys.exit(1)
 
     current = getattr(target, field)
@@ -90,7 +94,7 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
         try:
             coerced = int(value)
         except ValueError:
-            print(f"Invalid integer value: {value}")
+            print(tr("Invalid integer value: {value}").format(value=value))
             sys.exit(1)
     else:
         coerced = value
@@ -102,14 +106,14 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
     target.__post_init__()
     coerced = getattr(target, field)
     cfg.save()
-    print(f"Set {key} = {coerced}")
+    print(tr("Set {key} = {value}").format(key=key, value=coerced))
 
     # Budget warning only fires when over-subscribed — default config
     # stays quiet. Applies whenever max_sessions or ram_gb changes.
     if section == "pod" and field in ("max_sessions", "ram_gb"):
         warning = check_session_budget(cfg)
         if warning:
-            print(f"WARNING: {warning}", file=sys.stderr)
+            print(tr("WARNING: {warning}").format(warning=warning), file=sys.stderr)
 
 
 def _resolve_auto_value(section: str, field: str) -> str | None:
@@ -139,8 +143,8 @@ def _import_config() -> None:
 
     cfg = import_winapps_config()
     if cfg is None:
-        print("No winapps.conf found.")
+        print(tr("No winapps.conf found."))
         return
 
     cfg.save()
-    print(f"Imported winapps config to {Config.path()}")
+    print(tr("Imported winapps config to {path}").format(path=Config.path()))

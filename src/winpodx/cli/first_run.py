@@ -23,6 +23,8 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 
+from winpodx.core.i18n import tr
+
 # Commands that bypass the first-run prompt -- introspection, help,
 # meta, and the setup / uninstall commands that mutate config state
 # themselves. ``info`` is on the list because users hitting a broken
@@ -100,16 +102,16 @@ def maybe_run_first_run_prompt(
         return False
 
     print_fn("")
-    print_fn("winpodx has not been set up yet on this account.")
+    print_fn(tr("winpodx has not been set up yet on this account."))
     print_fn("")
-    print_fn("Run setup now?")
-    print_fn("  [Y]es     -- auto setup (host-detected defaults, no prompts)")
-    print_fn("  [C]ustom  -- wizard (pick every knob)")
-    print_fn("  [n]o      -- skip; you can run `winpodx setup` later")
+    print_fn(tr("Run setup now?"))
+    print_fn(tr("  [Y]es     -- auto setup (host-detected defaults, no prompts)"))
+    print_fn(tr("  [C]ustom  -- wizard (pick every knob)"))
+    print_fn(tr("  [n]o      -- skip; you can run `winpodx setup` later"))
     print_fn("")
 
     try:
-        answer = input_fn("Choice [Y/c/n]: ").strip().lower()
+        answer = input_fn(tr("Choice [Y/c/n]: ")).strip().lower()
     except EOFError:
         return False
 
@@ -118,10 +120,14 @@ def maybe_run_first_run_prompt(
     elif answer in ("c", "custom", "wizard"):
         mode = "customize"
     elif answer in ("n", "no"):
-        print_fn("Skipped. Run `winpodx setup` when you're ready.")
+        print_fn(tr("Skipped. Run `winpodx setup` when you're ready."))
         return False
     else:
-        print_fn(f"Unrecognised choice {answer!r}; skipping. Run `winpodx setup` to set up later.")
+        print_fn(
+            tr(
+                "Unrecognised choice {answer}; skipping. Run `winpodx setup` to set up later."
+            ).format(answer=repr(answer))
+        )
         return False
 
     return _run_setup(mode)

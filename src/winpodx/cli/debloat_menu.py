@@ -37,6 +37,7 @@ import sys
 from collections.abc import Callable
 
 from winpodx.core.debloat import DebloatCatalog
+from winpodx.core.i18n import tr
 
 PromptFn = Callable[[str], str]
 OutFn = Callable[[str], None]
@@ -80,8 +81,8 @@ def run_menu(
     current_preset: str | None = initial_preset
 
     print_fn("")
-    print_fn("=== winpodx debloat (menu) ===")
-    print_fn("h / ? for help. Press <a> to apply, <q> to quit.")
+    print_fn(tr("=== winpodx debloat (menu) ==="))
+    print_fn(tr("h / ? for help. Press <a> to apply, <q> to quit."))
     print_fn("")
 
     while True:
@@ -100,7 +101,7 @@ def run_menu(
             return None
         if cmd in ("a", "apply"):
             if not selection:
-                print_fn("(no items selected; press 'q' to quit instead)")
+                print_fn(tr("(no items selected; press 'q' to quit instead)"))
                 continue
             return [name for name in item_order if name in selection]
         if cmd in ("h", "?", "help"):
@@ -111,10 +112,14 @@ def run_menu(
             # 'p' alone -> list presets. 'p <name>' -> switch.
             rest = raw[1:].strip().lower()
             if not rest:
-                print_fn("Presets: " + ", ".join(catalog.preset_names))
+                print_fn(tr("Presets: {presets}").format(presets=", ".join(catalog.preset_names)))
                 continue
             if rest not in catalog.presets:
-                print_fn(f"(unknown preset {rest!r}; available: {', '.join(catalog.preset_names)})")
+                print_fn(
+                    tr("(unknown preset {preset}; available: {available})").format(
+                        preset=repr(rest), available=", ".join(catalog.preset_names)
+                    )
+                )
                 continue
             selection = set(catalog.items_for_preset(rest))
             current_preset = rest
@@ -131,7 +136,11 @@ def run_menu(
                     selection.add(name)
                 current_preset = None  # user-edited -> custom
                 continue
-            print_fn(f"(item {cmd!r} out of range 1-{len(item_order)})")
+            print_fn(
+                tr("(item {item} out of range 1-{max_item})").format(
+                    item=repr(cmd), max_item=len(item_order)
+                )
+            )
             continue
 
         # Item name.
@@ -143,7 +152,7 @@ def run_menu(
             current_preset = None
             continue
 
-        print_fn(f"(unrecognised command {raw!r}; type 'h' for help)")
+        print_fn(tr("(unrecognised command {cmd}; type 'h' for help)").format(cmd=repr(raw)))
 
 
 def _render(
@@ -168,15 +177,15 @@ def _render(
 
 def _print_help(catalog: DebloatCatalog, print_fn: OutFn) -> None:
     print_fn("")
-    print_fn("Commands:")
-    print_fn("  <N>           Toggle item number N (1-based)")
-    print_fn("  <name>        Toggle item by name (e.g. 'telemetry')")
-    print_fn("  p             List presets")
-    print_fn("  p <name>      Switch to preset <name>")
+    print_fn(tr("Commands:"))
+    print_fn(tr("  <N>           Toggle item number N (1-based)"))
+    print_fn(tr("  <name>        Toggle item by name (e.g. 'telemetry')"))
+    print_fn(tr("  p             List presets"))
+    print_fn(tr("  p <name>      Switch to preset <name>"))
     print_fn(f"                ({', '.join(catalog.preset_names)})")
-    print_fn("  a, apply      Apply current selection and exit")
-    print_fn("  q, quit       Quit without applying")
-    print_fn("  h, ?, help    Show this help")
+    print_fn(tr("  a, apply      Apply current selection and exit"))
+    print_fn(tr("  q, quit       Quit without applying"))
+    print_fn(tr("  h, ?, help    Show this help"))
     print_fn("")
 
 

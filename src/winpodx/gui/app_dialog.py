@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx.core.i18n import tr
 from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
@@ -46,7 +47,7 @@ class AppProfileDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.edit_mode = edit_mode
-        self.setWindowTitle("Edit App" if edit_mode else "Add App")
+        self.setWindowTitle(tr("Edit App") if edit_mode else tr("Add App"))
         self.setFixedSize(580, 460)
         self.setStyleSheet(f"""
             QDialog {{ background: {C.MANTLE}; }}
@@ -77,10 +78,10 @@ class AppProfileDialog(QDialog):
 
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
-        title = QLabel("Edit App Profile" if edit_mode else "New App Profile")
+        title = QLabel(tr("Edit App Profile") if edit_mode else tr("New App Profile"))
         title.setStyleSheet(f"color: {C.TEXT}; font-size: 18px; font-weight: bold;")
         title_col.addWidget(title)
-        sub = QLabel("Define a Windows application for winpodx")
+        sub = QLabel(tr("Define a Windows application for winpodx"))
         sub.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 12px;")
         title_col.addWidget(sub)
         header_l.addLayout(title_col)
@@ -98,32 +99,32 @@ class AppProfileDialog(QDialog):
         form.setHorizontalSpacing(12)
 
         self.input_name = QLineEdit(name)
-        self.input_name.setPlaceholderText("e.g. photoshop")
+        self.input_name.setPlaceholderText(tr("e.g. photoshop"))
         if edit_mode:
             self.input_name.setReadOnly(True)
         self.input_name.textChanged.connect(self._update_preview)
 
         self.input_full_name = QLineEdit(full_name)
-        self.input_full_name.setPlaceholderText("e.g. Adobe Photoshop 2024")
+        self.input_full_name.setPlaceholderText(tr("e.g. Adobe Photoshop 2024"))
         self.input_full_name.textChanged.connect(self._update_preview)
 
         self.input_executable = QLineEdit(executable)
         self.input_executable.setPlaceholderText(
-            r"e.g. C:\Program Files\Adobe\Photoshop\Photoshop.exe"
+            tr(r"e.g. C:\Program Files\Adobe\Photoshop\Photoshop.exe")
         )
 
         self.input_categories = QLineEdit(categories)
-        self.input_categories.setPlaceholderText("e.g. Graphics, 2DGraphics")
+        self.input_categories.setPlaceholderText(tr("e.g. Graphics, 2DGraphics"))
 
         self.input_mime_types = QLineEdit(mime_types)
-        self.input_mime_types.setPlaceholderText("e.g. image/png, image/jpeg")
+        self.input_mime_types.setPlaceholderText(tr("e.g. image/png, image/jpeg"))
 
         fields = [
-            ("Short Name", self.input_name),
-            ("Display Name", self.input_full_name),
-            ("Executable", self.input_executable),
-            ("Categories", self.input_categories),
-            ("MIME Types", self.input_mime_types),
+            (tr("Short Name"), self.input_name),
+            (tr("Display Name"), self.input_full_name),
+            (tr("Executable"), self.input_executable),
+            (tr("Categories"), self.input_categories),
+            (tr("MIME Types"), self.input_mime_types),
         ]
         for row, (label, widget) in enumerate(fields):
             lbl = QLabel(label)
@@ -134,8 +135,10 @@ class AppProfileDialog(QDialog):
         body_l.addLayout(form)
 
         help_lbl = QLabel(
-            "Executable: full Windows path to the .exe file.  "
-            "Categories/MIME: comma-separated or leave empty."
+            tr(
+                "Executable: full Windows path to the .exe file.  "
+                "Categories/MIME: comma-separated or leave empty."
+            )
         )
         help_lbl.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
         help_lbl.setWordWrap(True)
@@ -145,12 +148,12 @@ class AppProfileDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(tr("Cancel"))
         cancel.setStyleSheet(BTN_GHOST)
         cancel.clicked.connect(self.reject)
         btn_row.addWidget(cancel)
 
-        save = QPushButton("Save" if edit_mode else "Create")
+        save = QPushButton(tr("Save") if edit_mode else tr("Create"))
         save.setStyleSheet(BTN_PRIMARY)
         save.clicked.connect(self._on_accept)
         btn_row.addWidget(save)
@@ -177,8 +180,8 @@ class AppProfileDialog(QDialog):
         if not name or not full_name or not executable:
             QMessageBox.warning(
                 self,
-                "Missing Fields",
-                "Name, Display Name, and Executable are required.",
+                tr("Missing Fields"),
+                tr("Name, Display Name, and Executable are required."),
             )
             return
 
@@ -187,8 +190,8 @@ class AppProfileDialog(QDialog):
         if not re.match(r"^[a-zA-Z0-9_-]+$", name):
             QMessageBox.warning(
                 self,
-                "Invalid Name",
-                "Short name can only contain letters, numbers, dash, and underscore.",
+                tr("Invalid Name"),
+                tr("Short name can only contain letters, numbers, dash, and underscore."),
             )
             return
 

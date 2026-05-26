@@ -6,6 +6,8 @@ from __future__ import annotations
 import logging
 import subprocess
 
+from winpodx.core.i18n import tr
+
 log = logging.getLogger(__name__)
 
 
@@ -41,11 +43,11 @@ def send_notification(
 
 
 def notify_pod_started(ip: str) -> None:
-    send_notification("winpodx", f"Windows pod started at {ip}")
+    send_notification("winpodx", tr("Windows pod started at {ip}").format(ip=ip))
 
 
 def notify_pod_stopped() -> None:
-    send_notification("winpodx", "Windows pod stopped")
+    send_notification("winpodx", tr("Windows pod stopped"))
 
 
 def notify_error(message: str) -> None:
@@ -62,8 +64,10 @@ def notify_pod_unresponsive(ip: str) -> None:
     """
     send_notification(
         "winpodx",
-        f"Windows pod at {ip} stopped responding to RDP. "
-        "Attempting to restart the RDP service in the guest...",
+        tr(
+            "Windows pod at {ip} stopped responding to RDP. "
+            "Attempting to restart the RDP service in the guest..."
+        ).format(ip=ip),
         urgency="normal",
     )
 
@@ -72,7 +76,7 @@ def notify_pod_recovered() -> None:
     """Auto-recovery succeeded — TermService was cycled and RDP came back."""
     send_notification(
         "winpodx",
-        "Windows pod recovered (RDP service restarted in the guest). No action needed.",
+        tr("Windows pod recovered (RDP service restarted in the guest). No action needed."),
         urgency="low",
     )
 
@@ -84,7 +88,7 @@ def notify_pod_needs_manual_restart(detail: str = "") -> None:
     unreachable, RDP still down after TermService cycle) and is appended
     so the user has a hint at why the cheap recovery didn't help.
     """
-    body = (
+    body = tr(
         "Windows pod is alive but not responding to RDP, and auto-recovery "
         "didn't bring it back. Run `winpodx pod restart` to recycle the "
         "container."

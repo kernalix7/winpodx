@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.app import AppInfo
+from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow, make_app_avatar, make_source_badge
 from winpodx.gui.theme import (
     APP_CARD,
@@ -71,7 +72,7 @@ class LibraryPageMixin:
         toolbar.setSpacing(12)
 
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search apps...")
+        self.search_box.setPlaceholderText(tr("Search apps..."))
         self.search_box.setStyleSheet(SEARCH_BAR)
         self.search_box.setFixedWidth(340)
         self.search_box.textChanged.connect(self._filter_apps)
@@ -79,7 +80,7 @@ class LibraryPageMixin:
 
         toolbar.addStretch()
 
-        self.app_count_label = QLabel(f"{len(self.apps)} apps")
+        self.app_count_label = QLabel(tr("{n} apps").format(n=len(self.apps)))
         self.app_count_label.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;"
         )
@@ -95,22 +96,22 @@ class LibraryPageMixin:
         self.btn_grid = QPushButton("▦")
         self.btn_grid.setCheckable(True)
         self.btn_grid.setChecked(True)
-        self.btn_grid.setToolTip("Grid view")
+        self.btn_grid.setToolTip(tr("Grid view"))
         self.btn_grid.clicked.connect(lambda: self._set_view("grid"))
         tgl.addWidget(self.btn_grid)
 
         self.btn_list = QPushButton("≡")
         self.btn_list.setCheckable(True)
-        self.btn_list.setToolTip("List view")
+        self.btn_list.setToolTip(tr("List view"))
         self.btn_list.clicked.connect(lambda: self._set_view("list"))
         tgl.addWidget(self.btn_list)
         toolbar.addWidget(toggle_wrap)
         toolbar.addSpacing(8)
 
-        self.refresh_btn = QPushButton("Refresh Apps")
+        self.refresh_btn = QPushButton(tr("Refresh Apps"))
         self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
         self.refresh_btn.setStyleSheet(BTN_GHOST)
-        self.refresh_btn.setToolTip("Scan the running pod for installed Windows apps")
+        self.refresh_btn.setToolTip(tr("Scan the running pod for installed Windows apps"))
         self.refresh_btn.clicked.connect(self._on_refresh_apps)
         toolbar.addWidget(self.refresh_btn)
         toolbar.addSpacing(6)
@@ -120,17 +121,17 @@ class LibraryPageMixin:
         # default. Click to expand; the count tells the user how much got
         # filtered so they can decide whether to dig in.
         self._show_hidden = False
-        self.btn_show_hidden = QPushButton("Hidden")
+        self.btn_show_hidden = QPushButton(tr("Hidden"))
         self.btn_show_hidden.setCheckable(True)
         self.btn_show_hidden.setStyleSheet(BTN_GHOST)
         self.btn_show_hidden.setToolTip(
-            "Show apps filtered by the noise denylist or manually hidden"
+            tr("Show apps filtered by the noise denylist or manually hidden")
         )
         self.btn_show_hidden.clicked.connect(self._on_toggle_hidden)
         toolbar.addWidget(self.btn_show_hidden)
         toolbar.addSpacing(6)
 
-        add_btn = QPushButton("+  Add App")
+        add_btn = QPushButton(tr("+  Add App"))
         add_btn.setStyleSheet(BTN_PRIMARY)
         add_btn.clicked.connect(self._on_add_app)
         toolbar.addWidget(add_btn)
@@ -223,7 +224,7 @@ class LibraryPageMixin:
                         sub.widget().deleteLater()
 
         if not apps:
-            empty = QLabel("No apps found\n\nAdd a Windows app profile to get started")
+            empty = QLabel(tr("No apps found\n\nAdd a Windows app profile to get started"))
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setStyleSheet(
                 f"background: transparent; color: {C.OVERLAY0}; font-size: 15px; padding: 60px;"
@@ -318,7 +319,7 @@ class LibraryPageMixin:
 
         launch_btn = QPushButton("▶")
         launch_btn.setFixedSize(32, 32)
-        launch_btn.setToolTip(f"Launch {app.full_name}")
+        launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
         launch_btn.setStyleSheet(
             f"""
             QPushButton {{
@@ -337,7 +338,7 @@ class LibraryPageMixin:
 
         edit_btn = QPushButton("⋯")
         edit_btn.setFixedSize(28, 28)
-        edit_btn.setToolTip("Edit")
+        edit_btn.setToolTip(tr("Edit"))
         edit_btn.setStyleSheet(
             f"""
             QPushButton {{
@@ -358,7 +359,7 @@ class LibraryPageMixin:
 
         del_btn = QPushButton("✕")
         del_btn.setFixedSize(28, 28)
-        del_btn.setToolTip("Delete")
+        del_btn.setToolTip(tr("Delete"))
         del_btn.setStyleSheet(BTN_DANGER)
         del_btn.clicked.connect(lambda _, a=app: self._on_delete_app(a))
         bottom.addWidget(del_btn)
@@ -418,13 +419,13 @@ class LibraryPageMixin:
         layout.addLayout(info)
         layout.addStretch()
 
-        launch_btn = QPushButton("▶  Launch")
+        launch_btn = QPushButton(tr("▶  Launch"))
         launch_btn.setStyleSheet(BTN_ACCENT)
         launch_btn.clicked.connect(lambda: self._launch_app(app))
         layout.addWidget(launch_btn)
         layout.addSpacing(8)
 
-        edit_btn = QPushButton("Edit")
+        edit_btn = QPushButton(tr("Edit"))
         edit_btn.setStyleSheet(
             f"QPushButton {{ background: {C.SURFACE1}; color: {C.SUBTEXT0};"
             f" font-size: 12px; border-radius: 6px; padding: 6px 14px;"
@@ -465,8 +466,10 @@ class LibraryPageMixin:
             self.btn_show_hidden.setVisible(False)
             return
         self.btn_show_hidden.setVisible(True)
-        prefix = "Showing" if self._show_hidden else "Hidden"
-        self.btn_show_hidden.setText(f"{prefix} ({n})")
+        if self._show_hidden:
+            self.btn_show_hidden.setText(tr("Showing ({n})").format(n=n))
+        else:
+            self.btn_show_hidden.setText(tr("Hidden ({n})").format(n=n))
 
     def _on_toggle_hidden(self) -> None:
         self._show_hidden = self.btn_show_hidden.isChecked()
@@ -480,4 +483,4 @@ class LibraryPageMixin:
         if self._active_category:
             filtered = [a for a in filtered if self._active_category in a.categories]
         self._populate_app_view(filtered)
-        self.app_count_label.setText(f"{len(filtered)} apps")
+        self.app_count_label.setText(tr("{n} apps").format(n=len(filtered)))

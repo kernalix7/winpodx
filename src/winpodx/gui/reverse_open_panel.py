@@ -25,6 +25,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from winpodx.core.i18n import tr
 from winpodx.reverse_open.config import _SLUG_RE
 from winpodx.reverse_open.lifecycle import is_listener_running
 
@@ -185,15 +186,15 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     layout.setContentsMargins(16, 16, 16, 16)
     layout.setSpacing(8)
 
-    title = QLabel("▦  Reverse File Associations")
+    title = QLabel(tr("▦  Reverse File Associations"))
     title.setStyleSheet("font-size: 16px; font-weight: bold;")
     layout.addWidget(title)
 
-    sub = QLabel("Linux apps appear in the Windows guest's right-click ‘Open with…’ menu.")
+    sub = QLabel(tr("Linux apps appear in the Windows guest's right-click ‘Open with…’ menu."))
     sub.setWordWrap(True)
     layout.addWidget(sub)
 
-    enable_box = QCheckBox("Enable reverse-open")
+    enable_box = QCheckBox(tr("Enable reverse-open"))
     enable_box.setChecked(bool(cfg.reverse_open.enabled))
     layout.addWidget(enable_box)
 
@@ -203,10 +204,10 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
 
     # --- action buttons ------------------------------------------------------
     buttons_row = QHBoxLayout()
-    btn_refresh = QPushButton("Refresh && sync")
-    btn_start = QPushButton("Start daemon")
-    btn_stop = QPushButton("Stop daemon")
-    btn_status = QPushButton("Refresh status")
+    btn_refresh = QPushButton(tr("Refresh && sync"))
+    btn_start = QPushButton(tr("Start daemon"))
+    btn_stop = QPushButton(tr("Stop daemon"))
+    btn_status = QPushButton(tr("Refresh status"))
     for b in (btn_refresh, btn_start, btn_stop, btn_status):
         buttons_row.addWidget(b)
     buttons_row.addStretch()
@@ -214,8 +215,8 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
 
     # --- allow / deny lists --------------------------------------------------
     lists_grid = QGridLayout()
-    allow_label = QLabel("Allowlist (empty = all discovered)")
-    deny_label = QLabel("Denylist")
+    allow_label = QLabel(tr("Allowlist (empty = all discovered)"))
+    deny_label = QLabel(tr("Denylist"))
     allow_list = QListWidget()
     deny_list = QListWidget()
     for slug in cfg.reverse_open.allowlist:
@@ -228,15 +229,15 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     lists_grid.addWidget(deny_list, 1, 1)
 
     allow_btns = QHBoxLayout()
-    btn_allow_add = QPushButton("+ Add")
-    btn_allow_rm = QPushButton("− Remove")
+    btn_allow_add = QPushButton(tr("+ Add"))
+    btn_allow_rm = QPushButton(tr("− Remove"))
     allow_btns.addWidget(btn_allow_add)
     allow_btns.addWidget(btn_allow_rm)
     allow_btns.addStretch()
 
     deny_btns = QHBoxLayout()
-    btn_deny_add = QPushButton("+ Add")
-    btn_deny_rm = QPushButton("− Remove")
+    btn_deny_add = QPushButton(tr("+ Add"))
+    btn_deny_rm = QPushButton(tr("− Remove"))
     deny_btns.addWidget(btn_deny_add)
     deny_btns.addWidget(btn_deny_rm)
     deny_btns.addStretch()
@@ -268,17 +269,17 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         cfg.reverse_open.denylist = [deny_list.item(i).text() for i in range(deny_list.count())]
 
     def _prompt_slug(prefix: str) -> str | None:
-        text, ok = QInputDialog.getText(card, prefix, "Slug:")
+        text, ok = QInputDialog.getText(card, prefix, tr("Slug:"))
         if not ok:
             return None
         valid, value_or_err = validate_slug(text)
         if not valid:
-            QMessageBox.warning(card, "Invalid slug", value_or_err)
+            QMessageBox.warning(card, tr("Invalid slug"), value_or_err)
             return None
         return value_or_err
 
     def _add_list(target: QListWidget, other: QListWidget, label: str) -> None:
-        slug = _prompt_slug(f"Add to {label}")
+        slug = _prompt_slug(tr("Add to {list}").format(list=label))
         if not slug:
             return
         current_target = [target.item(i).text() for i in range(target.count())]
@@ -298,7 +299,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     def _remove_list(target: QListWidget) -> None:
         item = target.currentItem()
         if item is None:
-            QMessageBox.information(card, "Remove", "Select a slug first.")
+            QMessageBox.information(card, tr("Remove"), tr("Select a slug first."))
             return
         target.takeItem(target.row(item))
         _sync_lists_to_cfg()
@@ -319,7 +320,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
             handler(args)
         except Exception as exc:  # noqa: BLE001
             logger.exception("host-open CLI handler raised")
-            QMessageBox.warning(card, "reverse-open", str(exc))
+            QMessageBox.warning(card, tr("reverse-open"), str(exc))
 
     btn_refresh.clicked.connect(
         lambda: (
@@ -340,9 +341,9 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         lambda: (_run_cli(_cmd_stop_listener, json=False), _refresh_status_label())
     )
     btn_status.clicked.connect(_refresh_status_label)
-    btn_allow_add.clicked.connect(lambda: _add_list(allow_list, deny_list, "allowlist"))
+    btn_allow_add.clicked.connect(lambda: _add_list(allow_list, deny_list, tr("allowlist")))
     btn_allow_rm.clicked.connect(lambda: _remove_list(allow_list))
-    btn_deny_add.clicked.connect(lambda: _add_list(deny_list, allow_list, "denylist"))
+    btn_deny_add.clicked.connect(lambda: _add_list(deny_list, allow_list, tr("denylist")))
     btn_deny_rm.clicked.connect(lambda: _remove_list(deny_list))
     enable_box.stateChanged.connect(_on_enable)
 

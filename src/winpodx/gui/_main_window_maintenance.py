@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow
 from winpodx.gui.theme import (
     ACTION_ROW,
@@ -63,18 +64,18 @@ class MaintenanceMixin:
         layout = QVBoxLayout(content)
         layout.setContentsMargins(32, 24, 32, 20)
 
-        title = QLabel("Tools")
+        title = QLabel(tr("Tools"))
         title.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
         )
         layout.addWidget(title)
 
-        sub = QLabel("System maintenance and pod management")
+        sub = QLabel(tr("System maintenance and pod management"))
         sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
         layout.addWidget(sub)
         layout.addSpacing(20)
 
-        grp1 = QLabel("Pod Management")
+        grp1 = QLabel(tr("Pod Management"))
         grp1.setStyleSheet(
             "background: transparent;"
             f" color: {C.SUBTEXT0};"
@@ -86,16 +87,16 @@ class MaintenanceMixin:
         layout.addSpacing(8)
 
         pod_tools = [
-            ("⏸", "Suspend Pod", "Pause container (keeps memory)", self._on_suspend),
-            ("▶", "Resume Pod", "Unpause a suspended container", self._on_resume),
-            ("▣", "Full Desktop", "Launch full Windows desktop", self._on_open_desktop),
+            ("⏸", tr("Suspend Pod"), tr("Pause container (keeps memory)"), self._on_suspend),
+            ("▶", tr("Resume Pod"), tr("Unpause a suspended container"), self._on_resume),
+            ("▣", tr("Full Desktop"), tr("Launch full Windows desktop"), self._on_open_desktop),
         ]
         for i, (icon, label, desc, handler) in enumerate(pod_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i))
 
         layout.addSpacing(20)
 
-        grp2 = QLabel("System")
+        grp2 = QLabel(tr("System"))
         grp2.setStyleSheet(
             "background: transparent;"
             f" color: {C.SUBTEXT0};"
@@ -107,25 +108,25 @@ class MaintenanceMixin:
         layout.addSpacing(8)
 
         sys_tools = [
-            ("✧", "Clean Locks", "Remove Office lock files", self._on_cleanup),
-            ("◷", "Sync Time", "Force Windows clock sync", self._on_timesync),
-            ("◆", "Debloat", "Disable telemetry & ads", self._on_debloat),
+            ("✧", tr("Clean Locks"), tr("Remove Office lock files"), self._on_cleanup),
+            ("◷", tr("Sync Time"), tr("Force Windows clock sync"), self._on_timesync),
+            ("◆", tr("Debloat"), tr("Disable telemetry & ads"), self._on_debloat),
             (
                 "⚙",
-                "Apply Windows Fixes",
-                "Re-apply RDP timeout / NIC / TermService recovery to existing pod",
+                tr("Apply Windows Fixes"),
+                tr("Re-apply RDP timeout / NIC / TermService recovery to existing pod"),
                 self._on_apply_fixes,
             ),
             (
                 "⊕",
-                "Grow Disk",
-                "Add space to the Windows disk and extend C: to fill it",
+                tr("Grow Disk"),
+                tr("Add space to the Windows disk and extend C: to fill it"),
                 self._on_grow_disk,
             ),
             (
                 "↻",
-                "Sync Guest",
-                "Push host updates (agent, fixes, rdprrap) into the guest -- no reinstall",
+                tr("Sync Guest"),
+                tr("Push host updates (agent, fixes, rdprrap) into the guest -- no reinstall"),
                 self._on_sync_guest,
             ),
         ]
@@ -134,7 +135,7 @@ class MaintenanceMixin:
 
         layout.addSpacing(20)
 
-        grp3 = QLabel("Windows Update")
+        grp3 = QLabel(tr("Windows Update"))
         grp3.setStyleSheet(
             "background: transparent;"
             f" color: {C.SUBTEXT0};"
@@ -162,25 +163,25 @@ class MaintenanceMixin:
 
         col = QVBoxLayout()
         col.setSpacing(2)
-        lbl = QLabel("Windows Update")
+        lbl = QLabel(tr("Windows Update"))
         lbl.setStyleSheet(
             f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 600;"
         )
         col.addWidget(lbl)
-        self._update_status_label = QLabel("Checking...")
+        self._update_status_label = QLabel(tr("Checking..."))
         self._update_status_label.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;"
         )
         col.addWidget(self._update_status_label)
         rl.addLayout(col, 1)
 
-        self._btn_enable_updates = QPushButton("Enable")
+        self._btn_enable_updates = QPushButton(tr("Enable"))
         self._btn_enable_updates.setStyleSheet(BTN_PRIMARY)
         self._btn_enable_updates.setFixedWidth(90)
         self._btn_enable_updates.clicked.connect(self._on_enable_updates)
         rl.addWidget(self._btn_enable_updates)
 
-        self._btn_disable_updates = QPushButton("Disable")
+        self._btn_disable_updates = QPushButton(tr("Disable"))
         self._btn_disable_updates.setStyleSheet(BTN_DANGER)
         self._btn_disable_updates.setFixedWidth(90)
         self._btn_disable_updates.clicked.connect(self._on_disable_updates)
@@ -248,7 +249,11 @@ class MaintenanceMixin:
         from winpodx.core.daemon import cleanup_lock_files
 
         removed = cleanup_lock_files()
-        msg = f"Removed {len(removed)} lock files" if removed else "No lock files found"
+        msg = (
+            tr("Removed {n} lock files").format(n=len(removed))
+            if removed
+            else tr("No lock files found")
+        )
         self.info_label.setText(msg)
 
     def _on_grow_disk(self) -> None:
@@ -264,31 +269,36 @@ class MaintenanceMixin:
         if cfg.pod.backend not in ("podman", "docker"):
             QMessageBox.information(
                 self,
-                "Grow Disk",
-                f"Disk grow is only supported on the podman / docker backends, "
-                f"not {cfg.pod.backend!r}.",
+                tr("Grow Disk"),
+                tr(
+                    "Disk grow is only supported on the podman / docker backends, not {backend!r}."
+                ).format(backend=cfg.pod.backend),
             )
             return
         try:
             new_size = compute_grow_target(cfg)
         except DiskError as e:
-            QMessageBox.information(self, "Grow Disk", f"Cannot grow disk: {e}")
+            QMessageBox.information(self, tr("Grow Disk"), tr("Cannot grow disk: {e}").format(e=e))
             return
 
         reply = QMessageBox.question(
             self,
-            "Grow Disk",
-            f"Grow the Windows disk {cfg.pod.disk_size} → {new_size}?\n\n"
-            "This stops the pod, recreates the container so the virtual disk "
-            "grows, then extends C: to fill it. Windows data is preserved, but "
-            "the guest will reboot and this can take a few minutes.\n\nProceed?",
+            tr("Grow Disk"),
+            tr(
+                "Grow the Windows disk {old} → {new}?\n\n"
+                "This stops the pod, recreates the container so the virtual disk "
+                "grows, then extends C: to fill it. Windows data is preserved, but "
+                "the guest will reboot and this can take a few minutes.\n\nProceed?"
+            ).format(old=cfg.pod.disk_size, new=new_size),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        self.info_label.setText(f"Growing disk {cfg.pod.disk_size} → {new_size}...")
+        self.info_label.setText(
+            tr("Growing disk {old} → {new}...").format(old=cfg.pod.disk_size, new=new_size)
+        )
 
         def _do() -> None:
             from winpodx.core.disk import DiskError, grow_disk
@@ -296,16 +306,20 @@ class MaintenanceMixin:
             try:
                 result = grow_disk(cfg)
             except DiskError as e:
-                self.app_launch_failed.emit(f"Grow failed: {e}")
+                self.app_launch_failed.emit(tr("Grow failed: {e}").format(e=e))
                 return
             if result.partition_extended:
                 self.app_launched.emit(
-                    f"Disk grown {result.old_size} → {result.new_size}; C: extended to fill."
+                    tr("Disk grown {old} → {new}; C: extended to fill.").format(
+                        old=result.old_size, new=result.new_size
+                    )
                 )
             else:
                 self.app_launched.emit(
-                    f"Disk grown {result.old_size} → {result.new_size}. "
-                    + (result.note or "C: not extended yet.")
+                    tr("Disk grown {old} → {new}. ").format(
+                        old=result.old_size, new=result.new_size
+                    )
+                    + (result.note or tr("C: not extended yet."))
                 )
 
         threading.Thread(target=_do, daemon=True).start()
@@ -319,24 +333,28 @@ class MaintenanceMixin:
         if cfg.pod.backend not in ("podman", "docker"):
             QMessageBox.information(
                 self,
-                "Sync Guest",
-                f"Guest sync is only supported on podman / docker, not {cfg.pod.backend!r}.",
+                tr("Sync Guest"),
+                tr("Guest sync is only supported on podman / docker, not {backend!r}.").format(
+                    backend=cfg.pod.backend
+                ),
             )
             return
 
         reply = QMessageBox.question(
             self,
-            "Sync Guest",
-            "Push this host's updated guest files (agent, urlacl, rdprrap, "
-            "registry fixes) into the running Windows guest? The agent restarts "
-            "briefly at the end. Windows data is untouched.\n\nProceed?",
+            tr("Sync Guest"),
+            tr(
+                "Push this host's updated guest files (agent, urlacl, rdprrap, "
+                "registry fixes) into the running Windows guest? The agent restarts "
+                "briefly at the end. Windows data is untouched.\n\nProceed?"
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        self.info_label.setText("Syncing guest...")
+        self.info_label.setText(tr("Syncing guest..."))
 
         def _do() -> None:
             from winpodx.core.guest_sync import GuestSyncError, sync_guest
@@ -344,13 +362,15 @@ class MaintenanceMixin:
             try:
                 results = sync_guest(cfg, force=True)
             except GuestSyncError as e:
-                self.app_launch_failed.emit(f"Guest sync failed: {e}")
+                self.app_launch_failed.emit(tr("Guest sync failed: {e}").format(e=e))
                 return
             failed = [k for k, v in results.items() if v.startswith("failed")]
             if failed:
-                self.app_launch_failed.emit("Guest sync had failures: " + ", ".join(failed))
+                self.app_launch_failed.emit(
+                    tr("Guest sync had failures: {detail}").format(detail=", ".join(failed))
+                )
             else:
-                self.app_launched.emit("Guest synced; agent restarting (~5s).")
+                self.app_launched.emit(tr("Guest synced; agent restarting (~5s)."))
 
         threading.Thread(target=_do, daemon=True).start()
 
@@ -361,22 +381,22 @@ class MaintenanceMixin:
             cfg = Config.load()
             status = get_update_status(cfg)
             if status == "enabled":
-                self._update_status_label.setText("Windows Update is enabled")
+                self._update_status_label.setText(tr("Windows Update is enabled"))
                 self._btn_enable_updates.setEnabled(False)
                 self._btn_disable_updates.setEnabled(True)
             elif status == "disabled":
-                self._update_status_label.setText("Windows Update is disabled")
+                self._update_status_label.setText(tr("Windows Update is disabled"))
                 self._btn_enable_updates.setEnabled(True)
                 self._btn_disable_updates.setEnabled(False)
             else:
-                self._update_status_label.setText("Status unknown (container not running?)")
+                self._update_status_label.setText(tr("Status unknown (container not running?)"))
                 self._btn_enable_updates.setEnabled(True)
                 self._btn_disable_updates.setEnabled(True)
 
         threading.Thread(target=_do, daemon=True).start()
 
     def _on_enable_updates(self) -> None:
-        self._update_status_label.setText("Enabling Windows Update...")
+        self._update_status_label.setText(tr("Enabling Windows Update..."))
         self._btn_enable_updates.setEnabled(False)
         self._btn_disable_updates.setEnabled(False)
 
@@ -386,9 +406,9 @@ class MaintenanceMixin:
             cfg = Config.load()
             ok = enable_updates(cfg)
             if ok:
-                self.app_launched.emit("Windows Update enabled")
+                self.app_launched.emit(tr("Windows Update enabled"))
             else:
-                self.app_launch_failed.emit("Failed to enable Windows Update")
+                self.app_launch_failed.emit(tr("Failed to enable Windows Update"))
             self._refresh_update_status()
 
         threading.Thread(target=_do, daemon=True).start()
@@ -396,16 +416,18 @@ class MaintenanceMixin:
     def _on_disable_updates(self) -> None:
         reply = QMessageBox.question(
             self,
-            "Disable Windows Update",
-            "This will stop Windows Update services and block update domains.\n"
-            "Security updates will NOT be installed while disabled.\n\nProceed?",
+            tr("Disable Windows Update"),
+            tr(
+                "This will stop Windows Update services and block update domains.\n"
+                "Security updates will NOT be installed while disabled.\n\nProceed?"
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        self._update_status_label.setText("Disabling Windows Update...")
+        self._update_status_label.setText(tr("Disabling Windows Update..."))
         self._btn_enable_updates.setEnabled(False)
         self._btn_disable_updates.setEnabled(False)
 
@@ -415,9 +437,9 @@ class MaintenanceMixin:
             cfg = Config.load()
             ok = disable_updates(cfg)
             if ok:
-                self.app_launched.emit("Windows Update disabled")
+                self.app_launched.emit(tr("Windows Update disabled"))
             else:
-                self.app_launch_failed.emit("Failed to disable Windows Update")
+                self.app_launch_failed.emit(tr("Failed to disable Windows Update"))
             self._refresh_update_status()
 
         threading.Thread(target=_do, daemon=True).start()
@@ -426,20 +448,20 @@ class MaintenanceMixin:
         from winpodx.core.daemon import sync_windows_time
 
         ok = sync_windows_time(Config.load())
-        self.info_label.setText("Time synced" if ok else "Time sync failed")
+        self.info_label.setText(tr("Time synced") if ok else tr("Time sync failed"))
 
     def _on_suspend(self) -> None:
         from winpodx.core.daemon import suspend_pod
 
         ok = suspend_pod(Config.load())
-        self.info_label.setText("Pod suspended" if ok else "Suspend failed")
+        self.info_label.setText(tr("Pod suspended") if ok else tr("Suspend failed"))
         self._refresh_pod_status()
 
     def _on_resume(self) -> None:
         from winpodx.core.daemon import resume_pod
 
         ok = resume_pod(Config.load())
-        self.info_label.setText("Pod resumed" if ok else "Resume failed")
+        self.info_label.setText(tr("Pod resumed") if ok else tr("Resume failed"))
         self._refresh_pod_status()
 
     def _on_debloat(self) -> None:
@@ -457,7 +479,7 @@ class MaintenanceMixin:
         try:
             catalog = load_catalog()
         except DebloatCatalogError as e:
-            QMessageBox.warning(self, "Debloat", f"Catalog error: {e}")
+            QMessageBox.warning(self, tr("Debloat"), tr("Catalog error: {e}").format(e=e))
             return
 
         dialog = DebloatPickerDialog(catalog, parent=self)
@@ -468,7 +490,7 @@ class MaintenanceMixin:
         if not selection:
             return
 
-        self.info_label.setText(f"Running debloat ({len(selection)} item(s))...")
+        self.info_label.setText(tr("Running debloat ({n} item(s))...").format(n=len(selection)))
 
         def _do() -> None:
             from winpodx.core.debloat import (
@@ -483,22 +505,26 @@ class MaintenanceMixin:
             try:
                 payload = build_run_script(catalog, selection)
             except _CatalogError as e:
-                self.app_launch_failed.emit(f"Debloat payload build error: {e}")
+                self.app_launch_failed.emit(tr("Debloat payload build error: {e}").format(e=e))
                 return
 
             description = "debloat (" + ",".join(selection) + ")"
             try:
                 result = run_via_transport(cfg, payload, description=description, timeout=300)
             except WindowsExecError as e:
-                self.app_launch_failed.emit(f"Debloat channel failure: {e}")
+                self.app_launch_failed.emit(tr("Debloat channel failure: {e}").format(e=e))
                 return
 
             if result.rc == 0:
-                self.app_launched.emit(f"Debloat complete ({len(selection)} item(s))")
+                self.app_launched.emit(
+                    tr("Debloat complete ({n} item(s))").format(n=len(selection))
+                )
             else:
                 self.app_launch_failed.emit(
-                    f"Debloat failed (rc={result.rc}): "
-                    f"{result.stderr.strip() or result.stdout.strip()[:200]}"
+                    tr("Debloat failed (rc={rc}): {detail}").format(
+                        rc=result.rc,
+                        detail=result.stderr.strip() or result.stdout.strip()[:200],
+                    )
                 )
             self.pod_status_updated.emit("running", cfg.rdp.ip)
 
@@ -512,7 +538,7 @@ class MaintenanceMixin:
         whose migrate short-circuited with "already current" so the
         Windows VM never received the OEM v7+v8 fixes.
         """
-        self.info_label.setText("Applying Windows-side fixes...")
+        self.info_label.setText(tr("Applying Windows-side fixes..."))
 
         def _do() -> None:
             from winpodx.core.pod import PodState, pod_status
@@ -522,20 +548,22 @@ class MaintenanceMixin:
             try:
                 state = pod_status(cfg).state
             except Exception as e:  # noqa: BLE001
-                self.app_launch_failed.emit(f"Apply fixes failed (pod probe): {e}")
+                self.app_launch_failed.emit(tr("Apply fixes failed (pod probe): {e}").format(e=e))
                 return
 
             if state != PodState.RUNNING:
                 self.app_launch_failed.emit(
-                    "Pod is not running — start it first via the Apps page or "
-                    "`winpodx pod start --wait`."
+                    tr(
+                        "Pod is not running — start it first via the Apps page or "
+                        "`winpodx pod start --wait`."
+                    )
                 )
                 return
 
             try:
                 results = apply_windows_runtime_fixes(cfg)
             except Exception as e:  # noqa: BLE001
-                self.app_launch_failed.emit(f"Apply fixes raised: {e}")
+                self.app_launch_failed.emit(tr("Apply fixes raised: {e}").format(e=e))
                 return
 
             ok_count = sum(1 for v in results.values() if v == "ok")
@@ -543,14 +571,22 @@ class MaintenanceMixin:
             failed = [k for k, v in results.items() if v != "ok"]
             if failed:
                 detail = ", ".join(failed)
-                self.app_launch_failed.emit(f"Apply fixes: {ok_count}/{total} OK; failed: {detail}")
+                self.app_launch_failed.emit(
+                    tr("Apply fixes: {ok}/{total} OK; failed: {detail}").format(
+                        ok=ok_count, total=total, detail=detail
+                    )
+                )
             else:
-                self.app_launched.emit(f"Windows-side fixes applied ({ok_count}/{total} OK)")
+                self.app_launched.emit(
+                    tr("Windows-side fixes applied ({ok}/{total} OK)").format(
+                        ok=ok_count, total=total
+                    )
+                )
 
         threading.Thread(target=_do, daemon=True).start()
 
     def _on_open_desktop(self) -> None:
-        self.info_label.setText("Opening Windows desktop...")
+        self.info_label.setText(tr("Opening Windows desktop..."))
 
         def _do() -> None:
             try:
@@ -559,7 +595,7 @@ class MaintenanceMixin:
 
                 cfg = ensure_ready()
                 launch_desktop(cfg)
-                self.app_launched.emit("Windows Desktop")
+                self.app_launched.emit(tr("Windows Desktop"))
             except Exception as e:  # noqa: BLE001
                 self.app_launch_failed.emit(str(e))
 

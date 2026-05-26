@@ -34,6 +34,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from winpodx.core.i18n import tr
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -76,16 +78,24 @@ def handle_doctor(_args: argparse.Namespace) -> None:
         if f.detail:
             print(f"        {f.detail}")
         if f.suggestion:
-            print(f"        Suggested: {f.suggestion}")
+            print(tr("        Suggested: {suggestion}").format(suggestion=f.suggestion))
 
     print()
     if fail_count:
-        print(f"Summary: {fail_count} FAIL, {warn_count} WARN")
+        print(
+            tr("Summary: {fail_count} FAIL, {warn_count} WARN").format(
+                fail_count=fail_count, warn_count=warn_count
+            )
+        )
         sys.exit(1)
     elif warn_count:
-        print(f"Summary: {warn_count} WARN, no FAIL — winpodx is mostly OK.")
+        print(
+            tr("Summary: {warn_count} WARN, no FAIL — winpodx is mostly OK.").format(
+                warn_count=warn_count
+            )
+        )
     else:
-        print("Summary: all checks passed.")
+        print(tr("Summary: all checks passed."))
 
 
 # -----------------------------------------------------------------------

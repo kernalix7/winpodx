@@ -7,6 +7,8 @@ import argparse
 import re
 import sys
 
+from winpodx.core.i18n import tr
+
 
 def handle_pod(args: argparse.Namespace) -> None:
     """Route pod subcommands."""
@@ -52,9 +54,11 @@ def handle_pod(args: argparse.Namespace) -> None:
         _sync_guest(force=getattr(args, "force", False))
     else:
         print(
-            "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
-            "sync-password|multi-session|wait-ready|install-status|install-resume|"
-            "recover-oem|grow-disk|disk-usage|sync-guest}"
+            tr(
+                "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
+                "sync-password|multi-session|wait-ready|install-status|install-resume|"
+                "recover-oem|grow-disk|disk-usage|sync-guest}"
+            )
         )
         sys.exit(1)
 
@@ -72,34 +76,35 @@ def _start(wait: bool, timeout: int, tuning_override: str | None = None) -> None
     # for this invocation but the user's persisted preference is intact.
     if tuning_override is not None and tuning_override != cfg.pod.tuning_profile:
         print(
-            f"Overriding tuning_profile for this run: "
-            f"{cfg.pod.tuning_profile!r} -> {tuning_override!r}"
+            tr("Overriding tuning_profile for this run: {old} -> {new}").format(
+                old=repr(cfg.pod.tuning_profile), new=repr(tuning_override)
+            )
         )
         cfg.pod.tuning_profile = tuning_override
     if cfg.pod.backend in ("podman", "docker"):
         _ensure_compose(cfg)
 
-    print(f"Starting pod (backend: {cfg.pod.backend})...")
+    print(tr("Starting pod (backend: {backend})...").format(backend=cfg.pod.backend))
     status = start_pod(cfg)
 
     if status.state == PodState.RUNNING:
-        print(f"Pod is running at {status.ip}")
+        print(tr("Pod is running at {ip}").format(ip=status.ip))
         notify_pod_started(status.ip)
     elif status.state == PodState.STARTING:
         if wait:
-            print(f"Waiting for RDP at {status.ip}:{cfg.rdp.port}...")
+            print(tr("Waiting for RDP at {ip}:{port}...").format(ip=status.ip, port=cfg.rdp.port))
             backend = get_backend(cfg)
             if backend.wait_for_ready(timeout):
-                print("Pod is ready!")
+                print(tr("Pod is ready!"))
                 notify_pod_started(status.ip)
             else:
-                print("Timeout waiting for RDP.", file=sys.stderr)
+                print(tr("Timeout waiting for RDP."), file=sys.stderr)
                 sys.exit(1)
         else:
-            print(f"Pod is starting... RDP not yet available at {status.ip}")
-            print("Use 'winpodx pod start --wait' to wait for readiness.")
+            print(tr("Pod is starting... RDP not yet available at {ip}").format(ip=status.ip))
+            print(tr("Use 'winpodx pod start --wait' to wait for readiness."))
     else:
-        print(f"Failed to start pod: {status.error}", file=sys.stderr)
+        print(tr("Failed to start pod: {error}").format(error=status.error), file=sys.stderr)
         sys.exit(1)
 
     # Start the reverse-open listener daemon if the feature is on. The
@@ -134,9 +139,12 @@ def _maybe_start_reverse_open_listener(cfg) -> None:  # type: ignore[no-untyped-
         listener_cfg.incoming_dir.mkdir(parents=True, exist_ok=True)
         listener_cfg.incoming_dir.chmod(0o700)
         pid = start_listener(listener_cfg, _apps_json(), _seen_uuids_path())
-        print(f"  reverse-open listener: started (pid {pid})")
+        print(tr("  reverse-open listener: started (pid {pid})").format(pid=pid))
     except (ListenerStartFailed, OSError) as exc:
-        print(f"  reverse-open listener: start failed ({exc})", file=sys.stderr)
+        print(
+            tr("  reverse-open listener: start failed ({error})").format(error=exc),
+            file=sys.stderr,
+        )
 
 
 def _stop() -> None:
@@ -149,8 +157,8 @@ def _stop() -> None:
     sessions = list_active_sessions()
     if sessions:
         names = ", ".join(s.app_name for s in sessions)
-        print(f"Active sessions: {names}")
-        answer = input("Stop pod anyway? (y/N): ").strip().lower()
+        print(tr("Active sessions: {names}").format(names=names))
+        answer = input(tr("Stop pod anyway? (y/N): ")).strip().lower()
         if answer not in ("y", "yes"):
             return
 
@@ -161,13 +169,13 @@ def _stop() -> None:
         from winpodx.reverse_open.lifecycle import stop_listener
 
         if stop_listener():
-            print("Reverse-open listener stopped.")
+            print(tr("Reverse-open listener stopped."))
     except Exception:  # noqa: BLE001
         pass
 
-    print("Stopping pod...")
+    print(tr("Stopping pod..."))
     stop_pod(cfg)
-    print("Pod stopped.")
+    print(tr("Pod stopped."))
     notify_pod_stopped()
 
 
@@ -179,19 +187,19 @@ def _status() -> None:
     cfg = Config.load()
     s = pod_status(cfg)
 
-    print(f"Backend:  {cfg.pod.backend}")
-    print(f"State:    {s.state.value}")
-    print(f"IP:       {s.ip or 'N/A'}")
-    print(f"RDP Port: {cfg.rdp.port}")
+    print(tr("Backend:  {backend}").format(backend=cfg.pod.backend))
+    print(tr("State:    {state}").format(state=s.state.value))
+    print(tr("IP:       {ip}").format(ip=s.ip or "N/A"))
+    print(tr("RDP Port: {port}").format(port=cfg.rdp.port))
 
     sessions = list_active_sessions()
     if sessions:
-        print(f"Sessions: {len(sessions)} active")
+        print(tr("Sessions: {count} active").format(count=len(sessions)))
         for sess in sessions:
-            print(f"  - {sess.app_name} (PID {sess.pid})")
+            print(tr("  - {app_name} (PID {pid})").format(app_name=sess.app_name, pid=sess.pid))
 
     if s.error:
-        print(f"Error:    {s.error}")
+        print(tr("Error:    {error}").format(error=s.error))
 
 
 def _apply_fixes() -> None:
@@ -211,15 +219,17 @@ def _apply_fixes() -> None:
 
     if cfg.pod.backend not in ("podman", "docker"):
         print(
-            f"Backend {cfg.pod.backend!r} doesn't support runtime apply. "
-            "Recreate your container after upgrading to pick up Windows-side fixes."
+            tr(
+                "Backend {backend} doesn't support runtime apply. "
+                "Recreate your container after upgrading to pick up Windows-side fixes."
+            ).format(backend=repr(cfg.pod.backend))
         )
         sys.exit(2)
 
     state = pod_status(cfg).state
     if state != PodState.RUNNING:
-        print(f"Pod is {state.value}, not running.")
-        print("Start the pod first with: winpodx pod start --wait")
+        print(tr("Pod is {state}, not running.").format(state=state.value))
+        print(tr("Start the pod first with: winpodx pod start --wait"))
         sys.exit(2)
 
     # v0.2.0.1: container RUNNING != Windows VM accepting FreeRDP yet.
@@ -228,15 +238,17 @@ def _apply_fixes() -> None:
     # doesn't see 3×60s of timeout cascades.
     from winpodx.core.provisioner import wait_for_windows_responsive
 
-    print("Waiting for Windows guest to finish booting (up to 180s)...")
+    print(tr("Waiting for Windows guest to finish booting (up to 180s)..."))
     if not wait_for_windows_responsive(cfg, timeout=600):
         print(
-            "Windows guest still booting after 180s. Wait a bit longer, "
-            "then re-run `winpodx pod apply-fixes`."
+            tr(
+                "Windows guest still booting after 180s. Wait a bit longer, "
+                "then re-run `winpodx pod apply-fixes`."
+            )
         )
         sys.exit(2)
 
-    print("Applying Windows-side runtime fixes...")
+    print(tr("Applying Windows-side runtime fixes..."))
     results = apply_windows_runtime_fixes(cfg)
 
     failures = []
@@ -248,11 +260,13 @@ def _apply_fixes() -> None:
 
     if failures:
         print(
-            f"\n{len(failures)} of {len(results)} apply(s) failed. "
-            "Check `winpodx info` and try again, or recreate the container."
+            tr(
+                "\n{fail_count} of {total} apply(s) failed. "
+                "Check `winpodx info` and try again, or recreate the container."
+            ).format(fail_count=len(failures), total=len(results))
         )
         sys.exit(3)
-    print("\nAll fixes applied to existing guest (no container recreate needed).")
+    print(tr("\nAll fixes applied to existing guest (no container recreate needed)."))
 
 
 def _sync_password(non_interactive: bool) -> None:
@@ -289,11 +303,15 @@ def _sync_password(non_interactive: bool) -> None:
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
-        print(f"sync-password not supported for backend {cfg.pod.backend!r}.")
+        print(
+            tr("sync-password not supported for backend {backend}.").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
         sys.exit(2)
 
     if not cfg.rdp.password:
-        print("No password set in cfg — nothing to sync to.")
+        print(tr("No password set in cfg — nothing to sync to."))
         sys.exit(2)
 
     target_pw = cfg.rdp.password.replace("'", "''")
@@ -309,30 +327,38 @@ def _sync_password(non_interactive: bool) -> None:
         transport = None
 
     if transport is not None:
-        print("Resetting Windows account password via agent...")
+        print(tr("Resetting Windows account password via agent..."))
         try:
             result = transport.exec(payload, description="sync-password", timeout=90)
         except TransportAuthError as e:
-            print(f"FAIL: agent rejected the request (auth): {e}")
+            print(tr("FAIL: agent rejected the request (auth): {error}").format(error=e))
             print(
-                "\nThe agent's bearer token doesn't match what's on the guest. "
-                "This is config drift, not a transient channel failure — fix the "
-                "token mismatch (reinstall agent or re-run install.bat) before "
-                "retrying."
+                tr(
+                    "\nThe agent's bearer token doesn't match what's on the guest. "
+                    "This is config drift, not a transient channel failure — fix the "
+                    "token mismatch (reinstall agent or re-run install.bat) before "
+                    "retrying."
+                )
             )
             sys.exit(3)
         except TransportUnavailable as e:
             # Health probe passed but exec failed — treat as fall-through.
-            print(f"Agent became unreachable mid-call ({e}); falling back to FreeRDP.")
+            print(
+                tr("Agent became unreachable mid-call ({error}); falling back to FreeRDP.").format(
+                    error=e
+                )
+            )
             transport = None
         else:
             if result.rc != 0:
                 print(
-                    f"FAIL: password reset script failed (rc={result.rc}): {result.stderr.strip()}"
+                    tr("FAIL: password reset script failed (rc={rc}): {stderr}").format(
+                        rc=result.rc, stderr=result.stderr.strip()
+                    )
                 )
                 sys.exit(3)
-            print("OK: Windows account password is now in sync with winpodx config.")
-            print("Password rotation will now work normally.")
+            print(tr("OK: Windows account password is now in sync with winpodx config."))
+            print(tr("Password rotation will now work normally."))
             return
 
     # Agent unavailable — fall back to FreeRDP RemoteApp, which needs a
@@ -340,22 +366,24 @@ def _sync_password(non_interactive: bool) -> None:
     if non_interactive:
         recovery_pw = os.environ.get("WINPODX_RECOVERY_PASSWORD", "")
         if not recovery_pw:
-            print("ERROR: --non-interactive requires WINPODX_RECOVERY_PASSWORD env var.")
+            print(tr("ERROR: --non-interactive requires WINPODX_RECOVERY_PASSWORD env var."))
             sys.exit(2)
     else:
         print(
-            "winpodx will authenticate once with a recovery password (the password "
-            "Windows currently accepts), then reset the Windows account to the "
-            "value in your winpodx config."
+            tr(
+                "winpodx will authenticate once with a recovery password (the password "
+                "Windows currently accepts), then reset the Windows account to the "
+                "value in your winpodx config."
+            )
         )
         print()
-        print("Common recovery passwords to try:")
-        print("  - The password from your original setup (compose.yml PASSWORD env)")
-        print("  - The first password you set when winpodx was installed")
+        print(tr("Common recovery passwords to try:"))
+        print(tr("  - The password from your original setup (compose.yml PASSWORD env)"))
+        print(tr("  - The first password you set when winpodx was installed"))
         print()
-        recovery_pw = getpass.getpass("Recovery password (input hidden): ")
+        recovery_pw = getpass.getpass(tr("Recovery password (input hidden): "))
         if not recovery_pw:
-            print("Aborted.")
+            print(tr("Aborted."))
             sys.exit(2)
 
     # Build a temporary Config copy with the recovery password so
@@ -363,27 +391,33 @@ def _sync_password(non_interactive: bool) -> None:
     rescue_cfg = Config.load()
     rescue_cfg.rdp.password = recovery_pw
 
-    print("Authenticating with recovery password and resetting Windows account...")
+    print(tr("Authenticating with recovery password and resetting Windows account..."))
     try:
         result = run_in_windows(rescue_cfg, payload, description="sync-password", timeout=120)
     except WindowsExecError as e:
-        print(f"FAIL: channel failure with recovery password: {e}")
+        print(tr("FAIL: channel failure with recovery password: {error}").format(error=e))
         print(
-            "\nThe recovery password didn't authenticate either. Options:\n"
-            "  1. Try sync-password again with a different recovery password.\n"
-            "  2. Open `winpodx app run desktop` and reset manually:\n"
-            f"       net user {cfg.rdp.user} <password from `winpodx config show`>\n"
-            "  3. As a last resort, recreate the container with `podman rm -f` + "
-            "`winpodx pod start --wait`."
+            tr(
+                "\nThe recovery password didn't authenticate either. Options:\n"
+                "  1. Try sync-password again with a different recovery password.\n"
+                "  2. Open `winpodx app run desktop` and reset manually:\n"
+                "       net user {user} <password from `winpodx config show`>\n"
+                "  3. As a last resort, recreate the container with `podman rm -f` + "
+                "`winpodx pod start --wait`."
+            ).format(user=cfg.rdp.user)
         )
         sys.exit(3)
 
     if result.rc != 0:
-        print(f"FAIL: password reset script failed (rc={result.rc}): {result.stderr.strip()}")
+        print(
+            tr("FAIL: password reset script failed (rc={rc}): {stderr}").format(
+                rc=result.rc, stderr=result.stderr.strip()
+            )
+        )
         sys.exit(3)
 
-    print("OK: Windows account password is now in sync with winpodx config.")
-    print("Password rotation will now work normally.")
+    print(tr("OK: Windows account password is now in sync with winpodx config."))
+    print(tr("Password rotation will now work normally."))
 
 
 def _multi_session(action: str) -> None:
@@ -422,7 +456,11 @@ def _multi_session(action: str) -> None:
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
-        print(f"multi-session not supported for backend {cfg.pod.backend!r}.")
+        print(
+            tr("multi-session not supported for backend {backend}.").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
         sys.exit(2)
 
     if action == "on":
@@ -432,7 +470,7 @@ def _multi_session(action: str) -> None:
     elif action == "status":
         _multi_session_status(cfg)
     else:  # argparse already restricts choices, but be explicit
-        print(f"Unknown multi-session action: {action!r}")
+        print(tr("Unknown multi-session action: {action}").format(action=repr(action)))
         sys.exit(2)
 
 
@@ -475,33 +513,41 @@ def _multi_session_enable(cfg) -> None:  # type: ignore[no-untyped-def]
         + "\n"
     )
 
-    print("Queuing multi-session activation (detached)...")
+    print(tr("Queuing multi-session activation (detached)..."))
     try:
         result = run_via_transport(cfg, payload, description="multi-session-enable", timeout=60)
     except WindowsExecError as e:
-        print(f"FAIL: channel failure: {e}")
+        print(tr("FAIL: channel failure: {error}").format(error=e))
         sys.exit(3)
 
     output = (result.stdout or "").strip()
     if result.rc == 2 and "NOT-STAGED" in output:
         print(
-            "rdprrap-activate.ps1 not staged in the guest.\n"
-            "Run `winpodx pod apply-fixes` first — its vbs_launchers step "
-            "pushes the activation script. Then re-run "
-            "`winpodx pod multi-session on`."
+            tr(
+                "rdprrap-activate.ps1 not staged in the guest.\n"
+                "Run `winpodx pod apply-fixes` first — its vbs_launchers step "
+                "pushes the activation script. Then re-run "
+                "`winpodx pod multi-session on`."
+            )
         )
         sys.exit(2)
     if result.rc != 0:
-        print(f"FAIL: rc={result.rc}: {result.stderr.strip() or output}")
+        print(
+            tr("FAIL: rc={rc}: {detail}").format(
+                rc=result.rc, detail=result.stderr.strip() or output
+            )
+        )
         sys.exit(3)
 
-    print("OK: activation queued.")
+    print(tr("OK: activation queued."))
     print(
-        "rdprrap-activate.ps1 will run rdprrap-installer + restart TermService.\n"
-        "TermService restart will briefly disconnect any active RDP sessions; "
-        "reconnect after ~10s.\n"
-        "After reconnecting, run `winpodx pod multi-session status` "
-        "(or `winpodx pod apply-fixes`) to confirm activation."
+        tr(
+            "rdprrap-activate.ps1 will run rdprrap-installer + restart TermService.\n"
+            "TermService restart will briefly disconnect any active RDP sessions; "
+            "reconnect after ~10s.\n"
+            "After reconnecting, run `winpodx pod multi-session status` "
+            "(or `winpodx pod apply-fixes`) to confirm activation."
+        )
     )
 
 
@@ -530,27 +576,33 @@ def _multi_session_disable(cfg) -> None:  # type: ignore[no-untyped-def]
     ]
     payload = "\n".join(payload_lines) + "\n"
 
-    print("Disabling multi-session RDP via rdprrap...")
+    print(tr("Disabling multi-session RDP via rdprrap..."))
     try:
         result = run_via_transport(cfg, payload, description="multi-session-disable", timeout=120)
     except WindowsExecError as e:
-        print(f"FAIL: channel failure: {e}")
+        print(tr("FAIL: channel failure: {error}").format(error=e))
         sys.exit(3)
 
     output = (result.stdout or "").strip()
     if output:
         print(output)
     if result.rc == 0:
-        print("OK: multi-session disabled.")
+        print(tr("OK: multi-session disabled."))
     elif result.rc == 2:
         print(
-            "rdprrap-conf was not found in the guest. The OEM v6+ bundle "
-            "installs it; older containers may need to be recreated to "
-            "pick up the install.bat staging step."
+            tr(
+                "rdprrap-conf was not found in the guest. The OEM v6+ bundle "
+                "installs it; older containers may need to be recreated to "
+                "pick up the install.bat staging step."
+            )
         )
         sys.exit(2)
     else:
-        print(f"FAIL: rdprrap-conf rc={result.rc}: {result.stderr.strip()}")
+        print(
+            tr("FAIL: rdprrap-conf rc={rc}: {stderr}").format(
+                rc=result.rc, stderr=result.stderr.strip()
+            )
+        )
         sys.exit(3)
 
 
@@ -582,18 +634,18 @@ def _multi_session_status(cfg) -> None:  # type: ignore[no-untyped-def]
         + "\n"
     )
 
-    print("Querying multi-session status...")
+    print(tr("Querying multi-session status..."))
     try:
         result = run_via_transport(cfg, payload, description="multi-session-status", timeout=60)
     except WindowsExecError as e:
-        print(f"FAIL: channel failure: {e}")
+        print(tr("FAIL: channel failure: {error}").format(error=e))
         sys.exit(3)
 
     output = (result.stdout or "").strip()
     if output:
         print(output)
     if result.rc != 0:
-        print(f"FAIL: rc={result.rc}: {result.stderr.strip()}")
+        print(tr("FAIL: rc={rc}: {stderr}").format(rc=result.rc, stderr=result.stderr.strip()))
         sys.exit(3)
 
 
@@ -602,14 +654,14 @@ def _restart() -> None:
     from winpodx.core.pod import PodState, start_pod, stop_pod
 
     cfg = Config.load()
-    print("Restarting pod...")
+    print(tr("Restarting pod..."))
     stop_pod(cfg)
     status = start_pod(cfg)
 
     if status.state in (PodState.RUNNING, PodState.STARTING):
-        print("Pod restarted.")
+        print(tr("Pod restarted."))
     else:
-        print(f"Failed to restart: {status.error}", file=sys.stderr)
+        print(tr("Failed to restart: {error}").format(error=status.error), file=sys.stderr)
         sys.exit(1)
 
 
@@ -642,7 +694,10 @@ def _recreate(*, wipe_storage: bool) -> None:
         # time we get here a non-empty value is winpodx-owned. We still
         # confirm explicitly because wipe_storage is destructive.
         print(
-            "WARNING: --wipe-storage will destroy the Windows disk image. Type 'WIPE' to confirm: ",
+            tr(
+                "WARNING: --wipe-storage will destroy the Windows disk image."
+                " Type 'WIPE' to confirm: "
+            ),
             end="",
             flush=True,
         )
@@ -651,43 +706,47 @@ def _recreate(*, wipe_storage: bool) -> None:
         except EOFError:
             answer = ""
         if answer != "WIPE":
-            print("Aborted (no confirmation).")
+            print(tr("Aborted (no confirmation)."))
             sys.exit(2)
 
-    print("Stopping pod...")
+    print(tr("Stopping pod..."))
     stop_pod(cfg)
 
     if wipe_storage:
         _wipe_pod_storage(cfg)
 
-    print("Regenerating compose.yaml from current config...")
+    print(tr("Regenerating compose.yaml from current config..."))
     try:
         generate_compose(cfg)
     except Exception as e:  # noqa: BLE001
-        print(f"Failed to regenerate compose.yaml: {e}", file=sys.stderr)
+        print(tr("Failed to regenerate compose.yaml: {error}").format(error=e), file=sys.stderr)
         sys.exit(1)
 
-    print("Starting pod with new compose...")
+    print(tr("Starting pod with new compose..."))
     status = start_pod(cfg)
 
     if status.state in (PodState.RUNNING, PodState.STARTING):
         if wipe_storage:
             print(
-                "Pod recreated with fresh storage. Windows reinstall will "
-                "take ~5-10 minutes (ISO download + Sysprep + OEM apply); "
-                "watch progress with `winpodx pod wait-ready --logs`."
+                tr(
+                    "Pod recreated with fresh storage. Windows reinstall will "
+                    "take ~5-10 minutes (ISO download + Sysprep + OEM apply); "
+                    "watch progress with `winpodx pod wait-ready --logs`."
+                )
             )
         else:
             print(
-                "Pod recreated. Container picked up the new compose; "
-                "note that dockur applies language / region / keyboard / "
-                "edition only on the initial Windows install, so those "
-                "specific knobs require --wipe-storage to actually reach "
-                "the guest. Timezone, backend, and runtime knobs apply "
-                "without a wipe."
+                tr(
+                    "Pod recreated. Container picked up the new compose; "
+                    "note that dockur applies language / region / keyboard / "
+                    "edition only on the initial Windows install, so those "
+                    "specific knobs require --wipe-storage to actually reach "
+                    "the guest. Timezone, backend, and runtime knobs apply "
+                    "without a wipe."
+                )
             )
     else:
-        print(f"Failed to start: {status.error}", file=sys.stderr)
+        print(tr("Failed to start: {error}").format(error=status.error), file=sys.stderr)
         sys.exit(1)
 
 
@@ -722,26 +781,32 @@ def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
             cmd = ["docker", "volume", "rm", "-f", volume_name]
         else:
             print(
-                f"  Backend {backend!r} has no named-volume wipe path; "
-                "manually destroy the guest disk and re-run setup."
+                tr(
+                    "  Backend {backend} has no named-volume wipe path; "
+                    "manually destroy the guest disk and re-run setup."
+                ).format(backend=repr(backend))
             )
             return
         result = sp.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode == 0:
-            print(f"  Removed volume {volume_name}.")
+            print(tr("  Removed volume {volume}.").format(volume=volume_name))
         else:
             stderr = result.stderr.strip()
             if "no such" in stderr.lower():
-                print(f"  Volume {volume_name} already absent.")
+                print(tr("  Volume {volume} already absent.").format(volume=volume_name))
             else:
-                print(f"  WARNING: volume rm returned {result.returncode}: {stderr}")
+                print(
+                    tr("  WARNING: volume rm returned {rc}: {stderr}").format(
+                        rc=result.returncode, stderr=stderr
+                    )
+                )
         return
 
     bind_path = Path(raw_storage).expanduser()
     if not bind_path.is_dir():
-        print(f"  Bind-mount path {bind_path} is absent; nothing to wipe.")
+        print(tr("  Bind-mount path {path} is absent; nothing to wipe.").format(path=bind_path))
         return
-    print(f"  Wiping bind-mount contents under {bind_path} ...")
+    print(tr("  Wiping bind-mount contents under {path} ...").format(path=bind_path))
     for item in bind_path.iterdir():
         try:
             if item.is_dir() and not item.is_symlink():
@@ -749,7 +814,7 @@ def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
             else:
                 item.unlink()
         except OSError as e:
-            print(f"  WARNING: could not remove {item}: {e}")
+            print(tr("  WARNING: could not remove {item}: {error}").format(item=item, error=e))
 
 
 def _wait_for_oem_reboot(cfg, timeout: int) -> bool:  # type: ignore[no-untyped-def]
@@ -894,7 +959,11 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
-        print(f"wait-ready not supported for backend {cfg.pod.backend!r} (podman/docker only).")
+        print(
+            tr("wait-ready not supported for backend {backend} (podman/docker only).").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
         sys.exit(2)
 
     timeout = max(60, min(7200, int(timeout)))
@@ -931,9 +1000,11 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             total_min = int((new_deadline - start) / 60)
             eta_min = max(1, eta_remaining_secs // 60)
             print(
-                f"[winpodx] Slow Windows ISO download detected "
-                f"(~{eta_min}m remaining). "
-                f"Extending wait to {total_min}m total."
+                tr(
+                    "[winpodx] Slow Windows ISO download detected "
+                    "(~{eta_min}m remaining). "
+                    "Extending wait to {total_min}m total."
+                ).format(eta_min=eta_min, total_min=total_min)
             )
             deadline_state["last_announced"] = new_deadline
 
@@ -1011,45 +1082,73 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
             threading.Thread(target=_drain, args=(log_proc.stderr,), daemon=True).start()
         except (FileNotFoundError, OSError) as e:
-            print(f"       (could not tail container logs: {e})")
+            print(tr("       (could not tail container logs: {error})").format(error=e))
             log_proc = None
 
     try:
         # --- [1/4] Container running ---
-        print(f"[1/4] Waiting for container to start...      ({elapsed()})")
+        print(
+            tr("[1/4] Waiting for container to start...      ({elapsed})").format(elapsed=elapsed())
+        )
         while _time.monotonic() < deadline_state["value"]:
             try:
                 if pod_status(cfg).state == PodState.RUNNING:
-                    print(f"      OK Container running                   ({elapsed()})")
+                    print(
+                        tr("      OK Container running                   ({elapsed})").format(
+                            elapsed=elapsed()
+                        )
+                    )
                     break
             except Exception:  # noqa: BLE001
                 pass
             _time.sleep(2)
         else:
-            print(f"      FAIL Timeout waiting for container       ({elapsed()})")
+            print(
+                tr("      FAIL Timeout waiting for container       ({elapsed})").format(
+                    elapsed=elapsed()
+                )
+            )
             sys.exit(3)
 
         # --- [2/4] RDP port open ---
-        print(f"[2/4] Waiting for Windows RDP service...     ({elapsed()})")
+        print(
+            tr("[2/4] Waiting for Windows RDP service...     ({elapsed})").format(elapsed=elapsed())
+        )
         while _time.monotonic() < deadline_state["value"]:
             if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
-                print(f"      OK RDP port {cfg.rdp.port} open                  ({elapsed()})")
+                print(
+                    tr("      OK RDP port {port} open                  ({elapsed})").format(
+                        port=cfg.rdp.port, elapsed=elapsed()
+                    )
+                )
                 break
             _time.sleep(3)
         else:
-            print(f"      FAIL Timeout waiting for RDP port        ({elapsed()})")
+            print(
+                tr("      FAIL Timeout waiting for RDP port        ({elapsed})").format(
+                    elapsed=elapsed()
+                )
+            )
             sys.exit(3)
 
         # --- [3/4] FreeRDP RemoteApp activation ---
-        print(f"[3/4] Waiting for Windows activation...      ({elapsed()})")
+        print(
+            tr("[3/4] Waiting for Windows activation...      ({elapsed})").format(elapsed=elapsed())
+        )
         remaining = max(60, int(deadline_state["value"] - _time.monotonic()))
         if wait_for_windows_responsive(cfg, timeout=remaining):
-            print(f"      OK Windows ready                         ({elapsed()})")
+            print(
+                tr("      OK Windows ready                         ({elapsed})").format(
+                    elapsed=elapsed()
+                )
+            )
         else:
             print(
-                f"      FAIL Timeout waiting for Windows ready   ({elapsed()})\n"
-                "      Run `winpodx pod status` later and re-run "
-                "`winpodx pod wait-ready` once the container is fully up."
+                tr(
+                    "      FAIL Timeout waiting for Windows ready   ({elapsed})\n"
+                    "      Run `winpodx pod status` later and re-run "
+                    "`winpodx pod wait-ready` once the container is fully up."
+                ).format(elapsed=elapsed())
             )
             sys.exit(3)
 
@@ -1069,15 +1168,23 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         # in-place, or OEM v < the one that adds it), we skip phase 4
         # silently — `apply-fixes` will surface the pending-reboot
         # condition separately if it matters.
-        print(f"[4/4] Waiting for OEM reboot pass...         ({elapsed()})")
+        print(
+            tr("[4/4] Waiting for OEM reboot pass...         ({elapsed})").format(elapsed=elapsed())
+        )
         remaining = max(60, int(deadline_state["value"] - _time.monotonic()))
         if _wait_for_oem_reboot(cfg, timeout=remaining):
-            print(f"      OK OEM reboot pass complete             ({elapsed()})")
+            print(
+                tr("      OK OEM reboot pass complete             ({elapsed})").format(
+                    elapsed=elapsed()
+                )
+            )
         else:
             print(
-                f"      WARN OEM reboot pass marker still pending ({elapsed()})\n"
-                "      Registry changes that need a reboot may not be active "
-                "yet. Run `winpodx pod restart` once installs.sh finishes."
+                tr(
+                    "      WARN OEM reboot pass marker still pending ({elapsed})\n"
+                    "      Registry changes that need a reboot may not be active "
+                    "yet. Run `winpodx pod restart` once installs.sh finishes."
+                ).format(elapsed=elapsed())
             )
     finally:
         log_stop.set()
@@ -1101,9 +1208,9 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             from winpodx.core.guest_sync import maybe_autosync
 
             if maybe_autosync(cfg):
-                print("      Guest synced to the upgraded host (agent restarting).")
+                print(tr("      Guest synced to the upgraded host (agent restarting)."))
         except Exception as e:  # noqa: BLE001 -- never fail wait-ready on sync
-            print(f"      WARN guest auto-sync skipped: {e}")
+            print(tr("      WARN guest auto-sync skipped: {error}").format(error=e))
 
 
 def _recover_oem() -> None:
@@ -1143,18 +1250,22 @@ def _recover_oem() -> None:
 
     if backend_name not in ("podman", "docker"):
         print(
-            f"Error: recover-oem only supports podman/docker backends "
-            f"(current: {backend_name}). For libvirt/manual backends, "
-            f"copy /oem into the guest manually."
+            tr(
+                "Error: recover-oem only supports podman/docker backends "
+                "(current: {backend}). For libvirt/manual backends, "
+                "copy /oem into the guest manually."
+            ).format(backend=backend_name)
         )
         sys.exit(1)
 
     cmd = backend_name
     if not _shutil.which(cmd):
-        print(f"Error: {cmd} not found on PATH.")
+        print(tr("Error: {cmd} not found on PATH.").format(cmd=cmd))
         sys.exit(1)
 
-    print(f"[winpodx] Checking container '{container}' is running...")
+    print(
+        tr("[winpodx] Checking container '{container}' is running...").format(container=container)
+    )
     try:
         result = subprocess.run(
             [
@@ -1172,15 +1283,18 @@ def _recover_oem() -> None:
             timeout=10,
         )
     except subprocess.TimeoutExpired:
-        print(f"Error: '{cmd} ps' timed out (10s).")
+        print(tr("Error: '{cmd} ps' timed out (10s).").format(cmd=cmd))
         sys.exit(1)
     if container not in result.stdout:
         print(
-            f"Error: container '{container}' not running. Start it first with 'winpodx pod start'."
+            tr(
+                "Error: container '{container}' not running."
+                " Start it first with 'winpodx pod start'."
+            ).format(container=container)
         )
         sys.exit(1)
 
-    print("[winpodx] Verifying /oem/install.bat exists inside container...")
+    print(tr("[winpodx] Verifying /oem/install.bat exists inside container..."))
     try:
         check = subprocess.run(
             [cmd, "exec", container, "sh", "-c", "test -f /oem/install.bat"],
@@ -1188,13 +1302,15 @@ def _recover_oem() -> None:
             timeout=10,
         )
     except subprocess.TimeoutExpired:
-        print("Error: container exec timed out (10s).")
+        print(tr("Error: container exec timed out (10s)."))
         sys.exit(1)
     if check.returncode != 0:
         print(
-            "Error: /oem/install.bat not found inside container. "
-            "The host-side OEM mount itself is missing -- recreate "
-            "the pod with 'winpodx pod recreate' before retrying."
+            tr(
+                "Error: /oem/install.bat not found inside container. "
+                "The host-side OEM mount itself is missing -- recreate "
+                "the pod with 'winpodx pod recreate' before retrying."
+            )
         )
         sys.exit(1)
 
@@ -1205,7 +1321,11 @@ def _recover_oem() -> None:
     # token (it's at C:\OEM\agent_token.txt), so this doesn't cross a
     # new trust boundary, but serving the whole /storage would.
     serve_dir = "/tmp/winpodx-recover"
-    print(f"[winpodx] Tarring /oem into {serve_dir}/oem.tar.gz inside container...")
+    print(
+        tr("[winpodx] Tarring /oem into {serve_dir}/oem.tar.gz inside container...").format(
+            serve_dir=serve_dir
+        )
+    )
     try:
         subprocess.run(
             [
@@ -1221,10 +1341,10 @@ def _recover_oem() -> None:
             timeout=60,
         )
     except subprocess.CalledProcessError as e:
-        print(f"Error: tar failed (rc={e.returncode}).")
+        print(tr("Error: tar failed (rc={rc}).").format(rc=e.returncode))
         sys.exit(1)
     except subprocess.TimeoutExpired:
-        print("Error: tar timed out (60s).")
+        print(tr("Error: tar timed out (60s)."))
         sys.exit(1)
 
     # Port 8766: one above the winpodx agent port (8765) so anyone
@@ -1232,7 +1352,7 @@ def _recover_oem() -> None:
     # not forwarded to the host. Reachable from the Windows guest via
     # QEMU's NAT gateway 10.0.2.2:8766. Serves only the dedicated
     # recover dir (one file), not /storage.
-    print("[winpodx] Starting HTTP server on container port 8766...")
+    print(tr("[winpodx] Starting HTTP server on container port 8766..."))
     # Best-effort cleanup of any prior server on 8766.
     subprocess.run(
         [
@@ -1265,35 +1385,35 @@ def _recover_oem() -> None:
 
     print()
     print("=" * 70)
-    print("Paste these commands into the Windows guest via noVNC PowerShell:")
+    print(tr("Paste these commands into the Windows guest via noVNC PowerShell:"))
     print()
     print("  noVNC URL: http://127.0.0.1:8007/")
     print()
-    print("  # Download OEM bundle from the container via the guest's default")
-    print("  # gateway (QEMU slirp = 10.0.2.2, podman bridge = 10.89.0.1, etc.)")
+    print(tr("  # Download OEM bundle from the container via the guest's default"))
+    print(tr("  # gateway (QEMU slirp = 10.0.2.2, podman bridge = 10.89.0.1, etc.)"))
     print(
         "  $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | "
         "Sort-Object RouteMetric | Select-Object -First 1).NextHop"
     )
     print('  Invoke-WebRequest "http://${gw}:8766/oem.tar.gz" -OutFile C:\\oem.tar.gz')
     print()
-    print("  # Extract to C:\\OEM\\ (Windows 10/11 ships bsdtar in System32)")
+    print(tr("  # Extract to C:\\OEM\\ (Windows 10/11 ships bsdtar in System32)"))
     print("  cd C:\\")
     print("  tar -xzf C:\\oem.tar.gz")
     print()
-    print("  # Verify: should list install.bat, agent\\, rdprrap\\, scripts\\, etc.")
+    print(tr("  # Verify: should list install.bat, agent\\, rdprrap\\, scripts\\, etc."))
     print("  dir C:\\OEM")
     print()
-    print("  # Run install.bat -- guest will reboot at the end")
+    print(tr("  # Run install.bat -- guest will reboot at the end"))
     print("  C:\\OEM\\install.bat")
     print()
     print("=" * 70)
     print()
-    print("After the post-install reboot, on this host:")
+    print(tr("After the post-install reboot, on this host:"))
     print("  winpodx pod wait-ready")
     print("  winpodx check")
     print()
-    print("To stop the HTTP server when finished:")
+    print(tr("To stop the HTTP server when finished:"))
     print(f"  {cmd} exec {container} pkill -f 'http.server 8766'")
 
 
@@ -1306,27 +1426,39 @@ def _disk_usage() -> None:
     usage = get_guest_disk_usage(cfg)
     if usage is None:
         print(
-            "Could not read guest disk usage (is the pod running and the agent up?).\n"
-            "Try `winpodx pod wait-ready` first."
+            tr(
+                "Could not read guest disk usage (is the pod running and the agent up?).\n"
+                "Try `winpodx pod wait-ready` first."
+            )
         )
         sys.exit(1)
 
     def _gib(n: int) -> str:
         return f"{n / (1024**3):.1f} GiB"
 
-    cap = cfg.pod.disk_max_size or "host free space"
-    print("Windows C: drive")
-    print(f"  configured disk_size : {cfg.pod.disk_size}  (max: {cap})")
-    print(f"  total                : {_gib(usage.total_bytes)}")
-    print(f"  free                 : {_gib(usage.free_bytes)}")
-    print(f"  used                 : {_gib(usage.used_bytes)}  ({usage.used_pct:.1f}%)")
+    cap = cfg.pod.disk_max_size or tr("host free space")
+    print(tr("Windows C: drive"))
+    print(
+        tr("  configured disk_size : {size}  (max: {cap})").format(size=cfg.pod.disk_size, cap=cap)
+    )
+    print(tr("  total                : {total}").format(total=_gib(usage.total_bytes)))
+    print(tr("  free                 : {free}").format(free=_gib(usage.free_bytes)))
+    print(
+        tr("  used                 : {used}  ({pct:.1f}%)").format(
+            used=_gib(usage.used_bytes), pct=usage.used_pct
+        )
+    )
     if cfg.pod.disk_autogrow:
         print(
-            f"  auto-grow            : on at {cfg.pod.disk_autogrow_threshold_pct}% "
-            f"(+{cfg.pod.disk_autogrow_increment} per step, idle only)"
+            tr(
+                "  auto-grow            : on at {threshold}% (+{increment} per step, idle only)"
+            ).format(
+                threshold=cfg.pod.disk_autogrow_threshold_pct,
+                increment=cfg.pod.disk_autogrow_increment,
+            )
         )
     else:
-        print("  auto-grow            : off")
+        print(tr("  auto-grow            : off"))
 
 
 def _grow_disk(
@@ -1350,46 +1482,52 @@ def _grow_disk(
     # --extend-only: skip the resize, just extend C: into existing
     # unallocated space (used to finish a grow whose guest wasn't up yet).
     if extend_only:
-        print("Extending C: into unallocated space...")
+        print(tr("Extending C: into unallocated space..."))
         if extend_guest_system_volume(cfg):
-            print("C: extended (or already at max).")
+            print(tr("C: extended (or already at max)."))
         else:
-            print("Failed to extend C: -- see logs; the guest may be unreachable.")
+            print(tr("Failed to extend C: -- see logs; the guest may be unreachable."))
             sys.exit(1)
         return
 
     try:
         new_size = compute_grow_target(cfg, target_size=target_size, increment=increment)
     except DiskError as e:
-        print(f"Cannot grow disk: {e}", file=sys.stderr)
+        print(tr("Cannot grow disk: {error}").format(error=e), file=sys.stderr)
         sys.exit(1)
 
     if not assume_yes:
         print(
-            f"Grow Windows disk {cfg.pod.disk_size} -> {new_size}?\n"
-            "This stops the pod, recreates the container so dockur grows the\n"
-            "virtual disk, then extends C: to fill it. Existing Windows data is\n"
-            "preserved. Type 'y' to continue: ",
+            tr(
+                "Grow Windows disk {old_size} -> {new_size}?\n"
+                "This stops the pod, recreates the container so dockur grows the\n"
+                "virtual disk, then extends C: to fill it. Existing Windows data is\n"
+                "preserved. Type 'y' to continue: "
+            ).format(old_size=cfg.pod.disk_size, new_size=new_size),
             end="",
             flush=True,
         )
         try:
             if input().strip().lower() not in ("y", "yes"):
-                print("Aborted.")
+                print(tr("Aborted."))
                 sys.exit(2)
         except EOFError:
-            print("Aborted (no confirmation).")
+            print(tr("Aborted (no confirmation)."))
             sys.exit(2)
 
     try:
         result = grow_disk(cfg, target_size=target_size, increment=increment)
     except DiskError as e:
-        print(f"Grow failed: {e}", file=sys.stderr)
+        print(tr("Grow failed: {error}").format(error=e), file=sys.stderr)
         sys.exit(1)
 
-    print(f"Disk grown {result.old_size} -> {result.new_size}.")
+    print(
+        tr("Disk grown {old_size} -> {new_size}.").format(
+            old_size=result.old_size, new_size=result.new_size
+        )
+    )
     if result.partition_extended:
-        print("C: extended to fill the new space.")
+        print(tr("C: extended to fill the new space."))
     elif result.note:
         print(result.note)
 
@@ -1406,22 +1544,34 @@ def _sync_guest(*, force: bool) -> None:
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
-        print(f"sync-guest only supports podman/docker, not {cfg.pod.backend!r}.")
+        print(
+            tr("sync-guest only supports podman/docker, not {backend}.").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
         sys.exit(1)
 
     hv = host_version()
     gv = read_guest_version(cfg)
-    print(f"host:  winpodx {hv.winpodx}, OEM bundle {hv.oem_bundle}")
+    print(
+        tr("host:  winpodx {version}, OEM bundle {oem}").format(
+            version=hv.winpodx, oem=hv.oem_bundle
+        )
+    )
     if gv is None:
-        print("guest: version stamp not found (will sync)")
+        print(tr("guest: version stamp not found (will sync)"))
     else:
-        print(f"guest: winpodx {gv.winpodx}, OEM bundle {gv.oem_bundle}")
+        print(
+            tr("guest: winpodx {version}, OEM bundle {oem}").format(
+                version=gv.winpodx, oem=gv.oem_bundle
+            )
+        )
 
-    print("Syncing guest (deliver /oem, urlacl, runtime fixes, restart agent)...")
+    print(tr("Syncing guest (deliver /oem, urlacl, runtime fixes, restart agent)..."))
     try:
         results = sync_guest(cfg, force=force)
     except GuestSyncError as e:
-        print(f"Sync failed: {e}", file=sys.stderr)
+        print(tr("Sync failed: {error}").format(error=e), file=sys.stderr)
         sys.exit(1)
 
     for step, outcome in results.items():
@@ -1429,6 +1579,6 @@ def _sync_guest(*, force: bool) -> None:
         print(f"  [{mark}] {step}: {outcome}")
 
     if any(v.startswith("failed") for v in results.values()):
-        print("\nSome steps failed -- re-run `winpodx pod sync-guest` once the guest is up.")
+        print(tr("\nSome steps failed -- re-run `winpodx pod sync-guest` once the guest is up."))
         sys.exit(1)
-    print("\nGuest synced. The agent restarts in ~5s; run `winpodx check` to confirm.")
+    print(tr("\nGuest synced. The agent restarts in ~5s; run `winpodx check` to confirm."))

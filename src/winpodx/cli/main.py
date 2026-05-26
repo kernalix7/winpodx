@@ -7,6 +7,7 @@ import argparse
 import sys
 
 from winpodx import __version__
+from winpodx.core.i18n import tr
 
 
 def cli(argv: list[str] | None = None) -> None:
@@ -628,7 +629,7 @@ def _dispatch(args: argparse.Namespace) -> None:
 
             run_gui()
         except ImportError:
-            print("PySide6 required. Install with your package manager or: pip install PySide6")
+            print(tr("PySide6 required. Install with your package manager or: pip install PySide6"))
     elif cmd == "tray":
         from winpodx.desktop.tray import run_tray
 
@@ -682,30 +683,31 @@ def _cmd_autostart(action: str) -> None:
 
     if action == "on":
         set_autostart(True)
-        print("Autostart ON: the Windows pod will start when you log in.")
-        print("  (tray autostart entry installed + auto_start enabled)")
+        print(tr("Autostart ON: the Windows pod will start when you log in."))
+        print(tr("  (tray autostart entry installed + auto_start enabled)"))
     elif action == "off":
         set_autostart(False)
-        print("Autostart OFF: the pod will not start on login.")
+        print(tr("Autostart OFF: the pod will not start on login."))
     else:  # status
         on = is_autostart_enabled()
-        print(f"Login pod auto-start: {'ON' if on else 'OFF'}")
-        print(f"  tray autostart entry: {'present' if is_tray_autostart_enabled() else 'absent'}")
+        print(tr("Login pod auto-start: {state}").format(state="ON" if on else "OFF"))
+        tray_state = tr("present") if is_tray_autostart_enabled() else tr("absent")
+        print(tr("  tray autostart entry: {state}").format(state=tray_state))
         if not on:
-            print("  enable with: winpodx autostart on")
+            print(tr("  enable with: winpodx autostart on"))
 
 
 def _cmd_info() -> None:
     from winpodx.core.config import Config
     from winpodx.core.info import gather_info
 
-    print("=== winpodx system info ===\n")
+    print(tr("=== winpodx system info ===\n"))
 
     cfg = Config.load()
     info = gather_info(cfg)
 
     sys_ = info["system"]
-    print("[System]")
+    print(tr("[System]"))
     print(f"  winpodx:        {sys_['winpodx']}")
     print(f"  Install:        {sys_.get('install_source', '(unknown)')}")
     print(f"  OEM bundle:     {sys_['oem_bundle']}")
@@ -715,7 +717,7 @@ def _cmd_info() -> None:
     print()
 
     disp = info["display"]
-    print("[Display]")
+    print(tr("[Display]"))
     print(f"  Session type:       {disp['session_type']}")
     print(f"  Desktop env:        {disp['desktop_environment']}")
     print(f"  Wayland FreeRDP:    {disp['wayland_freerdp']}")
@@ -723,7 +725,7 @@ def _cmd_info() -> None:
     print(f"  RDP scale:          {disp['rdp_scale']}")
     print()
 
-    print("[Dependencies]")
+    print(tr("[Dependencies]"))
     for name, dep in info["dependencies"].items():
         status = "OK" if dep["found"] == "true" else "MISSING"
         path_info = f" ({dep['path']})" if dep["path"] else ""
@@ -731,7 +733,7 @@ def _cmd_info() -> None:
     print()
 
     pod = info["pod"]
-    print("[Pod]")
+    print(tr("[Pod]"))
     print(f"  State:              {pod['state']}")
     if pod["uptime"]:
         print(f"  Started at:         {pod['uptime']}")
@@ -747,7 +749,7 @@ def _cmd_info() -> None:
     print()
 
     conf = info["config"]
-    print("[Config]")
+    print(tr("[Config]"))
     print(f"  Path:          {conf['path']}")
     print(f"  Backend:       {conf['backend']}")
     print(f"  IP:            {conf['ip']}:{conf['port']}")
@@ -760,10 +762,10 @@ def _cmd_info() -> None:
     warning = conf.get("budget_warning") or ""
     if warning:
         print()
-        print(f"WARNING: {warning}", file=sys.stderr)
+        print(tr("WARNING: {warning}").format(warning=warning), file=sys.stderr)
 
     print()
-    print("[Tuning]")
+    print(tr("[Tuning]"))
     from winpodx.utils.specs import (
         detect_tuning_capability,
         format_tuning_summary,
@@ -813,12 +815,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
         }
         print(json.dumps(out, indent=2))
     else:
-        print("=== winpodx check ===\n")
+        print(tr("=== winpodx check ===\n"))
         for p in probes:
             glyph = _CHECK_GLYPHS.get(p.status, p.status.upper())
             print(f"  [{glyph}] {p.name:<18} {p.detail}  ({p.duration_ms}ms)")
         print()
-        print(f"Overall: {checks.overall(probes).upper()}")
+        print(tr("Overall: {overall}").format(overall=checks.overall(probes).upper()))
 
     return 0 if all(p.status != "fail" for p in probes) else 1
 
@@ -830,9 +832,9 @@ def _cmd_cleanup() -> None:
     if removed:
         for f in removed:
             print(f"  Removed: {f}")
-        print(f"\n{len(removed)} lock files cleaned up.")
+        print(tr("\n{count} lock files cleaned up.").format(count=len(removed)))
     else:
-        print("No lock files found.")
+        print(tr("No lock files found."))
 
 
 def _cmd_timesync() -> None:
@@ -841,9 +843,9 @@ def _cmd_timesync() -> None:
 
     cfg = Config.load()
     if sync_windows_time(cfg):
-        print("Windows time synchronized.")
+        print(tr("Windows time synchronized."))
     else:
-        print("Time sync failed. Is the pod running?")
+        print(tr("Time sync failed. Is the pod running?"))
 
 
 def _cmd_debloat(args: argparse.Namespace) -> None:
@@ -876,7 +878,7 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
     try:
         catalog = load_catalog()
     except DebloatCatalogError as e:
-        print(f"Debloat catalog error: {e}")
+        print(tr("Debloat catalog error: {error}").format(error=e))
         return
 
     if getattr(args, "list", False):
@@ -904,12 +906,12 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
                 items=items_list,
             )
         except DebloatCatalogError as e:
-            print(f"Debloat selection error: {e}")
+            print(tr("Debloat selection error: {error}").format(error=e))
             return
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
-        print("Debloat only supported for Podman/Docker backends.")
+        print(tr("Debloat only supported for Podman/Docker backends."))
         return
 
     undo = getattr(args, "undo", False)
@@ -918,28 +920,33 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
             build_undo_script(catalog, selection) if undo else build_run_script(catalog, selection)
         )
     except DebloatCatalogError as e:
-        print(f"Debloat payload build error: {e}")
+        print(tr("Debloat payload build error: {error}").format(error=e))
         return
 
     verb = "undo" if undo else "apply"
     description = f"debloat-{verb} (" + ",".join(selection) + ")"
-    print(f"Running debloat {verb} ({len(selection)} item(s); may take a minute)...")
+    print(
+        tr("Running debloat {verb} ({count} item(s); may take a minute)...").format(
+            verb=verb, count=len(selection)
+        )
+    )
     from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
     try:
         result = run_via_transport(cfg, payload, description=description, timeout=300)
     except WindowsExecError as e:
-        print(f"Debloat channel failure: {e}")
+        print(tr("Debloat channel failure: {error}").format(error=e))
         return
 
     if result.rc == 0:
         if result.stdout.strip():
             print(result.stdout.rstrip())
-        print(f"Debloat {verb} complete.")
+        print(tr("Debloat {verb} complete.").format(verb=verb))
     else:
         print(
-            f"Debloat {verb} failed (rc={result.rc}): "
-            f"{result.stderr.strip() or result.stdout.strip()}"
+            tr("Debloat {verb} failed (rc={rc}): {detail}").format(
+                verb=verb, rc=result.rc, detail=result.stderr.strip() or result.stdout.strip()
+            )
         )
 
 
@@ -951,17 +958,18 @@ def _cmd_power(args: argparse.Namespace) -> None:
 
     if args.suspend:
         if suspend_pod(cfg):
-            print("Pod suspended (paused). CPU freed, memory retained.")
+            print(tr("Pod suspended (paused). CPU freed, memory retained."))
         else:
-            print("Failed to suspend pod.")
+            print(tr("Failed to suspend pod."))
     elif args.resume:
         if resume_pod(cfg):
-            print("Pod resumed.")
+            print(tr("Pod resumed."))
         else:
-            print("Failed to resume pod.")
+            print(tr("Failed to resume pod."))
     else:
         paused = is_pod_paused(cfg)
-        print(f"Pod power state: {'suspended' if paused else 'active'}")
+        pod_state = tr("suspended") if paused else tr("active")
+        print(tr("Pod power state: {state}").format(state=pod_state))
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> None:
