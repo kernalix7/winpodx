@@ -263,25 +263,31 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 300) -> bool:
     # ServiceDll patch isn't live until install.bat's tail TermService
     # cycle runs), so single-session enforcement was still in effect.
     #
-    # 180s gives install.bat enough headroom to reach its agent-spawn
-    # step (line ~444) under realistic first-boot conditions while still
-    # bounding the wait so a genuinely broken agent doesn't deadlock
-    # phase 3. We return True regardless so callers proceed -- migrate
-    # has its own agent gate (see _apply_runtime_fixes_to_existing_guest)
-    # to skip apply-chain entirely if /health still didn't answer; that
-    # avoids the FreeRDP-fallback session-kick path described above.
+    # Honor the caller's full timeout for the agent wait, not a hardcoded
+    # 180s cap. On a slow first boot (cold cache, slow disk, a long ISO
+    # download that pushes the whole install late) install.bat's rdprrap-
+    # extract / installer / activate / launcher-stage / agent-spawn chain
+    # plus autologon regularly exceed 180s before /health answers --
+    # @kernalix7 saw exactly this on opensuse Tumbleweed (agent up, but only
+    # after ~4min), which surfaced a scary "agent didn't answer within 180s"
+    # WARN + made migrate/discovery skip prematurely. Callers that want a
+    # generous wait already pass timeout=600 (10min); a genuinely broken
+    # agent is still bounded by that, and we return True regardless so
+    # callers proceed (migrate/discovery have their own agent gates +
+    # FreeRDP fallback). The only hard requirement remains RDP (stage 1).
     transport = AgentTransport(cfg)
-    agent_deadline = min(deadline, time.monotonic() + 180)
-    while time.monotonic() < agent_deadline:
+    while time.monotonic() < deadline:
         status = transport.health()
         if status.available:
             return True
         time.sleep(5)
+    waited = int(timeout)
     log.warning(
         "wait_for_windows_responsive: RDP up but agent /health didn't "
-        "answer within 180s; proceeding without agent. Migrate's apply "
+        "answer within %ds; proceeding without agent. Migrate's apply "
         "chain will skip via its own agent gate; check "
-        "C:\\winpodx\\setup.log via VNC if /health remains down."
+        "C:\\winpodx\\setup.log via VNC if /health remains down.",
+        waited,
     )
     return True
 

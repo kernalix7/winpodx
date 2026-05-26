@@ -59,6 +59,22 @@ def test_guest_sync_not_needed_when_current(monkeypatch: pytest.MonkeyPatch) -> 
     assert guest_sync_needed(_cfg()) is False
 
 
+def _agent_up(monkeypatch: pytest.MonkeyPatch, *, up: bool = True) -> None:
+    """Patch AgentClient so maybe_autosync's health gate passes (or fails)."""
+    import winpodx.core.agent as agent_mod
+
+    class _Client:
+        def __init__(self, cfg):  # noqa: ANN001
+            pass
+
+        def health(self):
+            if not up:
+                raise agent_mod.AgentUnavailableError("down")
+            return {"ok": True}
+
+    monkeypatch.setattr(agent_mod, "AgentClient", _Client)
+
+
 def test_maybe_autosync_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = _cfg()
     cfg.pod.guest_autosync = False
@@ -70,6 +86,7 @@ def test_maybe_autosync_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_maybe_autosync_skips_when_current(monkeypatch: pytest.MonkeyPatch) -> None:
+    _agent_up(monkeypatch)
     monkeypatch.setattr("winpodx.core.guest_sync.read_guest_version", lambda cfg: host_version())
     monkeypatch.setattr(
         "winpodx.core.guest_sync.sync_guest",
@@ -79,6 +96,7 @@ def test_maybe_autosync_skips_when_current(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_maybe_autosync_runs_when_stamp_older(monkeypatch: pytest.MonkeyPatch) -> None:
+    _agent_up(monkeypatch)
     monkeypatch.setattr(
         "winpodx.core.guest_sync.read_guest_version",
         lambda cfg: GuestVersion(winpodx="0.0.1", oem_bundle="1"),
@@ -93,6 +111,7 @@ def test_maybe_autosync_runs_when_stamp_older(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_maybe_autosync_absent_stamp_records_no_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    _agent_up(monkeypatch)
     # Fresh install / pre-stamp pod: must NOT sync (would disrupt first-boot
     # agent bring-up) -- just record the version.
     monkeypatch.setattr("winpodx.core.guest_sync.read_guest_version", lambda cfg: None)
@@ -141,3 +160,18 @@ def test_config_guest_autosync_default_and_coerce() -> None:
     cfg.pod.guest_autosync = "nope"  # type: ignore[assignment]
     cfg.pod.__post_init__()
     assert cfg.pod.guest_autosync is True
+
+
+def test_maybe_autosync_skips_when_agent_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Agent not up (fresh install bringing it online): skip silently --
+    # no read/write/sync, no FreeRDP fallback (#install-cleanliness).
+    _agent_up(monkeypatch, up=False)
+    monkeypatch.setattr(
+        "winpodx.core.guest_sync.read_guest_version",
+        lambda cfg: pytest.fail("must not touch guest when agent down"),
+    )
+    monkeypatch.setattr(
+        "winpodx.core.guest_sync.sync_guest",
+        lambda *a, **k: pytest.fail("must not sync when agent down"),
+    )
+    assert maybe_autosync(_cfg()) is False

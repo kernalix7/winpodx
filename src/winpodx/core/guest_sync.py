@@ -409,6 +409,25 @@ def maybe_autosync(cfg: Config) -> bool:
     if cfg.pod.backend not in ("podman", "docker"):
         return False
 
+    # Everything below talks to the guest over the agent (read/write stamp,
+    # sync). Confirm the agent is up FIRST -- not to hide failures, but
+    # because the alternative (letting read/write fall back to FreeRDP
+    # RemoteApp) reports the WRONG error: a misleading
+    # `ERRCONNECT_ACTIVATION_TIMEOUT` FreeRDP stacktrace instead of the real
+    # condition. If the agent isn't reachable we surface THAT, clearly, and
+    # defer -- the stamp/sync retries on the next start.
+    try:
+        from winpodx.core.agent import AgentClient
+
+        AgentClient(cfg).health()
+    except Exception as e:  # noqa: BLE001
+        log.warning(
+            "guest agent not reachable (%s); deferring guest version "
+            "stamp/sync to the next pod start",
+            e,
+        )
+        return False
+
     guest = read_guest_version(cfg)
     if guest is None:
         # No stamp -> fresh install / pre-stamp. Record version, never sync.
