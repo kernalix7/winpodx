@@ -418,6 +418,21 @@ def cli(argv: list[str] | None = None) -> None:
         default="status",
         help="on / off / status (default: status)",
     )
+
+    language_p = sub.add_parser(
+        "language",
+        help=(
+            "Show or set the winpodx UI language (tray / GUI / CLI text). "
+            "No arg = show current. 'auto' = follow the host locale ($LANG)."
+        ),
+    )
+    language_p.add_argument(
+        "code",
+        nargs="?",
+        choices=("auto", "en", "ko", "zh", "ja", "de", "fr", "it"),
+        default=None,
+        help="auto / en / ko / zh / ja / de / fr / it (omit to show current)",
+    )
     check_p = sub.add_parser(
         "check",
         help="Run all health probes (pod, RDP, agent, password age, disk, …)",
@@ -636,6 +651,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         run_tray()
     elif cmd == "autostart":
         _cmd_autostart(getattr(args, "action", "status"))
+    elif cmd == "language":
+        _cmd_language(getattr(args, "code", None))
     elif cmd == "info":
         _cmd_info()
     elif cmd == "check":
@@ -671,6 +688,29 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.host_open import handle as handle_host_open
 
         sys.exit(handle_host_open(args))
+
+
+def _cmd_language(code: str | None) -> None:
+    """Show or set the winpodx UI language."""
+    from winpodx.core.config import Config
+    from winpodx.core.i18n import current_language, resolve_language, set_language
+
+    cfg = Config.load()
+    if code is None:
+        configured = cfg.ui.language
+        resolved = resolve_language(configured)
+        print(
+            f"UI language: {configured}"
+            + (f" (resolved: {resolved})" if configured == "auto" else "")
+        )
+        print("Available: auto, en, ko, zh, ja, de, fr, it")
+        print("Set with: winpodx language <code>")
+        return
+    cfg.ui.language = code
+    cfg.save()
+    set_language(code)
+    print(f"UI language set to {code} (resolved: {current_language()}).")
+    print("Applies to new winpodx processes (restart the tray / GUI to see it).")
 
 
 def _cmd_autostart(action: str) -> None:

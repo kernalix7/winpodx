@@ -568,6 +568,52 @@ class SettingsPageMixin:
         self.checkbox_autostart_tray.toggled.connect(_on_autostart_toggled)
         layout.addWidget(self.checkbox_autostart_tray)
 
+        # winpodx UI language (the tray / GUI / CLI text itself -- distinct
+        # from the *guest* install language above). Default 'auto' follows
+        # the host locale. Applied to new winpodx processes (a note tells the
+        # user to restart; live-retranslating an already-built window is out
+        # of scope).
+        from winpodx.core.config import _UI_LANGUAGES
+
+        _LANG_LABELS = {
+            "auto": tr("Auto (system language)"),
+            "en": "English",
+            "ko": "한국어",
+            "zh": "中文",
+            "ja": "日本語",
+            "de": "Deutsch",
+            "fr": "Français",
+            "it": "Italiano",
+        }
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel(tr("winpodx UI language")))
+        self.input_ui_language = QComboBox()
+        for code in _UI_LANGUAGES:
+            self.input_ui_language.addItem(_LANG_LABELS.get(code, code), code)
+        cur = self.cfg.ui.language if self.cfg.ui.language in _UI_LANGUAGES else "auto"
+        self.input_ui_language.setCurrentIndex(self.input_ui_language.findData(cur))
+
+        def _on_ui_language_changed(idx: int) -> None:
+            code = self.input_ui_language.itemData(idx)
+            if not code:
+                return
+            try:
+                from winpodx.core.config import Config
+                from winpodx.core.i18n import set_language
+
+                c = Config.load()
+                c.ui.language = code
+                c.save()
+                set_language(code)
+                self.cfg.ui.language = code
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger(__name__).warning("Could not set UI language: %s", e)
+
+        self.input_ui_language.currentIndexChanged.connect(_on_ui_language_changed)
+        lang_row.addWidget(self.input_ui_language, 1)
+        layout.addLayout(lang_row)
+        layout.addWidget(QLabel(tr("Restart winpodx (tray / GUI) to apply the language change.")))
+
         # Budget warning — only visible when max_sessions over-subscribes ram_gb.
         # Live-updates as the user types in either field.
         self.budget_warning_label = QLabel("")
