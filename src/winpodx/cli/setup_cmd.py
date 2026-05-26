@@ -664,6 +664,16 @@ def handle_setup(args: argparse.Namespace) -> None:
         cfg = Config.load()
         if non_interactive:
             print(tr("Existing config found at {path}, skipping setup.").format(path=Config.path()))
+            # #341: an existing config IS a completed setup -- flip the
+            # first-run flag here too. Without this, a config written before
+            # the `initialized` flag existed (or any config with it still
+            # False) makes the first-run prompt fire on *every* invocation:
+            # the user picks "Auto", setup short-circuits on this branch,
+            # returns without marking initialized, and the prompt comes back
+            # next time. Persist only when it actually changes.
+            if not cfg.pod.initialized:
+                cfg.pod.initialized = True
+                cfg.save()
             _ensure_oem_token_staged()
             # Half-uninstalled detection. If cfg points at a podman/docker
             # pod but the container is gone (user did `uninstall.sh`

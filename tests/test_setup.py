@@ -138,6 +138,34 @@ class TestHalfUninstalledGuard:
             "ensure_ready must not run when container is healthy"
         )
 
+    def test_marks_initialized_on_existing_config_skip(self, tmp_path, monkeypatch):
+        """#341: non-interactive setup over an existing config whose
+        `initialized` flag is still False must flip it True (and persist),
+        so the first-run prompt stops firing on every invocation."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+        cfg = _make_existing_config(tmp_path)
+        assert cfg.pod.initialized is False  # precondition: the buggy state
+
+        with (
+            patch("winpodx.cli.setup_cmd.check_all", return_value=_mock_freerdp_ok()),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"),
+            patch(
+                "winpodx.cli.setup_cmd._container_exists_on_backend",
+                return_value=True,
+            ),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(_setup_args(non_interactive=True))
+
+        from winpodx.core.config import Config
+
+        assert Config.load().pod.initialized is True, (
+            "existing-config skip path must mark the install initialized (#341)"
+        )
+
     def test_calls_ensure_ready_when_container_missing(self, tmp_path, monkeypatch):
         """Half-uninstalled: config present, container gone → ensure_ready
         is called to recreate the container from compose.yaml."""
