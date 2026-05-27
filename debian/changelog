@@ -1,3 +1,22 @@
+winpodx (0.5.9) unstable; urgency=medium
+
+  * feat: selectable, fully translated UI in 7 languages
+    (en/ko/zh/ja/de/fr/it) -- `winpodx language` + GUI dropdown, system
+    locale by default (#335).
+  * feat: Windows disk auto-grow + manual `pod grow-disk` / `pod
+    disk-usage`, extending C: past dockur's WinRE recovery partition (#318).
+  * feat: guest sync -- push host updates (agent / fixes / binaries) into a
+    running guest without a reinstall (`pod sync-guest`, auto on pod start,
+    also via `winpodx migrate`).
+  * feat: opt-in pod auto-start on login (`winpodx autostart on|off|status`).
+  * fix: RemoteApp painting the logon/lock screen (#332); AppImage
+    `podman-compose ModuleNotFoundError` on atomic distros (#322); first-run
+    setup prompt firing on every invocation (#341); USB shortcut erroring /
+    a late-inserted USB now showing on refresh; guest version stamp over the
+    windowless agent channel; upgrade re-install hanging at wait-ready [4/4].
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 27 May 2026 12:00:00 +0000
+
 winpodx (0.5.8) unstable; urgency=medium
 
   * fix(oem): #269 agent 8765 HttpListener bind failed with "conflicts

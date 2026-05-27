@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-05-27
+
 ### Highlights
 
 **Multilingual UI, self-growing disk, and a guest that updates without a reinstall.**
