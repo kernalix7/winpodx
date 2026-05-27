@@ -337,7 +337,17 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
     succeed so an interrupted run re-syncs on the next trigger.
     """
     from winpodx.core.provisioner import apply_windows_runtime_fixes
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
+
+    # All three guest-mutating calls below (OEM pull, urlacl, agent restart)
+    # run while the agent is still up -- maybe_autosync gates on agent health,
+    # and the restart's /exec returns before the scheduled task kills the
+    # agent. Route them through the windowless agent channel, NOT FreeRDP
+    # run_in_windows: the latter pops a visible RemoteApp/PowerShell window for
+    # each call, which is exactly the console-flash this is meant to avoid (it
+    # only surfaced once guest-sync first actually fired, on a 0.5.8 -> 0.5.9
+    # upgrade). Falls back to FreeRDP only if the agent is unreachable at
+    # dispatch (e.g. manual `--force` on a dead agent).
 
     if cfg.pod.backend not in ("podman", "docker"):
         return {"backend": f"skipped (backend={cfg.pod.backend} not supported)"}
@@ -350,7 +360,7 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
     # 1. Deliver refreshed /oem into the guest.
     try:
         _serve_oem(cfg)
-        pull = run_in_windows(cfg, _PULL_OEM_PS, timeout=180, description="guest-sync-oem")
+        pull = run_via_transport(cfg, _PULL_OEM_PS, timeout=180, description="guest-sync-oem")
         if not pull.ok:
             raise GuestSyncError(
                 f"guest OEM pull failed: {pull.stderr.strip() or pull.stdout.strip()}"
@@ -365,7 +375,7 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
 
     # 2. urlacl reservation (#269).
     try:
-        r = run_in_windows(cfg, _URLACL_PS, timeout=60, description="guest-sync-urlacl")
+        r = run_via_transport(cfg, _URLACL_PS, timeout=60, description="guest-sync-urlacl")
         results["urlacl"] = "ok" if r.ok else f"failed: rc={r.rc}"
     except WindowsExecError as e:
         results["urlacl"] = f"failed: {e}"
@@ -391,14 +401,46 @@ def sync_guest(cfg: Config, *, force: bool = False) -> dict[str, str]:
     # it picks up the refreshed agent.ps1 + urlacl. Nothing else runs over
     # /exec after this.
     try:
-        r = run_in_windows(
+        r = run_via_transport(
             cfg, _restart_agent_ps(), timeout=60, description="guest-sync-agent-restart"
         )
         results["agent_restart"] = "ok" if r.ok else f"failed: rc={r.rc}"
     except WindowsExecError as e:
         results["agent_restart"] = f"failed: {e}"
 
+    # 6. Wait for the agent to answer /health again before returning. The
+    # restart above is fire-and-forget over a scheduled task, and the
+    # preceding apply chain cycles TermService -- so without this the caller's
+    # downstream work (migrate apply, app discovery, reverse-open) races the
+    # relaunch, finds the agent unreachable, and degrades to a pending-resume.
+    # Poll generously; pending-resume stays the backstop if the relaunch is
+    # unusually slow (e.g. a session teardown).
+    if results.get("agent_restart") == "ok":
+        results["agent_back"] = "ok" if _wait_agent_back(cfg) else "timeout (still settling)"
+
     return results
+
+
+def _wait_agent_back(cfg: Config, *, timeout: int = 180, interval: float = 5.0) -> bool:
+    """Poll the agent ``/health`` until it answers after a restart, or time out.
+
+    Returns True once the agent is reachable again. Bounded so a guest that
+    won't come back doesn't hang the caller forever -- the caller treats a
+    timeout as "deferred" and relies on the next pod start / pending-resume.
+    """
+    import time
+
+    from winpodx.core.agent import AgentClient
+
+    client = AgentClient(cfg)
+    deadline = time.monotonic() + max(15, timeout)
+    while time.monotonic() < deadline:
+        try:
+            client.health()
+            return True
+        except Exception:  # noqa: BLE001 -- agent transports raise varied types
+            time.sleep(interval)
+    return False
 
 
 def maybe_autosync(cfg: Config) -> bool:

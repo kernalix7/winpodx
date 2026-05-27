@@ -216,3 +216,32 @@ def test_maybe_autosync_skips_when_agent_down(monkeypatch: pytest.MonkeyPatch) -
         lambda *a, **k: pytest.fail("must not sync when agent down"),
     )
     assert maybe_autosync(_cfg()) is False
+
+
+def test_sync_guest_uses_windowless_transport_not_freerdp(monkeypatch: pytest.MonkeyPatch) -> None:
+    # All guest-mutating steps must ride the windowless agent channel; touching
+    # FreeRDP run_in_windows pops a visible console (the flash regression that
+    # appeared once guest-sync first fired on a 0.5.8 -> 0.5.9 upgrade).
+    from winpodx.core import guest_sync, provisioner
+
+    class _R:
+        ok = True
+        rc = 0
+        stdout = "oem-refreshed"
+        stderr = ""
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", lambda *a, **k: _R())
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_in_windows",
+        lambda *a, **k: pytest.fail("sync_guest must not use FreeRDP run_in_windows (flash)"),
+    )
+    monkeypatch.setattr(guest_sync, "_serve_oem", lambda cfg: None)
+    monkeypatch.setattr(guest_sync, "_stop_oem_server", lambda cfg: None)
+    monkeypatch.setattr(guest_sync, "write_guest_version", lambda cfg, ver: True)
+    monkeypatch.setattr(guest_sync, "_wait_agent_back", lambda cfg, **k: True)
+    monkeypatch.setattr(provisioner, "apply_windows_runtime_fixes", lambda cfg: {"fix:x": "ok"})
+
+    results = guest_sync.sync_guest(_cfg(), force=True)
+    assert results.get("oem_delivery") == "ok"
+    assert results.get("agent_restart") == "ok"
+    assert results.get("agent_back") == "ok"
