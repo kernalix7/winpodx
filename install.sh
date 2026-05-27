@@ -682,22 +682,37 @@ if [ "$INSTALL_MODE" = "c" ]; then
 fi
 
 # --- Automatic mode: pick a usable, already-present backend ---
-# Prefer docker if docker is present and podman is absent/too-old; else
-# podman if present + new-enough; else libvirt if present. Fall back to
-# Recommended behaviour with a note when nothing usable is present.
+# Walk winpodx's RECOMMENDED backend order (podman first, then docker, then
+# libvirt -- podman is the project default per CLAUDE.md) and select the
+# first one that's both present AND usable. So when several runtimes are
+# installed, the recommended one wins; we only move down the list when the
+# higher-priority runtime is absent or unusable (e.g. podman < 4 on Ubuntu
+# 22.04, #271). Fall back to Recommended behaviour (podman + install missing
+# deps) when nothing usable is present.
 if [ "$INSTALL_MODE" = "a" ] && [ -z "$WINPODX_BACKEND" ]; then
-    if [ "$DOCKER_PRESENT" = true ] && { [ "$PODMAN_PRESENT" = false ] || [ "$PODMAN_TOO_OLD" = true ]; }; then
-        WINPODX_BACKEND="docker"
-        log "Automatic: docker is present (and podman is absent/too-old) — selecting docker backend."
-    elif [ "$PODMAN_PRESENT" = true ] && [ "$PODMAN_TOO_OLD" = false ]; then
+    for candidate in podman docker libvirt; do
+        case "$candidate" in
+            podman)
+                [ "$PODMAN_PRESENT" = true ] && [ "$PODMAN_TOO_OLD" = false ] || continue
+                WINPODX_BACKEND="podman"
+                log "Automatic: podman $PODMAN_MAJOR.x present + usable — selecting podman (recommended)."
+                ;;
+            docker)
+                [ "$DOCKER_PRESENT" = true ] || continue
+                WINPODX_BACKEND="docker"
+                log "Automatic: podman absent/too-old, docker present — selecting docker."
+                ;;
+            libvirt)
+                [ "$LIBVIRT_PRESENT" = true ] || continue
+                WINPODX_BACKEND="libvirt"
+                log "Automatic: only libvirt present — selecting libvirt."
+                ;;
+        esac
+        break
+    done
+    if [ -z "$WINPODX_BACKEND" ]; then
         WINPODX_BACKEND="podman"
-        log "Automatic: podman $PODMAN_MAJOR.x present — selecting podman backend."
-    elif [ "$LIBVIRT_PRESENT" = true ]; then
-        WINPODX_BACKEND="libvirt"
-        log "Automatic: libvirt present — selecting libvirt backend."
-    else
-        WINPODX_BACKEND="podman"
-        warn "Automatic: no usable runtime present — falling back to Recommended behaviour (podman + install missing deps)."
+        warn "Automatic: no usable runtime present — falling back to Recommended (podman + install missing deps)."
     fi
 fi
 
