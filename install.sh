@@ -487,6 +487,36 @@ else
     log "All dependencies OK"
 fi
 
+# --- Optional: reverse-open icon-conversion deps (best-effort) ---
+# winpodx's "Linux apps in Windows Open-with" feature (reverse-open,
+# default-on) converts each Linux app's icon to a Windows .ico. SVG icons
+# need cairosvg; resolving icons from non-Hicolor themes (Papirus, breeze,
+# ...) needs pyxdg. Both are declared winpodx dependencies, but this
+# installer runs winpodx under the system python3 without a venv, so it
+# can't pip-pull them -- without them, SVG / themed app icons fall back to a
+# generic placeholder in the Windows menu (apps still launch). Install them
+# via the distro package manager when missing. Best-effort + non-fatal: the
+# feature degrades gracefully if the packages or sudo aren't available.
+if [ -z "$WINPODX_SKIP_DEPS" ] && [ "${WINPODX_NO_REVERSE_OPEN:-}" != "1" ] \
+    && ! python3 -c "import cairosvg, xdg" >/dev/null 2>&1; then
+    log "Installing reverse-open icon deps (cairosvg + pyxdg) for full app-icon coverage..."
+    if command -v zypper >/dev/null 2>&1; then
+        sudo zypper install -y python3-CairoSVG python3-pyxdg
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y python3-cairosvg python3-pyxdg
+    elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y python3-cairosvg python3-pyxdg
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm python-cairosvg python-pyxdg
+    fi >/dev/null 2>&1 || true
+    if python3 -c "import cairosvg, xdg" >/dev/null 2>&1; then
+        log "  Icon deps ready -- SVG + themed app icons will convert."
+    else
+        warn "  cairosvg/pyxdg unavailable; SVG / themed app icons will use a placeholder"
+        warn "  (apps still launch normally). Install python3-cairosvg + python3-pyxdg later for full icons."
+    fi
+fi
+
 # Re-verify /dev/kvm after the install loop. Installing the qemu /
 # qemu-kvm package alone does NOT enable hardware virtualisation if
 # the CPU extension is off in BIOS, the kvm kernel module isn't
