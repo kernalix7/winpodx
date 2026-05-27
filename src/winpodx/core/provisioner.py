@@ -448,12 +448,18 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
     # activation. multi_session is a no-op when rdprrap is already
     # enabled (idempotent via marker), so the only-on-first-migration
     # disconnect cost is paid exactly once per pod.
+    # agent_keepalive runs LAST, after multi_session. multi_session may
+    # queue a detached rdprrap activation that cycles TermService and
+    # transiently drops the agent's session; registering (and kicking)
+    # the keep-alive task afterwards means its 1-minute repetition is the
+    # backstop that brings the agent back once that cycle settles.
     for name, fn in (
         ("max_sessions", _apply_max_sessions),
         ("rdp_timeouts", _apply_rdp_timeouts),
         ("oem_runtime_fixes", _apply_oem_runtime_fixes),
         ("vbs_launchers", _apply_vbs_launchers),
         ("multi_session", _apply_multi_session),
+        ("agent_keepalive", _apply_agent_keepalive),
     ):
         try:
             fn(cfg)
@@ -552,6 +558,11 @@ def _apply_vbs_launchers(cfg: Config) -> None:
         "launch_uwp.vbs",
         "launch_uwp.ps1",
         "agent-respawn.ps1",
+        # agent-keepalive.ps1 is staged here so the keep-alive scheduled
+        # task (_apply_agent_keepalive, the chain step after this one) can
+        # point at it on existing pods without a container recreate. The
+        # task copies it to C:\winpodx for the persistent run location.
+        "agent-keepalive.ps1",
         # rdprrap-activate.ps1 is staged here so `winpodx pod multi-
         # session enable` can activate rdprrap on existing pods without
         # forcing a container recreate. See cli.pod._multi_session.
@@ -649,6 +660,111 @@ def _apply_vbs_launchers(cfg: Config) -> None:
     if result.rc != 0:
         raise RuntimeError(f"vbs_launchers apply failed (rc={result.rc}): {result.stderr.strip()}")
     log.info("vbs_launchers: %s", result.stdout.strip())
+
+
+def _apply_agent_keepalive(cfg: Config) -> None:
+    """Register (idempotently) the WinpodxAgentKeepAlive scheduled task.
+
+    The guest agent's only autostart is an HKCU\\Run entry that fires once
+    per interactive logon. When the autologon session is torn down (RDP
+    single-session enforcement on a FreeRDP connect before rdprrap
+    multi-session is active, or a TermService cycle during rdprrap
+    (re)activation) the agent dies with the session and HKCU\\Run does not
+    re-fire -- the agent stays dead until the pod reboots. This task is the
+    persistent watchdog: it runs ``agent-keepalive.ps1`` AtLogOn and every
+    1 minute, which (re)launches the agent only when no agent.ps1 process
+    is running (never kills a healthy one).
+
+    Principal is the INTERACTIVE autologon user, NOT SYSTEM / S4U: the
+    agent's /exec runs PowerShell that callers expect in the user context
+    (Start Menu / per-user app discovery, per-user reverse-open HKCU
+    registration). See config/oem/agent-keepalive.ps1 for the full
+    reasoning. A user-context task covers crash-but-alive + re-logon; the
+    session-kick-with-no-relogon case is prevented by keeping rdprrap
+    activation idempotent (_apply_multi_session) so the kick doesn't
+    happen.
+
+    Depends on vbs_launchers having staged agent-keepalive.ps1 +
+    hidden-launcher.vbs into the Public launchers dir first;
+    apply_windows_runtime_fixes orders the chain accordingly. Idempotent:
+    Register-ScheduledTask -Force rewrites the task on every apply-fixes.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    target_dir = "C:\\Users\\Public\\winpodx\\launchers"
+    staged_ka = f"{target_dir}\\agent-keepalive.ps1"
+    run_ka = "C:\\winpodx\\agent-keepalive.ps1"
+    hidden_vbs = f"{target_dir}\\hidden-launcher.vbs"
+
+    payload_lines = [
+        "$ErrorActionPreference = 'Stop'",
+        f"$staged = '{staged_ka}'",
+        f"$ka = '{run_ka}'",
+        f"$wrap = '{hidden_vbs}'",
+        # vbs_launchers (runs before this step) stages agent-keepalive.ps1
+        # into the Public dir; copy it to C:\winpodx for the persistent run
+        # location (survives the C:\OEM wipe on classic VMs, same as
+        # power-monitor.ps1). Surface clearly if vbs_launchers was skipped.
+        "if (-not (Test-Path -LiteralPath $staged)) {",
+        "    Write-Output 'agent-keepalive.ps1 not staged"
+        " (vbs_launchers must run first); skipping keep-alive task'",
+        "    exit 0",
+        "}",
+        "if (-not (Test-Path -LiteralPath 'C:\\winpodx')) {",
+        "    [void](New-Item -ItemType Directory -Force -Path 'C:\\winpodx')",
+        "}",
+        "Copy-Item -LiteralPath $staged -Destination $ka -Force",
+        # Build the action: run the keep-alive through the windowless
+        # wscript wrapper so the 1-minute wakeups never flash a console.
+        # Fall back to hidden powershell only if the wrapper is missing.
+        "if (Test-Path -LiteralPath $wrap) {",
+        "    $exe = 'wscript.exe'",
+        '    $arg = \'"\' + $wrap + \'" "powershell.exe" "-NoProfile"'
+        ' "-ExecutionPolicy" "Bypass" "-File" "\' + $ka + \'"\'',
+        "} else {",
+        "    $exe = 'powershell.exe'",
+        "    $arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"' + $ka + '\"'",
+        "}",
+        "$act = New-ScheduledTaskAction -Execute $exe -Argument $arg",
+        # AtLogOn brings the agent back after a re-logon; the 1-minute
+        # repetition (indefinite) brings a crashed-but-session-alive agent
+        # back within ~1 min and is the backstop after a multi_session
+        # TermService cycle settles.
+        "$tLogon = New-ScheduledTaskTrigger -AtLogOn",
+        "$tRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date)"
+        " -RepetitionInterval (New-TimeSpan -Minutes 1)",
+        # Interactive autologon user principal (NOT SYSTEM): keeps HKCU /
+        # Start Menu context intact for discovery + reverse-open.
+        '$me = "$env:USERDOMAIN\\$env:USERNAME"',
+        "$prin = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited",
+        "$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries"
+        " -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew"
+        " -ExecutionTimeLimit (New-TimeSpan -Minutes 2)",
+        "Register-ScheduledTask -TaskName 'WinpodxAgentKeepAlive'"
+        " -Action $act -Trigger @($tLogon,$tRepeat) -Principal $prin"
+        " -Settings $set -Force | Out-Null",
+        # Kick it once now so a currently-dead agent comes back immediately
+        # rather than waiting up to a minute for the first repetition.
+        "Start-ScheduledTask -TaskName 'WinpodxAgentKeepAlive' -ErrorAction SilentlyContinue",
+        "Write-Output ('agent_keepalive: WinpodxAgentKeepAlive registered for ' + $me)",
+        "exit 0",
+    ]
+    payload = "\n".join(payload_lines) + "\n"
+
+    from winpodx.core.windows_exec import WindowsExecError
+
+    try:
+        result = _apply_via_transport(cfg, payload, description="apply-agent-keepalive")
+    except WindowsExecError as e:
+        log.warning("agent_keepalive: channel failure: %s", e)
+        raise
+    if result.rc != 0:
+        log.warning("agent_keepalive: rc=%d stderr=%s", result.rc, result.stderr.strip())
+        raise RuntimeError(
+            f"agent_keepalive apply failed (rc={result.rc}): {result.stderr.strip()}"
+        )
+    log.info("agent_keepalive: %s", result.stdout.strip())
 
 
 def _apply_rdp_timeouts(cfg: Config) -> None:

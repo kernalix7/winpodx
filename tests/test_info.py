@@ -69,6 +69,16 @@ def test_read_os_release_returns_empty_when_missing(monkeypatch):
 # --- bundled version pin readers ---
 
 
+def test_bundled_oem_version_matches_install_bat_marker(monkeypatch):
+    """The bundled OEM version parsed from install.bat must track the
+    ``set WINPODX_OEM_VERSION=`` marker so guest-sync delivers guest-script
+    changes (e.g. the agent keep-alive task) to already-provisioned pods.
+    Force the install.bat fallback by nulling the .txt stamp reader.
+    """
+    monkeypatch.setattr("winpodx.core.info._read_text_file", lambda *a, **k: None)
+    assert _bundled_oem_version() == "26"
+
+
 def test_bundled_oem_version_falls_back_to_unknown(monkeypatch, tmp_path):
     """When neither the .txt stamp NOR the install.bat fallback is available,
     the helper must return ``(unknown)`` rather than raising or returning ''.

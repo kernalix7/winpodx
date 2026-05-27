@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent - there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=25
+set WINPODX_OEM_VERSION=26
 
 echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -452,6 +452,7 @@ for %%F in (
     "launch_uwp.vbs"
     "launch_uwp.ps1"
     "agent-respawn.ps1"
+    "agent-keepalive.ps1"
     "rdprrap-activate.ps1"
 ) do (
     copy /Y "%~dp0%%~F" "C:\Users\Public\winpodx\launchers\%%~F" >nul 2>>"%SETUP_LOG%"
@@ -604,6 +605,64 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "  Get-Content C:\OEM\agent.log -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Output ('agent.log: ' + $_) };" ^
     "}" >>"%SETUP_LOG%" 2>&1
 echo [agent-install] step=post-spawn-probe status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
+
+REM ---------------------------------------------------------------------
+REM Agent keep-alive scheduled task (WinpodxAgentKeepAlive).
+REM
+REM HKCU\Run fires the agent exactly once per interactive logon. When the
+REM autologon session is torn down (RDP single-session enforcement kicks
+REM it when a FreeRDP connection arrives before rdprrap multi-session is
+REM active, or a TermService cycle during rdprrap (re)activation), the
+REM agent process dies with the session and HKCU\Run does NOT re-fire --
+REM the agent stays dead until the pod reboots. This task is the
+REM persistent watchdog HKCU\Run never was.
+REM
+REM Principal: the INTERACTIVE autologon user, NOT SYSTEM / S4U. The
+REM agent's /exec runs PowerShell in the user context (Start Menu / per-
+REM user app discovery, per-user reverse-open HKCU registration); a
+REM SYSTEM principal would change HKCU + Start Menu out from under those
+REM callers. A user-context task only runs while a session exists, which
+REM covers crash-but-alive (1-min repetition) and re-logon (AtLogOn). The
+REM session-kick-with-no-relogon case is handled by keeping rdprrap
+REM activation idempotent so the kick does not happen (see
+REM _apply_multi_session / rdprrap-activate.ps1).
+REM
+REM agent-keepalive.ps1 is staged to C:\winpodx (survives the C:\OEM wipe
+REM on classic VMs, same as power-monitor.ps1) and runs through the
+REM wscript hidden-launcher wrapper so the 1-min wakeups never flash a
+REM console. Registered via the ScheduledTasks cmdlets so we can attach
+REM BOTH an AtLogOn trigger AND a 1-minute repetition (schtasks.exe can
+REM only set one schedule per task).
+echo [winpodx] Registering agent keep-alive scheduled task...
+echo [agent-install] step=keepalive-task status=enter>>"%SETUP_LOG%"
+if exist "C:\Users\Public\winpodx\launchers\agent-keepalive.ps1" (
+    if not exist C:\winpodx mkdir C:\winpodx
+    copy /Y "C:\Users\Public\winpodx\launchers\agent-keepalive.ps1" C:\winpodx\agent-keepalive.ps1 >nul 2>&1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
+  "$ka = 'C:\winpodx\agent-keepalive.ps1';" ^
+  "if (-not (Test-Path -LiteralPath $ka)) { Write-Output 'keepalive: agent-keepalive.ps1 not staged; skipping'; exit 0 };" ^
+  "if (Test-Path -LiteralPath $wrap) {" ^
+  "  $exe = 'wscript.exe';" ^
+  "  $arg = '\"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"' + $ka + '\"';" ^
+  "} else {" ^
+  "  $exe = 'powershell.exe';" ^
+  "  $arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"' + $ka + '\"';" ^
+  "}" ^
+  "$act = New-ScheduledTaskAction -Execute $exe -Argument $arg;" ^
+  "$tLogon = New-ScheduledTaskTrigger -AtLogOn;" ^
+  "$tRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1);" ^
+  "$me = \"$env:USERDOMAIN\$env:USERNAME\";" ^
+  "$prin = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited;" ^
+  "$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2);" ^
+  "try {" ^
+  "  Register-ScheduledTask -TaskName 'WinpodxAgentKeepAlive' -Action $act -Trigger @($tLogon,$tRepeat) -Principal $prin -Settings $set -Force | Out-Null;" ^
+  "  Write-Output ('keepalive: registered for ' + $me);" ^
+  "} catch {" ^
+  "  Write-Output ('keepalive: ERROR ' + $_.Exception.Message);" ^
+  "}" >>"%SETUP_LOG%" 2>&1
+echo [agent-install] step=keepalive-task status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 
 REM Token is delivered via the OEM bind mount - no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container

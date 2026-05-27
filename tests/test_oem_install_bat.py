@@ -43,7 +43,7 @@ def test_install_bat_does_not_self_lock_setup_log() -> None:
 
 def test_install_bat_oem_version_matches_expected_setup_contract() -> None:
     text = INSTALL_BAT.read_text(encoding="utf-8")
-    assert "set WINPODX_OEM_VERSION=25" in text
+    assert "set WINPODX_OEM_VERSION=26" in text
     assert "(echo %WINPODX_OEM_VERSION%)>C:\\winpodx\\oem_version.txt" in text
 
 
@@ -62,6 +62,25 @@ def test_install_bat_registers_and_spawns_guest_agent() -> None:
     assert "Set-ItemProperty -Path $key -Name 'WinpodxMedia'" in text
     assert "agent-spawn: wscript+hidden-launcher.vbs" in text
     assert "agent-spawn: direct-powershell-fallback" in text
+
+
+def test_install_bat_stages_agent_keepalive_launcher() -> None:
+    text = INSTALL_BAT.read_text(encoding="utf-8")
+    # Keep-alive script is part of the launcher-staging loop so it lands in
+    # the Public launchers dir like the other wscript-wrapped scripts.
+    assert '"agent-keepalive.ps1"' in text
+
+
+def test_install_bat_registers_keepalive_scheduled_task() -> None:
+    text = INSTALL_BAT.read_text(encoding="utf-8")
+    assert "WinpodxAgentKeepAlive" in text
+    assert "Register-ScheduledTask -TaskName 'WinpodxAgentKeepAlive'" in text
+    # BOTH triggers: AtLogOn + 1-minute repetition.
+    assert "New-ScheduledTaskTrigger -AtLogOn" in text
+    assert "New-TimeSpan -Minutes 1" in text
+    # Interactive user principal -- NOT SYSTEM / S4U -- so discovery +
+    # reverse-open keep the user's HKCU / Start Menu context.
+    assert "-LogonType Interactive" in text
 
 
 def test_install_bat_writes_setup_done_before_final_termservice_cycle() -> None:

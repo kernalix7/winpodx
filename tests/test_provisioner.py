@@ -154,6 +154,59 @@ def test_apply_rdp_timeouts_payload_contains_all_keys(monkeypatch):
         assert token in payload, f"missing {token!r} in payload"
 
 
+def test_apply_agent_keepalive_skips_libvirt(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "libvirt"
+    captured = _mock_run_in_windows(monkeypatch)
+    provisioner._apply_agent_keepalive(cfg)
+    assert captured == []
+
+
+def test_apply_agent_keepalive_payload_registers_task(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    captured = _mock_run_in_windows(
+        monkeypatch, rc=0, stdout="agent_keepalive: WinpodxAgentKeepAlive registered for X"
+    )
+    provisioner._apply_agent_keepalive(cfg)
+    assert len(captured) == 1
+    description, payload = captured[0]
+    assert description == "apply-agent-keepalive"
+    # Registers the keep-alive scheduled task...
+    assert "WinpodxAgentKeepAlive" in payload
+    assert "Register-ScheduledTask" in payload
+    # ...with BOTH an AtLogOn trigger and a 1-minute repetition.
+    assert "New-ScheduledTaskTrigger -AtLogOn" in payload
+    assert "New-TimeSpan -Minutes 1" in payload
+    # Interactive user principal -- NOT SYSTEM / S4U -- so the agent's
+    # /exec keeps the user's HKCU + Start Menu context for discovery /
+    # reverse-open. Regression guard: an S4U / SYSTEM flip here would
+    # silently change the discovery context.
+    assert "-LogonType Interactive" in payload
+    assert "RunLevel Limited" in payload
+    assert "SYSTEM" not in payload
+    assert "-LogonType S4U" not in payload
+    # Launches windowless via the hidden-launcher wrapper (no console flash).
+    assert "hidden-launcher.vbs" in payload
+    # Staged from vbs_launchers, copied to the persistent C:\winpodx run dir.
+    assert "C:\\winpodx\\agent-keepalive.ps1" in payload
+
+
+def test_apply_agent_keepalive_raises_on_nonzero_rc(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    _mock_run_in_windows(monkeypatch, rc=2, stderr="schtasks denied")
+    with pytest.raises(RuntimeError, match="rc=2"):
+        provisioner._apply_agent_keepalive(cfg)
+
+
 def test_apply_oem_runtime_fixes_skips_libvirt(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
@@ -289,6 +342,7 @@ def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
         "oem_runtime_fixes",
         "multi_session",
         "vbs_launchers",
+        "agent_keepalive",
     }
     for v in result.values():
         assert v == "ok"
