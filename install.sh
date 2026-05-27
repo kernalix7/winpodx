@@ -1332,17 +1332,28 @@ ROLLBACK_ARMED=0
 cleanup_install_marker
 trap - EXIT ERR INT TERM
 
+INSTALLED_VER="$("$VENV_PY" -c 'import winpodx; print(winpodx.__version__)' 2>/dev/null || echo '?')"
+GUI_LABEL="yes"
+[ -n "$WINPODX_NO_GUI" ] && GUI_LABEL="no (--no-gui)"
+
 echo ""
-echo " Location: $INSTALL_DIR"
-echo " Command:  winpodx"
+echo -e "${GREEN}  ┌─ winpodx installed ──────────────────────────────────────${NC}"
+printf "  │  version   %s\n" "$INSTALLED_VER"
+printf "  │  backend   %s\n" "${WINPODX_BACKEND:-podman}"
+printf "  │  GUI       %s\n" "$GUI_LABEL"
+printf "  │  location  %s\n" "$INSTALL_DIR  (private venv)"
+echo -e "${GREEN}  └──────────────────────────────────────────────────────────${NC}"
 echo ""
-echo " Usage:"
-echo "   winpodx app run desktop        # Start the Windows pod (first run takes ~5-10 min)"
-echo "   winpodx app refresh            # Scan the pod for installed apps + icons"
-echo "   winpodx info                   # System / pod / dependency snapshot"
-echo "   winpodx setup                  # Reconfigure"
+echo "  Next steps:"
+if [ -z "$WINPODX_NO_GUI" ]; then
+    echo "    winpodx                    # open the GUI — system tray + app manager"
+fi
+echo "    winpodx app run desktop    # the full Windows desktop"
+echo "    winpodx app refresh        # rescan the apps installed in Windows"
+echo "    winpodx doctor             # health check if something looks off"
+echo "    winpodx --help             # every command"
 echo ""
-echo " On first pod boot the menu auto-populates with the apps actually"
-echo " installed in your Windows guest — no curated list, real icons."
+echo "  Your Windows apps are already in the application menu — click any one"
+echo "  and winpodx handles the pod, the RDP session, and the window for you."
 echo ""
 log "Installation complete!"

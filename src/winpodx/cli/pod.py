@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import threading
 
 from winpodx.core.i18n import tr
 
@@ -972,7 +973,73 @@ def _format_wget_progress(line: str) -> tuple[int, str] | None:
         tail_s = f"  done in {time_tok}"
     else:
         tail_s = f"  ETA {time_tok}"
-    return pct, f"       Downloading Windows ISO  [{bar}] {pct:3d}%  {speed_s}{tail_s}"
+    return pct, f"  Downloading Windows ISO  [{bar}] {pct:3d}%  {speed_s}{tail_s}"
+
+
+class _LiveLine:
+    """A single transient terminal line that updates in place and erases.
+
+    Used for the clean (non-verbose) install view: the Windows-download
+    progress + transient "still booting" status overwrite one line via
+    carriage-return, so the screen doesn't scroll with hundreds of dockur/wget
+    lines. Permanent lines (phase markers, dockur milestones) go to stdout
+    normally; this only owns the transient line.
+
+    Writes to ``/dev/tty`` directly, NOT stdout: install.sh pipes wait-ready
+    through ``tee``, so stdout isn't a TTY and ``\\r`` control codes would land
+    in the captured log file. /dev/tty reaches the real terminal regardless,
+    and never pollutes the tee'd capture. Disabled (no-op) when /dev/tty can't
+    be opened (headless / non-interactive) or in verbose mode.
+    """
+
+    def __init__(self, enabled: bool) -> None:
+        self._lock = threading.Lock()
+        self._active = False
+        self._tty = None
+        if not enabled:
+            return
+        try:
+            self._tty = open("/dev/tty", "w")  # noqa: SIM115 — closed in close()
+        except OSError:
+            self._tty = None
+
+    @property
+    def usable(self) -> bool:
+        return self._tty is not None
+
+    def set(self, text: str) -> None:
+        """Render *text* as the transient line, overwriting the previous one."""
+        if self._tty is None:
+            return
+        with self._lock:
+            try:
+                # \r to column 0, \033[K clears to end of line.
+                self._tty.write("\r\033[K" + text)
+                self._tty.flush()
+                self._active = True
+            except (OSError, ValueError):
+                self._tty = None
+
+    def clear(self) -> None:
+        """Erase the transient line (call before printing a permanent line)."""
+        if self._tty is None or not self._active:
+            return
+        with self._lock:
+            try:
+                self._tty.write("\r\033[K")
+                self._tty.flush()
+            except (OSError, ValueError):
+                pass
+            self._active = False
+
+    def close(self) -> None:
+        self.clear()
+        if self._tty is not None:
+            try:
+                self._tty.close()
+            except OSError:
+                pass
+            self._tty = None
 
 
 def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
@@ -1001,7 +1068,6 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
     wait expires naturally on the last extension. No-op for fast
     connections (their ETA always fits inside the current deadline).
     """
-    import threading
     import time as _time
     from subprocess import PIPE, Popen
 
@@ -1078,6 +1144,16 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
 
     log_proc: Popen | None = None
     log_stop = threading.Event()
+
+    # Self-erasing transient line for the clean (non-verbose) view. Owns the
+    # download progress + boot heartbeat; permanent lines go through say().
+    _live = _LiveLine(enabled=show_logs and not verbose)
+
+    def say(text: str) -> None:
+        """Print a permanent line, erasing the transient live line first."""
+        _live.clear()
+        print(text)
+
     if show_logs:
         try:
             # v0.2.0.7: --tail 100 so the user sees recent context (Windows
@@ -1147,22 +1223,32 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                         _maybe_extend_deadline(eta_secs)
 
                     if verbose:
-                        # --verbose: raw, every container line.
+                        # --verbose: raw, every container line, permanent.
                         print(f"       [container] {_rewrite_vnc_url(line)}")
                         continue
 
-                    # Clean (default): collapse the wget flood to a tidy
-                    # progress line every >=3% (plus the final 100%), and
-                    # drop UEFI boot-loader / tun noise entirely.
+                    # Clean (default). The download progress + transient boot
+                    # chatter live on ONE self-erasing line (_live); only
+                    # meaningful dockur milestones (the `>` lines) become
+                    # permanent output.
                     prog = _format_wget_progress(line)
                     if prog is not None:
-                        pct, text = prog
-                        if pct >= _last_pct[0] + 3 or pct >= 100:
-                            print(text)
-                            _last_pct[0] = pct
+                        if _live.usable:
+                            _live.set(prog[1])  # in-place, self-erasing
+                        else:
+                            pct, text = prog  # no TTY: fall back to >=3% lines
+                            if pct >= _last_pct[0] + 3 or pct >= 100:
+                                print(text)
+                                _last_pct[0] = pct
                         continue
                     if any(noise in line for noise in _CONTAINER_NOISE):
+                        # UEFI boot-loader / tun spam: keep a transient
+                        # heartbeat so the screen isn't dead, but never scroll.
+                        _live.set("  Windows is booting...")
                         continue
+                    # A real dockur line (e.g. "> Extracting Windows image"):
+                    # erase the transient line, print it permanently.
+                    _live.clear()
                     print(f"       [container] {_rewrite_vnc_url(line)}")
 
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
@@ -1173,7 +1259,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
 
     try:
         # --- [1/4] Container running ---
-        print(
+        say(
             tr("[1/4] Waiting for container to start...      ({elapsed})").format(elapsed=elapsed())
         )
         while _time.monotonic() < deadline_state["value"]:
@@ -1181,7 +1267,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 if pod_status(cfg).state == PodState.RUNNING:
                     # Freeze the deadline against stale replayed wget lines.
                     deadline_state["container_running"] = True
-                    print(
+                    say(
                         tr("      OK Container running                   ({elapsed})").format(
                             elapsed=elapsed()
                         )
@@ -1191,7 +1277,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 pass
             _time.sleep(2)
         else:
-            print(
+            say(
                 tr("      FAIL Timeout waiting for container       ({elapsed})").format(
                     elapsed=elapsed()
                 )
@@ -1199,12 +1285,12 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             sys.exit(3)
 
         # --- [2/4] RDP port open ---
-        print(
+        say(
             tr("[2/4] Waiting for Windows RDP service...     ({elapsed})").format(elapsed=elapsed())
         )
         while _time.monotonic() < deadline_state["value"]:
             if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0):
-                print(
+                say(
                     tr("      OK RDP port {port} open                  ({elapsed})").format(
                         port=cfg.rdp.port, elapsed=elapsed()
                     )
@@ -1212,7 +1298,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 break
             _time.sleep(3)
         else:
-            print(
+            say(
                 tr("      FAIL Timeout waiting for RDP port        ({elapsed})").format(
                     elapsed=elapsed()
                 )
@@ -1220,18 +1306,18 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             sys.exit(3)
 
         # --- [3/4] FreeRDP RemoteApp activation ---
-        print(
+        say(
             tr("[3/4] Waiting for Windows activation...      ({elapsed})").format(elapsed=elapsed())
         )
         remaining = max(60, int(deadline_state["value"] - _time.monotonic()))
         if wait_for_windows_responsive(cfg, timeout=remaining):
-            print(
+            say(
                 tr("      OK Windows ready                         ({elapsed})").format(
                     elapsed=elapsed()
                 )
             )
         else:
-            print(
+            say(
                 tr(
                     "      FAIL Timeout waiting for Windows ready   ({elapsed})\n"
                     "      Run `winpodx pod status` later and re-run "
@@ -1256,7 +1342,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
         # in-place, or OEM v < the one that adds it), we skip phase 4
         # silently — `apply-fixes` will surface the pending-reboot
         # condition separately if it matters.
-        print(
+        say(
             tr("[4/4] Waiting for OEM reboot pass...         ({elapsed})").format(elapsed=elapsed())
         )
         # Phase 4 is a quick marker poll, not a download -- cap it hard at
@@ -1265,13 +1351,13 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
         # block for the whole ISO-sized window.
         remaining = min(180, max(60, int(deadline_state["value"] - _time.monotonic())))
         if _wait_for_oem_reboot(cfg, timeout=remaining):
-            print(
+            say(
                 tr("      OK OEM reboot pass complete             ({elapsed})").format(
                     elapsed=elapsed()
                 )
             )
         else:
-            print(
+            say(
                 tr(
                     "      WARN OEM reboot pass marker still pending ({elapsed})\n"
                     "      Registry changes that need a reboot may not be active "
@@ -1280,6 +1366,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             )
     finally:
         log_stop.set()
+        _live.close()
         if log_proc is not None:
             try:
                 log_proc.terminate()
@@ -1302,7 +1389,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             if maybe_autosync(cfg):
                 print(tr("      Guest synced to the upgraded host (agent restarting)."))
         except Exception as e:  # noqa: BLE001 -- never fail wait-ready on sync
-            print(tr("      WARN guest auto-sync skipped: {error}").format(error=e))
+            say(tr("      WARN guest auto-sync skipped: {error}").format(error=e))
 
 
 def _recover_oem() -> None:
