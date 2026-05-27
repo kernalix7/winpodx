@@ -903,7 +903,7 @@ fi
 # v0.2.0.5: trigger discovery so the menu populates before install.sh
 # exits.
 #
-# Retry up to 3 times with 10s spacing. Even after the curl /health wait
+# Retry up to 6 times with 10s spacing (~50s window). Even after the curl /health wait
 # above, the agent can still be in a transient "responsive but not yet
 # stable" state right after install.bat's final TermService cycle —
 # AgentTransport.health() couples /health with the host-side token check
@@ -919,12 +919,12 @@ fi
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
     log "Discovering installed Windows apps..."
     discovery_ok=
-    for attempt in 1 2 3; do
+    for attempt in 1 2 3 4 5 6; do
         if "$HOME/.local/bin/winpodx" app refresh 2>/dev/null; then
             discovery_ok=1
             break
         fi
-        if [ "$attempt" -lt 3 ]; then
+        if [ "$attempt" -lt 6 ]; then
             log "  discovery attempt $attempt deferred (agent transitioning); retrying in 10s..."
             sleep 10
         fi

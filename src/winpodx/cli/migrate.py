@@ -1028,7 +1028,7 @@ def _attempt_refresh() -> None:
     # the user knows pending-resume isn't silently kicking in here.
     print(tr("\n  Scanning Windows pod for installed apps..."))
     last_exc: DiscoveryError | None = None
-    for attempt in (1, 2, 3):
+    for attempt in (1, 2, 3, 4, 5, 6):
         try:
             apps = discover_apps(cfg)
             written = persist_discovered(apps)
@@ -1040,7 +1040,7 @@ def _attempt_refresh() -> None:
             return
         except DiscoveryError as exc:
             last_exc = exc
-            if attempt < 3:
+            if attempt < 6:
                 print(
                     tr(
                         "  attempt {attempt} deferred ({error}); retrying in 10s"
