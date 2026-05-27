@@ -624,7 +624,12 @@ else
         # install (mid first-boot) is never interrupted.
         if [ -f "$HOME/.config/winpodx/winpodx.toml" ]; then
             log "Migration: stopping Windows pod for a clean restart..."
-            "$HOME/.local/bin/winpodx" pod stop >/dev/null 2>&1 || true
+            # `</dev/null` is load-bearing: under `curl | bash` this runs while
+            # bash is still streaming the script from the pipe (stdin). Without
+            # it, winpodx's CLI startup can read stdin and swallow the rest of
+            # the piped script, corrupting the run ("bash: line N: ...: command
+            # not found", curl error 23 / broken pipe).
+            "$HOME/.local/bin/winpodx" pod stop </dev/null >/dev/null 2>&1 || true
             MIGRATION_RESTART=1
         fi
         # Fetch tags + branches so checkout works for any ref.
@@ -734,7 +739,8 @@ fi
 # installs never set MIGRATION_RESTART, so their first-boot is untouched.
 if [ "${MIGRATION_RESTART:-0}" = "1" ]; then
     log "Migration: restarting Windows pod with the updated build..."
-    "$HOME/.local/bin/winpodx" pod start >/dev/null 2>&1 || true
+    # `</dev/null`: same curl|bash stdin guard as the stop above.
+    "$HOME/.local/bin/winpodx" pod start </dev/null >/dev/null 2>&1 || true
 fi
 
 # --- Install winpodx GUI desktop entry & icon ---
