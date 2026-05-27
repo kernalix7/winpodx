@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reverse-open icons that only ship as a multi-colour XPM (e.g. veracrypt) no longer fall back to a blank placeholder.** Pillow's bundled XPM decoder only handles one char per pixel (≤256 colours), so veracrypt's icon — its *only* icon is `/usr/share/pixmaps/veracrypt.xpm` at 1770 colours / 2 chars per pixel — raised `KeyError` and the app got a generic placeholder in the Windows "Open with" menu. winpodx now decodes such XPMs with a small **pure-Python** reader (parse the colour table + pixel rows, build the RGBA image directly), so those apps get their real icon. No new dependency and no external tool — it works identically on every install method including the AppImage. The remaining placeholder case is genuinely unavoidable (an app that ships no icon at all).
+
 ## [0.5.9] - 2026-05-27
 
 ### Highlights

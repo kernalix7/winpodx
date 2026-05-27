@@ -229,6 +229,113 @@ def _placeholder_image(size: int) -> "object":
     return img
 
 
+def _decode_xpm_rgba(src: Path) -> "object | None":
+    """Decode an XPM file to an RGBA Pillow image in pure Python, or None.
+
+    Pillow's bundled XPM plugin only supports one char per pixel (``cpp == 1``,
+    ≤256 colours) and raises on anything richer. Real-world icons routinely
+    ship as XPM with ``cpp >= 2`` and >256 colours -- e.g. veracrypt's only
+    icon is ``/usr/share/pixmaps/veracrypt.xpm`` at 1770 colours, cpp 2, which
+    made Pillow raise ``KeyError`` and the app fall back to a blank placeholder
+    in the Windows "Open with" menu.
+
+    XPM is a plain-text C array, so we parse it ourselves: pull the quoted
+    string literals, read the ``W H NCOLORS CPP`` header, build the
+    colour-key → RGBA table (``c`` colour value; ``None`` → transparent;
+    ``#RGB`` / ``#RRGGBB`` / ``#RRRRGGGGBBBB`` hex or an X11 colour name via
+    Pillow's ``ImageColor``), then map every ``cpp``-char pixel key to a
+    colour. No external dependency, so it works identically everywhere
+    including the AppImage. Returns None on any malformed input so the caller
+    can still write a placeholder.
+    """
+    import re
+
+    from PIL import Image, ImageColor
+
+    try:
+        text = src.read_text(encoding="latin-1")
+    except OSError as exc:
+        logger.debug("cannot read XPM %s: %s", src, exc)
+        return None
+
+    # Quoted string literals, in order: [values, <NCOLORS colours>, <H rows>].
+    literals = re.findall(r'"((?:[^"\\]|\\.)*)"', text)
+    if len(literals) < 1:
+        return None
+    try:
+        w, h, ncolors, cpp = (int(x) for x in literals[0].split()[:4])
+    except ValueError:
+        logger.debug("XPM %s: unparseable values header %r", src, literals[0])
+        return None
+    if w <= 0 or h <= 0 or cpp <= 0 or ncolors <= 0:
+        return None
+    if len(literals) < 1 + ncolors + h:
+        logger.debug("XPM %s: truncated (need %d literals)", src, 1 + ncolors + h)
+        return None
+
+    def _parse_color(value: str) -> tuple[int, int, int, int]:
+        v = value.strip()
+        if v.lower() == "none":
+            return (0, 0, 0, 0)
+        if v.startswith("#") and len(v) == 13:  # #RRRRGGGGBBBB -> high byte each
+            return (int(v[1:3], 16), int(v[5:7], 16), int(v[9:11], 16), 255)
+        try:
+            r, g, b = ImageColor.getrgb(v)[:3]
+            return (r, g, b, 255)
+        except (ValueError, KeyError):
+            return (0, 0, 0, 0)  # unknown colour name -> transparent
+
+    palette: dict[str, tuple[int, int, int, int]] = {}
+    for line in literals[1 : 1 + ncolors]:
+        key = line[:cpp]
+        rest = line[cpp:]
+        # "<key> <type1> <val1> <type2> <val2> ...", types: c m g g4 s.
+        # Prefer the 'c' (colour) entry; the value can itself be multi-word
+        # only for symbolic names, which we don't need. Grab the token after
+        # the first standalone 'c'.
+        toks = rest.split()
+        color = None
+        i = 0
+        while i < len(toks) - 1:
+            if toks[i] == "c":
+                color = toks[i + 1]
+                break
+            i += 1
+        palette[key] = _parse_color(color) if color is not None else (0, 0, 0, 0)
+
+    img = Image.new("RGBA", (w, h))
+    px = img.load()
+    transparent = (0, 0, 0, 0)
+    for y, row in enumerate(literals[1 + ncolors : 1 + ncolors + h]):
+        for x in range(w):
+            key = row[x * cpp : x * cpp + cpp]
+            px[x, y] = palette.get(key, transparent)
+    return img
+
+
+def _open_raster_rgba(src: Path) -> "object | None":
+    """Open *src* as an RGBA Pillow image.
+
+    Pillow first; on failure (notably XPM with ``cpp >= 2``, which Pillow's
+    decoder can't handle) fall back to the pure-Python XPM decoder. Returns
+    None only when nothing can read it (the caller then writes a placeholder).
+    The annotation is loose to keep the module-level Pillow import soft.
+    """
+    from PIL import Image
+
+    try:
+        return Image.open(src).convert("RGBA")
+    except Exception as exc:  # noqa: BLE001 -- Pillow raises a variety of types
+        if src.suffix.lower() == ".xpm":
+            logger.debug("Pillow can't open XPM %s (%s); using pure-Python decoder", src, exc)
+            img = _decode_xpm_rgba(src)
+            if img is not None:
+                return img
+        else:
+            logger.debug("Pillow can't open %s: %s", src, exc)
+        return None
+
+
 def convert_to_ico(src: Path, dst: Path) -> bool:
     """Convert a PNG / SVG / XPM icon to a multi-resolution Windows ICO.
 
@@ -273,10 +380,9 @@ def convert_to_ico(src: Path, dst: Path) -> bool:
         # chooser then renders that tiny frame fuzzy or falls back
         # to the generic .exe icon entirely. Upscaling first guarantees
         # every requested size lands in the output.
-        try:
-            base = Image.open(src).convert("RGBA")
-        except Exception as exc:
-            logger.warning("Pillow cannot open %s: %s", src, exc)
+        base = _open_raster_rgba(src)
+        if base is None:
+            logger.warning("could not load icon %s; using placeholder", src)
             used_placeholder = True
         else:
             max_size = max(ICO_SIZES)

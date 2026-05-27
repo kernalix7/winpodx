@@ -188,3 +188,75 @@ def test_convert_to_ico_unreadable_source_writes_placeholder(tmp_path: Path) -> 
     dst = tmp_path / "out.ico"
     assert convert_to_ico(src, dst) is False
     _assert_ico_valid(dst)
+
+
+# --- pure-Python XPM decoder (veracrypt-class cpp>=2, >256 colours) ----------
+
+_CPP2_XPM = (
+    "/* XPM */\n"
+    "static char * t[] = {\n"
+    '"2 2 2 2",\n'
+    '"aa c #FF0000",\n'
+    '"bb c #00FF00",\n'
+    '"aabb",\n'
+    '"bbaa"};\n'
+)
+
+
+def test_decode_xpm_cpp2(tmp_path: Path) -> None:
+    # cpp=2 (2 chars per pixel) -- Pillow's XPM decoder only does cpp=1 and
+    # raises. The pure-Python decoder must read it and map the colours.
+    from winpodx.reverse_open import icons
+
+    src = tmp_path / "t.xpm"
+    src.write_text(_CPP2_XPM)
+    img = icons._decode_xpm_rgba(src)
+    assert img is not None and img.size == (2, 2)
+    px = img.convert("RGBA").load()
+    assert px[0, 0] == (255, 0, 0, 255)  # "aa" -> red
+    assert px[1, 0] == (0, 255, 0, 255)  # "bb" -> green
+
+
+def test_decode_xpm_none_colour_is_transparent(tmp_path: Path) -> None:
+    from winpodx.reverse_open import icons
+
+    xpm = (
+        "/* XPM */\nstatic char * t[] = {\n"
+        '"1 1 1 2",\n'
+        '"   c None",\n'  # cpp=2 key "  " (two spaces) -> transparent
+        '"  "};\n'
+    )
+    src = tmp_path / "n.xpm"
+    src.write_text(xpm)
+    img = icons._decode_xpm_rgba(src)
+    assert img is not None
+    assert img.convert("RGBA").load()[0, 0] == (0, 0, 0, 0)
+
+
+def test_decode_xpm_malformed_returns_none(tmp_path: Path) -> None:
+    from winpodx.reverse_open import icons
+
+    bad = tmp_path / "bad.xpm"
+    bad.write_text("/* XPM */ not really xpm")
+    assert icons._decode_xpm_rgba(bad) is None
+
+
+def test_open_raster_uses_xpm_decoder_when_pillow_fails(tmp_path: Path) -> None:
+    # End-to-end through the raster opener: cpp=2 XPM -> real RGBA image,
+    # no external tool, no placeholder.
+    from winpodx.reverse_open import icons
+
+    src = tmp_path / "t.xpm"
+    src.write_text(_CPP2_XPM)
+    img = icons._open_raster_rgba(src)
+    assert img is not None and img.size == (2, 2)
+
+
+def test_convert_cpp2_xpm_writes_real_icon(tmp_path: Path) -> None:
+    # The veracrypt case: cpp>=2 XPM must produce a REAL multi-res icon,
+    # not a placeholder -- with zero external dependency.
+    src = tmp_path / "t.xpm"
+    src.write_text(_CPP2_XPM)
+    dst = tmp_path / "t.ico"
+    assert convert_to_ico(src, dst) is True
+    _assert_ico_valid(dst)
