@@ -96,3 +96,38 @@ def test_oem_reboot_upgrade_path_exits_fast_when_agent_transitioning(monkeypatch
     assert pod._wait_for_oem_reboot(cfg, timeout=600) is True
     # Exited via the 30s appear-grace, not the 600s timeout.
     assert clock["t"] < 1000.0 + 600
+
+
+def test_format_wget_progress_eta_form() -> None:
+    from winpodx.cli.pod import _format_wget_progress
+
+    r = _format_wget_progress("6488064K ........ ........ 78% 4.55M 21m22s")
+    assert r is not None
+    pct, text = r
+    assert pct == 78
+    assert "78%" in text and "ETA 21m22s" in text and "4.55 MB/s" in text
+
+
+def test_format_wget_progress_done_form() -> None:
+    from winpodx.cli.pod import _format_wget_progress
+
+    r = _format_wget_progress("8257536K ........ 100% 34.0M=4m27s")
+    assert r is not None
+    pct, text = r
+    assert pct == 100
+    assert "done in 4m27s" in text
+
+
+def test_format_wget_progress_bare_speed_and_zero() -> None:
+    from winpodx.cli.pod import _format_wget_progress
+
+    assert _format_wget_progress("50% 713 30s")[0] == 50
+    assert _format_wget_progress("   0K 0% 5.57M 24m4s")[0] == 0
+
+
+def test_format_wget_progress_rejects_non_progress() -> None:
+    from winpodx.cli.pod import _format_wget_progress
+
+    assert _format_wget_progress("BdsDxe: starting Boot0004") is None
+    assert _format_wget_progress("Sysprep specialize") is None
+    assert _format_wget_progress("") is None

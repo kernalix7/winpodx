@@ -30,7 +30,7 @@ def handle_pod(args: argparse.Namespace) -> None:
     elif cmd == "multi-session":
         _multi_session(args.action)
     elif cmd == "wait-ready":
-        _wait_ready(args.timeout, getattr(args, "logs", False))
+        _wait_ready(args.timeout, getattr(args, "logs", False), getattr(args, "verbose", False))
     elif cmd == "install-status":
         from winpodx.cli.pod_install_status import handle as handle_install_status
 
@@ -925,7 +925,57 @@ def _parse_wget_eta_secs(line: str) -> int | None:
     return secs if secs > 0 else None
 
 
-def _wait_ready(timeout: int, show_logs: bool) -> None:
+# A dockur/wget progress line carries a percentage + speed + (eta|elapsed):
+#   6488064K ........ ........ ........ ........ 78% 4.55M 21m22s
+#   8257536K ........ .......                   100% 34.0M=4m27s
+# Capture percent, speed, and the trailing time token (remaining, or
+# "=elapsed" once complete) so the non-verbose drain can collapse the flood
+# of these lines into a single in-place progress bar.
+# percent, speed, optional '=' (done marker), optional time token. wget
+# writes the time either space-separated ("4.55M 21m22s" = ETA remaining) or
+# '='-joined ("34.0M=4m27s" = total once complete), so accept both.
+_WGET_PROGRESS_RE = re.compile(r"(\d{1,3})%\s+(\d+\.?\d*[KMG]?)(=)?\s*(\S*)\s*$")
+
+# Container log lines that flood without telling the user anything
+# actionable -- suppressed in the clean (non-verbose) drain.
+_CONTAINER_NOISE = ("BdsDxe:", "mknod: /dev/net/tun")
+
+
+def _format_wget_progress(line: str) -> tuple[int, str] | None:
+    """Parse a dockur/wget progress line into ``(percent, clean_text)``.
+
+    Returns ``None`` when the line isn't a wget progress line. Used only in
+    the clean (non-verbose) drain, which prints the text at percentage
+    milestones so the hundreds of raw wget lines collapse to a tidy handful.
+    """
+    m = _WGET_PROGRESS_RE.search(line)
+    if m is None:
+        return None
+    pct_s, speed, done_marker, time_tok = (
+        m.group(1),
+        m.group(2),
+        m.group(3),
+        (m.group(4) or ""),
+    )
+    try:
+        pct = max(0, min(100, int(pct_s)))
+    except ValueError:
+        return None
+    width = 22
+    filled = pct * width // 100
+    bar = "#" * filled + "-" * (width - filled)
+    unit = speed[-1:].upper()
+    speed_s = f"{speed[:-1]} {unit}B/s" if unit in ("K", "M", "G") else f"{speed} B/s"
+    if not time_tok:
+        tail_s = ""
+    elif done_marker:
+        tail_s = f"  done in {time_tok}"
+    else:
+        tail_s = f"  ETA {time_tok}"
+    return pct, f"       Downloading Windows ISO  [{bar}] {pct:3d}%  {speed_s}{tail_s}"
+
+
+def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
     """v0.2.0.5: multi-phase wait for the Windows VM to finish first-boot.
 
     Polls four checkpoints with elapsed-time stamps so the user sees
@@ -1071,6 +1121,11 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
             # migrate.
             suppress_btrfs_warning = bool(cfg.pod.storage_path)
 
+            # Last printed download percentage (clean mode), so we emit a
+            # progress line only every few percent instead of on every wget
+            # tick. Shared list so the closure can mutate it.
+            _last_pct: list[int] = [-100]
+
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
                     return
@@ -1085,12 +1140,29 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
                         and "you are using the BTRFS filesystem for /storage" in line
                     ):
                         line = "(btrfs warning suppressed: NoCoW bind mount in use)"
-                    # Watch dockur's wget progress for slow downloads --
-                    # extend the wait deadline when the ETA suggests the
-                    # static timeout would expire mid-download (#126).
+                    # Always watch dockur's wget ETA to extend the deadline
+                    # (#126), whether or not we render the line.
                     eta_secs = _parse_wget_eta_secs(line)
                     if eta_secs is not None:
                         _maybe_extend_deadline(eta_secs)
+
+                    if verbose:
+                        # --verbose: raw, every container line.
+                        print(f"       [container] {_rewrite_vnc_url(line)}")
+                        continue
+
+                    # Clean (default): collapse the wget flood to a tidy
+                    # progress line every >=3% (plus the final 100%), and
+                    # drop UEFI boot-loader / tun noise entirely.
+                    prog = _format_wget_progress(line)
+                    if prog is not None:
+                        pct, text = prog
+                        if pct >= _last_pct[0] + 3 or pct >= 100:
+                            print(text)
+                            _last_pct[0] = pct
+                        continue
+                    if any(noise in line for noise in _CONTAINER_NOISE):
+                        continue
                     print(f"       [container] {_rewrite_vnc_url(line)}")
 
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()

@@ -32,6 +32,9 @@ set -euo pipefail
 # Backend / GUI:
 #   --backend BACKEND  podman | docker | libvirt | manual. Passed through to
 #                      `winpodx setup --backend <x>`. (env: WINPODX_BACKEND)
+#   --verbose, -v      Stream raw container logs during the Windows-boot wait.
+#                      Default collapses the ISO download to one clean progress
+#                      line + hides UEFI boot noise. (env: WINPODX_VERBOSE=1)
 #   --no-gui           Headless / CLI-only: skip installing PySide6 into the
 #                      venv. Everything else still installs.
 #                      (env: WINPODX_NO_GUI=1)
@@ -88,6 +91,9 @@ WINPODX_MANUAL="${WINPODX_MANUAL:-}"
 WINPODX_NO_GUI="${WINPODX_NO_GUI:-}"
 WINPODX_BACKEND="${WINPODX_BACKEND:-}"
 WINPODX_MODE="${WINPODX_MODE:-}"
+# v2: --verbose streams raw container logs during the Windows-boot wait;
+# default collapses the ISO download to a clean progress line + hides UEFI noise.
+WINPODX_VERBOSE="${WINPODX_VERBOSE:-}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
@@ -102,6 +108,8 @@ Flags:
   --mode r|a|c|n      Install mode (Recommended / Automatic / Custom / No)
   --backend BACKEND   podman | docker | libvirt | manual
   --no-gui            Headless install — skip PySide6 in the venv
+  --verbose, -v       Stream raw container logs during the Windows-boot wait
+                      (default: clean ISO-download progress + hidden UEFI noise)
   --main              Install from git main HEAD (development)
   --ref TAG           Install a specific tag/branch/commit
   --source PATH       Copy from local repo instead of git clone
@@ -146,6 +154,10 @@ while [ $# -gt 0 ]; do
             ;;
         --no-gui)
             WINPODX_NO_GUI=1
+            shift
+            ;;
+        --verbose|-v)
+            WINPODX_VERBOSE=1
             shift
             ;;
         --backend)
@@ -1200,7 +1212,10 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
     # the wait-ready rc + tee'd output below; capture PIPESTATUS while
     # it's still the pipeline's.
     set +e
-    PYTHONUNBUFFERED=1 "$SYMLINK" pod wait-ready --timeout 3600 --logs 2>&1 \
+    WAIT_READY_VERBOSE=()
+    [ -n "$WINPODX_VERBOSE" ] && WAIT_READY_VERBOSE=(--verbose)
+    PYTHONUNBUFFERED=1 "$SYMLINK" pod wait-ready --timeout 3600 --logs \
+        "${WAIT_READY_VERBOSE[@]}" 2>&1 \
         | tee "$WAIT_READY_OUT"
     WAIT_READY_RC="${PIPESTATUS[0]}"
     set -e

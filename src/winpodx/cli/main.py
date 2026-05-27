@@ -199,6 +199,16 @@ def cli(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Tail container logs while waiting so the user sees Windows boot progress.",
     )
+    wait_p.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help=(
+            "With --logs, print raw container output. Without it (default), the "
+            "Windows ISO download collapses to a clean progress line and UEFI boot "
+            "noise is hidden."
+        ),
+    )
 
     from winpodx.cli.pod_install_resume import add_subcommand as add_install_resume
     from winpodx.cli.pod_install_status import add_subcommand as add_install_status
