@@ -3,15 +3,38 @@
 set -euo pipefail
 
 ###############################################################################
-# winpodx installer
+# winpodx installer (v2)
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 #   or: ./install.sh [--main] [--ref TAG] [--source PATH] [--image-tar PATH]
-#                    [--skip-deps] [--help]
+#                    [--mode r|a|c|n] [--backend podman|docker|libvirt|manual]
+#                    [--no-gui] [--manual] [--skip-deps] [--win-version VER]
+#                    [--help]
 #
-# Installs winpodx to ~/.local/bin/winpodx-app/ and creates launcher script.
-# No pip, no venv, no root required.
+# Installs winpodx to ~/.local/bin/winpodx-app/ and creates a launcher.
+# Python always runs from a private venv under
+#   ~/.local/bin/winpodx-app/.venv ; no system-python changes.
+#
+# Install mode (interactive prompt, or preselect with --mode / WINPODX_MODE):
+#   --mode r           Recommended — winpodx's recommended stack (Podman backend
+#                      + deps); installs missing system packages via the distro
+#                      package manager (sudo). This is the historical behaviour.
+#   --mode a           Automatic — reuse what's already installed; only install
+#                      what's strictly missing; pick the backend from what's
+#                      present (prefer an already-working docker/podman).
+#   --mode c           Custom — choose backend (podman/docker/libvirt) and
+#                      whether to include the GUI, then install accordingly.
+#   --mode n           No — cancel without changing anything.
+#                      (env: WINPODX_MODE=<r|a|c|n>)
+#                      Default: prompt when interactive; 'r' when non-interactive.
+#
+# Backend / GUI:
+#   --backend BACKEND  podman | docker | libvirt | manual. Passed through to
+#                      `winpodx setup --backend <x>`. (env: WINPODX_BACKEND)
+#   --no-gui           Headless / CLI-only: skip installing PySide6 into the
+#                      venv. Everything else still installs.
+#                      (env: WINPODX_NO_GUI=1)
 #
 # Version selection (default: latest GitHub release):
 #   --main             Install from git main HEAD (development, may be unstable).
@@ -28,10 +51,23 @@ set -euo pipefail
 #   --skip-deps        Skip the distro dependency install phase.
 #                      Fails early if required tools aren't already present.
 #                      (env: WINPODX_SKIP_DEPS=1)
+#   --win-version VER  Windows edition for fresh installs
+#                      (11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 |
+#                       2025 | 2022 | 2019 | 2016 — see docs/ARCHITECTURE.md).
+#                      (env: WINPODX_WIN_VERSION)
+#   --manual           Install winpodx + create the venv only — skip
+#                      'winpodx setup', 'winpodx pod wait-ready', app
+#                      discovery, and reverse-open. Finish provisioning
+#                      yourself via the first-run prompt on the next
+#                      'winpodx' invocation. (env: WINPODX_MANUAL=1)
+#   -h, --help         Print this help and exit
 ###############################################################################
 
 INSTALL_DIR="$HOME/.local/bin/winpodx-app"
+VENV_DIR="$INSTALL_DIR/.venv"
+VENV_PY="$VENV_DIR/bin/python"
 LAUNCHER="$HOME/.local/bin/winpodx-run"
+SYMLINK="$HOME/.local/bin/winpodx"
 REPO_URL="https://github.com/kernalix7/winpodx.git"
 REPO_API="https://api.github.com/repos/kernalix7/winpodx"
 
@@ -47,6 +83,11 @@ WINPODX_REF="${WINPODX_REF:-}"
 # Ignored when an existing winpodx.toml is present (setup skips
 # re-configuration for upgrade flows). See #178.
 WINPODX_WIN_VERSION="${WINPODX_WIN_VERSION:-}"
+WINPODX_MANUAL="${WINPODX_MANUAL:-}"
+# v2: new knobs.
+WINPODX_NO_GUI="${WINPODX_NO_GUI:-}"
+WINPODX_BACKEND="${WINPODX_BACKEND:-}"
+WINPODX_MODE="${WINPODX_MODE:-}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
@@ -54,27 +95,20 @@ warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 err()  { echo -e "${RED}[error]${NC} $*" >&2; }
 
 usage() {
-    sed -n '4,28p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || cat <<'USAGE_EOF'
+    sed -n '4,93p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || cat <<'USAGE_EOF'
 winpodx installer — see install.sh header for full usage.
 
 Flags:
+  --mode r|a|c|n      Install mode (Recommended / Automatic / Custom / No)
+  --backend BACKEND   podman | docker | libvirt | manual
+  --no-gui            Headless install — skip PySide6 in the venv
   --main              Install from git main HEAD (development)
   --ref TAG           Install a specific tag/branch/commit
   --source PATH       Copy from local repo instead of git clone
   --image-tar PATH    Load container image from local tar
   --skip-deps         Skip distro dependency install
   --win-version VER   Windows edition for fresh installs
-                      (11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 |
-                       tiny10 | 2025 | 2022 | 2019 | 2016 — see
-                       docs/ARCHITECTURE.md for custom ISOs)
-  --manual            Install binary only — skip 'winpodx setup',
-                      'winpodx pod wait-ready', app discovery, and
-                      reverse-open setup. Lets you finish provisioning
-                      yourself via the first-run prompt that fires on
-                      the next 'winpodx' invocation (CLI Y/C/n or GUI
-                      modal). Useful when you want to pick custom
-                      knobs without sitting through the auto path
-                      first. Equivalent: WINPODX_MANUAL=1 env var.
+  --manual            Install binary + venv only — skip provisioning
   -h, --help          Print this help and exit
 USAGE_EOF
 }
@@ -110,6 +144,26 @@ while [ $# -gt 0 ]; do
             fi
             shift 2
             ;;
+        --no-gui)
+            WINPODX_NO_GUI=1
+            shift
+            ;;
+        --backend)
+            WINPODX_BACKEND="${2:-}"
+            if [ -z "$WINPODX_BACKEND" ]; then
+                err "--backend requires a value (podman | docker | libvirt | manual)"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --mode)
+            WINPODX_MODE="${2:-}"
+            if [ -z "$WINPODX_MODE" ]; then
+                err "--mode requires a value (r | a | c | n)"
+                exit 1
+            fi
+            shift 2
+            ;;
         --manual)
             WINPODX_MANUAL=1
             shift
@@ -125,6 +179,30 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Normalise + validate --backend.
+if [ -n "$WINPODX_BACKEND" ]; then
+    WINPODX_BACKEND="$(echo "$WINPODX_BACKEND" | tr '[:upper:]' '[:lower:]')"
+    case "$WINPODX_BACKEND" in
+        podman|docker|libvirt|manual) ;;
+        *)
+            err "--backend must be one of: podman, docker, libvirt, manual (got '$WINPODX_BACKEND')"
+            exit 1
+            ;;
+    esac
+fi
+
+# Normalise + validate --mode.
+if [ -n "$WINPODX_MODE" ]; then
+    WINPODX_MODE="$(echo "$WINPODX_MODE" | tr '[:upper:]' '[:lower:]' | cut -c1)"
+    case "$WINPODX_MODE" in
+        r|a|c|n) ;;
+        *)
+            err "--mode must be one of: r, a, c, n (got '$WINPODX_MODE')"
+            exit 1
+            ;;
+    esac
+fi
 
 # Validate --source
 if [ -n "$WINPODX_SOURCE" ]; then
@@ -163,41 +241,6 @@ detect_distro() {
 }
 
 DISTRO=$(detect_distro)
-log "Detected distro: $DISTRO"
-
-# Mark the install as in-progress so child winpodx CLI invocations
-# (winpodx setup, pod wait-ready, migrate, app refresh, host-open
-# refresh, ...) skip the tray auto-spawn AND the tray's UNRESPONSIVE
-# auto-recovery transition. Without this, install.sh's [3/4]
-# "Waiting for Windows activation" + [4/4] "Waiting for OEM reboot
-# pass" windows -- where the guest is genuinely booting and RDP
-# legitimately isn't reachable -- would have the tray fire a
-# "Pod stopped responding" notification + try to Restart-Service
-# TermService against a guest that's still running first-boot
-# Sysprep. Marker is removed at script exit via trap so a
-# Ctrl+C / network failure / signal doesn't leave the flag stuck.
-WINPODX_INSTALL_MARKER="${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/.install_in_progress"
-mkdir -p "$(dirname "$WINPODX_INSTALL_MARKER")"
-echo "$$" > "$WINPODX_INSTALL_MARKER"
-# Tighten perms for parity with other winpodx state files in
-# ~/.config/winpodx (agent_token.txt, winpodx.toml).
-chmod 600 "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
-cleanup_install_marker() {
-    rm -f "$WINPODX_INSTALL_MARKER"
-}
-# Ctrl+C / SIGTERM has to actually abort the rest of install.sh, not
-# just clean up the marker and fall through to the next command in
-# the script. Pre-fix behaviour: Ctrl+C during ``[1/4]`` wait-ready
-# killed the foreground winpodx process, the trap ran, then install
-# proceeded straight into the migrate step + apply-fixes prompt --
-# user saw "Start the pod now and apply?" against a pod that was
-# mid-install. Explicit ``exit 130`` (SIGINT) / ``143`` (SIGTERM) so
-# the script stops where the user asked.
-cleanup_and_exit_int() { cleanup_install_marker; exit 130; }
-cleanup_and_exit_term() { cleanup_install_marker; exit 143; }
-trap cleanup_install_marker EXIT
-trap cleanup_and_exit_int INT
-trap cleanup_and_exit_term TERM
 
 # Detect host architecture. winpodx ships two dockur image variants:
 #
@@ -217,13 +260,77 @@ case "$ARCH" in
         ;;
     *)
         ARCH_LABEL="$ARCH"
-        warn "Untested host architecture: $ARCH"
-        warn "winpodx is packaged for x86_64 and aarch64. The container image"
-        warn "picker will fall through to the x86_64 default; pod start will"
-        warn "likely fail at QEMU. Proceed only if you know what you're doing."
         ;;
 esac
-log "Detected arch: $ARCH_LABEL"
+
+# =====================================================================
+# Fresh-install detection (governs rollback scope, see trap below).
+#
+# Rollback is FRESH-INSTALL ONLY: on an upgrade (a prior config OR a
+# prior venv exists) a failure must NOT delete the working install. We
+# snapshot this BEFORE creating any artifacts this run.
+# =====================================================================
+PRIOR_CONFIG="$HOME/.config/winpodx/winpodx.toml"
+IS_FRESH_INSTALL=1
+if [ -f "$PRIOR_CONFIG" ] || [ -e "$VENV_DIR" ]; then
+    IS_FRESH_INSTALL=0
+fi
+
+# =====================================================================
+# Rollback (LOCKED scope).
+#
+# On a FAILED fresh-install run, remove ONLY winpodx's own artifacts
+# created THIS run: the venv, the winpodx-run launcher + winpodx
+# symlink, the desktop entry + icon, and the .install_in_progress
+# marker. Never uninstall system packages; never touch a pre-existing
+# ~/.config/winpodx config. On an upgrade, leave everything intact.
+# =====================================================================
+WINPODX_INSTALL_MARKER="${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/.install_in_progress"
+DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+ICON_BASE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+ICON_DIR="$ICON_BASE/scalable/apps"
+
+# Disarmed on success.
+ROLLBACK_ARMED=1
+
+cleanup_install_marker() {
+    rm -f "$WINPODX_INSTALL_MARKER"
+}
+
+rollback() {
+    cleanup_install_marker
+    if [ "$ROLLBACK_ARMED" -ne 1 ]; then
+        return 0
+    fi
+    if [ "$IS_FRESH_INSTALL" -ne 1 ]; then
+        warn "Install failed during an upgrade — leaving the existing winpodx install intact."
+        warn "Your previous venv, launcher, and config were not touched."
+        return 0
+    fi
+    warn "Rolling back winpodx install artifacts..."
+    # venv + cloned/copied source tree (this whole dir is ours, created
+    # this run on a fresh install).
+    rm -rf "$INSTALL_DIR" 2>/dev/null || true
+    rm -f "$LAUNCHER" 2>/dev/null || true
+    rm -f "$SYMLINK" 2>/dev/null || true
+    rm -f "$DESKTOP_DIR/winpodx.desktop" 2>/dev/null || true
+    rm -f "$ICON_DIR/winpodx.svg" 2>/dev/null || true
+    # Do NOT remove ~/.config/winpodx itself — only our own marker, which
+    # cleanup_install_marker already handled above.
+}
+
+# ERR trap: any failed command (set -e is in effect) rolls back, then
+# exits non-zero. INT/TERM abort the rest of install.sh too.
+rollback_and_exit_err() {
+    local rc=$?
+    rollback
+    exit "$rc"
+}
+cleanup_and_exit_int()  { rollback; exit 130; }
+cleanup_and_exit_term() { rollback; exit 143; }
+trap rollback_and_exit_err ERR
+trap cleanup_and_exit_int INT
+trap cleanup_and_exit_term TERM
 
 # Map generic dependency names to distro-specific package names
 pkg_name() {
@@ -232,24 +339,34 @@ pkg_name() {
         opensuse*|sles)
             case "$dep" in
                 python3)        echo "python3" ;;
+                python3-venv)   echo "python3" ;;
                 podman)         echo "podman" ;;
-                podman-compose) echo "podman-compose" ;;
+                docker)         echo "docker" ;;
+                libvirt)        echo "libvirt" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
             esac ;;
         fedora|rhel|centos|rocky|alma)
             case "$dep" in
                 python3)        echo "python3" ;;
+                python3-venv)   echo "python3" ;;
                 podman)         echo "podman" ;;
-                podman-compose) echo "podman-compose" ;;
+                docker)         echo "docker" ;;
+                libvirt)        echo "libvirt" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
             esac ;;
         ubuntu|debian|linuxmint|pop)
             case "$dep" in
                 python3)        echo "python3" ;;
+                # Debian/Ubuntu split venv + ensurepip out of python3 into
+                # python3-venv; without it `python3 -m venv` fails to
+                # bootstrap pip. This is the one package the mandatory-venv
+                # step may need to install before the venv can be created.
+                python3-venv)   echo "python3-venv" ;;
                 podman)         echo "podman" ;;
-                podman-compose) echo "podman-compose" ;;
+                docker)         echo "docker.io" ;;
+                libvirt)        echo "libvirt-daemon-system" ;;
                 freerdp)
                     # Debian 13+ (Trixie) and recent Ubuntu (24.10+, 25.04, 25.10)
                     # only ship freerdp3-x11; the stock freerdp2-x11 package is
@@ -304,8 +421,10 @@ pkg_name() {
         arch|manjaro|endeavouros)
             case "$dep" in
                 python3)        echo "python" ;;
+                python3-venv)   echo "python" ;;
                 podman)         echo "podman" ;;
-                podman-compose) echo "podman-compose" ;;
+                docker)         echo "docker" ;;
+                libvirt)        echo "libvirt" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-full" ;;
             esac ;;
@@ -346,15 +465,17 @@ install_pkg() {
 # `rpm-ostree install --apply-live` first to land the layer in the booted
 # deployment without a reboot; if the running deployment can't accept the
 # live apply we stage normally and prompt the user to reboot once.
+#
+# rpm-ostree's RPM install path is wholly separate from the venv flow below,
+# so it disarms the rollback trap (its artifacts are an OBS repo file +
+# layered RPM, neither of which the venv rollback should touch) and exits.
 if command -v rpm-ostree >/dev/null 2>&1; then
+    ROLLBACK_ARMED=0
     log "Detected rpm-ostree — Atomic Fedora install path."
     if [ ! -f /etc/os-release ]; then
         err "/etc/os-release missing; can't determine Fedora version for OBS repo selection."
         exit 1
     fi
-    # /etc/os-release was already sourced above for distro detection; re-source
-    # here defensively so VERSION_ID is in scope even if the function above
-    # ran in a subshell on some bash versions.
     . /etc/os-release
     obs_ver="$VERSION_ID"
     repo_url="https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_${obs_ver}/home:Kernalix7.repo"
@@ -383,54 +504,280 @@ if command -v rpm-ostree >/dev/null 2>&1; then
     exit 0
 fi
 
-# --- Check / install dependencies ---
+# =====================================================================
+# Pre-sudo system check.
+#
+# Scan + print a summary BEFORE any sudo / package install so the user
+# can see exactly what's present and decide how to proceed.
+# =====================================================================
+
+# Helpers used by the scan.
+tool_version() {
+    # Best-effort single-line version string for a tool, or "".
+    local tool="$1"
+    case "$tool" in
+        podman)  podman --version 2>/dev/null | head -n1 ;;
+        docker)  docker --version 2>/dev/null | head -n1 ;;
+        virsh)   virsh --version 2>/dev/null | head -n1 ;;
+        python3) python3 --version 2>&1 | head -n1 ;;
+        freerdp)
+            local c
+            for c in xfreerdp3 xfreerdp wlfreerdp3 wlfreerdp; do
+                if command -v "$c" >/dev/null 2>&1; then
+                    "$c" --version 2>/dev/null | head -n1 || echo "$c (version unknown)"
+                    return 0
+                fi
+            done
+            ;;
+    esac
+}
+
+# Podman major-version gate (#271). dockur/winpodx need rootless
+# `group_add: keep-groups` + a modern compose; Ubuntu 22.04 ships
+# podman 3.4. Flag podman as too old when major < 4.
+PODMAN_PRESENT=false
+PODMAN_TOO_OLD=false
+PODMAN_MAJOR=0
+if command -v podman >/dev/null 2>&1; then
+    PODMAN_PRESENT=true
+    # `podman --version` -> "podman version 4.9.3"
+    PODMAN_MAJOR="$(podman --version 2>/dev/null | sed -n 's/.*version[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n1)"
+    PODMAN_MAJOR="${PODMAN_MAJOR:-0}"
+    if [ "$PODMAN_MAJOR" -lt 4 ]; then
+        PODMAN_TOO_OLD=true
+    fi
+fi
+
+DOCKER_PRESENT=false
+command -v docker >/dev/null 2>&1 && DOCKER_PRESENT=true
+LIBVIRT_PRESENT=false
+command -v virsh >/dev/null 2>&1 && LIBVIRT_PRESENT=true
+FREERDP_PRESENT=false
+for _c in xfreerdp3 xfreerdp wlfreerdp3 wlfreerdp; do
+    if command -v "$_c" >/dev/null 2>&1; then FREERDP_PRESENT=true; break; fi
+done
+PYTHON3_PRESENT=false
+command -v python3 >/dev/null 2>&1 && PYTHON3_PRESENT=true
+KVM_PRESENT=false
+[ -e /dev/kvm ] && KVM_PRESENT=true
+
+# Probe whether `python3 -m venv` can actually bootstrap (Debian/Ubuntu
+# split python3-venv / ensurepip out).
+VENV_PROBE_OK=false
+if [ "$PYTHON3_PRESENT" = true ] && python3 -c "import venv, ensurepip" >/dev/null 2>&1; then
+    VENV_PROBE_OK=true
+fi
+
+yesno() { if [ "$1" = true ]; then echo "yes"; else echo "no"; fi; }
+
+print_system_check() {
+    local osname="$DISTRO"
+    if [ -f /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        osname="${PRETTY_NAME:-$DISTRO}"
+    fi
+    echo ""
+    echo "================ winpodx system check ================"
+    echo "  Distro:        $osname"
+    echo "  Architecture:  $ARCH_LABEL"
+    echo "  python3:       $(yesno "$PYTHON3_PRESENT")  $(tool_version python3)"
+    echo "  python venv:   $(yesno "$VENV_PROBE_OK") (python3 -m venv works)"
+    if [ "$PODMAN_PRESENT" = true ]; then
+        if [ "$PODMAN_TOO_OLD" = true ]; then
+            echo "  podman:        yes  $(tool_version podman)  [TOO OLD — major $PODMAN_MAJOR < 4]"
+        else
+            echo "  podman:        yes  $(tool_version podman)"
+        fi
+    else
+        echo "  podman:        no"
+    fi
+    echo "  docker:        $(yesno "$DOCKER_PRESENT")  $(tool_version docker)"
+    echo "  libvirt/virsh: $(yesno "$LIBVIRT_PRESENT")  $(tool_version virsh)"
+    echo "  freerdp:       $(yesno "$FREERDP_PRESENT")  $(tool_version freerdp)"
+    echo "  /dev/kvm:      $(yesno "$KVM_PRESENT")"
+    echo "======================================================"
+    if [ "$PODMAN_TOO_OLD" = true ]; then
+        echo ""
+        warn "podman $PODMAN_MAJOR.x is too old for winpodx (need >= 4 for rootless"
+        warn "'group_add: keep-groups' + modern compose; Ubuntu 22.04 ships 3.4 — #271)."
+        warn "Either:"
+        warn "  - upgrade podman (Kubic / devel:kubic:libcontainers repo:"
+        warn "    https://software.opensuse.org/download/package?package=podman&project=devel%3Akubic%3Alibcontainers%3Aunstable ), OR"
+        warn "  - use the Docker backend (--backend docker, or pick Docker in Custom mode)."
+    fi
+    echo ""
+}
+
+print_system_check
+
+# =====================================================================
+# Mode prompt.
+#
+# Resolve INSTALL_MODE (r/a/c/n). Precedence:
+#   1. --mode / WINPODX_MODE if set.
+#   2. interactive TTY      -> prompt.
+#   3. non-interactive      -> 'r' (recommended), preserving old behaviour.
+# =====================================================================
+INSTALL_MODE="$WINPODX_MODE"
+INTERACTIVE=false
+if [ -t 0 ]; then
+    INTERACTIVE=true
+fi
+
+if [ -z "$INSTALL_MODE" ]; then
+    if [ "$INTERACTIVE" = true ]; then
+        cat <<'MODE_EOF'
+Install mode?
+  [R]ecommended  winpodx's recommended stack (Podman backend + deps); installs missing system packages via the distro package manager (sudo).
+  [A]utomatic    Reuse what's already installed; only install what's strictly missing; pick the backend from what's present (prefer an already-working docker/podman). Minimal sudo.
+  [C]ustom       Choose backend (podman/docker/libvirt) and whether to include the GUI, then install accordingly.
+  [N]o           Cancel without changing anything.
+MODE_EOF
+        echo -n "Choice [R/a/c/n]: "
+        read -r mode_answer
+        case "$(echo "${mode_answer:-r}" | tr '[:upper:]' '[:lower:]' | cut -c1)" in
+            a) INSTALL_MODE="a" ;;
+            c) INSTALL_MODE="c" ;;
+            n) INSTALL_MODE="n" ;;
+            *) INSTALL_MODE="r" ;;
+        esac
+    else
+        INSTALL_MODE="r"
+        log "Non-interactive run with no --mode — defaulting to Recommended (r)."
+    fi
+fi
+
+# Mode N: clean exit, no changes. Rollback is a no-op on a fresh pre-install run.
+if [ "$INSTALL_MODE" = "n" ]; then
+    log "Cancelled, no changes made."
+    ROLLBACK_ARMED=0
+    cleanup_install_marker
+    trap - EXIT ERR INT TERM
+    exit 0
+fi
+
+# --- Custom mode: interactively pick backend + GUI ---
+if [ "$INSTALL_MODE" = "c" ]; then
+    if [ -z "$WINPODX_BACKEND" ]; then
+        if [ "$INTERACTIVE" = true ]; then
+            echo -n "Backend? [podman/docker/libvirt] (default podman): "
+            read -r be_answer
+            case "$(echo "${be_answer:-podman}" | tr '[:upper:]' '[:lower:]')" in
+                docker)  WINPODX_BACKEND="docker" ;;
+                libvirt) WINPODX_BACKEND="libvirt" ;;
+                *)       WINPODX_BACKEND="podman" ;;
+            esac
+        else
+            WINPODX_BACKEND="podman"
+        fi
+    fi
+    if [ -z "$WINPODX_NO_GUI" ] && [ "$INTERACTIVE" = true ]; then
+        echo -n "Install the GUI (PySide6)? [Y/n]: "
+        read -r gui_answer
+        if [[ "$gui_answer" =~ ^[Nn] ]]; then
+            WINPODX_NO_GUI=1
+        fi
+    fi
+fi
+
+# --- Automatic mode: pick a usable, already-present backend ---
+# Prefer docker if docker is present and podman is absent/too-old; else
+# podman if present + new-enough; else libvirt if present. Fall back to
+# Recommended behaviour with a note when nothing usable is present.
+if [ "$INSTALL_MODE" = "a" ] && [ -z "$WINPODX_BACKEND" ]; then
+    if [ "$DOCKER_PRESENT" = true ] && { [ "$PODMAN_PRESENT" = false ] || [ "$PODMAN_TOO_OLD" = true ]; }; then
+        WINPODX_BACKEND="docker"
+        log "Automatic: docker is present (and podman is absent/too-old) — selecting docker backend."
+    elif [ "$PODMAN_PRESENT" = true ] && [ "$PODMAN_TOO_OLD" = false ]; then
+        WINPODX_BACKEND="podman"
+        log "Automatic: podman $PODMAN_MAJOR.x present — selecting podman backend."
+    elif [ "$LIBVIRT_PRESENT" = true ]; then
+        WINPODX_BACKEND="libvirt"
+        log "Automatic: libvirt present — selecting libvirt backend."
+    else
+        WINPODX_BACKEND="podman"
+        warn "Automatic: no usable runtime present — falling back to Recommended behaviour (podman + install missing deps)."
+    fi
+fi
+
+# --- Recommended mode (default): podman unless --backend given ---
+if [ "$INSTALL_MODE" = "r" ] && [ -z "$WINPODX_BACKEND" ]; then
+    WINPODX_BACKEND="podman"
+fi
+
+# Backend 'manual' implies --manual (skip the provisioning chain).
+if [ "$WINPODX_BACKEND" = "manual" ]; then
+    WINPODX_MANUAL=1
+fi
+
+log "Detected distro: $DISTRO"
+log "Detected arch: $ARCH_LABEL"
+log "Install mode: $INSTALL_MODE | backend: ${WINPODX_BACKEND:-podman} | gui: $([ -n "$WINPODX_NO_GUI" ] && echo no || echo yes)"
+
+# Mark the install as in-progress so child winpodx CLI invocations
+# (winpodx setup, pod wait-ready, migrate, app refresh, host-open
+# refresh, ...) skip the tray auto-spawn AND the tray's UNRESPONSIVE
+# auto-recovery transition. Without this, install.sh's wait windows --
+# where the guest is genuinely booting and RDP legitimately isn't
+# reachable -- would have the tray fire a "Pod stopped responding"
+# notification + try to Restart-Service TermService against a guest
+# that's still running first-boot Sysprep. Marker is removed on every
+# exit path via the traps above.
+mkdir -p "$(dirname "$WINPODX_INSTALL_MARKER")"
+echo "$$" > "$WINPODX_INSTALL_MARKER"
+chmod 600 "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
+
+# =====================================================================
+# Which required system deps are missing?
+#
+# Mode shapes what we install:
+#   R  -> install all genuinely-missing required deps via pkg mgr.
+#   A  -> install only genuinely-missing required deps (same set; A
+#         differs only in backend selection, which is already done).
+#   C  -> install deps appropriate to the chosen backend.
+# The chosen backend decides whether podman/docker/libvirt is required.
+# =====================================================================
 log "Checking dependencies..."
 
 MISSING=()
 
-if ! command -v python3 >/dev/null 2>&1; then
-    MISSING+=("python3")
-fi
+# Backend runtime requirement.
+case "${WINPODX_BACKEND:-podman}" in
+    podman)
+        if [ "$PODMAN_PRESENT" = false ] || [ "$PODMAN_TOO_OLD" = true ]; then
+            # In A mode we only install genuinely-missing deps; a too-old
+            # podman is "present", so don't try to replace it via pkg mgr
+            # (the distro repo would reinstall the same old version). Warn
+            # instead. In R/C we add podman to MISSING only when absent.
+            if [ "$PODMAN_PRESENT" = false ]; then
+                MISSING+=("podman")
+            else
+                warn "podman is present but too old (major $PODMAN_MAJOR); see the note above. Continuing — pod start may fail until you upgrade podman or switch to --backend docker."
+            fi
+        fi
+        ;;
+    docker)
+        [ "$DOCKER_PRESENT" = false ] && MISSING+=("docker")
+        ;;
+    libvirt)
+        [ "$LIBVIRT_PRESENT" = false ] && MISSING+=("libvirt")
+        ;;
+esac
 
-if ! command -v podman >/dev/null 2>&1; then
-    MISSING+=("podman")
-fi
+# FreeRDP is required for every backend (the launcher shells out to it).
+[ "$FREERDP_PRESENT" = false ] && MISSING+=("freerdp")
 
-# Require podman-compose proper. `podman compose` (the subcommand)
-# delegates to whatever compose provider it finds first, and on systems
-# that have the docker-compose CLI plugin installed (Fedora / Nobara
-# default) that delegation succeeds while silently routing through
-# docker-compose. docker-compose does not understand podman's
-# `group_add: [keep-groups]` magic value (required for rootless
-# /dev/kvm access), so the container fails to start with:
-#   "looking up supplemental groups for container ...: Unable to find
-#    group keep-groups: no matching entries in group file"
-# See #288 (magicdiablo, Nobara). Don't rely on `podman compose
-# version` succeeding -- it lies via delegation.
-if ! command -v podman-compose >/dev/null 2>&1; then
-    MISSING+=("podman-compose")
-fi
+# python3 is mandatory (venv host interpreter).
+[ "$PYTHON3_PRESENT" = false ] && MISSING+=("python3")
 
-# FreeRDP check
-FREERDP_OK=false
-for cmd in xfreerdp3 xfreerdp wlfreerdp3 wlfreerdp; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        FREERDP_OK=true
-        break
-    fi
-done
-if [ "$FREERDP_OK" = false ]; then
-    MISSING+=("freerdp")
-fi
-
-if [ ! -e /dev/kvm ]; then
+if [ "$KVM_PRESENT" = false ]; then
     # Pre-install hint. A surprising fraction of user bug reports start
     # here -- the package install loop below will run successfully on
     # most distros because qemu / qemu-kvm is already present, and then
     # the container start later silently fails because hardware virt
     # is off in BIOS. Print the BIOS / module / group check now so the
-    # user can stop, fix the actual cause, and re-run -- instead of
-    # filing a bug after the install "succeeds" but nothing works.
+    # user can stop, fix the actual cause, and re-run.
     warn "/dev/kvm not found -- KVM hardware virtualization is required."
     warn ""
     warn "Before continuing, please verify:"
@@ -464,11 +811,15 @@ if [ ${#MISSING[@]} -gt 0 ]; then
         echo "    - $(pkg_name "$dep")"
     done
     echo ""
-    echo -n "  Proceed with installation? (Y/n): "
-    read -r answer
-    if [[ "$answer" =~ ^[Nn] ]]; then
-        err "Aborted. Install dependencies manually and try again."
-        exit 1
+    if [ "$INTERACTIVE" = true ]; then
+        echo -n "  Proceed with installation? (Y/n): "
+        read -r answer
+        if [[ "$answer" =~ ^[Nn] ]]; then
+            err "Aborted. Install dependencies manually and try again."
+            exit 1
+        fi
+    else
+        log "  Non-interactive — proceeding with package install."
     fi
 
     INSTALL_FAIL=0
@@ -485,36 +836,6 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     log "All dependencies installed successfully"
 else
     log "All dependencies OK"
-fi
-
-# --- Optional: reverse-open icon-conversion deps (best-effort) ---
-# winpodx's "Linux apps in Windows Open-with" feature (reverse-open,
-# default-on) converts each Linux app's icon to a Windows .ico. SVG icons
-# need cairosvg; resolving icons from non-Hicolor themes (Papirus, breeze,
-# ...) needs pyxdg. Both are declared winpodx dependencies, but this
-# installer runs winpodx under the system python3 without a venv, so it
-# can't pip-pull them -- without them, SVG / themed app icons fall back to a
-# generic placeholder in the Windows menu (apps still launch). Install them
-# via the distro package manager when missing. Best-effort + non-fatal: the
-# feature degrades gracefully if the packages or sudo aren't available.
-if [ -z "$WINPODX_SKIP_DEPS" ] && [ "${WINPODX_NO_REVERSE_OPEN:-}" != "1" ] \
-    && ! python3 -c "import cairosvg, xdg" >/dev/null 2>&1; then
-    log "Installing reverse-open icon deps (cairosvg + pyxdg) for full app-icon coverage..."
-    if command -v zypper >/dev/null 2>&1; then
-        sudo zypper install -y python3-CairoSVG python3-pyxdg
-    elif command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y python3-cairosvg python3-pyxdg
-    elif command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get install -y python3-cairosvg python3-pyxdg
-    elif command -v pacman >/dev/null 2>&1; then
-        sudo pacman -S --noconfirm python-cairosvg python-pyxdg
-    fi >/dev/null 2>&1 || true
-    if python3 -c "import cairosvg, xdg" >/dev/null 2>&1; then
-        log "  Icon deps ready -- SVG + themed app icons will convert."
-    else
-        warn "  cairosvg/pyxdg unavailable; SVG / themed app icons will use a placeholder"
-        warn "  (apps still launch normally). Install python3-cairosvg + python3-pyxdg later for full icons."
-    fi
 fi
 
 # Re-verify /dev/kvm after the install loop. Installing the qemu /
@@ -558,36 +879,13 @@ if [ ! -e /dev/kvm ]; then
     exit 1
 fi
 
-# winpodx uses only stdlib on 3.11+; on 3.9/3.10 tomli backfills tomllib.
-
-# --- Check Python version ---
+# --- Check Python version (host interpreter that builds the venv) ---
 PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
 PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
 if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]; }; then
     err "Python 3.9+ required (found $PY_VERSION)"
     exit 1
-fi
-# On 3.9/3.10 tomllib is not in stdlib — install tomli via the system package
-# manager if available so the winpodx runtime import doesn't fail.
-if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; then
-    if ! python3 -c "import tomli" >/dev/null 2>&1; then
-        if [ -n "$WINPODX_SKIP_DEPS" ]; then
-            err "Python $PY_VERSION needs tomli but --skip-deps is set and it's missing."
-            err "Install tomli manually (e.g., 'pip install tomli') and re-run."
-            exit 1
-        fi
-        log "Python $PY_VERSION needs tomli (stdlib tomllib arrived in 3.11). Installing..."
-        if command -v zypper >/dev/null 2>&1; then
-            sudo zypper install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
-        elif command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
-        elif command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get install -y python3-tomli || warn "tomli install failed; winpodx may fail to start"
-        elif command -v pacman >/dev/null 2>&1; then
-            sudo pacman -S --noconfirm python-tomli || warn "tomli install failed; winpodx may fail to start"
-        fi
-    fi
 fi
 log "Python $PY_VERSION OK"
 
@@ -616,7 +914,6 @@ resolve_ref() {
         return
     fi
     if ! command -v curl >/dev/null 2>&1; then
-        # Fall back to main if we can't query for the latest release.
         echo "main"
         return
     fi
@@ -645,12 +942,9 @@ else
 
     if [ -d "$INSTALL_DIR/.git" ]; then
         log "Updating existing installation to $INSTALL_REF..."
-        # Fetch tags + branches so checkout works for any ref.
         git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
-        # Detach safely; works for tags, branches, and SHAs alike.
         git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" \
             || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
-        # If we're on a branch (e.g. main), pull to fast-forward.
         if [ "$INSTALL_REF" = "main" ]; then
             git -C "$INSTALL_DIR" reset --hard --quiet "origin/$INSTALL_REF"
         fi
@@ -688,6 +982,63 @@ else
     fi
 fi
 
+# =====================================================================
+# Mandatory venv (all modes).
+#
+# Python ALWAYS runs from a private venv. Create it; if creation fails
+# because python3-venv / ensurepip is missing, install that one package
+# via the distro pkg mgr (sudo) in R/A/C, then retry; if still failing,
+# error out (the ERR trap rolls back on a fresh install).
+# =====================================================================
+create_venv() {
+    rm -rf "$VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+}
+
+log "Creating private virtualenv at $VENV_DIR ..."
+if ! create_venv 2>/dev/null; then
+    if [ -n "$WINPODX_SKIP_DEPS" ]; then
+        err "python3 -m venv failed and --skip-deps is set."
+        err "Install your distro's python3-venv / ensurepip package and re-run."
+        exit 1
+    fi
+    warn "venv creation failed — likely a missing python3-venv / ensurepip. Installing it..."
+    install_pkg "python3-venv" || true
+    if ! create_venv; then
+        err "venv creation still failing after installing $(pkg_name python3-venv)."
+        err "Install your distro's python3-venv / ensurepip package manually and re-run."
+        exit 1
+    fi
+fi
+
+# Upgrade pip/setuptools/wheel in the venv (quiet; non-fatal cosmetics).
+"$VENV_PY" -m pip install --quiet --upgrade pip setuptools wheel || \
+    warn "pip self-upgrade failed; continuing with the bundled pip."
+
+# Install winpodx itself from the in-place source tree. This resolves
+# winpodx's own declared runtime deps (tomli on 3.9/3.10 via the
+# python_version marker) from pyproject. We then add the reverse-open
+# icon deps (cairosvg + pyxdg) and, unless --no-gui, PySide6 — pinned to
+# the same ranges pyproject declares so we don't invent versions.
+log "Installing winpodx into the venv (pip install '$INSTALL_DIR')..."
+if [ -n "$WINPODX_NO_GUI" ]; then
+    # Headless: winpodx core + reverse-open icon quality, no PySide6.
+    "$VENV_PY" -m pip install --quiet "${INSTALL_DIR}[reverse-open]"
+    log "Headless install (--no-gui): PySide6 skipped."
+else
+    # Full: winpodx core + reverse-open + GUI.
+    "$VENV_PY" -m pip install --quiet "${INSTALL_DIR}[gui,reverse-open]"
+fi
+
+# Belt-and-suspenders: ensure cairosvg + pyxdg are present even if a
+# future pyproject reshuffle moves them out of the reverse-open extra.
+# These two drive SVG / themed app-icon conversion for reverse-open.
+if ! "$VENV_PY" -c "import cairosvg, xdg" >/dev/null 2>&1; then
+    log "Ensuring reverse-open icon deps (cairosvg + pyxdg) in the venv..."
+    "$VENV_PY" -m pip install --quiet "cairosvg>=2.7,<3.0" "pyxdg>=0.27,<1.0" || \
+        warn "cairosvg/pyxdg install into venv failed; SVG/themed icons will use a placeholder."
+fi
+
 # --- Load Windows container image from local tar (--image-tar) ---
 # Runs AFTER the winpodx source is in place so the rest of the install
 # can still proceed if the load fails (first-boot would pull from the
@@ -704,16 +1055,17 @@ if [ -n "$WINPODX_IMAGE_TAR" ]; then
 fi
 
 # --- Create launcher script ---
+# v2: exec the VENV's python, not system python3 + PYTHONPATH. No system
+# python pollution; winpodx + its deps live entirely under the venv.
 cat > "$LAUNCHER" << 'LAUNCHER_EOF'
 #!/usr/bin/env bash
 WINPODX_DIR="$HOME/.local/bin/winpodx-app"
-export PYTHONPATH="$WINPODX_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
-exec python3 -m winpodx "$@"
+exec "$WINPODX_DIR/.venv/bin/python" -m winpodx "$@"
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
 # --- Create 'winpodx' command (symlink to launcher) ---
-ln -sfn "$LAUNCHER" "$HOME/.local/bin/winpodx"
+ln -sfn "$LAUNCHER" "$SYMLINK"
 
 # Ensure ~/.local/bin is in PATH
 if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
@@ -725,31 +1077,30 @@ fi
 # --- Run setup ---
 # --manual / WINPODX_MANUAL=1: skip setup + the entire provisioning
 # chain below (wait-ready / migrate / discovery / reverse-open). The
-# binary is installed, but the Windows VM stays unprovisioned until
-# the user picks one of the first-run prompt options on the next
+# binary + venv are installed, but the Windows VM stays unprovisioned
+# until the user picks one of the first-run prompt options on the next
 # `winpodx` invocation (CLI Y/C/n or GUI modal -- #255 PR 1).
-export PYTHONPATH="$INSTALL_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
-    log "Manual mode (--manual / WINPODX_MANUAL=1) — skipping setup + Windows provisioning."
+    log "Manual mode (--manual / WINPODX_MANUAL=1 / --backend manual) — skipping setup + Windows provisioning."
     log "  Run 'winpodx' (CLI or GUI) to finish setup. Prompt will offer auto, customize, or skip."
 else
     log "Running winpodx setup..."
     # --create-only: install.sh orchestrates wait-ready / migrate /
     # discovery / reverse-open itself (below), so setup should stop after
-    # creating the container. A standalone `winpodx setup` (no
-    # --create-only) runs that full flow on its own.
+    # creating the container.
     SETUP_ARGS=(--non-interactive --create-only)
+    if [ -n "$WINPODX_BACKEND" ] && [ "$WINPODX_BACKEND" != "manual" ]; then
+        SETUP_ARGS+=(--backend "$WINPODX_BACKEND")
+        log "Backend: $WINPODX_BACKEND"
+    fi
     if [ -n "$WINPODX_WIN_VERSION" ]; then
         SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
         log "Installing Windows edition: $WINPODX_WIN_VERSION"
     fi
-    python3 -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
+    "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
 fi
 
 # --- Install winpodx GUI desktop entry & icon ---
-DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-ICON_BASE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
-ICON_DIR="$ICON_BASE/scalable/apps"
 mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
 cp "$INSTALL_DIR/data/winpodx.desktop" "$DESKTOP_DIR/winpodx.desktop"
 cp "$INSTALL_DIR/data/winpodx-icon.svg" "$ICON_DIR/winpodx.svg"
@@ -787,19 +1138,36 @@ log "Installed winpodx GUI launcher and icon"
 # discovered apps + their real Windows-extracted icons land in the menu.
 # Manual trigger any time: `winpodx app refresh`.
 
+# In manual mode the provisioning chain below is skipped entirely.
+if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
+    ROLLBACK_ARMED=0
+    cleanup_install_marker
+    trap - EXIT ERR INT TERM
+    echo ""
+    echo " Location: $INSTALL_DIR"
+    echo " Command:  winpodx"
+    echo ""
+    echo " Manual mode — Windows VM was NOT provisioned."
+    echo ""
+    echo " Next step (pick one):"
+    echo "   winpodx              # CLI first-run prompt: auto / customize / skip"
+    echo "   winpodx gui          # GUI first-run modal with the same three choices"
+    echo "   winpodx setup        # Run setup directly (non-interactive auto)"
+    echo "   winpodx setup --customize"
+    echo "                        # Run setup wizard (pick every knob)"
+    echo ""
+    log "Installation complete!"
+    exit 0
+fi
+
 # --- Wait for Windows VM to finish first-boot setup ---
 # v0.2.0.5: dockur Windows first-boot can take 5-10 minutes (Sysprep,
-# OEM apply, account password set, RDP listener up). Without this gate
-# the user just saw "Installation complete!" while Windows was still
-# silently booting in the background, then had to wait again the first
-# time they tried to launch an app. wait-ready surfaces the same wait
-# up-front with [1/3] container → [2/3] RDP port → [3/3] activation
-# progress + tailed container logs so the user can see what's happening.
+# OEM apply, account password set, RDP listener up). wait-ready surfaces
+# the wait up-front with progress + tailed container logs.
 # Skip with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
 # v0.2.1: track which steps haven't completed so the next CLI / GUI
 # launch can auto-resume them. .pending_setup is a newline-separated
-# list of step IDs (wait_ready, migrate, discovery). Empty / missing =
-# install fully finished.
+# list of step IDs (wait_ready, migrate, discovery).
 PENDING_FILE="$HOME/.config/winpodx/.pending_setup"
 PENDING_STEPS=""
 mark_pending() {
@@ -811,43 +1179,30 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
     log "Waiting for Windows VM to finish first-boot (60 min default, auto-extends to match observed ISO download speed)..."
     log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply."
     log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
-    # Capture wait-ready output so we can discriminate the "no such
-    # container" failure (half-uninstalled state — config + compose
-    # survived but the container is gone) from a generic timeout. The
-    # `tee` shows live progress to the user; PIPESTATUS[0] is the
-    # winpodx exit code (NOT tee's), and `set -o pipefail` is already
-    # in effect from the script header so a non-zero rc would normally
-    # abort install.sh — `|| true` keeps us going so we can inspect
-    # the captured output.
     WAIT_READY_OUT="$(mktemp)"
     # PYTHONUNBUFFERED=1 forces Python's stdout to line-buffered even
-    # when piped (otherwise the pipe to `tee` flips Python from
-    # line-buffered to 4KB-block-buffered, batching minutes of progress
-    # into a single flush at the end). Without this, `[1/3] container
-    # ...`, the [container] log tail, and `OK ...` lines all arrive at
-    # once when the step completes — see Task #45 / PR #143 regression.
-    # Disable ``set -e`` for the pipeline so we can inspect the wait-
-    # ready rc + tee'd output below. The previous ``|| true`` after the
-    # pipeline silently rewrote ``${PIPESTATUS[0]}`` to ``true``'s rc
-    # (bash updates PIPESTATUS for the last executed pipeline, and
-    # ``true`` is a single-command pipeline), so signal-driven exits
-    # (Ctrl+C -> 130, SIGTERM -> 143) looked like clean successes and
-    # install.sh marched on to the migrate step. Capture PIPESTATUS
-    # while it's still the pipeline's, then handle.
+    # when piped. Disable ``set -e`` for the pipeline so we can inspect
+    # the wait-ready rc + tee'd output below; capture PIPESTATUS while
+    # it's still the pipeline's.
     set +e
-    PYTHONUNBUFFERED=1 "$HOME/.local/bin/winpodx" pod wait-ready --timeout 3600 --logs 2>&1 \
+    PYTHONUNBUFFERED=1 "$SYMLINK" pod wait-ready --timeout 3600 --logs 2>&1 \
         | tee "$WAIT_READY_OUT"
     WAIT_READY_RC="${PIPESTATUS[0]}"
     set -e
-    # Ctrl+C / SIGTERM: bail out. The trap also fires on signal receipt
-    # in the parent shell, but the check here covers the case where the
-    # child winpodx died from the signal and the parent didn't get
-    # SIGINT directly (e.g. piped install via ``curl ... | bash`` where
-    # job control may not propagate the signal upward).
+    # Ctrl+C / SIGTERM: bail out. The traps also fire in the parent shell,
+    # but the check here covers the case where the child winpodx died from
+    # the signal and the parent didn't get it directly (piped install).
     if [ "$WAIT_READY_RC" -eq 130 ] || [ "$WAIT_READY_RC" -eq 143 ]; then
         err "Install cancelled (winpodx pod wait-ready returned $WAIT_READY_RC)."
         err "Re-run install.sh to continue from where you left off."
         rm -f "$WAIT_READY_OUT"
+        # This is a deliberate user cancel mid-provisioning. On an upgrade,
+        # rollback() is a no-op (leaves the working install). On a fresh
+        # install the binary + venv are valid and re-runnable, so don't
+        # nuke them — just clean the marker and exit with the signal rc.
+        ROLLBACK_ARMED=0
+        cleanup_install_marker
+        trap - EXIT ERR INT TERM
         exit "$WAIT_READY_RC"
     fi
     if [ "$WAIT_READY_RC" -ne 0 ]; then
@@ -869,56 +1224,23 @@ fi
 
 # --- Post-install / upgrade migration wizard + discovery ---
 #
-# Both steps run AFTER wait-ready completes, but install.bat may still
-# be in-flight inside the Windows guest (Sysprep + DNS / RDP / firewall /
-# rdprrap install / launcher staging / agent spawn / final TermService
-# cycle). install.bat is a FirstLogonCommands child of the autologon
-# User session; opening a new RDP login from the host BEFORE install.bat
-# finishes kicks that session because rdprrap multi-session isn't
-# patched yet, so single-session enforcement is in effect. install.bat
-# dies mid-stage and the agent never starts (kernalix7 hit this every
-# smoke test 2026-05-02 through 2026-05-04 -- setup.log never created,
-# C:\OEM\agent.ps1 not even copied).
-#
-# Defense: WINPODX_REQUIRE_AGENT=1 makes both migrate and app refresh
-# refuse to fall back to FreeRDP RemoteApp when the guest agent isn't
-# up yet. They exit with a "deferred" status; install.sh marks them
-# pending so the next CLI / GUI launch resumes them once the agent has
-# come up cleanly.
+# WINPODX_REQUIRE_AGENT=1 makes both migrate and app refresh refuse to
+# fall back to FreeRDP RemoteApp when the guest agent isn't up yet. They
+# exit "deferred"; install.sh marks them pending so the next CLI / GUI
+# launch resumes them once the agent has come up cleanly.
 export WINPODX_REQUIRE_AGENT=1
 
 # If an existing config is present this is an upgrade, not a fresh
-# install. Run the migrate wizard so the user sees new-version release
-# notes and can opt into app discovery. Opt out with WINPODX_NO_MIGRATE=1.
-# `|| true` keeps install.sh's exit code clean if migrate fails.
+# install. Run the migrate wizard. Opt out with WINPODX_NO_MIGRATE=1.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
     log "Running post-upgrade migration wizard..."
-    # ``--non-interactive`` so migrate doesn't prompt mid-install --
-    # install.sh runs its own confirmation up top and the user shouldn't
-    # have to answer "Start the pod now and apply?" / "Run app discovery
-    # now?" again from a subprocess. The wizard still records the
-    # version stamp + applies the idempotent runtime-fix chain.
-    "$HOME/.local/bin/winpodx" migrate --non-interactive || mark_pending "migrate"
+    "$SYMLINK" migrate --non-interactive || mark_pending "migrate"
 fi
 
 # --- Wait for agent to settle after migrate's apply chain ---
-#
-# migrate's apply chain ends with `_apply_multi_session`, which dispatches
-# `rdprrap-activate.ps1 -Detached` via the agent. The detached PS then
-# cycles TermService so the patched termwrap.dll loads, killing the
-# agent's own RDP session in the process. dockur autologon retries within
-# a few seconds → HKCU\Run fires → agent restarts. The whole bounce is
-# typically under 15s on a healthy boot.
-#
-# Without this wait, `app refresh` below fires while the agent is mid-
-# respawn (kernalix7 saw this on 2026-05-04 smoke: discovery deferred to
-# pending right after migrate succeeded). Polling /health here means
-# refresh runs against the resurrected agent and the menu populates
-# before install.sh exits.
-#
-# 60s budget covers the cycle plus any slow first-boot autologon. Falls
-# through silently after the budget so a genuinely-stuck agent doesn't
-# block install.sh — refresh below will still defer to pending if needed.
+# migrate's apply chain ends with `_apply_multi_session`, which cycles
+# TermService and bounces the agent's own RDP session. Polling /health
+# here means refresh runs against the resurrected agent.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT_AGENT:-}" != "1" ]; then
     log "Waiting for guest agent to settle after apply chain..."
     for _ in $(seq 1 30); do
@@ -930,27 +1252,15 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT_AGENT:-}"
 fi
 
 # --- Auto-discover apps ---
-# v0.2.0.5: trigger discovery so the menu populates before install.sh
-# exits.
-#
-# Retry up to 6 times with 10s spacing (~50s window). Even after the curl /health wait
-# above, the agent can still be in a transient "responsive but not yet
-# stable" state right after install.bat's final TermService cycle —
-# AgentTransport.health() couples /health with the host-side token check
-# and the apply chain's vbs_launchers / multi_session steps may briefly
-# disturb either side. kernalix7's 2026-05-05 smoke showed the first
-# refresh attempt failing under WINPODX_REQUIRE_AGENT=1 even though the
-# same command run manually 30s later succeeded with 58 apps. The retry
-# loop closes that window so the menu populates before install.sh exits
-# instead of needing a follow-up CLI / GUI launch to fire pending-resume.
-#
-# Final failure still records the step as pending so pending-resume
-# stays as a safety net.
+# Retry up to 6 times with 10s spacing (~50s window) to ride out the
+# agent's transient "responsive but not yet stable" state right after
+# install.bat's final TermService cycle. Final failure records the step
+# as pending so pending-resume stays as a safety net.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
     log "Discovering installed Windows apps..."
     discovery_ok=
     for attempt in 1 2 3 4 5 6; do
-        if "$HOME/.local/bin/winpodx" app refresh 2>/dev/null; then
+        if "$SYMLINK" app refresh 2>/dev/null; then
             discovery_ok=1
             break
         fi
@@ -965,24 +1275,13 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" 
 fi
 
 # --- Reverse-open auto-setup ---
-# Linux apps in the Windows guest's "Open with..." menu (#48). The
-# feature ships default-on (cfg.reverse_open.enabled = True), so a
-# fresh install should produce a working menu without the user
-# having to know `winpodx host-open` exists. Two-step:
-#   1. Start the host-side listener daemon (idempotent — no-op if
-#      already running).
-#   2. `host-open refresh` — scans the host's .desktop entries,
-#      filters to Linux defaults, generates per-app ICOs, stages
-#      the manifest under ~/.local/share/winpodx/reverse-open/,
-#      and (if the agent is reachable) pushes everything to the
-#      guest where register-apps.ps1 writes the per-app
-#      Applications\winpodx-<slug>.cmd + Start Menu shortcuts.
-# Opt out via WINPODX_NO_REVERSE_OPEN=1 if the user wants to skip.
+# Linux apps in the Windows guest's "Open with..." menu (#48). Ships
+# default-on. Opt out via WINPODX_NO_REVERSE_OPEN=1.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_REVERSE_OPEN:-}" != "1" ]; then
     log "Setting up reverse-open (Linux apps in Windows 'Open with')..."
-    "$HOME/.local/bin/winpodx" host-open start-listener 2>/dev/null || \
+    "$SYMLINK" host-open start-listener 2>/dev/null || \
         warn "  reverse-open listener didn't start; the feature will activate on next \`winpodx pod start\`"
-    if ! "$HOME/.local/bin/winpodx" host-open refresh 2>&1 | sed 's/^/  /'; then
+    if ! "$SYMLINK" host-open refresh 2>&1 | sed 's/^/  /'; then
         warn "  reverse-open refresh failed; retry manually with \`winpodx host-open refresh\` once the pod is up"
     fi
 fi
@@ -998,29 +1297,22 @@ else
     rm -f "$PENDING_FILE"
 fi
 
-# --- Done ---
+# --- Done. Disarm rollback (success). ---
+ROLLBACK_ARMED=0
+cleanup_install_marker
+trap - EXIT ERR INT TERM
+
 echo ""
 echo " Location: $INSTALL_DIR"
 echo " Command:  winpodx"
 echo ""
-if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
-    echo " Manual mode — Windows VM was NOT provisioned."
-    echo ""
-    echo " Next step (pick one):"
-    echo "   winpodx              # CLI first-run prompt: auto / customize / skip"
-    echo "   winpodx gui          # GUI first-run modal with the same three choices"
-    echo "   winpodx setup        # Run setup directly (non-interactive auto)"
-    echo "   winpodx setup --customize"
-    echo "                        # Run setup wizard (pick every knob)"
-else
-    echo " Usage:"
-    echo "   winpodx app run desktop        # Start the Windows pod (first run takes ~5-10 min)"
-    echo "   winpodx app refresh            # Scan the pod for installed apps + icons"
-    echo "   winpodx info                   # System / pod / dependency snapshot"
-    echo "   winpodx setup                  # Reconfigure"
-    echo ""
-    echo " On first pod boot the menu auto-populates with the apps actually"
-    echo " installed in your Windows guest — no curated list, real icons."
-fi
+echo " Usage:"
+echo "   winpodx app run desktop        # Start the Windows pod (first run takes ~5-10 min)"
+echo "   winpodx app refresh            # Scan the pod for installed apps + icons"
+echo "   winpodx info                   # System / pod / dependency snapshot"
+echo "   winpodx setup                  # Reconfigure"
+echo ""
+echo " On first pod boot the menu auto-populates with the apps actually"
+echo " installed in your Windows guest — no curated list, real icons."
 echo ""
 log "Installation complete!"
