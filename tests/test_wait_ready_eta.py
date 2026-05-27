@@ -66,3 +66,33 @@ def test_eta_parser_handles_decimal_speed() -> None:
     must parse cleanly."""
     assert _parse_wget_eta_secs("50% 1.5M 30s") == 30
     assert _parse_wget_eta_secs("50% 713 30s") == 30
+
+
+def test_oem_reboot_upgrade_path_exits_fast_when_agent_transitioning(monkeypatch) -> None:
+    """C: on an upgrade the OEM marker never reappears; if the agent is still
+    transitioning (exec keeps raising) phase 4 must bail at the appear-grace
+    window, NOT block for the whole (possibly download-inflated) timeout."""
+    from winpodx.cli import pod
+    from winpodx.core.config import Config
+    from winpodx.core.transport.base import TransportError
+
+    # Controllable clock: only sleep advances time, so we can assert the
+    # function returns well before the 600s timeout deadline.
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("time.sleep", lambda s: clock.__setitem__("t", clock["t"] + (s or 5)))
+
+    class _Transitioning:
+        def __init__(self, cfg):  # noqa: ANN001
+            pass
+
+        def exec(self, *a, **k):  # noqa: ANN002, ANN003
+            raise TransportError("agent transitioning (reboot)")
+
+    monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport", _Transitioning)
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    assert pod._wait_for_oem_reboot(cfg, timeout=600) is True
+    # Exited via the 30s appear-grace, not the 600s timeout.
+    assert clock["t"] < 1000.0 + 600

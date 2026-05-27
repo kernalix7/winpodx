@@ -884,15 +884,17 @@ def _wait_for_oem_reboot(cfg, timeout: int) -> bool:  # type: ignore[no-untyped-
                     # Marker was present then disappeared -- RunOnce
                     # fired post-reboot. Done.
                     return True
-                if not saw_marker_at_least_once and _time.monotonic() >= appear_grace_deadline:
-                    # No marker ever observed in the grace window: this
-                    # is an existing install upgraded in-place with an
-                    # OEM version that pre-dates the reboot mechanism.
-                    # Nothing to wait for.
-                    return True
         except TransportError:
             # Agent rejecting connections -- reboot in progress.
             consecutive_absent = 0
+        # No marker ever observed past the grace window: existing install
+        # upgraded in-place (the guest already did its OEM reboot long ago, so
+        # the marker never reappears). Exit on the agent's clock regardless of
+        # whether the latest probe returned rc==0 or raised -- a transitioning
+        # agent on an upgrade must NOT pin us to the full timeout (the hang
+        # that made `wait-ready --logs` look frozen at [4/4] on re-install).
+        if not saw_marker_at_least_once and _time.monotonic() >= appear_grace_deadline:
+            return True
         _time.sleep(interval)
 
     return False
@@ -983,6 +985,14 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
     deadline_state = {
         "value": start + timeout,
         "last_announced": None,
+        # Set once phase 1 sees the container RUNNING. After that point any
+        # wget-ETA line in the drained log is *stale* history (`--logs
+        # --tail 100` replays the original first-boot download), not a live
+        # download, so it must NOT extend the deadline. Without this guard an
+        # upgrade over an already-provisioned guest inflated the deadline to
+        # tens of minutes off old log lines, and phase 4 then blocked that
+        # whole window.
+        "container_running": False,
     }
 
     def _maybe_extend_deadline(eta_remaining_secs: int) -> None:
@@ -990,6 +1000,10 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         expire before the download finishes. Idempotent + threadsafe
         enough (single-key dict writes are atomic under the GIL; we
         accept eventual consistency)."""
+        # Once the container is running there is no live ISO download; any
+        # ETA line is replayed history. Ignore it.
+        if deadline_state["container_running"]:
+            return
         now = _time.monotonic()
         new_deadline = now + eta_remaining_secs + _BOOT_BUFFER_SECS
         if new_deadline <= deadline_state["value"]:
@@ -1093,6 +1107,8 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         while _time.monotonic() < deadline_state["value"]:
             try:
                 if pod_status(cfg).state == PodState.RUNNING:
+                    # Freeze the deadline against stale replayed wget lines.
+                    deadline_state["container_running"] = True
                     print(
                         tr("      OK Container running                   ({elapsed})").format(
                             elapsed=elapsed()
@@ -1171,7 +1187,11 @@ def _wait_ready(timeout: int, show_logs: bool) -> None:
         print(
             tr("[4/4] Waiting for OEM reboot pass...         ({elapsed})").format(elapsed=elapsed())
         )
-        remaining = max(60, int(deadline_state["value"] - _time.monotonic()))
+        # Phase 4 is a quick marker poll, not a download -- cap it hard at
+        # 180s regardless of any download-inflated deadline so an already-
+        # provisioned guest (upgrade path: marker never reappears) can't
+        # block for the whole ISO-sized window.
+        remaining = min(180, max(60, int(deadline_state["value"] - _time.monotonic())))
         if _wait_for_oem_reboot(cfg, timeout=remaining):
             print(
                 tr("      OK OEM reboot pass complete             ({elapsed})").format(
