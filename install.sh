@@ -615,23 +615,6 @@ else
 
     if [ -d "$INSTALL_DIR/.git" ]; then
         log "Updating existing installation to $INSTALL_REF..."
-        # Migration: stop the Windows pod before swapping host code, then
-        # restart it after setup (below) so wait-ready watches a CLEAN boot
-        # with fresh container logs. Without the restart, `wait-ready --logs`
-        # on an already-provisioned guest replayed the original first-boot
-        # download log (stale wget ETA inflated the deadline) and appeared to
-        # hang at [4/4]. Best-effort + gated on an existing config so a fresh
-        # install (mid first-boot) is never interrupted.
-        if [ -f "$HOME/.config/winpodx/winpodx.toml" ]; then
-            log "Migration: stopping Windows pod for a clean restart..."
-            # `</dev/null` is load-bearing: under `curl | bash` this runs while
-            # bash is still streaming the script from the pipe (stdin). Without
-            # it, winpodx's CLI startup can read stdin and swallow the rest of
-            # the piped script, corrupting the run ("bash: line N: ...: command
-            # not found", curl error 23 / broken pipe).
-            "$HOME/.local/bin/winpodx" pod stop </dev/null >/dev/null 2>&1 || true
-            MIGRATION_RESTART=1
-        fi
         # Fetch tags + branches so checkout works for any ref.
         git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
         # Detach safely; works for tags, branches, and SHAs alike.
@@ -731,16 +714,6 @@ else
         log "Installing Windows edition: $WINPODX_WIN_VERSION"
     fi
     python3 -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
-fi
-
-# Migration restart: bring the pod we stopped above back up with the new
-# code, so the wait-ready below watches a fresh boot (quick disk reuse, no
-# ISO re-download) and tails clean container logs from the start. Fresh
-# installs never set MIGRATION_RESTART, so their first-boot is untouched.
-if [ "${MIGRATION_RESTART:-0}" = "1" ]; then
-    log "Migration: restarting Windows pod with the updated build..."
-    # `</dev/null`: same curl|bash stdin guard as the stop above.
-    "$HOME/.local/bin/winpodx" pod start </dev/null >/dev/null 2>&1 || true
 fi
 
 # --- Install winpodx GUI desktop entry & icon ---
