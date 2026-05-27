@@ -824,6 +824,23 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
             "RDP timeouts / NIC power-save / TermService recovery now active."
         )
 
+    # Push the refreshed guest *scripts* (agent.ps1, rdprrap, shim, urlacl)
+    # when the host has been upgraded past the guest's version stamp. The
+    # apply chain above only re-runs the idempotent registry/runtime fixes;
+    # it does NOT redeliver /oem. Triggering the autosync here makes a single
+    # `winpodx migrate` the complete migration for package / AppImage / flatpak
+    # users (whose upgrade path never runs install.sh): host version stamp +
+    # storage + registry fixes + guest scripts. No-op when the guest already
+    # matches the host (stamp equal) or guest_autosync is off; the same sync
+    # also fires on the next `pod start`, so this is best-effort.
+    try:
+        from winpodx.core.guest_sync import maybe_autosync
+
+        if maybe_autosync(cfg):
+            print("  Guest scripts synced to the upgraded host (agent restarted).")
+    except Exception as e:  # noqa: BLE001
+        print(f"  note: guest script sync deferred to next pod start ({e}).")
+
 
 def _maybe_auto_migrate_storage(non_interactive: bool) -> None:
     """Auto-migrate `winpodx-data` named volume to a NoCoW bind mount on btrfs.
