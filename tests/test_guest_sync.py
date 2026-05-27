@@ -147,11 +147,52 @@ def test_read_guest_version_parses_stamp(monkeypatch: pytest.MonkeyPatch) -> Non
         stderr = ""
         rc = 0
 
-    monkeypatch.setattr(guest_sync, "run_in_windows", lambda *a, **k: _R(), raising=False)
-    # run_in_windows is imported inside the function; patch the source module.
-    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", lambda *a, **k: _R())
+    # read_guest_version goes through the agent-first run_via_transport
+    # (imported inside the function); patch it on the source module.
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", lambda *a, **k: _R())
     gv = guest_sync.read_guest_version(_cfg())
     assert gv == GuestVersion(winpodx="0.5.8", oem_bundle="25")
+
+
+def test_write_guest_version_uses_agent_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The stamp write must go through the windowless agent transport, not the
+    # FreeRDP run_in_windows path (which flashed a window + hit a 30s
+    # RemoteApp-activation timeout on a fresh first boot). #341-followup.
+    from winpodx.core import guest_sync
+
+    class _R:
+        ok = True
+        stdout = ""
+        stderr = ""
+        rc = 0
+
+    calls: list[str] = []
+
+    def _fake_transport(cfg, payload, *, timeout=60, description="winpodx-exec"):
+        calls.append(description)
+        return _R()
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", _fake_transport)
+    # If anything reaches the FreeRDP path the test fails loudly.
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_in_windows",
+        lambda *a, **k: pytest.fail("stamp write must not use FreeRDP run_in_windows"),
+    )
+    assert guest_sync.write_guest_version(_cfg(), GuestVersion("0.5.9", "26")) is True
+    assert calls == ["guest-version-write"]
+
+
+def test_write_guest_version_defers_on_exec_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A transitioning agent fails clean -> False (best-effort, retried next
+    # start); no exception escapes to the install flow.
+    from winpodx.core import guest_sync
+    from winpodx.core.windows_exec import WindowsExecError
+
+    def _boom(*a, **k):
+        raise WindowsExecError("agent transitioning")
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", _boom)
+    assert guest_sync.write_guest_version(_cfg(), GuestVersion("0.5.9", "26")) is False
 
 
 def test_config_guest_autosync_default_and_coerce() -> None:

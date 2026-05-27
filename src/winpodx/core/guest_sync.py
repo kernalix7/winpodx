@@ -66,10 +66,15 @@ _READ_STAMP_PS = (
 
 def read_guest_version(cfg: Config, *, timeout: int = 30) -> GuestVersion | None:
     """Read the guest version stamp via ``/exec``. None when absent/unreachable."""
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
     try:
-        result = run_in_windows(cfg, _READ_STAMP_PS, timeout=timeout, description="guest-version")
+        # Agent-first: callers gate on agent health before reading, so this
+        # uses the windowless /exec channel (no FreeRDP flash, no 30s RemoteApp
+        # activation wait). A transitioning agent fails clean -> None.
+        result = run_via_transport(
+            cfg, _READ_STAMP_PS, timeout=timeout, description="guest-version"
+        )
     except WindowsExecError as e:
         log.debug("guest-version read exec failed: %s", e)
         return None
@@ -91,7 +96,7 @@ def read_guest_version(cfg: Config, *, timeout: int = 30) -> GuestVersion | None
 
 def write_guest_version(cfg: Config, ver: GuestVersion, *, timeout: int = 30) -> bool:
     """Write the guest version stamp via ``/exec``."""
-    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+    from winpodx.core.windows_exec import WindowsExecError, run_via_transport
 
     payload = json.dumps({"winpodx": ver.winpodx, "oem_bundle": ver.oem_bundle})
     # Base64 the JSON so quoting can't corrupt it inside the PS wrapper.
@@ -106,9 +111,14 @@ def write_guest_version(cfg: Config, ver: GuestVersion, *, timeout: int = 30) ->
         f"Set-Content -Path '{_STAMP_PATH}' -Value $json -Encoding UTF8"
     )
     try:
-        result = run_in_windows(cfg, ps, timeout=timeout, description="guest-version-write")
+        # Agent-first (windowless /exec): callers gate on agent health before
+        # writing, so this avoids a FreeRDP RemoteApp flash + its 30s
+        # activation timeout. The stamp is best-effort -- a transitioning
+        # agent on a fresh first boot fails clean and the stamp is re-attempted
+        # on the next pod start, so this is info, not a scary warning.
+        result = run_via_transport(cfg, ps, timeout=timeout, description="guest-version-write")
     except WindowsExecError as e:
-        log.warning("guest-version write failed: %s", e)
+        log.info("guest-version stamp deferred (guest not ready); will retry next start: %s", e)
         return False
     return result.ok
 
