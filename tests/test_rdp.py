@@ -40,6 +40,29 @@ def test_linux_to_unc_media_path(monkeypatch, tmp_path):
     assert result == "\\\\tsclient\\media\\USB\\report.docx"
 
 
+def test_find_media_base_prefers_user_then_persistent_parent(monkeypatch):
+    # A live media parent is preferred over the placeholder so a USB inserted
+    # AFTER the session starts shows on refresh. Per-user dir wins; the
+    # persistent parent is the fallback for the not-mounted-yet-at-launch case.
+    from winpodx.core import rdp
+
+    monkeypatch.setenv("USER", "alice")
+    present: set[str] = set()
+    monkeypatch.setattr(rdp.Path, "is_dir", lambda self: str(self) in present)
+
+    # Nothing mounted, no media subsystem dir -> None (caller uses placeholder).
+    assert rdp._find_media_base() is None
+
+    # USB inserted while no per-user dir existed yet: the persistent parent
+    # exists, so we redirect it (USB shows at \\media\alice\<LABEL> on F5).
+    present.add("/run/media")
+    assert str(rdp._find_media_base()) == "/run/media"
+
+    # Once udisks has made the per-user dir, prefer it (\\media\<LABEL>).
+    present.add("/run/media/alice")
+    assert str(rdp._find_media_base()) == "/run/media/alice"
+
+
 def test_launch_app_remoteapp_without_display_raises(monkeypatch, tmp_path):
     # No $DISPLAY -> xfreerdp would die post-detach; launch_app must raise.
     from winpodx.core import rdp as rdp_mod

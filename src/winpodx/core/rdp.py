@@ -99,10 +99,31 @@ class RDPSession:
 
 
 def _find_media_base() -> Path | None:
-    """Find the user's removable media base directory."""
+    """Find a live removable-media parent dir to expose as ``\\tsclient\\media``.
+
+    Returns the *deepest existing* media-parent so a USB plugged in **after**
+    the FreeRDP session starts still shows up on a refresh: FreeRDP's drive
+    redirection passes the host directory through live (each guest enumeration
+    re-reads the host fs), and xfreerdp runs in the host mount namespace (no
+    ``unshare`` since #214), so a submount appearing under the redirected dir
+    propagates and a guest Explorer refresh (F5) reveals it.
+
+    The per-user dirs (``/run/media/$USER``, ``/media/$USER``) are preferred so
+    the shortcut lands one level above the volume (``\\media\\<LABEL>``). They
+    only exist once udisks has mounted something for this user, so we also
+    accept the persistent parents (``/run/media``, ``/media``) — that catches
+    the case where nothing is mounted *yet* at launch but a USB is inserted
+    later (it then appears at ``\\media\\$USER\\<LABEL>`` on refresh). Returns
+    None only when no media subsystem dir exists at all.
+    """
     user = os.environ.get("USER", "")
 
-    for base in (Path("/run/media") / user, Path("/media") / user):
+    for base in (
+        Path("/run/media") / user,
+        Path("/media") / user,
+        Path("/run/media"),
+        Path("/media"),
+    ):
         if base.is_dir():
             return base
 
@@ -115,10 +136,11 @@ def _media_redirect_base() -> Path:
     install.bat always drops a ``USB`` desktop shortcut pointing at
     ``\\tsclient\\media``. If we only redirected the drive when removable
     media is mounted, clicking that shortcut with no USB plugged in failed
-    with "``\\tsclient\\media`` is not accessible ... invalid address"
-    (reported by @camegone-style setups). So always redirect *something*:
-    the real media base when present, otherwise an empty placeholder dir so
-    the shortcut opens to an empty folder instead of erroring.
+    with "``\\tsclient\\media`` is not accessible ... invalid address". So
+    always redirect *something*: a live media parent when one exists (see
+    ``_find_media_base`` — chosen so a late-inserted USB shows on refresh),
+    otherwise an empty placeholder dir so the shortcut opens to an empty
+    folder instead of erroring.
     """
     from winpodx.utils.paths import data_dir
 
