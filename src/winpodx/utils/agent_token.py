@@ -6,7 +6,7 @@ The same token is read by:
 - ``agent.ps1`` inside Windows (read from ``C:\\OEM\\agent_token.txt``,
   staged at setup time by copying from here into the OEM bind mount).
 
-See docs/AGENT_V2_DESIGN.md for the full delivery flow.
+See docs/design/AGENT_V2_DESIGN.md for the full delivery flow.
 """
 
 from __future__ import annotations

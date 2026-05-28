@@ -16,7 +16,7 @@ Later phases will add ``/exec``, ``/events``, ``/apply``, ``/discover``.
 The Phase 2+ surface area is sketched as helpers/exception types in
 this module so callers don't churn between phases.
 
-See ``docs/AGENT_V2_DESIGN.md`` for the full design.
+See ``docs/design/AGENT_V2_DESIGN.md`` for the full design.
 """
 
 from __future__ import annotations
@@ -34,6 +34,16 @@ from winpodx.core.config import Config
 from winpodx.utils.agent_token import token_path
 
 log = logging.getLogger(__name__)
+
+
+# Host-side single source of truth for the agent port. Everything Python that
+# talks about the guest agent listener (compose port mapping, urlacl strings
+# we push into the guest, /health probes) should derive from this constant
+# rather than re-literal 8765. The guest side -- agent.ps1, install.bat,
+# agent-keepalive.ps1, agent-respawn.ps1 -- carries its own literal and is
+# documented as the paired second SoT (PowerShell can't import a Python
+# constant). Changing the port means editing here AND those PS1/BAT files.
+AGENT_PORT = 8765
 
 
 class AgentError(RuntimeError):
@@ -85,9 +95,9 @@ class ExecResult:
 
 
 class AgentClient:
-    """HTTP client for the guest agent on ``127.0.0.1:8765``."""
+    """HTTP client for the guest agent on ``127.0.0.1:{AGENT_PORT}``."""
 
-    DEFAULT_BASE_URL = "http://127.0.0.1:8765"
+    DEFAULT_BASE_URL = f"http://127.0.0.1:{AGENT_PORT}"
     HEALTH_TIMEOUT = 5.0
 
     def __init__(

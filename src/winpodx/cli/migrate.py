@@ -85,7 +85,7 @@ _VERSION_NOTES: dict[str, list[str]] = {
         "migrate works on RTM-suffixed pods (0.3.0-RTM1 etc.). Version parser "
         "now extracts leading digits per dot-segment; previously 0.3.0-RTM1 "
         "lex-compared less than 0.3.0, dropping the apply chain entirely.",
-        "New docs/LIFECYCLE.md (en + ko) -- end-to-end process reference "
+        "New docs/design/LIFECYCLE.md (en + ko) -- end-to-end process reference "
         "covering install, Sysprep, migrate, apply chain, multi-session "
         "activation, image pinning, discovery, transport selection, and 7 "
         "common recovery scenarios.",
