@@ -511,8 +511,9 @@ def cli(argv: list[str] | None = None) -> None:
         help=(
             "Diagnose common winpodx state issues (orphan container, stale "
             "config, missing deps, half-installed state, broken autostart). "
-            "Read-only -- prints per-check findings + suggested next "
-            "command. Exits non-zero on FAIL findings."
+            "Read-only by default -- prints per-check findings + suggested "
+            "next command; --fix runs idempotent auto-remediation. Exits "
+            "non-zero on FAIL findings."
         ),
     )
     doctor_p.add_argument(
@@ -520,7 +521,7 @@ def cli(argv: list[str] | None = None) -> None:
         action="store_true",
         help=(
             "Machine-readable output: emit the Finding list as a JSON array "
-            "(each element has severity, title, detail, suggestion keys)."
+            "(each element has severity, title, detail, suggestion, fix_id keys)."
         ),
     )
     doctor_p.add_argument(
@@ -531,6 +532,15 @@ def cli(argv: list[str] | None = None) -> None:
             "only the cheap local checks: freerdp, kvm, backend-on-PATH, "
             "config-state, pending-setup, autostart, initialized-flag. "
             "Completes in < 1 s on most hosts."
+        ),
+    )
+    doctor_p.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Auto-remediate findings that have a known fixer (idempotent; "
+            "no-op when already healthy), then re-probe and report fixed / "
+            "still failing. Implies the slow probes."
         ),
     )
 

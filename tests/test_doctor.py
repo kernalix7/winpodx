@@ -7,6 +7,7 @@ import argparse
 
 import pytest
 
+from winpodx.cli import doctor
 from winpodx.cli.doctor import (
     Finding,
     _check_autostart_entry,
@@ -17,6 +18,15 @@ from winpodx.cli.doctor import (
     handle_doctor,
 )
 from winpodx.core.config import Config
+
+
+def _stub_new_checks(monkeypatch):
+    """Neutralise the 0.6.0 remediable checks so the legacy report tests
+    stay deterministic regardless of host state (apps, run dir, pod)."""
+    monkeypatch.setattr(doctor, "_check_stale_locks", lambda: Finding("ok", "locks"))
+    monkeypatch.setattr(doctor, "_check_missing_desktop_entries", lambda: Finding("ok", "entries"))
+    monkeypatch.setattr(doctor, "_check_agent_health", lambda: None)
+    monkeypatch.setattr(doctor, "_check_oem_drift", lambda: None)
 
 
 class TestFindingFormatting:
@@ -121,6 +131,7 @@ class TestHandleDoctor:
     def test_exits_zero_on_no_fail(self, tmp_path, monkeypatch, capsys):
         """All checks return OK or WARN -> exit 0."""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        _stub_new_checks(monkeypatch)
         # Stub every check to OK to keep the test independent of host state.
         ok = Finding("ok", "stub")
         for name in (
@@ -142,6 +153,7 @@ class TestHandleDoctor:
 
     def test_exits_one_on_fail(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        _stub_new_checks(monkeypatch)
         fail = Finding("fail", "stub fail", suggestion="do something")
         ok = Finding("ok", "stub ok")
         for name in (
@@ -159,4 +171,261 @@ class TestHandleDoctor:
 
         with pytest.raises(SystemExit) as exc:
             handle_doctor(argparse.Namespace())
+        assert exc.value.code == 1
+
+
+# -----------------------------------------------------------------------
+# 0.6.0 item K: --fix auto-remediation.
+# -----------------------------------------------------------------------
+
+
+def _ns(**kw):
+    base = {"json": False, "quick": False, "fix": False}
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+class TestFindingFixId:
+    def test_fix_id_defaults_none(self):
+        assert Finding("ok", "x").fix_id is None
+        assert Finding("warn", "x", fix_id="stale_locks").fix_id == "stale_locks"
+
+
+class TestFixerRegistry:
+    def test_every_emitted_fix_id_has_fixer_and_reprobe(self):
+        emitted = {"stale_locks", "missing_desktop_entries", "dead_agent", "oem_drift"}
+        assert emitted <= set(doctor._FIXERS)
+        assert emitted <= set(doctor._REPROBES)
+
+    def test_registered_callables(self):
+        for fn in doctor._FIXERS.values():
+            assert callable(fn)
+        for fn in doctor._REPROBES.values():
+            assert callable(fn)
+
+
+def _seed_run_dir(monkeypatch, tmp_path, files):
+    """Point data_dir() at tmp_path and write the given {name: pid} cprocs."""
+    monkeypatch.setattr("winpodx.utils.paths.data_dir", lambda: tmp_path)
+    run = tmp_path / "run"
+    run.mkdir(parents=True, exist_ok=True)
+    for name, pid in files.items():
+        (run / name).write_text(str(pid), encoding="utf-8")
+    return run
+
+
+class TestStaleLockFixer:
+    def test_dead_vs_live_pid_detection(self, monkeypatch, tmp_path):
+        run = _seed_run_dir(monkeypatch, tmp_path, {"dead.cproc": 999999, "live.cproc": 1234})
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: pid == 1234)
+        dead = doctor._dead_lock_files()
+        assert {p.name for p in dead} == {"dead.cproc"}
+        assert (run / "live.cproc").exists()
+
+    def test_fix_purges_only_dead(self, monkeypatch, tmp_path):
+        run = _seed_run_dir(monkeypatch, tmp_path, {"dead.cproc": 999999, "live.cproc": 1234})
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: pid == 1234)
+        ok, msg = doctor._fix_stale_locks()
+        assert ok
+        assert "purged 1" in msg
+        assert not (run / "dead.cproc").exists()
+        assert (run / "live.cproc").exists()
+
+    def test_fix_idempotent_noop_when_clean(self, monkeypatch, tmp_path):
+        _seed_run_dir(monkeypatch, tmp_path, {"live.cproc": 1234})
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        ok, msg = doctor._fix_stale_locks()
+        assert ok
+        assert "no stale lock files" in msg
+
+    def test_check_flags_dead_with_fix_id(self, monkeypatch, tmp_path):
+        _seed_run_dir(monkeypatch, tmp_path, {"dead.cproc": 999999})
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: False)
+        f = doctor._check_stale_locks()
+        assert f.severity == "warn"
+        assert f.fix_id == "stale_locks"
+
+    def test_check_ok_when_no_run_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("winpodx.utils.paths.data_dir", lambda: tmp_path)
+        f = doctor._check_stale_locks()
+        assert f.severity == "ok"
+
+
+class _FakeApp:
+    def __init__(self, name, mime_types=None):
+        self.name = name
+        self.full_name = name
+        self.mime_types = mime_types or []
+
+
+class _ExistsPath:
+    def __init__(self, exists):
+        self._exists = exists
+
+    def exists(self):
+        return self._exists
+
+
+class TestMissingDesktopEntryFixer:
+    def test_detects_missing(self, monkeypatch):
+        apps = [_FakeApp("alpha"), _FakeApp("beta")]
+        monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: apps)
+        present = {"alpha"}
+        monkeypatch.setattr(
+            doctor, "_desktop_entry_path", lambda app: _ExistsPath(app.name in present)
+        )
+        missing = doctor._apps_missing_desktop_entries()
+        assert [a.name for a in missing] == ["beta"]
+
+    def test_fix_reregisters(self, monkeypatch):
+        apps = [_FakeApp("beta", mime_types=["text/plain"])]
+        monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: apps)
+        monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: _ExistsPath(False))
+        installed = []
+        monkeypatch.setattr(
+            "winpodx.desktop.entry.install_desktop_entry",
+            lambda app: installed.append(app.name),
+        )
+        monkeypatch.setattr("winpodx.desktop.mime.register_mime_types", lambda app: None)
+        monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+        ok, msg = doctor._fix_missing_desktop_entries()
+        assert ok
+        assert installed == ["beta"]
+        assert "re-registered 1" in msg
+
+    def test_fix_noop_when_all_present(self, monkeypatch):
+        monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [_FakeApp("alpha")])
+        monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: _ExistsPath(True))
+        called = []
+        monkeypatch.setattr(
+            "winpodx.desktop.entry.install_desktop_entry",
+            lambda app: called.append(app.name),
+        )
+        ok, msg = doctor._fix_missing_desktop_entries()
+        assert ok
+        assert called == []
+        assert "no missing desktop entries" in msg
+
+    def test_check_flags_with_fix_id(self, monkeypatch):
+        monkeypatch.setattr(doctor, "_apps_missing_desktop_entries", lambda: [_FakeApp("beta")])
+        f = doctor._check_missing_desktop_entries()
+        assert f.severity == "warn"
+        assert f.fix_id == "missing_desktop_entries"
+
+
+class TestDeadAgentFixer:
+    """--fix must DISPATCH to the keep-alive kick; the guest call is mocked."""
+
+    def test_dispatches_keepalive_kick(self, monkeypatch):
+        cfg = argparse.Namespace(pod=argparse.Namespace(backend="podman"))
+        monkeypatch.setattr("winpodx.core.config.Config.load", staticmethod(lambda: cfg))
+        calls = {}
+
+        def fake_transport(c, ps, *, timeout=60, description=""):
+            calls["ps"] = ps
+            return Finding("ok", "x")  # any object; result unused
+
+        monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", fake_transport)
+        monkeypatch.setattr("winpodx.core.guest_sync._wait_agent_back", lambda c, **kw: True)
+        ok, msg = doctor._fix_dead_agent()
+        assert ok
+        assert "WinpodxAgentKeepAlive" in calls["ps"]
+        assert "Start-ScheduledTask" in calls["ps"]
+
+    def test_reports_still_down_when_health_never_returns(self, monkeypatch):
+        cfg = argparse.Namespace(pod=argparse.Namespace(backend="podman"))
+        monkeypatch.setattr("winpodx.core.config.Config.load", staticmethod(lambda: cfg))
+        monkeypatch.setattr(
+            "winpodx.core.windows_exec.run_via_transport",
+            lambda c, ps, **kw: Finding("ok", "x"),
+        )
+        monkeypatch.setattr("winpodx.core.guest_sync._wait_agent_back", lambda c, **kw: False)
+        ok, _ = doctor._fix_dead_agent()
+        assert not ok
+
+
+class TestOemDriftFixer:
+    """--fix must DISPATCH to guest_sync.maybe_autosync; the call is mocked."""
+
+    def test_dispatches_maybe_autosync(self, monkeypatch):
+        cfg = argparse.Namespace(pod=argparse.Namespace(backend="podman"))
+        monkeypatch.setattr("winpodx.core.config.Config.load", staticmethod(lambda: cfg))
+        calls = {}
+
+        def fake_autosync(c):
+            calls["cfg"] = c
+            return True
+
+        monkeypatch.setattr("winpodx.core.guest_sync.maybe_autosync", fake_autosync)
+        ok, msg = doctor._fix_oem_drift()
+        assert ok
+        assert calls["cfg"] is cfg
+        assert "synced" in msg
+
+    def test_reports_already_current(self, monkeypatch):
+        cfg = argparse.Namespace(pod=argparse.Namespace(backend="podman"))
+        monkeypatch.setattr("winpodx.core.config.Config.load", staticmethod(lambda: cfg))
+        monkeypatch.setattr("winpodx.core.guest_sync.maybe_autosync", lambda c: False)
+        ok, msg = doctor._fix_oem_drift()
+        assert ok
+        assert "already current" in msg
+
+
+def _all_ok_legacy(monkeypatch):
+    monkeypatch.setattr(doctor, "_check_install_source", lambda: Finding("ok", "src"))
+    monkeypatch.setattr(doctor, "_check_freerdp", lambda: Finding("ok", "frdp"))
+    monkeypatch.setattr(doctor, "_check_kvm", lambda: Finding("ok", "kvm"))
+    monkeypatch.setattr(doctor, "_check_container_backend", lambda: [Finding("ok", "be")])
+    monkeypatch.setattr(doctor, "_check_config_state", lambda: Finding("ok", "cfg"))
+    monkeypatch.setattr(doctor, "_check_pending_setup", lambda: Finding("ok", "pending"))
+    monkeypatch.setattr(doctor, "_check_autostart_entry", lambda: Finding("ok", "auto"))
+    monkeypatch.setattr(doctor, "_check_initialized_flag", lambda: Finding("ok", "init"))
+    monkeypatch.setattr(doctor, "_check_container_health", lambda: [])
+    monkeypatch.setattr(doctor, "_check_agent_health", lambda: None)
+    monkeypatch.setattr(doctor, "_check_oem_drift", lambda: None)
+    monkeypatch.setattr(doctor, "_check_missing_desktop_entries", lambda: Finding("ok", "e"))
+
+
+class TestHandleDoctorFix:
+    def test_fix_dispatches_registered_fixer(self, capsys, monkeypatch):
+        _all_ok_legacy(monkeypatch)
+        monkeypatch.setattr(
+            doctor,
+            "_check_stale_locks",
+            lambda: Finding("warn", "stale", fix_id="stale_locks"),
+        )
+        dispatched = []
+        monkeypatch.setitem(
+            doctor._FIXERS,
+            "stale_locks",
+            lambda: dispatched.append(1) or (True, "purged 1"),
+        )
+        monkeypatch.setitem(doctor._REPROBES, "stale_locks", lambda: Finding("ok", "clean"))
+        handle_doctor(_ns(fix=True))
+        out = capsys.readouterr().out
+        assert dispatched == [1]
+        assert "[fixed]" in out
+
+    def test_fix_reports_no_autofix_for_unknown(self, capsys, monkeypatch):
+        _all_ok_legacy(monkeypatch)
+        monkeypatch.setattr(doctor, "_check_stale_locks", lambda: Finding("ok", "locks"))
+        # A warn with NO fix_id -> "no auto-fix available".
+        monkeypatch.setattr(doctor, "_check_freerdp", lambda: Finding("warn", "frdp slow"))
+        handle_doctor(_ns(fix=True))
+        out = capsys.readouterr().out
+        assert "no auto-fix available" in out
+
+    def test_fix_still_failing_keeps_exit_1(self, monkeypatch):
+        _all_ok_legacy(monkeypatch)
+        monkeypatch.setattr(
+            doctor,
+            "_check_stale_locks",
+            lambda: Finding("fail", "broken", fix_id="stale_locks"),
+        )
+        monkeypatch.setitem(doctor._FIXERS, "stale_locks", lambda: (False, "could not fix"))
+        monkeypatch.setitem(
+            doctor._REPROBES, "stale_locks", lambda: Finding("fail", "still broken")
+        )
+        with pytest.raises(SystemExit) as exc:
+            handle_doctor(_ns(fix=True))
         assert exc.value.code == 1

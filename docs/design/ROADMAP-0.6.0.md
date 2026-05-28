@@ -31,7 +31,7 @@ This roadmap is the cut-list. Items move from "in scope" to "done" only when the
   - Deprecation aliases: old `pod apply-fixes` etc. keep working through 0.6.x with a deprecation note; removed in 0.7.0.
   - `install.sh` / `uninstall.sh` / `postinst` / `postrm` call only public `winpodx <command>` (no internal Python imports).
   - **Effort M-L / Risk Low** with aliases.
-- **K. `winpodx doctor --fix` auto-remediation.** Common recoverable failures: dead agent → keepalive kick, stale lock files → purge, missing desktop entries → re-register, oem-version drift → trigger guest-sync. Each fix idempotent. **Effort S-M / Risk Low.**
+- **K. `winpodx doctor --fix` auto-remediation.** ✅ Implemented (PR `feat/doctor-fix`); guest-touching fixers smoke-gated before merge. Common recoverable failures: dead agent → keepalive kick, stale lock files → purge, missing desktop entries → re-register, oem-version drift → trigger guest-sync. Each fix idempotent. **Effort S-M / Risk Low.**
 
 ### Docs + ops
 
