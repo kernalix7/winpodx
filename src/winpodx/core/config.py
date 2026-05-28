@@ -38,16 +38,6 @@ SCHEMA_VERSION = 1
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
 _VALID_TUNING_PROFILES = frozenset({"auto", "performance", "safe", "off", "manual"})
 
-# Windows edition strings winpodx ships explicit support for. Subset
-# of dockur/windows' full VERSION set, restricted to Windows 10-era
-# kernels and newer (see #178). Pre-Win10 editions (XP / Vista / 7 /
-# 8 / Server 2003-2012) are intentionally excluded — they're out of
-# Microsoft security support, and winpodx's stack (rdprrap multi-
-# session, agent.ps1 modern PowerShell APIs, dockur's RDP shim)
-# targets the Win10+ family. Unknown values are still permitted at
-# the config layer with a warning so bleeding-edge dockur additions
-# winpodx hasn't documented yet still work — validation is
-# strictness=warn, not strictness=reject.
 # Display labels for every value in _KNOWN_WIN_VERSIONS, in the order they
 # appear on user-facing surfaces (CLI help, GUI dropdown, install.sh prompts).
 # The dict is the single source of truth; _KNOWN_WIN_VERSIONS below derives
