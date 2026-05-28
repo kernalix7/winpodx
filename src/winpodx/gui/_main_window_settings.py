@@ -332,23 +332,14 @@ class SettingsPageMixin:
         # Labels mirror dockur/windows' README ordering so users
         # cross-referencing the upstream docs see the same names.
         self.input_win_version = QComboBox()
-        # Win10+ kernel family only — see ``_KNOWN_WIN_VERSIONS`` in
-        # ``core/config.py`` for the policy rationale. Pre-Win10
-        # editions are intentionally not offered.
-        win_version_options = [
-            ("Windows 11", "11"),
-            ("Windows 11 LTSC", "ltsc11"),
-            ("Windows 11 IoT Enterprise LTSC", "iot11"),
-            ("Windows 11 (Tiny11, debloated)", "tiny11"),
-            ("Windows 10", "10"),
-            ("Windows 10 LTSC", "ltsc10"),
-            ("Windows 10 (Tiny10, debloated)", "tiny10"),
-            ("Windows Server 2025", "2025"),
-            ("Windows Server 2022", "2022"),
-            ("Windows Server 2019", "2019"),
-            ("Windows Server 2016", "2016"),
-        ]
-        for label, value in win_version_options:
+        # Edition list pulled from ``WIN_VERSION_LABELS`` in ``core/config.py``
+        # so the dropdown stays in sync with the validator + CLI help text.
+        # Win10+ kernel family only — see the comment on ``_KNOWN_WIN_VERSIONS``
+        # for the policy rationale. Pre-Win10 editions are intentionally not
+        # offered.
+        from winpodx.core.config import WIN_VERSION_LABELS
+
+        for value, label in WIN_VERSION_LABELS.items():
             self.input_win_version.addItem(label, value)
         # Map current cfg value back onto the dropdown. If unknown
         # (custom dockur edition set via toml edit), append a "(custom)"-

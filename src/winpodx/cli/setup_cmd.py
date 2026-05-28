@@ -472,11 +472,14 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     """
     print(tr("\n--- Edition / locale / tuning (Enter = keep default) ---"))
 
-    # Windows edition. Bare-token list mirrors _KNOWN_WIN_VERSIONS; the
-    # common picks are surfaced inline, the rest accepted if typed.
+    # Windows edition. The prompt hint is derived from WIN_VERSION_LABELS so
+    # adding/removing a curated edition lights up here automatically.
+    from winpodx.core.config import known_win_version_codes
+
+    _editions_hint = ", ".join(known_win_version_codes())
     edition = _ask(
-        tr("Windows edition (11, 10, ltsc11, iot11, tiny11, 2025, ...) [{default}]: ").format(
-            default=cfg.pod.win_version
+        tr("Windows edition ({editions}) [{default}]: ").format(
+            editions=_editions_hint, default=cfg.pod.win_version
         ),
         default=cfg.pod.win_version,
     )

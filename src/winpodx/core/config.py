@@ -48,25 +48,46 @@ _VALID_TUNING_PROFILES = frozenset({"auto", "performance", "safe", "off", "manua
 # the config layer with a warning so bleeding-edge dockur additions
 # winpodx hasn't documented yet still work — validation is
 # strictness=warn, not strictness=reject.
-_KNOWN_WIN_VERSIONS = frozenset(
-    {
-        # Mainstream desktop
-        "11",
-        "10",
-        # LTSC / IoT (long-term servicing — #178 core ask)
-        "ltsc11",
-        "ltsc10",
-        "iot11",
-        # Debloated community builds
-        "tiny11",
-        "tiny10",
-        # Server editions (Win10+ kernel only)
-        "2025",
-        "2022",
-        "2019",
-        "2016",
-    }
-)
+# Display labels for every value in _KNOWN_WIN_VERSIONS, in the order they
+# appear on user-facing surfaces (CLI help, GUI dropdown, install.sh prompts).
+# The dict is the single source of truth; _KNOWN_WIN_VERSIONS below derives
+# from it, so a new edition is added in exactly ONE place. The order here is
+# the order users see -- mainstream first, then long-term-servicing, then
+# debloated community builds, then server editions.
+WIN_VERSION_LABELS: dict[str, str] = {
+    # Mainstream desktop
+    "11": "Windows 11",
+    "10": "Windows 10",
+    # LTSC / IoT (long-term servicing — #178 core ask)
+    "ltsc11": "Windows 11 LTSC",
+    "ltsc10": "Windows 10 LTSC",
+    "iot11": "Windows 11 IoT",
+    # Debloated community builds
+    "tiny11": "Windows 11 (Tiny11, debloated)",
+    "tiny10": "Windows 10 (Tiny10, debloated)",
+    # Server editions (Win10+ kernel only)
+    "2025": "Windows Server 2025",
+    "2022": "Windows Server 2022",
+    "2019": "Windows Server 2019",
+    "2016": "Windows Server 2016",
+}
+
+# Windows edition strings winpodx ships explicit support for. Subset of
+# dockur/windows' full VERSION set, restricted to Windows 10-era kernels and
+# newer (see #178). Pre-Win10 editions (XP / Vista / 7 / 8 / Server 2003-2012)
+# are intentionally excluded — they're out of Microsoft security support, and
+# winpodx's stack (rdprrap multi-session, agent.ps1 modern PowerShell APIs,
+# dockur's RDP shim) targets the Win10+ family. Unknown values are still
+# permitted at the config layer with a warning so bleeding-edge dockur
+# additions winpodx hasn't documented yet still work — validation is
+# strictness=warn, not strictness=reject. Source of truth is WIN_VERSION_LABELS
+# above; this frozenset is just its keys.
+_KNOWN_WIN_VERSIONS = frozenset(WIN_VERSION_LABELS.keys())
+
+
+def known_win_version_codes() -> tuple[str, ...]:
+    """Return the curated edition codes in display order (see WIN_VERSION_LABELS)."""
+    return tuple(WIN_VERSION_LABELS.keys())
 
 # Podman/Docker container name rules: alnum/_/-/., must start with alnum.
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")

@@ -4,15 +4,25 @@
 Runs during the lint stage of CI so a release-prep commit that forgets to bump
 one of the version-stamped files (the original sin behind v0.5.2's mis-named
 `winpodx_0.5.1_*.deb` assets, which shipped because `debian/changelog` stayed
-at 0.5.1 while `pyproject.toml` and `__init__.py` moved to 0.5.2) fails CI
-before the tag is pushed, not after.
+at 0.5.1 while `pyproject.toml` moved to 0.5.2) fails CI before the tag is
+pushed, not after.
 
-Files checked:
-  - pyproject.toml             ([project] version)
-  - src/winpodx/__init__.py    (__version__)
-  - debian/changelog           (first entry: winpodx (X.Y.Z) ...)
+Single source of truth: ``[project] version`` in ``pyproject.toml``.
 
-Exits 0 if all three agree, 1 with a stamped diff otherwise. Read-only —
+Files that have to agree with it:
+  - ``debian/changelog`` (first entry: ``winpodx (X.Y.Z) ...``)
+  - ``packaging/rpm/winpodx.spec`` (``Version: X.Y.Z`` -- the local-build
+    cosmetic literal; OBS rewrites this from the tarball name at publish
+    time, but a stale literal still misleads anyone running a manual rpmbuild
+    and the v0.5.2 incident proved a missed bump on ONE packaging file ships)
+
+Plus a round-trip sanity check: ``importlib.metadata.version("winpodx")``
+matches when the package is actually installed (catches a broken install
+that would otherwise silently report the wrong version at runtime, since
+0.6.0 ``src/winpodx/__init__.py`` derives ``__version__`` from the package
+metadata rather than hand-syncing a literal).
+
+Exits 0 if everything agrees, 1 with a stamped diff otherwise. Read-only --
 makes no changes to the tree.
 """
 
@@ -36,14 +46,6 @@ def pyproject_version() -> str:
     return data["project"]["version"]
 
 
-def init_version() -> str:
-    text = (ROOT / "src" / "winpodx" / "__init__.py").read_text()
-    m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
-    if not m:
-        raise SystemExit("__version__ not found in src/winpodx/__init__.py")
-    return m.group(1)
-
-
 def debian_version() -> str:
     text = (ROOT / "debian" / "changelog").read_text()
     m = re.match(r"winpodx \(([^)]+)\)", text)
@@ -52,21 +54,53 @@ def debian_version() -> str:
     return m.group(1)
 
 
+def spec_version() -> str:
+    text = (ROOT / "packaging" / "rpm" / "winpodx.spec").read_text()
+    m = re.search(r"^Version:\s+(\S+)\s*$", text, re.MULTILINE)
+    if not m:
+        raise SystemExit("Version: line not found in packaging/rpm/winpodx.spec")
+    return m.group(1)
+
+
+def installed_metadata_version() -> str | None:
+    """Return ``importlib.metadata.version('winpodx')`` if winpodx is installed.
+
+    ``None`` when winpodx isn't on ``sys.path`` as an installed package -- a
+    fresh source checkout running this script before ``pip install -e .`` is a
+    legitimate state; we don't want CI to flap on a tooling-only run.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return version("winpodx")
+        except PackageNotFoundError:
+            return None
+    except ImportError:
+        return None
+
+
 def main() -> int:
     versions = {
         "pyproject.toml [project] version": pyproject_version(),
-        "src/winpodx/__init__.py __version__": init_version(),
         "debian/changelog (first entry)": debian_version(),
+        "packaging/rpm/winpodx.spec Version:": spec_version(),
     }
+    metadata = installed_metadata_version()
+    if metadata is not None:
+        versions["importlib.metadata installed version"] = metadata
+
     unique = set(versions.values())
     if len(unique) == 1:
         print(f"Version stamps consistent: {unique.pop()}")
         return 0
-    print("Version stamp mismatch — release prep incomplete:")
+
+    print("Version stamp mismatch -- release prep incomplete:")
     for path, v in versions.items():
-        print(f"  {path:42s}  {v}")
+        print(f"  {path:46s}  {v}")
     print(
         "\nBump the lagging file(s) and re-run before tagging.\n"
+        "  pyproject.toml is the single source of truth; everything else must follow.\n"
         "  See `chore(release): vX.Y.Z` commits on main for the convention."
     )
     return 1

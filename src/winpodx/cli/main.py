@@ -321,13 +321,17 @@ def cli(argv: list[str] | None = None) -> None:
     # --- setup ---
     setup_p = sub.add_parser("setup", help="Run setup wizard")
     setup_p.add_argument("--backend", choices=["podman", "docker", "libvirt", "manual"])
+    # Curated edition list pulled from winpodx.core.config.WIN_VERSION_LABELS
+    # so the help text stays in sync with the validator and the GUI dropdown.
+    from winpodx.core.config import known_win_version_codes
+
+    _curated_editions = " | ".join(known_win_version_codes())
     setup_p.add_argument(
         "--win-version",
         metavar="EDITION",
         help=(
             "Windows edition to install (passed to dockur via VERSION env "
-            "var). Curated set: 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 "
-            "| tiny10 | 2025 | 2022 | 2019 | 2016. Other values pass "
+            f"var). Curated set: {_curated_editions}. Other values pass "
             "through to dockur with a warning — see ARCHITECTURE.md for "
             "the custom-ISO workaround. Only takes effect on fresh installs "
             "(no existing winpodx.toml); for existing installs use the GUI "

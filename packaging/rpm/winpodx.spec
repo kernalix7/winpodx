@@ -2,10 +2,12 @@
 
 Name:           %{pypi_name}
 # OBS's _service chain runs `set_version` on every build and rewrites this
-# Version: line from the @PARENT_TAG@ tarball filename (e.g. winpodx-0.1.4
-# → "0.1.4"). The literal here is a cosmetic placeholder for local builds;
+# Version: line from the @PARENT_TAG@ tarball filename (e.g. winpodx-0.5.9
+# → "0.5.9"). The literal here is a cosmetic placeholder for local builds;
 # bumping it per release is NOT required and has no effect on OBS output.
-Version:        0.1.5
+# scripts/ci/verify_versions.py guards against drift between this literal and
+# pyproject.toml so a local-build version doesn't masquerade as a stale one.
+Version:        0.5.9
 Release:        0
 Summary:        Windows app integration for Linux desktop
 # MIT covers winpodx + bundled rdprrap (same MIT terms).
