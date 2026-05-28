@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Stage system-level binaries (FreeRDP 3+, Podman, podman-compose,
-# conmon, crun, netavark, pasta / slirp4netns) into an existing
-# python-appimage AppDir so the resulting AppImage runs on hosts with
-# none of those installed.
+# Stage system-level FreeRDP 3+ binaries into an existing python-
+# appimage AppDir so the resulting AppImage runs on hosts that do not
+# have a FreeRDP 3 client installed.
 #
-# Intended audience: immutable distros (Fedora Silverblue / Kinoite /
-# Aeon, Steam Deck) and locked-down environments where the user can
-# neither `curl install.sh | bash` nor system-install packages.
+# Thin AppImage (0.6.0 item A): the container stack (podman /
+# podman-compose / conmon / crun / netavark / aardvark-dns / pasta /
+# passt / slirp4netns / fuse-overlayfs) is INTENTIONALLY NOT bundled.
+# Rootless podman fundamentally needs host systemd / subuid integration
+# that an AppImage cannot carry, and bundling it caused #357 (Ubuntu
+# 26.04 -- bundled podman-compose shadowed the host's working stack)
+# and #363 (Fedora Bluefin -- LD_LIBRARY_PATH prepend poisoned host
+# systemd-run / aardvark-dns with bundled libcrypto). The Thin AppImage
+# requires the user to install podman / docker / libvirt from their
+# distro package manager (same model as install.sh). FreeRDP stays
+# bundled because it is a leaf binary that does not spawn host helpers.
 #
-# Caveats:
+# Caveats (FreeRDP-only):
 #
 # - libX11 / libXrandr / libxkbcommon / libGL / libwayland-client stay
 #   on the host so xfreerdp3 integrates with the user's actual X /
@@ -17,9 +24,6 @@
 #   libcrypt + ld-linux likewise stay on the host. Bundling glibc into
 #   an AppImage is a well-known footgun; the runner-side Fedora glibc
 #   would conflict with the user-side glibc on every reasonable distro.
-# - dockur/windows container image is NOT bundled (~500MB-1GB);
-#   `podman pull` runs from inside the guest at first pod start as
-#   usual.
 #
 # Usage:
 #   bundle-system-bins.sh <AppDir>
@@ -39,14 +43,13 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 
 # Binaries to bundle. Names match the Fedora package layout; the
 # script tolerates missing entries so it can be re-used on newer
-# distros where some helpers (e.g. `passt` superseded by `pasta`)
-# move around.
-# NB: podman-compose is intentionally NOT here. It's a pure-Python script
-# (`from podman_compose import main`), not an ELF -- ldd can't bundle its
-# module. The AppImage build pip-installs podman-compose into the bundled
-# python and drops a wrapper at usr/bin/podman-compose (see
-# appimage-publish.yml). #322: bundling just the Fedora launcher script left
-# the podman_compose module missing -> ModuleNotFoundError on atomic distros.
+# distros where the FreeRDP 3 binary naming shifts (xfreerdp /
+# xfreerdp3 / wlfreerdp / sdl-freerdp).
+#
+# Thin AppImage: only FreeRDP 3 client binaries here. The container
+# stack (podman / podman-compose / conmon / crun / netavark /
+# slirp4netns / pasta / passt) is intentionally NOT bundled -- see the
+# header comment for the root-cause rationale (#357 / #363).
 BINARIES=(
     xfreerdp3
     xfreerdp
@@ -54,14 +57,6 @@ BINARIES=(
     wlfreerdp
     sdl-freerdp3
     sdl-freerdp
-    podman
-    conmon
-    crun
-    runc
-    netavark
-    slirp4netns
-    pasta
-    passt
 )
 
 echo "[bundle] Copying binaries into $APPDIR/usr/bin/ ..."

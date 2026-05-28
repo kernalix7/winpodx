@@ -10,7 +10,7 @@ import re
 import subprocess
 from abc import ABC, abstractmethod
 
-from winpodx.backend._hostenv import host_env, resolve_backend_bin
+from winpodx.backend._hostenv import host_env
 from winpodx.core.config import Config
 
 log = logging.getLogger(__name__)
@@ -95,16 +95,18 @@ def _container_uptime_secs(cli: str, name: str) -> int | None:
     candidates = [name, f"winpodx_{name}", f"winpodx_{name}_1"]
     raw = ""
     last_stderr = ""
-    # AppImage host-first (#357 / #363): resolve the runtime from the HOST
-    # PATH and run it under a clean host env. Outside an AppImage both are
-    # no-ops (``resolve_backend_bin`` returns ``cli`` unchanged, ``host_env``
-    # returns None -> inherit current env).
-    bin_path = resolve_backend_bin(cli)
+    # Thin AppImage (#357 / #363 root-cause fix, 0.6.0 item A): the container
+    # stack is no longer bundled, so standard PATH resolution finds the host
+    # ``cli`` directly. ``host_env()`` still strips ``${APPDIR}`` from
+    # ``LD_LIBRARY_PATH`` so the host runtime + the host helpers it spawns
+    # (``systemd-run`` / ``netavark`` / ``aardvark-dns``) load HOST libs and
+    # not the bundled libcrypto / libssl. Outside an AppImage ``host_env()``
+    # returns None -> inherit current env (byte-for-byte unchanged).
     env = host_env()
     for candidate in candidates:
         try:
             result = subprocess.run(
-                [bin_path, "inspect", "--format", "{{json .State.StartedAt}}", candidate],
+                [cli, "inspect", "--format", "{{json .State.StartedAt}}", candidate],
                 capture_output=True,
                 text=True,
                 timeout=5,

@@ -1,73 +1,62 @@
 # SPDX-License-Identifier: MIT
-"""Host-first container-backend invocation inside an AppImage.
+"""Clean-host-env helper for container-backend subprocesses in a Thin AppImage.
 
-Background (#357, #363)
-=======================
-The fat AppImage bundles a full podman stack -- podman, conmon, crun,
-netavark, pasta -- into ``${APPDIR}/usr/bin`` and bundles their transitive
-``.so`` deps into ``${APPDIR}/usr/lib``. The AppImage entrypoint then
-*prepends* those two directories to ``PATH`` and ``LD_LIBRARY_PATH`` so the
-bundled binaries win. That is the right behaviour for the *self-contained*
-goal (a host with no podman at all), but it actively breaks two classes of
-host that already have a working podman:
+Background (#357, #363) -- what this used to be
+================================================
+The fat AppImage bundled a full podman stack -- podman, conmon, crun,
+netavark, pasta -- into ``${APPDIR}/usr/bin``, and the entrypoint prepended
+that directory to ``PATH`` plus ``${APPDIR}/usr/lib`` to ``LD_LIBRARY_PATH``
+so the bundled binaries won. That broke two classes of host that already had
+a working podman:
 
-* **#357 (Ubuntu 26.04):** ``podman-compose`` resolves to the *bundled* one
-  (PATH prepend), which probes for ``podman`` and the bundled podman cannot
-  run standalone (no host ``/etc/containers`` config, no subuid/subgid, no
-  systemd integration) -> podman-compose prints
-  ``it seems that you do not have podman installed`` and container start dies.
-  The host's working podman 5.7 + podman-compose 1.5 are shadowed.
+* **#357 (Ubuntu 26.04):** ``podman-compose`` resolved to the *bundled* one
+  (PATH prepend), which probed for ``podman`` and the bundled podman could
+  not run standalone (no host ``/etc/containers`` config, no subuid/subgid,
+  no systemd integration) -> ``it seems that you do not have podman installed``
+  and container start died. The host's working stack was shadowed.
 
-* **#363 (Fedora Bluefin):** podman shells out to the HOST ``systemd-run``
-  (rootless aardvark-dns), but the prepended ``${APPDIR}/usr/lib`` forces
+* **#363 (Fedora Bluefin):** podman shelled out to the HOST ``systemd-run``
+  (rootless aardvark-dns), but the prepended ``${APPDIR}/usr/lib`` forced
   that host binary to load the AppImage's bundled ``libcrypto.so.3`` ->
-  ``OPENSSL_3.4.0 not found (required by host libsystemd-shared)`` ->
-  aardvark-dns fails -> container start dies.
+  ``OPENSSL_3.4.0 not found`` -> aardvark-dns failed -> container start died.
 
-Both reporters HAVE a working host podman; in both cases the bundled stack +
-the prepended PATH / LD_LIBRARY_PATH shadow or poison it.
+PR #365 patched around the symptoms with a host-first ``resolve_backend_bin``
++ an ``LD_LIBRARY_PATH`` strip. 0.6.0 item A removes the root cause instead:
+the Thin AppImage no longer bundles the podman stack at all (see
+``packaging/appimage/bundle-system-bins.sh`` + the workflow). The host
+``podman`` / ``podman-compose`` are reached via standard ``PATH`` resolution
+because nothing in ``${APPDIR}/usr/bin`` shadows them anymore.
 
-Fix: host-first
-===============
-When winpodx runs inside an AppImage, invoke the *container backend*
-(podman, podman-compose, and helpers like ``podman pause`` / ``inspect`` /
-``restart``) using:
-
-1. **Host-resolved binaries** -- resolve from the HOST ``PATH`` (the PATH
-   with the ``${APPDIR}/usr/bin`` prefix removed), preferring a host binary
-   when present; fall back to the bundled ``${APPDIR}/usr/bin`` copy only
-   when the host genuinely lacks it.
-2. **A clean host environment for the subprocess** -- strip the AppImage's
-   ``${APPDIR}`` paths from ``LD_LIBRARY_PATH`` and the ``${APPDIR}/usr/bin``
-   prefix from ``PATH``, so the host podman + the host
-   ``systemd-run`` / netavark / aardvark it spawns load HOST libraries.
-   Everything else in the environment is preserved.
+What survives in Thin
+=====================
+The ``LD_LIBRARY_PATH`` strip survives because the bundled FreeRDP + Python +
+Qt still need ``${APPDIR}/usr/lib`` on ``LD_LIBRARY_PATH`` (the entrypoint
+prepends it for them), and when the host container runtime spawns host
+helpers (``systemd-run`` / ``netavark`` / ``aardvark-dns``) those inherit
+that env. They must NOT load the bundled ``libcrypto.so.3`` / ``libssl.so.3``
+-- they must load the HOST libs. :func:`host_env` returns an ``os.environ``
+copy with ``${APPDIR}`` entries removed from both ``PATH`` and
+``LD_LIBRARY_PATH``; callers pass it as ``env=`` to ``subprocess`` for every
+container-backend invocation.
 
 DO NOT apply this to FreeRDP (``core/rdp.py`` / ``core/windows_exec.py``).
-The bundled FreeRDP + its libs SHOULD keep the AppImage env -- FreeRDP is a
-leaf that integrates with the user's X / Wayland session and does not spawn
-host helpers.
+FreeRDP is a leaf binary that integrates with the user's X / Wayland session
+and does not spawn host helpers; it should keep the AppImage env.
 
 No-op guarantee
 ===============
-Outside an AppImage (``APPDIR`` unset) every function here is a strict
-no-op: :func:`host_env` returns ``None`` (callers pass ``env=None`` ->
-unchanged ``subprocess`` behaviour) and :func:`resolve_backend_bin` returns
-the bare name unchanged. That is the safety guarantee for the ~99% of
-installs that are not AppImages.
+Outside an AppImage (``APPDIR`` unset) :func:`host_env` returns ``None`` so
+callers pass ``env=None`` -> ``subprocess`` inherits the current environment
+unchanged. That is the safety guarantee for the ~99% of installs that are
+not AppImages.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import shutil
 
 log = logging.getLogger(__name__)
-
-# Log the "falling back to bundled podman" WARNING at most once per process
-# so a host that genuinely lacks podman doesn't spam stderr on every probe.
-_BUNDLED_FALLBACK_WARNED: set[str] = set()
 
 
 def in_appimage() -> bool:
@@ -111,17 +100,6 @@ def _strip_appdir_from_path_list(value: str, appdir: str) -> str:
     return os.pathsep.join(kept)
 
 
-def host_path() -> str:
-    """Return the host ``PATH`` -- the process PATH with ``${APPDIR}`` entries removed.
-
-    Outside an AppImage this is just ``os.environ["PATH"]`` unchanged.
-    """
-    path = os.environ.get("PATH", "")
-    if not in_appimage():
-        return path
-    return _strip_appdir_from_path_list(path, _appdir())
-
-
 def host_env() -> dict[str, str] | None:
     """Return a clean host environment for a container-backend subprocess.
 
@@ -137,6 +115,17 @@ def host_env() -> dict[str, str] | None:
       its default search path rather than seeing an empty override)
 
     Every other variable is preserved.
+
+    Thin AppImage (0.6.0 item A): the ``PATH`` strip is mostly belt-and-
+    braces now that the podman stack is no longer bundled -- there is
+    nothing in ``${APPDIR}/usr/bin`` to shadow the host container runtime,
+    so standard ``subprocess`` PATH resolution finds the host ``podman`` /
+    ``podman-compose`` directly. The ``LD_LIBRARY_PATH`` strip is the
+    load-bearing part: the bundled FreeRDP / Python / Qt still need
+    ``${APPDIR}/usr/lib`` on the AppImage's own ``LD_LIBRARY_PATH``, and
+    when the host container runtime spawns host helpers (``systemd-run`` /
+    ``netavark`` / ``aardvark-dns``) those helpers MUST load HOST libcrypto
+    / libssl, not the bundled ones (the #363 root cause).
     """
     if not in_appimage():
         return None
@@ -158,50 +147,3 @@ def host_env() -> dict[str, str] | None:
             env.pop("LD_LIBRARY_PATH", None)
 
     return env
-
-
-def resolve_backend_bin(name: str) -> str:
-    """Resolve a container-backend binary host-first inside an AppImage.
-
-    * Outside an AppImage: returns ``name`` unchanged (strict no-op -- the
-      caller's normal ``PATH`` resolution applies, exactly as before).
-    * Inside an AppImage: prefer the host copy found on the host ``PATH``
-      (``${APPDIR}/usr/bin`` removed). Only when the host genuinely lacks
-      the binary do we fall back to the bundled ``${APPDIR}/usr/bin/<name>``
-      -- logging a one-time WARNING because a bundled-only podman stack is
-      known-incomplete (the original self-contained best-effort path).
-
-    Returns an absolute path when one is resolved, else the bare ``name``
-    (so the caller still gets a usable argv[0] and a clean FileNotFoundError
-    if nothing exists anywhere).
-    """
-    if not in_appimage():
-        return name
-
-    appdir = _appdir()
-
-    # 1. Host-first: search the host PATH (APPDIR stripped).
-    host = shutil.which(name, path=host_path())
-    if host:
-        return host
-
-    # 2. Bundled fallback -- best-effort, may be incomplete.
-    bundled = os.path.join(appdir, "usr", "bin", name)
-    if appdir and os.path.isfile(bundled) and os.access(bundled, os.X_OK):
-        if name not in _BUNDLED_FALLBACK_WARNED:
-            _BUNDLED_FALLBACK_WARNED.add(name)
-            log.warning(
-                "No host %r found; falling back to the AppImage-bundled %s. "
-                "The bundled container stack is best-effort and may be "
-                "incomplete on this host (missing /etc/containers config, "
-                "subuid/subgid, or systemd integration). Installing %r on "
-                "the host is recommended.",
-                name,
-                bundled,
-                name,
-            )
-        return bundled
-
-    # 3. Nothing anywhere -- return the bare name so the caller raises a
-    #    clean FileNotFoundError with a recognisable argv[0].
-    return name

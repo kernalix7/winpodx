@@ -138,13 +138,14 @@ def recover_rdp_if_needed(cfg: Config, *, max_attempts: int = 3) -> bool:
         "RDP unreachable while VNC is alive; restarting the pod to recover "
         "(no host-driven TermService restart channel exists for an unauthenticated session)."
     )
-    # AppImage host-first (#357 / #363): resolve the runtime from the HOST
-    # PATH and run it under a clean host env so the host podman + the host
-    # helpers it spawns load HOST libraries. Both helpers are no-ops outside
-    # an AppImage.
-    from winpodx.backend._hostenv import host_env, resolve_backend_bin
+    # Thin AppImage (#357 / #363 root-cause fix, 0.6.0 item A): the container
+    # stack is no longer bundled, so standard PATH resolution finds the host
+    # runtime directly. ``host_env()`` still strips ``${APPDIR}`` from
+    # ``LD_LIBRARY_PATH`` so the host runtime + the host helpers it spawns
+    # load HOST libs. ``host_env()`` is a no-op outside an AppImage.
+    from winpodx.backend._hostenv import host_env
 
-    runtime = resolve_backend_bin("podman" if backend == "podman" else "docker")
+    runtime = "podman" if backend == "podman" else "docker"
     try:
         subprocess.run(
             [runtime, "restart", "--time", "10", container],

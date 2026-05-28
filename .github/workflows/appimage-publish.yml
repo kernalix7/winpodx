@@ -60,7 +60,15 @@ jobs:
         # silently fails on CI. Instead: drop a python-build-standalone
         # portable Python 3.11 into AppDir, install winpodx into its
         # site-packages, write AppRun + desktop + icon, then hand off
-        # to bundle-system-bins.sh for the system-binary overlay.
+        # to bundle-system-bins.sh for the FreeRDP overlay.
+        #
+        # Thin AppImage (0.6.0 item A): we no longer pip-install
+        # podman-compose into the bundled interpreter, and the dnf step
+        # below no longer installs the podman stack. Rootless podman
+        # cannot be bundled (host systemd / subuid integration); the
+        # AppImage now requires the user to install podman / docker /
+        # libvirt from the host package manager. See #357 / #363 for the
+        # root cause this redesign removes.
         run: |
           set -euo pipefail
           mkdir -p AppDir/opt AppDir/usr/bin AppDir/usr/lib
@@ -80,12 +88,6 @@ jobs:
           AppDir/opt/python/bin/python3 -m pip install --upgrade pip
           WHEEL="$(ls -t dist/winpodx-*.whl | head -n1)"
           AppDir/opt/python/bin/python3 -m pip install --no-cache-dir "${WHEEL}[gui,reverse-open]"
-          # podman-compose is a pure-Python tool; install it into the bundled
-          # interpreter so the `podman_compose` module is present (#322 -- the
-          # Fedora /usr/bin/podman-compose launcher alone left the module
-          # missing -> ModuleNotFoundError). A usr/bin/podman-compose wrapper
-          # added after the binary bundle invokes this via the bundled python.
-          AppDir/opt/python/bin/python3 -m pip install --no-cache-dir podman-compose
           # AppRun
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
@@ -123,13 +125,23 @@ jobs:
               -exec cp {} AppDir/usr/share/doc/winpodx/third-party/python-LICENSE.txt \; 2>/dev/null || true
           du -sh AppDir
 
-      - name: Bundle system binaries (FreeRDP + Podman) via Fedora 41
-        # Fat-bundle stage: pulls xfreerdp3, podman, podman-compose,
-        # conmon, crun, netavark, slirp4netns, passt out of a Fedora 41
-        # container and traverses ldd to bring in transitive lib deps.
-        # Host-critical libs (glibc, libX11, libwayland, libGL, ...)
-        # stay on the host -- they cannot be bundled without breaking
-        # desktop integration or hard-crashing on glibc mismatch.
+      - name: Bundle FreeRDP via Fedora 41
+        # Thin-bundle stage: pulls only the FreeRDP 3 client binaries +
+        # libwinpr out of a Fedora 41 container and traverses ldd to bring
+        # in transitive lib deps. Host-critical libs (glibc, libX11,
+        # libwayland, libGL, ...) stay on the host -- they cannot be
+        # bundled without breaking desktop integration or hard-crashing
+        # on glibc mismatch.
+        #
+        # The container stack (podman / podman-compose / conmon / crun /
+        # netavark / aardvark-dns / slirp4netns / passt / pasta) is
+        # intentionally NOT installed here -- 0.6.0 item A drops it.
+        # Rootless podman needs host systemd / subuid integration that
+        # an AppImage can't carry; bundling it caused #357 (shadowed
+        # host podman-compose) and #363 (LD_LIBRARY_PATH-poisoned
+        # systemd-run / aardvark-dns). The AppImage now requires the
+        # user to install a container runtime from the host package
+        # manager (same model as install.sh).
         run: |
           docker run --rm \
               -v "$PWD/AppDir:/AppDir" \
@@ -140,42 +152,33 @@ jobs:
                       freerdp \
                       freerdp-libs \
                       libwinpr \
-                      podman \
-                      podman-compose \
-                      conmon \
-                      crun \
-                      netavark \
-                      slirp4netns \
-                      passt \
                       file
                   echo "[provenance] freerdp binaries provided:"
                   rpm -ql freerdp | grep -E "^(/usr/bin|/usr/libexec)/.*freerdp.*" || true
                   bash /scripts/bundle-system-bins.sh /AppDir
-                  # License + NOTICE texts for every bundled package
-                  # (Apache-2.0: FreeRDP/Podman/conmon/crun/netavark/
-                  # slirp4netns/passt; GPL-2.0: podman-compose).
+                  # License + NOTICE texts for the bundled FreeRDP stack
+                  # (Apache-2.0). VENDORED in-repo at
+                  # packaging/appimage/licenses/ (mounted at /scripts/licenses),
+                  # harvested verbatim from the Fedora rpm payloads -- see
+                  # that dir`s README for provenance + refresh steps. We do
+                  # NOT read them off the installed filesystem: the fedora
+                  # image installs with `tsflags=nodocs`, which strips
+                  # /usr/share/licenses, and every attempt to defeat that on
+                  # the CI runner silently produced nothing.
                   #
-                  # These are VENDORED in-repo at packaging/appimage/licenses/
-                  # (mounted here at /scripts/licenses), harvested verbatim
-                  # from the Fedora rpm payloads -- see that dir`s README for
-                  # provenance + refresh steps. We do NOT read them off the
-                  # installed filesystem: the fedora image installs with
-                  # `tsflags=nodocs`, which strips /usr/share/licenses, and
-                  # every attempt to defeat that on the CI runner (sed
-                  # dnf.conf, --setopt=tsflags=, --setopt=keepcache + rpm2cpio,
-                  # a second dnf download) silently produced nothing even
-                  # though each works in a local fedora:41 of the same digest.
-                  # Vendoring removes the CI dependency entirely.
+                  # Thin AppImage: only the FreeRDP stack`s license texts
+                  # ride along now; the container-stack license dirs (podman
+                  # / podman-compose / conmon / crun / netavark / passt /
+                  # slirp4netns) stay vendored in-repo for provenance but are
+                  # no longer copied into the AppImage because their binaries
+                  # are no longer bundled.
                   dst=/AppDir/usr/share/doc/winpodx/third-party
                   mkdir -p "$dst"
                   src=/scripts/licenses
-                  # REQUIRED license texts fail the build if missing -- these
-                  # carry the hard redistribution obligations: Apache-2.0
-                  # LICENSE for Podman, the FreeRDP stack`s combined texts
-                  # (freerdp-libs + libwinpr), and the GPL-2.0 text of the one
-                  # copyleft component, podman-compose. A regression that drops
-                  # any of them must not silently ship a non-compliant AppImage.
-                  for pkg in podman freerdp-libs libwinpr podman-compose; do
+                  # REQUIRED FreeRDP-stack license texts -- fail the build if
+                  # missing. Apache-2.0 redistribution obligation: freerdp-libs
+                  # + libwinpr ship the combined FreeRDP license.
+                  for pkg in freerdp-libs libwinpr; do
                       if [ ! -d "$src/$pkg" ]; then
                           echo "FATAL: vendored license dir $src/$pkg missing -- cannot ship a" >&2
                           echo "license-compliant AppImage. Re-run packaging/appimage/licenses refresh." >&2
@@ -183,49 +186,15 @@ jobs:
                       fi
                       cp -rL "$src/$pkg" "$dst/$pkg"
                   done
-                  # OPTIONAL: the remaining Apache-2.0/BSD bundled tools.
-                  for pkg in conmon crun netavark passt slirp4netns; do
-                      if [ -d "$src/$pkg" ]; then
-                          cp -rL "$src/$pkg" "$dst/$pkg" 2>/dev/null || true
-                      fi
-                  done
-                  # podman-compose source-offer note (GPL-2.0 binary
-                  # redistribution; upstream is pure-Python so source ==
-                  # the shipped script, but record the canonical offer).
-                  {
-                      echo "podman-compose is GPL-2.0. winpodx invokes it as a separate"
-                      echo "program (subprocess) -- mere aggregation, winpodx stays MIT."
-                      echo "Corresponding source: https://github.com/containers/podman-compose"
-                      echo "at the version bundled by Fedora 41 (rpm -q podman-compose for exact NVR)."
-                  } > "$dst/podman-compose-SOURCE-OFFER.txt"
                   echo "[provenance] bundled license dirs:"
                   ls -1 "$dst" || true
               '
 
-      - name: Install podman-compose wrapper (#322)
-        # The Fedora podman-compose launcher is NOT bundled (pure-Python; its
-        # module can't be ldd-bundled). podman-compose was pip-installed into
-        # the bundled interpreter above; drop a wrapper on PATH that runs it
-        # through that interpreter as a module -- a pip console script can't
-        # be used directly (its shebang is the absolute build-time python
-        # path, dead at AppImage-extract time, same reason AppRun uses
-        # `python3 -m winpodx`). $APPDIR is exported by AppRun at runtime.
-        run: |
-          mkdir -p AppDir/usr/bin
-          cat > AppDir/usr/bin/podman-compose <<'PC'
-          #!/bin/sh
-          # winpodx fat AppImage: run the bundled podman_compose module.
-          : "${APPDIR:=$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
-          exec "$APPDIR/opt/python/bin/python3" -m podman_compose "$@"
-          PC
-          chmod +x AppDir/usr/bin/podman-compose
-          echo "[wrapper] podman-compose -> opt/python python3 -m podman_compose"
-
-      - name: Repack as fat AppImage
+      - name: Repack as thin AppImage
         env:
           ARCH: x86_64
         run: |
-          OUT="winpodx-fat-x86_64.AppImage"
+          OUT="winpodx-x86_64.AppImage"
           appimagetool AppDir "${OUT}"
           chmod +x "${OUT}"
           ls -lh "${OUT}"
@@ -233,7 +202,7 @@ jobs:
       - name: Locate built AppImage
         id: locate
         run: |
-          APPIMAGE="$(ls -t winpodx-fat-x86_64.AppImage | head -n1)"
+          APPIMAGE="$(ls -t winpodx-x86_64.AppImage | head -n1)"
           if [ -z "${APPIMAGE}" ]; then
               echo "No AppImage produced." >&2
               exit 1

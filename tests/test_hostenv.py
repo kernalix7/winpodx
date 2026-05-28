@@ -1,11 +1,22 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the AppImage host-first container-backend helper (#357, #363).
+"""Tests for the AppImage clean-host-env helper (#357, #363; 0.6.0 item A).
 
-The fat AppImage prepends ``${APPDIR}/usr/bin`` to PATH and
-``${APPDIR}/usr/lib`` to LD_LIBRARY_PATH, which shadows (#357) or poisons
-(#363) a host that already has a working podman. ``backend/_hostenv.py``
-re-resolves the container backend host-first and runs it under a clean host
-env. Outside an AppImage every function must be a strict no-op.
+The pre-Thin (fat) AppImage prepended ``${APPDIR}/usr/bin`` to PATH and
+``${APPDIR}/usr/lib`` to LD_LIBRARY_PATH, which shadowed (#357) or poisoned
+(#363) a host that already had a working podman. 0.6.0 item A drops the
+bundled podman stack entirely, so nothing in ``${APPDIR}/usr/bin`` shadows
+the host container runtime anymore -- ``host_path()`` /
+``resolve_backend_bin()`` were removed.
+
+What survives in Thin: the bundled FreeRDP / Python / Qt still need
+``${APPDIR}/usr/lib`` on the AppImage's ``LD_LIBRARY_PATH`` (the entrypoint
+prepends it), and when the host container runtime spawns host helpers
+(``systemd-run`` / ``netavark`` / ``aardvark-dns``) they must NOT inherit
+that and load the bundled ``libcrypto`` / ``libssl`` -- the #363 root cause.
+:func:`host_env` returns an ``os.environ`` copy with ``${APPDIR}`` entries
+stripped, so callers pass it as ``env=`` to ``subprocess`` and the spawned
+host runtime + its host helpers load HOST libs. Outside an AppImage every
+function here is a strict no-op.
 """
 
 import os
@@ -43,12 +54,6 @@ def test_host_env_none_when_appdir_unset():
         assert _hostenv.host_env() is None
 
 
-def test_host_path_unchanged_when_appdir_unset():
-    env = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
-    with patch.dict(os.environ, env, clear=True):
-        assert _hostenv.host_path() == "/usr/local/bin:/usr/bin:/bin"
-
-
 # --- host_env: strip APPDIR inside an AppImage ---------------------------
 
 
@@ -66,6 +71,11 @@ def test_host_env_strips_appdir_bin_from_path():
 
 
 def test_host_env_strips_appdir_lib_from_ld_library_path():
+    """The #363 root-cause fix that survives Thin: bundled FreeRDP / Python
+    / Qt still need ``${APPDIR}/usr/lib`` on the AppImage's own
+    LD_LIBRARY_PATH, but the host container runtime + the host helpers it
+    spawns (``systemd-run`` / ``netavark`` / ``aardvark-dns``) must NOT
+    inherit it and must load HOST libcrypto / libssl."""
     env = {
         "APPDIR": "/opt/app.AppDir",
         "PATH": "/opt/app.AppDir/usr/bin:/usr/bin",
@@ -153,90 +163,19 @@ def test_host_env_leaves_path_alone_when_no_appdir_entries():
     assert "LD_LIBRARY_PATH" not in result
 
 
-# --- resolve_backend_bin -------------------------------------------------
+# --- removed surface: resolve_backend_bin / host_path are gone -----------
 
 
-def test_resolve_backend_bin_noop_outside_appimage():
-    """Strict no-op outside an AppImage: returns the bare name, the caller's
-    normal PATH resolution applies exactly as before."""
-    with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=True):
-        assert _hostenv.resolve_backend_bin("podman") == "podman"
-        assert _hostenv.resolve_backend_bin("podman-compose") == "podman-compose"
+def test_resolve_backend_bin_is_gone():
+    """Thin AppImage dropped the host-first bundled-shadow dance because
+    nothing in ${APPDIR}/usr/bin shadows host container binaries anymore.
+    Standard PATH resolution finds the host podman / docker directly."""
+    assert not hasattr(_hostenv, "resolve_backend_bin")
 
 
-def test_resolve_backend_bin_prefers_host_over_bundled():
-    """Host-first: when the host PATH has podman, return the host copy even
-    though a bundled copy exists under ${APPDIR}/usr/bin (the #357 fix)."""
-    env = {
-        "APPDIR": "/opt/app.AppDir",
-        "PATH": "/opt/app.AppDir/usr/bin:/usr/bin",
-    }
-
-    def fake_which(name, path=None):
-        # Host PATH (APPDIR stripped) is "/usr/bin"; host podman lives there.
-        if name == "podman" and path == "/usr/bin":
-            return "/usr/bin/podman"
-        return None
-
-    with patch.dict(os.environ, env, clear=True):
-        with patch("winpodx.backend._hostenv.shutil.which", side_effect=fake_which):
-            resolved = _hostenv.resolve_backend_bin("podman")
-    assert resolved == "/usr/bin/podman"
-
-
-def test_resolve_backend_bin_falls_back_to_bundled_when_host_lacks_it():
-    """When the host genuinely lacks podman, fall back to the bundled copy
-    (the original self-contained AppImage best-effort path)."""
-    env = {
-        "APPDIR": "/opt/app.AppDir",
-        "PATH": "/opt/app.AppDir/usr/bin:/usr/bin",
-    }
-    bundled = "/opt/app.AppDir/usr/bin/podman"
-
-    # Reset the one-time-warning guard so this test sees a deterministic
-    # state regardless of run order.
-    _hostenv._BUNDLED_FALLBACK_WARNED.discard("podman")
-
-    with patch.dict(os.environ, env, clear=True):
-        with patch("winpodx.backend._hostenv.shutil.which", return_value=None):
-            with patch("winpodx.backend._hostenv.os.path.isfile", return_value=True):
-                with patch("winpodx.backend._hostenv.os.access", return_value=True):
-                    resolved = _hostenv.resolve_backend_bin("podman")
-    assert resolved == bundled
-
-
-def test_resolve_backend_bin_bare_name_when_nowhere():
-    """Neither host nor bundled has it -- return the bare name so the caller
-    raises a clean FileNotFoundError with a recognisable argv[0]."""
-    env = {
-        "APPDIR": "/opt/app.AppDir",
-        "PATH": "/opt/app.AppDir/usr/bin:/usr/bin",
-    }
-    with patch.dict(os.environ, env, clear=True):
-        with patch("winpodx.backend._hostenv.shutil.which", return_value=None):
-            with patch("winpodx.backend._hostenv.os.path.isfile", return_value=False):
-                resolved = _hostenv.resolve_backend_bin("podman")
-    assert resolved == "podman"
-
-
-def test_resolve_backend_bin_bundled_fallback_warns_once():
-    """The bundled-fallback WARNING fires at most once per binary per
-    process so a host without podman doesn't spam stderr on every probe."""
-    env = {
-        "APPDIR": "/opt/app.AppDir",
-        "PATH": "/opt/app.AppDir/usr/bin:/usr/bin",
-    }
-    _hostenv._BUNDLED_FALLBACK_WARNED.discard("podman")
-
-    with patch.dict(os.environ, env, clear=True):
-        with patch("winpodx.backend._hostenv.shutil.which", return_value=None):
-            with patch("winpodx.backend._hostenv.os.path.isfile", return_value=True):
-                with patch("winpodx.backend._hostenv.os.access", return_value=True):
-                    with patch("winpodx.backend._hostenv.log.warning") as mock_warn:
-                        _hostenv.resolve_backend_bin("podman")
-                        _hostenv.resolve_backend_bin("podman")
-                        _hostenv.resolve_backend_bin("podman")
-    assert mock_warn.call_count == 1
+def test_host_path_is_gone():
+    """``host_path()`` only existed to support ``resolve_backend_bin``."""
+    assert not hasattr(_hostenv, "host_path")
 
 
 # --- call-site wiring: env reaches the subprocess ------------------------
@@ -244,7 +183,9 @@ def test_resolve_backend_bin_bundled_fallback_warns_once():
 
 def test_podman_container_state_passes_host_env_inside_appimage():
     """The podman ``ps`` probe (and by extension is_running / is_paused)
-    must run under the clean host env inside an AppImage."""
+    must run under the clean host env inside an AppImage so the host runtime
+    + the host helpers it spawns load HOST libs (the #363 mitigation that
+    survives Thin)."""
     from winpodx.backend.podman import PodmanBackend
     from winpodx.core.config import Config
 
@@ -254,17 +195,17 @@ def test_podman_container_state_passes_host_env_inside_appimage():
 
     sentinel_env = {"PATH": "/usr/bin"}
     with patch("winpodx.backend.podman.host_env", return_value=sentinel_env):
-        with patch("winpodx.backend.podman.resolve_backend_bin", return_value="/usr/bin/podman"):
-            with patch("winpodx.backend.podman.subprocess.run") as mock_run:
-                mock_run.return_value.returncode = 0
-                mock_run.return_value.stdout = "running\n"
-                mock_run.return_value.stderr = ""
-                backend.is_running()
+        with patch("winpodx.backend.podman.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "running\n"
+            mock_run.return_value.stderr = ""
+            backend.is_running()
 
     _, kwargs = mock_run.call_args
     assert kwargs["env"] is sentinel_env
     cmd = mock_run.call_args[0][0]
-    assert cmd[0] == "/usr/bin/podman"
+    # Thin: bare "podman" argv0 -- no resolve_backend_bin host-first dance.
+    assert cmd[0] == "podman"
 
 
 def test_podman_container_state_passes_none_env_outside_appimage():
@@ -287,3 +228,24 @@ def test_podman_container_state_passes_none_env_outside_appimage():
     assert kwargs["env"] is None
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "podman"
+
+
+def test_docker_container_state_uses_bare_docker_argv0():
+    """Same Thin invariant on the docker backend: bare ``docker`` argv0,
+    no host-first resolve."""
+    from winpodx.backend.docker import DockerBackend
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.container_name = "winpodx-windows"
+    backend = DockerBackend(cfg)
+
+    with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=True):
+        with patch("winpodx.backend.docker.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "running\n"
+            mock_run.return_value.stderr = ""
+            backend.is_running()
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "docker"

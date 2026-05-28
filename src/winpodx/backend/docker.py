@@ -7,7 +7,7 @@ import logging
 import subprocess
 import time
 
-from winpodx.backend._hostenv import host_env, resolve_backend_bin
+from winpodx.backend._hostenv import host_env
 from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
@@ -19,11 +19,12 @@ class DockerBackend(Backend):
         return str(config_dir() / "compose.yaml")
 
     def _compose_cmd(self) -> list[str]:
-        # AppImage host-first (#357 / #363): resolve docker from the HOST
-        # PATH so the host docker (and the host helpers it spawns) win over
-        # any bundled copy + the prepended ${APPDIR}/usr/lib. Outside an
-        # AppImage ``resolve_backend_bin`` returns "docker" unchanged.
-        return [resolve_backend_bin("docker"), "compose", "-f", self._compose_file()]
+        # Thin AppImage (#357 / #363 root-cause fix, 0.6.0 item A): docker
+        # is no longer bundled, so standard PATH resolution finds the host
+        # binary directly. ``host_env()`` (passed as ``env=`` on every
+        # subprocess.run below) still strips ``${APPDIR}`` from
+        # ``LD_LIBRARY_PATH`` so host helpers load HOST libs.
+        return ["docker", "compose", "-f", self._compose_file()]
 
     def start(self) -> None:
         # Match podman backend: large hard cap so first-run image pull
@@ -70,7 +71,7 @@ class DockerBackend(Backend):
         try:
             result = subprocess.run(
                 [
-                    resolve_backend_bin("docker"),
+                    "docker",
                     "ps",
                     "-a",
                     "--filter",

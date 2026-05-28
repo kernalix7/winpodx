@@ -926,11 +926,24 @@ def handle_setup(args: argparse.Namespace) -> None:
 
 
 def _recreate_container(cfg: Config) -> None:
-    """Stop existing container and start fresh with new compose config."""
+    """Stop existing container and start fresh with new compose config.
+
+    Thin AppImage (#363 mitigation, 0.6.0 item A): every ``sp.run`` here
+    passes ``env=host_env()`` so the host container runtime + the host
+    helpers it spawns (``systemd-run`` / ``netavark`` / ``aardvark-dns``)
+    load HOST libcrypto / libssl rather than the bundled ones still on
+    the AppImage's ``LD_LIBRARY_PATH``. Outside an AppImage ``host_env()``
+    returns None -> ``env=None`` -> inherit (unchanged behaviour). The
+    ``shutil.which`` calls below find the host binaries directly because
+    the Thin AppImage no longer bundles a container stack to shadow them.
+    """
     import subprocess as sp
+
+    from winpodx.backend._hostenv import host_env
 
     compose_path = config_dir() / "compose.yaml"
     backend = cfg.pod.backend
+    env = host_env()
 
     compose_cmd: list[str] | None = None
     if backend == "podman":
@@ -942,6 +955,7 @@ def _recreate_container(cfg: Config) -> None:
                     ["podman", "compose", "version"],
                     capture_output=True,
                     check=True,
+                    env=env,
                 )
                 compose_cmd = ["podman", "compose"]
             except (FileNotFoundError, sp.CalledProcessError):
@@ -965,6 +979,7 @@ def _recreate_container(cfg: Config) -> None:
         capture_output=True,
         text=True,
         timeout=compose_timeout,
+        env=env,
     )
     if down.returncode != 0 and down.stderr:
         stderr = down.stderr.strip()
@@ -987,6 +1002,7 @@ def _recreate_container(cfg: Config) -> None:
         capture_output=True,
         text=True,
         timeout=compose_timeout,
+        env=env,
     )
     if result.returncode == 0:
         print(tr("Container started."))

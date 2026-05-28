@@ -15,12 +15,17 @@
 # Output:
 #   - winpodx-<version>-x86_64.AppImage in packaging/appimage/
 #
-# The recipe directory describes a "lean" AppImage: Python runtime +
+# The recipe directory describes a "lean" Thin AppImage: Python runtime +
 # winpodx wheel + PySide6 (Qt6) + reverse-open extras. System binaries
 # (FreeRDP, podman, libvirt) are NOT bundled; winpodx's existing
 # `winpodx setup` / `winpodx doctor` paths detect them and emit per-
-# distro install hints if any are missing. Bundling the system layer
-# is tracked separately (see #300-class follow-up issues).
+# distro install hints if any are missing.
+#
+# The CI Thin AppImage additionally bundles the FreeRDP 3 client stack
+# (xfreerdp3 / wlfreerdp3 / sdl-freerdp3 + libwinpr from Fedora 41) via
+# bundle-system-bins.sh -- see packaging/appimage/README.md for the
+# split between this local-lean build and the CI release artefact.
+# Neither build bundles a container runtime (0.6.0 item A, #357 / #363).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

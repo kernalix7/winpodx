@@ -7,7 +7,7 @@ import logging
 import subprocess
 import time
 
-from winpodx.backend._hostenv import host_env, resolve_backend_bin
+from winpodx.backend._hostenv import host_env
 from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
@@ -29,23 +29,13 @@ class PodmanBackend(Backend):
         # "looking up supplemental groups ... Unable to find group
         # keep-groups". See #288 (magicdiablo).
         #
-        # AppImage host-first (#357): inside an AppImage, resolve
-        # podman-compose from the HOST PATH first (the bundled one is
-        # shadowed by ${APPDIR}/usr/bin's PATH prepend and probes for a
-        # bundled podman that can't run standalone -> "you do not have
-        # podman installed"). ``resolve_backend_bin`` returns the bundled
-        # copy only when the host genuinely lacks it; outside an AppImage
-        # it returns the bare name unchanged so the existing ``which``
-        # gate below is byte-for-byte preserved.
+        # Thin AppImage (#357 root-cause fix, 0.6.0 item A): podman-
+        # compose is no longer bundled, so the standard ``shutil.which``
+        # finds the host copy directly -- no host-first dance needed.
         import shutil
 
-        resolved = resolve_backend_bin("podman-compose")
-        # resolve_backend_bin returns the bare name when nothing exists
-        # anywhere (non-AppImage) OR when only the bundled is missing too;
-        # the bare name means we still need the host ``which`` gate to
-        # decide between "found" and "raise the install hint".
-        if shutil.which(resolved) or (resolved != "podman-compose"):
-            return [resolved, "-f", self._compose_file()]
+        if shutil.which("podman-compose"):
+            return ["podman-compose", "-f", self._compose_file()]
         raise RuntimeError(
             "podman-compose not found on PATH. winpodx requires podman-compose "
             "(not the `podman compose` subcommand, which delegates to "
@@ -178,7 +168,7 @@ class PodmanBackend(Backend):
         try:
             result = subprocess.run(
                 [
-                    resolve_backend_bin("podman"),
+                    "podman",
                     "ps",
                     "-a",
                     "--filter",
