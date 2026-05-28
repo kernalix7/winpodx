@@ -31,12 +31,15 @@ def collect_first_run_checks(cfg: Config) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         out["backend"] = "unknown"
 
-    # FreeRDP 3+ on PATH (any of the known names)
+    # FreeRDP — delegate to winpodx.utils.deps so this matches what the
+    # launcher actually accepts (xfreerdp3 / xfreerdp / sdl-freerdp3 /
+    # sdl-freerdp + Flatpak fallback). Pre-0.6.0 we re-hardcoded a shorter
+    # list here and got false MISSING reports on hosts that had the Flatpak.
     try:
-        if any(shutil.which(c) for c in ("xfreerdp3", "xfreerdp", "wlfreerdp3", "wlfreerdp")):
-            out["freerdp"] = "OK"
-        else:
-            out["freerdp"] = "missing — install freerdp 3+"
+        from winpodx.utils.deps import check_freerdp
+
+        freerdp = check_freerdp()
+        out["freerdp"] = "OK" if freerdp.found else "missing — install freerdp 3+"
     except Exception:  # noqa: BLE001
         out["freerdp"] = "unknown"
 

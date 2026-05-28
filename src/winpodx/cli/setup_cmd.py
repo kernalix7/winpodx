@@ -639,6 +639,8 @@ def handle_setup(args: argparse.Namespace) -> None:
 
     print(tr("Checking dependencies..."))
     deps = check_all()
+    # `kvm` is now part of check_all() (0.6.0 item D), so the inline probe
+    # this block used to carry is gone -- the iteration below covers it.
     for name, dep in deps.items():
         status = "OK" if dep.found else "MISSING"
         print(f"  {name:<15} [{status}] {dep.note}")
@@ -647,11 +649,6 @@ def handle_setup(args: argparse.Namespace) -> None:
         print(tr("\nFreeRDP 3+ is required. Install it and try again."))
         raise SystemExit(1)
 
-    kvm_ok = Path("/dev/kvm").exists()
-    kvm_status = "OK" if kvm_ok else "MISSING"
-    print(
-        tr("  {name:<15} [{status}] Hardware virtualization").format(name="kvm", status=kvm_status)
-    )
     print()
 
     existing = import_winapps_config()

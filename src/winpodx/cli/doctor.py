@@ -32,7 +32,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 from winpodx.core.i18n import tr
 
@@ -121,36 +120,47 @@ def _check_install_source() -> Finding:
 
 
 def _check_freerdp() -> Finding:
-    for cmd in ("xfreerdp3", "xfreerdp"):
-        path = shutil.which(cmd)
-        if path is None:
-            continue
+    # Delegate to winpodx.utils.deps.check_freerdp so doctor sees the same
+    # set of binaries the launcher does (xfreerdp3 / xfreerdp / sdl-freerdp3
+    # / sdl-freerdp + Flatpak). Pre-0.6.0 doctor only looked for the first
+    # two and reported MISSING on hosts that had the others.
+    from winpodx.utils.deps import check_freerdp
+
+    dep = check_freerdp()
+    if dep.found:
+        # Best-effort version string for the human reader; a failure to run
+        # --version doesn't downgrade the finding (binary exists, that's the
+        # signal we care about for doctor).
+        version_line = ""
         try:
             result = subprocess.run(
-                [path, "--version"],
+                [dep.path, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=3,
                 check=False,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-        return Finding(
-            "ok",
-            f"freerdp present at {path}",
-            detail=result.stdout.splitlines()[0] if result.stdout else "",
-        )
+            version_line = result.stdout.splitlines()[0] if result.stdout else ""
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+        return Finding("ok", f"freerdp present at {dep.path}", detail=version_line)
     return Finding(
         "fail",
         "freerdp not found on PATH",
-        detail="Looked for xfreerdp3 and xfreerdp; neither resolved.",
+        detail=dep.note
+        or "Looked for xfreerdp3 / xfreerdp / sdl-freerdp3 / sdl-freerdp; none resolved.",
         suggestion="Install via your distro package manager (freerdp / freerdp3 / freerdp-x11).",
     )
 
 
 def _check_kvm() -> Finding:
-    if Path("/dev/kvm").exists():
-        return Finding("ok", "/dev/kvm present")
+    # Delegate to winpodx.utils.deps.check_kvm so doctor keys off the same
+    # /dev/kvm signal as the setup wizard + GUI Quick Start.
+    from winpodx.utils.deps import check_kvm
+
+    dep = check_kvm()
+    if dep.found:
+        return Finding("ok", f"{dep.path} present")
     return Finding(
         "fail",
         "/dev/kvm not present",
