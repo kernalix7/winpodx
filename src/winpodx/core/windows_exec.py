@@ -104,11 +104,14 @@ def run_via_transport(
 
     try:
         transport = dispatch(cfg)
-    except Exception as e:  # noqa: BLE001 — degrade silently to FreeRDP
-        log.debug("dispatch raised, falling back to FreeRDP: %s", e)
+    except Exception as e:  # noqa: BLE001 — degrade to FreeRDP
+        log.warning("FreeRDP-fallback: dispatch raised for %r (%s); using FreeRDP", description, e)
         return run_in_windows(cfg, payload, description=description, timeout=timeout)
 
     if transport is None or transport.name != "agent":
+        # dispatch() already logged the agent-unavailable reason at WARNING;
+        # add the op name so the log shows WHICH host->guest call fell back.
+        log.warning("FreeRDP-fallback: %r ran over FreeRDP (agent not selected)", description)
         return run_in_windows(cfg, payload, description=description, timeout=timeout)
 
     try:

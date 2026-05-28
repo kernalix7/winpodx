@@ -72,10 +72,16 @@ def dispatch(cfg: Config, *, prefer: Optional[PreferKind] = None) -> Transport:
     try:
         status = agent.health()
     except Exception as e:  # noqa: BLE001 — health() shouldn't raise here, but if it does we degrade
-        log.debug("agent health probe raised, falling back to FreeRDP: %s", e)
+        # WARNING (not debug): the FreeRDP fallback is the legacy pre-agent
+        # transport we want to retire. Surfacing every fallback in winpodx.log
+        # lets us measure how often it actually fires (and why) before deciding
+        # to minimise/remove it. Grep: "FreeRDP-fallback".
+        log.warning("FreeRDP-fallback: agent /health probe raised (%s); using FreeRDP", e)
         return FreerdpTransport(cfg)
     if status.available:
         return agent
 
-    log.debug("agent unavailable (%s), falling back to FreeRDP", status.detail)
+    log.warning(
+        "FreeRDP-fallback: agent unavailable (%s); using FreeRDP", status.detail or "no detail"
+    )
     return FreerdpTransport(cfg)

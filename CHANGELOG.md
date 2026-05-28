@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- **The legacy FreeRDP host→guest fallback is now logged (groundwork for retiring it).** Before the in-guest agent existed, host→guest commands ran PowerShell over a FreeRDP RemoteApp; that path still exists as the silent fallback when the agent isn't reachable. It was logged at `debug`, so there was no way to tell how often it actually fires in practice. Every fallback now logs a `WARNING` to `winpodx.log` tagged `FreeRDP-fallback`, with the reason (agent `/health` detail) and the operation that fell back. Count them with `grep -c FreeRDP-fallback ~/.local/state/winpodx/winpodx.log`. No behaviour change — this is measurement so we can decide, from real usage, how aggressively to strengthen agent recovery and shrink the fallback (rather than removing it blindly and risking breakage).
+
 ### Added
 
 - **Clean, interactive install progress (and `install.sh --verbose` for the raw firehose).** The Windows first-boot wait used to dump hundreds of raw dockur/wget lines (`…K …… 78% 4.55M 21m22s`) plus UEFI `BdsDxe:` boot-loader noise. By default `pod wait-ready --logs` now shows the ISO download as a **single self-erasing line** that updates in place — `Downloading Windows ISO  [#########-----]  78%  4.55 MB/s  ETA 21m22s` — with a `Windows is booting…` heartbeat for the non-download phases and UEFI/`mknod` noise hidden; only real dockur milestones stay on screen. The live line is written straight to `/dev/tty`, so it animates on the terminal without polluting `install.sh`'s `tee`-captured log (non-TTY consumers fall back to occasional percentage lines). `install.sh --verbose` / `-v` (or `winpodx pod wait-ready --logs --verbose`) streams the full raw container output instead. The installer also ends with a tidy summary box (version / backend / GUI / venv path) + concrete next-step commands. Deadline auto-extension on slow downloads is unchanged.
