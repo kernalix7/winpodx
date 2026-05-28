@@ -11,6 +11,7 @@ import string
 import tempfile
 from pathlib import Path
 
+from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
 from winpodx.utils.paths import bundle_dir, config_dir
 
@@ -58,7 +59,7 @@ name: "winpodx"
       CPU_FLAGS: "{cpu_flags}"
       VMX: "{vmx}"
       ARGUMENTS: "{qemu_arguments}"
-      USER_PORTS: "8765"
+      USER_PORTS: "{agent_port}"
     volumes:
       - {storage_mount}
       - {oem_dir}:/oem:Z
@@ -66,7 +67,7 @@ name: "winpodx"
       - "127.0.0.1:{rdp_port}:3389/tcp"
       - "127.0.0.1:{rdp_port}:3389/udp"
       - "127.0.0.1:{vnc_port}:8006"
-      - "127.0.0.1:8765:8765/tcp"
+      - "127.0.0.1:{agent_port}:{agent_port}/tcp"
     devices:
       - /dev/kvm
       - /dev/net/tun
@@ -398,6 +399,7 @@ def _build_compose_content(cfg: Config) -> str:
         cpu_flags=_cpu_flags_for_host(cfg),
         vmx=_vmx_env_for_host(cfg),
         qemu_arguments=_qemu_arguments_for_host(cfg),
+        agent_port=AGENT_PORT,
     )
 
 

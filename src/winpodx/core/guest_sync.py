@@ -25,6 +25,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
+from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
 
 log = logging.getLogger(__name__)
@@ -134,12 +135,12 @@ def guest_sync_needed(cfg: Config) -> bool:
 # ---- guest-mutating steps (smoke-gated) ----------------------------------
 
 # urlacl reservation, ported from install.bat (#269). Idempotent: delete the
-# overlapping 8765 reservations, then add the World-SID (WD) reservation.
+# overlapping AGENT_PORT reservations, then add the World-SID (WD) reservation.
 _URLACL_PS = (
-    "cmd /c 'netsh http delete urlacl url=http://127.0.0.1:8765/ >nul 2>&1'; "
-    "cmd /c 'netsh http delete urlacl url=http://*:8765/ >nul 2>&1'; "
-    "cmd /c 'netsh http delete urlacl url=http://+:8765/ >nul 2>&1'; "
-    "cmd /c 'netsh http add urlacl url=http://+:8765/ sddl=D:(A;;GX;;;WD)'"
+    f"cmd /c 'netsh http delete urlacl url=http://127.0.0.1:{AGENT_PORT}/ >nul 2>&1'; "
+    f"cmd /c 'netsh http delete urlacl url=http://*:{AGENT_PORT}/ >nul 2>&1'; "
+    f"cmd /c 'netsh http delete urlacl url=http://+:{AGENT_PORT}/ >nul 2>&1'; "
+    f"cmd /c 'netsh http add urlacl url=http://+:{AGENT_PORT}/ sddl=D:(A;;GX;;;WD)'"
 )
 
 # The restart script that runs detached in the guest. Relaunches the agent

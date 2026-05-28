@@ -11,6 +11,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Changed
 
+- **Agent port 8765 is a single Python constant now.** `core/agent.AGENT_PORT` is the single host-side source of truth; the compose template, the urlacl strings pushed into the guest, and the `AgentClient` URL all derive from it. The guest-side files (`agent.ps1`, `install.bat`, `agent-keepalive.ps1`, `agent-respawn.ps1`) keep their own literal because PowerShell can't import a Python constant — that pairing is now documented and locked by tests, and `install.sh`'s `/health` curl carries a comment pointing back at the constant. Pure internal cleanup; no behaviour change. Part of the 0.6.0 consolidation work (see `docs/design/ROADMAP-0.6.0.md` item C).
 - **The legacy FreeRDP host→guest fallback is now logged (groundwork for retiring it).** Before the in-guest agent existed, host→guest commands ran PowerShell over a FreeRDP RemoteApp; that path still exists as the silent fallback when the agent isn't reachable. It was logged at `debug`, so there was no way to tell how often it actually fires in practice. Every fallback now logs a `WARNING` to `winpodx.log` tagged `FreeRDP-fallback`, with the reason (agent `/health` detail) and the operation that fell back. Count them with `grep -c FreeRDP-fallback ~/.local/state/winpodx/winpodx.log`. No behaviour change — this is measurement so we can decide, from real usage, how aggressively to strengthen agent recovery and shrink the fallback (rather than removing it blindly and risking breakage).
 
 ### Added

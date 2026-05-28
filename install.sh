@@ -1273,6 +1273,9 @@ fi
 # here means refresh runs against the resurrected agent.
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT_AGENT:-}" != "1" ]; then
     log "Waiting for guest agent to settle after apply chain..."
+    # Port 8765: paired with src/winpodx/core/agent.py:AGENT_PORT (Python SoT) and
+    # config/oem/agent/agent.ps1 (guest SoT). Shell can't import the constant;
+    # changing the port means editing here AND those two files.
     for _ in $(seq 1 30); do
         if curl -fsS --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
             break
