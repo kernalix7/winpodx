@@ -76,8 +76,9 @@ def _patch_stages(
         ),
     )
 
-    def fake_discovery(cfg, *, retries, on_progress=None):
+    def fake_discovery(cfg, *, retries, require_agent=False, on_progress=None):
         calls["discovery"].append(retries)
+        calls.setdefault("discovery_require_agent", []).append(require_agent)
         if discovery_raises is not None:
             raise discovery_raises
         return discovery_count
@@ -476,3 +477,158 @@ def test_setup_rejects_create_only_flag(capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "create-only" in err
+
+
+# --- 0.6.0 item B follow-up: behaviors restored after the first-cut blind
+# unification regressed them (dynamic wait #126, agent-first #271). ----------
+
+
+def test_wait_fn_override_used_when_supplied(monkeypatch):
+    # The CLI / setup wizard inject a rich (log-streaming) wait via wait_fn.
+    # When supplied it must be used INSTEAD of the silent
+    # wait_for_windows_responsive (regression: item-B cut ignored it and the
+    # fresh-install boot was a silent multi-minute hang).
+    calls = _patch_stages(monkeypatch)
+    seen: list[int] = []
+
+    def my_wait(cfg, timeout):
+        seen.append(timeout)
+        return True
+
+    finish_provisioning(_cfg(), wait_timeout=4242, with_reverse_open=False, wait_fn=my_wait)
+    assert seen == [4242]
+    # The silent wait must NOT have run when wait_fn was supplied.
+    assert calls["wait"] == []
+
+
+def test_silent_wait_used_when_no_wait_fn(monkeypatch):
+    calls = _patch_stages(monkeypatch)
+    finish_provisioning(_cfg(), wait_timeout=300, with_reverse_open=False, with_discovery=False)
+    assert calls["wait"] == [300]
+
+
+def test_wait_fn_timeout_returns_results_without_downstream(monkeypatch):
+    calls = _patch_stages(monkeypatch)
+    results = finish_provisioning(_cfg(), wait_fn=lambda cfg, t: False)
+    assert results["wait_ready"] == "timeout"
+    # wait-ready failed -> apply / discovery never ran.
+    assert calls["apply"] == 0
+    assert calls["discovery"] == []
+
+
+def test_require_agent_exports_env_around_apply_and_discovery(monkeypatch):
+    # #271: require_agent must export WINPODX_REQUIRE_AGENT=1 so the
+    # env-honouring guest-side code (discovery, migrate apply transport)
+    # refuses the FreeRDP fallback. The first item-B cut only gated the
+    # one-shot settle re-probe, so discovery still fell back to FreeRDP.
+    import os
+
+    seen_env: dict[str, str | None] = {}
+
+    def record_env_apply(cfg):
+        seen_env["apply"] = os.environ.get("WINPODX_REQUIRE_AGENT")
+        return {"max_sessions": "ok"}
+
+    monkeypatch.setattr(provisioner, "apply_windows_runtime_fixes", record_env_apply)
+
+    def record_env_discovery(cfg, *, retries, require_agent=False, on_progress=None):
+        seen_env["discovery"] = os.environ.get("WINPODX_REQUIRE_AGENT")
+        return 5
+
+    monkeypatch.setattr(provisioner, "_run_discovery_with_retry", record_env_discovery)
+    monkeypatch.setattr(provisioner, "_run_reverse_open", lambda cfg: None)
+    monkeypatch.setattr(
+        "winpodx.core.transport.agent.AgentTransport", lambda cfg: _FakeTransport(True)
+    )
+    monkeypatch.setattr(provisioner, "wait_for_windows_responsive", lambda cfg, timeout: True)
+
+    monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
+    finish_provisioning(_cfg(), require_agent=True, with_reverse_open=False)
+    assert seen_env["apply"] == "1"
+    assert seen_env["discovery"] == "1"
+    # Restored (unset) after the chain.
+    assert os.environ.get("WINPODX_REQUIRE_AGENT") is None
+
+
+def test_require_agent_false_leaves_env_untouched(monkeypatch):
+    import os
+
+    seen: dict[str, str | None] = {}
+    monkeypatch.setattr(
+        provisioner,
+        "apply_windows_runtime_fixes",
+        lambda cfg: (
+            seen.__setitem__("env", os.environ.get("WINPODX_REQUIRE_AGENT"))
+            or {"max_sessions": "ok"}
+        ),
+    )
+    monkeypatch.setattr(provisioner, "_run_discovery_with_retry", lambda cfg, **k: 0)
+    monkeypatch.setattr(provisioner, "_run_reverse_open", lambda cfg: None)
+    monkeypatch.setattr(
+        "winpodx.core.transport.agent.AgentTransport", lambda cfg: _FakeTransport(True)
+    )
+    monkeypatch.setattr(provisioner, "wait_for_windows_responsive", lambda cfg, timeout: True)
+    monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
+    finish_provisioning(_cfg(), require_agent=False, with_reverse_open=False)
+    assert seen["env"] is None
+
+
+def test_require_agent_discovery_unavailable_raises_provision_unavailable(monkeypatch):
+    # require_agent + discovery's agent_unavailable -> ProvisionAgentUnavailable
+    # (caller maps to exit 5 / pending), not a generic "failed" record.
+    from winpodx.core.discovery import DiscoveryError
+
+    monkeypatch.setattr(provisioner, "wait_for_windows_responsive", lambda cfg, timeout: True)
+    monkeypatch.setattr(
+        "winpodx.core.transport.agent.AgentTransport", lambda cfg: _FakeTransport(True)
+    )
+    monkeypatch.setattr(
+        provisioner, "apply_windows_runtime_fixes", lambda cfg: {"max_sessions": "ok"}
+    )
+    monkeypatch.setattr(provisioner, "_run_reverse_open", lambda cfg: None)
+
+    def boom(cfg, *, retries, require_agent=False, on_progress=None):
+        # Mirror _run_discovery_with_retry's own escalation for require_agent.
+        if require_agent:
+            raise ProvisionAgentUnavailable("agent never came up")
+        raise DiscoveryError("x", kind="agent_unavailable")
+
+    monkeypatch.setattr(provisioner, "_run_discovery_with_retry", boom)
+    with pytest.raises(ProvisionAgentUnavailable):
+        finish_provisioning(_cfg(), require_agent=True, with_reverse_open=False)
+
+
+def test_discovery_with_retry_escalates_agent_unavailable_when_require_agent(monkeypatch):
+    # Unit-test the real _run_discovery_with_retry: with require_agent, a
+    # persistent agent_unavailable DiscoveryError escalates to
+    # ProvisionAgentUnavailable rather than re-raising the DiscoveryError.
+    from winpodx.core import discovery as disc_mod
+    from winpodx.core.discovery import DiscoveryError
+
+    monkeypatch.setattr(
+        disc_mod,
+        "discover_apps",
+        lambda cfg, timeout=180: (_ for _ in ()).throw(
+            DiscoveryError("agent down", kind="agent_unavailable")
+        ),
+    )
+    monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+    with pytest.raises(ProvisionAgentUnavailable):
+        provisioner._run_discovery_with_retry(_cfg(), retries=2, require_agent=True)
+
+
+def test_discovery_with_retry_reraises_other_errors_even_with_require_agent(monkeypatch):
+    from winpodx.core import discovery as disc_mod
+    from winpodx.core.discovery import DiscoveryError
+
+    monkeypatch.setattr(
+        disc_mod,
+        "discover_apps",
+        lambda cfg, timeout=180: (_ for _ in ()).throw(
+            DiscoveryError("script broke", kind="script_failed")
+        ),
+    )
+    monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+    # Non-agent error: re-raised as-is, NOT escalated to ProvisionAgentUnavailable.
+    with pytest.raises(DiscoveryError):
+        provisioner._run_discovery_with_retry(_cfg(), retries=2, require_agent=True)

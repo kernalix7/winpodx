@@ -313,6 +313,7 @@ def finish_provisioning(
     with_discovery: bool = True,
     retries: int = 6,
     on_progress: Callable[[str, str], None] | None = None,
+    wait_fn: Callable[[Config, int], bool] | None = None,
 ) -> dict[str, Any]:
     """Run the post-pod-running provisioning chain in one place (0.6.0 item B).
 
@@ -344,6 +345,25 @@ def finish_provisioning(
       refresh, gated additionally on ``cfg.reverse_open.enabled``.
     * ``on_progress(stage, detail)`` — optional callback so a GUI can mirror
       the same stages onto a progress bar without re-running the chain.
+    * ``wait_fn(cfg, timeout) -> bool`` — optional override for the wait-ready
+      stage. ``None`` (migrate / pending / GUI) runs the silent
+      :func:`wait_for_windows_responsive`. The CLI ``provision`` command and
+      the interactive setup wizard inject the rich log-streaming wait
+      (``cli/pod._wait_ready`` — the ``[1/4]…[4/4]`` checkpoints, the
+      self-erasing download/boot line, AND the wget-ETA dynamic deadline
+      extension for slow links, #126) so a fresh install isn't a silent
+      multi-minute hang. Injection (not import) keeps ``core`` cli-free. Must
+      return True when the guest is ready, False on timeout/failure.
+
+    When ``require_agent`` is True the function also exports
+    ``WINPODX_REQUIRE_AGENT=1`` for the duration of the apply-fixes + discovery
+    stages, so the env-honouring guest-side callers (``core.discovery``,
+    ``migrate``'s apply transport) refuse the FreeRDP RemoteApp fallback and
+    raise ``agent_unavailable`` rather than racing FreeRDP into install.bat's
+    autologon session (#271 / agent-first install). Without that propagation
+    the ``require_agent`` flag would gate only the one-shot settle re-probe and
+    discovery would still fall back to FreeRDP — the regression that shipped in
+    the first cut of item B.
 
     Returns a results dict whose keys are the stage names and whose values
     are short human-readable status strings, so callers can log / surface
@@ -371,9 +391,16 @@ def finish_provisioning(
 
     # --- Stage 1: wait-ready ------------------------------------------------
     _progress("wait_ready", f"up to {wait_timeout}s")
-    ready = wait_for_windows_responsive(cfg, timeout=wait_timeout)
+    if wait_fn is not None:
+        # Rich (log-streaming) wait supplied by the caller — it prints its own
+        # [1/4]..[4/4] + live progress line, so we don't echo a redundant
+        # completion detail.
+        ready = wait_fn(cfg, wait_timeout)
+    else:
+        ready = wait_for_windows_responsive(cfg, timeout=wait_timeout)
     results["wait_ready"] = "ok" if ready else "timeout"
-    _progress("wait_ready", results["wait_ready"])
+    if wait_fn is None:
+        _progress("wait_ready", results["wait_ready"])
     if not ready:
         # RDP never opened. Nothing downstream can succeed; let the caller
         # decide whether to defer (pending machinery) or surface the timeout.
@@ -412,27 +439,54 @@ def finish_provisioning(
         results["agent_settle"] = "ok" if settled else "not-up (proceeding)"
         _progress("agent_settle", results["agent_settle"])
 
-    # --- Stage 3: apply-fixes ----------------------------------------------
-    # No gate — apply_windows_runtime_fixes is idempotent and surfaces its own
-    # per-helper success/failure map.
-    _progress("apply_fixes", "applying Windows-side runtime fixes")
-    apply_results = apply_windows_runtime_fixes(cfg)
-    results["apply_fixes"] = apply_results
-    _progress("apply_fixes", ", ".join(f"{k}: {v}" for k, v in apply_results.items()))
+    # When the caller demands agent-first, export WINPODX_REQUIRE_AGENT for
+    # the apply + discovery stages so the env-honouring guest-side code
+    # (core.discovery, migrate's apply transport) refuses the FreeRDP fallback
+    # and defers instead of racing FreeRDP into install.bat's autologon
+    # session (#271). Saved + restored so we don't leak the override into the
+    # caller's environment. ``require_agent=False`` leaves the env untouched —
+    # FreeRDP fallback stays allowed (install.sh's old soft behaviour).
+    _prev_require_agent = os.environ.get("WINPODX_REQUIRE_AGENT")
+    if require_agent:
+        os.environ["WINPODX_REQUIRE_AGENT"] = "1"
+    try:
+        # --- Stage 3: apply-fixes ------------------------------------------
+        # No gate — apply_windows_runtime_fixes is idempotent and surfaces its
+        # own per-helper success/failure map.
+        _progress("apply_fixes", "applying Windows-side runtime fixes")
+        apply_results = apply_windows_runtime_fixes(cfg)
+        results["apply_fixes"] = apply_results
+        _progress("apply_fixes", ", ".join(f"{k}: {v}" for k, v in apply_results.items()))
 
-    # --- Stage 4: discovery -------------------------------------------------
-    if with_discovery:
-        _progress("discovery", f"scanning guest (up to {retries} attempts)")
-        try:
-            count = _run_discovery_with_retry(cfg, retries=retries, on_progress=_progress)
-            results["discovery"] = f"{count} apps"
-            _progress("discovery", results["discovery"])
-        except Exception as e:  # noqa: BLE001 — best-effort; pending machinery is the net
-            results["discovery"] = f"failed: {e}"
-            _progress("discovery", results["discovery"])
-    else:
-        results["discovery"] = "skipped"
-        _progress("discovery", "skipped")
+        # --- Stage 4: discovery --------------------------------------------
+        if with_discovery:
+            _progress("discovery", f"scanning guest (up to {retries} attempts)")
+            try:
+                count = _run_discovery_with_retry(
+                    cfg, retries=retries, require_agent=require_agent, on_progress=_progress
+                )
+                results["discovery"] = f"{count} apps"
+                _progress("discovery", results["discovery"])
+            except ProvisionAgentUnavailable:
+                # require_agent + agent never came up for discovery: defer
+                # cleanly (don't record as a generic failure). The caller maps
+                # this to the pending machinery / exit 5, matching install.sh's
+                # old WINPODX_REQUIRE_AGENT=1 -> "deferred" behaviour (#271).
+                results["discovery"] = "deferred (agent not up)"
+                _progress("discovery", results["discovery"])
+                raise
+            except Exception as e:  # noqa: BLE001 — best-effort; pending machinery is the net
+                results["discovery"] = f"failed: {e}"
+                _progress("discovery", results["discovery"])
+        else:
+            results["discovery"] = "skipped"
+            _progress("discovery", "skipped")
+    finally:
+        # Restore the caller's WINPODX_REQUIRE_AGENT (unset if it wasn't set).
+        if _prev_require_agent is None:
+            os.environ.pop("WINPODX_REQUIRE_AGENT", None)
+        else:
+            os.environ["WINPODX_REQUIRE_AGENT"] = _prev_require_agent
 
     # --- Stage 5: reverse-open ---------------------------------------------
     if with_reverse_open and getattr(cfg.reverse_open, "enabled", False):
@@ -454,6 +508,7 @@ def _run_discovery_with_retry(
     cfg: Config,
     *,
     retries: int,
+    require_agent: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> int:
     """Shared discovery path: discover_apps → persist_discovered → register.
@@ -469,8 +524,16 @@ def _run_discovery_with_retry(
     capped at 30 s) to ride out the agent's transient "responsive but not
     yet stable" window right after install.bat's final TermService cycle —
     install.sh used a fixed 6× / 10 s loop; the backoff here is gentler at
-    the start and bounded above. Raises the last exception only if every
-    attempt fails so the caller can record it.
+    the start and bounded above.
+
+    ``require_agent`` mirrors the chain-level flag: with ``WINPODX_REQUIRE_AGENT
+    =1`` exported (which ``finish_provisioning`` does for the agent-first
+    install path), ``discover_apps`` raises ``DiscoveryError(kind="agent_
+    unavailable")`` instead of falling back to FreeRDP. When every attempt ends
+    that way AND ``require_agent`` is set, we raise :class:`ProvisionAgent
+    Unavailable` so the caller defers cleanly to the pending machinery (#271)
+    rather than surfacing a generic discovery failure. Any other error (or the
+    non-require-agent case) raises the last exception as before.
 
     The ``cli.app`` imports are lazy + local: discovery wiring (persist +
     desktop-entry registration) lives on the CLI side historically, and a
@@ -478,7 +541,7 @@ def _run_discovery_with_retry(
     lazy-import pattern is used by ``utils.pending.resume``.
     """
     from winpodx.cli.app import _register_desktop_entries
-    from winpodx.core.discovery import discover_apps, persist_discovered
+    from winpodx.core.discovery import DiscoveryError, discover_apps, persist_discovered
 
     last_exc: Exception | None = None
     for attempt in range(1, max(1, retries) + 1):
@@ -505,6 +568,17 @@ def _run_discovery_with_retry(
                 )
                 time.sleep(backoff)
     assert last_exc is not None  # loop always sets it before falling through
+    # Agent-first install: a persistent agent_unavailable is a "defer", not a
+    # hard failure — let the caller route it to the pending machinery (#271).
+    if (
+        require_agent
+        and isinstance(last_exc, DiscoveryError)
+        and getattr(last_exc, "kind", "") == "agent_unavailable"
+    ):
+        raise ProvisionAgentUnavailable(
+            f"discovery requires the guest agent (WINPODX_REQUIRE_AGENT=1) but it "
+            f"never came up after {retries} attempts: {last_exc}"
+        ) from last_exc
     raise last_exc
 
 

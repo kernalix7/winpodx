@@ -758,12 +758,29 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
     #     rather than install.sh's 6× because migrate runs against an
     #     already-settled agent more often than not.
     #
-    #   * with_reverse_open=False — migrate never set up reverse-open; that
-    #     stays install.sh / setup_cmd's job.
+    #   * with_reverse_open=cfg.reverse_open.enabled — 0.6.0 item B follow-up:
+    #     install.sh's upgrade path is now just `winpodx migrate` (it no longer
+    #     runs a separate host-open step), so migrate has to carry reverse-open
+    #     too or upgrades would stop re-pushing the manifest after guest_sync
+    #     refreshed the guest scripts. Idempotent (re-push), so doing it on an
+    #     interactive `winpodx migrate` as well is harmless / more correct.
     from winpodx.core.provisioner import (
         ProvisionAgentUnavailable,
         finish_provisioning,
     )
+
+    def _rich_wait(_cfg, timeout: int) -> bool:
+        # Upgrade path shows the same live boot progress fresh installs get
+        # (pre-0.6.0 install.sh ran `pod wait-ready --logs` for BOTH fresh and
+        # upgrade before splitting into migrate/discovery). verbose=False = the
+        # clean self-erasing line. Injected to keep core/provisioner cli-free.
+        from winpodx.cli.pod import _wait_ready
+
+        try:
+            _wait_ready(timeout, show_logs=True, verbose=False)
+            return True
+        except SystemExit as exc:
+            return exc.code in (0, None)
 
     print("  Waiting for Windows guest to finish booting + applying fixes...")
     try:
@@ -771,9 +788,10 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
             cfg,
             wait_timeout=600,
             require_agent=True,
-            with_reverse_open=False,
+            with_reverse_open=getattr(cfg.reverse_open, "enabled", False),
             with_discovery=True,
             retries=3,
+            wait_fn=_rich_wait,
         )
     except ProvisionAgentUnavailable:
         print(

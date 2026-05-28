@@ -120,7 +120,11 @@ def resume(printer=print) -> None:
     # historical pending-step distinctions still drive which result we use
     # to clear which marker:
     #   * wait_ready  ← results["wait_ready"]
-    #   * migrate     ← results["apply_fixes"] (all helpers "ok")
+    #   * migrate     ← results["apply_fixes"] (all helpers "ok") + guest_sync
+    #                   (maybe_autosync — finish_provisioning's apply-fixes does
+    #                   NOT push refreshed guest scripts; the "migrate" step has
+    #                   to, or an upgrade resumed via pending keeps stale
+    #                   agent.ps1 / OEM scripts in the guest)
     #   * discovery   ← results["discovery"]
     # Parameters preserve the old behaviour: 300s wait (NOT 3600), soft
     # agent settle (require_agent=False), no reverse-open, discovery with a
@@ -152,11 +156,25 @@ def resume(printer=print) -> None:
 
     if "migrate" in pending:
         apply_results = results.get("apply_fixes", {})
-        if apply_results and all(v == "ok" for v in apply_results.values()):
+        apply_ok = bool(apply_results) and all(v == "ok" for v in apply_results.values())
+        # The "migrate" step also covers guest_sync — pushing refreshed guest
+        # scripts (agent.ps1, OEM bundle) into an existing guest after a host
+        # upgrade. finish_provisioning's apply-fixes does NOT do that, so run
+        # maybe_autosync here. Idempotent: a no-op when the guest version stamp
+        # already matches the host (fresh installs / already-current guests).
+        synced = True
+        try:
+            from winpodx.core.guest_sync import maybe_autosync
+
+            maybe_autosync(cfg)
+        except Exception as e:  # noqa: BLE001 — best-effort; leave pending on failure
+            synced = False
+            printer(f"[winpodx] guest-sync deferred ({e}) — leaving migrate pending.")
+        if apply_ok and synced:
             remove_step("migrate")
-            printer("[winpodx] Runtime apply complete.")
+            printer("[winpodx] Runtime apply + guest-sync complete.")
         else:
-            printer(f"[winpodx] Apply partial: {apply_results} — leaving pending.")
+            printer(f"[winpodx] migrate partial (apply={apply_results}) — leaving pending.")
 
     if "discovery" in pending:
         discovery = results.get("discovery", "")

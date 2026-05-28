@@ -38,10 +38,10 @@ def script() -> str:
 
 
 def test_invokes_winpodx_provision(script: str) -> None:
-    # The unified call is the post-create provisioning step.
-    assert "provision" in script
-    # It runs through the installed symlink (same pattern as the old chain).
-    assert '"$SYMLINK" provision' in script
+    # The post-create step runs a single winpodx command chosen by the
+    # fresh/upgrade branch (PROVISION_CMD array), invoked through the symlink.
+    assert "PROVISION_CMD=(provision --require-agent)" in script
+    assert '"$SYMLINK" "${PROVISION_CMD[@]}"' in script
 
 
 def test_no_inline_health_curl_poll(script: str) -> None:
@@ -66,10 +66,24 @@ def test_no_inline_host_open_listener_start(script: str) -> None:
     assert "host-open refresh" not in script
 
 
-def test_no_inline_migrate_in_provision_chain(script: str) -> None:
-    # The post-create `winpodx migrate --non-interactive` call (the old
-    # apply-fixes driver) is folded into finish_provisioning's apply stage.
-    assert "migrate --non-interactive" not in script
+def test_fresh_uses_provision_require_agent(script: str) -> None:
+    # Fresh install (no prior config): provision with the agent-first gate
+    # (#271) so discovery/apply defer instead of racing FreeRDP into
+    # install.bat's autologon session.
+    assert "PROVISION_CMD=(provision --require-agent)" in script
+
+
+def test_upgrade_uses_migrate(script: str) -> None:
+    # Upgrade (prior config existed): migrate FIRST syncs the refreshed guest
+    # scripts (guest_sync) + pins the image, THEN runs the apply -> discovery
+    # -> reverse-open chain. A blind `provision`-for-both (the first item-B
+    # cut) left upgraded guests on stale agent.ps1 / OEM scripts.
+    assert "PROVISION_CMD=(migrate --non-interactive)" in script
+
+
+def test_provision_step_branches_on_fresh_vs_upgrade(script: str) -> None:
+    # The two flows are gated on the pre-setup IS_FRESH_INSTALL snapshot.
+    assert 'if [ "$IS_FRESH_INSTALL" = "1" ]; then' in script
 
 
 def test_create_only_flag_is_gone(script: str) -> None:
@@ -83,14 +97,13 @@ def test_setup_skips_its_own_provision_tail(script: str) -> None:
     assert "WINPODX_NO_PROVISION=1" in script
 
 
-def test_provision_is_the_only_post_create_winpodx_step(script: str) -> None:
-    """After `winpodx setup`, the only chain-driving winpodx command is
-    `winpodx provision` (plus its non-provisioning siblings: the GUI
-    desktop-entry install isn't a winpodx subprocess). Assert none of the
-    individual chain commands the old bash copy invoked survive."""
+def test_no_inline_chain_steps_survive(script: str) -> None:
+    """After `winpodx setup`, the post-create chain is driven by ONE winpodx
+    command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).
+    The individual chain commands the old ~140-line bash copy invoked
+    directly must NOT survive as separate `"$SYMLINK" <cmd>` calls."""
     forbidden = (
         '"$SYMLINK" pod wait-ready',
-        '"$SYMLINK" migrate',
         '"$SYMLINK" app refresh',
         '"$SYMLINK" host-open',
     )
