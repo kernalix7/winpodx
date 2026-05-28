@@ -940,6 +940,22 @@ def _cmd_provision(args: argparse.Namespace) -> int:
         # detail lines flowing without buffering.
         print(f"  [{stage}] {detail}", file=sys.stderr, flush=verbose)
 
+    def _rich_wait(_cfg: Config, timeout: int) -> bool:
+        # Route the wait-ready stage through the log-streaming wait so a fresh
+        # install shows the live download/boot progress + the wget-ETA dynamic
+        # deadline extension for slow links (#126) — not a silent multi-minute
+        # hang. Injected here so core/provisioner stays free of any cli import.
+        # `_wait_ready` returns on ready and sys.exit(2/3) on a hard failure;
+        # map that exit to False so finish_provisioning records "timeout"
+        # instead of the process dying mid-chain.
+        from winpodx.cli.pod import _wait_ready
+
+        try:
+            _wait_ready(timeout, show_logs=True, verbose=verbose)
+            return True
+        except SystemExit as exc:
+            return exc.code in (0, None)
+
     with_reverse_open = not bool(getattr(args, "no_reverse_open", False))
     with_discovery = not bool(getattr(args, "no_discovery", False))
 
@@ -952,8 +968,11 @@ def _cmd_provision(args: argparse.Namespace) -> int:
             with_discovery=with_discovery,
             retries=int(getattr(args, "retries", 6)),
             on_progress=_on_progress,
+            wait_fn=_rich_wait,
         )
     except ProvisionAgentUnavailable as e:
+        # Agent-first deferral (Stage 2 settle OR discovery): exit 5 so
+        # install.sh maps it to the pending machinery (#271 deferred behaviour).
         print(tr("provision deferred: {error}").format(error=e), file=sys.stderr)
         return 5
 

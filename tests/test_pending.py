@@ -88,11 +88,59 @@ class TestResume:
             ),
             patch("winpodx.core.discovery.discover_apps", return_value=[]),
             patch("winpodx.core.discovery.persist_discovered", return_value=[]),
+            # The "migrate" step also runs guest_sync (maybe_autosync) so an
+            # upgraded guest gets refreshed scripts. Patch it idempotent here.
+            patch("winpodx.core.guest_sync.maybe_autosync", return_value=False),
         ):
             pending.resume(printer=lambda s: None)
 
         # All steps should be cleared on success.
         assert pending.list_pending() == []
+
+    def test_migrate_step_runs_guest_sync(self, patched_config_dir):
+        # The "migrate" pending step must invoke guest_sync (maybe_autosync) —
+        # finish_provisioning's apply-fixes does NOT push refreshed guest
+        # scripts, so without this an upgrade resumed via pending keeps stale
+        # agent.ps1 / OEM scripts (0.6.0 item B follow-up).
+        (patched_config_dir / ".pending_setup").write_text("migrate\n", encoding="utf-8")
+        with (
+            patch(
+                "winpodx.core.provisioner.wait_for_windows_responsive",
+                return_value=True,
+            ),
+            patch(
+                "winpodx.core.provisioner.apply_windows_runtime_fixes",
+                return_value={"max_sessions": "ok"},
+            ),
+            patch("winpodx.core.discovery.discover_apps", return_value=[]),
+            patch("winpodx.core.discovery.persist_discovered", return_value=[]),
+            patch("winpodx.core.guest_sync.maybe_autosync", return_value=True) as sync,
+        ):
+            pending.resume(printer=lambda s: None)
+        sync.assert_called_once()
+        assert "migrate" not in pending.list_pending()
+
+    def test_migrate_step_left_pending_when_guest_sync_fails(self, patched_config_dir):
+        (patched_config_dir / ".pending_setup").write_text("migrate\n", encoding="utf-8")
+        with (
+            patch(
+                "winpodx.core.provisioner.wait_for_windows_responsive",
+                return_value=True,
+            ),
+            patch(
+                "winpodx.core.provisioner.apply_windows_runtime_fixes",
+                return_value={"max_sessions": "ok"},
+            ),
+            patch("winpodx.core.discovery.discover_apps", return_value=[]),
+            patch("winpodx.core.discovery.persist_discovered", return_value=[]),
+            patch(
+                "winpodx.core.guest_sync.maybe_autosync",
+                side_effect=RuntimeError("agent down"),
+            ),
+        ):
+            pending.resume(printer=lambda s: None)
+        # guest_sync failed -> migrate stays pending for the next resume.
+        assert "migrate" in pending.list_pending()
 
     def test_stops_when_wait_ready_still_failing(self, patched_config_dir):
         (patched_config_dir / ".pending_setup").write_text(

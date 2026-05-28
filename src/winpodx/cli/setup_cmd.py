@@ -564,6 +564,19 @@ def _run_full_provision(cfg: Config) -> None:
     def _on_progress(stage: str, detail: str) -> None:
         print(tr("  [{stage}] {detail}").format(stage=stage, detail=detail))
 
+    def _rich_wait(_cfg: Config, timeout: int) -> bool:
+        # Interactive `winpodx setup` shows the same live download/boot
+        # progress (clean self-erasing line, not verbose) the pre-0.6.0
+        # _run_full_provision had via `_wait_ready(3600, show_logs=True)`.
+        # Injected so core/provisioner stays cli-free.
+        from winpodx.cli.pod import _wait_ready
+
+        try:
+            _wait_ready(timeout, show_logs=True, verbose=False)
+            return True
+        except SystemExit as exc:
+            return exc.code in (0, None)
+
     results = finish_provisioning(
         cfg,
         wait_timeout=3600,
@@ -572,6 +585,7 @@ def _run_full_provision(cfg: Config) -> None:
         with_discovery=True,
         retries=6,
         on_progress=_on_progress,
+        wait_fn=_rich_wait,
     )
 
     if results.get("wait_ready") == "timeout":

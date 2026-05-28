@@ -452,58 +452,69 @@ class TestApplyRuntimeFixesAgentGate:
         cfg.save()
 
     def test_skips_apply_chain_when_agent_unavailable(self, tmp_path, monkeypatch, capsys):
-        """Agent /health down -> apply chain MUST be skipped, no FreeRDP fallback."""
+        """Agent /health down -> apply chain MUST be skipped, no FreeRDP fallback.
+
+        0.6.0 item B routed migrate's chain through
+        ``core.provisioner.finish_provisioning`` with ``require_agent=True``.
+        The hard agent gate now lives there (covered by
+        test_finish_provisioning.py); at the migrate level we assert it is
+        invoked with ``require_agent=True`` and that migrate reacts to a raised
+        ``ProvisionAgentUnavailable`` with the skip guidance — never racing
+        FreeRDP into install.bat's autologon session.
+        """
         self._setup_cfg(tmp_path, monkeypatch)
         from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
         from winpodx.core.pod import PodState
-        from winpodx.core.transport.base import HealthStatus
+        from winpodx.core.provisioner import ProvisionAgentUnavailable
 
         with (
             patch("winpodx.core.pod.pod_status") as mock_status,
-            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
-            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
-            patch("winpodx.core.provisioner.apply_windows_runtime_fixes") as mock_apply,
+            patch("winpodx.core.provisioner.finish_provisioning") as mock_fp,
         ):
             mock_status.return_value = MagicMock(state=PodState.RUNNING)
-            mock_health.return_value = HealthStatus(available=False, detail="connection refused")
+            mock_fp.side_effect = ProvisionAgentUnavailable("agent /health did not answer")
 
             _apply_runtime_fixes_to_existing_guest(non_interactive=True)
 
         out = capsys.readouterr().out
-        assert not mock_apply.called, (
-            "apply chain MUST NOT run when agent is down — would fall back to FreeRDP "
-            "and kick install.bat's autologon session"
+        assert mock_fp.call_args.kwargs.get("require_agent") is True, (
+            "migrate must hard-gate on the agent (require_agent=True) so it never "
+            "falls back to FreeRDP and kicks install.bat's autologon session"
         )
         assert "Agent not yet up" in out
         assert "kicking the autologon" in out
 
     def test_runs_apply_chain_when_agent_responds(self, tmp_path, monkeypatch, capsys):
-        """Agent /health up -> apply chain runs as before (via AgentTransport)."""
+        """Agent /health up -> finish_provisioning returns an all-ok results
+        dict and migrate reports success (no skip guidance)."""
         self._setup_cfg(tmp_path, monkeypatch)
         from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
         from winpodx.core.pod import PodState
-        from winpodx.core.transport.base import HealthStatus
 
         with (
             patch("winpodx.core.pod.pod_status") as mock_status,
-            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
-            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
-            patch("winpodx.core.provisioner.apply_windows_runtime_fixes") as mock_apply,
+            patch("winpodx.core.provisioner.finish_provisioning") as mock_fp,
+            patch("winpodx.core.guest_sync.maybe_autosync", return_value=False),
         ):
             mock_status.return_value = MagicMock(state=PodState.RUNNING)
-            mock_health.return_value = HealthStatus(available=True, version="0.4.0")
-            mock_apply.return_value = {
-                "max_sessions": "ok",
-                "rdp_timeouts": "ok",
-                "oem_runtime_fixes": "ok",
-                "vbs_launchers": "ok",
-                "multi_session": "ok",
+            mock_fp.return_value = {
+                "wait_ready": "ok",
+                "agent_settle": "ok",
+                "apply_fixes": {
+                    "max_sessions": "ok",
+                    "rdp_timeouts": "ok",
+                    "oem_runtime_fixes": "ok",
+                    "vbs_launchers": "ok",
+                    "multi_session": "ok",
+                },
+                "discovery": "skipped",
+                "reverse_open": "skipped",
             }
 
             _apply_runtime_fixes_to_existing_guest(non_interactive=True)
 
         out = capsys.readouterr().out
-        mock_apply.assert_called_once()
+        mock_fp.assert_called_once()
         assert "Agent not yet up" not in out
         assert "OK: applied" in out
 
@@ -513,22 +524,19 @@ class TestApplyRuntimeFixesAgentGate:
         self._setup_cfg(tmp_path, monkeypatch)
         from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
         from winpodx.core.pod import PodState
-        from winpodx.core.transport.base import HealthStatus
+        from winpodx.core.provisioner import ProvisionAgentUnavailable
 
         with (
             patch("winpodx.core.pod.pod_status") as mock_status,
-            patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
-            patch("winpodx.core.transport.agent.AgentTransport.health") as mock_health,
-            patch("winpodx.core.provisioner.apply_windows_runtime_fixes") as mock_apply,
+            patch("winpodx.core.provisioner.finish_provisioning") as mock_fp,
         ):
             mock_status.return_value = MagicMock(state=PodState.RUNNING)
-            mock_health.return_value = HealthStatus(available=False, detail="timeout")
+            mock_fp.side_effect = ProvisionAgentUnavailable("timeout")
 
             _apply_runtime_fixes_to_existing_guest(non_interactive=True)
 
         out = capsys.readouterr().out
         assert "winpodx pod apply-fixes" in out
-        mock_apply.assert_not_called()
 
 
 # --- discover_apps WINPODX_REQUIRE_AGENT gate (v0.4.0) ---

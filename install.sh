@@ -1208,27 +1208,52 @@ fi
 # and pending.resume run — so there is exactly one place to fix a bug and
 # one shared progress surface. install.sh just forwards $WINPODX_VERBOSE.
 #
-# `winpodx provision` exit codes:
-#   0  — full chain succeeded
+# Fresh vs upgrade are DIFFERENT flows (a blind `provision`-for-both was the
+# regression in the first cut of item B):
+#
+#   * FRESH (no prior config): `winpodx provision --require-agent`. The new
+#     container's install.bat already laid down the current guest scripts, so
+#     no guest_sync is needed. --require-agent (#271) makes discovery/apply
+#     refuse the FreeRDP fallback and DEFER (exit 5 -> pending) rather than
+#     race FreeRDP into install.bat's autologon session while the agent is
+#     still flapping during first boot.
+#
+#   * UPGRADE (prior config existed): `winpodx migrate`. migrate FIRST pushes
+#     the refreshed guest scripts into the existing guest (guest_sync) + pins
+#     the image + shows release notes, THEN runs the same apply -> discovery ->
+#     reverse-open chain. Skipping migrate (as the first item-B cut did) left
+#     upgraded guests running STALE agent.ps1 / OEM scripts.
+#
+# Both commands stream the live boot progress (the #126 wget-ETA dynamic
+# deadline + self-erasing line) and both honour the .pending_setup safety net.
+#
+# Exit codes (both):
+#   0  — chain succeeded
 #   4  — Windows guest didn't become responsive in time (wait-ready timeout)
-#   5  — provisioning deferred (only when --require-agent; we don't pass it)
-# Both 4 and 5 are non-fatal: the .pending_setup machinery (utils/pending.py)
-# is the safety net — the next `winpodx` CLI / GUI launch resumes the chain.
+#   5  — deferred (agent-first: agent never came up; resume via pending)
+# 4 and 5 are non-fatal: the .pending_setup machinery (utils/pending.py) is the
+# safety net — the next `winpodx` CLI / GUI launch resumes the chain.
 # Skip the whole step with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
 PENDING_FILE="$HOME/.config/winpodx/.pending_setup"
 
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
-    log "Finishing Windows provisioning (wait-ready + apply-fixes + discovery + reverse-open)..."
-    log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply (auto-extends on slow links)."
-    log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
     PROVISION_OUT="$(mktemp)"
-    PROVISION_ARGS=()
-    [ -n "$WINPODX_VERBOSE" ] && PROVISION_ARGS+=(--verbose)
+    if [ "$IS_FRESH_INSTALL" = "1" ]; then
+        log "Finishing Windows provisioning (wait-ready + apply-fixes + discovery + reverse-open)..."
+        log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply (auto-extends on slow links)."
+        log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
+        PROVISION_CMD=(provision --require-agent)
+        [ -n "$WINPODX_VERBOSE" ] && PROVISION_CMD+=(--verbose)
+    else
+        log "Upgrade detected — running migration (sync guest scripts + apply-fixes + discovery + reverse-open)..."
+        log "  Re-uses the existing Windows install; no ISO re-download."
+        PROVISION_CMD=(migrate --non-interactive)
+    fi
     # PYTHONUNBUFFERED=1 keeps the streamed per-stage progress line-buffered
     # when piped. Disable ``set -e`` so we can inspect the rc; tee the output
     # so the `no such container` partial-uninstall case is still detectable.
     set +e
-    PYTHONUNBUFFERED=1 "$SYMLINK" provision "${PROVISION_ARGS[@]}" 2>&1 \
+    PYTHONUNBUFFERED=1 "$SYMLINK" "${PROVISION_CMD[@]}" 2>&1 \
         | tee "$PROVISION_OUT"
     PROVISION_RC="${PIPESTATUS[0]}"
     set -e
@@ -1236,7 +1261,7 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
     # this covers the piped-install case where the child died from the signal
     # and the parent didn't see it directly.
     if [ "$PROVISION_RC" -eq 130 ] || [ "$PROVISION_RC" -eq 143 ]; then
-        err "Install cancelled (winpodx provision returned $PROVISION_RC)."
+        err "Install cancelled (winpodx ${PROVISION_CMD[0]} returned $PROVISION_RC)."
         err "Re-run install.sh to continue from where you left off."
         rm -f "$PROVISION_OUT"
         ROLLBACK_ARMED=0
