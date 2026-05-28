@@ -31,10 +31,22 @@ def _run_container_cmd(
     timeout: int,
     timeout_msg: str,
 ) -> subprocess.CompletedProcess[str] | None:
-    """Run a container runtime command, returning None on exec/timeout failure."""
+    """Run a container runtime command, returning None on exec/timeout failure.
+
+    AppImage host-first (#357 / #363): the pause / unpause / inspect commands
+    here all start with ``cfg.pod.backend`` (``podman`` / ``docker``) as
+    ``cmd[0]``. Inside an AppImage we re-resolve that argv[0] from the HOST
+    PATH and run under a clean host env so the host runtime + the host
+    helpers it spawns load HOST libraries. Outside an AppImage both helpers
+    are strict no-ops (binary unchanged, ``env=None`` -> inherit).
+    """
+    from winpodx.backend._hostenv import host_env, resolve_backend_bin
+
     backend = cfg.pod.backend
+    if cmd:
+        cmd = [resolve_backend_bin(cmd[0]), *cmd[1:]]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=host_env())
     except FileNotFoundError:
         log.warning("Container runtime %s not found in PATH", backend)
         return None
