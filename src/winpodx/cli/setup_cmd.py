@@ -688,10 +688,14 @@ def handle_setup(args: argparse.Namespace) -> None:
     else:
         cfg = Config()
 
-    if backend:
-        cfg.pod.backend = backend
-    elif non_interactive:
-        cfg.pod.backend = "podman" if shutil.which("podman") else "docker"
+    if backend or non_interactive:
+        # Explicit --backend wins; non-interactive auto-picks via the same
+        # priority + podman-version gate install.sh's Automatic-mode picker
+        # uses, so post-install setup wizards and curl|bash agree on what
+        # to run on Ubuntu 22.04 (#271) etc. See backend/select.choose_backend.
+        from winpodx.backend.select import choose_backend
+
+        cfg.pod.backend = choose_backend(prefer=backend, deps=deps)
     else:
         available = []
         if deps.get("podman") and deps["podman"].found:

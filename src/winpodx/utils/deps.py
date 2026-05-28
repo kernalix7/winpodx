@@ -93,3 +93,37 @@ def check_all() -> dict[str, DepCheck]:
         checks[cmd] = DepCheck(name=cmd, found=bool(path), path=path or "", note=desc)
     checks["kvm"] = check_kvm()
     return checks
+
+
+def podman_major_version() -> int | None:
+    """Return the installed podman's major version (e.g. 5 for "5.7.1"), or None.
+
+    Returns None when podman isn't on PATH or when ``podman --version`` failed
+    or produced unparseable output. The backend selector uses this to gate
+    Ubuntu 22.04's podman 3.4 out of the auto-pick rotation (#271) -- rootless
+    dockur needs features that landed in 4.x.
+    """
+    import re
+    import subprocess
+
+    podman = shutil.which("podman")
+    if not podman:
+        return None
+    try:
+        result = subprocess.run(
+            [podman, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    # `podman version 4.9.3` -> 4
+    match = re.search(r"\bversion\s+(\d+)\.", result.stdout)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None

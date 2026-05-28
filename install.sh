@@ -701,6 +701,13 @@ fi
 # higher-priority runtime is absent or unusable (e.g. podman < 4 on Ubuntu
 # 22.04, #271). Fall back to Recommended behaviour (podman + install missing
 # deps) when nothing usable is present.
+#
+# Single source of truth for this priority + the podman major-version gate
+# is src/winpodx/backend/select.py:choose_backend() (Python). This bash mirror
+# exists because install.sh runs system-check BEFORE Python is installed and
+# can't import the Python helper; tests pin the bash + Python copies to the
+# same order + version gate so they cannot drift. See docs/design/ROADMAP-
+# 0.6.0.md item E.
 if [ "$INSTALL_MODE" = "a" ] && [ -z "$WINPODX_BACKEND" ]; then
     for candidate in podman docker libvirt; do
         case "$candidate" in
