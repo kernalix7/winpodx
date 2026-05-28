@@ -25,6 +25,16 @@ from winpodx.reverse_open.config import ReverseOpenConfig
 from winpodx.utils.paths import config_dir
 from winpodx.utils.toml_writer import dumps as toml_dumps
 
+# Schema version for the on-disk TOML. Bump this whenever the layout of
+# winpodx.toml changes in a way that requires transforming an older file
+# (renamed key, moved section, dropped option). The version is written into
+# the file at save() time and read by load(); a missing field reads as 0,
+# the implicit pre-0.6.0 schema. _migrate_config() is the place where actual
+# transforms land -- it is a no-op today (0.6.0 introduced the marker without
+# changing the layout) and starts doing real work in 0.7.0+ as the structure
+# evolves. See docs/design/ROADMAP-0.6.0.md item J.
+SCHEMA_VERSION = 1
+
 _VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
 _VALID_TUNING_PROFILES = frozenset({"auto", "performance", "safe", "off", "manual"})
 
@@ -569,6 +579,10 @@ class UIConfig:
 
 @dataclass
 class Config:
+    # SCHEMA_VERSION is written by save() and read by load(); see the
+    # module-level comment on SCHEMA_VERSION + _migrate_config() for the
+    # migration policy.
+    schema_version: int = SCHEMA_VERSION
     rdp: RDPConfig = field(default_factory=RDPConfig)
     pod: PodConfig = field(default_factory=PodConfig)
     reverse_open: ReverseOpenConfig = field(default_factory=ReverseOpenConfig)
@@ -596,6 +610,19 @@ class Config:
             logging.getLogger(__name__).warning("Corrupted config %s, using defaults: %s", path, e)
             return cfg
 
+        # Read the on-disk schema_version (0 = pre-0.6.0, no marker present).
+        # If it predates the current SCHEMA_VERSION, run the migration hook;
+        # the hook is a no-op today but is the seam where future renames /
+        # moves / drops are applied without losing the user's settings.
+        try:
+            from_version = int(data.get("schema_version", 0))
+        except (TypeError, ValueError):
+            from_version = 0
+        if from_version != SCHEMA_VERSION:
+            data = _migrate_config(data, from_version)
+            # The next save() will stamp SCHEMA_VERSION so the file converges.
+            cfg.schema_version = SCHEMA_VERSION
+
         _apply(cfg.rdp, data.get("rdp", {}))
         _apply(cfg.pod, data.get("pod", {}))
         _apply(cfg.reverse_open, data.get("reverse_open", {}))
@@ -619,6 +646,9 @@ class Config:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         data: dict[str, Any] = {
+            # schema_version goes first so a hand-edited file still flags
+            # its layout version before any section.
+            "schema_version": int(self.schema_version),
             "rdp": {
                 "user": self.rdp.user,
                 "password": self.rdp.password,
@@ -842,6 +872,34 @@ def _sanitise_storage_path(value: Any) -> str:
         return raw
 
     return ""
+
+
+def _migrate_config(data: dict[str, Any], from_version: int) -> dict[str, Any]:
+    """Migrate a parsed TOML dict from ``from_version`` to ``SCHEMA_VERSION``.
+
+    Called from :meth:`Config.load` when the on-disk ``schema_version`` differs
+    from :data:`SCHEMA_VERSION`. ``from_version=0`` means the file predates the
+    marker (pre-0.6.0); any positive value is an older but tagged schema.
+
+    Today this is a no-op: 0.6.0 introduced the marker without changing the
+    layout, so a 0.5.x file reads cleanly as schema 0 and is bumped to 1 on the
+    next save with no key transforms. This function is the seam where future
+    migrations land. Pattern::
+
+        if from_version < 2:
+            # 0.7.0: moved ``pod.idle_timeout`` to ``pod.idle.timeout_secs``.
+            pod = data.setdefault("pod", {})
+            if "idle_timeout" in pod:
+                pod.setdefault("idle", {})["timeout_secs"] = pod.pop("idle_timeout")
+        if from_version < 3:
+            ...
+        return data
+
+    Each guarded block is idempotent so a migration that fails halfway and is
+    re-run on the next load completes cleanly.
+    """
+    # No migrations needed for SCHEMA_VERSION 1; this hook is the marker.
+    return data
 
 
 def _apply(obj: Any, data: dict[str, Any]) -> None:
