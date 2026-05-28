@@ -89,6 +89,7 @@ def known_win_version_codes() -> tuple[str, ...]:
     """Return the curated edition codes in display order (see WIN_VERSION_LABELS)."""
     return tuple(WIN_VERSION_LABELS.keys())
 
+
 # Podman/Docker container name rules: alnum/_/-/., must start with alnum.
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DEFAULT_CONTAINER_NAME = "winpodx-windows"
