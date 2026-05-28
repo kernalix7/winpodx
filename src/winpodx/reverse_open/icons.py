@@ -42,7 +42,7 @@ import logging
 import os
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 # Multi-resolution sizes embedded in every generated .ico. Windows
@@ -157,7 +157,7 @@ def resolve_icon(icon_name: str) -> Path | None:
         try:
             path = getIconPath(icon_name, size=size)
         except Exception as exc:  # pragma: no cover - defensive
-            logger.debug("xdg.IconTheme.getIconPath crashed on %r: %s", icon_name, exc)
+            log.debug("xdg.IconTheme.getIconPath crashed on %r: %s", icon_name, exc)
             return _fallback_resolve(icon_name)
         if path and os.path.isfile(path):
             return Path(path)
@@ -182,7 +182,7 @@ def _svg_to_png_bytes(src: Path, size: int) -> bytes | None:
         try:
             return cairosvg.svg2png(url=str(src), output_width=size, output_height=size)
         except Exception as exc:  # pragma: no cover - depends on broken SVG
-            logger.debug("cairosvg failed on %s @ %d: %s", src, size, exc)
+            log.debug("cairosvg failed on %s @ %d: %s", src, size, exc)
 
     try:
         from reportlab.graphics import renderPM  # type: ignore[import-not-found]
@@ -203,7 +203,7 @@ def _svg_to_png_bytes(src: Path, size: int) -> bytes | None:
         renderPM.drawToFile(drawing, buf, fmt="PNG")
         return buf.getvalue()
     except Exception as exc:  # pragma: no cover
-        logger.debug("svglib failed on %s @ %d: %s", src, size, exc)
+        log.debug("svglib failed on %s @ %d: %s", src, size, exc)
         return None
 
 
@@ -255,7 +255,7 @@ def _decode_xpm_rgba(src: Path) -> "object | None":
     try:
         text = src.read_text(encoding="latin-1")
     except OSError as exc:
-        logger.debug("cannot read XPM %s: %s", src, exc)
+        log.debug("cannot read XPM %s: %s", src, exc)
         return None
 
     # Quoted string literals, in order: [values, <NCOLORS colours>, <H rows>].
@@ -265,12 +265,12 @@ def _decode_xpm_rgba(src: Path) -> "object | None":
     try:
         w, h, ncolors, cpp = (int(x) for x in literals[0].split()[:4])
     except ValueError:
-        logger.debug("XPM %s: unparseable values header %r", src, literals[0])
+        log.debug("XPM %s: unparseable values header %r", src, literals[0])
         return None
     if w <= 0 or h <= 0 or cpp <= 0 or ncolors <= 0:
         return None
     if len(literals) < 1 + ncolors + h:
-        logger.debug("XPM %s: truncated (need %d literals)", src, 1 + ncolors + h)
+        log.debug("XPM %s: truncated (need %d literals)", src, 1 + ncolors + h)
         return None
 
     def _parse_color(value: str) -> tuple[int, int, int, int]:
@@ -327,12 +327,12 @@ def _open_raster_rgba(src: Path) -> "object | None":
         return Image.open(src).convert("RGBA")
     except Exception as exc:  # noqa: BLE001 -- Pillow raises a variety of types
         if src.suffix.lower() == ".xpm":
-            logger.debug("Pillow can't open XPM %s (%s); using pure-Python decoder", src, exc)
+            log.debug("Pillow can't open XPM %s (%s); using pure-Python decoder", src, exc)
             img = _decode_xpm_rgba(src)
             if img is not None:
                 return img
         else:
-            logger.debug("Pillow can't open %s: %s", src, exc)
+            log.debug("Pillow can't open %s: %s", src, exc)
         return None
 
 
@@ -355,7 +355,7 @@ def convert_to_ico(src: Path, dst: Path) -> bool:
     try:
         from PIL import Image
     except ImportError:
-        logger.warning("Pillow not installed; cannot write %s", dst)
+        log.warning("Pillow not installed; cannot write %s", dst)
         return False
 
     images: list = []
@@ -382,7 +382,7 @@ def convert_to_ico(src: Path, dst: Path) -> bool:
         # every requested size lands in the output.
         base = _open_raster_rgba(src)
         if base is None:
-            logger.warning("could not load icon %s; using placeholder", src)
+            log.warning("could not load icon %s; using placeholder", src)
             used_placeholder = True
         else:
             max_size = max(ICO_SIZES)

@@ -32,7 +32,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 # Slug grammar shared with :mod:`config` — keep the regex in sync.
@@ -380,7 +380,7 @@ def discover_apps(
         try:
             files = sorted(p for p in d.iterdir() if p.suffix == ".desktop")
         except OSError as exc:
-            logger.debug("discovery: cannot list %s: %s", d, exc)
+            log.debug("discovery: cannot list %s: %s", d, exc)
             continue
         for path in files:
             basename = path.name

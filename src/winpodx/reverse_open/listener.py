@@ -63,7 +63,7 @@ from winpodx.reverse_open.apps_db import AppsDatabase, substitute_path
 from winpodx.reverse_open.paths import ReversePathError, safe_open_unc
 from winpodx.reverse_open.seen_uuids import SeenUUIDs
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 _VERSION = 1
@@ -170,15 +170,15 @@ class Listener:
     def run_forever(self) -> None:
         """Blocking poll loop. Returns when :meth:`stop` is called."""
         self.preflight()
-        logger.info("listener: starting, watching %s", self._cfg.incoming_dir)
+        log.info("listener: starting, watching %s", self._cfg.incoming_dir)
         while not self._stop.is_set():
             try:
                 self.process_pending()
                 self._maybe_run_janitor()
             except Exception:  # noqa: BLE001 - never let a bug kill the loop
-                logger.exception("listener: process_pending raised")
+                log.exception("listener: process_pending raised")
             self._stop.wait(self._cfg.poll_interval)
-        logger.info("listener: stopped after %d accepted requests", self._stats.accepted)
+        log.info("listener: stopped after %d accepted requests", self._stats.accepted)
 
     def stop(self) -> None:
         self._stop.set()
@@ -200,7 +200,7 @@ class Listener:
         in_flight = sum(1 for e in entries if e.is_file())
         if in_flight > self._cfg.max_in_flight:
             self._stats.rejected_in_flight += in_flight - self._cfg.max_in_flight
-            logger.warning(
+            log.warning(
                 "listener: in-flight cap exceeded (%d > %d); processing oldest only",
                 in_flight,
                 self._cfg.max_in_flight,
@@ -230,7 +230,7 @@ class Listener:
 
         if size > self._cfg.max_request_bytes:
             self._stats.rejected_oversize += 1
-            logger.warning(
+            log.warning(
                 "listener: oversize request %s (%d > %d)",
                 path.name,
                 size,
@@ -248,20 +248,20 @@ class Listener:
             data = _load_json_depth_limited(text, self._cfg.max_request_depth)
         except (ValueError, json.JSONDecodeError):
             self._stats.rejected_malformed_json += 1
-            logger.warning("listener: malformed JSON in %s", path.name)
+            log.warning("listener: malformed JSON in %s", path.name)
             _safe_unlink(path)
             return
 
         err = _validate_schema(data)
         if err:
             self._stats.rejected_schema += 1
-            logger.warning("listener: %s — %s", path.name, err)
+            log.warning("listener: %s — %s", path.name, err)
             _safe_unlink(path)
             return
 
         if self._seen.has(uuid):
             self._stats.rejected_replay += 1
-            logger.warning("listener: replay rejected %s", uuid)
+            log.warning("listener: replay rejected %s", uuid)
             _safe_unlink(path)
             return
 
@@ -269,7 +269,7 @@ class Listener:
         app = self._apps_db.get(slug)
         if app is None:
             self._stats.rejected_unknown_app += 1
-            logger.warning("listener: unknown app slug %r in %s", slug, path.name)
+            log.warning("listener: unknown app slug %r in %s", slug, path.name)
             _safe_unlink(path)
             return
 
@@ -289,17 +289,17 @@ class Listener:
                 # file path, dropped placeholder, mistargeted Firefox)
                 # is recoverable from the daemon log instead of needing
                 # a re-instrumentation cycle on the user's machine.
-                logger.info("listener: spawning slug=%s argv=%r", slug, argv)
+                log.info("listener: spawning slug=%s argv=%r", slug, argv)
                 try:
                     self._spawn(argv, safe.popen_kwargs())
                 except OSError as exc:
                     self._stats.spawn_errors += 1
-                    logger.warning("listener: spawn failed for %s: %s", slug, exc)
+                    log.warning("listener: spawn failed for %s: %s", slug, exc)
                     _safe_unlink(path)
                     return
         except ReversePathError as exc:
             self._stats.rejected_path += 1
-            logger.warning("listener: path rejected for %s: %s", path.name, exc)
+            log.warning("listener: path rejected for %s: %s", path.name, exc)
             _safe_unlink(path)
             return
 
@@ -407,7 +407,7 @@ def _safe_unlink(path: Path) -> None:
     except FileNotFoundError:
         pass
     except OSError as exc:
-        logger.warning("listener: failed to unlink %s: %s", path, exc)
+        log.warning("listener: failed to unlink %s: %s", path, exc)
 
 
 def _default_spawn(argv: list[str], popen_kwargs: dict) -> object:
