@@ -9,10 +9,18 @@ import argparse
 import sys
 
 
-def add_subcommand(pod_subparsers: argparse._SubParsersAction) -> None:
-    """Register the install-status subcommand on the pod parser."""
+def add_subcommand(
+    pod_subparsers: argparse._SubParsersAction,
+    name: str = "install-status",
+) -> None:
+    """Register the install-status subcommand on the given subparsers action.
+
+    *name* defaults to ``"install-status"`` for backward compat when called
+    from the ``pod`` parser.  The ``install`` group calls it with
+    ``name="status"``.
+    """
     p = pod_subparsers.add_parser(
-        "install-status",
+        name,
         help="Show install step progress and last log lines",
     )
     p.add_argument(

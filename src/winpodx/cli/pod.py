@@ -11,8 +11,30 @@ import threading
 from winpodx.core.i18n import tr
 
 
+def _deprecate_pod(old_sub: str, new_cmd: str) -> None:
+    """Emit one deprecation line to stderr for a moved ``pod`` subcommand.
+
+    Both ``old_sub`` and ``new_cmd`` are bare names without the ``winpodx``
+    prefix, e.g. ``"pod apply-fixes"`` and ``"guest apply-fixes"``.
+    """
+    import sys as _sys
+
+    _sys.stderr.write(
+        f"[deprecated] 'winpodx {old_sub}' will be removed in 0.7.0; use 'winpodx {new_cmd}'\n"
+    )
+
+
 def handle_pod(args: argparse.Namespace) -> None:
-    """Route pod subcommands."""
+    """Route pod subcommands.
+
+    Lifecycle subcommands (start / stop / status / restart / recreate /
+    wait-ready) are the canonical home and carry no deprecation.
+
+    Guest-side and install subcommands have moved to ``winpodx guest`` and
+    ``winpodx install`` respectively.  Their old ``pod <x>`` forms remain
+    registered so existing scripts keep working, but each emits a one-line
+    deprecation notice to stderr before delegating to the shared handler.
+    """
     cmd = args.pod_command
     if cmd == "start":
         _start(args.wait, args.timeout, tuning_override=getattr(args, "tuning", None))
@@ -24,25 +46,37 @@ def handle_pod(args: argparse.Namespace) -> None:
         _restart()
     elif cmd == "recreate":
         _recreate(wipe_storage=getattr(args, "wipe_storage", False))
-    elif cmd == "apply-fixes":
-        _apply_fixes()
-    elif cmd == "sync-password":
-        _sync_password(getattr(args, "non_interactive", False))
-    elif cmd == "multi-session":
-        _multi_session(args.action)
     elif cmd == "wait-ready":
         _wait_ready(args.timeout, getattr(args, "logs", False), getattr(args, "verbose", False))
+    # --- deprecated aliases: guest-side operations ---
+    elif cmd == "apply-fixes":
+        _deprecate_pod("pod apply-fixes", "guest apply-fixes")
+        _apply_fixes()
+    elif cmd == "sync-password":
+        _deprecate_pod("pod sync-password", "guest sync-password")
+        _sync_password(getattr(args, "non_interactive", False))
+    elif cmd == "multi-session":
+        _deprecate_pod("pod multi-session", "guest multi-session")
+        _multi_session(args.action)
+    elif cmd == "recover-oem":
+        _deprecate_pod("pod recover-oem", "guest recover-oem")
+        _recover_oem()
+    elif cmd == "sync-guest":
+        _deprecate_pod("pod sync-guest", "guest sync")
+        _sync_guest(force=getattr(args, "force", False))
+    # --- deprecated aliases: install / storage operations ---
     elif cmd == "install-status":
+        _deprecate_pod("pod install-status", "install status")
         from winpodx.cli.pod_install_status import handle as handle_install_status
 
         sys.exit(handle_install_status(args))
     elif cmd == "install-resume":
+        _deprecate_pod("pod install-resume", "install resume")
         from winpodx.cli.pod_install_resume import handle as handle_install_resume
 
         sys.exit(handle_install_resume(args))
-    elif cmd == "recover-oem":
-        _recover_oem()
     elif cmd == "grow-disk":
+        _deprecate_pod("pod grow-disk", "install grow-disk")
         _grow_disk(
             target_size=getattr(args, "size", None),
             increment=getattr(args, "increment", None),
@@ -50,17 +84,10 @@ def handle_pod(args: argparse.Namespace) -> None:
             assume_yes=getattr(args, "yes", False),
         )
     elif cmd == "disk-usage":
+        _deprecate_pod("pod disk-usage", "install disk-usage")
         _disk_usage()
-    elif cmd == "sync-guest":
-        _sync_guest(force=getattr(args, "force", False))
     else:
-        print(
-            tr(
-                "Usage: winpodx pod {start|stop|status|restart|recreate|apply-fixes|"
-                "sync-password|multi-session|wait-ready|install-status|install-resume|"
-                "recover-oem|grow-disk|disk-usage|sync-guest}"
-            )
-        )
+        print(tr("Usage: winpodx pod {start|stop|status|restart|recreate|wait-ready}"))
         sys.exit(1)
 
 

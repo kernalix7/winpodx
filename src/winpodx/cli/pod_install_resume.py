@@ -9,10 +9,18 @@ import argparse
 import sys
 
 
-def add_subcommand(pod_subparsers: argparse._SubParsersAction) -> None:
-    """Register the install-resume subcommand on the pod parser."""
+def add_subcommand(
+    pod_subparsers: argparse._SubParsersAction,
+    name: str = "install-resume",
+) -> None:
+    """Register the install-resume subcommand on the given subparsers action.
+
+    *name* defaults to ``"install-resume"`` for backward compat when called
+    from the ``pod`` parser.  The ``install`` group calls it with
+    ``name="resume"``.
+    """
     p = pod_subparsers.add_parser(
-        "install-resume",
+        name,
         help="Retry a failed or incomplete guest install",
     )
     p.add_argument(
