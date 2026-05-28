@@ -1119,10 +1119,13 @@ if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
     log "  Run 'winpodx' (CLI or GUI) to finish setup. Prompt will offer auto, customize, or skip."
 else
     log "Running winpodx setup..."
-    # --create-only: install.sh orchestrates wait-ready / migrate /
-    # discovery / reverse-open itself (below), so setup should stop after
-    # creating the container.
-    SETUP_ARGS=(--non-interactive --create-only)
+    # 0.6.0 item B: --create-only is gone. setup writes config + creates the
+    # container; the post-create chain runs once via `winpodx provision`
+    # (below) — the single source of truth shared with setup_cmd / migrate /
+    # pending.resume. WINPODX_NO_PROVISION makes setup itself skip its own
+    # full-provision tail so install.sh's explicit `winpodx provision` is the
+    # only run (setup would otherwise also run finish_provisioning).
+    SETUP_ARGS=(--non-interactive)
     if [ -n "$WINPODX_BACKEND" ] && [ "$WINPODX_BACKEND" != "manual" ]; then
         SETUP_ARGS+=(--backend "$WINPODX_BACKEND")
         log "Backend: $WINPODX_BACKEND"
@@ -1131,7 +1134,10 @@ else
         SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
         log "Installing Windows edition: $WINPODX_WIN_VERSION"
     fi
-    "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
+    # WINPODX_NO_PROVISION=1: setup creates the container but skips its own
+    # full-provision tail; install.sh runs the chain once via the explicit
+    # `winpodx provision` call below (0.6.0 item B, replaces --create-only).
+    WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
 fi
 
 # --- Install winpodx GUI desktop entry & icon ---
@@ -1194,147 +1200,69 @@ if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
     exit 0
 fi
 
-# --- Wait for Windows VM to finish first-boot setup ---
-# v0.2.0.5: dockur Windows first-boot can take 5-10 minutes (Sysprep,
-# OEM apply, account password set, RDP listener up). wait-ready surfaces
-# the wait up-front with progress + tailed container logs.
-# Skip with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
-# v0.2.1: track which steps haven't completed so the next CLI / GUI
-# launch can auto-resume them. .pending_setup is a newline-separated
-# list of step IDs (wait_ready, migrate, discovery).
+# --- Finish provisioning the Windows VM (0.6.0 item B) ---
+# The wait-ready → agent-settle → apply-fixes → discovery → reverse-open
+# chain used to be ~140 lines of bash here (with its own /health curl poll,
+# 6× `app refresh` retry loop, and host-open listener-start). It is now the
+# single `winpodx provision` command — the same chain setup_cmd, migrate,
+# and pending.resume run — so there is exactly one place to fix a bug and
+# one shared progress surface. install.sh just forwards $WINPODX_VERBOSE.
+#
+# `winpodx provision` exit codes:
+#   0  — full chain succeeded
+#   4  — Windows guest didn't become responsive in time (wait-ready timeout)
+#   5  — provisioning deferred (only when --require-agent; we don't pass it)
+# Both 4 and 5 are non-fatal: the .pending_setup machinery (utils/pending.py)
+# is the safety net — the next `winpodx` CLI / GUI launch resumes the chain.
+# Skip the whole step with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
 PENDING_FILE="$HOME/.config/winpodx/.pending_setup"
-PENDING_STEPS=""
-mark_pending() {
-    PENDING_STEPS="${PENDING_STEPS}${1}
-"
-}
 
 if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
-    log "Waiting for Windows VM to finish first-boot (60 min default, auto-extends to match observed ISO download speed)..."
-    log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply."
+    log "Finishing Windows provisioning (wait-ready + apply-fixes + discovery + reverse-open)..."
+    log "  Fresh install downloads ~7.5GB Windows ISO + runs Sysprep + OEM apply (auto-extends on slow links)."
     log "  Subsequent installs reuse the cached ISO and finish in 2-5 min."
-    WAIT_READY_OUT="$(mktemp)"
-    # PYTHONUNBUFFERED=1 forces Python's stdout to line-buffered even
-    # when piped. Disable ``set -e`` for the pipeline so we can inspect
-    # the wait-ready rc + tee'd output below; capture PIPESTATUS while
-    # it's still the pipeline's.
+    PROVISION_OUT="$(mktemp)"
+    PROVISION_ARGS=()
+    [ -n "$WINPODX_VERBOSE" ] && PROVISION_ARGS+=(--verbose)
+    # PYTHONUNBUFFERED=1 keeps the streamed per-stage progress line-buffered
+    # when piped. Disable ``set -e`` so we can inspect the rc; tee the output
+    # so the `no such container` partial-uninstall case is still detectable.
     set +e
-    WAIT_READY_VERBOSE=()
-    [ -n "$WINPODX_VERBOSE" ] && WAIT_READY_VERBOSE=(--verbose)
-    PYTHONUNBUFFERED=1 "$SYMLINK" pod wait-ready --timeout 3600 --logs \
-        "${WAIT_READY_VERBOSE[@]}" 2>&1 \
-        | tee "$WAIT_READY_OUT"
-    WAIT_READY_RC="${PIPESTATUS[0]}"
+    PYTHONUNBUFFERED=1 "$SYMLINK" provision "${PROVISION_ARGS[@]}" 2>&1 \
+        | tee "$PROVISION_OUT"
+    PROVISION_RC="${PIPESTATUS[0]}"
     set -e
-    # Ctrl+C / SIGTERM: bail out. The traps also fire in the parent shell,
-    # but the check here covers the case where the child winpodx died from
-    # the signal and the parent didn't get it directly (piped install).
-    if [ "$WAIT_READY_RC" -eq 130 ] || [ "$WAIT_READY_RC" -eq 143 ]; then
-        err "Install cancelled (winpodx pod wait-ready returned $WAIT_READY_RC)."
+    # Ctrl+C / SIGTERM: bail out. The traps fire in the parent shell too, but
+    # this covers the piped-install case where the child died from the signal
+    # and the parent didn't see it directly.
+    if [ "$PROVISION_RC" -eq 130 ] || [ "$PROVISION_RC" -eq 143 ]; then
+        err "Install cancelled (winpodx provision returned $PROVISION_RC)."
         err "Re-run install.sh to continue from where you left off."
-        rm -f "$WAIT_READY_OUT"
-        # This is a deliberate user cancel mid-provisioning. On an upgrade,
-        # rollback() is a no-op (leaves the working install). On a fresh
-        # install the binary + venv are valid and re-runnable, so don't
-        # nuke them — just clean the marker and exit with the signal rc.
+        rm -f "$PROVISION_OUT"
         ROLLBACK_ARMED=0
         cleanup_install_marker
         trap - EXIT ERR INT TERM
-        exit "$WAIT_READY_RC"
+        exit "$PROVISION_RC"
     fi
-    if [ "$WAIT_READY_RC" -ne 0 ]; then
-        if grep -q "no such container" "$WAIT_READY_OUT"; then
+    if [ "$PROVISION_RC" -ne 0 ]; then
+        if grep -q "no such container" "$PROVISION_OUT"; then
             warn "Container is missing — likely from a partial uninstall."
             warn "Recover with a full reinstall:"
             warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge'
             warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main'
         else
-            warn "Windows first-boot didn't complete in time (default 60min,"
-            warn "auto-extended based on observed wget ETA -- see #126)."
-            warn "Marking remaining steps as pending — they will auto-resume on next"
-            warn "\`winpodx\` CLI invocation or when you open \`winpodx gui\`."
-            mark_pending "wait_ready"
+            warn "Provisioning didn't complete in time (Windows first-boot can run long"
+            warn "on slow links -- see #126). Marking remaining steps as pending — they"
+            warn "auto-resume on the next \`winpodx\` CLI invocation or when you open the GUI."
+            mkdir -p "$HOME/.config/winpodx"
+            # wait_ready first so pending.resume re-runs the full chain.
+            printf 'wait_ready\nmigrate\ndiscovery\n' > "$PENDING_FILE"
+            warn "Pending steps recorded at $PENDING_FILE."
         fi
+    else
+        rm -f "$PENDING_FILE"
     fi
-    rm -f "$WAIT_READY_OUT"
-fi
-
-# --- Post-install / upgrade migration wizard + discovery ---
-#
-# WINPODX_REQUIRE_AGENT=1 makes both migrate and app refresh refuse to
-# fall back to FreeRDP RemoteApp when the guest agent isn't up yet. They
-# exit "deferred"; install.sh marks them pending so the next CLI / GUI
-# launch resumes them once the agent has come up cleanly.
-export WINPODX_REQUIRE_AGENT=1
-
-# If an existing config is present this is an upgrade, not a fresh
-# install. Run the migrate wizard. Opt out with WINPODX_NO_MIGRATE=1.
-if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_MIGRATE:-}" != "1" ]; then
-    log "Running post-upgrade migration wizard..."
-    "$SYMLINK" migrate --non-interactive || mark_pending "migrate"
-fi
-
-# --- Wait for agent to settle after migrate's apply chain ---
-# migrate's apply chain ends with `_apply_multi_session`, which cycles
-# TermService and bounces the agent's own RDP session. Polling /health
-# here means refresh runs against the resurrected agent.
-if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT_AGENT:-}" != "1" ]; then
-    log "Waiting for guest agent to settle after apply chain..."
-    # Port 8765: paired with src/winpodx/core/agent.py:AGENT_PORT (Python SoT) and
-    # config/oem/agent/agent.ps1 (guest SoT). Shell can't import the constant;
-    # changing the port means editing here AND those two files.
-    for _ in $(seq 1 30); do
-        if curl -fsS --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
-            break
-        fi
-        sleep 2
-    done
-fi
-
-# --- Auto-discover apps ---
-# Retry up to 6 times with 10s spacing (~50s window) to ride out the
-# agent's transient "responsive but not yet stable" state right after
-# install.bat's final TermService cycle. Final failure records the step
-# as pending so pending-resume stays as a safety net.
-if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_DISCOVERY:-}" != "1" ]; then
-    log "Discovering installed Windows apps..."
-    discovery_ok=
-    for attempt in 1 2 3 4 5 6; do
-        if "$SYMLINK" app refresh 2>/dev/null; then
-            discovery_ok=1
-            break
-        fi
-        if [ "$attempt" -lt 6 ]; then
-            log "  discovery attempt $attempt deferred (agent transitioning); retrying in 10s..."
-            sleep 10
-        fi
-    done
-    if [ -z "$discovery_ok" ]; then
-        mark_pending "discovery"
-    fi
-fi
-
-# --- Reverse-open auto-setup ---
-# Linux apps in the Windows guest's "Open with..." menu (#48). Ships
-# default-on. Opt out via WINPODX_NO_REVERSE_OPEN=1.
-if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_REVERSE_OPEN:-}" != "1" ]; then
-    log "Setting up reverse-open (Linux apps in Windows 'Open with')..."
-    "$SYMLINK" host-open start-listener 2>/dev/null || \
-        warn "  reverse-open listener didn't start; the feature will activate on next \`winpodx pod start\`"
-    if ! "$SYMLINK" host-open refresh 2>&1 | sed 's/^/  /'; then
-        warn "  reverse-open refresh failed; retry manually with \`winpodx host-open refresh\` once the pod is up"
-    fi
-fi
-
-unset WINPODX_REQUIRE_AGENT
-
-# Persist the pending list so resume_install_work() can pick it up.
-if [ -n "$PENDING_STEPS" ]; then
-    mkdir -p "$HOME/.config/winpodx"
-    printf '%s' "$PENDING_STEPS" > "$PENDING_FILE"
-    warn "Pending steps recorded at $PENDING_FILE — auto-resume will run on next winpodx invocation."
-else
-    rm -f "$PENDING_FILE"
+    rm -f "$PROVISION_OUT"
 fi
 
 # --- Done. Disarm rollback (success). ---

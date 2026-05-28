@@ -359,17 +359,12 @@ def cli(argv: list[str] | None = None) -> None:
             "auto setup; use this flag to opt into the wizard."
         ),
     )
-    setup_p.add_argument(
-        "--create-only",
-        action="store_true",
-        help=(
-            "Stop after writing config + creating the container. Skip the "
-            "full provision flow (wait-ready, apply-fixes, app discovery, "
-            "reverse-open). install.sh passes this because it orchestrates "
-            "those steps itself; a standalone `winpodx setup` runs the full "
-            "flow so it finishes like a complete install."
-        ),
-    )
+    # --create-only was removed in 0.6.0 (item B). The post-create
+    # provisioning chain (wait-ready → apply-fixes → discovery →
+    # reverse-open) is now the single `winpodx provision` command, so
+    # install.sh runs `winpodx setup ... && winpodx provision --verbose`
+    # instead of carrying its own bash copy. A standalone `winpodx setup`
+    # always finishes the full flow.
     setup_p.add_argument(
         "--update-image",
         action="store_true",
@@ -583,6 +578,57 @@ def cli(argv: list[str] | None = None) -> None:
         help="Disable all prompts (for automation / CI)",
     )
 
+    # --- provision (post-create provisioning chain, 0.6.0 item B) ---
+    # The single source of truth for wait-ready → agent-settle → apply-fixes
+    # → discovery → reverse-open. Replaces install.sh's ~140 lines of bash,
+    # setup_cmd's _run_full_provision, and (via the helper) feeds migrate /
+    # pending.resume. Run with no flags it reproduces the install.sh defaults
+    # so an AppImage's first run can just `winpodx provision`.
+    provision_p = sub.add_parser(
+        "provision",
+        help=(
+            "Finish provisioning a created pod: wait for Windows first-boot, "
+            "apply runtime fixes, discover apps, set up reverse-open. Run with "
+            "no flags it reproduces install.sh's post-create behaviour."
+        ),
+    )
+    provision_p.add_argument(
+        "--wait-timeout",
+        type=int,
+        default=3600,
+        help="Seconds to wait for the Windows guest to become responsive (default 3600).",
+    )
+    provision_p.add_argument(
+        "--require-agent",
+        action="store_true",
+        help=(
+            "Hard-gate on the in-guest agent /health and fail (don't fall "
+            "back to FreeRDP) if it never answers. Off by default."
+        ),
+    )
+    provision_p.add_argument(
+        "--no-discovery",
+        action="store_true",
+        help="Skip the app-discovery stage (on by default).",
+    )
+    provision_p.add_argument(
+        "--no-reverse-open",
+        action="store_true",
+        help=("Skip reverse-open setup (on by default when cfg.reverse_open.enabled)."),
+    )
+    provision_p.add_argument(
+        "--retries",
+        type=int,
+        default=6,
+        help="Discovery retry attempts with exponential backoff (default 6).",
+    )
+    provision_p.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Stream raw per-stage progress to stderr.",
+    )
+
     # --- host-open (reverse file associations, #48) ---
     from winpodx.cli.host_open import add_subcommand as add_host_open
 
@@ -698,10 +744,78 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.migrate import run_migrate
 
         sys.exit(run_migrate(args))
+    elif cmd == "provision":
+        sys.exit(_cmd_provision(args))
     elif cmd == "host-open":
         from winpodx.cli.host_open import handle as handle_host_open
 
         sys.exit(handle_host_open(args))
+
+
+def _cmd_provision(args: argparse.Namespace) -> int:
+    """Drive ``core.provisioner.finish_provisioning`` from the CLI (item B).
+
+    Flags map 1:1 onto the helper parameters. Run with no flags it
+    reproduces install.sh's post-create defaults (wait 3600s, soft agent
+    settle, discovery on with 6× retry, reverse-open on when enabled), so
+    an AppImage first run can simply ``winpodx provision`` for the
+    install.sh UX without re-implementing it (item I AppImage parity).
+    """
+    from winpodx.core.config import Config
+    from winpodx.core.provisioner import (
+        ProvisionAgentUnavailable,
+        finish_provisioning,
+    )
+
+    cfg = Config.load()
+
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(
+            tr("provision not supported for backend {backend} (podman/docker only).").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
+        return 2
+
+    verbose = bool(getattr(args, "verbose", False))
+
+    def _on_progress(stage: str, detail: str) -> None:
+        # Always surface stage transitions; --verbose just keeps the raw
+        # detail lines flowing without buffering.
+        print(f"  [{stage}] {detail}", file=sys.stderr, flush=verbose)
+
+    with_reverse_open = not bool(getattr(args, "no_reverse_open", False))
+    with_discovery = not bool(getattr(args, "no_discovery", False))
+
+    try:
+        results = finish_provisioning(
+            cfg,
+            wait_timeout=int(getattr(args, "wait_timeout", 3600)),
+            require_agent=bool(getattr(args, "require_agent", False)),
+            with_reverse_open=with_reverse_open,
+            with_discovery=with_discovery,
+            retries=int(getattr(args, "retries", 6)),
+            on_progress=_on_progress,
+        )
+    except ProvisionAgentUnavailable as e:
+        print(tr("provision deferred: {error}").format(error=e), file=sys.stderr)
+        return 5
+
+    if results.get("wait_ready") == "timeout":
+        print(
+            tr(
+                "provision: Windows guest did not become responsive in time. "
+                "Re-run `winpodx provision` once `winpodx pod status` reports the "
+                "pod is fully up."
+            ),
+            file=sys.stderr,
+        )
+        return 4
+
+    print(tr("Provisioning complete."))
+    for stage, status in results.items():
+        print(f"  {stage}: {status}")
+    return 0
 
 
 def _cmd_language(code: str | None) -> None:

@@ -535,20 +535,20 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
 
 
 def _run_full_provision(cfg: Config) -> None:
-    """Drive the same post-container-create provisioning that install.sh
-    orchestrates in bash, so a standalone `winpodx setup` finishes like a
-    complete install instead of stopping at "container created".
+    """Drive the post-container-create provisioning so a standalone
+    `winpodx setup` finishes like a complete install instead of stopping at
+    "container created".
 
-    Sequence (each step tolerant of the guest still booting):
-      1. wait-ready -- block until the Windows first-boot + OEM apply +
-         reboot pass complete (auto-extends on slow ISO downloads).
-      2. apply-fixes -- idempotent Windows-side runtime fixes.
-      3. app discovery -- scan the guest + register desktop entries.
-      4. reverse-open -- stage host apps into the guest "Open with" menu
-         (only when cfg.reverse_open.enabled).
+    0.6.0 item B: this is now a thin wrapper over the single source of truth
+    ``core.provisioner.finish_provisioning`` (the same chain ``winpodx
+    provision``, migrate, and pending.resume run). The manual per-stage
+    assembly that used to live here — wait-ready, apply-fixes, discovery,
+    reverse-open — moved into the helper, parameter-gated. We pass the same
+    parameters the old inline code used: 3600s wait, soft agent settle
+    (require_agent=False so a slow first boot doesn't crash setup), discovery
+    with 6× retry, reverse-open gated on cfg.reverse_open.enabled.
 
-    Skipped for non-podman/docker backends and when --create-only is set
-    (install.sh path -- it runs its own bash version of these steps).
+    Skipped for non-podman/docker backends (the helper short-circuits too).
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
@@ -559,53 +559,28 @@ def _run_full_provision(cfg: Config) -> None:
     print(tr("First install downloads ~7.5GB ISO + runs Sysprep + OEM apply."))
     print(tr("This can take ~5-10 min (longer on slow connections).\n"))
 
-    # 1. wait-ready -- reuse the CLI implementation with live logs.
-    from winpodx.cli.pod import _wait_ready
+    from winpodx.core.provisioner import finish_provisioning
 
-    try:
-        _wait_ready(timeout=3600, show_logs=True)
-    except SystemExit as e:
-        # _wait_ready exits non-zero on timeout. Don't abort the whole
-        # setup -- the pending-steps machinery + next `winpodx app run`
-        # will resume. Surface it and stop the provision chain.
+    def _on_progress(stage: str, detail: str) -> None:
+        print(tr("  [{stage}] {detail}").format(stage=stage, detail=detail))
+
+    results = finish_provisioning(
+        cfg,
+        wait_timeout=3600,
+        require_agent=False,
+        with_reverse_open=getattr(cfg.reverse_open, "enabled", False),
+        with_discovery=True,
+        retries=6,
+        on_progress=_on_progress,
+    )
+
+    if results.get("wait_ready") == "timeout":
         print(
             tr(
-                "\n  wait-ready did not complete (exit {code}). "
-                "Remaining steps will auto-resume on your next "
-                "`winpodx app run` / `winpodx gui`."
-            ).format(code=e.code)
+                "\n  wait-ready did not complete. Remaining steps will "
+                "auto-resume on your next `winpodx app run` / `winpodx gui`."
+            )
         )
-        return
-
-    # 2. apply-fixes -- idempotent guest runtime fixes.
-    try:
-        from winpodx.core.provisioner import apply_windows_runtime_fixes
-
-        print(tr("\nApplying Windows-side runtime fixes..."))
-        apply_windows_runtime_fixes(cfg)
-    except Exception as e:  # noqa: BLE001 -- best-effort, never fatal
-        print(tr("  apply-fixes skipped ({error})").format(error=e))
-
-    # 3. discovery -- populate the app menu from the running guest.
-    try:
-        from winpodx.cli.app import _refresh_apps
-
-        print(tr("\nDiscovering installed Windows apps..."))
-        _refresh_apps(as_json=False, timeout=120)
-    except Exception as e:  # noqa: BLE001
-        print(
-            tr("  discovery skipped ({error}) -- run `winpodx app refresh` later").format(error=e)
-        )
-
-    # 4. reverse-open -- host apps into the guest "Open with" menu.
-    if getattr(cfg.reverse_open, "enabled", False):
-        try:
-            from winpodx.cli.host_open import _cmd_refresh
-
-            print(tr("\nSetting up reverse-open (Linux apps in Windows 'Open with')..."))
-            _cmd_refresh(argparse.Namespace(include_nodisplay=False, skip_icons=False, json=False))
-        except Exception as e:  # noqa: BLE001
-            print(tr("  reverse-open setup skipped ({error})").format(error=e))
 
 
 def handle_setup(args: argparse.Namespace) -> None:
@@ -904,20 +879,29 @@ def handle_setup(args: argparse.Namespace) -> None:
     print()
 
     # Full-provision flow: a standalone `winpodx setup` should finish
-    # like a complete install (wait for Windows first-boot + discover
-    # apps + reverse-open), not stop at "container created". install.sh
-    # passes --create-only because it drives those steps itself in bash;
-    # skipping here avoids doing the work twice.
-    create_only = bool(getattr(args, "create_only", False))
-    if create_only or cfg.pod.backend not in ("podman", "docker"):
+    # like a complete install (wait for Windows first-boot + apply-fixes +
+    # discover apps + reverse-open), not stop at "container created".
+    #
+    # 0.6.0 item B: the `--create-only` flag is gone. install.sh now runs
+    # `winpodx setup ... && winpodx provision --verbose`: setup creates the
+    # container and the dedicated `provision` command runs the chain once.
+    # To avoid running the chain twice in that flow, install.sh exports
+    # WINPODX_NO_PROVISION=1 so setup skips its own provision tail and leaves
+    # it to the explicit `winpodx provision` call. A standalone `winpodx
+    # setup` (no env var) still finishes the full flow. Non-container
+    # backends short-circuit (the helper has nothing to do for libvirt/manual).
+    import os
+
+    skip_provision = os.environ.get("WINPODX_NO_PROVISION") == "1"
+    if cfg.pod.backend not in ("podman", "docker") or skip_provision:
         print(tr("Apps are now in your application menu."))
         print(tr("Just click any app. winpodx handles the rest automatically."))
-        if cfg.pod.backend in ("podman", "docker") and create_only:
+        if cfg.pod.backend in ("podman", "docker") and skip_provision:
             print(
                 tr(
                     "\nWindows is booting in the background. "
-                    "Run `winpodx pod wait-ready --logs` to watch, or just "
-                    "`winpodx app run desktop` (it waits on first launch)."
+                    "Run `winpodx provision` to finish (wait-ready + apply-fixes "
+                    "+ discovery + reverse-open), or just `winpodx app run desktop`."
                 )
             )
     else:

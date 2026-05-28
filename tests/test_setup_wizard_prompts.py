@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Tests for the extended setup wizard (#255 PR 7 completion):
-edition / locale / tuning prompts + the --create-only provision gate.
+edition / locale / tuning prompts + the full-provision gate.
+
+0.6.0 item B: ``--create-only`` was removed; ``_run_full_provision`` is now
+a thin wrapper over ``core.provisioner.finish_provisioning``. The non-
+container short-circuit it kept is what ``test_full_provision_noop_*`` pins.
 """
 
 from __future__ import annotations

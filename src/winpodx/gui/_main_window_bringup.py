@@ -604,7 +604,41 @@ class BringUpMixin:
     # ----- worker --------------------------------------------------------
 
     def _bringup_worker(self) -> None:
-        """Run the 5-phase chain. Always exits via ``bringup_done.emit``."""
+        """Run the 5-phase chain. Always exits via ``bringup_done.emit``.
+
+        0.6.0 item I — DEFERRED, NOT migrated to ``finish_provisioning``.
+        ----------------------------------------------------------------
+        The roadmap folds this 5th copy of the wait → settle → apply →
+        discovery → reverse-open chain into ``core.provisioner.finish_
+        provisioning`` so there is one place to fix bugs. The unified helper
+        grew an ``on_progress(stage, detail)`` callback specifically so this
+        worker can wire its ``bringup_phase`` signal to it. BUT this worker
+        has three capabilities the helper does not yet expose, and the task
+        constraint is explicit: keep the legacy path rather than guess and
+        break it silently. Migrate once the helper grows the missing hooks:
+
+          1. Cooperative cancellation — every phase checks ``_is_cancelled``
+             and sleeps via ``_sleep_cancellable`` so the user's Cancel
+             button stops the chain promptly. ``finish_provisioning`` has no
+             cancel hook; routing through it would make Cancel a no-op until
+             the current blocking stage returns.
+          2. Per-attempt streaming with custom budgets — phases 1/2 stream
+             "Attempt N - ..." lines and use ``cfg.install.wait_ready_stage2
+             _secs`` / ``stage3_secs`` budgets, plus a token-readiness check
+             (``AgentClient.auth_ready``) the helper's soft settle poll
+             doesn't perform.
+          3. Distinct per-phase failure surfacing — each phase emits its own
+             ``bringup_done(False, "<phase> raised: ...")`` so the dialog
+             shows which stage broke.
+
+        TODO(0.6.x): add ``cancel_event`` + richer ``on_progress`` (attempt
+        index, budget) to ``finish_provisioning``, then replace this body
+        with a single ``finish_provisioning(self.cfg, wait_timeout=...,
+        require_agent=True, with_reverse_open=cfg.reverse_open.enabled,
+        with_discovery=True, retries=..., on_progress=self._on_provision_
+        progress, cancel_event=self._bringup_cancel)`` call and drop the
+        phase methods below.
+        """
         try:
             if not self._phase1_wait_pod_ready():
                 return

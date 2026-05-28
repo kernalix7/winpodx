@@ -109,50 +109,59 @@ def resume(printer=print) -> None:
         return
 
     from winpodx.core.config import Config
+    from winpodx.core.provisioner import finish_provisioning
 
     cfg = Config.load()
     printer(f"[winpodx] Resuming {len(pending)} pending setup step(s): {', '.join(pending)}")
 
-    if "wait_ready" in pending:
-        try:
-            from winpodx.core.provisioner import wait_for_windows_responsive
+    # 0.6.0 item B: the wait-ready → apply-fixes → discovery chain this used
+    # to assemble by hand (with discover_apps + persist + register inline)
+    # now lives in the single source of truth ``finish_provisioning``. The
+    # historical pending-step distinctions still drive which result we use
+    # to clear which marker:
+    #   * wait_ready  ← results["wait_ready"]
+    #   * migrate     ← results["apply_fixes"] (all helpers "ok")
+    #   * discovery   ← results["discovery"]
+    # Parameters preserve the old behaviour: 300s wait (NOT 3600), soft
+    # agent settle (require_agent=False), no reverse-open, discovery with a
+    # 3× retry. Discovery always runs in the helper; we only clear the
+    # discovery marker when it was actually pending.
+    def _on_progress(stage: str, detail: str) -> None:
+        printer(f"[winpodx] {stage}: {detail}")
 
-            printer("[winpodx] Waiting for Windows guest to be responsive (up to 5 min)...")
-            if wait_for_windows_responsive(cfg, timeout=300):
-                remove_step("wait_ready")
-                printer("[winpodx] Windows guest is ready.")
-            else:
-                printer("[winpodx] Guest still booting — leaving pending for next invocation.")
-                return  # No point trying migrate/discovery if guest isn't ready.
-        except Exception as e:  # noqa: BLE001
-            printer(f"[winpodx] wait_ready resume failed: {e}")
-            return
+    try:
+        results = finish_provisioning(
+            cfg,
+            wait_timeout=300,
+            require_agent=False,
+            with_reverse_open=False,
+            with_discovery=True,
+            retries=3,
+            on_progress=_on_progress,
+        )
+    except Exception as e:  # noqa: BLE001 — resume is best-effort, never raises
+        printer(f"[winpodx] resume failed: {e}")
+        return
+
+    if results.get("wait_ready") == "timeout":
+        printer("[winpodx] Guest still booting — leaving pending for next invocation.")
+        return  # No point clearing migrate/discovery if the guest isn't ready.
+    if "wait_ready" in pending:
+        remove_step("wait_ready")
+        printer("[winpodx] Windows guest is ready.")
 
     if "migrate" in pending:
-        try:
-            from winpodx.core.provisioner import apply_windows_runtime_fixes
-
-            printer("[winpodx] Re-running runtime apply...")
-            results = apply_windows_runtime_fixes(cfg)
-            if all(v == "ok" for v in results.values()):
-                remove_step("migrate")
-                printer("[winpodx] Runtime apply complete.")
-            else:
-                printer(f"[winpodx] Apply partial: {results} — leaving pending.")
-        except Exception as e:  # noqa: BLE001
-            printer(f"[winpodx] migrate resume failed: {e}")
+        apply_results = results.get("apply_fixes", {})
+        if apply_results and all(v == "ok" for v in apply_results.values()):
+            remove_step("migrate")
+            printer("[winpodx] Runtime apply complete.")
+        else:
+            printer(f"[winpodx] Apply partial: {apply_results} — leaving pending.")
 
     if "discovery" in pending:
-        try:
-            from winpodx.cli.app import _register_desktop_entries
-            from winpodx.core.discovery import discover_apps, persist_discovered
-
-            printer("[winpodx] Discovering installed Windows apps...")
-            apps = discover_apps(cfg, timeout=180)
-            persist_discovered(apps)
-            if apps:
-                _register_desktop_entries(apps)
+        discovery = results.get("discovery", "")
+        if isinstance(discovery, str) and discovery.startswith("failed:"):
+            printer(f"[winpodx] discovery resume failed ({discovery}) — leaving pending.")
+        else:
             remove_step("discovery")
-            printer(f"[winpodx] Discovery complete — {len(apps)} app(s) registered.")
-        except Exception as e:  # noqa: BLE001
-            printer(f"[winpodx] discovery resume failed: {e}")
+            printer(f"[winpodx] Discovery complete — {discovery}.")

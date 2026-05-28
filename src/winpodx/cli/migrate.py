@@ -699,7 +699,6 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
     try:
         from winpodx.core.config import Config
         from winpodx.core.pod import PodState, pod_status
-        from winpodx.core.provisioner import apply_windows_runtime_fixes
     except ImportError as e:
         print(f"  warning: cannot load provisioner helpers ({e}); skipping.")
         return
@@ -735,58 +734,48 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
             print(f"  warning: pod start failed ({e}). Try `winpodx pod start --wait`.")
         return
 
-    # v0.2.0.1: container can be RUNNING while the Windows VM inside
-    # QEMU is still booting — that's the fresh-install scenario where
-    # `setup` recreates the container then `migrate` runs immediately
-    # and every apply collapses with rc=147 connection-reset / rc=131
-    # activation-timeout. Wait for the RDP listener to actually accept
-    # FreeRDP RemoteApp before firing applies.
-    from winpodx.core.provisioner import wait_for_windows_responsive
+    # 0.6.0 item B: delegate the wait-ready → agent-gate → apply-fixes →
+    # discovery chain to the single source of truth
+    # ``core.provisioner.finish_provisioning``. The migrate-specific gating
+    # the old inline code carried is preserved via parameters:
+    #
+    #   * require_agent=True — the hard agent gate. Every apply helper goes
+    #     through dispatch(cfg), which prefers AgentTransport (HTTP to
+    #     127.0.0.1:8765) and silently falls back to FreerdpTransport when
+    #     /health doesn't answer. On a freshly-booted pod rdprrap multi-
+    #     session is NOT yet active (install.bat is still mid-script cycling
+    #     TermService), so a new FreeRDP login would KICK the autologon
+    #     session install.bat runs in and kill the install mid-stage
+    #     (kernalix7's 2026-05-02..04 smoke failures). require_agent=True
+    #     makes finish_provisioning raise ProvisionAgentUnavailable rather
+    #     than race FreeRDP; we catch it and skip with the same "deferred
+    #     until next launch" guidance the old gate printed. The apply chain
+    #     is purely additive on a fresh install (OEM v22+ already applied
+    #     everything), so skipping is strictly safer than racing.
+    #
+    #   * with_discovery=True, retries=3 — migrate now folds discovery into
+    #     the chain (previously a separate interactive prompt). retries=3
+    #     rather than install.sh's 6× because migrate runs against an
+    #     already-settled agent more often than not.
+    #
+    #   * with_reverse_open=False — migrate never set up reverse-open; that
+    #     stays install.sh / setup_cmd's job.
+    from winpodx.core.provisioner import (
+        ProvisionAgentUnavailable,
+        finish_provisioning,
+    )
 
-    print("  Waiting for Windows guest to finish booting (up to 180s)...")
-    if not wait_for_windows_responsive(cfg, timeout=600):
-        print(
-            "  Windows guest still booting after 180s — skipping runtime apply.\n"
-            "  Run `winpodx pod apply-fixes` once `winpodx pod status` reports "
-            "the pod is fully up, or just launch any app and the apply will "
-            "fire automatically."
+    print("  Waiting for Windows guest to finish booting + applying fixes...")
+    try:
+        results = finish_provisioning(
+            cfg,
+            wait_timeout=600,
+            require_agent=True,
+            with_reverse_open=False,
+            with_discovery=True,
+            retries=3,
         )
-        return
-
-    # v0.4.0 (post-rc1): require the in-guest agent before firing apply chain.
-    #
-    # Background: every apply helper goes through dispatch(cfg) which prefers
-    # AgentTransport (HTTP to 127.0.0.1:8765) and silently falls back to
-    # FreerdpTransport when the agent doesn't answer /health. FreerdpTransport
-    # opens a brand-new RDP login each call -- and on a freshly-booted pod
-    # rdprrap (multi-session) is NOT yet active because install.bat is still
-    # mid-script writing the registry patch and cycling TermService. Single-
-    # session enforcement means the new FreeRDP session KICKS the autologon
-    # User session -- and install.bat is running inside that session as a
-    # FirstLogonCommands child. Result: install.bat dies mid-extract /
-    # mid-rdprrap-installer / mid-launcher-stage, setup_done.txt never lands,
-    # agent never starts, every subsequent FreeRDP call cascades with rc=12
-    # ERRINFO_LOGOFF_BY_USER. kernalix7 hit this on every fresh-install
-    # smoke test from 2026-05-02 through 2026-05-04.
-    #
-    # Why a hard gate instead of "just bump phase 3 timeout": the apply
-    # chain is purely additive on a fresh install -- install.bat OEM v22+
-    # already does max_sessions / rdp_timeouts / oem_runtime_fixes /
-    # vbs_launchers / multi_session activation. Re-running them via FreeRDP
-    # at migrate time produces no behavior change (everything is idempotent),
-    # only the session-kick side effect. So skipping with a "deferred until
-    # next launch" message is strictly safer than racing.
-    #
-    # Why not just disable the FreeRDP fallback in dispatch(): GUI's
-    # explicit "Apply Windows Fixes" button + `winpodx pod apply-fixes` CLI
-    # may legitimately want FreeRDP (existing pod with broken agent). The
-    # gate is migrate-specific because migrate is the ONLY caller that
-    # reliably runs while install.bat is still in-flight -- install.sh
-    # invokes it 60s after RDP comes up, regardless of install.bat state.
-    from winpodx.core.transport.agent import AgentTransport
-
-    agent = AgentTransport(cfg)
-    if not agent.health().available:
+    except ProvisionAgentUnavailable:
         print(
             "  Agent not yet up (still on FreeRDP-only channel).\n"
             "  Skipping runtime apply to avoid kicking the autologon\n"
@@ -799,15 +788,18 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
         )
         return
 
-    # Delegate to the canonical apply chain in provisioner so install.sh's
-    # post-upgrade migrate path picks up new steps (e.g. vbs_launchers added
-    # in v0.3.0 post-RTM) automatically — duplicating the list here drifted
-    # silently when winpodx pod apply-fixes gained vbs_launchers but migrate
-    # didn't, causing C:\Users\Public\winpodx\launchers\ to never be staged
-    # on `curl install.sh --main` upgrades.
-    results = apply_windows_runtime_fixes(cfg)
+    if results.get("wait_ready") == "timeout":
+        print(
+            "  Windows guest still booting — skipping runtime apply.\n"
+            "  Run `winpodx pod apply-fixes` once `winpodx pod status` reports "
+            "the pod is fully up, or just launch any app and the apply will "
+            "fire automatically."
+        )
+        return
+
+    apply_results = results.get("apply_fixes", {})
     failures: list[str] = [
-        f"{name}: {status}" for name, status in results.items() if status != "ok"
+        f"{name}: {status}" for name, status in apply_results.items() if status != "ok"
     ]
 
     if failures:

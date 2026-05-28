@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 from winpodx.core.compose import generate_compose, generate_password
 from winpodx.core.config import Config
@@ -60,6 +61,17 @@ def _apply_via_transport(cfg: Config, payload: str, *, description: str, timeout
 
 class ProvisionError(Exception):
     """Raised when auto-provisioning fails."""
+
+
+class ProvisionAgentUnavailable(ProvisionError):
+    """Raised by ``finish_provisioning`` when ``require_agent=True`` but the
+    in-guest agent's ``/health`` never comes up within the wait budget.
+
+    Subclasses ``ProvisionError`` so callers that only catch the base type
+    (and treat any provisioning failure as "defer to next launch") keep
+    working, while migrate — the one caller that hard-gates on the agent —
+    can distinguish "agent never settled" from a generic failure.
+    """
 
 
 def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
@@ -290,6 +302,234 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 300) -> bool:
         waited,
     )
     return True
+
+
+def finish_provisioning(
+    cfg: Config,
+    *,
+    wait_timeout: int = 3600,
+    require_agent: bool = False,
+    with_reverse_open: bool = True,
+    with_discovery: bool = True,
+    retries: int = 6,
+    on_progress: Callable[[str, str], None] | None = None,
+) -> dict[str, Any]:
+    """Run the post-pod-running provisioning chain in one place (0.6.0 item B).
+
+    This is the single source of truth for the ``wait-ready → agent-settle →
+    apply-fixes → discovery → reverse-open`` sequence that previously lived,
+    with subtly diverging ordering and gating, in ``install.sh``,
+    ``setup_cmd._run_full_provision``, ``migrate``, and ``pending.resume``.
+    It sits AFTER ``ensure_ready`` (which owns compose generation + pod
+    bring-up + RDP recovery); ``finish_provisioning`` only consolidates the
+    work each of those callers did once the pod was already running.
+
+    Every stage is parameter-gated so the four callers can request exactly
+    the behaviour they had before:
+
+    * ``wait_timeout`` — seconds for ``wait_for_windows_responsive``.
+      install.sh / setup_cmd use 3600; pending.resume uses 300.
+    * ``require_agent`` — when True, hard-gate on the agent ``/health`` and
+      raise :class:`ProvisionAgentUnavailable` if it never answers (migrate's
+      behaviour — it refuses to fall back to FreeRDP RemoteApp because a
+      fresh-boot FreeRDP connect can kick install.bat's autologon session).
+      When False, do a best-effort settle poll (install.sh's behaviour:
+      30 attempts × 2 s) and proceed silently regardless — this lets
+      setup_cmd's auto-provision use the chain without crashing on a slow
+      first boot.
+    * ``with_discovery`` — run the shared discovery path (discover_apps +
+      persist_discovered + _register_desktop_entries) with ``retries``
+      attempts and exponential backoff (install.sh's 6× behaviour).
+    * ``with_reverse_open`` — run the host-open listener-start + manifest
+      refresh, gated additionally on ``cfg.reverse_open.enabled``.
+    * ``on_progress(stage, detail)`` — optional callback so a GUI can mirror
+      the same stages onto a progress bar without re-running the chain.
+
+    Returns a results dict whose keys are the stage names and whose values
+    are short human-readable status strings, so callers can log / surface
+    them:
+    ``{"wait_ready": "ok", "agent_settle": "ok"|"skipped"|"not-up",
+    "apply_fixes": {...per-helper...}, "discovery": "12 apps"|"skipped",
+    "reverse_open": "ok"|"skipped"|"failed: ..."}``.
+    """
+    results: dict[str, Any] = {}
+
+    def _progress(stage: str, detail: str) -> None:
+        if on_progress is not None:
+            try:
+                on_progress(stage, detail)
+            except Exception:  # noqa: BLE001 — progress is best-effort, never fatal
+                log.debug("finish_provisioning on_progress(%s) raised", stage, exc_info=True)
+
+    # Backend gate: libvirt / manual have no Windows-side runtime apply,
+    # discovery channel, or reverse-open. Return early with a marker so the
+    # caller knows nothing was attempted (mirrors apply_windows_runtime_fixes).
+    if cfg.pod.backend not in ("podman", "docker"):
+        results["backend"] = f"skipped (backend={cfg.pod.backend} not supported)"
+        _progress("backend", results["backend"])
+        return results
+
+    # --- Stage 1: wait-ready ------------------------------------------------
+    _progress("wait_ready", f"up to {wait_timeout}s")
+    ready = wait_for_windows_responsive(cfg, timeout=wait_timeout)
+    results["wait_ready"] = "ok" if ready else "timeout"
+    _progress("wait_ready", results["wait_ready"])
+    if not ready:
+        # RDP never opened. Nothing downstream can succeed; let the caller
+        # decide whether to defer (pending machinery) or surface the timeout.
+        return results
+
+    # --- Stage 2: agent settle ---------------------------------------------
+    from winpodx.core.transport.agent import AgentTransport
+
+    transport = AgentTransport(cfg)
+    if require_agent:
+        # Hard gate (migrate's behaviour). ``wait_for_windows_responsive``
+        # already waited up to ``wait_timeout`` for /health and returned True
+        # regardless; re-probe once here so we can fail loudly rather than
+        # racing FreeRDP into install.bat's autologon session.
+        if not transport.health().available:
+            results["agent_settle"] = "not-up"
+            _progress("agent_settle", "agent /health never answered")
+            raise ProvisionAgentUnavailable(
+                "Guest agent /health did not answer; refusing FreeRDP fallback "
+                "(require_agent=True). Run `winpodx pod apply-fixes` once the "
+                "agent is up, or check C:\\winpodx\\setup.log via VNC."
+            )
+        results["agent_settle"] = "ok"
+        _progress("agent_settle", "ok")
+    else:
+        # Soft settle poll (install.sh's behaviour): 30 attempts × 2 s. Silent
+        # if it never lands — apply-fixes / discovery have their own agent
+        # gates + FreeRDP fallback, so we proceed either way.
+        _progress("agent_settle", "best-effort poll (up to 60s)")
+        settled = False
+        for _ in range(30):
+            if transport.health().available:
+                settled = True
+                break
+            time.sleep(2)
+        results["agent_settle"] = "ok" if settled else "not-up (proceeding)"
+        _progress("agent_settle", results["agent_settle"])
+
+    # --- Stage 3: apply-fixes ----------------------------------------------
+    # No gate — apply_windows_runtime_fixes is idempotent and surfaces its own
+    # per-helper success/failure map.
+    _progress("apply_fixes", "applying Windows-side runtime fixes")
+    apply_results = apply_windows_runtime_fixes(cfg)
+    results["apply_fixes"] = apply_results
+    _progress("apply_fixes", ", ".join(f"{k}: {v}" for k, v in apply_results.items()))
+
+    # --- Stage 4: discovery -------------------------------------------------
+    if with_discovery:
+        _progress("discovery", f"scanning guest (up to {retries} attempts)")
+        try:
+            count = _run_discovery_with_retry(cfg, retries=retries, on_progress=_progress)
+            results["discovery"] = f"{count} apps"
+            _progress("discovery", results["discovery"])
+        except Exception as e:  # noqa: BLE001 — best-effort; pending machinery is the net
+            results["discovery"] = f"failed: {e}"
+            _progress("discovery", results["discovery"])
+    else:
+        results["discovery"] = "skipped"
+        _progress("discovery", "skipped")
+
+    # --- Stage 5: reverse-open ---------------------------------------------
+    if with_reverse_open and getattr(cfg.reverse_open, "enabled", False):
+        _progress("reverse_open", "starting listener + pushing manifest")
+        try:
+            _run_reverse_open(cfg)
+            results["reverse_open"] = "ok"
+        except Exception as e:  # noqa: BLE001 — best-effort
+            results["reverse_open"] = f"failed: {e}"
+        _progress("reverse_open", results["reverse_open"])
+    else:
+        results["reverse_open"] = "skipped"
+        _progress("reverse_open", "skipped")
+
+    return results
+
+
+def _run_discovery_with_retry(
+    cfg: Config,
+    *,
+    retries: int,
+    on_progress: Callable[[str, str], None] | None = None,
+) -> int:
+    """Shared discovery path: discover_apps → persist_discovered → register.
+
+    This is the ONE discovery entrypoint the unified chain uses (0.6.0 item
+    B). It is the more-complete of the two historical forms: it not only
+    scans + persists but also installs the XDG .desktop entries AND prunes
+    stale ones + refreshes the icon cache (via ``cli.app._register_desktop_
+    entries``). install.sh's old ``app refresh`` and pending.resume's
+    ``discover_apps + persist + register`` both collapse onto this.
+
+    Retries up to ``retries`` attempts with exponential backoff (2, 4, 8…s,
+    capped at 30 s) to ride out the agent's transient "responsive but not
+    yet stable" window right after install.bat's final TermService cycle —
+    install.sh used a fixed 6× / 10 s loop; the backoff here is gentler at
+    the start and bounded above. Raises the last exception only if every
+    attempt fails so the caller can record it.
+
+    The ``cli.app`` imports are lazy + local: discovery wiring (persist +
+    desktop-entry registration) lives on the CLI side historically, and a
+    module-level import here would invert the core→cli layering. The same
+    lazy-import pattern is used by ``utils.pending.resume``.
+    """
+    from winpodx.cli.app import _register_desktop_entries
+    from winpodx.core.discovery import discover_apps, persist_discovered
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            apps = discover_apps(cfg, timeout=180)
+            persist_discovered(apps)
+            if apps:
+                _register_desktop_entries(apps)
+            return len(apps)
+        except Exception as e:  # noqa: BLE001 — retry on any discovery failure
+            last_exc = e
+            if attempt < max(1, retries):
+                backoff = min(30, 2**attempt)
+                if on_progress is not None:
+                    on_progress(
+                        "discovery",
+                        f"attempt {attempt} deferred ({e}); retrying in {backoff}s",
+                    )
+                log.info(
+                    "discovery attempt %d deferred (%s); retrying in %ds",
+                    attempt,
+                    e,
+                    backoff,
+                )
+                time.sleep(backoff)
+    assert last_exc is not None  # loop always sets it before falling through
+    raise last_exc
+
+
+def _run_reverse_open(cfg: Config) -> None:
+    """Shared reverse-open path: start the listener, then push the manifest.
+
+    Mirrors install.sh's ``host-open start-listener`` + ``host-open refresh``
+    and setup_cmd's ``_cmd_refresh`` call. Both CLI handlers take an
+    ``argparse.Namespace``; we build the minimal shapes they read. Imports
+    are lazy + local for the same core→cli layering reason as discovery.
+
+    The listener start is best-effort (it activates on the next ``pod
+    start`` if it doesn't come up now); a refresh failure propagates so the
+    caller records ``reverse_open: failed``.
+    """
+    import argparse
+
+    from winpodx.cli.host_open import _cmd_refresh, _cmd_start_listener
+
+    try:
+        _cmd_start_listener(argparse.Namespace(json=False))
+    except Exception as e:  # noqa: BLE001 — listener is best-effort
+        log.warning("reverse-open listener did not start: %s", e)
+
+    _cmd_refresh(argparse.Namespace(include_nodisplay=False, skip_icons=False, json=False))
 
 
 def _apply_multi_session(cfg: Config) -> None:
