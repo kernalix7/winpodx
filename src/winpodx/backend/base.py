@@ -10,6 +10,7 @@ import re
 import subprocess
 from abc import ABC, abstractmethod
 
+from winpodx.backend._hostenv import host_env, resolve_backend_bin
 from winpodx.core.config import Config
 
 log = logging.getLogger(__name__)
@@ -94,14 +95,21 @@ def _container_uptime_secs(cli: str, name: str) -> int | None:
     candidates = [name, f"winpodx_{name}", f"winpodx_{name}_1"]
     raw = ""
     last_stderr = ""
+    # AppImage host-first (#357 / #363): resolve the runtime from the HOST
+    # PATH and run it under a clean host env. Outside an AppImage both are
+    # no-ops (``resolve_backend_bin`` returns ``cli`` unchanged, ``host_env``
+    # returns None -> inherit current env).
+    bin_path = resolve_backend_bin(cli)
+    env = host_env()
     for candidate in candidates:
         try:
             result = subprocess.run(
-                [cli, "inspect", "--format", "{{json .State.StartedAt}}", candidate],
+                [bin_path, "inspect", "--format", "{{json .State.StartedAt}}", candidate],
                 capture_output=True,
                 text=True,
                 timeout=5,
                 check=False,
+                env=env,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return None

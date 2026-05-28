@@ -7,6 +7,7 @@ import logging
 import subprocess
 import time
 
+from winpodx.backend._hostenv import host_env, resolve_backend_bin
 from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
@@ -27,10 +28,24 @@ class PodmanBackend(Backend):
         # rootless /dev/kvm access), so the container start fails with
         # "looking up supplemental groups ... Unable to find group
         # keep-groups". See #288 (magicdiablo).
+        #
+        # AppImage host-first (#357): inside an AppImage, resolve
+        # podman-compose from the HOST PATH first (the bundled one is
+        # shadowed by ${APPDIR}/usr/bin's PATH prepend and probes for a
+        # bundled podman that can't run standalone -> "you do not have
+        # podman installed"). ``resolve_backend_bin`` returns the bundled
+        # copy only when the host genuinely lacks it; outside an AppImage
+        # it returns the bare name unchanged so the existing ``which``
+        # gate below is byte-for-byte preserved.
         import shutil
 
-        if shutil.which("podman-compose"):
-            return ["podman-compose", "-f", self._compose_file()]
+        resolved = resolve_backend_bin("podman-compose")
+        # resolve_backend_bin returns the bare name when nothing exists
+        # anywhere (non-AppImage) OR when only the bundled is missing too;
+        # the bare name means we still need the host ``which`` gate to
+        # decide between "found" and "raise the install hint".
+        if shutil.which(resolved) or (resolved != "podman-compose"):
+            return [resolved, "-f", self._compose_file()]
         raise RuntimeError(
             "podman-compose not found on PATH. winpodx requires podman-compose "
             "(not the `podman compose` subcommand, which delegates to "
@@ -56,6 +71,7 @@ class PodmanBackend(Backend):
                 idle_limit=300,
                 hard_cap=4 * 3600,
                 description="podman compose up",
+                env=host_env(),
             )
             log.info("Pod started (podman)")
         except subprocess.CalledProcessError as e:
@@ -72,6 +88,7 @@ class PodmanBackend(Backend):
         idle_limit: int,
         hard_cap: int,
         description: str,
+        env: dict[str, str] | None = None,
     ) -> None:
         """Run a subprocess while watching its output for activity.
 
@@ -79,6 +96,12 @@ class PodmanBackend(Backend):
         silent for ``idle_limit`` seconds, or when total wall time
         exceeds ``hard_cap``. Raises ``CalledProcessError`` on non-zero
         exit, ``TimeoutExpired`` on idle or cap.
+
+        ``env`` is forwarded to ``subprocess.Popen``. ``None`` (the
+        default, and always the case outside an AppImage) means inherit
+        the current environment -- unchanged behaviour. Inside an AppImage
+        the caller passes :func:`host_env` so the host podman + the host
+        helpers it spawns load HOST libraries (#363).
         """
         import threading
         import time
@@ -89,6 +112,7 @@ class PodmanBackend(Backend):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,
         )
         last_activity = [time.monotonic()]
         captured: list[str] = []
@@ -138,6 +162,7 @@ class PodmanBackend(Backend):
                 capture_output=True,
                 text=True,
                 timeout=180,
+                env=host_env(),
             )
             if result.returncode != 0:
                 log.warning(
@@ -153,7 +178,7 @@ class PodmanBackend(Backend):
         try:
             result = subprocess.run(
                 [
-                    "podman",
+                    resolve_backend_bin("podman"),
                     "ps",
                     "-a",
                     "--filter",
@@ -164,6 +189,7 @@ class PodmanBackend(Backend):
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=host_env(),
             )
             if result.returncode != 0:
                 log.warning(

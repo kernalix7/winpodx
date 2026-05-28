@@ -7,6 +7,7 @@ import logging
 import subprocess
 import time
 
+from winpodx.backend._hostenv import host_env, resolve_backend_bin
 from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
@@ -18,7 +19,11 @@ class DockerBackend(Backend):
         return str(config_dir() / "compose.yaml")
 
     def _compose_cmd(self) -> list[str]:
-        return ["docker", "compose", "-f", self._compose_file()]
+        # AppImage host-first (#357 / #363): resolve docker from the HOST
+        # PATH so the host docker (and the host helpers it spawns) win over
+        # any bundled copy + the prepended ${APPDIR}/usr/lib. Outside an
+        # AppImage ``resolve_backend_bin`` returns "docker" unchanged.
+        return [resolve_backend_bin("docker"), "compose", "-f", self._compose_file()]
 
     def start(self) -> None:
         # Match podman backend: large hard cap so first-run image pull
@@ -32,6 +37,7 @@ class DockerBackend(Backend):
                 capture_output=True,
                 text=True,
                 timeout=4 * 3600,
+                env=host_env(),
             )
             log.info("Pod started (docker)")
         except subprocess.CalledProcessError as e:
@@ -48,6 +54,7 @@ class DockerBackend(Backend):
                 capture_output=True,
                 text=True,
                 timeout=180,
+                env=host_env(),
             )
             if result.returncode != 0:
                 log.warning(
@@ -63,7 +70,7 @@ class DockerBackend(Backend):
         try:
             result = subprocess.run(
                 [
-                    "docker",
+                    resolve_backend_bin("docker"),
                     "ps",
                     "-a",
                     "--filter",
@@ -74,6 +81,7 @@ class DockerBackend(Backend):
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=host_env(),
             )
             if result.returncode != 0:
                 log.warning(
