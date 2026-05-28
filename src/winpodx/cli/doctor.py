@@ -47,22 +47,61 @@ class Finding:
         return {"ok": "[OK]  ", "warn": "[WARN]", "fail": "[FAIL]"}.get(self.severity, "[?]   ")
 
 
-def handle_doctor(_args: argparse.Namespace) -> None:
-    """Run all checks + print the report. Exit 1 on any FAIL finding."""
+def handle_doctor(args: argparse.Namespace) -> None:
+    """Run all checks + print the report. Exit 1 on any FAIL finding.
+
+    Flags
+    -----
+    --json   Serialise the Finding list to JSON (severity, title, detail,
+             suggestion) instead of the human-readable report.
+    --quick  Skip slow probes (container health / guest exec) and run only
+             the cheap local checks: freerdp, kvm, backend-on-PATH,
+             config-state, pending-setup, autostart, initialized-flag.
+             Useful for quick pre-flight checks where a 10-second timeout
+             on ``podman ps`` would be disruptive.
+    """
+    emit_json: bool = getattr(args, "json", False)
+    quick: bool = getattr(args, "quick", False)
+
     findings: list[Finding] = []
 
+    # --- cheap / always-on checks ---
     findings.append(_check_install_source())
     findings.append(_check_freerdp())
     findings.append(_check_kvm())
     findings.extend(_check_container_backend())
     findings.append(_check_config_state())
-    findings.extend(_check_container_health())
     findings.append(_check_pending_setup())
     findings.append(_check_autostart_entry())
     findings.append(_check_initialized_flag())
 
+    # --- slow probes (container health / guest exec): skipped by --quick ---
+    if not quick:
+        findings.extend(_check_container_health())
+
+    if emit_json:
+        import json
+
+        payload = [
+            {
+                "severity": f.severity,
+                "title": f.title,
+                "detail": f.detail,
+                "suggestion": f.suggestion,
+            }
+            for f in findings
+            if f is not None
+        ]
+        print(json.dumps(payload, indent=2))
+        fail_count = sum(1 for f in findings if f is not None and f.severity == "fail")
+        if fail_count:
+            sys.exit(1)
+        return
+
     print()
     print("=== winpodx doctor ===")
+    if quick:
+        print(tr("(--quick: container-health probe skipped)"))
     print()
     fail_count = 0
     warn_count = 0

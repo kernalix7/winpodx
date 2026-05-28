@@ -506,13 +506,31 @@ def cli(argv: list[str] | None = None) -> None:
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
-    sub.add_parser(
+    doctor_p = sub.add_parser(
         "doctor",
         help=(
             "Diagnose common winpodx state issues (orphan container, stale "
             "config, missing deps, half-installed state, broken autostart). "
             "Read-only -- prints per-check findings + suggested next "
             "command. Exits non-zero on FAIL findings."
+        ),
+    )
+    doctor_p.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Machine-readable output: emit the Finding list as a JSON array "
+            "(each element has severity, title, detail, suggestion keys)."
+        ),
+    )
+    doctor_p.add_argument(
+        "--quick",
+        action="store_true",
+        help=(
+            "Skip the slow probes (container health / guest exec) and run "
+            "only the cheap local checks: freerdp, kvm, backend-on-PATH, "
+            "config-state, pending-setup, autostart, initialized-flag. "
+            "Completes in < 1 s on most hosts."
         ),
     )
 
@@ -629,6 +647,120 @@ def cli(argv: list[str] | None = None) -> None:
         help="Stream raw per-stage progress to stderr.",
     )
 
+    # --- guest (guest-side operations, 0.6.0 item G) ---
+    # Canonical home for operations that run inside the Windows guest.
+    # The old `pod <x>` forms keep working via deprecation aliases.
+    guest_parser = sub.add_parser("guest", help="Guest-side operations (apply-fixes, sync, …)")
+    guest_sub = guest_parser.add_subparsers(dest="guest_command")
+
+    guest_sub.add_parser(
+        "apply-fixes",
+        help=(
+            "Apply Windows-side runtime fixes (RDP timeouts, NIC power-save, "
+            "TermService recovery, MaxSessions) to the existing pod. "
+            "Idempotent — safe to run any time."
+        ),
+    )
+    guest_sync_p = guest_sub.add_parser(
+        "sync",
+        help=(
+            "Push refreshed guest artifacts (agent.ps1, urlacl, rdprrap/shim, "
+            "registry fixes) into the running guest after a host upgrade, "
+            "instead of a wipe-reinstall. Runs automatically on pod start when "
+            "the guest is older than the host. podman/docker only."
+        ),
+    )
+    guest_sync_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-sync even when the guest version stamp already matches the host.",
+    )
+    guest_syncpw_p = guest_sub.add_parser(
+        "sync-password",
+        help=(
+            "Re-sync the Windows guest's account password to the value in "
+            "winpodx config. Use when password rotation has drifted."
+        ),
+    )
+    guest_syncpw_p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Read the recovery password from $WINPODX_RECOVERY_PASSWORD env var.",
+    )
+    guest_multi_p = guest_sub.add_parser(
+        "multi-session",
+        help=(
+            "Toggle the bundled rdprrap multi-session RDP patch. "
+            "{on|off|status} — enables/disables independent RemoteApp sessions."
+        ),
+    )
+    guest_multi_p.add_argument(
+        "action",
+        choices=("on", "off", "status"),
+        help="on = enable multi-session, off = disable, status = report current state",
+    )
+    guest_sub.add_parser(
+        "recover-oem",
+        help=(
+            "Re-stage C:\\OEM in the Windows guest when dockur's automatic "
+            "first-boot OEM copy failed. podman/docker backends only."
+        ),
+    )
+
+    # --- install (install + storage state, 0.6.0 item G) ---
+    # Canonical home for install progress and disk operations.
+    # Distinct from `winpodx app install` which stays under `app`.
+    # The old `pod <x>` forms keep working via deprecation aliases.
+    install_group_parser = sub.add_parser(
+        "install",
+        help="Install progress and storage management (status, resume, grow-disk, disk-usage)",
+    )
+    install_group_sub = install_group_parser.add_subparsers(dest="install_command")
+
+    from winpodx.cli.pod_install_resume import add_subcommand as _add_inst_resume
+    from winpodx.cli.pod_install_status import add_subcommand as _add_inst_status
+
+    _add_inst_status(install_group_sub, name="status")
+    _add_inst_resume(install_group_sub, name="resume")
+
+    install_grow_p = install_group_sub.add_parser(
+        "grow-disk",
+        help=(
+            "Grow the Windows virtual disk and extend C: to fill it. podman/docker backends only."
+        ),
+    )
+    install_grow_p.add_argument(
+        "size",
+        nargs="?",
+        default=None,
+        metavar="SIZE",
+        help=(
+            "Absolute target size (e.g. 128G). Omit to add the auto-grow "
+            "increment (default 32G) to the current size."
+        ),
+    )
+    install_grow_p.add_argument(
+        "--increment",
+        default=None,
+        metavar="SIZE",
+        help="Amount to add to the current size instead of the configured default.",
+    )
+    install_grow_p.add_argument(
+        "--extend-only",
+        action="store_true",
+        help="Skip the resize; only extend C: into existing unallocated space.",
+    )
+    install_grow_p.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt.",
+    )
+    install_group_sub.add_parser(
+        "disk-usage",
+        help="Show the Windows C: drive size / free / used%% and auto-grow status.",
+    )
+
     # --- host-open (reverse file associations, #48) ---
     from winpodx.cli.host_open import add_subcommand as add_host_open
 
@@ -674,6 +806,20 @@ def cli(argv: list[str] | None = None) -> None:
     _dispatch(args)
 
 
+def _emit_deprecation(old: str, new: str) -> None:
+    """Print a one-line deprecation notice to stderr.
+
+    Both the old and new names are full command paths, e.g.
+    ``"pod apply-fixes"`` and ``"guest apply-fixes"``.
+    The notice is the only output side-effect; the caller is responsible
+    for invoking the new handler afterwards.
+    """
+    print(
+        f"[deprecated] 'winpodx {old}' will be removed in 0.7.0; use 'winpodx {new}'",
+        file=sys.stderr,
+    )
+
+
 def _dispatch(args: argparse.Namespace) -> None:
     """Route parsed args to the appropriate handler."""
     cmd = args.command
@@ -713,9 +859,19 @@ def _dispatch(args: argparse.Namespace) -> None:
         _cmd_autostart(getattr(args, "action", "status"))
     elif cmd == "language":
         _cmd_language(getattr(args, "code", None))
+    elif cmd == "guest":
+        from winpodx.cli.guest import handle_guest
+
+        handle_guest(args)
+    elif cmd == "install":
+        from winpodx.cli.install_cmd import handle_install_group
+
+        handle_install_group(args)
     elif cmd == "info":
+        _emit_deprecation("info", "doctor")
         _cmd_info()
     elif cmd == "check":
+        _emit_deprecation("check", "doctor")
         sys.exit(_cmd_check(args))
     elif cmd == "cleanup":
         _cmd_cleanup()
