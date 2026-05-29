@@ -1251,12 +1251,21 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
         [ -n "$WINPODX_VERBOSE" ] && PROVISION_CMD+=(--verbose)
     fi
     # PYTHONUNBUFFERED=1 keeps the streamed per-stage progress line-buffered
-    # when piped. Disable ``set -e`` so we can inspect the rc; tee the output
-    # so the `no such container` partial-uninstall case is still detectable.
+    # when piped. We inspect the rc explicitly and tee the output so the
+    # `no such container` partial-uninstall case is still detectable.
+    #
+    # Disarm the ERR-trap rollback around this call. `set +e` alone is NOT
+    # enough: bash fires the ERR trap on a failing *pipeline* even with
+    # errexit off, so a deferred (exit 5) or slow (exit 4) provision —
+    # where Windows is already downloaded, booted, and recoverable via the
+    # pending machinery — would otherwise roll back the whole fresh install
+    # before the rc handling below ever runs. We branch on the rc ourselves.
     set +e
+    trap - ERR
     PYTHONUNBUFFERED=1 "$SYMLINK" "${PROVISION_CMD[@]}" 2>&1 \
         | tee "$PROVISION_OUT"
     PROVISION_RC="${PIPESTATUS[0]}"
+    trap rollback_and_exit_err ERR
     set -e
     # Ctrl+C / SIGTERM: bail out. The traps fire in the parent shell too, but
     # this covers the piped-install case where the child died from the signal
@@ -1270,7 +1279,22 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
         trap - EXIT ERR INT TERM
         exit "$PROVISION_RC"
     fi
-    if [ "$PROVISION_RC" -ne 0 ]; then
+    if [ "$PROVISION_RC" -eq 4 ] || [ "$PROVISION_RC" -eq 5 ]; then
+        # DEFERRED, not failed. Windows is downloaded, booted, and the pod is
+        # up; only the agent-first discovery deferred (5) or wait-ready ran
+        # long (4). Rolling back here would throw away ~15 min of ISO download
+        # + boot for a state that finishes itself. Record the remaining steps
+        # as pending — they auto-resume on the next `winpodx` invocation — and
+        # treat the install as a SUCCESS so the artifacts stay in place.
+        warn "Windows is installed and the pod is up, but app discovery deferred"
+        warn "until the in-guest agent finishes coming up (it can lag a minute"
+        warn "after the first-boot reboot). This is not a failure — it finishes"
+        warn "automatically on your next \`winpodx\` run, or force it now with:"
+        warn "  winpodx app refresh"
+        mkdir -p "$HOME/.config/winpodx"
+        printf 'wait_ready\nmigrate\ndiscovery\n' > "$PENDING_FILE"
+        warn "Pending steps recorded at $PENDING_FILE."
+    elif [ "$PROVISION_RC" -ne 0 ]; then
         if grep -q "no such container" "$PROVISION_OUT"; then
             warn "Container is missing — likely from a partial uninstall."
             warn "Recover with a full reinstall:"

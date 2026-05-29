@@ -97,6 +97,26 @@ def test_setup_skips_its_own_provision_tail(script: str) -> None:
     assert "WINPODX_NO_PROVISION=1" in script
 
 
+def test_provision_call_disarms_err_trap(script: str) -> None:
+    # bash fires the ERR trap on a failing *pipeline* even under `set +e`, so
+    # the provision call must explicitly `trap - ERR` before it and re-arm
+    # `trap rollback_and_exit_err ERR` after — otherwise a deferred (exit 5)
+    # provision rolls back the whole fresh install before the rc handling runs.
+    assert "trap - ERR" in script
+    assert "trap rollback_and_exit_err ERR" in script
+    # Re-arm must come back after the disarm (ordering sanity).
+    assert script.index("trap - ERR") < script.rindex("trap rollback_and_exit_err ERR")
+
+
+def test_deferred_provision_is_not_a_rollback(script: str) -> None:
+    # Exit 4 (wait-ready ran long) / 5 (agent-first discovery deferred) are
+    # NOT failures: Windows is downloaded + booted, so they record pending and
+    # keep the install instead of rolling back ~15 min of ISO download.
+    assert '[ "$PROVISION_RC" -eq 4 ] || [ "$PROVISION_RC" -eq 5 ]' in script
+    # The deferred branch points the user at the recovery command.
+    assert "winpodx app refresh" in script
+
+
 def test_no_inline_chain_steps_survive(script: str) -> None:
     """After `winpodx setup`, the post-create chain is driven by ONE winpodx
     command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).
