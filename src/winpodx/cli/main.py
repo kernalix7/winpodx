@@ -647,8 +647,8 @@ def cli(argv: list[str] | None = None) -> None:
     provision_p.add_argument(
         "--retries",
         type=int,
-        default=6,
-        help="Discovery retry attempts with exponential backoff (default 6).",
+        default=2,
+        help="Discovery retry attempts with exponential backoff (default 2).",
     )
     provision_p.add_argument(
         "--verbose",
@@ -976,7 +976,7 @@ def _cmd_provision(args: argparse.Namespace) -> int:
             require_agent=bool(getattr(args, "require_agent", False)),
             with_reverse_open=with_reverse_open,
             with_discovery=with_discovery,
-            retries=int(getattr(args, "retries", 6)),
+            retries=int(getattr(args, "retries", 2)),
             on_progress=_on_progress,
             wait_fn=_rich_wait,
         )

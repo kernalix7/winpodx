@@ -380,7 +380,7 @@ def test_provision_cli_defaults_match_install_sh(monkeypatch):
             require_agent=False,
             no_discovery=False,
             no_reverse_open=False,
-            retries=6,
+            retries=2,
             verbose=False,
         )
     )
@@ -389,7 +389,7 @@ def test_provision_cli_defaults_match_install_sh(monkeypatch):
     assert captured["require_agent"] is False
     assert captured["with_discovery"] is True
     assert captured["with_reverse_open"] is True
-    assert captured["retries"] == 6
+    assert captured["retries"] == 2
 
 
 def test_provision_cli_returns_5_on_agent_unavailable(monkeypatch):
