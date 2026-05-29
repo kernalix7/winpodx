@@ -1169,16 +1169,25 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
         _live.clear()
         print(text)
 
+    # On an ESTABLISHED pod (upgrade / re-run) the container has been up for a
+    # while, so `--tail 100` would replay the ORIGINAL first-boot ISO-download +
+    # image-build log — misleading noise that, under --verbose, looks like a
+    # re-download even though nothing is downloading (the maintainer hit this on
+    # `install.sh` upgrades). Detect "already past first-boot" via RDP being
+    # reachable and replay NO history (`--tail 0`); a genuine fresh boot (RDP
+    # not up yet) keeps `--tail 100` so the in-progress download is visible.
+    _already_up = check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0)
+    _log_tail = "0" if _already_up else "100"
+
     if show_logs:
         try:
-            # v0.2.0.7: --tail 100 so the user sees recent context (Windows
-            # ISO download, current boot stage) instead of nothing — dockur
-            # may have already printed minutes of progress before wait-ready
-            # runs. Both stdout and stderr are drained because dockur's
-            # progress output is split across both streams (download
-            # bytes/sec on one, boot phase on the other).
+            # --tail surfaces recent context (Windows ISO download, current boot
+            # stage) on a fresh boot; 0 on an established pod so we don't replay
+            # stale first-boot history. Both stdout and stderr are drained
+            # because dockur splits progress across both (download bytes/sec on
+            # one, boot phase on the other).
             log_proc = Popen(
-                [cfg.pod.backend, "logs", "-f", "--tail", "100", cfg.pod.container_name],
+                [cfg.pod.backend, "logs", "-f", "--tail", _log_tail, cfg.pod.container_name],
                 stdout=PIPE,
                 stderr=PIPE,
                 text=True,

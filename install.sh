@@ -675,7 +675,15 @@ elif { true </dev/tty; } 2>/dev/null; then
 fi
 
 if [ -z "$INSTALL_MODE" ]; then
-    if [ "$INTERACTIVE" = true ]; then
+    if [ "$IS_FRESH_INSTALL" != "1" ]; then
+        # Upgrade / re-run: a winpodx config (and backend) already exists, so
+        # the R/A/C/N mode prompt is pointless — there's nothing to choose, we
+        # reuse the existing setup and run the migrate path. Resolve to
+        # Automatic (reuse what's present, install only what's strictly
+        # missing) without prompting.
+        INSTALL_MODE="a"
+        log "Existing winpodx install detected — upgrading; reusing current config (skipping install-mode prompt)."
+    elif [ "$INTERACTIVE" = true ]; then
         cat <<'MODE_EOF'
 Install mode?
   [R]ecommended  winpodx's recommended stack (Podman backend + deps); installs missing system packages via the distro package manager (sudo).

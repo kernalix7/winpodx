@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- **업그레이드 시 더 이상 설치 모드를 묻거나 옛 첫부팅 로그를 재생하지 않습니다.** 업그레이드/재실행 UX 두 가지: (1) `install.sh` 가 winpodx config 가 이미 있어도 `[R]ecommended / [A]utomatic / [C]ustom / [N]o` 모드 메뉴를 띄웠음 — 업그레이드는 기존 backend/config 를 재사용하고 `migrate` 를 돌리므로 무의미. 이제 기존 설치를 감지해 프롬프트 없이 Automatic 으로 해결. (2) `pod wait-ready --logs`(업그레이드의 migrate 경로가 사용)가 `podman logs --tail 100` 으로 tail 했는데, 이미 떠있는 컨테이너에선 *원래* 첫부팅 ISO 다운로드 + 이미지 빌드 출력을 재생 — `--verbose` 에선 매 업데이트마다 Windows 를 다시 받는 것처럼 보였음. 이제 pod 가 이미 떠있으면(RDP 도달 가능) 기록을 재생하지 않고(`--tail 0`), 진행 중 다운로드를 보여줄 가치가 있는 진짜 첫부팅에만 `--tail 100` 유지.
+
 - **Flatpak FreeRDP 가 이제 풀데스크탑이 아니라 앱별 RemoteApp 을 띄웁니다.** `flatpak run com.freerdp.FreeRDP` 는 앱의 *기본* 명령 — RAIL 없는 **SDL** 클라이언트(FreeRDP #9078) — 를 실행해서, Flatpak 으로 앱 하나를 띄우면 단일 앱 창 대신 Windows 전체 데스크탑/로그인 화면이 떴습니다. 이제 winpodx 가 Flatpak 을 `flatpak run --command=xfreerdp … com.freerdp.FreeRDP` 로 호출해 RAIL 되는 유일한 클라이언트인 X11 `xfreerdp` 바이너리를 강제하고, winpodx 의 모든 RDP 플래그가 필요로 하는 샌드박스 권한을 부여해서 Flatpak 이 네이티브 클라이언트처럼 동작합니다: `--share=network`(로컬 RDP), `--socket=x11`/`--socket=wayland`(RAIL + 클립보드), `--socket=pulseaudio`(사운드), `--socket=cups`(프린터), `--device=dri`(디스플레이), `--filesystem=home` + 이동식 미디어 마운트 루트(`\\tsclient\home` + `\\tsclient\media` 드라이브 리다이렉션). 0.6.0 이 Flatpak 우선 사용을 시작한 뒤 드러났습니다.
 
 ### Changed

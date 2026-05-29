@@ -163,6 +163,15 @@ def test_prints_install_plan_before_acting(script: str) -> None:
     assert script.index("install plan") < script.index("if [ ${#MISSING[@]} -gt 0 ]; then")
 
 
+def test_upgrade_skips_the_mode_prompt(script: str) -> None:
+    # On an upgrade / re-run (a config already exists) the R/A/C/N mode prompt
+    # is pointless — install.sh reuses the existing config and runs migrate,
+    # so the prompt is gated on IS_FRESH_INSTALL.
+    assert '[ "$IS_FRESH_INSTALL" != "1" ]' in script
+    # The mode-prompt heredoc must come after that upgrade gate.
+    assert script.index('[ "$IS_FRESH_INSTALL" != "1" ]') < script.index("Install mode?")
+
+
 def test_no_inline_chain_steps_survive(script: str) -> None:
     """After `winpodx setup`, the post-create chain is driven by ONE winpodx
     command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).
