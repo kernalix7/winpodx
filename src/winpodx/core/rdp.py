@@ -287,14 +287,15 @@ def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
     """Locate a FreeRDP 3+ client, honouring a source preference.
 
     ``prefer``:
-      * ``"auto"`` (default) — **prefer the Flatpak when it's installed**, else
-        native. The Flatpak ``com.freerdp.FreeRDP`` is RAIL-capable and is the
-        more reliable client on distros whose native ``freerdp3-x11`` is broken
-        (e.g. Ubuntu 26.04, #393), so when both are present we use the Flatpak.
-      * ``"native"`` — force the native binary (fall back to Flatpak only if no
-        native is present).
+      * ``"auto"`` (default) — **prefer the native ``xfreerdp``**, fall back to
+        the Flatpak only when no native client is present. Native is the
+        RAIL-proven client; the Flatpak (`com.freerdp.FreeRDP`) runs in a
+        sandbox that has shown RAIL / multi-display / DPI-scaling rough edges,
+        so it's a fallback, not the default.
+      * ``"native"`` — same native-first order (explicit).
       * ``"flatpak"`` — force the Flatpak (fall back to native only if the
-        Flatpak isn't installed).
+        Flatpak isn't installed) — for hosts whose native ``freerdp3-x11`` is
+        broken (e.g. Ubuntu 26.04, #393); set via ``cfg.rdp.freerdp_source``.
 
     Override per install via ``cfg.rdp.freerdp_source``. Returns ``(path_or_cmd,
     kind)`` or ``None``. Success is cached per-preference; a miss is not cached
@@ -305,11 +306,12 @@ def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
     if cached is not None:
         return cached
 
-    if pref == "native":
-        found = _find_native_freerdp() or _find_flatpak_freerdp()
-    else:
-        # auto + flatpak: try the Flatpak first, fall back to native.
+    if pref == "flatpak":
+        # Forced Flatpak: try it first, fall back to native if not installed.
         found = _find_flatpak_freerdp() or _find_native_freerdp()
+    else:
+        # auto + native: native first (RAIL-proven), Flatpak only as fallback.
+        found = _find_native_freerdp() or _find_flatpak_freerdp()
 
     if found is not None:
         _FREERDP_CACHE[pref] = found

@@ -581,19 +581,19 @@ if [ "$FLATPAK_PRESENT" = true ] \
     && flatpak list --app --columns=application 2>/dev/null | grep -qx 'com.freerdp.FreeRDP'; then
     FREERDP_FLATPAK_PRESENT=true
 fi
-# Any client (native or Flatpak) satisfies the requirement. winpodx's launcher
-# prefers the Flatpak when both are present (core/rdp.py), and on distros whose
-# native freerdp3-x11 is broken the Flatpak is the better client (#366, #393);
-# #269 showed both present with the native install adding nothing. So we never
-# pull the native package when a Flatpak client is already there.
+# Any client (native or Flatpak) satisfies the requirement, so we never pull a
+# redundant native package when a client is already present (#269). winpodx's
+# launcher prefers the NATIVE xfreerdp when both are present (core/rdp.py) —
+# the Flatpak sandbox has RAIL / multi-display / DPI rough edges — so the
+# reported "kind" mirrors that: native wins the label when both exist.
 FREERDP_PRESENT=false
 FREERDP_KIND=""
-if [ "$FREERDP_FLATPAK_PRESENT" = true ]; then
-    FREERDP_PRESENT=true
-    FREERDP_KIND="flatpak (com.freerdp.FreeRDP)"
-elif [ "$FREERDP_NATIVE_PRESENT" = true ]; then
+if [ "$FREERDP_NATIVE_PRESENT" = true ]; then
     FREERDP_PRESENT=true
     FREERDP_KIND="native"
+elif [ "$FREERDP_FLATPAK_PRESENT" = true ]; then
+    FREERDP_PRESENT=true
+    FREERDP_KIND="flatpak (com.freerdp.FreeRDP)"
 fi
 PYTHON3_PRESENT=false
 command -v python3 >/dev/null 2>&1 && PYTHON3_PRESENT=true
@@ -864,32 +864,26 @@ esac
 
 # FreeRDP is required for every backend (the launcher shells out to it).
 # Source resolution (auto | native | flatpak). Custom mode may set
-# WINPODX_FREERDP_SOURCE; default auto. winpodx's launcher prefers the Flatpak
-# when both clients are present (core/rdp.py), so auto mirrors that: when NO
-# client exists yet, install the Flatpak if the flatpak runtime is available,
-# else the native package. An explicit native/flatpak choice forces that
-# source. The resolved value is handed to `winpodx setup` (--freerdp-source)
-# which writes cfg.rdp.freerdp_source.
+# WINPODX_FREERDP_SOURCE; default auto. winpodx's launcher prefers the NATIVE
+# xfreerdp (RAIL-proven; the Flatpak sandbox has RAIL / multi-display / DPI
+# rough edges), so auto installs the native package when no client is present.
+# An already-present Flatpak is reused at runtime (find_freerdp falls back to
+# it when there's no native), so we never install a redundant client. Only an
+# explicit `--freerdp-source flatpak` (Custom) installs the Flatpak. The
+# resolved value is handed to `winpodx setup --freerdp-source` -> cfg.rdp.
 WINPODX_FREERDP_SOURCE="${WINPODX_FREERDP_SOURCE:-auto}"
 INSTALL_FREERDP_FLATPAK=false
 case "$WINPODX_FREERDP_SOURCE" in
-    native)
-        [ "$FREERDP_NATIVE_PRESENT" = false ] && MISSING+=("freerdp")
-        ;;
     flatpak)
+        # Explicit Flatpak choice (e.g. native freerdp3-x11 is broken, #393).
         if [ "$FREERDP_FLATPAK_PRESENT" = false ]; then
             INSTALL_FREERDP_FLATPAK=true
             [ "$FLATPAK_PRESENT" = false ] && MISSING+=("flatpak")
         fi
         ;;
-    *)  # auto
-        if [ "$FREERDP_PRESENT" = false ]; then
-            if [ "$FLATPAK_PRESENT" = true ]; then
-                INSTALL_FREERDP_FLATPAK=true
-            else
-                MISSING+=("freerdp")
-            fi
-        fi
+    *)  # auto + native: native preferred. Install native only when NO client
+        # (native or Flatpak) is present; an existing Flatpak is reused.
+        [ "$FREERDP_PRESENT" = false ] && MISSING+=("freerdp")
         ;;
 esac
 

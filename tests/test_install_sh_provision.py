@@ -145,9 +145,10 @@ def test_custom_mode_picks_freerdp_source(script: str) -> None:
 
 
 def test_freerdp_flatpak_not_installed_redundantly(script: str) -> None:
-    # When a FreeRDP client (native or Flatpak) is already present, the native
-    # package is not pulled; when neither is present, auto installs the Flatpak
-    # if the flatpak runtime exists, else native.
+    # When a FreeRDP client (native or Flatpak) is already present, no client is
+    # pulled. With NO client present, auto installs the NATIVE package (native
+    # is preferred); only an explicit `--freerdp-source flatpak` installs the
+    # Flatpak (INSTALL_FREERDP_FLATPAK).
     assert "FREERDP_FLATPAK_PRESENT" in script
     assert "FREERDP_NATIVE_PRESENT" in script
     assert "INSTALL_FREERDP_FLATPAK" in script
