@@ -52,7 +52,7 @@ from winpodx.reverse_open.apps_db import AppsDatabase
 from winpodx.reverse_open.listener import Listener, ListenerConfig
 from winpodx.reverse_open.seen_uuids import SeenUUIDs
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 _PID_FILENAME = "reverse-open.pid"
@@ -203,11 +203,11 @@ def _daemon_main(
     # signal between fork and these calls can't catch the daemon in a
     # half-initialised state.
     def _sigterm(_signum, _frame):
-        logger.info("listener: SIGTERM received")
+        log.info("listener: SIGTERM received")
         listener.stop()
 
     def _sighup(_signum, _frame):
-        logger.info("listener: SIGHUP — reloading apps database")
+        log.info("listener: SIGHUP — reloading apps database")
         new_db = AppsDatabase.load(apps_db_path)
         # Atomic swap — the listener holds a reference and reads it
         # at the top of every per-request handler.
@@ -228,7 +228,7 @@ def _daemon_main(
     try:
         listener.run_forever()
     except Exception:  # noqa: BLE001
-        logger.exception("listener: unhandled exception in run_forever")
+        log.exception("listener: unhandled exception in run_forever")
         rc = 2
     finally:
         try:

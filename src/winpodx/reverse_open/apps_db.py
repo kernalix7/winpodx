@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 
@@ -101,18 +101,18 @@ class AppsDatabase:
         require manual intervention.
         """
         if not manifest_path.is_file():
-            logger.info("apps_db: manifest not found at %s", manifest_path)
+            log.info("apps_db: manifest not found at %s", manifest_path)
             return cls.empty()
         try:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("apps_db: cannot parse %s: %s", manifest_path, exc)
+            log.warning("apps_db: cannot parse %s: %s", manifest_path, exc)
             return cls.empty()
         if not isinstance(data, dict):
-            logger.warning("apps_db: top-level is not an object in %s", manifest_path)
+            log.warning("apps_db: top-level is not an object in %s", manifest_path)
             return cls.empty()
         if data.get("version") != 1:
-            logger.warning(
+            log.warning(
                 "apps_db: unsupported manifest version %r in %s",
                 data.get("version"),
                 manifest_path,

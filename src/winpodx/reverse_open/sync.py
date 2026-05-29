@@ -49,7 +49,7 @@ from winpodx.core.agent import AgentClient, AgentError
 from winpodx.core.config import Config
 from winpodx.utils.paths import bundle_dir
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 # Where the synced payload lands on the guest. Public-readable so the
@@ -170,12 +170,12 @@ def _collect_icons(stage_dir: Path, manifest: dict) -> dict[str, bytes]:
             continue
         candidate = icons_dir / f"{slug}.ico"
         if not candidate.is_file():
-            logger.debug("sync: icon missing for %s", slug)
+            log.debug("sync: icon missing for %s", slug)
             continue
         try:
             out[slug] = candidate.read_bytes()
         except OSError as exc:
-            logger.warning("sync: cannot read icon for %s: %s", slug, exc)
+            log.warning("sync: cannot read icon for %s: %s", slug, exc)
     return out
 
 

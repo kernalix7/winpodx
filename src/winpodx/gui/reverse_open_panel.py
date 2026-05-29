@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
     from winpodx.core.config import Config
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 # ----- pure-python helpers (Qt-free) ------------------------------------------
@@ -319,7 +319,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         try:
             handler(args)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("host-open CLI handler raised")
+            log.exception("host-open CLI handler raised")
             QMessageBox.warning(card, tr("reverse-open"), str(exc))
 
     btn_refresh.clicked.connect(
