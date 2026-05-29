@@ -44,12 +44,15 @@ def _patch_stages(
     *,
     wait_ready: bool = True,
     agent_available: bool = True,
+    pod_running: bool = True,
     apply_results: dict | None = None,
     discovery_count: int = 7,
     discovery_raises: Exception | None = None,
     reverse_open_raises: Exception | None = None,
 ):
     """Patch every finish_provisioning stage; return a call-record dict."""
+    from winpodx.core.pod import PodState
+
     calls: dict[str, object] = {
         "wait": [],
         "apply": 0,
@@ -62,6 +65,13 @@ def _patch_stages(
         provisioner,
         "wait_for_windows_responsive",
         lambda cfg, timeout: calls["wait"].append(timeout) or wait_ready,
+    )
+    # The agent-settle gate (and discovery's agent-recovery wait) are gated on
+    # pod liveness — they wait while RUNNING and only give up if the pod stops.
+    monkeypatch.setattr(
+        provisioner,
+        "pod_status",
+        lambda cfg: SimpleNamespace(state=PodState.RUNNING if pod_running else PodState.STOPPED),
     )
     monkeypatch.setattr(
         "winpodx.core.transport.agent.AgentTransport",
@@ -137,11 +147,14 @@ def test_wait_timeout_is_forwarded(monkeypatch):
 # --- stage 2: agent settle ----------------------------------------------
 
 
-def test_require_agent_raises_when_health_down(monkeypatch):
-    calls = _patch_stages(monkeypatch, agent_available=False)
+def test_require_agent_raises_only_when_pod_stops(monkeypatch):
+    # Agent /health down AND pod no longer RUNNING: the keepalive watchdog can't
+    # revive it, so the settle gate gives up (and discovery never runs). This is
+    # the ONLY thing that ends the wait — a live pod with a down agent is waited
+    # out, not failed (see test_require_agent_waits_for_stable_health).
+    calls = _patch_stages(monkeypatch, agent_available=False, pod_running=False)
     with pytest.raises(ProvisionAgentUnavailable):
         finish_provisioning(_cfg(), require_agent=True)
-    # Hard gate fires before apply / discovery / reverse.
     assert calls["apply"] == 0
     assert calls["discovery"] == []
     assert calls["reverse"] == 0
@@ -384,10 +397,12 @@ class _FlakyHealthTransport:
         return SimpleNamespace(available=val, detail="")
 
 
-def test_require_agent_waits_for_stable_health(monkeypatch):
-    # A single OK then a flicker-down must NOT satisfy the gate; only 3
-    # consecutive OK proceeds. up, down, up, up, up -> stabilises.
-    calls = _patch_stages(monkeypatch, agent_available=True)
+def test_require_agent_waits_through_flaps_while_pod_runs(monkeypatch):
+    # A single OK then a flicker-down must NOT satisfy the gate; the settle
+    # WAITS (no time cap, pod stays RUNNING) until 3 consecutive OK. The agent
+    # dying and being revived by the keepalive watchdog mid-wait is waited out,
+    # not failed. up, down, up, up, up -> stabilises.
+    calls = _patch_stages(monkeypatch, agent_available=True)  # pod_running=True
     flaky = _FlakyHealthTransport([True, False, True, True, True])
     monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport", lambda cfg: flaky)
     results = finish_provisioning(_cfg(), require_agent=True)
@@ -395,12 +410,22 @@ def test_require_agent_waits_for_stable_health(monkeypatch):
     assert calls["apply"] == 1  # proceeded only once stable
 
 
-def test_require_agent_raises_when_never_stable(monkeypatch):
-    # Health flickers but never gets 3 in a row -> hard gate fires, nothing
-    # downstream runs.
-    calls = _patch_stages(monkeypatch, agent_available=True)
-    flaky = _FlakyHealthTransport([True, False, True, False, True, False])
-    monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport", lambda cfg: flaky)
+def test_require_agent_raises_when_pod_dies_mid_wait(monkeypatch):
+    # Agent never stabilises AND the pod stops part-way: the keepalive watchdog
+    # is gone, so the wait ends and the gate raises (nothing downstream runs).
+    # A live pod would be waited out forever instead — see the test above.
+    calls = _patch_stages(monkeypatch, agent_available=False)
+    from winpodx.core.pod import PodState
+
+    states = [PodState.RUNNING, PodState.RUNNING, PodState.STOPPED]
+    seq = {"i": 0}
+
+    def fake_pod_status(cfg):
+        i = min(seq["i"], len(states) - 1)
+        seq["i"] += 1
+        return SimpleNamespace(state=states[i])
+
+    monkeypatch.setattr(provisioner, "pod_status", fake_pod_status)
     with pytest.raises(ProvisionAgentUnavailable):
         finish_provisioning(_cfg(), require_agent=True)
     assert calls["apply"] == 0
@@ -646,6 +671,11 @@ def test_require_agent_exports_env_around_apply_and_discovery(monkeypatch):
         "winpodx.core.transport.agent.AgentTransport", lambda cfg: _FakeTransport(True)
     )
     monkeypatch.setattr(provisioner, "wait_for_windows_responsive", lambda cfg, timeout: True)
+    from winpodx.core.pod import PodState
+
+    monkeypatch.setattr(
+        provisioner, "pod_status", lambda cfg: SimpleNamespace(state=PodState.RUNNING)
+    )
 
     monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
     finish_provisioning(_cfg(), require_agent=True, with_reverse_open=False)
@@ -687,6 +717,11 @@ def test_require_agent_discovery_unavailable_raises_provision_unavailable(monkey
     monkeypatch.setattr(
         "winpodx.core.transport.agent.AgentTransport", lambda cfg: _FakeTransport(True)
     )
+    from winpodx.core.pod import PodState
+
+    monkeypatch.setattr(
+        provisioner, "pod_status", lambda cfg: SimpleNamespace(state=PodState.RUNNING)
+    )
     monkeypatch.setattr(
         provisioner, "apply_windows_runtime_fixes", lambda cfg: {"max_sessions": "ok"}
     )
@@ -718,8 +753,60 @@ def test_discovery_with_retry_escalates_agent_unavailable_when_require_agent(mon
         ),
     )
     monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+    # Pod is STOPPED, so the agent-recovery wait can't recover (no keepalive)
+    # and discovery escalates to ProvisionAgentUnavailable. A RUNNING pod would
+    # be waited on indefinitely instead — see the patient-recovery test below.
+    from winpodx.core.pod import PodState
+
+    monkeypatch.setattr(
+        provisioner, "pod_status", lambda cfg: SimpleNamespace(state=PodState.STOPPED)
+    )
     with pytest.raises(ProvisionAgentUnavailable):
         provisioner._run_discovery_with_retry(_cfg(), retries=2, require_agent=True)
+
+
+def test_discovery_waits_for_agent_then_succeeds_while_pod_runs(monkeypatch):
+    # The reliability fix: require_agent discovery does NOT defer on a timer
+    # when the agent is briefly down — it waits (pod-gated) for the keepalive
+    # watchdog to revive it, then retries and succeeds in-line.
+    from winpodx.core import discovery as disc_mod
+    from winpodx.core.discovery import DiscoveryError
+    from winpodx.core.pod import PodState
+
+    # discover_apps raises agent_unavailable until the agent /health is up.
+    health_up = {"v": False}
+
+    def disc(cfg, timeout=180):
+        if not health_up["v"]:
+            raise DiscoveryError("agent down", kind="agent_unavailable")
+        return ["app1", "app2", "app3"]
+
+    monkeypatch.setattr(disc_mod, "discover_apps", disc)
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", lambda apps: None)
+    monkeypatch.setattr("winpodx.cli.app._register_desktop_entries", lambda apps: None)
+    monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+    # Pod stays RUNNING throughout (keepalive will revive the agent).
+    monkeypatch.setattr(
+        provisioner, "pod_status", lambda cfg: SimpleNamespace(state=PodState.RUNNING)
+    )
+
+    # /health: down for the first 2 probes, then up — and once it's up, flip the
+    # discovery result to succeed.
+    probes = {"n": 0}
+
+    class _Recovering:
+        def health(self):
+            probes["n"] += 1
+            up = probes["n"] >= 3
+            if up:
+                health_up["v"] = True
+            return SimpleNamespace(available=up, detail="")
+
+    monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport", lambda cfg: _Recovering())
+
+    count = provisioner._run_discovery_with_retry(_cfg(), retries=2, require_agent=True)
+    assert count == 3  # waited out the down window, then discovered in-line
+    assert probes["n"] >= 3  # actually polled /health until it recovered
 
 
 def test_discovery_with_retry_reraises_other_errors_even_with_require_agent(monkeypatch):

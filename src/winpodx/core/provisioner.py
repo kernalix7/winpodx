@@ -338,6 +338,56 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 300) -> bool:
     return True
 
 
+def _wait_for_agent_ready(
+    cfg: Config,
+    transport,
+    *,
+    need_consecutive: int = 1,
+    poll: float = 2.0,
+    on_progress: Callable[[str, str], None] | None = None,
+    stage: str = "agent",
+) -> bool:
+    """Block until the guest agent ``/health`` is (stably) up, gated on pod liveness.
+
+    Returns ``True`` once ``/health`` answers ``need_consecutive`` times in a
+    row. Returns ``False`` only when the pod is no longer ``RUNNING`` — i.e.
+    recovery is genuinely impossible, because without a running pod the
+    in-guest ``WinpodxAgentKeepAlive`` watchdog can't relaunch a dead agent.
+
+    There is deliberately **no time cap**. As long as the pod runs, the
+    keepalive task relaunches a crashed agent every ~60 s, so we wait for it
+    rather than giving up on an arbitrary timer — the wait is bounded by a
+    *real signal* (pod liveness), the same philosophy as the wget-ETA dynamic
+    deadline in ``pod wait-ready`` (#126). A slow or flapping agent on a live
+    pod is something to wait out, not a failure; only a stopped pod ends it.
+    """
+    consecutive = 0
+    waited = 0.0
+    while consecutive < need_consecutive:
+        if pod_status(cfg).state != PodState.RUNNING:
+            return False
+        if transport.health().available:
+            consecutive += 1
+            if consecutive >= need_consecutive:
+                return True
+        else:
+            consecutive = 0
+            if on_progress is not None:
+                on_progress(
+                    stage,
+                    f"guest agent not up yet ({int(waited)}s); pod is running, "
+                    "waiting for the keepalive watchdog to revive it…",
+                )
+            log.info(
+                "%s: agent /health down but pod running (%ds); waiting for keepalive revival",
+                stage,
+                int(waited),
+            )
+        time.sleep(poll)
+        waited += poll
+    return True
+
+
 def finish_provisioning(
     cfg: Config,
     *,
@@ -458,29 +508,30 @@ def finish_provisioning(
         # proceed only once the agent has actually stabilised, not on the first
         # flicker. (The per-apply transient retry in _apply_via_transport is
         # the second layer of defence for a stall that lands after this gate.)
-        _STABLE_OK_NEEDED = 3
-        _STABLE_GAP_SECS = 2
-        _STABLE_MAX_PROBES = 15  # ~30s ceiling once /health first answers
-        consecutive = 0
-        for i in range(_STABLE_MAX_PROBES):
-            if transport.health().available:
-                consecutive += 1
-                if consecutive >= _STABLE_OK_NEEDED:
-                    break
-            else:
-                consecutive = 0
-            if i < _STABLE_MAX_PROBES - 1:
-                time.sleep(_STABLE_GAP_SECS)
-        if consecutive < _STABLE_OK_NEEDED:
+        #
+        # Wait with NO time cap — gated only on pod liveness — for 3 consecutive
+        # /health OK. We do NOT give up on a timer: as long as the pod runs the
+        # keepalive watchdog will bring the agent back, so settling "slowly but
+        # reliably" beats deferring the whole install on an arbitrary deadline.
+        # Only a stopped pod (no watchdog) ends the wait. See _wait_for_agent_ready.
+        if _wait_for_agent_ready(
+            cfg,
+            transport,
+            need_consecutive=3,
+            poll=2.0,
+            on_progress=on_progress,
+            stage="agent_settle",
+        ):
+            results["agent_settle"] = "ok"
+            _progress("agent_settle", "ok (stable)")
+        else:
             results["agent_settle"] = "not-up"
-            _progress("agent_settle", "agent /health never stabilised")
+            _progress("agent_settle", "pod stopped before the agent came up")
             raise ProvisionAgentUnavailable(
-                "Guest agent /health did not stay up; refusing FreeRDP fallback "
-                "(require_agent=True). Run `winpodx pod apply-fixes` once the "
-                "agent is up, or check C:\\winpodx\\setup.log via VNC."
+                "Guest agent /health never came up and the pod is no longer "
+                "running, so the keepalive watchdog can't revive it. Check "
+                "`winpodx pod status` and C:\\winpodx\\setup.log via VNC."
             )
-        results["agent_settle"] = "ok"
-        _progress("agent_settle", "ok (stable)")
     else:
         # Soft settle poll (install.sh's behaviour): 30 attempts × 2 s. Silent
         # if it never lands — apply-fixes / discovery have their own agent
@@ -598,9 +649,12 @@ def _run_discovery_with_retry(
     """
     from winpodx.cli.app import _register_desktop_entries
     from winpodx.core.discovery import DiscoveryError, discover_apps, persist_discovered
+    from winpodx.core.transport.agent import AgentTransport
 
+    transport = AgentTransport(cfg)
     last_exc: Exception | None = None
-    for attempt in range(1, max(1, retries) + 1):
+    attempt = 0
+    while True:
         try:
             apps = discover_apps(cfg, timeout=180)
             persist_discovered(apps)
@@ -609,6 +663,29 @@ def _run_discovery_with_retry(
             return len(apps)
         except Exception as e:  # noqa: BLE001 — retry on any discovery failure
             last_exc = e
+            agent_unavailable = (
+                isinstance(e, DiscoveryError) and getattr(e, "kind", "") == "agent_unavailable"
+            )
+            # Agent-first discovery, agent not up yet: this isn't a failure to
+            # retry-then-give-up on — it's a "wait for the agent". Block (no
+            # time cap, pod-gated) until the keepalive watchdog revives it, then
+            # retry discovery. This does NOT consume the bounded retry budget;
+            # we only fall through to defer if the POD stops (recovery
+            # impossible). "Slow but reliable" — never punt a fresh install to
+            # `app refresh` just because the agent lagged a minute.
+            if require_agent and agent_unavailable:
+                if _wait_for_agent_ready(
+                    cfg,
+                    transport,
+                    need_consecutive=1,
+                    poll=10.0,
+                    on_progress=on_progress,
+                    stage="discovery",
+                ):
+                    continue  # agent answered — retry discovery (not a spent attempt)
+                break  # pod stopped — can't recover here; defer below
+            # Any other (non-agent) transient error: bounded exponential backoff.
+            attempt += 1
             if attempt < max(1, retries):
                 backoff = min(30, 2**attempt)
                 if on_progress is not None:
@@ -623,6 +700,8 @@ def _run_discovery_with_retry(
                     backoff,
                 )
                 time.sleep(backoff)
+                continue
+            break
     assert last_exc is not None  # loop always sets it before falling through
     # Agent-first install: a persistent agent_unavailable is a "defer", not a
     # hard failure — let the caller route it to the pending machinery (#271).
