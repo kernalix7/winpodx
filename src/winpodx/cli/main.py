@@ -1008,7 +1008,20 @@ def _cmd_provision(args: argparse.Namespace) -> int:
 
     print(tr("Provisioning complete."))
     for stage, status in results.items():
-        print(f"  {stage}: {status}")
+        if isinstance(status, dict):
+            # apply_fixes carries a {helper: status_str} map; render it as a
+            # compact "N/N fixes OK" when every helper succeeded, else a joined
+            # "k: v, k: v" string (same form as provisioner.py:515) so no raw
+            # Python dict repr leaks into user output.
+            total = len(status)
+            ok_count = sum(1 for v in status.values() if v == "ok")
+            if total and ok_count == total:
+                rendered = f"{ok_count}/{total} fixes OK"
+            else:
+                rendered = ", ".join(f"{k}: {v}" for k, v in status.items())
+            print(f"  {stage}: {rendered}")
+        else:
+            print(f"  {stage}: {status}")
     return 0
 
 

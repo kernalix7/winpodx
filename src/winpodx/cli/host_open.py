@@ -271,6 +271,11 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         json.dump(out, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")
     else:
+        # Make the direction unambiguous: this discovers HOST Linux apps and
+        # stages them into the Windows guest's "Open with…" menu — the
+        # opposite direction from the Windows-app discovery printed during
+        # provision just above.
+        print(tr("Reverse-open (host apps -> Windows 'Open with'):"))
         print(
             tr("Discovered {count} apps; staged {kept} after filters.").format(
                 count=len(apps), kept=len(kept)
@@ -291,6 +296,8 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
                 )
             )
         print(f"  Manifest: {apps_json_path}")
+        if kept:
+            print(tr("  Run `winpodx host-open list` to see the staged apps."))
         if daemon_reloaded:
             print(tr("  Daemon: SIGHUP sent; new manifest loaded."))
         if sync_pushed_apps is not None:

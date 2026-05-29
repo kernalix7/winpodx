@@ -8,20 +8,8 @@ import re
 import sys
 import threading
 
+from winpodx.cli.main import _emit_deprecation as _deprecate_pod
 from winpodx.core.i18n import tr
-
-
-def _deprecate_pod(old_sub: str, new_cmd: str) -> None:
-    """Emit one deprecation line to stderr for a moved ``pod`` subcommand.
-
-    Both ``old_sub`` and ``new_cmd`` are bare names without the ``winpodx``
-    prefix, e.g. ``"pod apply-fixes"`` and ``"guest apply-fixes"``.
-    """
-    import sys as _sys
-
-    _sys.stderr.write(
-        f"[deprecated] 'winpodx {old_sub}' will be removed in 0.7.0; use 'winpodx {new_cmd}'\n"
-    )
 
 
 def handle_pod(args: argparse.Namespace) -> None:

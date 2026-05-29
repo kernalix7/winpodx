@@ -14,7 +14,7 @@ distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Py
 
 > **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. winpodx 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
 
-기본적으로 인스톨러는 **가장 최신의 GitHub release** (현재 `v0.5.7`) 에 pin. 프리릴리스 / 개발 버전은 opt-in.
+기본적으로 인스톨러는 **가장 최신의 GitHub release** 에 pin. 프리릴리스 / 개발 버전은 opt-in.
 
 ## 버전 선택
 
@@ -28,11 +28,11 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main
 
 # 특정 태그, 브랜치, 커밋 설치
-curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --ref v0.5.7
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --ref vX.Y.Z
 
 # 환경변수 등가 (curl | bash 에서 -s -- 없이 동작)
-WINPODX_REF=main   curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
-WINPODX_REF=v0.5.7 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+WINPODX_REF=main  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+WINPODX_REF=vX.Y.Z curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
 ## 수동 설치 (provisioning 건너뛰기)

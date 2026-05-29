@@ -410,7 +410,13 @@ def build_rdp_command(
             # would collide with FreeRDP's sub-arg separator, so it is
             # sanitised to spaces. ``cmd:`` accepts a UNC path (file
             # open) or a CLI string (Explorer ``shell:Desktop``).
-            app_arg = f"/app:program:{app_executable},name:{name_token}"
+            #
+            # ``app_executable`` is interpolated into the same ``/app:``
+            # arg, so a comma in the path would inject a spurious sub-key
+            # (same hazard ``default_args`` is sanitised for below). Strip
+            # commas to spaces here too before building the combined arg.
+            program_token = app_executable.replace(",", " ")
+            app_arg = f"/app:program:{program_token},name:{name_token}"
             if file_path:
                 try:
                     unc_path = linux_to_unc(file_path)
@@ -792,15 +798,22 @@ def launch_app(
     log.info("Launching RDP: %s", " ".join(cmd))
 
     # Acquire PID file lock before launching to prevent race conditions.
+    #
+    # Open WITHOUT O_TRUNC: a plain "w" open empties the file before the
+    # real PID is written below, so a concurrent reader (process.py's
+    # list_active_sessions / the idle monitor) could see an empty lock
+    # file between flock and the write and unlink the live session's lock
+    # as "corrupt". We hold the empty (or stale) contents until the PID is
+    # known, then ftruncate+write it as the single mutation under flock.
+    import fcntl
+
     session = RDPSession(app_name=app_name)
     session.pid_file.parent.mkdir(parents=True, exist_ok=True)
-    lock_fd = session.pid_file.open("w")
+    lock_raw = os.open(session.pid_file, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        import fcntl
-
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock_raw, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        lock_fd.close()
+        os.close(lock_raw)
         existing = _find_existing_session(app_name)
         if existing is not None:
             return existing
@@ -820,13 +833,18 @@ def launch_app(
 
         session.process = proc
 
-        lock_fd.write(str(proc.pid))
-        lock_fd.flush()
+        # Write the PID as the only mutation: truncate then write in one
+        # shot so a reader never observes a partially written / empty file.
+        pid_bytes = str(proc.pid).encode()
+        os.ftruncate(lock_raw, 0)
+        os.lseek(lock_raw, 0, os.SEEK_SET)
+        os.write(lock_raw, pid_bytes)
+        os.fsync(lock_raw)
     except Exception:
         session.pid_file.unlink(missing_ok=True)
         raise
     finally:
-        lock_fd.close()
+        os.close(lock_raw)
 
     t = threading.Thread(
         target=_reaper_thread,

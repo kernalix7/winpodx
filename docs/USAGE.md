@@ -42,7 +42,7 @@ winpodx guest sync --force        # Re-sync even when the guest version stamp al
 winpodx guest sync-password       # Recover from password drift (cfg ↔ Windows)
 winpodx guest multi-session on    # Toggle bundled rdprrap multi-session RDP
 winpodx guest multi-session status
-winpodx guest recover-oem         # Re-stage C:\OEM + run install.bat when dockur's first-boot OEM copy failed (#287)
+winpodx guest recover-oem         # Print noVNC PowerShell steps to download + run install.bat manually when dockur's first-boot OEM copy failed (#287)
 
 # Install / disk operations (renamed from `pod install-* / pod grow-disk / pod disk-usage` in 0.6.0)
 winpodx install status            # Install progress / pending steps (#271 agent-first installs)

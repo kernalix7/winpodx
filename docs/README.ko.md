@@ -89,10 +89,10 @@ sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/re
 sudo dnf install winpodx
 
 # Debian / Ubuntu — 최신 release 에서 맞는 .deb 다운로드 후
-sudo apt install ./winpodx_0.5.8_all_debian13.deb
+sudo apt install ./winpodx_<version>_all_debian13.deb
 
 # AlmaLinux / Rocky / RHEL 9 / 10 — 최신 release 에서 맞는 .rpm
-sudo dnf install ./winpodx-0.5.8-0.noarch.el10.rpm
+sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm
 
 # Arch
 yay -S winpodx

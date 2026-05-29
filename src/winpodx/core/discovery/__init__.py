@@ -719,6 +719,9 @@ def discover_apps(
 
         return _parse_discovery_output(result.stdout)
 
+    def _uwp_count(found) -> int:
+        return sum(1 for a in found if getattr(a, "source", "") == "uwp")
+
     apps = _run_once()
     if _looks_suspiciously_empty(apps):
         # Caught Windows mid-boot. Wait briefly and rerun — by now AppX
@@ -729,7 +732,7 @@ def discover_apps(
         log.info(
             "discovery looks suspiciously empty (%d total, %d uwp); retrying once",
             len(apps),
-            sum(1 for a in apps if getattr(a, "source", "") == "uwp"),
+            _uwp_count(apps),
         )
         if progress_callback:
             try:
@@ -740,8 +743,11 @@ def discover_apps(
 
         _time.sleep(8)
         retry_apps = _run_once()
-        # Pick whichever pass returned more — never regress.
-        if len(retry_apps) > len(apps):
+        # Prefer the retry when it recovered apps — never regress. The
+        # suspicion is often a missing-UWP gap that leaves the total
+        # unchanged, so accept an equal-size retry that filled in more
+        # UWP entries, not just a strictly larger total.
+        if len(retry_apps) > len(apps) or _uwp_count(retry_apps) > _uwp_count(apps):
             return retry_apps
     return apps
 

@@ -99,12 +99,26 @@ def is_pod_paused(cfg: Config) -> bool:
 
 
 def ensure_pod_awake(cfg: Config) -> None:
-    """Resume pod if it's paused (called before any app launch)."""
+    """Resume pod if it's paused (called before any app launch).
+
+    Raises ProvisionError if the pod is still paused after the resume
+    attempt, so callers fail fast with a clear message instead of handing
+    a paused pod to launch_app (which surfaces as a long opaque RDP timeout).
+    """
     if is_pod_paused(cfg):
         log.info("Pod is paused, resuming...")
-        resume_pod(cfg)
+        resumed = resume_pod(cfg)
         # Brief wait for unpause to complete
         time.sleep(2)
+        if not resumed or is_pod_paused(cfg):
+            # Lazy import: provisioner imports daemon at module level, so a
+            # top-level import here would be circular.
+            from winpodx.core.provisioner import ProvisionError
+
+            raise ProvisionError(
+                f"failed to resume paused pod {cfg.pod.container_name!r}; "
+                "check the container runtime logs"
+            )
 
 
 # --- Lock File Cleanup ---

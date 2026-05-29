@@ -42,7 +42,7 @@ winpodx guest sync --force        # guest 버전 stamp 가 일치해도 재sync
 winpodx guest sync-password       # 비밀번호 drift 복구 (cfg ↔ Windows)
 winpodx guest multi-session on    # bundled rdprrap 멀티세션 RDP 토글
 winpodx guest multi-session status
-winpodx guest recover-oem         # dockur 첫 부팅 OEM 복사 실패 시 C:\OEM 재stage + install.bat 실행 (#287)
+winpodx guest recover-oem         # dockur 첫 부팅 OEM 복사 실패 시 install.bat 를 수동 실행하는 noVNC PowerShell 단계 출력 (#287)
 
 # 설치 / 디스크 작업 (0.6.0 에서 `pod install-* / pod grow-disk / pod disk-usage` → `install <x>` 로 개명)
 winpodx install status            # 설치 진행 / 보류 단계 (#271 agent-first 설치)
