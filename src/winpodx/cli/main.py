@@ -605,6 +605,15 @@ def cli(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Disable all prompts (for automation / CI)",
     )
+    migrate_p.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help=(
+            "Stream raw container logs during the wait-ready stage instead of "
+            "the clean self-erasing line. Matches `winpodx provision --verbose`."
+        ),
+    )
 
     # --- provision (post-create provisioning chain, 0.6.0 item B) ---
     # The single source of truth for wait-ready → agent-settle → apply-fixes

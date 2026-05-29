@@ -1248,6 +1248,7 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
         log "Upgrade detected — running migration (sync guest scripts + apply-fixes + discovery + reverse-open)..."
         log "  Re-uses the existing Windows install; no ISO re-download."
         PROVISION_CMD=(migrate --non-interactive)
+        [ -n "$WINPODX_VERBOSE" ] && PROVISION_CMD+=(--verbose)
     fi
     # PYTHONUNBUFFERED=1 keeps the streamed per-stage progress line-buffered
     # when piped. Disable ``set -e`` so we can inspect the rc; tee the output

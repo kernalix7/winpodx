@@ -208,13 +208,14 @@ def run_migrate(args: argparse.Namespace) -> int:
         # — exactly the bug kernalix7 hit. Helpers are idempotent so a
         # no-op run is harmless if everything was already applied.
         non_interactive = bool(getattr(args, "non_interactive", False))
+        verbose = bool(getattr(args, "verbose", False))
         # v0.1.9.5: probe for password drift before attempting apply.
         # If FreeRDP auth fails, point the user at `winpodx pod sync-password`
         # rather than letting them watch all three applies fail in confusing
         # ways.
         _probe_password_sync(non_interactive)
         _ensure_canonical_image_pin(non_interactive)
-        _apply_runtime_fixes_to_existing_guest(non_interactive)
+        _apply_runtime_fixes_to_existing_guest(non_interactive, verbose=verbose)
         _maybe_auto_migrate_storage(non_interactive)
         return 0
 
@@ -227,6 +228,7 @@ def run_migrate(args: argparse.Namespace) -> int:
 
     non_interactive = bool(getattr(args, "non_interactive", False))
     skip_refresh = bool(getattr(args, "no_refresh", False))
+    verbose = bool(getattr(args, "verbose", False))
 
     # v0.1.8 -> 0.1.9: the 14 bundled .desktop entries are now stale.
     # Offer to clean them up (only when we're crossing the 0.1.9 boundary
@@ -683,7 +685,7 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
     )
 
 
-def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
+def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bool = False) -> None:
     """v0.1.9.2: push OEM v7+v8 equivalents to the guest without recreating it.
 
     install.bat only runs on dockur's first-boot unattended path — existing
@@ -772,12 +774,14 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
     def _rich_wait(_cfg, timeout: int) -> bool:
         # Upgrade path shows the same live boot progress fresh installs get
         # (pre-0.6.0 install.sh ran `pod wait-ready --logs` for BOTH fresh and
-        # upgrade before splitting into migrate/discovery). verbose=False = the
-        # clean self-erasing line. Injected to keep core/provisioner cli-free.
+        # upgrade before splitting into migrate/discovery). ``verbose`` mirrors
+        # the user's `winpodx migrate --verbose` (or `install.sh --verbose` on
+        # an upgrade): off = the clean self-erasing line; on = raw container
+        # firehose. Injected to keep core/provisioner cli-free.
         from winpodx.cli.pod import _wait_ready
 
         try:
-            _wait_ready(timeout, show_logs=True, verbose=False)
+            _wait_ready(timeout, show_logs=True, verbose=verbose)
             return True
         except SystemExit as exc:
             return exc.code in (0, None)
