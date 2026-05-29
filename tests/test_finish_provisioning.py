@@ -301,6 +301,111 @@ def test_discovery_retry_raises_after_exhausting(monkeypatch):
         provisioner._run_discovery_with_retry(_cfg(), retries=3)
 
 
+# --- _apply_via_transport transient retry (agent_keepalive hardening) ----
+
+
+def test_apply_via_transport_retries_then_succeeds(monkeypatch):
+    # A TransportError (closed socket / health timeout) right after a
+    # container restart is transient; a re-dispatched retry should land.
+    from winpodx.core.transport import TransportError
+    from winpodx.core.transport.base import ExecResult
+
+    attempts = {"n": 0}
+
+    class _FlakyExec:
+        def exec(self, script, *, timeout=60, description="x"):
+            attempts["n"] += 1
+            if attempts["n"] < 2:
+                raise TransportError("Remote end closed connection without response")
+            return ExecResult(rc=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg: _FlakyExec())
+    monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+
+    result = provisioner._apply_via_transport(_cfg(), "payload", description="apply-test")
+    assert result.rc == 0
+    assert result.stdout == "ok"
+    assert attempts["n"] == 2  # failed once, succeeded on retry
+
+
+def test_apply_via_transport_raises_after_exhausting(monkeypatch):
+    from winpodx.core.transport import TransportError
+    from winpodx.core.windows_exec import WindowsExecError
+
+    attempts = {"n": 0}
+
+    class _DeadExec:
+        def exec(self, script, *, timeout=60, description="x"):
+            attempts["n"] += 1
+            raise TransportError("socket closed")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg: _DeadExec())
+    monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+
+    with pytest.raises(WindowsExecError, match="socket closed"):
+        provisioner._apply_via_transport(_cfg(), "payload", description="apply-test", attempts=2)
+    assert attempts["n"] == 2  # both attempts ran before giving up
+
+
+def test_apply_via_transport_does_not_retry_on_nonzero_rc(monkeypatch):
+    # A payload that runs and returns rc!=0 is a genuine failure, not a
+    # transient channel error -- return it on the first try, unretried.
+    from winpodx.core.transport.base import ExecResult
+
+    attempts = {"n": 0}
+
+    class _NonZeroExec:
+        def exec(self, script, *, timeout=60, description="x"):
+            attempts["n"] += 1
+            return ExecResult(rc=1, stdout="", stderr="boom")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg: _NonZeroExec())
+    monkeypatch.setattr(provisioner.time, "sleep", lambda s: None)
+
+    result = provisioner._apply_via_transport(_cfg(), "payload", description="apply-test")
+    assert result.rc == 1
+    assert attempts["n"] == 1  # returned immediately, no retry
+
+
+# --- require_agent settle stability (agent_keepalive hardening) ----------
+
+
+class _FlakyHealthTransport:
+    """AgentTransport stand-in whose /health follows a boolean sequence,
+    then sticks on the last value."""
+
+    def __init__(self, sequence):
+        self._seq = list(sequence)
+        self._i = 0
+
+    def health(self):
+        val = self._seq[min(self._i, len(self._seq) - 1)]
+        self._i += 1
+        return SimpleNamespace(available=val, detail="")
+
+
+def test_require_agent_waits_for_stable_health(monkeypatch):
+    # A single OK then a flicker-down must NOT satisfy the gate; only 3
+    # consecutive OK proceeds. up, down, up, up, up -> stabilises.
+    calls = _patch_stages(monkeypatch, agent_available=True)
+    flaky = _FlakyHealthTransport([True, False, True, True, True])
+    monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport", lambda cfg: flaky)
+    results = finish_provisioning(_cfg(), require_agent=True)
+    assert results["agent_settle"] == "ok"
+    assert calls["apply"] == 1  # proceeded only once stable
+
+
+def test_require_agent_raises_when_never_stable(monkeypatch):
+    # Health flickers but never gets 3 in a row -> hard gate fires, nothing
+    # downstream runs.
+    calls = _patch_stages(monkeypatch, agent_available=True)
+    flaky = _FlakyHealthTransport([True, False, True, False, True, False])
+    monkeypatch.setattr("winpodx.core.transport.agent.AgentTransport", lambda cfg: flaky)
+    with pytest.raises(ProvisionAgentUnavailable):
+        finish_provisioning(_cfg(), require_agent=True)
+    assert calls["apply"] == 0
+
+
 # --- ProvisionAgentUnavailable is a ProvisionError ----------------------
 
 

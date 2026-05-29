@@ -37,7 +37,15 @@ from winpodx.utils.paths import (  # noqa: F401  config_dir used by other helper
 log = logging.getLogger(__name__)
 
 
-def _apply_via_transport(cfg: Config, payload: str, *, description: str, timeout: int = 60):
+def _apply_via_transport(
+    cfg: Config,
+    payload: str,
+    *,
+    description: str,
+    timeout: int = 60,
+    attempts: int = 2,
+    backoff: float = 5.0,
+):
     """Run a Windows-side apply payload through the best available transport.
 
     Picks AgentTransport when ``agent.ps1`` /health responds, falls back
@@ -47,16 +55,42 @@ def _apply_via_transport(cfg: Config, payload: str, *, description: str, timeout
 
     Maps ``TransportError`` to ``WindowsExecError`` for the same reason —
     the legacy callers' ``except WindowsExecError`` blocks keep working.
+
+    Transient retry (``attempts`` × ``backoff`` s): a ``TransportError`` —
+    a closed socket / a /health timeout — right after a container restart is
+    common (the agent is "responsive but not yet stable" during the
+    TermService cycle that rdprrap (re)activation triggers). 0.6.0 upgrade
+    smoke hit exactly this: ``agent_keepalive`` failed with "Remote end closed
+    connection without response" on the first try. We re-``dispatch`` each
+    attempt so a recovered agent is re-picked (or a still-dead one falls to
+    FreeRDP), and only surface the failure if every attempt errors. A
+    ``rc != 0`` result is NOT a transport error — the payload ran and returned
+    nonzero — so it is returned to the caller on the first try, unretried.
     """
     from winpodx.core.transport import TransportError, dispatch
     from winpodx.core.windows_exec import WindowsExecError, WindowsExecResult
 
-    transport = dispatch(cfg)
-    try:
-        result = transport.exec(payload, timeout=timeout, description=description)
-    except TransportError as e:
-        raise WindowsExecError(str(e)) from e
-    return WindowsExecResult(rc=result.rc, stdout=result.stdout, stderr=result.stderr)
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        # Re-probe transport selection each attempt: a retry after a transient
+        # close should re-pick the (now-recovered) agent, or fall to FreeRDP.
+        transport = dispatch(cfg)
+        try:
+            result = transport.exec(payload, timeout=timeout, description=description)
+            return WindowsExecResult(rc=result.rc, stdout=result.stdout, stderr=result.stderr)
+        except TransportError as e:
+            last_exc = e
+            if attempt < max(1, attempts):
+                log.info(
+                    "%s: transport attempt %d/%d failed (%s); retrying in %.0fs",
+                    description,
+                    attempt,
+                    max(1, attempts),
+                    e,
+                    backoff,
+                )
+                time.sleep(backoff)
+    raise WindowsExecError(str(last_exc)) from last_exc
 
 
 class ProvisionError(Exception):
@@ -416,18 +450,37 @@ def finish_provisioning(
     if require_agent:
         # Hard gate (migrate's behaviour). ``wait_for_windows_responsive``
         # already waited up to ``wait_timeout`` for /health and returned True
-        # regardless; re-probe once here so we can fail loudly rather than
-        # racing FreeRDP into install.bat's autologon session.
-        if not transport.health().available:
+        # regardless. But a *single* OK probe can be the agent momentarily up
+        # mid-TermService-cycle (rdprrap (re)activation restarts the service);
+        # it dies again right after, and the apply burst then hits a closed
+        # socket — the "agent_keepalive: Remote end closed connection" seen
+        # during 0.6.0 upgrade smoke. Require a few CONSECUTIVE OK probes so we
+        # proceed only once the agent has actually stabilised, not on the first
+        # flicker. (The per-apply transient retry in _apply_via_transport is
+        # the second layer of defence for a stall that lands after this gate.)
+        _STABLE_OK_NEEDED = 3
+        _STABLE_GAP_SECS = 2
+        _STABLE_MAX_PROBES = 15  # ~30s ceiling once /health first answers
+        consecutive = 0
+        for i in range(_STABLE_MAX_PROBES):
+            if transport.health().available:
+                consecutive += 1
+                if consecutive >= _STABLE_OK_NEEDED:
+                    break
+            else:
+                consecutive = 0
+            if i < _STABLE_MAX_PROBES - 1:
+                time.sleep(_STABLE_GAP_SECS)
+        if consecutive < _STABLE_OK_NEEDED:
             results["agent_settle"] = "not-up"
-            _progress("agent_settle", "agent /health never answered")
+            _progress("agent_settle", "agent /health never stabilised")
             raise ProvisionAgentUnavailable(
-                "Guest agent /health did not answer; refusing FreeRDP fallback "
+                "Guest agent /health did not stay up; refusing FreeRDP fallback "
                 "(require_agent=True). Run `winpodx pod apply-fixes` once the "
                 "agent is up, or check C:\\winpodx\\setup.log via VNC."
             )
         results["agent_settle"] = "ok"
-        _progress("agent_settle", "ok")
+        _progress("agent_settle", "ok (stable)")
     else:
         # Soft settle poll (install.sh's behaviour): 30 attempts × 2 s. Silent
         # if it never lands — apply-fixes / discovery have their own agent
