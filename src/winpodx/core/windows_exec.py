@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -155,6 +156,7 @@ def run_in_windows(
 
     work_dir = data_dir() / "windows-exec"
     work_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(work_dir, 0o700)
     script_path = work_dir / f"{description}.ps1"
     result_path = work_dir / f"{description}-result.json"
     progress_path = work_dir / f"{description}-progress.log"
@@ -215,6 +217,7 @@ def run_in_windows(
         """
     )
     script_path.write_text(wrapper, encoding="utf-8")
+    os.chmod(script_path, 0o600)
     result_path.unlink(missing_ok=True)
     progress_path.unlink(missing_ok=True)
     if progress_callback is not None:

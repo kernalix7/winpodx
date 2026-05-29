@@ -180,6 +180,7 @@ def _register_desktop_entries(discovered) -> None:
     available = {a.name: a for a in list_available_apps()}
     available_slugs = set(available)
     installed = 0
+    registered_names: list[str] = []
     for slug in discovered_slugs:
         info = available.get(slug)
         if info is None:
@@ -187,6 +188,7 @@ def _register_desktop_entries(discovered) -> None:
         try:
             install_desktop_entry(info)
             installed += 1
+            registered_names.append(info.full_name or info.name)
         except Exception as e:  # noqa: BLE001
             print(
                 tr("  warning: could not install desktop entry for {slug}: {error}").format(
@@ -232,6 +234,25 @@ def _register_desktop_entries(discovered) -> None:
     if installed:
         print(
             tr("  Registered {count} app(s) in your desktop menu.").format(count=installed),
+            file=sys.stderr,
+        )
+        # List the registered app names so the install / provision flow shows
+        # WHICH apps landed, not just a count (kernalix7: "discovery: 58 apps
+        # never lists app NAMES"). Mirrors `winpodx app refresh`'s listing.
+        for name in sorted(registered_names):
+            print(f"    {name}", file=sys.stderr)
+    # Explain the discovery-vs-registered gap: discovered slugs with no bundled
+    # AppInfo profile can't be registered, so the discovery count and the
+    # "Registered N" count legitimately differ. Surface the difference instead
+    # of leaving the user to wonder where the missing apps went.
+    unmatched = sorted(discovered_slugs - available_slugs)
+    if unmatched:
+        preview = ", ".join(unmatched[:10]) + ("…" if len(unmatched) > 10 else "")
+        print(
+            tr(
+                "  Note: {count} discovered app(s) had no bundled profile and "
+                "were not added to the menu: {names}"
+            ).format(count=len(unmatched), names=preview),
             file=sys.stderr,
         )
     if removed:

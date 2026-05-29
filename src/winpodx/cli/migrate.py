@@ -247,7 +247,7 @@ def run_migrate(args: argparse.Namespace) -> int:
     # fixes on the existing guest without having to recreate the
     # container.
     _ensure_canonical_image_pin(non_interactive)
-    _apply_runtime_fixes_to_existing_guest(non_interactive)
+    _apply_runtime_fixes_to_existing_guest(non_interactive, verbose=verbose)
     _maybe_auto_migrate_storage(non_interactive)
 
     if skip_refresh:
