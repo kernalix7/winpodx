@@ -154,6 +154,15 @@ def test_freerdp_flatpak_not_installed_redundantly(script: str) -> None:
     assert "com.freerdp.FreeRDP" in script
 
 
+def test_prints_install_plan_before_acting(script: str) -> None:
+    # After the mode + dependency sources are resolved, install.sh prints a
+    # plan summary (mode / backend / FreeRDP action / GUI / packages / VM)
+    # before installing anything, so the run is transparent.
+    assert "install plan" in script
+    # The plan must be emitted before the package-install loop runs.
+    assert script.index("install plan") < script.index("if [ ${#MISSING[@]} -gt 0 ]; then")
+
+
 def test_no_inline_chain_steps_survive(script: str) -> None:
     """After `winpodx setup`, the post-create chain is driven by ONE winpodx
     command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).

@@ -915,6 +915,54 @@ if [ "$KVM_PRESENT" = false ]; then
     MISSING+=("kvm")
 fi
 
+# --- Plan summary -----------------------------------------------------------
+# Now that the mode + every dependency source is resolved, show exactly what
+# this run will do BEFORE touching the system (installing packages, sudo,
+# provisioning Windows). Every major component is listed evenly with its
+# detected state + the action this run will take. Pure logging — non-blocking.
+#
+# Per-component action helper: "$present" true => use existing, else (if the
+# component name is in MISSING) install, else a component-specific note.
+_in_missing() { local x; for x in "${MISSING[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+_plan_action() {  # <present-bool> <missing-key>
+    if [ "$1" = true ]; then echo "use existing"; elif _in_missing "$2"; then echo "install"; else echo "—"; fi
+}
+_resolved_backend="${WINPODX_BACKEND:-podman}"
+case "$_resolved_backend" in
+    podman)  _backend_present="$PODMAN_PRESENT" ;;
+    docker)  _backend_present="$DOCKER_PRESENT" ;;
+    libvirt) _backend_present="$LIBVIRT_PRESENT" ;;
+    *)       _backend_present=false ;;
+esac
+echo ""
+log "==================== install plan ===================="
+log "  Mode:        $INSTALL_MODE  (r=recommended / a=automatic / c=custom)"
+log "  python3:     $(yesno "$PYTHON3_PRESENT") $(tool_version python3)  [host interpreter + private venv]"
+log "  venv:        $(yesno "$VENV_PROBE_OK")  [python3 -m venv works]"
+log "  Backend:     $_resolved_backend  ($(_plan_action "$_backend_present" "$_resolved_backend"))"
+if [ "$FREERDP_PRESENT" = true ]; then
+    log "  FreeRDP:     use existing — $FREERDP_KIND"
+elif [ "$INSTALL_FREERDP_FLATPAK" = true ]; then
+    log "  FreeRDP:     install Flatpak (com.freerdp.FreeRDP)"
+else
+    log "  FreeRDP:     install native package"
+fi
+log "  KVM:         $(yesno "$KVM_PRESENT") /dev/kvm  [host virtualization — required, not installed]"
+log "  GUI:         $([ -n "$WINPODX_NO_GUI" ] && echo 'no (--no-gui)' || echo 'yes (PySide6, into venv)')"
+if [ "${#MISSING[@]}" -gt 0 ]; then
+    log "  Will install: ${MISSING[*]}  (via distro package manager, sudo)"
+else
+    log "  Will install: nothing — all required system packages already present"
+fi
+if [ "${WINPODX_MANUAL:-0}" = "1" ] || [ "$WINPODX_BACKEND" = "manual" ]; then
+    log "  Windows VM:  NOT provisioned (manual mode); run 'winpodx' later to finish"
+else
+    log "  Windows VM:  setup -> first-boot (~7.5GB ISO on a fresh install)"
+    log "               -> apply-fixes -> discovery -> reverse-open"
+fi
+log "======================================================"
+echo ""
+
 if [ ${#MISSING[@]} -gt 0 ]; then
     if [ -n "$WINPODX_SKIP_DEPS" ]; then
         err "--skip-deps is set but required tools are missing: ${MISSING[*]}"
