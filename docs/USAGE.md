@@ -27,23 +27,30 @@ winpodx app sessions              # Show active sessions
 winpodx app kill word             # Kill an active session
 winpodx app refresh               # Re-scan the guest and rebuild the app list
 
-# Pod management
+# Pod lifecycle (container state only — see `guest` for in-guest ops, `install` for disk / install)
 winpodx pod start --wait          # Start and wait for RDP readiness
 winpodx pod stop                  # Stop (warns about active sessions)
 winpodx pod status                # Status with session count
 winpodx pod restart
-winpodx pod apply-fixes           # Re-apply Windows-side runtime fixes (idempotent)
-winpodx pod sync-password         # Recover from password drift (cfg ↔ Windows)
-winpodx pod multi-session on      # Toggle bundled rdprrap multi-session RDP
-winpodx pod multi-session status
+winpodx pod recreate              # Stop + remove + start (clean container)
 winpodx pod wait-ready --logs     # Wait for Windows first-boot with progress + container logs (auto-extends on slow ISO download)
-winpodx pod recover-oem           # Re-stage C:\OEM + run install.bat when dockur's first-boot OEM copy failed (#287)
-winpodx pod disk-usage            # Show Windows C: size / free / used% + auto-grow status (#318)
-winpodx pod grow-disk             # Add the auto-grow increment (default 32G) to the disk + extend C: (#318)
-winpodx pod grow-disk 128G        # Grow to an absolute size
-winpodx pod grow-disk --extend-only   # Just extend C: into existing unallocated space
-winpodx pod sync-guest            # Push host updates (agent / urlacl / rdprrap / fixes) into the guest — no reinstall
-winpodx pod sync-guest --force    # Re-sync even when the guest version stamp already matches
+
+# Guest-side operations (renamed from `pod <x>` in 0.6.0 — old spellings still work through 0.6.x with a deprecation notice)
+winpodx guest apply-fixes         # Re-apply Windows-side runtime fixes (idempotent)
+winpodx guest sync                # Push host updates (agent / urlacl / rdprrap / fixes) into the guest — no reinstall
+winpodx guest sync --force        # Re-sync even when the guest version stamp already matches
+winpodx guest sync-password       # Recover from password drift (cfg ↔ Windows)
+winpodx guest multi-session on    # Toggle bundled rdprrap multi-session RDP
+winpodx guest multi-session status
+winpodx guest recover-oem         # Re-stage C:\OEM + run install.bat when dockur's first-boot OEM copy failed (#287)
+
+# Install / disk operations (renamed from `pod install-* / pod grow-disk / pod disk-usage` in 0.6.0)
+winpodx install status            # Install progress / pending steps (#271 agent-first installs)
+winpodx install resume            # Resume a deferred install step
+winpodx install disk-usage        # Show Windows C: size / free / used% + auto-grow status (#318)
+winpodx install grow-disk         # Add the auto-grow increment (default 32G) to the disk + extend C: (#318)
+winpodx install grow-disk 128G    # Grow to an absolute size
+winpodx install grow-disk --extend-only   # Just extend C: into existing unallocated space
 
 # Power management
 winpodx power --suspend           # Pause container (free CPU, keep memory)
@@ -75,13 +82,18 @@ winpodx uninstall --purge         # Remove everything including config
 winpodx setup                     # Full setup: config + container + wait-ready + discovery + reverse-open
 winpodx setup --customize         # Wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
 winpodx setup-host                # Host prep wizard (kvm group, /etc/subuid, kvm module) via one pkexec prompt — AppImage users
-winpodx doctor                    # Read-only health diagnostic with per-check fix hints
-winpodx info                      # Display, dependencies, config diagnostics
-winpodx check                     # Run all health probes (pod / RDP / agent / disk / …)
+winpodx provision                 # Post-pod-running chain (wait-ready → apply-fixes → discovery → reverse-open) — the single source of truth used by install.sh, setup, migrate, and the GUI bring-up (0.6.0 item B)
+winpodx provision --retries N     # Override discovery retry count (default 2 — see 0.6.0 item M)
+winpodx provision --require-agent # Hard-gate on the in-guest agent (used by fresh installs, #271)
+winpodx migrate                   # Upgrade an existing guest in place (refresh agent.ps1 + scripts, re-apply fixes, re-discover, refresh reverse-open)
+winpodx doctor                    # Read-only health diagnostic with per-check fix hints (deps / pod / RDP / agent / disk / config / install state)
+winpodx doctor --json             # Same checks, machine-readable JSON array of findings
+winpodx doctor --quick            # Skip slow probes (container-health, guest exec) — cheap local checks only (< 1 s)
+winpodx doctor --fix              # Idempotent auto-remediation for warn/fail findings that carry a fixer (dead agent, stale locks, missing desktop entries, OEM-version drift)
 winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off by default)
 winpodx language                  # Show the current UI language
 winpodx language ko               # Set UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale)
-winpodx check --json              # Same probes, machine-readable JSON
+# `winpodx info` and `winpodx check` are deprecated aliases of `winpodx doctor` (work through 0.6.x with a notice; removed in 0.7.0).
 winpodx gui                       # Launch Qt6 main window (Apps / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config
@@ -115,10 +127,10 @@ The tray watches the pod state every 30 s. On a `RUNNING → UNRESPONSIVE` trans
 
 ## Health checks
 
-`winpodx check` runs every probe used by the GUI Health card and prints a one-line verdict for each:
+`winpodx doctor` runs every probe used by the GUI Health card and prints a one-line verdict for each:
 
 ```
-=== winpodx check ===
+=== winpodx doctor ===
 
   [OK  ] pod_running        running (ip=127.0.0.1)  (58ms)
   [OK  ] rdp_port           127.0.0.1:3390 reachable  (0ms)
@@ -160,7 +172,7 @@ If you ran `winpodx setup` on an older release and can no longer log in:
 
 ## Performance tuning profile
 
-`cfg.pod.tuning_profile` controls how aggressively winpodx tunes the dockur compose for the underlying host. It defaults to `"auto"` — winpodx probes the host once at compose time and turns on the matching subset of safe Windows-on-KVM tweaks. Look at the `[Tuning]` block in `winpodx info` to see what was detected and applied:
+`cfg.pod.tuning_profile` controls how aggressively winpodx tunes the dockur compose for the underlying host. It defaults to `"auto"` — winpodx probes the host once at compose time and turns on the matching subset of safe Windows-on-KVM tweaks. Look at the `[Tuning]` block in `winpodx doctor` to see what was detected and applied:
 
 ```
 [Tuning]
@@ -210,7 +222,7 @@ Profiles:
 
 ### Items that require host-side setup (not auto-applied)
 
-These are standard Windows-on-KVM tweaks that need operator action on the Linux host before winpodx can take advantage of them. The `[Tuning]` block in `winpodx info` will show them as `no` until the host is set up; flipping to `yes` happens automatically the next time `cfg.pod.tuning_profile = auto` runs.
+These are standard Windows-on-KVM tweaks that need operator action on the Linux host before winpodx can take advantage of them. The `[Tuning]` block in `winpodx doctor` will show them as `no` until the host is set up; flipping to `yes` happens automatically the next time `cfg.pod.tuning_profile = auto` runs.
 
 * **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. winpodx detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
 * **CPU pinning.** winpodx flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; winpodx will not modify host scheduling.
@@ -242,7 +254,7 @@ auto_start = false                               # Opt-in login auto-start: tray
 idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
-disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `pod grow-disk`)
+disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `install grow-disk`)
 disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
 disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)
 disk_autogrow_target_free_pct = 30               # Grow is sized to restore this much free (not a flat step)

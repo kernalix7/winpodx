@@ -115,7 +115,7 @@ Windows Explorer shows E: drive
 The Windows `C:` drive grows itself as it fills, so you don't have to pre-provision a huge virtual disk or run out of space mid-install.
 
 - **Auto-grow** runs only while the pod is idle, expands `C:` when it's nearly full, and is bounded by available host free space so it never overcommits the underlying storage. It correctly handles dockur's WinRE recovery partition that sits at the end of the disk.
-- **Manual control**: `winpodx pod grow-disk [SIZE|--extend-only]` to add space (or just extend the partition into existing free space), and `winpodx pod disk-usage` to inspect current allocation.
+- **Manual control**: `winpodx install grow-disk [SIZE|--extend-only]` to add space (or just extend the partition into existing free space), and `winpodx install disk-usage` to inspect current allocation.
 - Config keys: `disk_autogrow*` (enable / thresholds / step) and `disk_max_size` (hard ceiling).
 
 ## Guest sync
@@ -123,7 +123,7 @@ The Windows `C:` drive grows itself as it fills, so you don't have to pre-provis
 Push host-side updates into a running Windows guest without reinstalling it. When winpodx ships a newer guest agent, urlacl reservation, rdprrap build, or post-install fix, the guest picks it up in place.
 
 - **Automatic** on pod start when `guest_autosync` is enabled — the guest is reconciled to the current host version every time it comes up.
-- **Manual**: `winpodx pod sync-guest [--force]` to reconcile on demand (`--force` re-pushes even when versions already match).
+- **Manual**: `winpodx guest sync [--force]` to reconcile on demand (`--force` re-pushes even when versions already match).
 
 ## App Profiles
 

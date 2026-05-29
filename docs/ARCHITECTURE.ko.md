@@ -100,7 +100,7 @@ rdprrap / `shim.exe` / `rcedit.exe`, 헬퍼 스크립트) 는 사용자가 Windo
 **핵심 enabler.** `/oem` 은 호스트 `config/oem` 의 **live bind mount**
 (`compose.py` 의 `{oem_dir}:/oem:Z`) — 즉 호스트 업그레이드 후 동작 중인
 컨테이너의 `/oem` 에 *이미* 새 파일이 들어 있음 (이미지 재빌드 없음).
-게스트 전달은 `winpodx pod recover-oem` 과 동일 채널 재사용: 컨테이너에서
+게스트 전달은 `winpodx guest recover-oem` 과 동일 채널 재사용: 컨테이너에서
 `/oem` tar → `127.0.0.1:8766` 일회성 HTTP 서버로 serve → 게스트가 QEMU NAT
 게이트웨이 `10.0.2.2` 로 pull. sync 중에는 agent 가 살아 있으므로 pull 과
 후속 fix 가 noVNC paste 대신 bearer-auth `/exec` 엔드포인트로 동작.
@@ -126,7 +126,7 @@ rdprrap / `shim.exe` / `rcedit.exe`, 헬퍼 스크립트) 는 사용자가 Windo
 읽음; stamp 가 존재 **하고** 오래됐으면 sync 발사, stamp 부재면 기록만 (진행 중인
 첫 부팅 install 을 방해 안 함). pod readiness 후 `cfg.pod.guest_autosync`
 (default `True`) 면 자동 실행, podman/docker 로 gate. 수동:
-`winpodx pod sync-guest [--force]` 와 GUI Tools → Sync Guest 액션. `sync_guest`
+`winpodx guest sync [--force]` 와 GUI Tools → Sync Guest 액션. `sync_guest`
 는 CLI/GUI 가 행을 렌더링할 수 있도록 단계별 결과 맵 반환.
 
 ## Disk auto-grow 서브시스템

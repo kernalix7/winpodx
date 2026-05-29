@@ -209,50 +209,52 @@ paru -S winpodx
 
 PKGBUILD 는 [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) 에 있고, 태그 푸시 (`v*.*.*`) 마다 버전 + tarball sha256 자동 stamp 후 `aur.archlinux.org/winpodx.git` 로 푸시.
 
-## AppImage (fat 번들: Python + Qt + FreeRDP + Podman + podman-compose)
+## AppImage (Thin 번들: Python + Qt + FreeRDP + winpodx; 호스트 컨테이너 런타임 필요)
 
-distro 무관 winpodx AppImage 가 태그 release 마다 asset 으로 ship 됨. 초기에 ship 된 lean Python-only AppImage (#302) 와 달리 현재는 **fat 번들**: Python 3.11, winpodx, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`), Podman, podman-compose, conmon, crun, netavark, slirp4netns, passt/pasta + transitive 라이브러리 의존성까지 포함.
+distro 무관 winpodx AppImage 가 태그 release 마다 asset 으로 ship 됨. **0.6.0 에서 Thin AppImage 로 재설계 (item A).** 0.6.0 이전엔 ~150 MB fat 번들이 컨테이너 stack 전부 (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive lib) 를 AppImage 의 `PATH` / `LD_LIBRARY_PATH` 에 실음. 이미 podman 이 있는 distro 에선 호스트 stack 을 가려서 망가뜨림 — Ubuntu 26.04 의 `it seems that you do not have podman installed` (#357), Fedora Bluefin 의 aardvark-dns 가 던지는 `OPENSSL_3.4.0 not found` (#363) 등. 0.6.0 은 컨테이너 stack 전체를 AppImage 에서 제거해 **근본 원인을 제거**. 현 번들은 안전하게 묶을 수 있는 것만 — Python 3, winpodx, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — 표준 `PATH` 해석으로 호스트 컨테이너 런타임 사용. 크기 ~150 MB → ~50 MB.
 
-번들 크기 ~290 MB, user space 에서 패키지 가능한 모든 것 self-contained. **호스트 측 남은 요구사항**:
+호스트 측 요구사항:
 
-- 호스트 커널이 `/dev/kvm` 노출 (BIOS 에서 VT-x / AMD-V 활성화 시 대부분 distro 기본 동작)
-- 현재 사용자가 `kvm` 그룹 멤버이고 rootless Podman 용 `/etc/subuid` + `/etc/subgid` 엔트리 존재
+- distro 패키지 매니저로 설치한 컨테이너 런타임: **`podman ≥ 4` 권장**, `docker` 또는 `libvirt` 도 지원. 없으면 위 RPM / DEB / AUR / `install.sh` 한 줄 설치 활용.
+- 호스트 커널이 `/dev/kvm` 노출 (BIOS 에서 VT-x / AMD-V 활성화 시 대부분 distro 기본 동작).
+- 현재 사용자가 `kvm` 그룹 멤버 (rootless Podman 용 `/etc/subuid` + `/etc/subgid` 엔트리 존재 — 최근 distro 는 사전 구성; `cat /etc/subuid` 로 확인).
 
-두 가지 다 root 권한 필요 — AppImage 가 user space 에서 못 함. winpodx 가 pkexec 위저드로 한 번의 polkit 프롬프트로 모두 처리:
+`setup-host` 위저드는 AppImage 에 그대로 포함 — kvm 그룹 / subuid 단계를 수동 sudo 대신 polkit 한 번으로:
 
 ```bash
 # 1. 최신 GitHub release 에서 AppImage 다운로드
-#    -> winpodx-fat-x86_64.AppImage
+#    -> winpodx-x86_64.AppImage
 
 # 2. 실행 권한 부여
-chmod +x winpodx-fat-x86_64.AppImage
+chmod +x winpodx-x86_64.AppImage
 
-# 3. 첫 실행 호스트 setup — polkit 프롬프트 한 번, 수동 sudo 없음
-./winpodx-fat-x86_64.AppImage setup-host          # detect + 대화형 프롬프트
-./winpodx-fat-x86_64.AppImage setup-host --apply  # 프롬프트 없이 적용
-./winpodx-fat-x86_64.AppImage setup-host --status # detect 만, mutation 없음
+# 3. (선택) 첫 실행 호스트 setup — kvm 그룹, subuid/subgid, kvm 모듈
+./winpodx-x86_64.AppImage setup-host          # detect + 대화형 프롬프트
+./winpodx-x86_64.AppImage setup-host --apply  # 프롬프트 없이 적용
+./winpodx-x86_64.AppImage setup-host --status # detect 만, mutation 없음
 
 # 4. 로그아웃 + 재로그인 — 새 kvm 그룹 멤버십 적용
 
 # 5. 표준 winpodx setup (cores / RAM / timezone 자동감지)
-./winpodx-fat-x86_64.AppImage setup
+./winpodx-x86_64.AppImage setup
 
 # 6. 데스크탑 (또는 설치된 Windows 앱 이름) 실행
-./winpodx-fat-x86_64.AppImage app run desktop
+./winpodx-x86_64.AppImage app run desktop
 ```
 
 권장 사용 환경:
 
-- **Immutable distro** (Fedora Silverblue / Kinoite, openSUSE Aeon, Steam Deck) — system package layering 이 무겁거나 불가
-- **잠긴 환경** — `curl ... | bash` 못 돌지만 다운로드 받은 단일 실행 파일은 돌 수 있는 경우
-- **친구 노트북 임시 시도** — 시스템 install 안 하고 빠르게 테스트
+- **Immutable distro** (Fedora Silverblue / Kinoite, openSUSE Aeon, Steam Deck) — 호스트 podman 만 layering 후 사용.
+- **잠긴 환경** — `curl ... | bash` 못 돌지만 다운로드 받은 단일 실행 파일은 돌 수 있는 경우.
+- **친구 노트북 임시 시도** — 호스트에 podman / docker 가 이미 있을 때.
 
 비권장:
 
-- 시스템 패키지 매니저 통합 선호 (위 RPM / DEB / AUR 경로 추천)
-- 시스템 업데이트 cycle 로 자동 업데이트 받기 원함 (AppImage 는 수동 다운로드 + 교체; AppImageUpdate 연동 별도 작업)
+- 시스템 패키지 매니저 통합 선호 (위 RPM / DEB / AUR 경로 추천).
+- 시스템 업데이트 cycle 로 자동 업데이트 받기 원함 (AppImage 는 수동 다운로드 + 교체; AppImageUpdate 연동 별도 작업).
+- 진정한 호스트 zero-prep — Thin AppImage 는 호스트 컨테이너 런타임 필요. 설치까지 위임하고 싶으면 `install.sh` 사용.
 
-레시피와 CI 는 `packaging/appimage/` 에 — 로컬 빌드는 `packaging/appimage/README.md` 참조.
+레시피와 CI 는 `packaging/appimage/` 에 — 로컬 빌드는 `packaging/appimage/README.md` 참조. 회귀 테스트 (`tests/test_appimage_recipe.py`) 가 `podman` / `podman-compose` / `conmon` / `crun` / `netavark` / `aardvark-dns` / `passt` / `pasta` / `slirp4netns` / `fuse-overlayfs` 중 어느 하나라도 레시피에 다시 들어오는 순간 CI 실패.
 
 ## Nix
 

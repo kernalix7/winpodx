@@ -100,7 +100,7 @@ without a reinstall.
 **Key enabler.** `/oem` is a **live bind mount** of the host's `config/oem`
 (`{oem_dir}:/oem:Z` in `compose.py`), so after a host upgrade the running
 container's `/oem` *already* holds the new files — no image rebuild. Delivery
-into the guest reuses the same channel as `winpodx pod recover-oem`: tar `/oem`
+into the guest reuses the same channel as `winpodx guest recover-oem`: tar `/oem`
 in the container → serve it over a one-shot HTTP server on `127.0.0.1:8766`
 → guest pulls via the QEMU NAT gateway `10.0.2.2`. Because the agent is alive
 during sync, the pull and follow-up fixes run over the bearer-authed `/exec`
@@ -129,7 +129,7 @@ endpoint rather than the noVNC paste path.
 `/exec`; a stamp that is present **and** older triggers a sync, a missing stamp
 is recorded only (no disruption during a first-boot install still in progress).
 Auto-runs after pod readiness when `cfg.pod.guest_autosync` (default `True`) is
-set, gated to podman/docker. Manual: `winpodx pod sync-guest [--force]` and a
+set, gated to podman/docker. Manual: `winpodx guest sync [--force]` and a
 GUI Tools → Sync Guest action. `sync_guest` returns a per-step result map so
 the CLI/GUI can render rows.
 

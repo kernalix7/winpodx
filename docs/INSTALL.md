@@ -208,51 +208,53 @@ paru -S winpodx
 
 The PKGBUILD lives at [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD); each tag push (`v*.*.*`) auto-stamps the version + tarball sha256 and pushes to `aur.archlinux.org/winpodx.git`.
 
-## AppImage (fat bundle: Python + Qt + FreeRDP + Podman + podman-compose)
+## AppImage (Thin bundle: Python + Qt + FreeRDP + winpodx; host container runtime required)
 
-A distro-agnostic AppImage of winpodx ships as a release asset on every tagged release. Unlike the lean Python-only AppImage shipped initially (#302), the current AppImage is a **fat bundle**: it carries Python 3.11, winpodx, Qt6 (PySide6), the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`), Podman, podman-compose, conmon, crun, netavark, slirp4netns, and passt/pasta + their transitive library dependencies.
+A distro-agnostic AppImage of winpodx ships as a release asset on every tagged release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~150 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. AppImage shrinks ~150 MB → ~50 MB.
 
-The bundle is ~290 MB and self-contained for everything that can be packaged in user space. The **only** host-side requirements left are:
+Host-side requirements:
 
+- A container runtime installed via your distro's package manager: **`podman ≥ 4` recommended**, `docker` or `libvirt` also supported. Use the same `install.sh` (RPM / DEB / AUR) one-liner installs above if you don't have one yet.
 - `/dev/kvm` exposed by the host kernel (most distros do this by default once VT-x / AMD-V is enabled in BIOS).
-- The current user belongs to the `kvm` group AND has `/etc/subuid` + `/etc/subgid` entries for rootless Podman.
+- The current user belongs to the `kvm` group (and `/etc/subuid` + `/etc/subgid` entries exist for rootless Podman — usually preconfigured on modern distros; check with `cat /etc/subuid`).
 
-Both of those need root, which an AppImage cannot do from user space. winpodx ships a one-shot pkexec wizard that performs all three in a single polkit prompt:
+The `setup-host` wizard still ships in the AppImage for the kvm-group / subuid step (one polkit prompt instead of a manual sudo dance):
 
 ```bash
 # 1. Download the AppImage from the latest GitHub release
-#    -> winpodx-fat-x86_64.AppImage
+#    -> winpodx-x86_64.AppImage
 
 # 2. Make it executable
-chmod +x winpodx-fat-x86_64.AppImage
+chmod +x winpodx-x86_64.AppImage
 
-# 3. First-run host setup -- one polkit prompt, no manual sudo dance
-./winpodx-fat-x86_64.AppImage setup-host          # detect + interactive prompt
-./winpodx-fat-x86_64.AppImage setup-host --apply  # apply without prompt
-./winpodx-fat-x86_64.AppImage setup-host --status # detect only, no mutation
+# 3. (Optional) First-run host setup — kvm group, subuid/subgid, kvm module
+./winpodx-x86_64.AppImage setup-host          # detect + interactive prompt
+./winpodx-x86_64.AppImage setup-host --apply  # apply without prompt
+./winpodx-x86_64.AppImage setup-host --status # detect only, no mutation
 
 # 4. Log out + back in so the new kvm group membership takes effect.
 
 # 5. Standard winpodx setup (auto-detect cores / RAM / timezone)
-./winpodx-fat-x86_64.AppImage setup
+./winpodx-x86_64.AppImage setup
 
 # 6. Launch the desktop (or any installed Windows app by name)
-./winpodx-fat-x86_64.AppImage app run desktop
+./winpodx-x86_64.AppImage app run desktop
 ```
 
 
 Best fit for:
 
-- **Immutable distros** (Fedora Silverblue / Kinoite, openSUSE Aeon, Steam Deck) where layering system packages is heavy or unavailable.
+- **Immutable distros** (Fedora Silverblue / Kinoite, openSUSE Aeon, Steam Deck) once a host podman is layered in.
 - **Locked-down environments** where users can't run `curl ... | bash` but can run a single downloaded executable.
-- **Quick try-it-on-a-friend's-laptop** without committing to a system install.
+- **Quick try-it-on-a-friend's-laptop** when a host podman / docker is already installed.
 
 Not the best fit if you prefer:
 
 - Native package-manager integration (use the RPM / DEB / AUR paths above instead).
 - Auto-update from the system update cycle (the AppImage is downloaded + replaced manually unless you wire it into AppImageUpdate yourself).
+- A truly zero-host-prep run — the Thin AppImage needs a host container runtime; if you want the installer to install one for you, use `install.sh`.
 
-Recipe and CI live under `packaging/appimage/` -- see `packaging/appimage/README.md` for local-build instructions if you want to roll your own.
+Recipe and CI live under `packaging/appimage/` — see `packaging/appimage/README.md` for local-build instructions if you want to roll your own. A regression test (`tests/test_appimage_recipe.py`) fails CI the moment the recipe re-introduces any of `podman` / `podman-compose` / `conmon` / `crun` / `netavark` / `aardvark-dns` / `passt` / `pasta` / `slirp4netns` / `fuse-overlayfs`.
 
 ## Nix
 

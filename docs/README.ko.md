@@ -51,7 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### 상태: 베타
-> winpodx 는 활발히 개발 중입니다 (**v0.5.8**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 + stalled RDP 세션 자동 `UNRESPONSIVE → recover` 추가. v0.5.8 은 두 fresh-install 막힘을 수정 — guest agent 가 8765 포트 bind 실패 (urlacl 잘못된 소유자, #269) + dockur 첫 부팅 OEM 복사가 `install.bat` 미실행 (`winpodx pod recover-oem` 로 재stage, #287). 또한 FreeRDP + Podman + podman-compose 를 번들하는 distro 무관 **fat AppImage** + 호스트 측 작업용 `winpodx setup-host` pkexec 위저드 (#227), 느린 ISO 다운로드에 `pod wait-ready` 자동 연장 (#126), standalone setup 이 end-to-end provision 하도록 `winpodx setup --customize` wizard 완성. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+> winpodx 는 활발히 개발 중입니다 (**v0.6.0**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 + stalled RDP 세션 자동 `UNRESPONSIVE → recover` 추가; v0.5.8 은 두 fresh-install 막힘 수정 (#269 urlacl 소유자, #287 첫 부팅 OEM 복사 실패). **v0.6.0 은 통합 + UX 릴리즈.** post-create 체인 (wait-ready → apply-fixes → discovery → reverse-open) 이 단일 **`winpodx provision`** 으로 통합되어 `install.sh`, `winpodx setup`, `winpodx migrate`, GUI bring-up 이 모두 이걸 호출 — `install.sh` 의 ~140줄 provisioning 이 ~5줄로 축소. AppImage 는 **Thin** (~50 MB) — FreeRDP + Python + Qt + winpodx 만 — 컨테이너 런타임은 호스트의 `podman` / `docker` / `libvirt` 사용, #357 · #363 의 번들 stack 충돌 근본 해소 (구 fat AppImage 는 호스트 stack 을 가렸음). CLI 명령 표면 재편 — **`winpodx guest`** 가 게스트 작업 (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** 이 설치/디스크 작업 (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** 가 `info` + `check` 흡수 + `--json` / `--quick` / `--fix` (dead agent / stale lock / 누락 desktop entry / OEM 버전 drift 의 idempotent 자동 복구) 추가. 기존 `pod <x>` 철자도 0.6.x 동안 deprecation 경고와 함께 동작; 0.7.0 에서 제거. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — 진짜 아이콘, pin 가능, alt-tab, 파일 연결 양방향. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
@@ -108,7 +108,7 @@ chmod +x winpodx-*-x86_64.AppImage
 
 > **패키지 매니저 / AppImage 설치 후:** `winpodx setup` 한번 실행 → `~/.config/winpodx/winpodx.toml` + compose.yaml 생성. curl 원라이너는 이 단계를 자동으로 해주고 Windows 첫 부팅까지 ~5–10분 대기; 패키지 설치는 바이너리만 ship — `apt install` / `dnf install` / `yay -S` / 첫 AppImage 실행이 갑자기 10분짜리 Windows ISO 다운로드 트리거하지 않게. setup 후엔 그냥 앱 실행 (`winpodx app run desktop`) 만 해도 첫 실행시 pod 자동 provision.
 >
-> fat AppImage 는 Python + Qt + winpodx 에 더해 **FreeRDP + Podman + podman-compose 까지 번들** — 그래서 호스트 측에 못 담는 건 KVM 자체뿐 (`/dev/kvm`, `kvm` 그룹, rootless Podman 용 `/etc/subuid` / `/etc/subgid`). `winpodx setup-host` 가 `pkexec` 한 번으로 처리하고, `winpodx doctor` 가 그래도 부족한 걸 안내.
+> Thin AppImage (0.6.0) 는 Python + Qt + winpodx + FreeRDP 만 번들 — 컨테이너 런타임은 호스트 (`podman` ≥ 4 권장, `docker` / `libvirt` 도 지원) 에 두어서 이미 있는 호스트 stack 과 충돌하지 않음 (#357, #363). 0.6.0 이전 fat AppImage 는 podman stack 전체를 번들하고 호스트 것을 가렸음. 남은 호스트 측 요건: 패키지 매니저로 설치한 컨테이너 런타임, `/dev/kvm`, `kvm` 그룹 멤버십, rootless Podman 용 `/etc/subuid` / `/etc/subgid`. `winpodx setup-host` 가 kvm / subuid 부분을 `pkexec` 한 번으로 처리; `winpodx doctor` 가 그래도 부족한 걸 안내.
 
 오프라인 / 에어갭 빌드, 소스 설치, 버전 pin, 언인스톨은 [docs/INSTALL.ko.md](INSTALL.ko.md) 참조.
 
@@ -137,7 +137,7 @@ winpodx pod wait-ready --logs    # 선택: 첫 부팅 진행상황 라이브 보
 
 ```bash
 winpodx doctor                   # read-only — 필요한 fix 만 출력
-winpodx pod apply-fixes          # guest 측 런타임 fix 재적용 (RDP timeout, NIC power-save 등)
+winpodx guest apply-fixes          # guest 측 런타임 fix 재적용 (RDP timeout, NIC power-save 등)
 ```
 
 ## 실행
@@ -209,11 +209,11 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 
 **운영 & 회복력**
 - 다국어 UI (v0.5.9): 트레이 / GUI / CLI 가 7개 언어로 완전 번역 (en / ko / zh / ja / de / fr / it), `$LANG` 에서 자동 감지 — `winpodx language <code>` 또는 GUI Settings → "winpodx UI language" 로 변경
-- Windows 디스크 자동 확장 (v0.5.9): C: 가 idle 중 임계치 넘게 차면 호스트 여유 공간 한도 내에서 스스로 확장 — 수동은 `winpodx pod grow-disk [SIZE]`, `winpodx pod disk-usage`, GUI Tools → Grow Disk
-- Guest sync (v0.5.9): 호스트 업그레이드 후 갱신된 agent / urlacl / rdprrap / fixes 를 실행 중인 게스트에 push — pod 시작 시 1회 자동, 또는 `winpodx pod sync-guest [--force]`
+- Windows 디스크 자동 확장 (v0.5.9): C: 가 idle 중 임계치 넘게 차면 호스트 여유 공간 한도 내에서 스스로 확장 — 수동은 `winpodx install grow-disk [SIZE]`, `winpodx install disk-usage`, GUI Tools → Grow Disk
+- Guest sync (v0.5.9): 호스트 업그레이드 후 갱신된 agent / urlacl / rdprrap / fixes 를 실행 중인 게스트에 push — pod 시작 시 1회 자동, 또는 `winpodx guest sync [--force]`
 - 오프라인 / 에어갭 설치 (`--source` + `--image-tar`)
 - 원라인 언인스톨 (Windows VM 데이터 유지; `--purge` 로 전부 삭제)
-- `winpodx check` 통한 헬스 체크 (pod / RDP / agent / disk / round-trip / 비밀번호 age)
+- `winpodx doctor` 통한 헬스 체크 (deps / pod / RDP / agent / disk / round-trip / 비밀번호 age; `--json` 머신리더블, `--quick` 가벼운 서브셋, `--fix` 흔한 finding 의 idempotent 자동 복구)
 - Qt6 GUI: Apps / Settings / Tools / Terminal / Info 페이지 — 가벼운 시스템 트레이도 별도
 - stdlib 지향 Python (3.11+ 는 pip-deps 없음; 3.9 / 3.10 은 `tomli` 폴백 1개)
 

@@ -51,7 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### Status: Beta
-> winpodx is in active development (**v0.5.8**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions. v0.5.8 fixes the two big fresh-install dead-ends — the guest agent failing to bind port 8765 (urlacl reserved for the wrong owner, #269) and dockur's first-boot OEM copy never running `install.bat` (`winpodx pod recover-oem` re-stages it, #287). It also ships a distro-agnostic **fat AppImage** that bundles FreeRDP + Podman + podman-compose with a `winpodx setup-host` pkexec wizard for the host-side bits (#227), makes `pod wait-ready` auto-extend on slow ISO downloads (#126), and completes the `winpodx setup --customize` wizard so a standalone setup provisions end-to-end. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> winpodx is in active development (**v0.6.0**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions; v0.5.8 fixed the two big fresh-install dead-ends (#269 urlacl ownership and #287 OEM copy never running `install.bat`). **v0.6.0 is a consolidation + UX release.** The post-create chain (wait-ready → apply-fixes → discovery → reverse-open) collapses into a single **`winpodx provision`** that is now the only path used by `install.sh`, `winpodx setup`, `winpodx migrate`, and the GUI bring-up; `install.sh`'s ~140 lines of provisioning drop to ~5. The AppImage is **Thin** (~50 MB) — only FreeRDP + Python + Qt + winpodx — and uses the host's `podman` / `docker` / `libvirt`, fixing the bundled-stack crashes #357 and #363 (the old fat AppImage shadowed the host stack). The CLI command surface is reorganised — **`winpodx guest`** owns guest-side operations (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** owns install / disk operations (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** absorbs `info` and `check` and gains `--json` / `--quick` / `--fix` (idempotent auto-remediation for dead agent, stale locks, missing desktop entries, and OEM-version drift). All old `pod <x>` subcommand spellings still work through 0.6.x with a deprecation notice and will be removed in 0.7.0. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated, both directions. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
@@ -108,7 +108,7 @@ chmod +x winpodx-*-x86_64.AppImage
 
 > **After a package-manager / AppImage install:** run `winpodx setup` once to generate `~/.config/winpodx/winpodx.toml` + compose.yaml. The curl one-liner does this for you (and waits ~5–10 min for the Windows first boot); package installs ship the binary only so `apt install` / `dnf install` / `yay -S` / first AppImage launch don't trigger a 10-minute Windows ISO download out of the blue. After setup, just launching an app (`winpodx app run desktop`) auto-provisions the pod the first time.
 >
-> The fat AppImage bundles Python + Qt + winpodx **plus FreeRDP + Podman + podman-compose**, so the only host-side requirement it can't carry is KVM itself — `/dev/kvm`, the `kvm` group, and `/etc/subuid` / `/etc/subgid` for rootless Podman. `winpodx setup-host` fixes those via a single `pkexec` prompt; `winpodx doctor` surfaces anything still missing.
+> The Thin AppImage (0.6.0) bundles Python + Qt + winpodx + FreeRDP only — the container runtime lives on the host (`podman` ≥ 4 recommended, `docker` / `libvirt` also supported) so the AppImage no longer fights a host stack you already have (#357, #363). Pre-0.6.0 fat AppImages bundled the whole podman stack and shadowed the host's. Host-side requirements left: a container runtime via your package manager, `/dev/kvm`, `kvm` group membership, and `/etc/subuid` / `/etc/subgid` for rootless Podman. `winpodx setup-host` fixes the kvm / subuid bits via a single `pkexec` prompt; `winpodx doctor` surfaces anything still missing.
 
 See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, and uninstall.
 
@@ -137,7 +137,7 @@ Run `winpodx doctor` any time afterwards to re-check host state and surface the 
 
 ```bash
 winpodx doctor                   # Read-only -- prints what would need fixing
-winpodx pod apply-fixes          # Re-applies guest-side runtime fixes (RDP timeouts, NIC power-save, etc.)
+winpodx guest apply-fixes        # Re-applies guest-side runtime fixes (RDP timeouts, NIC power-save, etc.)
 ```
 
 ## Launch
@@ -209,11 +209,11 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 
 **Operations & resilience**
 - Multilingual UI (v0.5.9): tray / GUI / CLI fully translated to 7 languages (en / ko / zh / ja / de / fr / it), auto-detected from `$LANG` — override with `winpodx language <code>` or GUI Settings → "winpodx UI language"
-- Windows disk auto-grow (v0.5.9): C: grows itself when it fills past a threshold while idle, bounded by host free space — or grow on demand (`winpodx pod grow-disk [SIZE]`, `winpodx pod disk-usage`, GUI Tools → Grow Disk)
-- Guest sync (v0.5.9): push updated agent / urlacl / rdprrap / fixes into a running guest after a host upgrade — automatic once per pod start, or `winpodx pod sync-guest [--force]`
+- Windows disk auto-grow (v0.5.9): C: grows itself when it fills past a threshold while idle, bounded by host free space — or grow on demand (`winpodx install grow-disk [SIZE]`, `winpodx install disk-usage`, GUI Tools → Grow Disk)
+- Guest sync (v0.5.9): push updated agent / urlacl / rdprrap / fixes into a running guest after a host upgrade — automatic once per pod start, or `winpodx guest sync [--force]`
 - Offline / air-gapped install (`--source` + `--image-tar`)
 - One-line uninstall (keeps Windows VM data unless `--purge`)
-- Health checks via `winpodx check` (pod / RDP / agent / disk / round-trip / password age)
+- Health checks via `winpodx doctor` (deps / pod / RDP / agent / disk / round-trip / password age; `--json` for machine-readable, `--quick` for cheap subset, `--fix` for idempotent auto-remediation of common findings)
 - Qt6 GUI: Apps / Settings / Tools / Terminal / Info pages — plus a lighter system tray
 - Stdlib-leaning Python (no pip-deps on 3.11+; one `tomli` fallback on 3.9 / 3.10)
 
