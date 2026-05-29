@@ -232,11 +232,42 @@ def _find_native_freerdp() -> tuple[str, str] | None:
     return None
 
 
+# Flatpak `run` options for com.freerdp.FreeRDP. Two things have to be right or
+# the client silently degrades inside the sandbox:
+#   * --command=xfreerdp — the app's DEFAULT command is the SDL client, which
+#     has NO RAIL (FreeRDP #9078); without this, a RemoteApp launch opens the
+#     full Windows desktop / login screen instead of a single app window. We
+#     force the X11 xfreerdp binary, the only one with working RAIL.
+#   * the sockets / device / network / filesystem holes every winpodx RDP flag
+#     needs, so clipboard / sound / printer / display / drive-redirection
+#     (\\tsclient\home + \\tsclient\media) and the localhost RDP connection all
+#     work the same as a native client:
+#       /v:127.0.0.1     -> --share=network
+#       RAIL + +clipboard -> --socket=x11 (RAIL needs X11/XWayland) + --socket=wayland
+#       /sound           -> --socket=pulseaudio
+#       /printer         -> --socket=cups
+#       /scale + display -> --device=dri
+#       /drive:media + \\tsclient\home -> --filesystem=home + the media mount roots
+_FLATPAK_RUN_OPTS = (
+    "--command=xfreerdp "
+    "--share=network "
+    "--socket=x11 --socket=wayland "
+    "--socket=pulseaudio "
+    "--socket=cups "
+    "--device=dri "
+    "--filesystem=home "
+    "--filesystem=/run/media --filesystem=/media --filesystem=/mnt"
+)
+_FLATPAK_FREERDP_CMD = f"flatpak run {_FLATPAK_RUN_OPTS} com.freerdp.FreeRDP"
+
+
 def _find_flatpak_freerdp() -> tuple[str, str] | None:
     """The Flatpak FreeRDP (``com.freerdp.FreeRDP``) if installed.
 
-    The Flatpak ships ``xfreerdp``, so it has working RAIL just like the
-    native ``xfreerdp`` — it's a first-class client, not a degraded fallback.
+    Returns the full ``flatpak run`` invocation that forces the RAIL-capable
+    ``xfreerdp`` binary and opens the sandbox holes winpodx's RDP flags need
+    (clipboard / sound / printer / display / drive redirection / network) — so
+    the Flatpak behaves like a native client, not a degraded full-desktop one.
     """
     try:
         result = subprocess.run(
@@ -246,7 +277,7 @@ def _find_flatpak_freerdp() -> tuple[str, str] | None:
             timeout=10,
         )
         if result.returncode == 0 and "com.freerdp.FreeRDP" in result.stdout:
-            return ("flatpak run com.freerdp.FreeRDP", "flatpak")
+            return (_FLATPAK_FREERDP_CMD, "flatpak")
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return None

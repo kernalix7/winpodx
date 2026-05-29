@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Flatpak FreeRDP 가 이제 풀데스크탑이 아니라 앱별 RemoteApp 을 띄웁니다.** `flatpak run com.freerdp.FreeRDP` 는 앱의 *기본* 명령 — RAIL 없는 **SDL** 클라이언트(FreeRDP #9078) — 를 실행해서, Flatpak 으로 앱 하나를 띄우면 단일 앱 창 대신 Windows 전체 데스크탑/로그인 화면이 떴습니다. 이제 winpodx 가 Flatpak 을 `flatpak run --command=xfreerdp … com.freerdp.FreeRDP` 로 호출해 RAIL 되는 유일한 클라이언트인 X11 `xfreerdp` 바이너리를 강제하고, winpodx 의 모든 RDP 플래그가 필요로 하는 샌드박스 권한을 부여해서 Flatpak 이 네이티브 클라이언트처럼 동작합니다: `--share=network`(로컬 RDP), `--socket=x11`/`--socket=wayland`(RAIL + 클립보드), `--socket=pulseaudio`(사운드), `--socket=cups`(프린터), `--device=dri`(디스플레이), `--filesystem=home` + 이동식 미디어 마운트 루트(`\\tsclient\home` + `\\tsclient\media` 드라이브 리다이렉션). 0.6.0 이 Flatpak 우선 사용을 시작한 뒤 드러났습니다.
+
 ### Changed
 
 - **`install.sh` 가 시스템을 건드리기 전에 설치 플랜을 출력합니다.** 모드(R/A/C/N) 와 모든 의존성 소스가 결정되면, 인스톨러가 **주요 컴포넌트를 균등하게** 나열한 짧은 플랜 — `python3`, `venv` 프로브, 컨테이너 백엔드, FreeRDP, `/dev/kvm`, GUI — 을 각각 감지 상태 + 이번 실행의 동작(기존 사용 / 설치 / 호스트 요구사항)과 함께, 그리고 배포판 패키지 매니저로 설치할 정확한 패키지 목록 + Windows VM 프로비저닝 단계까지 — *어떤 패키지 설치/`sudo` 전에* 보여줍니다. 모드 프롬프트에서 바로 설치로 직행하지 않고 진행 내용이 투명합니다.

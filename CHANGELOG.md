@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Flatpak FreeRDP now does per-app RemoteApp instead of opening the full desktop.** `flatpak run com.freerdp.FreeRDP` runs the app's *default* command — the **SDL** client, which has no RAIL (FreeRDP #9078) — so launching a single app via the Flatpak opened the whole Windows desktop / login screen instead of one app window. winpodx now invokes the Flatpak as `flatpak run --command=xfreerdp … com.freerdp.FreeRDP`, forcing the X11 `xfreerdp` binary (the only client with working RAIL), and grants the sandbox the holes every winpodx RDP flag needs so the Flatpak behaves like a native client: `--share=network` (localhost RDP), `--socket=x11`/`--socket=wayland` (RAIL + clipboard), `--socket=pulseaudio` (sound), `--socket=cups` (printer), `--device=dri` (display), and `--filesystem=home` + the removable-media mount roots (`\\tsclient\home` + `\\tsclient\media` drive redirection). Surfaced after 0.6.0 started preferring the Flatpak when present.
+
 ### Changed
 
 - **`install.sh` prints an install plan before it touches the system.** Once the mode (R/A/C/N) and every dependency source are resolved, the installer shows a short plan that lists **every major component evenly** — `python3`, the `venv` probe, the container backend, FreeRDP, `/dev/kvm`, and the GUI — each with its detected state and the action this run will take (use existing / install / host-requirement), plus the exact packages it will install via the distro package manager and the Windows-VM provisioning steps — *before* any package install or `sudo`. The run is transparent instead of jumping straight from the mode prompt into installing things.

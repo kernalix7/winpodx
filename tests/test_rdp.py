@@ -135,6 +135,27 @@ def test_find_freerdp_flatpak_forced(monkeypatch):
     assert find_freerdp("flatpak") == ("flatpak run com.freerdp.FreeRDP", "flatpak")
 
 
+def test_flatpak_invocation_forces_xfreerdp_and_grants_perms():
+    # The Flatpak default command is the SDL client (no RAIL) -> a RemoteApp
+    # launch would open the full desktop. We must force xfreerdp and open the
+    # sandbox holes winpodx's RDP flags need.
+    from winpodx.core.rdp import _FLATPAK_FREERDP_CMD
+
+    assert _FLATPAK_FREERDP_CMD.startswith("flatpak run ")
+    assert "--command=xfreerdp" in _FLATPAK_FREERDP_CMD  # RAIL-capable client
+    assert _FLATPAK_FREERDP_CMD.endswith(" com.freerdp.FreeRDP")  # app id last
+    for perm in (
+        "--share=network",  # /v: localhost RDP
+        "--socket=x11",  # RAIL + clipboard
+        "--socket=wayland",
+        "--socket=pulseaudio",  # /sound
+        "--socket=cups",  # /printer
+        "--filesystem=home",  # \\tsclient\home + drive redirect
+        "--filesystem=/run/media",  # \\tsclient\media (USB)
+    ):
+        assert perm in _FLATPAK_FREERDP_CMD, f"missing sandbox permission: {perm}"
+
+
 def test_find_existing_session_rejects_non_freerdp_pid(tmp_path, monkeypatch):
     # A non-freerdp process with 'winpodx' in its cmdline must not look like a live RDP session.
     import shutil
