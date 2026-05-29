@@ -117,6 +117,24 @@ def test_deferred_provision_is_not_a_rollback(script: str) -> None:
     assert "winpodx app refresh" in script
 
 
+def test_mode_prompt_reads_from_tty_so_curl_bash_can_choose(script: str) -> None:
+    # Under `curl ... | bash`, stdin is the script pipe, so the R/A/C/N mode
+    # menu (and Custom sub-prompts) must read from the controlling terminal
+    # /dev/tty — otherwise the menu is unreachable via the canonical install
+    # path and silently defaults to Recommended.
+    assert "true </dev/tty" in script  # interactivity also detected via /dev/tty
+    assert "TTY_DEV" in script
+    # Every interactive prompt reads from $TTY_DEV, not bare stdin.
+    for bare in (
+        "read -r mode_answer\n",
+        "read -r be_answer\n",
+        "read -r gui_answer\n",
+        "read -r answer\n",
+    ):
+        assert bare not in script, f"prompt still reads bare stdin: {bare!r}"
+    assert script.count('read -r mode_answer < "$TTY_DEV"') == 1
+
+
 def test_no_inline_chain_steps_survive(script: str) -> None:
     """After `winpodx setup`, the post-create chain is driven by ONE winpodx
     command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).

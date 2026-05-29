@@ -27,7 +27,10 @@ set -euo pipefail
 #                      whether to include the GUI, then install accordingly.
 #   --mode n           No — cancel without changing anything.
 #                      (env: WINPODX_MODE=<r|a|c|n>)
-#                      Default: prompt when interactive; 'r' when non-interactive.
+#                      Default: prompt when a terminal is reachable — including
+#                      `curl ... | bash` (prompts read from /dev/tty) — and 'r'
+#                      (Recommended) when fully non-interactive (CI / cron /
+#                      stdin+/dev/tty both absent).
 #
 # Backend / GUI:
 #   --backend BACKEND  podman | docker | libvirt | manual. Passed through to
@@ -632,9 +635,19 @@ print_system_check
 #   3. non-interactive      -> 'r' (recommended), preserving old behaviour.
 # =====================================================================
 INSTALL_MODE="$WINPODX_MODE"
+# Interactive if we can reach a real terminal for INPUT — either stdin is a
+# TTY, or (the `curl ... | bash` case, where stdin is the script pipe) the
+# controlling terminal /dev/tty is openable. Prompts read from $TTY_DEV so the
+# mode menu works even via curl|bash. A run with no controlling terminal
+# (CI / cron / `</dev/null`) stays non-interactive and defaults to Recommended.
 INTERACTIVE=false
+TTY_DEV=/dev/stdin
 if [ -t 0 ]; then
     INTERACTIVE=true
+    TTY_DEV=/dev/stdin
+elif { true </dev/tty; } 2>/dev/null; then
+    INTERACTIVE=true
+    TTY_DEV=/dev/tty
 fi
 
 if [ -z "$INSTALL_MODE" ]; then
@@ -647,7 +660,7 @@ Install mode?
   [N]o           Cancel without changing anything.
 MODE_EOF
         echo -n "Choice [R/a/c/n]: "
-        read -r mode_answer
+        read -r mode_answer < "$TTY_DEV"
         case "$(echo "${mode_answer:-r}" | tr '[:upper:]' '[:lower:]' | cut -c1)" in
             a) INSTALL_MODE="a" ;;
             c) INSTALL_MODE="c" ;;
@@ -674,7 +687,7 @@ if [ "$INSTALL_MODE" = "c" ]; then
     if [ -z "$WINPODX_BACKEND" ]; then
         if [ "$INTERACTIVE" = true ]; then
             echo -n "Backend? [podman/docker/libvirt] (default podman): "
-            read -r be_answer
+            read -r be_answer < "$TTY_DEV"
             case "$(echo "${be_answer:-podman}" | tr '[:upper:]' '[:lower:]')" in
                 docker)  WINPODX_BACKEND="docker" ;;
                 libvirt) WINPODX_BACKEND="libvirt" ;;
@@ -686,7 +699,7 @@ if [ "$INSTALL_MODE" = "c" ]; then
     fi
     if [ -z "$WINPODX_NO_GUI" ] && [ "$INTERACTIVE" = true ]; then
         echo -n "Install the GUI (PySide6)? [Y/n]: "
-        read -r gui_answer
+        read -r gui_answer < "$TTY_DEV"
         if [[ "$gui_answer" =~ ^[Nn] ]]; then
             WINPODX_NO_GUI=1
         fi
@@ -847,7 +860,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo ""
     if [ "$INTERACTIVE" = true ]; then
         echo -n "  Proceed with installation? (Y/n): "
-        read -r answer
+        read -r answer < "$TTY_DEV"
         if [[ "$answer" =~ ^[Nn] ]]; then
             err "Aborted. Install dependencies manually and try again."
             exit 1
