@@ -67,7 +67,7 @@ def test_launch_app_remoteapp_without_display_raises(monkeypatch, tmp_path):
     # No $DISPLAY -> xfreerdp would die post-detach; launch_app must raise.
     from winpodx.core import rdp as rdp_mod
 
-    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda: ("/usr/bin/xfreerdp", "xfreerdp"))
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"))
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
     monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
     monkeypatch.delenv("DISPLAY", raising=False)
@@ -81,6 +81,58 @@ def test_find_freerdp_returns_tuple_or_none():
 
     result = find_freerdp()
     assert result is None or (isinstance(result, tuple) and len(result) == 2)
+
+
+def _patch_freerdp_probes(monkeypatch, *, native, flatpak):
+    """Stub the native + Flatpak FreeRDP probes independently."""
+    import winpodx.core.rdp as rdp_mod
+
+    rdp_mod._FREERDP_CACHE.clear()
+    monkeypatch.setattr(
+        rdp_mod,
+        "_find_native_freerdp",
+        lambda: ("/usr/bin/xfreerdp3", "xfreerdp") if native else None,
+    )
+    monkeypatch.setattr(
+        rdp_mod,
+        "_find_flatpak_freerdp",
+        lambda: ("flatpak run com.freerdp.FreeRDP", "flatpak") if flatpak else None,
+    )
+
+
+def test_find_freerdp_auto_prefers_flatpak_when_both_present(monkeypatch):
+    from winpodx.core.rdp import find_freerdp
+
+    _patch_freerdp_probes(monkeypatch, native=True, flatpak=True)
+    assert find_freerdp("auto") == ("flatpak run com.freerdp.FreeRDP", "flatpak")
+
+
+def test_find_freerdp_auto_falls_back_to_native(monkeypatch):
+    from winpodx.core.rdp import find_freerdp
+
+    _patch_freerdp_probes(monkeypatch, native=True, flatpak=False)
+    assert find_freerdp("auto") == ("/usr/bin/xfreerdp3", "xfreerdp")
+
+
+def test_find_freerdp_native_forced_ignores_flatpak(monkeypatch):
+    from winpodx.core.rdp import find_freerdp
+
+    _patch_freerdp_probes(monkeypatch, native=True, flatpak=True)
+    assert find_freerdp("native") == ("/usr/bin/xfreerdp3", "xfreerdp")
+
+
+def test_find_freerdp_native_forced_falls_back_to_flatpak(monkeypatch):
+    from winpodx.core.rdp import find_freerdp
+
+    _patch_freerdp_probes(monkeypatch, native=False, flatpak=True)
+    assert find_freerdp("native") == ("flatpak run com.freerdp.FreeRDP", "flatpak")
+
+
+def test_find_freerdp_flatpak_forced(monkeypatch):
+    from winpodx.core.rdp import find_freerdp
+
+    _patch_freerdp_probes(monkeypatch, native=True, flatpak=True)
+    assert find_freerdp("flatpak") == ("flatpak run com.freerdp.FreeRDP", "flatpak")
 
 
 def test_find_existing_session_rejects_non_freerdp_pid(tmp_path, monkeypatch):
@@ -179,14 +231,14 @@ class TestBuildRdpCommand:
         return c
 
     def test_raises_without_freerdp(self, cfg, monkeypatch):
-        monkeypatch.setattr("winpodx.core.rdp.find_freerdp", lambda: None)
+        monkeypatch.setattr("winpodx.core.rdp.find_freerdp", lambda *a, **k: None)
         with pytest.raises(RuntimeError, match="FreeRDP 3\\+ not found"):
             build_rdp_command(cfg)
 
     def test_basic_command_structure(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cmd, password = build_rdp_command(cfg)
         assert password == ""  # password embedded in /p: flag
@@ -200,7 +252,7 @@ class TestBuildRdpCommand:
     def test_remote_ip_uses_tofu(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.ip = "192.168.1.100"
         cmd, _ = build_rdp_command(cfg)
@@ -216,7 +268,7 @@ class TestBuildRdpCommand:
         3.24.1 (2026-05-14)."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
@@ -234,7 +286,7 @@ class TestBuildRdpCommand:
         Microsoft Store handler (#158, reported by @poetman)."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"),
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 2)
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
@@ -248,7 +300,7 @@ class TestBuildRdpCommand:
         ``/app:`` arg, with comma-to-space sanitisation."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
         cmd, _ = build_rdp_command(
@@ -265,7 +317,7 @@ class TestBuildRdpCommand:
         its own argv entry."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"),
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 2)
         cmd, _ = build_rdp_command(
@@ -278,7 +330,7 @@ class TestBuildRdpCommand:
     def test_dpi_flag_when_set(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.dpi = 150
         cmd, _ = build_rdp_command(cfg)
@@ -287,7 +339,7 @@ class TestBuildRdpCommand:
     def test_dynamic_resolution_flag(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cmd, _ = build_rdp_command(cfg)
         assert "/dynamic-resolution" in cmd
@@ -295,7 +347,7 @@ class TestBuildRdpCommand:
     def test_dynamic_resolution_not_in_app_launch(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cmd, _ = build_rdp_command(
             cfg,
@@ -308,7 +360,7 @@ class TestBuildRdpCommand:
     def test_dpi_flag_omitted_when_zero(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.dpi = 0
         cmd, _ = build_rdp_command(cfg)
@@ -317,7 +369,7 @@ class TestBuildRdpCommand:
     def test_no_password_no_stdin(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.password = ""
         cmd, password = build_rdp_command(cfg)
@@ -327,7 +379,7 @@ class TestBuildRdpCommand:
     def test_domain_flag(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.domain = "WORKGROUP"
         cmd, _ = build_rdp_command(cfg)
@@ -336,7 +388,7 @@ class TestBuildRdpCommand:
     def test_extra_flags_filtered(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.extra_flags = "/sound:sys:alsa /exec:evil"
         cmd, _ = build_rdp_command(cfg)
@@ -353,7 +405,7 @@ class TestBuildRdpCommand:
         misleading flag never reaches xfreerdp3."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.extra_flags = "-gfx-h264 +gfx-h264 -rfx +rfx -nsc +nsc -jpeg +jpeg -avc444 +avc444"
         cmd, _ = build_rdp_command(cfg)
@@ -368,7 +420,7 @@ class TestBuildRdpCommand:
         xfreerdp3."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         # FreeRDP 3.x cmdline split:
         #   - BOOL flags (`+/-name`): the genuine bare toggles below.
@@ -406,7 +458,7 @@ class TestBuildRdpCommand:
         unsafe."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cfg.rdp.extra_flags = "+gfx-progressive"  # global says: enable
         cmd, _ = build_rdp_command(cfg, extra_args="-gfx-progressive /not-a-real-flag:bad")
@@ -426,7 +478,7 @@ class TestBuildRdpCommand:
         up as an empty-string arg in the FreeRDP command."""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
-            lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         cmd_no_extra, _ = build_rdp_command(cfg)
         cmd_empty, _ = build_rdp_command(cfg, extra_args="")

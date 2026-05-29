@@ -135,6 +135,25 @@ def test_mode_prompt_reads_from_tty_so_curl_bash_can_choose(script: str) -> None
     assert script.count('read -r mode_answer < "$TTY_DEV"') == 1
 
 
+def test_custom_mode_picks_freerdp_source(script: str) -> None:
+    # Custom mode lets the user pick the FreeRDP client source (native/flatpak/
+    # auto), not just the backend + GUI.
+    assert "WINPODX_FREERDP_SOURCE" in script
+    assert '[ "$INSTALL_MODE" = "c" ]' in script
+    # The resolved source is handed to setup so the launcher honours it.
+    assert "--freerdp-source" in script
+
+
+def test_freerdp_flatpak_not_installed_redundantly(script: str) -> None:
+    # When a FreeRDP client (native or Flatpak) is already present, the native
+    # package is not pulled; when neither is present, auto installs the Flatpak
+    # if the flatpak runtime exists, else native.
+    assert "FREERDP_FLATPAK_PRESENT" in script
+    assert "FREERDP_NATIVE_PRESENT" in script
+    assert "INSTALL_FREERDP_FLATPAK" in script
+    assert "com.freerdp.FreeRDP" in script
+
+
 def test_no_inline_chain_steps_survive(script: str) -> None:
     """After `winpodx setup`, the post-create chain is driven by ONE winpodx
     command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).

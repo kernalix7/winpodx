@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **FreeRDP 클라이언트 소스를 선택 가능하게 했고, 둘 다 있으면 런처가 Flatpak 을 우선 사용합니다 (#269, #366, #393).** 기존엔 `install.sh` 가 Flatpak `com.freerdp.FreeRDP` 이 이미 있어도 네이티브 `freerdp3` 패키지를 항상 설치했고(중복 — #269), 런처도 항상 네이티브를 먼저 골랐습니다. 이제: (1) **둘 다 있으면 런처가 Flatpak 우선** (`core/rdp.find_freerdp` auto 순서가 Flatpak-first) — 네이티브 `freerdp3-x11` 이 깨진 distro 에서 더 나은 클라이언트; **기존 설치에도 적용**되며 `cfg.rdp.freerdp_source = native` 로 되돌릴 수 있음. (2) **`install.sh` 가 중복 클라이언트를 설치하지 않음** — FreeRDP(네이티브든 Flatpak 이든) 가 하나라도 있으면 아무것도 안 깖; 둘 다 없으면 `auto` 는 flatpak 런타임이 있으면 Flatpak 을, 없으면 네이티브 패키지를 설치(best-effort, 실패 시 네이티브 fallback). (3) **Custom 설치 모드에서 주요 의존성마다 소스를 선택** — 컨테이너 백엔드(podman/docker/libvirt), **FreeRDP 클라이언트(auto / native / flatpak)**, GUI — 그리고 `winpodx setup --freerdp-source <auto|native|flatpak>` 가 선택을 `cfg.rdp.freerdp_source` 에 저장.
+
 ### Fixed
 
 - **설치 모드 메뉴(R/A/C/N)가 이제 `curl … | bash` 에서도 동작합니다.** 대화형 모드 프롬프트(+ Custom 모드의 백엔드/GUI 서브프롬프트, 의존성 설치 확인)가 `[ -t 0 ]` 으로 게이트되고 stdin 에서 읽어서, 표준 `curl … | bash` 설치(stdin 이 스크립트 파이프지 터미널이 아님)에선 조용히 스킵되고 항상 Recommended 로 기본 처리됐습니다. 이제 install.sh 가 제어 터미널 `/dev/tty` 도 감지하고 모든 프롬프트를 거기서 읽으므로, 터미널에서 실행한 `curl … | bash` 는 모드 메뉴를 띄우고 선택할 수 있습니다(라이브 진행 라인이 출력에 이미 쓰는 `/dev/tty` 트릭과 동일). 완전 비대화형 실행(CI / cron / stdin 과 `/dev/tty` 둘 다 없음)은 비대화형으로 남아 Recommended 기본, `--mode` / `WINPODX_MODE` 는 여전히 프롬프트 없이 미리 선택합니다.

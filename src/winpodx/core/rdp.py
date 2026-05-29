@@ -155,8 +155,9 @@ def _media_redirect_base() -> Path:
     return placeholder
 
 
-# Success-only cache; a miss is not cached so a mid-session install is picked up.
-_FREERDP_CACHE: tuple[str, str] | None = None
+# Success-only cache, keyed by preference; a miss is not cached so a
+# mid-session install is picked up.
+_FREERDP_CACHE: dict[str, tuple[str, str]] = {}
 _FREERDP_MAJOR_CACHE: int | None = None
 
 
@@ -210,8 +211,8 @@ def freerdp_major_version() -> int:
     return _FREERDP_MAJOR_CACHE
 
 
-def find_freerdp() -> tuple[str, str] | None:
-    """Locate a FreeRDP 3+ binary on the system.
+def _find_native_freerdp() -> tuple[str, str] | None:
+    """First available native FreeRDP binary.
 
     ``xfreerdp`` first: it is the only client with working RAIL.
     ``sdl-freerdp`` has none (FreeRDP #9078) and ``wlfreerdp`` is
@@ -219,39 +220,68 @@ def find_freerdp() -> tuple[str, str] | None:
     substitute -- pure-Wayland needs XWayland. SDL stays as a
     full-desktop-only fallback.
     """
-    global _FREERDP_CACHE
-    if _FREERDP_CACHE is not None:
-        return _FREERDP_CACHE
-
     probes: tuple[tuple[tuple[str, ...], str], ...] = (
         (("xfreerdp3", "xfreerdp"), "xfreerdp"),
         (("sdl-freerdp3", "sdl-freerdp"), "sdl"),
     )
-    found: tuple[str, str] | None = None
     for names, kind in probes:
         for name in names:
             path = shutil.which(name)
             if path:
-                found = (path, kind)
-                break
-        if found is not None:
-            break
+                return (path, kind)
+    return None
 
-    if found is None:
-        try:
-            result = subprocess.run(
-                ["flatpak", "list", "--app", "--columns=application"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0 and "com.freerdp.FreeRDP" in result.stdout:
-                found = ("flatpak run com.freerdp.FreeRDP", "flatpak")
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+
+def _find_flatpak_freerdp() -> tuple[str, str] | None:
+    """The Flatpak FreeRDP (``com.freerdp.FreeRDP``) if installed.
+
+    The Flatpak ships ``xfreerdp``, so it has working RAIL just like the
+    native ``xfreerdp`` — it's a first-class client, not a degraded fallback.
+    """
+    try:
+        result = subprocess.run(
+            ["flatpak", "list", "--app", "--columns=application"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and "com.freerdp.FreeRDP" in result.stdout:
+            return ("flatpak run com.freerdp.FreeRDP", "flatpak")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
+    """Locate a FreeRDP 3+ client, honouring a source preference.
+
+    ``prefer``:
+      * ``"auto"`` (default) — **prefer the Flatpak when it's installed**, else
+        native. The Flatpak ``com.freerdp.FreeRDP`` is RAIL-capable and is the
+        more reliable client on distros whose native ``freerdp3-x11`` is broken
+        (e.g. Ubuntu 26.04, #393), so when both are present we use the Flatpak.
+      * ``"native"`` — force the native binary (fall back to Flatpak only if no
+        native is present).
+      * ``"flatpak"`` — force the Flatpak (fall back to native only if the
+        Flatpak isn't installed).
+
+    Override per install via ``cfg.rdp.freerdp_source``. Returns ``(path_or_cmd,
+    kind)`` or ``None``. Success is cached per-preference; a miss is not cached
+    so a mid-session install is still picked up.
+    """
+    pref = prefer if prefer in ("auto", "native", "flatpak") else "auto"
+    cached = _FREERDP_CACHE.get(pref)
+    if cached is not None:
+        return cached
+
+    if pref == "native":
+        found = _find_native_freerdp() or _find_flatpak_freerdp()
+    else:
+        # auto + flatpak: try the Flatpak first, fall back to native.
+        found = _find_flatpak_freerdp() or _find_native_freerdp()
 
     if found is not None:
-        _FREERDP_CACHE = found
+        _FREERDP_CACHE[pref] = found
     return found
 
 
@@ -297,7 +327,7 @@ def build_rdp_command(
     ``/wm-class`` (exe stem) so the Linux window lines up with the
     discovered app's desktop entry rather than ``explorer``.
     """
-    found = find_freerdp()
+    found = find_freerdp(prefer=getattr(cfg.rdp, "freerdp_source", "auto"))
     if not found:
         raise RuntimeError("FreeRDP 3+ not found. Install xfreerdp3 or xfreerdp.")
 
@@ -775,7 +805,7 @@ def launch_app(
 
     # See find_freerdp(): only xfreerdp has working RAIL, and it needs $DISPLAY.
     is_remoteapp = launch_uri is not None or app_executable is not None
-    found = find_freerdp()
+    found = find_freerdp(prefer=getattr(cfg.rdp, "freerdp_source", "auto"))
     kind = found[1] if found else ""
     if is_remoteapp and kind == "xfreerdp" and not os.environ.get("DISPLAY"):
         raise RuntimeError(

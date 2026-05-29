@@ -168,7 +168,7 @@ def test_sec_tls_applied_for_all_backends(backend_name, monkeypatch):
 
     monkeypatch.setattr(
         "winpodx.core.rdp.find_freerdp",
-        lambda: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
     )
     cfg = Config()
     cfg.rdp.user = "User"
@@ -274,7 +274,7 @@ def test_check_freerdp_accepts_sdl(monkeypatch):
 
     monkeypatch.setattr(
         "winpodx.core.rdp.find_freerdp",
-        lambda: ("/usr/bin/sdl-freerdp3", "sdl"),
+        lambda *a, **k: ("/usr/bin/sdl-freerdp3", "sdl"),
     )
     result = deps.check_freerdp()
     assert result.found is True
@@ -285,7 +285,7 @@ def test_check_freerdp_accepts_sdl(monkeypatch):
 def test_check_freerdp_reports_missing(monkeypatch):
     from winpodx.utils import deps
 
-    monkeypatch.setattr("winpodx.core.rdp.find_freerdp", lambda: None)
+    monkeypatch.setattr("winpodx.core.rdp.find_freerdp", lambda *a, **k: None)
     result = deps.check_freerdp()
     assert result.found is False
     assert "FreeRDP 3+" in result.note

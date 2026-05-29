@@ -321,6 +321,16 @@ def cli(argv: list[str] | None = None) -> None:
     # --- setup ---
     setup_p = sub.add_parser("setup", help="Run setup wizard")
     setup_p.add_argument("--backend", choices=["podman", "docker", "libvirt", "manual"])
+    setup_p.add_argument(
+        "--freerdp-source",
+        choices=["auto", "native", "flatpak"],
+        default=None,
+        help=(
+            "Which FreeRDP client the launcher prefers: auto (Flatpak when "
+            "present, else native), native, or flatpak. Stored in "
+            "cfg.rdp.freerdp_source."
+        ),
+    )
     # Curated edition list pulled from winpodx.core.config.WIN_VERSION_LABELS
     # so the help text stays in sync with the validator and the GUI dropdown.
     from winpodx.core.config import known_win_version_codes

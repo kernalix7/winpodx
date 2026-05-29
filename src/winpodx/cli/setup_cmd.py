@@ -660,8 +660,19 @@ def handle_setup(args: argparse.Namespace) -> None:
             # the user picks "Auto", setup short-circuits on this branch,
             # returns without marking initialized, and the prompt comes back
             # next time. Persist only when it actually changes.
+            # A targeted `winpodx setup --freerdp-source <x>` on an existing
+            # config still persists the preference (this branch otherwise
+            # short-circuits before the main apply below).
+            _fr_src = getattr(args, "freerdp_source", None)
+            changed = False
             if not cfg.pod.initialized:
                 cfg.pod.initialized = True
+                changed = True
+            if _fr_src and _fr_src != cfg.rdp.freerdp_source:
+                cfg.rdp.freerdp_source = _fr_src
+                cfg.rdp.__post_init__()
+                changed = True
+            if changed:
                 cfg.save()
             _ensure_oem_token_staged()
             # Half-uninstalled detection. If cfg points at a podman/docker
@@ -718,6 +729,15 @@ def handle_setup(args: argparse.Namespace) -> None:
     if win_version_arg:
         cfg.pod.win_version = win_version_arg
         cfg.pod.__post_init__()
+
+    # Persist the FreeRDP source preference (native / flatpak / auto) chosen in
+    # install.sh Custom mode or via `winpodx setup --freerdp-source`. "auto"
+    # (the default) prefers the Flatpak when present; an explicit value forces
+    # that client. RDPConfig.__post_init__ validates the value.
+    freerdp_source_arg = getattr(args, "freerdp_source", None)
+    if freerdp_source_arg:
+        cfg.rdp.freerdp_source = freerdp_source_arg
+        cfg.rdp.__post_init__()
 
     _resolve_credentials(cfg, non_interactive=non_interactive, config_existed=config_existed)
 

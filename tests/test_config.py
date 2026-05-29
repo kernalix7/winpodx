@@ -29,6 +29,19 @@ def test_rdp_config_scale_clamping():
     assert rdp.scale == 500
 
 
+def test_rdp_config_freerdp_source_default_is_auto():
+    assert RDPConfig().freerdp_source == "auto"
+
+
+def test_rdp_config_freerdp_source_accepts_valid():
+    assert RDPConfig(freerdp_source="native").freerdp_source == "native"
+    assert RDPConfig(freerdp_source="flatpak").freerdp_source == "flatpak"
+
+
+def test_rdp_config_freerdp_source_invalid_falls_back_to_auto():
+    assert RDPConfig(freerdp_source="bogus").freerdp_source == "auto"
+
+
 def test_pod_config_backend_validation():
     pod = PodConfig(backend="invalid")
     assert pod.backend == "podman"

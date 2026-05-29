@@ -166,6 +166,33 @@ class TestHalfUninstalledGuard:
             "existing-config skip path must mark the install initialized (#341)"
         )
 
+    def test_freerdp_source_persisted_on_existing_config(self, tmp_path, monkeypatch):
+        """`winpodx setup --freerdp-source flatpak` on an existing config must
+        persist the preference even on the skip path."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+        _make_existing_config(tmp_path)
+
+        args = _setup_args(non_interactive=True)
+        args.freerdp_source = "flatpak"
+
+        with (
+            patch("winpodx.cli.setup_cmd.check_all", return_value=_mock_freerdp_ok()),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"),
+            patch(
+                "winpodx.cli.setup_cmd._container_exists_on_backend",
+                return_value=True,
+            ),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(args)
+
+        from winpodx.core.config import Config
+
+        assert Config.load().rdp.freerdp_source == "flatpak"
+
     def test_calls_ensure_ready_when_container_missing(self, tmp_path, monkeypatch):
         """Half-uninstalled: config present, container gone → ensure_ready
         is called to recreate the container from compose.yaml."""

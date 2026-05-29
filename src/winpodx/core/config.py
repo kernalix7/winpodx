@@ -157,12 +157,18 @@ class RDPConfig:
     scale: int = 100
     dpi: int = 0  # Windows DPI %, 0 = auto-detect from Linux
     extra_flags: str = ""
+    # Which FreeRDP client to prefer: "auto" (Flatpak when installed, else
+    # native — see core/rdp.find_freerdp), "native", or "flatpak". Lets a user
+    # force the native client if the Flatpak's sandbox is a problem for them.
+    freerdp_source: str = "auto"
 
     def __post_init__(self) -> None:
         self.port = max(1, min(65535, int(self.port)))
         self.scale = max(100, min(500, int(self.scale)))
         self.dpi = max(0, min(500, int(self.dpi)))
         self.password_max_age = max(0, int(self.password_max_age))
+        if self.freerdp_source not in ("auto", "native", "flatpak"):
+            self.freerdp_source = "auto"
 
 
 @dataclass
@@ -673,6 +679,7 @@ class Config:
                 "scale": self.rdp.scale,
                 "dpi": self.rdp.dpi,
                 "extra_flags": self.rdp.extra_flags,
+                "freerdp_source": self.rdp.freerdp_source,
             },
             "pod": {
                 "backend": self.pod.backend,

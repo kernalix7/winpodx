@@ -40,7 +40,7 @@ def patch_freerdp_present(monkeypatch):
 @pytest.fixture
 def patch_freerdp_missing(monkeypatch):
     """find_freerdp() returns None — config error path."""
-    monkeypatch.setattr("winpodx.core.transport.freerdp.find_freerdp", lambda: None)
+    monkeypatch.setattr("winpodx.core.transport.freerdp.find_freerdp", lambda *a, **k: None)
 
 
 class TestHealth:

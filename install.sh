@@ -567,10 +567,34 @@ DOCKER_PRESENT=false
 command -v docker >/dev/null 2>&1 && DOCKER_PRESENT=true
 LIBVIRT_PRESENT=false
 command -v virsh >/dev/null 2>&1 && LIBVIRT_PRESENT=true
-FREERDP_PRESENT=false
-for _c in xfreerdp3 xfreerdp wlfreerdp3 wlfreerdp; do
-    if command -v "$_c" >/dev/null 2>&1; then FREERDP_PRESENT=true; break; fi
+# FreeRDP detection — track native client, Flatpak client, and the Flatpak
+# runtime separately so the install policy + Custom mode can choose a source.
+# Mirrors core/rdp.py:find_freerdp's accepted native set.
+FREERDP_NATIVE_PRESENT=false
+for _c in xfreerdp3 xfreerdp sdl-freerdp3 sdl-freerdp wlfreerdp3 wlfreerdp; do
+    if command -v "$_c" >/dev/null 2>&1; then FREERDP_NATIVE_PRESENT=true; break; fi
 done
+FLATPAK_PRESENT=false
+command -v flatpak >/dev/null 2>&1 && FLATPAK_PRESENT=true
+FREERDP_FLATPAK_PRESENT=false
+if [ "$FLATPAK_PRESENT" = true ] \
+    && flatpak list --app --columns=application 2>/dev/null | grep -qx 'com.freerdp.FreeRDP'; then
+    FREERDP_FLATPAK_PRESENT=true
+fi
+# Any client (native or Flatpak) satisfies the requirement. winpodx's launcher
+# prefers the Flatpak when both are present (core/rdp.py), and on distros whose
+# native freerdp3-x11 is broken the Flatpak is the better client (#366, #393);
+# #269 showed both present with the native install adding nothing. So we never
+# pull the native package when a Flatpak client is already there.
+FREERDP_PRESENT=false
+FREERDP_KIND=""
+if [ "$FREERDP_FLATPAK_PRESENT" = true ]; then
+    FREERDP_PRESENT=true
+    FREERDP_KIND="flatpak (com.freerdp.FreeRDP)"
+elif [ "$FREERDP_NATIVE_PRESENT" = true ]; then
+    FREERDP_PRESENT=true
+    FREERDP_KIND="native"
+fi
 PYTHON3_PRESENT=false
 command -v python3 >/dev/null 2>&1 && PYTHON3_PRESENT=true
 KVM_PRESENT=false
@@ -609,7 +633,7 @@ print_system_check() {
     fi
     echo "  docker:        $(yesno "$DOCKER_PRESENT")  $(tool_version docker)"
     echo "  libvirt/virsh: $(yesno "$LIBVIRT_PRESENT")  $(tool_version virsh)"
-    echo "  freerdp:       $(yesno "$FREERDP_PRESENT")  $(tool_version freerdp)"
+    echo "  freerdp:       $(yesno "$FREERDP_PRESENT")  ${FREERDP_KIND:+$FREERDP_KIND }$(tool_version freerdp)"
     echo "  /dev/kvm:      $(yesno "$KVM_PRESENT")"
     echo "======================================================"
     if [ "$PODMAN_TOO_OLD" = true ]; then
@@ -682,11 +706,16 @@ if [ "$INSTALL_MODE" = "n" ]; then
     exit 0
 fi
 
-# --- Custom mode: interactively pick backend + GUI ---
+# --- Custom mode: interactively pick the source of each major dependency ---
+# Components with a real source choice: the container backend (podman / docker
+# / libvirt), the FreeRDP client (native package / Flatpak), and the GUI
+# (PySide6 yes/no). Everything else is a plain distro package with no
+# meaningful alternative. Each prompt has a sensible default so just hitting
+# Enter reproduces the Recommended stack.
 if [ "$INSTALL_MODE" = "c" ]; then
     if [ -z "$WINPODX_BACKEND" ]; then
         if [ "$INTERACTIVE" = true ]; then
-            echo -n "Backend? [podman/docker/libvirt] (default podman): "
+            echo -n "Container backend? [podman/docker/libvirt] (default podman): "
             read -r be_answer < "$TTY_DEV"
             case "$(echo "${be_answer:-podman}" | tr '[:upper:]' '[:lower:]')" in
                 docker)  WINPODX_BACKEND="docker" ;;
@@ -696,6 +725,19 @@ if [ "$INSTALL_MODE" = "c" ]; then
         else
             WINPODX_BACKEND="podman"
         fi
+    fi
+    if [ -z "${WINPODX_FREERDP_SOURCE:-}" ] && [ "$INTERACTIVE" = true ]; then
+        echo    "FreeRDP client source?"
+        echo    "  [A]uto     prefer the Flatpak when present, else native (recommended)"
+        echo    "  [N]ative   distro freerdp3 package"
+        echo    "  [F]latpak  com.freerdp.FreeRDP via Flatpak (better on distros with a broken native freerdp3-x11)"
+        echo -n "Choice [A/n/f]: "
+        read -r fr_answer < "$TTY_DEV"
+        case "$(echo "${fr_answer:-a}" | tr '[:upper:]' '[:lower:]' | cut -c1)" in
+            n) WINPODX_FREERDP_SOURCE="native" ;;
+            f) WINPODX_FREERDP_SOURCE="flatpak" ;;
+            *) WINPODX_FREERDP_SOURCE="auto" ;;
+        esac
     fi
     if [ -z "$WINPODX_NO_GUI" ] && [ "$INTERACTIVE" = true ]; then
         echo -n "Install the GUI (PySide6)? [Y/n]: "
@@ -813,7 +855,35 @@ case "${WINPODX_BACKEND:-podman}" in
 esac
 
 # FreeRDP is required for every backend (the launcher shells out to it).
-[ "$FREERDP_PRESENT" = false ] && MISSING+=("freerdp")
+# Source resolution (auto | native | flatpak). Custom mode may set
+# WINPODX_FREERDP_SOURCE; default auto. winpodx's launcher prefers the Flatpak
+# when both clients are present (core/rdp.py), so auto mirrors that: when NO
+# client exists yet, install the Flatpak if the flatpak runtime is available,
+# else the native package. An explicit native/flatpak choice forces that
+# source. The resolved value is handed to `winpodx setup` (--freerdp-source)
+# which writes cfg.rdp.freerdp_source.
+WINPODX_FREERDP_SOURCE="${WINPODX_FREERDP_SOURCE:-auto}"
+INSTALL_FREERDP_FLATPAK=false
+case "$WINPODX_FREERDP_SOURCE" in
+    native)
+        [ "$FREERDP_NATIVE_PRESENT" = false ] && MISSING+=("freerdp")
+        ;;
+    flatpak)
+        if [ "$FREERDP_FLATPAK_PRESENT" = false ]; then
+            INSTALL_FREERDP_FLATPAK=true
+            [ "$FLATPAK_PRESENT" = false ] && MISSING+=("flatpak")
+        fi
+        ;;
+    *)  # auto
+        if [ "$FREERDP_PRESENT" = false ]; then
+            if [ "$FLATPAK_PRESENT" = true ]; then
+                INSTALL_FREERDP_FLATPAK=true
+            else
+                MISSING+=("freerdp")
+            fi
+        fi
+        ;;
+esac
 
 # python3 is mandatory (venv host interpreter).
 [ "$PYTHON3_PRESENT" = false ] && MISSING+=("python3")
@@ -883,6 +953,32 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     log "All dependencies installed successfully"
 else
     log "All dependencies OK"
+fi
+
+# Install the Flatpak FreeRDP when that's the resolved source (auto with a
+# flatpak runtime but no client yet, or an explicit --freerdp-source flatpak).
+# Best-effort: if the Flatpak install fails (no flathub remote, offline, …)
+# fall back to the native package so the user still ends up with a client.
+if [ "$INSTALL_FREERDP_FLATPAK" = true ]; then
+    log "Installing FreeRDP via Flatpak (com.freerdp.FreeRDP)..."
+    flatpak remote-add --if-not-exists --user flathub \
+        https://dl.flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1 || true
+    if flatpak install -y --user flathub com.freerdp.FreeRDP >/dev/null 2>&1 \
+        || flatpak install -y flathub com.freerdp.FreeRDP >/dev/null 2>&1; then
+        log "  Flatpak FreeRDP installed."
+        FREERDP_PRESENT=true
+        WINPODX_FREERDP_SOURCE="flatpak"
+    else
+        warn "  Flatpak FreeRDP install failed — falling back to the native package."
+        WINPODX_FREERDP_SOURCE="auto"
+        if [ "$FREERDP_NATIVE_PRESENT" = false ]; then
+            if install_pkg freerdp; then
+                FREERDP_PRESENT=true
+            else
+                warn "  Native FreeRDP install also failed — install a FreeRDP 3 client manually."
+            fi
+        fi
+    fi
 fi
 
 # Re-verify /dev/kvm after the install loop. Installing the qemu /
@@ -1146,6 +1242,12 @@ else
     if [ -n "$WINPODX_WIN_VERSION" ]; then
         SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
         log "Installing Windows edition: $WINPODX_WIN_VERSION"
+    fi
+    # Persist the resolved FreeRDP source so the launcher honours it
+    # (cfg.rdp.freerdp_source). Skip "auto" — that's the default.
+    if [ -n "${WINPODX_FREERDP_SOURCE:-}" ] && [ "$WINPODX_FREERDP_SOURCE" != "auto" ]; then
+        SETUP_ARGS+=(--freerdp-source "$WINPODX_FREERDP_SOURCE")
+        log "FreeRDP source: $WINPODX_FREERDP_SOURCE"
     fi
     # WINPODX_NO_PROVISION=1: setup creates the container but skips its own
     # full-provision tail; install.sh runs the chain once via the explicit

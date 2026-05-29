@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- **FreeRDP client source is now selectable, and the launcher prefers the Flatpak when both are present (#269, #366, #393).** Previously `install.sh` always installed the native `freerdp3` package even when the Flatpak `com.freerdp.FreeRDP` was already there (redundant — #269), and the launcher always picked native first. Now: (1) **the launcher prefers the Flatpak when both clients are present** (`core/rdp.find_freerdp` auto order is Flatpak-first), the better client on distros whose native `freerdp3-x11` is broken; this applies to existing installs too, with `cfg.rdp.freerdp_source = native` as the escape hatch. (2) **`install.sh` never installs a redundant client** — if any FreeRDP (native or Flatpak) is present it installs nothing; when none is present `auto` installs the Flatpak if the flatpak runtime is available, else the native package (best-effort, with native fallback). (3) **Custom install mode now lets you choose each major dependency's source** — container backend (podman/docker/libvirt), **FreeRDP client (auto / native / flatpak)**, and the GUI — and `winpodx setup --freerdp-source <auto|native|flatpak>` persists the choice to `cfg.rdp.freerdp_source`.
+
 ### Fixed
 
 - **The install-mode menu (R/A/C/N) now works under `curl … | bash`.** The interactive mode prompt — and the Custom-mode backend/GUI sub-prompts and the dependency-install confirm — were gated on `[ -t 0 ]` and read from stdin, so under the canonical `curl … | bash` install (where stdin is the script pipe, not a terminal) they were silently skipped and the install always defaulted to Recommended. install.sh now also detects a reachable controlling terminal via `/dev/tty` and reads every prompt from it, so a `curl … | bash` run in an attended terminal shows the mode menu and lets you choose (the same `/dev/tty` trick the live progress line already uses for output). Fully non-interactive runs (CI / cron / stdin and `/dev/tty` both absent) stay non-interactive and default to Recommended, and `--mode` / `WINPODX_MODE` still preselect without prompting.
