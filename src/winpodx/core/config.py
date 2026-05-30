@@ -33,7 +33,7 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 # transforms land -- it is a no-op today (0.6.0 introduced the marker without
 # changing the layout) and starts doing real work in 0.7.0+ as the structure
 # evolves. See docs/design/ROADMAP-0.6.0.md item J.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # "libvirt" was dropped in 0.6.0 (dockur is QEMU/KVM in a container and now
 # covers device passthrough — #286). An existing config with backend="libvirt"
@@ -1024,7 +1024,15 @@ def _migrate_config(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     Each guarded block is idempotent so a migration that fails halfway and is
     re-run on the next load completes cleanly.
     """
-    # No migrations needed for SCHEMA_VERSION 1; this hook is the marker.
+    if from_version < 2:
+        # usb_live (#286) was briefly defaulted False during a hotfix for a
+        # since-fixed boot crash (the QMP-socket bind / cgroup-rule path). The
+        # field is unreleased, so any persisted ``usb_live = false`` is that
+        # recovery-era artifact rather than a deliberate choice — drop it so the
+        # (now boot-safe) default-on applies automatically on upgrade.
+        pod = data.get("pod")
+        if isinstance(pod, dict) and pod.get("usb_live") is False:
+            pod.pop("usb_live", None)
     return data
 
 

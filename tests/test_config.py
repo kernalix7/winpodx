@@ -111,6 +111,30 @@ def test_pod_config_usb_live_non_bool_coerced():
     assert PodConfig(usb_live=False).usb_live is False
 
 
+def test_migrate_drops_recovery_era_usb_live_false(tmp_path, monkeypatch):
+    # A pre-schema-2 config with the recovery-era `usb_live = false` is
+    # migrated to the (now boot-safe) default-on automatically on load — the
+    # user shouldn't have to flip it back by hand after upgrade.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path = Config.path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("schema_version = 1\n\n[pod]\nusb_live = false\n", encoding="utf-8")
+    assert Config.load().pod.usb_live is True
+
+
+def test_migrate_keeps_explicit_usb_live_false_at_current_schema(tmp_path, monkeypatch):
+    # At the current schema, an explicit usb_live=false is a real choice — kept.
+    from winpodx.core.config import SCHEMA_VERSION
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path = Config.path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"schema_version = {SCHEMA_VERSION}\n\n[pod]\nusb_live = false\n", encoding="utf-8"
+    )
+    assert Config.load().pod.usb_live is False
+
+
 def test_pod_config_backend_validation():
     pod = PodConfig(backend="invalid")
     assert pod.backend == "podman"

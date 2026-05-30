@@ -218,7 +218,13 @@ class DevicesMixin:
                     D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
                     msg += tr("Hot-plugged live.")
                 except D.HmpError as e:
-                    msg += tr("Live attach failed: ") + str(e)
+                    msg += tr("Live attach failed.")
+                    # Surface the failure loudly — don't bury it in the status line.
+                    QMessageBox.critical(
+                        self,
+                        tr("USB hot-plug failed"),
+                        tr("Couldn't hot-plug ") + f"{dc.did}:\n\n{e}",
+                    )
             else:
                 msg += tr("Applies when the guest is running.")
         else:
@@ -244,7 +250,12 @@ class DevicesMixin:
                     D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
                     msg += tr("Unplugged live.")
                 except D.HmpError as e:
-                    msg += tr("Live detach failed: ") + str(e)
+                    msg += tr("Live detach failed.")
+                    QMessageBox.critical(
+                        self,
+                        tr("USB unplug failed"),
+                        tr("Couldn't unplug ") + f"{dc.did}:\n\n{e}",
+                    )
         else:
             msg += tr("Restart the pod to apply.")
         self._render_devices()
