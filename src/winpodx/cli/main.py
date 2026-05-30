@@ -326,8 +326,8 @@ def cli(argv: list[str] | None = None) -> None:
         choices=["auto", "native", "flatpak"],
         default=None,
         help=(
-            "Which FreeRDP client the launcher prefers: auto (native when "
-            "present, else Flatpak), native, or flatpak. Stored in "
+            "Which FreeRDP client the launcher prefers: auto (Flatpak when "
+            "present, else native), native, or flatpak. Stored in "
             "cfg.rdp.freerdp_source."
         ),
     )

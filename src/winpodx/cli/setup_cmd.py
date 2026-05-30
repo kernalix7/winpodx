@@ -737,7 +737,7 @@ def handle_setup(args: argparse.Namespace) -> None:
 
     # Persist the FreeRDP source preference (native / flatpak / auto) chosen in
     # install.sh Custom mode or via `winpodx setup --freerdp-source`. "auto"
-    # (the default) prefers the native client when present; an explicit value
+    # (the default) prefers the Flatpak client when present; an explicit value
     # forces that client. RDPConfig.__post_init__ validates the value.
     freerdp_source_arg = getattr(args, "freerdp_source", None)
     if freerdp_source_arg:

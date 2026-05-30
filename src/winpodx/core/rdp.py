@@ -287,15 +287,15 @@ def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
     """Locate a FreeRDP 3+ client, honouring a source preference.
 
     ``prefer``:
-      * ``"auto"`` (default) — **prefer the native ``xfreerdp``**, fall back to
-        the Flatpak only when no native client is present. Native is the
-        RAIL-proven client; the Flatpak (`com.freerdp.FreeRDP`) runs in a
-        sandbox that has shown RAIL / multi-display / DPI-scaling rough edges,
-        so it's a fallback, not the default.
-      * ``"native"`` — same native-first order (explicit).
+      * ``"auto"`` (default) — **prefer the Flatpak ``com.freerdp.FreeRDP``**,
+        fall back to the native ``xfreerdp`` only when the Flatpak is absent.
+        The Flatpak ships a self-contained FreeRDP 3+ (no host package skew);
+        its earlier RAIL multi-display rough edges are handled by
+        ``cfg.rdp.multimon = "span"`` (see ``build_rdp_command``).
+      * ``"native"`` — force the native client first, Flatpak only as fallback
+        (for hosts where the Flatpak sandbox is a problem).
       * ``"flatpak"`` — force the Flatpak (fall back to native only if the
-        Flatpak isn't installed) — for hosts whose native ``freerdp3-x11`` is
-        broken (e.g. Ubuntu 26.04, #393); set via ``cfg.rdp.freerdp_source``.
+        Flatpak isn't installed); set via ``cfg.rdp.freerdp_source``.
 
     Override per install via ``cfg.rdp.freerdp_source``. Returns ``(path_or_cmd,
     kind)`` or ``None``. Success is cached per-preference; a miss is not cached
@@ -306,12 +306,16 @@ def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
     if cached is not None:
         return cached
 
-    if pref == "flatpak":
-        # Forced Flatpak: try it first, fall back to native if not installed.
-        found = _find_flatpak_freerdp() or _find_native_freerdp()
-    else:
-        # auto + native: native first (RAIL-proven), Flatpak only as fallback.
+    if pref == "native":
+        # Forced native: try it first, fall back to the Flatpak if absent.
         found = _find_native_freerdp() or _find_flatpak_freerdp()
+    else:
+        # auto + flatpak: prefer the Flatpak client (self-contained FreeRDP 3+,
+        # no host package skew), native only as fallback. The RAIL multi-display
+        # rough edges that previously made native the safer default are handled
+        # by cfg.rdp.multimon = "span" (see build_rdp_command), so the Flatpak
+        # is viable as the preferred client again.
+        found = _find_flatpak_freerdp() or _find_native_freerdp()
 
     if found is not None:
         _FREERDP_CACHE[pref] = found

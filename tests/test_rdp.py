@@ -100,17 +100,26 @@ def _patch_freerdp_probes(monkeypatch, *, native, flatpak):
     )
 
 
-def test_find_freerdp_auto_prefers_native_when_both_present(monkeypatch):
-    # Native is RAIL-proven; the Flatpak sandbox has RAIL / multi-display / DPI
-    # rough edges, so auto prefers native when both are installed.
+def test_find_freerdp_auto_prefers_flatpak_when_both_present(monkeypatch):
+    # The Flatpak ships a self-contained FreeRDP 3+ (no host package skew) and
+    # its RAIL multi-display rough edges are handled by cfg.rdp.multimon=span,
+    # so auto prefers the Flatpak when both are installed.
     from winpodx.core.rdp import find_freerdp
 
     _patch_freerdp_probes(monkeypatch, native=True, flatpak=True)
+    assert find_freerdp("auto") == ("flatpak run com.freerdp.FreeRDP", "flatpak")
+
+
+def test_find_freerdp_auto_falls_back_to_native(monkeypatch):
+    # No Flatpak -> the native client is the fallback under auto.
+    from winpodx.core.rdp import find_freerdp
+
+    _patch_freerdp_probes(monkeypatch, native=True, flatpak=False)
     assert find_freerdp("auto") == ("/usr/bin/xfreerdp3", "xfreerdp")
 
 
-def test_find_freerdp_auto_falls_back_to_flatpak(monkeypatch):
-    # No native client -> the Flatpak is the fallback.
+def test_find_freerdp_auto_uses_flatpak_when_only_flatpak(monkeypatch):
+    # Only the Flatpak present -> auto uses it.
     from winpodx.core.rdp import find_freerdp
 
     _patch_freerdp_probes(monkeypatch, native=False, flatpak=True)

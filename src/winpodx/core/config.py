@@ -157,9 +157,9 @@ class RDPConfig:
     scale: int = 100
     dpi: int = 0  # Windows DPI %, 0 = auto-detect from Linux
     extra_flags: str = ""
-    # Which FreeRDP client to prefer: "auto" (native when present, else Flatpak
-    # — see core/rdp.find_freerdp), "native", or "flatpak". Lets a user force
-    # the Flatpak client, or pin native if the Flatpak sandbox is a problem.
+    # Which FreeRDP client to prefer: "auto" (Flatpak when present, else native
+    # — see core/rdp.find_freerdp), "native", or "flatpak". Lets a user pin the
+    # native client if the Flatpak sandbox is a problem, or force the Flatpak.
     freerdp_source: str = "auto"
     # Multi-monitor RAIL strategy. A RAIL window dragged onto a second monitor
     # lands at host-virtual-screen coords outside the default single-monitor
