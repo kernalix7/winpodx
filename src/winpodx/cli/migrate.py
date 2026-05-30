@@ -657,17 +657,23 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
     from winpodx.core.config import DOCKUR_IMAGE_PIN, Config
 
     cfg = Config.load()
-    if cfg.pod.image == DOCKUR_IMAGE_PIN:
-        return  # already aligned with what a fresh install would write
     if cfg.pod.backend not in ("podman", "docker"):
-        return  # libvirt / manual backends don't use the dockur image
+        return  # the manual backend doesn't use the dockur image / compose
 
-    print("\nAligning container image with this winpodx version...")
-    print(f"  was: {cfg.pod.image}")
-    print(f"  now: {DOCKUR_IMAGE_PIN}")
-    cfg.pod.image = DOCKUR_IMAGE_PIN
-    cfg.save()
+    pin_changed = cfg.pod.image != DOCKUR_IMAGE_PIN
+    if pin_changed:
+        print("\nAligning container image with this winpodx version...")
+        print(f"  was: {cfg.pod.image}")
+        print(f"  now: {DOCKUR_IMAGE_PIN}")
+        cfg.pod.image = DOCKUR_IMAGE_PIN
+        cfg.save()
 
+    # Always regenerate compose.yaml on upgrade — NOT just when the image pin
+    # changed. compose-template features that land in a release without a pin
+    # bump (e.g. the live-USB QMP/cgroup infra, #286) must reach an existing
+    # guest too. generate_compose is idempotent + atomic; the next `pod start`
+    # recreates the container only when the rendered compose actually differs
+    # (storage volume preserved — no ISO redownload, no Sysprep, ~30 s).
     try:
         from winpodx.core.compose import generate_compose
 
@@ -676,13 +682,14 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
         print(f"  warning: compose.yaml regenerate failed ({e})")
         return
 
-    print(
-        "  cfg.pod.image + compose.yaml updated.\n"
-        "  Next `winpodx pod start` will recreate the container so the new\n"
-        "  image pin takes effect (~30 s, storage volume preserved — no ISO\n"
-        "  redownload, no Sysprep). Future dockur :latest pushes won't\n"
-        "  trigger automatic recreates."
-    )
+    if pin_changed:
+        print(
+            "  cfg.pod.image + compose.yaml updated.\n"
+            "  Next `winpodx pod start` will recreate the container so the new\n"
+            "  image pin takes effect (~30 s, storage volume preserved — no ISO\n"
+            "  redownload, no Sysprep). Future dockur :latest pushes won't\n"
+            "  trigger automatic recreates."
+        )
 
 
 def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bool = False) -> None:
