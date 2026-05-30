@@ -78,7 +78,7 @@ name: "winpodx"
     devices:
 {device_nodes}    cap_add:
       - NET_ADMIN
-{device_cgroup_rules}"""
+"""
 
 _COMPOSE_PODMAN_EXTRAS = """\
     group_add:
@@ -408,8 +408,12 @@ def _extra_volumes_block(cfg: Config) -> str:
       ``/run`` which is a tmpfs in most images and would shadow the mount), so
       the host can reach the QMP socket QEMU opens and hot-plug USB live.
     * ``/dev/bus/usb`` -> ``/dev/bus/usb`` so the usbfs nodes (including ones
-      plugged in after start) are visible; the device-cgroup rule
-      (:func:`_device_cgroup_rules_block`) grants access to them.
+      plugged in after start) are visible. We do NOT emit a
+      ``device_cgroup_rules`` entry: the device-cgroup controller is
+      unavailable to rootless Podman (it errors "device cgroup rules are not
+      supported in rootless mode"), which is winpodx's default. Rootless has no
+      cgroup device gate anyway, so the bind-mount + the host uaccess ACL on the
+      USB nodes (the session user already has rw) is what grants QEMU access.
 
     Independent of whether any device is currently assigned, so the very first
     ``device attach`` is live with no prior recreate. Empty when usb_live=False.
@@ -419,20 +423,6 @@ def _extra_volumes_block(cfg: Config) -> str:
     run_dir = host_qmp_run_dir()
     Path(run_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
     return f"      - {run_dir}:{QMP_DIR_CONTAINER}\n      - /dev/bus/usb:/dev/bus/usb\n"
-
-
-def _device_cgroup_rules_block(cfg: Config) -> str:
-    """``device_cgroup_rules:`` granting access to the USB char-major (189).
-
-    The ``/dev/bus/usb`` bind-mount makes the nodes visible, but the container
-    device cgroup still blocks read/write to char devices that aren't allowed.
-    ``c 189:* rmw`` allows every USB device (major 189) — including ones
-    plugged in after the container started, so live hot-plug works for any USB
-    device. Present only when ``usb_live`` is on. Empty otherwise.
-    """
-    if not getattr(cfg.pod, "usb_live", True):
-        return ""
-    return '    device_cgroup_rules:\n      - "c 189:* rmw"\n'
 
 
 def _build_compose_content(cfg: Config) -> str:
@@ -472,7 +462,6 @@ def _build_compose_content(cfg: Config) -> str:
         agent_port=AGENT_PORT,
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),
-        device_cgroup_rules=_device_cgroup_rules_block(cfg),
     )
 
 

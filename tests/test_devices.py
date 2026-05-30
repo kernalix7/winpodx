@@ -218,7 +218,9 @@ def test_compose_usb_live_infra_always_on_by_default():
     assert "-qmp unix:/winpodx/qmp.sock" in out
     assert "/run/winpodx" not in out  # off /run
     assert "- /dev/bus/usb:/dev/bus/usb" in out
-    assert "device_cgroup_rules" in out and "c 189:* rmw" in out
+    # No device_cgroup_rules — unsupported in rootless podman (winpodx default);
+    # rootless has no device cgroup gate, so the bind-mount alone grants access.
+    assert "device_cgroup_rules" not in out
     # USB is live-only: never boot-added. No PCI assigned -> no vfio.
     assert "usb-host" not in out
     assert "vfio-pci" not in out and "/dev/vfio/vfio" not in out
