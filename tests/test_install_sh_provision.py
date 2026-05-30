@@ -173,6 +173,33 @@ def test_upgrade_skips_the_mode_prompt(script: str) -> None:
     assert script.index('[ "$IS_FRESH_INSTALL" != "1" ]') < script.index("Install mode?")
 
 
+def test_too_old_podman_guard_blocks_before_install(script: str) -> None:
+    # #271 ask 3: when the resolved backend is podman but podman is < 4 (Ubuntu
+    # 22.04 ships 3.4), Recommended mode / explicit --backend podman would
+    # otherwise proceed and fail at provisioning AFTER installing packages. A
+    # guard refuses to blindly continue — and it must run BEFORE any package
+    # install so an abort leaves the system unmodified.
+    guard = '[ "$WINPODX_ALLOW_OLD_PODMAN" != "1" ]'
+    assert guard in script
+    # Gated on the podman-too-old condition + the podman backend.
+    assert '[ "$WINPODX_BACKEND" = "podman" ] && [ "$PODMAN_TOO_OLD" = true ]' in script
+    # The guard sits before the install-plan / package-install phase.
+    assert script.index(guard) < script.index("install plan")
+
+
+def test_too_old_podman_guard_has_override(script: str) -> None:
+    # An out-of-band podman upgrade can make the probe stale, so the guard is
+    # bypassable via env var and a matching flag.
+    assert "WINPODX_ALLOW_OLD_PODMAN" in script
+    assert "--allow-old-podman" in script
+
+
+def test_too_old_podman_noninteractive_exits_clean(script: str) -> None:
+    # Non-interactive runs can't prompt, so the guard exits cleanly with
+    # guidance rather than silently switching backend or proceeding.
+    assert "aborted before modifying the system" in script.lower()
+
+
 def test_no_inline_chain_steps_survive(script: str) -> None:
     """After `winpodx setup`, the post-create chain is driven by ONE winpodx
     command (provision on fresh, migrate on upgrade, both via PROVISION_CMD).

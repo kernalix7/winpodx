@@ -94,6 +94,9 @@ WINPODX_MANUAL="${WINPODX_MANUAL:-}"
 WINPODX_NO_GUI="${WINPODX_NO_GUI:-}"
 WINPODX_BACKEND="${WINPODX_BACKEND:-}"
 WINPODX_MODE="${WINPODX_MODE:-}"
+# Bypass the too-old-podman guard (#271): proceed with podman even when the
+# probe sees major < 4, e.g. you upgraded podman out-of-band since.
+WINPODX_ALLOW_OLD_PODMAN="${WINPODX_ALLOW_OLD_PODMAN:-}"
 # v2: --verbose streams raw container logs during the Windows-boot wait;
 # default collapses the ISO download to a clean progress line + hides UEFI noise.
 WINPODX_VERBOSE="${WINPODX_VERBOSE:-}"
@@ -120,6 +123,8 @@ Flags:
   --skip-deps         Skip distro dependency install
   --win-version VER   Windows edition for fresh installs
   --manual            Install binary + venv only — skip provisioning
+  --allow-old-podman  Proceed with podman even if its major version is < 4
+                      (bypass the too-old-podman guard; #271)
   -h, --help          Print this help and exit
 USAGE_EOF
 }
@@ -181,6 +186,10 @@ while [ $# -gt 0 ]; do
             ;;
         --manual)
             WINPODX_MANUAL=1
+            shift
+            ;;
+        --allow-old-podman)
+            WINPODX_ALLOW_OLD_PODMAN=1
             shift
             ;;
         -h|--help)
@@ -806,6 +815,77 @@ fi
 # Backend 'manual' implies --manual (skip the provisioning chain).
 if [ "$WINPODX_BACKEND" = "manual" ]; then
     WINPODX_MANUAL=1
+fi
+
+# --- Too-old-podman guard (#271, ask 3: graceful handling) ---
+# Automatic mode (above) already walks past an unusable podman to docker /
+# libvirt, but Recommended mode and an explicit `--backend podman` do not, so
+# a host with podman < 4 (Ubuntu 22.04 ships 3.4) would proceed and then fail
+# at provisioning -- AFTER we'd installed packages. Refuse to blindly
+# continue: offer a usable alternative when one is present, otherwise exit
+# cleanly WITHOUT modifying the system (no package install has run yet here).
+# WINPODX_ALLOW_OLD_PODMAN=1 / --allow-old-podman overrides (e.g. podman was
+# upgraded out-of-band since the probe).
+if [ "$WINPODX_BACKEND" = "podman" ] && [ "$PODMAN_TOO_OLD" = true ] && [ "$WINPODX_ALLOW_OLD_PODMAN" != "1" ]; then
+    _pm_alts=""
+    if [ "$DOCKER_PRESENT" = true ]; then _pm_alts="${_pm_alts}docker "; fi
+    if [ "$LIBVIRT_PRESENT" = true ]; then _pm_alts="${_pm_alts}libvirt "; fi
+    warn "podman $PODMAN_MAJOR.x is too old for winpodx (need >= 4; Ubuntu 22.04 ships 3.4 -- #271)."
+    if [ "$INTERACTIVE" = true ]; then
+        if [ -n "$_pm_alts" ]; then
+            echo "A usable alternative backend is installed: ${_pm_alts}"
+            echo "  [d] switch to docker / [l] switch to libvirt (whichever is listed above)"
+            echo "  [c] continue with podman anyway (will likely fail)"
+            echo "  [a] abort without changing anything (default)"
+            printf 'Choice [d/l/c/a]: '
+            read -r _pm_choice < "$TTY_DEV"
+            case "$(echo "${_pm_choice:-a}" | tr '[:upper:]' '[:lower:]')" in
+                d|docker)
+                    if [ "$DOCKER_PRESENT" = true ]; then
+                        WINPODX_BACKEND="docker"; log "Switched backend to docker."
+                    else
+                        err "docker is not installed; cannot switch."; exit 1
+                    fi
+                    ;;
+                l|libvirt)
+                    if [ "$LIBVIRT_PRESENT" = true ]; then
+                        WINPODX_BACKEND="libvirt"; log "Switched backend to libvirt."
+                    else
+                        err "libvirt is not installed; cannot switch."; exit 1
+                    fi
+                    ;;
+                c|continue)
+                    warn "Continuing with podman $PODMAN_MAJOR.x at your own risk."
+                    ;;
+                *)
+                    err "Aborted: upgrade podman to >= 4 or re-run with --backend docker|libvirt. No changes were made."
+                    exit 1
+                    ;;
+            esac
+        else
+            echo "No alternative backend (docker / libvirt) is installed."
+            printf 'Continue with podman %s.x anyway? It will likely fail. [y/N]: ' "$PODMAN_MAJOR"
+            read -r _pm_choice < "$TTY_DEV"
+            case "$(echo "${_pm_choice:-n}" | tr '[:upper:]' '[:lower:]')" in
+                y|yes)
+                    warn "Continuing with podman $PODMAN_MAJOR.x at your own risk."
+                    ;;
+                *)
+                    err "Aborted: upgrade podman to >= 4 (e.g. the Kubic repo) or install docker / libvirt, then re-run. No changes were made."
+                    exit 1
+                    ;;
+            esac
+        fi
+    else
+        # Non-interactive: do NOT silently switch the backend or run a known-
+        # failing podman install. Exit cleanly with guidance.
+        if [ -n "$_pm_alts" ]; then
+            warn "A usable alternative is installed (${_pm_alts})-- re-run with --backend docker (or libvirt)."
+        fi
+        warn "Or upgrade podman to >= 4, or pass --allow-old-podman / WINPODX_ALLOW_OLD_PODMAN=1 to force."
+        err "Non-interactive install aborted before modifying the system: backend=podman but podman $PODMAN_MAJOR.x is too old (#271)."
+        exit 1
+    fi
 fi
 
 log "Detected distro: $DISTRO"
