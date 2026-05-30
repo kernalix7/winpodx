@@ -182,6 +182,10 @@ def test_compose_default_wires_usb_bus():
     out = _build_compose_content(Config())
     assert "- /dev/kvm" in out and "- /dev/net/tun" in out
     assert "- /dev/bus/usb:/dev/bus/usb" in out
+    # SELinux hosts (openSUSE Tumbleweed / Fedora / RHEL) deny container_t
+    # read on the usbfs nodes even with matching uid/ACL — label=disable
+    # lifts that confinement (scoped to this one container). See #286.
+    assert "security_opt:" in out and "- label=disable" in out
     assert "-qmp" not in out
     assert "device_cgroup_rules" not in out
     assert "usb-host" not in out  # never boot-added
@@ -197,6 +201,8 @@ def test_compose_usb_live_off_is_clean():
     out = _build_compose_content(c)
     assert "/dev/bus/usb" not in out
     assert "-qmp" not in out
+    # No device exposure -> keep full SELinux confinement on the container.
+    assert "label=disable" not in out
 
 
 def test_compose_usb_live_opt_in_wires_usb_bus_only():
@@ -212,11 +218,11 @@ def test_compose_usb_live_opt_in_wires_usb_bus_only():
     c.pod.__post_init__()
     out = _build_compose_content(c)
     assert "- /dev/bus/usb:/dev/bus/usb" in out
+    assert "- label=disable" in out  # SELinux confinement lifted for usbfs access
     assert "-qmp" not in out  # reuse dockur's monitor, no custom socket
     assert "qmp.sock" not in out  # no bind-mounted socket
     assert "device_cgroup_rules" not in out
     assert "usb-host" not in out  # USB never boot-added
-    assert "usb-host" not in out
 
 
 def test_compose_pci_boot_adds_vfio_usb_stays_live():
@@ -236,3 +242,20 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live():
     assert "usb-host" not in out
     assert "- /dev/bus/usb:/dev/bus/usb" in out
     assert "-qmp" not in out
+    # PCI (vfio) also needs the SELinux lift to open /dev/vfio.
+    assert "- label=disable" in out
+
+
+def test_compose_pci_only_still_lifts_selinux():
+    # Even with usb_live off, an assigned PCI device exposes /dev/vfio/vfio,
+    # which container_t can't open on SELinux hosts -> label=disable applies.
+    from winpodx.core.config import Config
+    from winpodx.core.pod.compose import _build_compose_content
+
+    c = Config()
+    c.pod.usb_live = False
+    c.pod.devices = ["pci|0000:01:00.0|Card"]
+    c.pod.__post_init__()
+    out = _build_compose_content(c)
+    assert "- /dev/bus/usb" not in out  # usb off
+    assert "- label=disable" in out  # but PCI still needs the lift

@@ -75,7 +75,7 @@ name: "winpodx"
     devices:
 {device_nodes}    cap_add:
       - NET_ADMIN
-"""
+{security_opt}"""
 
 _COMPOSE_PODMAN_EXTRAS = """\
     group_add:
@@ -403,14 +403,44 @@ def _extra_volumes_block(cfg: Config) -> str:
     usb-host``. We do NOT emit a ``device_cgroup_rules`` entry — the
     device-cgroup controller is unavailable to rootless Podman (winpodx's
     default; it errors "device cgroup rules are not supported in rootless
-    mode") and rootless has no cgroup device gate anyway, so the bind-mount +
-    dockur's root QEMU (the host session user via the userns) opening the node
-    is what grants access. No QMP socket is wired here — live attach reuses
-    dockur's own ``-monitor`` (see core/devices). Empty when usb_live=False.
+    mode") and rootless has no cgroup device gate anyway.
+
+    The bind alone is NOT enough on SELinux hosts (openSUSE Tumbleweed,
+    Fedora, RHEL): the container's ``container_t`` domain is denied read on
+    the host ``usb_device_t`` nodes even when the uid/ACL match (verified —
+    ``keep-id`` running as the exact ACL-holder uid still got EACCES). The
+    accompanying ``security_opt: label=disable`` (see :func:`_security_opt_block`)
+    lifts that confinement so QEMU can open the node. No QMP socket is wired
+    here — live attach reuses dockur's own ``-monitor`` (see core/devices).
+    Empty when usb_live=False.
     """
     if not getattr(cfg.pod, "usb_live", True):
         return ""
     return "      - /dev/bus/usb:/dev/bus/usb\n"
+
+
+def _security_opt_block(cfg: Config) -> str:
+    """Build the indented YAML ``security_opt:`` body for device passthrough.
+
+    On SELinux hosts the container's ``container_t`` domain cannot open the
+    bind-mounted ``/dev/bus/usb`` usbfs nodes (USB) or ``/dev/vfio/vfio``
+    (PCI) — the denial is at the MAC layer, independent of uid/ACL/userns
+    (confirmed empirically: a ``keep-id`` container running as the exact
+    ACL-holder uid still got "Permission denied"; ``label=disable`` made the
+    same read succeed). ``label=disable`` drops SELinux confinement for this
+    one container so QEMU can grab the device.
+
+    Scoped to when a passthrough device path is actually exposed (usb_live or
+    a PCI device), so a user who turns the feature off keeps full SELinux
+    confinement. Harmless no-op on non-SELinux hosts (AppArmor / none):
+    Podman just passes the flag through with no effect. Backend-agnostic —
+    Docker on SELinux hosts hits the same wall.
+    """
+    usb = getattr(cfg.pod, "usb_live", True)
+    pci = any(d.dtype == "pci" for d in parse_entries(cfg.pod.devices))
+    if not (usb or pci):
+        return ""
+    return "    security_opt:\n      - label=disable\n"
 
 
 def _build_compose_content(cfg: Config) -> str:
@@ -450,6 +480,7 @@ def _build_compose_content(cfg: Config) -> str:
         agent_port=AGENT_PORT,
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),
+        security_opt=_security_opt_block(cfg),
     )
 
 
