@@ -13,6 +13,13 @@ from pathlib import Path
 
 from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
+from winpodx.core.devices import (
+    QMP_QEMU_ARG,
+    host_device_nodes,
+    host_qmp_run_dir,
+    parse_entries,
+    qemu_device_args,
+)
 from winpodx.utils.paths import bundle_dir, config_dir
 
 # Two storage-volume modes are now supported (v0.4.x post-#122):
@@ -63,15 +70,13 @@ name: "winpodx"
     volumes:
       - {storage_mount}
       - {oem_dir}:/oem:Z
-    ports:
+{extra_volumes}    ports:
       - "127.0.0.1:{rdp_port}:3389/tcp"
       - "127.0.0.1:{rdp_port}:3389/udp"
       - "127.0.0.1:{vnc_port}:8006"
       - "127.0.0.1:{agent_port}:{agent_port}/tcp"
     devices:
-      - /dev/kvm
-      - /dev/net/tun
-    cap_add:
+{device_nodes}    cap_add:
       - NET_ADMIN
 """
 
@@ -187,30 +192,37 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     args that don't belong to ``-cpu`` -- currently the virtio-rng
     device pair (entropy pool seed for fast first-boot CryptoAPI / TLS).
 
-    aarch64 returns empty -- dockur picks the right device list itself.
+    aarch64 skips the virtio-rng tuning (dockur picks the right device list
+    itself) but still gets device-passthrough args — those are arch-independent.
     """
-    if platform.machine() == "aarch64":
-        return ""
-
     if cfg is None:
         return ""
 
-    from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
-
-    cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
-    profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
-
     extra_args: list[str] = []
 
-    if profile.apply_virtio_rng:
-        extra_args.extend(
-            [
-                "-device",
-                "virtio-rng-pci,rng=rng0",
-                "-object",
-                "rng-random,id=rng0,filename=/dev/urandom",
-            ]
-        )
+    # CPU/entropy tuning — x86_64 only.
+    if platform.machine() != "aarch64":
+        from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
+
+        cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
+        profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
+        if profile.apply_virtio_rng:
+            extra_args.extend(
+                [
+                    "-device",
+                    "virtio-rng-pci,rng=rng0",
+                    "-object",
+                    "rng-random,id=rng0,filename=/dev/urandom",
+                ]
+            )
+
+    # Host device passthrough (#286) — USB/PCI -device args + a QMP socket so
+    # USB devices can be hot-plugged live (the device ids are hex-validated by
+    # config, so no YAML/shell-dangerous chars reach the ARGUMENTS scalar).
+    devs = parse_entries(cfg.pod.devices)
+    if devs:
+        extra_args += qemu_device_args(devs)
+        extra_args.append(QMP_QEMU_ARG)
 
     return " ".join(extra_args)
 
@@ -365,6 +377,36 @@ def _resolve_timezone_for_compose(cfg: Config) -> str:
     return detect_timezone()
 
 
+def _device_nodes_block(cfg: Config) -> str:
+    """Build the indented YAML ``devices:`` list body.
+
+    Always exposes ``/dev/kvm`` + ``/dev/net/tun`` (dockur needs both); when
+    the user has assigned passthrough devices, also exposes the host ``/dev``
+    nodes they need (``/dev/bus/usb`` for live USB, ``/dev/vfio/vfio`` for
+    PCI). Node paths are constants / derived from hex-validated ids, so they
+    never contain YAML-dangerous characters.
+    """
+    nodes = ["/dev/kvm", "/dev/net/tun"]
+    nodes += host_device_nodes(parse_entries(cfg.pod.devices))
+    return "".join(f"      - {n}\n" for n in nodes)
+
+
+def _extra_volumes_block(cfg: Config) -> str:
+    """Bind-mount the QMP run dir into the container when devices are assigned.
+
+    QEMU opens its QMP socket under ``/run/winpodx`` (see ``-qmp`` in
+    ``_qemu_arguments_for_host``); bind-mounting a host dir there lets the
+    host connect to it for live USB hot-plug. Empty string when no device is
+    assigned (no socket, no mount). The dir is created so the mount source
+    exists before Podman/Docker starts the container.
+    """
+    if not parse_entries(cfg.pod.devices):
+        return ""
+    run_dir = host_qmp_run_dir()
+    Path(run_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
+    return f"      - {run_dir}:/run/winpodx\n"
+
+
 def _build_compose_content(cfg: Config) -> str:
     """Build and return compose YAML content string for *cfg*."""
     password = cfg.rdp.password or generate_password()
@@ -400,6 +442,8 @@ def _build_compose_content(cfg: Config) -> str:
         vmx=_vmx_env_for_host(cfg),
         qemu_arguments=_qemu_arguments_for_host(cfg),
         agent_port=AGENT_PORT,
+        device_nodes=_device_nodes_block(cfg),
+        extra_volumes=_extra_volumes_block(cfg),
     )
 
 

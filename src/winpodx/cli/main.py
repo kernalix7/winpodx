@@ -528,6 +528,36 @@ def cli(argv: list[str] | None = None) -> None:
 
     sub.add_parser("rotate-password", help="Rotate Windows RDP password")
 
+    # --- device (host<->guest passthrough, #286) ---
+    device_parser = sub.add_parser(
+        "device",
+        help="Pass host USB / PCI devices through to the Windows guest",
+    )
+    device_sub = device_parser.add_subparsers(dest="device_command")
+    dev_list = device_sub.add_parser(
+        "list", help="List host USB/PCI devices (and which are assigned to the guest)"
+    )
+    dev_list.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    dev_status = device_sub.add_parser("status", help="Show assigned devices + guest run state")
+    dev_status.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    dev_attach = device_sub.add_parser(
+        "attach",
+        help=(
+            "Assign a host device to the guest. USB hot-plugs live when the "
+            "guest is running; PCI needs --force (VFIO unbinds it from the host "
+            "driver) and a `pod recreate`."
+        ),
+    )
+    dev_attach.add_argument("id", help="USB VID:PID (e.g. 1234:5678) or PCI address (0000:01:00.0)")
+    dev_attach.add_argument("--type", choices=["usb", "pci"], help="Force the device type")
+    dev_attach.add_argument("--label", help="Human-readable label stored with the device")
+    dev_attach.add_argument(
+        "--force", action="store_true", help="Attach a device flagged risky (PCI passthrough)"
+    )
+    dev_detach = device_sub.add_parser("detach", help="Release a device from the guest")
+    dev_detach.add_argument("id", help="USB VID:PID or PCI address")
+    dev_detach.add_argument("--type", choices=["usb", "pci"], help="Force the device type")
+
     doctor_p = sub.add_parser(
         "doctor",
         help=(
@@ -885,6 +915,10 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.setup_cmd import handle_rotate_password
 
         handle_rotate_password(args)
+    elif cmd == "device":
+        from winpodx.cli.device import handle_device
+
+        handle_device(args)
     elif cmd == "gui":
         try:
             from winpodx.gui.main_window import run_gui

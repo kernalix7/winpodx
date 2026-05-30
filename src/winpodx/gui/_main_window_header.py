@@ -96,6 +96,9 @@ class HeaderMixin:
             ("Terminal", 3),
             ("Info", 4),
             ("License", 5),
+            # Devices page is appended last so the nav-position == page-index
+            # invariant _switch_page relies on holds (see _main_window_nav).
+            ("Devices", 6),
         ]:
             btn = QPushButton(tr(label))
             btn.setCheckable(True)

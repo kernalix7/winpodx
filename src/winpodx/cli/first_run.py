@@ -39,6 +39,7 @@ _SKIP_COMMANDS = frozenset(
         "uninstall",
         "config",
         "doctor",
+        "device",  # device passthrough management — reads/writes config directly
         "gui",  # GUI has its own first-run modal
         "tray",  # tray spawns from GUI; no prompt path
     }

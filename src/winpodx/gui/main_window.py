@@ -20,6 +20,7 @@ from winpodx.core.app import list_available_apps
 from winpodx.core.config import Config
 from winpodx.gui._main_window_apps import AppCrudMixin
 from winpodx.gui._main_window_bringup import BringUpMixin
+from winpodx.gui._main_window_devices import DevicesMixin
 from winpodx.gui._main_window_header import HeaderMixin
 from winpodx.gui._main_window_info import InfoPageMixin
 from winpodx.gui._main_window_library import LibraryPageMixin
@@ -41,6 +42,7 @@ log = logging.getLogger(__name__)
 class WinpodxWindow(
     AppCrudMixin,
     BringUpMixin,
+    DevicesMixin,
     HeaderMixin,
     InfoPageMixin,
     LibraryPageMixin,
@@ -153,6 +155,7 @@ class WinpodxWindow(
         self.pages.addWidget(self._build_logs_page())
         self.pages.addWidget(self._build_info_page())
         self.pages.addWidget(self._build_license_page())
+        self.pages.addWidget(self._build_devices_page())
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())

@@ -55,6 +55,47 @@ def test_rdp_config_multimon_invalid_falls_back_to_span():
     assert RDPConfig(multimon="bogus").multimon == "span"
 
 
+def test_pod_config_devices_default_empty():
+    from winpodx.core.config import PodConfig
+
+    assert PodConfig().devices == []
+
+
+def test_pod_config_devices_validates_and_normalizes():
+    from winpodx.core.config import PodConfig
+
+    pc = PodConfig(
+        devices=[
+            "usb|1234:5678|Security Dongle",
+            "USB|ABCD:EF01|Upper",  # type + hex normalised to lower
+            "pci|0000:01:00.0|Card",
+            "bogus|x|y",  # dropped: bad type
+            "usb|zz:5678|bad",  # dropped: bad hex
+            "usb|1234:5678|dup",  # dropped: duplicate of first (key match)
+        ]
+    )
+    assert pc.devices == [
+        "usb|1234:5678|Security Dongle",
+        "usb|abcd:ef01|Upper",
+        "pci|0000:01:00.0|Card",
+    ]
+
+
+def test_pod_config_devices_sanitizes_label():
+    from winpodx.core.config import PodConfig
+
+    # Label with a YAML-dangerous char + a pipe + control char is scrubbed.
+    pc = PodConfig(devices=['usb|1234:5678|ev"il\x07|x'])
+    assert pc.devices == ["usb|1234:5678|evilx"]
+
+
+def test_pod_config_devices_non_list_coerced():
+    from winpodx.core.config import PodConfig
+
+    pc = PodConfig(devices="not a list")  # type: ignore[arg-type]
+    assert pc.devices == []
+
+
 def test_pod_config_backend_validation():
     pod = PodConfig(backend="invalid")
     assert pod.backend == "podman"

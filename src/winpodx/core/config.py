@@ -98,6 +98,52 @@ _DANGEROUS_YAML_CHARS = set('"\\\n\r$`')
 # happily accepts garbage here and silently provisions a 0-byte disk.
 _DISK_SIZE_RE = re.compile(r"^[1-9][0-9]{0,4}[KMGTkmgt]?$")
 
+# Host device passthrough entries (``cfg.pod.devices``). Persisted as a flat
+# list of ``"<type>|<id>|<label>"`` strings (the built-in toml_writer can't do
+# array-of-tables); the structured in-memory model + enumeration / safety /
+# QMP live-attach live in ``core/devices.py``. ``|`` is the delimiter, so it
+# is forbidden in any field. USB id = ``VID:PID`` (4 hex each); PCI id = a
+# PCI address ``[domain:]bus:slot.func``.
+_DEVICE_USB_ID_RE = re.compile(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$")
+_DEVICE_PCI_ID_RE = re.compile(r"^(?:[0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$")
+_DEVICE_LABEL_MAX = 64
+
+
+def _validate_device_entry(entry: object) -> str | None:
+    """Validate one ``cfg.pod.devices`` string, returning a normalised
+    ``"<type>|<id>|<label>"`` or ``None`` if malformed.
+
+    Defends a hand-edited TOML against injecting arbitrary QEMU ``-device``
+    args or breaking out of the compose YAML: the type must be ``usb`` /
+    ``pci``, the id must match the type's address shape, and the label is
+    stripped of the delimiter, YAML-dangerous chars, and control chars and
+    capped in length. Malformed entries are dropped silently (consistent
+    with the other hand-edit defenses in this module).
+    """
+    if not isinstance(entry, str):
+        return None
+    parts = entry.split("|", 2)
+    if len(parts) != 3:
+        return None
+    dtype, did, label = parts[0].strip().lower(), parts[1].strip(), parts[2].strip()
+    if dtype == "usb":
+        did = did.lower()
+        if not _DEVICE_USB_ID_RE.match(did):
+            return None
+    elif dtype == "pci":
+        did = did.lower()
+        if not _DEVICE_PCI_ID_RE.match(did):
+            return None
+    else:
+        return None
+    # Label is cosmetic; sanitise hard. Drop the delimiter + anything that
+    # could break the compose YAML scalar or a shell, and clamp length.
+    label = "".join(
+        ch for ch in label if ch != "|" and ch not in _DANGEROUS_YAML_CHARS and ord(ch) >= 0x20
+    ).strip()[:_DEVICE_LABEL_MAX]
+    return f"{dtype}|{did}|{label}"
+
+
 # Pinned dockur/windows image — the default ``cfg.pod.image``. Bumping
 # this digest is a deliberate per-release decision (so winpodx ships a
 # specific tested dockur version with each release), not a side effect
@@ -319,6 +365,13 @@ class PodConfig:
     # The resolved profile is printed by ``winpodx info`` so users can
     # see exactly what was auto-applied to their compose / guest.
     tuning_profile: str = "auto"
+    # Host device passthrough (#286). Flat list of "<type>|<id>|<label>"
+    # strings (usb|VID:PID|... or pci|[domain:]bus:slot.func|...). The
+    # compose generator turns these into QEMU `-device usb-host`/`vfio-pci`
+    # args + the device-node `devices:` entries; USB devices can also be
+    # attached/detached live over QMP without a recreate (see core/devices.py).
+    # Empty by default — nothing is passed through unless the user assigns it.
+    devices: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -474,6 +527,25 @@ class PodConfig:
                 self.tuning_profile = "auto"
             else:
                 self.tuning_profile = candidate
+        # devices (#286): validate + normalise each passthrough entry,
+        # dropping malformed ones. De-dup while preserving order so a
+        # double-add (CLI + GUI) can't pass the same device twice.
+        if not isinstance(self.devices, list):
+            self.devices = []
+        else:
+            seen: set[str] = set()
+            cleaned: list[str] = []
+            for entry in self.devices:
+                norm = _validate_device_entry(entry)
+                if norm is None:
+                    continue
+                # De-dup by device identity (type + id), ignoring the label —
+                # the same physical device must not be passed through twice.
+                key = "|".join(norm.split("|", 2)[:2])
+                if key not in seen:
+                    seen.add(key)
+                    cleaned.append(norm)
+            self.devices = cleaned
 
 
 @dataclass
@@ -720,6 +792,7 @@ class Config:
                 "timezone": self.pod.timezone,
                 "tuning_profile": self.pod.tuning_profile,
                 "initialized": self.pod.initialized,
+                "devices": list(self.pod.devices),
             },
             "reverse_open": {
                 "enabled": self.reverse_open.enabled,
