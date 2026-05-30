@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`--extra-args` / `cfg.rdp.extra_flags` 가 이제 멀티모니터 + 리페인트 knob 을 허용합니다** (`/multimon`, `/multimon:force`, `/span`, `/gdi:sw|hw`, `/smart-sizing[:WxH]`, `/monitors:0,1`), 각각 값 검증됨. 일부 멀티디스플레이 환경의 RAIL 창-이동 깨짐(해상도/DPI 다른 모니터 사이로 창을 끌면 뭉개지거나 깨짐) 해결 레버 — 예: `winpodx app run <app> --extra-args="/multimon"` 는 전체 호스트 모니터 레이아웃을 세션에 광고해 창이 게스트가 아는 geometry 안에 머물게 함. 지금은 override 전용; 최적 조합 확정되면 기본값으로 넣을 수 있음.
+
 ### Fixed
 
 - **업그레이드 시 더 이상 설치 모드를 묻거나 옛 첫부팅 로그를 재생하지 않습니다.** 업그레이드/재실행 UX 두 가지: (1) `install.sh` 가 winpodx config 가 이미 있어도 `[R]ecommended / [A]utomatic / [C]ustom / [N]o` 모드 메뉴를 띄웠음 — 업그레이드는 기존 backend/config 를 재사용하고 `migrate` 를 돌리므로 무의미. 이제 기존 설치를 감지해 프롬프트 없이 Automatic 으로 해결. (2) `pod wait-ready --logs`(업그레이드의 migrate 경로가 사용)가 `podman logs --tail 100` 으로 tail 했는데, 이미 떠있는 컨테이너에선 *원래* 첫부팅 ISO 다운로드 + 이미지 빌드 출력을 재생 — `--verbose` 에선 매 업데이트마다 Windows 를 다시 받는 것처럼 보였음. 이제 pod 가 이미 떠있으면(RDP 도달 가능) 기록을 재생하지 않고(`--tail 0`), 진행 중 다운로드를 보여줄 가치가 있는 진짜 첫부팅에만 `--tail 100` 유지.

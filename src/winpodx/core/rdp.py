@@ -603,6 +603,16 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "-offscreen-cache",
         "+glyph-cache",
         "-glyph-cache",
+        # Multi-monitor / repaint experiments (RAIL window-move corruption,
+        # 2026-05-30). Bare forms; the value forms (/multimon:force, /gdi:sw,
+        # /smart-sizing:WxH, /monitors:0,1) live in _SIMPLE_VALUE_FLAGS below.
+        # `/multimon` advertises the full host monitor layout to the session so
+        # a RAIL window dragged between monitors stays inside a geometry the
+        # guest knows; `/smart-sizing` rescales on the client to fight blur
+        # across mixed-DPI monitors.
+        "/multimon",
+        "/span",
+        "/smart-sizing",
     }
 )
 
@@ -626,6 +636,11 @@ _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
     "/rfx": re.compile(r"[a-zA-Z0-9_-]{1,32}"),
     # Documented log levels only; rejects wildcard scopes like TRACE:FOO.
     "/log-level": re.compile(r"(OFF|FATAL|ERROR|WARN|INFO|DEBUG|TRACE)", re.IGNORECASE),
+    # Multi-monitor / repaint experiments (RAIL window-move corruption).
+    "/multimon": re.compile(r"force"),  # /multimon:force
+    "/gdi": re.compile(r"(sw|hw)"),  # software vs hardware GDI repaint
+    "/monitors": re.compile(r"[0-9]{1,2}(,[0-9]{1,2}){0,7}"),  # /monitors:0,1
+    "/smart-sizing": re.compile(r"[1-9][0-9]{1,4}x[1-9][0-9]{1,4}"),  # /smart-sizing:WxH
 }
 
 # Device-redirection allowlist; empty set rejects all :value forms.

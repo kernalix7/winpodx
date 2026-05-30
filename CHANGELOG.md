@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **`--extra-args` / `cfg.rdp.extra_flags` now allow the multi-monitor + repaint knobs** (`/multimon`, `/multimon:force`, `/span`, `/gdi:sw|hw`, `/smart-sizing[:WxH]`, `/monitors:0,1`), each value-validated. These are the levers for the RAIL window-move corruption some multi-display setups hit (a remote app window blurs / breaks when dragged between monitors of different resolution or DPI) — e.g. `winpodx app run <app> --extra-args="/multimon"` advertises the full host monitor layout to the session so the window stays inside a geometry the guest knows. Override-only for now; a default may be baked in once the winning combination is confirmed.
+
 ### Fixed
 
 - **Upgrades no longer prompt for an install mode or replay the old first-boot log.** Two upgrade/re-run UX warts: (1) `install.sh` showed the `[R]ecommended / [A]utomatic / [C]ustom / [N]o` mode menu even when a winpodx config already existed — pointless, since an upgrade reuses the existing backend/config and runs `migrate`. It now detects the existing install and resolves to Automatic without prompting. (2) `pod wait-ready --logs` (used by the upgrade's migrate path) tailed `podman logs --tail 100`, which on an already-running container replays the *original* first-boot ISO-download + image-build output — under `--verbose` that looked alarmingly like Windows was being re-downloaded on every update. wait-ready now replays no history (`--tail 0`) when the pod is already up (RDP reachable), keeping `--tail 100` only for a genuine fresh boot where the in-progress download is worth showing.
