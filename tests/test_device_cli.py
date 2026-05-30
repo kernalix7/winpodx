@@ -47,7 +47,8 @@ def test_attach_usb_persists(cfg, capsys):
     assert cfg.pod.devices == ["usb|1234:5678|ACME Dongle"]
     out = capsys.readouterr().out
     assert "Assigned usb 1234:5678" in out
-    assert "next `pod start`" in out  # not running -> deferred
+    # Guest not running -> persisted, live attach skipped with the reason.
+    assert "live attach skipped because the guest isn't running" in out
 
 
 def test_attach_usb_explicit_label(cfg):

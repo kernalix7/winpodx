@@ -25,10 +25,13 @@ build on:
 from __future__ import annotations
 
 import json
+import logging
 import re
 import socket
 import subprocess
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 # Mirrors core/config.py's validators — kept in sync, not imported, to avoid a
 # config <-> devices import cycle (config validates the persisted strings; this
@@ -296,9 +299,12 @@ def host_device_nodes(devices: list[DeviceConfig]) -> list[str]:
 
 
 # QMP unix socket path inside the container (a host dir is bind-mounted here by
-# compose so the host can connect to the socket QEMU creates). Also the QEMU
-# ``-qmp`` arg compose appends when any device is assigned.
-QMP_SOCK_CONTAINER = "/run/winpodx/qmp.sock"
+# compose so the host can connect to the socket QEMU creates). Deliberately NOT
+# under ``/run`` — container images usually mount a tmpfs there, which can
+# shadow the bind-mount and make the socket unreachable from the host. The
+# bind-mount target ``/winpodx`` is a fresh path nothing else owns.
+QMP_DIR_CONTAINER = "/winpodx"
+QMP_SOCK_CONTAINER = f"{QMP_DIR_CONTAINER}/qmp.sock"
 QMP_QEMU_ARG = f"-qmp unix:{QMP_SOCK_CONTAINER},server=on,wait=off"
 
 
@@ -421,6 +427,7 @@ def live_attach(sock_path: str, dev: DeviceConfig) -> None:
     if dev.dtype != "usb":
         raise QmpError(f"live attach only supports USB devices, not {dev.dtype!r}")
     vid, pid = dev.did.split(":")
+    log.info("QMP live-attach usb %s via %s", dev.did, sock_path)
     with QmpClient(sock_path) as q:
         q.execute(
             "device_add",
@@ -431,11 +438,14 @@ def live_attach(sock_path: str, dev: DeviceConfig) -> None:
                 "productid": f"0x{pid}",
             },
         )
+    log.info("QMP live-attach usb %s ok", dev.did)
 
 
 def live_detach(sock_path: str, dev: DeviceConfig) -> None:
     """Unplug a previously hot-plugged USB device via QMP ``device_del``."""
     if dev.dtype != "usb":
         raise QmpError(f"live detach only supports USB devices, not {dev.dtype!r}")
+    log.info("QMP live-detach usb %s via %s", dev.did, sock_path)
     with QmpClient(sock_path) as q:
         q.execute("device_del", {"id": usb_qom_id(dev)})
+    log.info("QMP live-detach usb %s ok", dev.did)

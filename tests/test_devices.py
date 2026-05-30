@@ -206,18 +206,38 @@ def test_qmp_connect_error_on_missing_socket(tmp_path):
 # --- compose integration -------------------------------------------------
 
 
-def test_compose_no_devices_is_clean():
+def test_compose_usb_live_infra_always_on_by_default():
+    # usb_live defaults True, so the QMP socket + /dev/bus/usb bind + USB
+    # cgroup rule are wired even with no device assigned (so the first attach
+    # is live). The socket lives off /run (a tmpfs there would shadow it).
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     out = _build_compose_content(Config())
     assert "- /dev/kvm" in out and "- /dev/net/tun" in out
-    assert "/run/winpodx" not in out  # no QMP mount
-    assert "-qmp" not in out  # no QMP arg
-    assert "usb-host" not in out and "vfio-pci" not in out
+    assert "-qmp unix:/winpodx/qmp.sock" in out
+    assert "/run/winpodx" not in out  # off /run
+    assert "- /dev/bus/usb:/dev/bus/usb" in out
+    assert "device_cgroup_rules" in out and "c 189:* rmw" in out
+    # USB is live-only: never boot-added. No PCI assigned -> no vfio.
+    assert "usb-host" not in out
+    assert "vfio-pci" not in out and "/dev/vfio/vfio" not in out
 
 
-def test_compose_with_devices_injects_nodes_args_and_qmp():
+def test_compose_usb_live_off_is_clean():
+    from winpodx.core.config import Config
+    from winpodx.core.pod.compose import _build_compose_content
+
+    c = Config()
+    c.pod.usb_live = False
+    c.pod.__post_init__()
+    out = _build_compose_content(c)
+    assert "-qmp" not in out
+    assert "/dev/bus/usb" not in out
+    assert "device_cgroup_rules" not in out
+
+
+def test_compose_pci_boot_adds_vfio_usb_stays_live():
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
@@ -225,9 +245,9 @@ def test_compose_with_devices_injects_nodes_args_and_qmp():
     c.pod.devices = ["usb|1234:5678|Dongle", "pci|0000:01:00.0|Card"]
     c.pod.__post_init__()
     out = _build_compose_content(c)
-    assert "- /dev/bus/usb" in out  # USB live-attach node
-    assert "- /dev/vfio/vfio" in out  # PCI VFIO node
-    assert "usb-host,vendorid=0x1234,productid=0x5678" in out
+    # PCI is boot-added (can't hot-plug into a container QEMU).
+    assert "- /dev/vfio/vfio" in out
     assert "vfio-pci,host=0000:01:00.0" in out
-    assert "-qmp unix:/run/winpodx/qmp.sock" in out
-    assert ":/run/winpodx" in out  # bind mount for the QMP socket
+    # USB stays live-only even when assigned — never boot-added.
+    assert "usb-host" not in out
+    assert "-qmp unix:/winpodx/qmp.sock" in out

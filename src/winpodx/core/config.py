@@ -372,6 +372,13 @@ class PodConfig:
     # attached/detached live over QMP without a recreate (see core/devices.py).
     # Empty by default — nothing is passed through unless the user assigns it.
     devices: list[str] = field(default_factory=list)
+    # Live USB hot-plug (#286). When True (default), the compose always wires
+    # the QMP control socket + the host USB bus + a USB device-cgroup rule into
+    # the container, so `winpodx device attach <usb>` hot-plugs into a *running*
+    # guest with no restart — even the first device, with no prior recreate.
+    # Set False to keep that infrastructure out of the container (USB then only
+    # applies on a `pod recreate`, like PCI) for a smaller attack surface.
+    usb_live: bool = True
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -546,6 +553,8 @@ class PodConfig:
                     seen.add(key)
                     cleaned.append(norm)
             self.devices = cleaned
+        if not isinstance(self.usb_live, bool):
+            self.usb_live = True
 
 
 @dataclass
@@ -793,6 +802,7 @@ class Config:
                 "tuning_profile": self.pod.tuning_profile,
                 "initialized": self.pod.initialized,
                 "devices": list(self.pod.devices),
+                "usb_live": self.pod.usb_live,
             },
             "reverse_open": {
                 "enabled": self.reverse_open.enabled,
