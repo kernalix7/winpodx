@@ -18,6 +18,7 @@ def cfg(monkeypatch):
     """A throwaway Config that device handlers load/save against, plus a stub
     host enumeration and a 'guest not running' default."""
     c = Config()
+    c.pod.usb_live = True  # exercise the live path (default is now off/experimental)
     monkeypatch.setattr(Config, "load", classmethod(lambda cls: c))
     monkeypatch.setattr(Config, "save", lambda self: None)
     monkeypatch.setattr(DC, "_guest_running", lambda _c: False)

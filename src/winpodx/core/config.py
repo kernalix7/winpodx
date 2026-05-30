@@ -375,13 +375,19 @@ class PodConfig:
     # attached/detached live over QMP without a recreate (see core/devices.py).
     # Empty by default — nothing is passed through unless the user assigns it.
     devices: list[str] = field(default_factory=list)
-    # Live USB hot-plug (#286). When True (default), the compose always wires
-    # the QMP control socket + the host USB bus + a USB device-cgroup rule into
-    # the container, so `winpodx device attach <usb>` hot-plugs into a *running*
-    # guest with no restart — even the first device, with no prior recreate.
-    # Set False to keep that infrastructure out of the container (USB then only
-    # applies on a `pod recreate`, like PCI) for a smaller attack surface.
-    usb_live: bool = True
+    # Live USB hot-plug (#286). EXPERIMENTAL, default OFF. When True, the
+    # compose wires a QMP control socket (host bind-mount) + the host USB bus
+    # so `winpodx device attach <usb>` can hot-plug into a running guest.
+    #
+    # Default is False because the QMP socket bind FAILS on the default
+    # dockur/rootless-podman stack: dockur runs QEMU as a non-root in-container
+    # uid that can't create the socket in the bind-mounted dir (owned by the
+    # mapped container-root) — "Failed to bind socket ... Permission denied" —
+    # which crash-loops Windows boot. Leaving it off keeps the pod booting; the
+    # socket-permission handling for the live path is unfinished (needs the
+    # same sub-uid traversal fix the OEM dir uses). Opt in only if you've made
+    # the QMP socket reachable for your setup.
+    usb_live: bool = False
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -562,7 +568,7 @@ class PodConfig:
                     cleaned.append(norm)
             self.devices = cleaned
         if not isinstance(self.usb_live, bool):
-            self.usb_live = True
+            self.usb_live = False
 
 
 @dataclass

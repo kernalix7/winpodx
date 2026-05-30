@@ -206,37 +206,36 @@ def test_qmp_connect_error_on_missing_socket(tmp_path):
 # --- compose integration -------------------------------------------------
 
 
-def test_compose_usb_live_infra_always_on_by_default():
-    # usb_live defaults True, so the QMP socket + /dev/bus/usb bind + USB
-    # cgroup rule are wired even with no device assigned (so the first attach
-    # is live). The socket lives off /run (a tmpfs there would shadow it).
+def test_compose_default_has_no_usb_live_infra():
+    # usb_live defaults OFF (EXPERIMENTAL — the QMP-socket bind crash-loops
+    # Windows boot on rootless dockur), so a default compose is clean: no QMP
+    # socket, no /dev/bus/usb bind. The pod boots normally.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     out = _build_compose_content(Config())
     assert "- /dev/kvm" in out and "- /dev/net/tun" in out
-    assert "-qmp unix:/winpodx/qmp.sock" in out
-    assert "/run/winpodx" not in out  # off /run
-    assert "- /dev/bus/usb:/dev/bus/usb" in out
-    # No device_cgroup_rules — unsupported in rootless podman (winpodx default);
-    # rootless has no device cgroup gate, so the bind-mount alone grants access.
+    assert "-qmp" not in out
+    assert "/dev/bus/usb" not in out
     assert "device_cgroup_rules" not in out
-    # USB is live-only: never boot-added. No PCI assigned -> no vfio.
     assert "usb-host" not in out
-    assert "vfio-pci" not in out and "/dev/vfio/vfio" not in out
 
 
-def test_compose_usb_live_off_is_clean():
+def test_compose_usb_live_opt_in_wires_infra():
+    # Explicit opt-in: QMP socket (off /run) + /dev/bus/usb bind, but NO
+    # device_cgroup_rules (rootless-incompatible) and USB never boot-added.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     c = Config()
-    c.pod.usb_live = False
+    c.pod.usb_live = True
     c.pod.__post_init__()
     out = _build_compose_content(c)
-    assert "-qmp" not in out
-    assert "/dev/bus/usb" not in out
+    assert "-qmp unix:/winpodx/qmp.sock" in out
+    assert "/run/winpodx" not in out  # off /run
+    assert "- /dev/bus/usb:/dev/bus/usb" in out
     assert "device_cgroup_rules" not in out
+    assert "usb-host" not in out
 
 
 def test_compose_pci_boot_adds_vfio_usb_stays_live():
@@ -244,6 +243,7 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live():
     from winpodx.core.pod.compose import _build_compose_content
 
     c = Config()
+    c.pod.usb_live = True  # opt-in so the QMP socket is wired alongside PCI
     c.pod.devices = ["usb|1234:5678|Dongle", "pci|0000:01:00.0|Card"]
     c.pod.__post_init__()
     out = _build_compose_content(c)
