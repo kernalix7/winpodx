@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import json
-import socket
-import threading
+import types
 
 import pytest
 
@@ -116,114 +114,96 @@ def test_usb_qom_id_stable():
     assert D.usb_qom_id(dc) == "winpodx-usb-12345678"
 
 
-# --- QMP client (simulated server over a socketpair) --------------------
+# --- live USB via dockur's QEMU monitor (HMP over `<backend> exec`) ------
 
 
-def _fake_qmp_server(sock: socket.socket, scripted_replies: list[dict]):
-    """Serve a QMP greeting, then for each received command line send the next
-    run of scripted objects up to and including the next ``return``/``error``
-    (so a command's reply can be preceded by async ``event`` objects)."""
-    conn, _ = sock.accept()
-    conn.sendall(b'{"QMP": {"version": {}}}\n')
-    buf = b""
-    idx = 0
-    while idx < len(scripted_replies):
-        while b"\n" not in buf:
-            chunk = conn.recv(4096)
-            if not chunk:
-                conn.close()
-                return
-            buf += chunk
-        _line, _, buf = buf.partition(b"\n")
-        while idx < len(scripted_replies):
-            obj = scripted_replies[idx]
-            idx += 1
-            conn.sendall((json.dumps(obj) + "\n").encode())
-            if "return" in obj or "error" in obj:
-                break
-    conn.close()
+def _fake_run(reply: str = "", *, rc: int = 0, stderr: str = "", captured: list | None = None):
+    """Return a fake subprocess.run that records argv + yields a scripted reply."""
+
+    def run(cmd, **kwargs):
+        if captured is not None:
+            captured.append(cmd)
+        return types.SimpleNamespace(returncode=rc, stdout=reply, stderr=stderr)
+
+    return run
 
 
-def _run_with_fake_server(tmp_path, scripted_replies, body):
-    sock_path = str(tmp_path / "qmp.sock")
-    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    srv.bind(sock_path)
-    srv.listen(1)
-    t = threading.Thread(target=_fake_qmp_server, args=(srv, scripted_replies), daemon=True)
-    t.start()
-    try:
-        return body(sock_path)
-    finally:
-        srv.close()
-        t.join(timeout=2)
+def test_live_attach_builds_device_add(monkeypatch):
+    cap: list = []
+    # Monitor echoes the command; device_add prints nothing on success.
+    monkeypatch.setattr(
+        D.subprocess, "run", _fake_run("(qemu) device_add ...\n(qemu) ", captured=cap)
+    )
+    D.live_attach("podman", "winpodx-windows", D.DeviceConfig("usb", "1234:5678", "Dongle"))
+    script = cap[0][-1]  # the bash -c script
+    assert cap[0][:3] == ["podman", "exec", "winpodx-windows"]
+    assert f"/dev/tcp/127.0.0.1/{D.DOCKUR_MONITOR_PORT}" in script
+    assert "device_add usb-host,vendorid=0x1234,productid=0x5678" in script
+    assert f"id={D.usb_qom_id(D.DeviceConfig('usb', '1234:5678'))}" in script
+    assert f"bus={D.DOCKUR_USB_BUS}" in script
 
 
-def test_qmp_live_attach_sends_device_add(tmp_path):
-    # capabilities reply, then device_add reply.
-    def body(sock_path):
-        D.live_attach(sock_path, D.DeviceConfig("usb", "1234:5678", "Dongle"))
-        return True
-
-    assert _run_with_fake_server(tmp_path, [{"return": {}}, {"return": {}}], body) is True
-
-
-def test_qmp_error_raises(tmp_path):
-    def body(sock_path):
-        with pytest.raises(D.QmpError):
-            D.live_attach(sock_path, D.DeviceConfig("usb", "1234:5678"))
-        return True
-
-    # capabilities OK, then device_add returns an error object.
-    replies = [{"return": {}}, {"error": {"class": "GenericError", "desc": "no such device"}}]
-    assert _run_with_fake_server(tmp_path, replies, body) is True
+def test_live_attach_raises_on_error_reply(monkeypatch):
+    monkeypatch.setattr(
+        D.subprocess, "run", _fake_run("(qemu) device_add ...\nError: no device found\n(qemu) ")
+    )
+    with pytest.raises(D.HmpError, match="attach"):
+        D.live_attach("podman", "winpodx-windows", D.DeviceConfig("usb", "1234:5678"))
 
 
-def test_qmp_skips_events_before_reply(tmp_path):
-    def body(sock_path):
-        D.live_detach(sock_path, D.DeviceConfig("usb", "1234:5678"))
-        return True
-
-    # capabilities, then an async event, then the device_del return.
-    replies = [
-        {"return": {}},
-        {"event": "DEVICE_DELETED", "data": {}},
-        {"return": {}},
-    ]
-    assert _run_with_fake_server(tmp_path, replies, body) is True
+def test_live_detach_builds_device_del(monkeypatch):
+    cap: list = []
+    monkeypatch.setattr(D.subprocess, "run", _fake_run("(qemu) ", captured=cap))
+    D.live_detach("podman", "winpodx-windows", D.DeviceConfig("usb", "1234:5678"))
+    assert f"device_del {D.usb_qom_id(D.DeviceConfig('usb', '1234:5678'))}" in cap[0][-1]
 
 
-def test_live_attach_rejects_pci(tmp_path):
-    with pytest.raises(D.QmpError, match="only supports USB"):
-        D.live_attach(str(tmp_path / "nope.sock"), D.DeviceConfig("pci", "01:00.0"))
+def test_live_attach_rejects_pci():
+    with pytest.raises(D.HmpError, match="only supports USB"):
+        D.live_attach("podman", "winpodx-windows", D.DeviceConfig("pci", "01:00.0"))
 
 
-def test_qmp_connect_error_on_missing_socket(tmp_path):
-    with pytest.raises(D.QmpError, match="cannot connect"):
-        with D.QmpClient(str(tmp_path / "absent.sock")):
-            pass
+def test_hmp_command_unreachable_raises(monkeypatch):
+    monkeypatch.setattr(D.subprocess, "run", _fake_run("", rc=7, stderr="connection refused"))
+    with pytest.raises(D.HmpError, match="unreachable"):
+        D.hmp_command("podman", "winpodx-windows", "info version")
 
 
 # --- compose integration -------------------------------------------------
 
 
-def test_compose_default_has_no_usb_live_infra():
-    # usb_live defaults OFF (EXPERIMENTAL — the QMP-socket bind crash-loops
-    # Windows boot on rootless dockur), so a default compose is clean: no QMP
-    # socket, no /dev/bus/usb bind. The pod boots normally.
+def test_compose_default_wires_usb_bus():
+    # usb_live defaults ON: the default compose binds /dev/bus/usb (validated
+    # to boot rootless) but uses NO custom -qmp socket / device_cgroup_rules
+    # (both crash-looped boot). Live attach reuses dockur's own monitor.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     out = _build_compose_content(Config())
     assert "- /dev/kvm" in out and "- /dev/net/tun" in out
+    assert "- /dev/bus/usb:/dev/bus/usb" in out
     assert "-qmp" not in out
-    assert "/dev/bus/usb" not in out
     assert "device_cgroup_rules" not in out
-    assert "usb-host" not in out
+    assert "usb-host" not in out  # never boot-added
 
 
-def test_compose_usb_live_opt_in_wires_infra():
-    # Explicit opt-in: QMP socket (off /run) + /dev/bus/usb bind, but NO
-    # device_cgroup_rules (rootless-incompatible) and USB never boot-added.
+def test_compose_usb_live_off_is_clean():
+    from winpodx.core.config import Config
+    from winpodx.core.pod.compose import _build_compose_content
+
+    c = Config()
+    c.pod.usb_live = False
+    c.pod.__post_init__()
+    out = _build_compose_content(c)
+    assert "/dev/bus/usb" not in out
+    assert "-qmp" not in out
+
+
+def test_compose_usb_live_opt_in_wires_usb_bus_only():
+    # Explicit opt-in wires ONLY the /dev/bus/usb bind. Live attach reuses
+    # dockur's own `-monitor`, so NO custom -qmp socket/bind-mount (that
+    # crash-looped boot), NO device_cgroup_rules (rootless-incompatible), and
+    # USB is never boot-added.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
@@ -231,10 +211,11 @@ def test_compose_usb_live_opt_in_wires_infra():
     c.pod.usb_live = True
     c.pod.__post_init__()
     out = _build_compose_content(c)
-    assert "-qmp unix:/winpodx/qmp.sock" in out
-    assert "/run/winpodx" not in out  # off /run
     assert "- /dev/bus/usb:/dev/bus/usb" in out
+    assert "-qmp" not in out  # reuse dockur's monitor, no custom socket
+    assert "qmp.sock" not in out  # no bind-mounted socket
     assert "device_cgroup_rules" not in out
+    assert "usb-host" not in out  # USB never boot-added
     assert "usb-host" not in out
 
 
@@ -250,6 +231,8 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live():
     # PCI is boot-added (can't hot-plug into a container QEMU).
     assert "- /dev/vfio/vfio" in out
     assert "vfio-pci,host=0000:01:00.0" in out
-    # USB stays live-only even when assigned — never boot-added.
+    # USB stays live-only even when assigned — never boot-added; the USB bus
+    # bind is present (live attach reuses dockur's monitor, no custom -qmp).
     assert "usb-host" not in out
-    assert "-qmp unix:/winpodx/qmp.sock" in out
+    assert "- /dev/bus/usb:/dev/bus/usb" in out
+    assert "-qmp" not in out

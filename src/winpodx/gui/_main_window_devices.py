@@ -18,8 +18,6 @@ CLI never drift.
 
 from __future__ import annotations
 
-import os
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -213,15 +211,16 @@ class DevicesMixin:
 
         msg = tr("Assigned ") + f"{dc.dtype} {dc.did}. "
         if dc.dtype == "usb":
-            sock = D.host_qmp_socket_path()
-            if _guest_running(cfg) and os.path.exists(sock):
+            if not getattr(cfg.pod, "usb_live", True):
+                msg += tr("Enable usb_live + recreate to hot-plug USB.")
+            elif _guest_running(cfg):
                 try:
-                    D.live_attach(sock, dc)
+                    D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
                     msg += tr("Hot-plugged live.")
-                except D.QmpError:
-                    msg += tr("Applies on next pod start.")
+                except D.HmpError as e:
+                    msg += tr("Live attach failed: ") + str(e)
             else:
-                msg += tr("Applies on next pod start.")
+                msg += tr("Applies when the guest is running.")
         else:
             msg += tr("Restart the pod to apply (winpodx pod recreate).")
         self._render_devices()
@@ -240,15 +239,12 @@ class DevicesMixin:
 
         msg = tr("Released ") + f"{dc.dtype} {dc.did}. "
         if dc.dtype == "usb":
-            sock = D.host_qmp_socket_path()
-            if _guest_running(cfg) and os.path.exists(sock):
+            if getattr(cfg.pod, "usb_live", True) and _guest_running(cfg):
                 try:
-                    D.live_detach(sock, dc)
+                    D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
                     msg += tr("Unplugged live.")
-                except D.QmpError:
-                    msg += tr("Applies on next pod start.")
-            else:
-                msg += tr("Applies on next pod start.")
+                except D.HmpError as e:
+                    msg += tr("Live detach failed: ") + str(e)
         else:
             msg += tr("Restart the pod to apply.")
         self._render_devices()

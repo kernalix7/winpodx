@@ -24,10 +24,8 @@ build on:
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-import socket
 import subprocess
 from dataclasses import dataclass, field
 
@@ -298,119 +296,35 @@ def host_device_nodes(devices: list[DeviceConfig]) -> list[str]:
     return nodes
 
 
-# QMP unix socket path inside the container (a host dir is bind-mounted here by
-# compose so the host can connect to the socket QEMU creates). Deliberately NOT
-# under ``/run`` — container images usually mount a tmpfs there, which can
-# shadow the bind-mount and make the socket unreachable from the host. The
-# bind-mount target ``/winpodx`` is a fresh path nothing else owns.
-QMP_DIR_CONTAINER = "/winpodx"
-QMP_SOCK_CONTAINER = f"{QMP_DIR_CONTAINER}/qmp.sock"
-QMP_QEMU_ARG = f"-qmp unix:{QMP_SOCK_CONTAINER},server=on,wait=off"
-
-
-def host_qmp_run_dir() -> str:
-    """Host directory bind-mounted to ``/run/winpodx`` in the container.
-
-    QEMU creates the QMP socket inside the container; bind-mounting this host
-    dir there lets the host connect to it (rootless Podman maps container-root
-    to the host user, so the socket is reachable). Created on demand.
-    """
-    from winpodx.utils.paths import config_dir
-
-    d = config_dir() / "run"
-    return str(d)
-
-
-def host_qmp_socket_path() -> str:
-    """Host-side path of the guest's QMP socket (for live attach/detach)."""
-    import os
-
-    return os.path.join(host_qmp_run_dir(), "qmp.sock")
-
-
 # --------------------------------------------------------------------------
-# QMP live attach / detach (USB hot-plug into a running guest)
+# Live USB hot-plug via dockur's built-in QEMU monitor (#286)
 # --------------------------------------------------------------------------
+#
+# dockur runs QEMU with `-monitor telnet:localhost:7100` — an HMP (human
+# monitor) on the container's loopback — and a `-device qemu-xhci,id=xhci`
+# USB-3 controller. We reach the monitor with
+# `<backend> exec <container> bash -c '<talk to 127.0.0.1:7100 via /dev/tcp>'`:
+# the dockur image ships bash, `exec` runs as root, and 127.0.0.1:7100 is the
+# container's loopback where the monitor listens. `device_add usb-host,...` /
+# `device_del` hot-plug a host USB device into the running guest with no
+# restart.
+#
+# This deliberately reuses dockur's existing monitor instead of a custom
+# `-qmp` unix socket bind-mount: that approach crash-looped Windows boot
+# because dockur's QEMU could not create the socket in the host bind-mount
+# ("Failed to bind socket ... Permission denied"). No bind-mount here.
+
+DOCKUR_MONITOR_PORT = 7100  # dockur's `-monitor telnet:localhost:7100`
+DOCKUR_USB_BUS = "xhci.0"  # bus of dockur's `-device qemu-xhci,id=xhci`
+
+# Treat these substrings in a monitor reply as a failed command. The telnet
+# monitor echoes the command back (plus VT100 noise), and `device_add` /
+# `device_del` print nothing on success, so a clean reply has none of these.
+_HMP_ERROR_RE = re.compile(r"error|not found|could not|failed|no such|unable", re.IGNORECASE)
 
 
-class QmpError(RuntimeError):
-    """A QMP command failed or the socket was unreachable."""
-
-
-class QmpClient:
-    """Minimal QMP (QEMU Machine Protocol) client over a unix socket.
-
-    Speaks just enough QMP to negotiate capabilities and run
-    ``device_add`` / ``device_del`` for USB hot-plug. Used as a context
-    manager so the socket is always closed.
-    """
-
-    def __init__(self, sock_path: str, timeout: float = 5.0) -> None:
-        self._path = sock_path
-        self._timeout = timeout
-        self._sock: socket.socket | None = None
-        self._buf = b""
-
-    def __enter__(self) -> QmpClient:
-        self.connect()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
-
-    def connect(self) -> None:
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(self._timeout)
-            s.connect(self._path)
-        except OSError as e:
-            raise QmpError(f"cannot connect to QMP socket {self._path}: {e}") from e
-        self._sock = s
-        # Greeting banner, then negotiate out of capabilities mode.
-        self._read_obj()
-        self.execute("qmp_capabilities")
-
-    def close(self) -> None:
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            finally:
-                self._sock = None
-
-    def _read_obj(self) -> dict:
-        assert self._sock is not None
-        while b"\n" not in self._buf:
-            chunk = self._sock.recv(4096)
-            if not chunk:
-                raise QmpError("QMP socket closed unexpectedly")
-            self._buf += chunk
-        line, _, self._buf = self._buf.partition(b"\n")
-        try:
-            return json.loads(line.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError) as e:
-            raise QmpError(f"malformed QMP response: {line!r}") from e
-
-    def execute(self, command: str, arguments: dict | None = None) -> dict:
-        """Run a QMP command, returning its ``return`` payload.
-
-        Skips asynchronous ``event`` messages while waiting for the reply.
-        """
-        if self._sock is None:
-            raise QmpError("QMP client is not connected")
-        msg: dict = {"execute": command}
-        if arguments:
-            msg["arguments"] = arguments
-        try:
-            self._sock.sendall((json.dumps(msg) + "\r\n").encode("utf-8"))
-        except OSError as e:
-            raise QmpError(f"QMP send failed: {e}") from e
-        while True:
-            obj = self._read_obj()
-            if "error" in obj:
-                raise QmpError(f"QMP {command} failed: {obj['error'].get('desc', obj['error'])}")
-            if "return" in obj:
-                return obj["return"]
-            # else: an "event" — keep reading for the matching reply.
+class HmpError(RuntimeError):
+    """A QEMU monitor command failed or the monitor was unreachable."""
 
 
 def usb_qom_id(dev: DeviceConfig) -> str:
@@ -418,34 +332,75 @@ def usb_qom_id(dev: DeviceConfig) -> str:
     return "winpodx-usb-" + dev.did.replace(":", "")
 
 
-def live_attach(sock_path: str, dev: DeviceConfig) -> None:
-    """Hot-plug a USB device into the running guest via QMP ``device_add``.
+def hmp_command(backend: str, container: str, command: str, *, timeout: float = 8.0) -> str:
+    """Send one HMP command to dockur's QEMU monitor and return the raw reply.
 
-    Raises :class:`QmpError` on failure (caller decides whether to fall back
-    to a recreate). PCI is not supported live — pass it via a recreate.
+    Runs ``<backend> exec <container> bash -c '...'`` that opens the
+    container's ``127.0.0.1:DOCKUR_MONITOR_PORT`` via bash ``/dev/tcp``, writes
+    *command*, and reads the response. Raises :class:`HmpError` if the monitor
+    is unreachable. The reply is noisy (telnet echo + VT100), so callers use
+    :func:`_hmp_raise_on_error` rather than parsing it exactly.
     """
-    if dev.dtype != "usb":
-        raise QmpError(f"live attach only supports USB devices, not {dev.dtype!r}")
-    vid, pid = dev.did.split(":")
-    log.info("QMP live-attach usb %s via %s", dev.did, sock_path)
-    with QmpClient(sock_path) as q:
-        q.execute(
-            "device_add",
-            {
-                "driver": "usb-host",
-                "id": usb_qom_id(dev),
-                "vendorid": f"0x{vid}",
-                "productid": f"0x{pid}",
-            },
+    import shlex
+
+    script = (
+        f"exec 3<>/dev/tcp/127.0.0.1/{DOCKUR_MONITOR_PORT} || exit 7; "
+        f"printf '%s\\n' {shlex.quote(command)} >&3; "
+        "sleep 0.4; (timeout 1 cat <&3 || true)"
+    )
+    try:
+        from winpodx.backend._hostenv import host_env
+
+        env = host_env()
+    except Exception:  # noqa: BLE001 -- host_env is best-effort
+        env = None
+    try:
+        res = subprocess.run(
+            [backend, "exec", container, "bash", "-c", script],
+            capture_output=True,
+            text=True,
+            errors="replace",  # the telnet monitor greeting starts with 0xff IAC bytes
+            timeout=timeout,
+            check=False,
+            env=env,
         )
-    log.info("QMP live-attach usb %s ok", dev.did)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise HmpError(f"monitor exec failed: {e}") from e
+    if res.returncode != 0 and not res.stdout.strip():
+        raise HmpError(
+            f"QEMU monitor unreachable (rc={res.returncode}): {res.stderr.strip() or 'no output'}"
+        )
+    return res.stdout
 
 
-def live_detach(sock_path: str, dev: DeviceConfig) -> None:
-    """Unplug a previously hot-plugged USB device via QMP ``device_del``."""
+def _hmp_raise_on_error(reply: str, action: str, dev: DeviceConfig) -> None:
+    if _HMP_ERROR_RE.search(reply):
+        snippet = " ".join(reply.split())[-200:]
+        raise HmpError(f"{action} {dev.did} failed: {snippet}")
+
+
+def live_attach(backend: str, container: str, dev: DeviceConfig) -> None:
+    """Hot-plug a USB device into the running guest via the QEMU monitor
+    (``device_add usb-host``). Raises :class:`HmpError` on failure. PCI is not
+    supported live — pass it via a recreate."""
     if dev.dtype != "usb":
-        raise QmpError(f"live detach only supports USB devices, not {dev.dtype!r}")
-    log.info("QMP live-detach usb %s via %s", dev.did, sock_path)
-    with QmpClient(sock_path) as q:
-        q.execute("device_del", {"id": usb_qom_id(dev)})
-    log.info("QMP live-detach usb %s ok", dev.did)
+        raise HmpError(f"live attach only supports USB devices, not {dev.dtype!r}")
+    vid, pid = dev.did.split(":")
+    cmd = (
+        f"device_add usb-host,vendorid=0x{vid},productid=0x{pid},"
+        f"id={usb_qom_id(dev)},bus={DOCKUR_USB_BUS}"
+    )
+    log.info("HMP live-attach usb %s", dev.did)
+    _hmp_raise_on_error(hmp_command(backend, container, cmd), "attach", dev)
+    log.info("HMP live-attach usb %s ok", dev.did)
+
+
+def live_detach(backend: str, container: str, dev: DeviceConfig) -> None:
+    """Unplug a previously hot-plugged USB device via ``device_del``."""
+    if dev.dtype != "usb":
+        raise HmpError(f"live detach only supports USB devices, not {dev.dtype!r}")
+    log.info("HMP live-detach usb %s", dev.did)
+    _hmp_raise_on_error(
+        hmp_command(backend, container, f"device_del {usb_qom_id(dev)}"), "detach", dev
+    )
+    log.info("HMP live-detach usb %s ok", dev.did)

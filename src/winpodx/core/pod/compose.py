@@ -14,9 +14,6 @@ from pathlib import Path
 from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
 from winpodx.core.devices import (
-    QMP_DIR_CONTAINER,
-    QMP_QEMU_ARG,
-    host_qmp_run_dir,
     parse_entries,
     qemu_device_args,
 )
@@ -219,14 +216,13 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     # Host device passthrough (#286). Device ids are hex-validated by config,
     # so no YAML/shell-dangerous chars reach the ARGUMENTS scalar.
     #
-    # USB is live-only: with usb_live (default) we wire the QMP socket so
-    # `device attach` hot-plugs into the running guest -- we do NOT boot-add
-    # `-device usb-host` (an unplugged device would abort QEMU boot, and the
-    # whole point is live attach). PCI VFIO can't be hot-plugged into a
+    # USB is live-only and needs NO QEMU arg here: it hot-plugs through dockur's
+    # own `-monitor` (see core/devices.live_attach) and rides dockur's existing
+    # `qemu-xhci` controller. We only expose the USB bus via a bind-mount (see
+    # _extra_volumes_block). USB is never boot-added (an unplugged `-device
+    # usb-host` would abort QEMU boot). PCI VFIO can't be hot-plugged into a
     # container-QEMU, so it IS boot-added and needs a recreate.
     devs = parse_entries(cfg.pod.devices)
-    if getattr(cfg.pod, "usb_live", True):
-        extra_args.append(QMP_QEMU_ARG)
     pci = [d for d in devs if d.dtype == "pci"]
     if pci:
         extra_args += qemu_device_args(pci)
@@ -400,29 +396,21 @@ def _device_nodes_block(cfg: Config) -> str:
 
 
 def _extra_volumes_block(cfg: Config) -> str:
-    """Bind-mounts for live USB (#286), present whenever ``usb_live`` is on.
+    """Bind-mount the host USB bus into the container for live USB (#286).
 
-    Two mounts:
-
-    * the host QMP run dir -> :data:`QMP_DIR_CONTAINER` (``/winpodx``, NOT under
-      ``/run`` which is a tmpfs in most images and would shadow the mount), so
-      the host can reach the QMP socket QEMU opens and hot-plug USB live.
-    * ``/dev/bus/usb`` -> ``/dev/bus/usb`` so the usbfs nodes (including ones
-      plugged in after start) are visible. We do NOT emit a
-      ``device_cgroup_rules`` entry: the device-cgroup controller is
-      unavailable to rootless Podman (it errors "device cgroup rules are not
-      supported in rootless mode"), which is winpodx's default. Rootless has no
-      cgroup device gate anyway, so the bind-mount + the host uaccess ACL on the
-      USB nodes (the session user already has rw) is what grants QEMU access.
-
-    Independent of whether any device is currently assigned, so the very first
-    ``device attach`` is live with no prior recreate. Empty when usb_live=False.
+    Just ``/dev/bus/usb`` -> ``/dev/bus/usb`` so the usbfs nodes (including
+    ones plugged in after start) are reachable for a live ``device_add
+    usb-host``. We do NOT emit a ``device_cgroup_rules`` entry — the
+    device-cgroup controller is unavailable to rootless Podman (winpodx's
+    default; it errors "device cgroup rules are not supported in rootless
+    mode") and rootless has no cgroup device gate anyway, so the bind-mount +
+    dockur's root QEMU (the host session user via the userns) opening the node
+    is what grants access. No QMP socket is wired here — live attach reuses
+    dockur's own ``-monitor`` (see core/devices). Empty when usb_live=False.
     """
     if not getattr(cfg.pod, "usb_live", True):
         return ""
-    run_dir = host_qmp_run_dir()
-    Path(run_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
-    return f"      - {run_dir}:{QMP_DIR_CONTAINER}\n      - /dev/bus/usb:/dev/bus/usb\n"
+    return "      - /dev/bus/usb:/dev/bus/usb\n"
 
 
 def _build_compose_content(cfg: Config) -> str:

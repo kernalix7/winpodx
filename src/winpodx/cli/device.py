@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 
 from winpodx.core import devices as D
@@ -213,52 +212,45 @@ def _detach(args: argparse.Namespace) -> None:
         _apply_pci_change(cfg, "detach")
 
 
-def _live_unavailable_reason(cfg: Config, sock: str) -> str | None:
-    """Return why live QMP isn't available (for diagnostics), or None if it is."""
+def _live_unavailable_reason(cfg: Config) -> str | None:
+    """Return why live USB isn't available (for diagnostics), or None if it is."""
     if not getattr(cfg.pod, "usb_live", True):
-        return "usb_live is disabled in config (USB applies on `pod recreate`)"
+        return (
+            "usb_live is disabled in config — set `usb_live = true` and "
+            "`winpodx pod recreate` to expose the host USB bus to the guest"
+        )
     if not _guest_running(cfg):
         return "the guest isn't running"
-    if not os.path.exists(sock):
-        return (
-            f"the QMP socket isn't there yet ({sock}) — the running guest predates "
-            "live-USB support; run `winpodx pod recreate` once to enable it"
-        )
     return None
 
 
 def _apply_usb_attach(cfg: Config, dc: D.DeviceConfig) -> None:
-    """Hot-plug a USB device into the running guest over QMP (no restart).
-
-    Prints exactly what happened so a failure is visible rather than silent.
-    """
-    sock = D.host_qmp_socket_path()
-    reason = _live_unavailable_reason(cfg, sock)
+    """Hot-plug a USB device into the running guest via dockur's QEMU monitor
+    (no restart). Prints exactly what happened so a failure is visible."""
+    reason = _live_unavailable_reason(cfg)
     if reason is not None:
         print(f"  Persisted; live attach skipped because {reason}.")
         return
-    print(f"  Hot-plugging via QMP ({sock}) …")
+    print("  Hot-plugging via the QEMU monitor …")
     try:
-        D.live_attach(sock, dc)
+        D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
         print("  Hot-plugged into the running guest (live, no restart).")
-    except D.QmpError as e:
+    except D.HmpError as e:
         print(f"  Live attach FAILED: {e}")
-        print("  (Persisted; it will apply on the next `pod recreate`. Check `podman logs`.)")
+        print("  (Persisted. Check `podman logs` / that the device is plugged in.)")
 
 
 def _apply_usb_detach(cfg: Config, dc: D.DeviceConfig) -> None:
-    sock = D.host_qmp_socket_path()
-    reason = _live_unavailable_reason(cfg, sock)
+    reason = _live_unavailable_reason(cfg)
     if reason is not None:
         print(f"  Un-persisted; live detach skipped because {reason}.")
         return
-    print(f"  Unplugging via QMP ({sock}) …")
+    print("  Unplugging via the QEMU monitor …")
     try:
-        D.live_detach(sock, dc)
+        D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
         print("  Unplugged from the running guest (live).")
-    except D.QmpError as e:
+    except D.HmpError as e:
         print(f"  Live detach FAILED: {e}")
-        print("  (Un-persisted; it will apply on the next `pod recreate`.)")
 
 
 def _apply_pci_change(cfg: Config, action: str) -> None:

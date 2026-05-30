@@ -375,19 +375,17 @@ class PodConfig:
     # attached/detached live over QMP without a recreate (see core/devices.py).
     # Empty by default — nothing is passed through unless the user assigns it.
     devices: list[str] = field(default_factory=list)
-    # Live USB hot-plug (#286). EXPERIMENTAL, default OFF. When True, the
-    # compose wires a QMP control socket (host bind-mount) + the host USB bus
-    # so `winpodx device attach <usb>` can hot-plug into a running guest.
+    # Live USB hot-plug (#286), default ON. Binds the host USB bus
+    # (``/dev/bus/usb``) into the container so ``winpodx device attach <usb>``
+    # hot-plugs a device into the running guest with no restart, via dockur's
+    # built-in QEMU ``-monitor`` (see core/devices.live_attach).
     #
-    # Default is False because the QMP socket bind FAILS on the default
-    # dockur/rootless-podman stack: dockur runs QEMU as a non-root in-container
-    # uid that can't create the socket in the bind-mounted dir (owned by the
-    # mapped container-root) — "Failed to bind socket ... Permission denied" —
-    # which crash-loops Windows boot. Leaving it off keeps the pod booting; the
-    # socket-permission handling for the live path is unfinished (needs the
-    # same sub-uid traversal fix the OEM dir uses). Opt in only if you've made
-    # the QMP socket reachable for your setup.
-    usb_live: bool = False
+    # This does NOT use a custom ``-qmp`` socket or ``device_cgroup_rules`` —
+    # both crash-looped Windows boot on rootless Podman (socket bind-permission;
+    # cgroup controller unavailable rootless). Reusing dockur's own monitor +
+    # a plain ``/dev/bus/usb`` bind avoids that. Set False to keep the USB bus
+    # out of the container (smaller surface; USB then only via the drive share).
+    usb_live: bool = True
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -568,7 +566,7 @@ class PodConfig:
                     cleaned.append(norm)
             self.devices = cleaned
         if not isinstance(self.usb_live, bool):
-            self.usb_live = False
+            self.usb_live = True
 
 
 @dataclass

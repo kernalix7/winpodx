@@ -134,8 +134,9 @@ def test_status_json(cfg, capsys):
 def test_attach_usb_live_when_running(monkeypatch, cfg, capsys):
     calls = []
     monkeypatch.setattr(DC, "_guest_running", lambda _c: True)
-    monkeypatch.setattr(DC.os.path, "exists", lambda _p: True)
-    monkeypatch.setattr(D, "live_attach", lambda sock, dc: calls.append(dc.key))
+    monkeypatch.setattr(
+        D, "live_attach", lambda backend, container, dc: calls.append((container, dc.key))
+    )
     DC._attach(_ns(device_command="attach", id="1234:5678", type=None, label=None, force=False))
-    assert calls == ["usb:1234:5678"]
+    assert calls == [("winpodx-windows", "usb:1234:5678")]
     assert "live, no restart" in capsys.readouterr().out
