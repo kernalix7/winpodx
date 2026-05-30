@@ -96,6 +96,19 @@ def test_pod_config_devices_non_list_coerced():
     assert pc.devices == []
 
 
+def test_pod_config_usb_live_defaults_true():
+    from winpodx.core.config import PodConfig
+
+    assert PodConfig().usb_live is True
+
+
+def test_pod_config_usb_live_non_bool_coerced():
+    from winpodx.core.config import PodConfig
+
+    assert PodConfig(usb_live="nope").usb_live is True  # type: ignore[arg-type]
+    assert PodConfig(usb_live=False).usb_live is False
+
+
 def test_pod_config_backend_validation():
     pod = PodConfig(backend="invalid")
     assert pod.backend == "podman"

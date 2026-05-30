@@ -213,31 +213,52 @@ def _detach(args: argparse.Namespace) -> None:
         _apply_pci_change(cfg, "detach")
 
 
+def _live_unavailable_reason(cfg: Config, sock: str) -> str | None:
+    """Return why live QMP isn't available (for diagnostics), or None if it is."""
+    if not getattr(cfg.pod, "usb_live", True):
+        return "usb_live is disabled in config (USB applies on `pod recreate`)"
+    if not _guest_running(cfg):
+        return "the guest isn't running"
+    if not os.path.exists(sock):
+        return (
+            f"the QMP socket isn't there yet ({sock}) — the running guest predates "
+            "live-USB support; run `winpodx pod recreate` once to enable it"
+        )
+    return None
+
+
 def _apply_usb_attach(cfg: Config, dc: D.DeviceConfig) -> None:
-    """Live hot-plug a USB device when the guest is up + QMP is available;
-    otherwise it applies on the next start (already persisted)."""
+    """Hot-plug a USB device into the running guest over QMP (no restart).
+
+    Prints exactly what happened so a failure is visible rather than silent.
+    """
     sock = D.host_qmp_socket_path()
-    if not _guest_running(cfg) or not os.path.exists(sock):
-        print("  Guest not running with live device management — applies on next `pod start`.")
-        print("  (Run `winpodx pod recreate` to enable live USB hot-plug now.)")
+    reason = _live_unavailable_reason(cfg, sock)
+    if reason is not None:
+        print(f"  Persisted; live attach skipped because {reason}.")
         return
+    print(f"  Hot-plugging via QMP ({sock}) …")
     try:
         D.live_attach(sock, dc)
         print("  Hot-plugged into the running guest (live, no restart).")
     except D.QmpError as e:
-        print(f"  Live attach failed ({e}); it will apply on the next `pod start`.")
+        print(f"  Live attach FAILED: {e}")
+        print("  (Persisted; it will apply on the next `pod recreate`. Check `podman logs`.)")
 
 
 def _apply_usb_detach(cfg: Config, dc: D.DeviceConfig) -> None:
     sock = D.host_qmp_socket_path()
-    if not _guest_running(cfg) or not os.path.exists(sock):
-        print("  Applies on next `pod start`.")
+    reason = _live_unavailable_reason(cfg, sock)
+    if reason is not None:
+        print(f"  Un-persisted; live detach skipped because {reason}.")
         return
+    print(f"  Unplugging via QMP ({sock}) …")
     try:
         D.live_detach(sock, dc)
         print("  Unplugged from the running guest (live).")
     except D.QmpError as e:
-        print(f"  Live detach failed ({e}); it will apply on the next `pod start`.")
+        print(f"  Live detach FAILED: {e}")
+        print("  (Un-persisted; it will apply on the next `pod recreate`.)")
 
 
 def _apply_pci_change(cfg: Config, action: str) -> None:

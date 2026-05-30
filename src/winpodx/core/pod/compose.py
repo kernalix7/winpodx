@@ -14,8 +14,8 @@ from pathlib import Path
 from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
 from winpodx.core.devices import (
+    QMP_DIR_CONTAINER,
     QMP_QEMU_ARG,
-    host_device_nodes,
     host_qmp_run_dir,
     parse_entries,
     qemu_device_args,
@@ -78,7 +78,7 @@ name: "winpodx"
     devices:
 {device_nodes}    cap_add:
       - NET_ADMIN
-"""
+{device_cgroup_rules}"""
 
 _COMPOSE_PODMAN_EXTRAS = """\
     group_add:
@@ -216,13 +216,20 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
                 ]
             )
 
-    # Host device passthrough (#286) — USB/PCI -device args + a QMP socket so
-    # USB devices can be hot-plugged live (the device ids are hex-validated by
-    # config, so no YAML/shell-dangerous chars reach the ARGUMENTS scalar).
+    # Host device passthrough (#286). Device ids are hex-validated by config,
+    # so no YAML/shell-dangerous chars reach the ARGUMENTS scalar.
+    #
+    # USB is live-only: with usb_live (default) we wire the QMP socket so
+    # `device attach` hot-plugs into the running guest -- we do NOT boot-add
+    # `-device usb-host` (an unplugged device would abort QEMU boot, and the
+    # whole point is live attach). PCI VFIO can't be hot-plugged into a
+    # container-QEMU, so it IS boot-added and needs a recreate.
     devs = parse_entries(cfg.pod.devices)
-    if devs:
-        extra_args += qemu_device_args(devs)
+    if getattr(cfg.pod, "usb_live", True):
         extra_args.append(QMP_QEMU_ARG)
+    pci = [d for d in devs if d.dtype == "pci"]
+    if pci:
+        extra_args += qemu_device_args(pci)
 
     return " ".join(extra_args)
 
@@ -380,31 +387,52 @@ def _resolve_timezone_for_compose(cfg: Config) -> str:
 def _device_nodes_block(cfg: Config) -> str:
     """Build the indented YAML ``devices:`` list body.
 
-    Always exposes ``/dev/kvm`` + ``/dev/net/tun`` (dockur needs both); when
-    the user has assigned passthrough devices, also exposes the host ``/dev``
-    nodes they need (``/dev/bus/usb`` for live USB, ``/dev/vfio/vfio`` for
-    PCI). Node paths are constants / derived from hex-validated ids, so they
-    never contain YAML-dangerous characters.
+    Always exposes ``/dev/kvm`` + ``/dev/net/tun`` (dockur needs both); adds
+    ``/dev/vfio/vfio`` when a PCI device is assigned. USB is NOT a device node
+    here — the whole ``/dev/bus/usb`` tree is bind-mounted instead (see
+    ``_extra_volumes_block``) so devices plugged in *after* container start are
+    reachable for live hot-plug. Paths are constants, never YAML-dangerous.
     """
     nodes = ["/dev/kvm", "/dev/net/tun"]
-    nodes += host_device_nodes(parse_entries(cfg.pod.devices))
+    if any(d.dtype == "pci" for d in parse_entries(cfg.pod.devices)):
+        nodes.append("/dev/vfio/vfio")
     return "".join(f"      - {n}\n" for n in nodes)
 
 
 def _extra_volumes_block(cfg: Config) -> str:
-    """Bind-mount the QMP run dir into the container when devices are assigned.
+    """Bind-mounts for live USB (#286), present whenever ``usb_live`` is on.
 
-    QEMU opens its QMP socket under ``/run/winpodx`` (see ``-qmp`` in
-    ``_qemu_arguments_for_host``); bind-mounting a host dir there lets the
-    host connect to it for live USB hot-plug. Empty string when no device is
-    assigned (no socket, no mount). The dir is created so the mount source
-    exists before Podman/Docker starts the container.
+    Two mounts:
+
+    * the host QMP run dir -> :data:`QMP_DIR_CONTAINER` (``/winpodx``, NOT under
+      ``/run`` which is a tmpfs in most images and would shadow the mount), so
+      the host can reach the QMP socket QEMU opens and hot-plug USB live.
+    * ``/dev/bus/usb`` -> ``/dev/bus/usb`` so the usbfs nodes (including ones
+      plugged in after start) are visible; the device-cgroup rule
+      (:func:`_device_cgroup_rules_block`) grants access to them.
+
+    Independent of whether any device is currently assigned, so the very first
+    ``device attach`` is live with no prior recreate. Empty when usb_live=False.
     """
-    if not parse_entries(cfg.pod.devices):
+    if not getattr(cfg.pod, "usb_live", True):
         return ""
     run_dir = host_qmp_run_dir()
     Path(run_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
-    return f"      - {run_dir}:/run/winpodx\n"
+    return f"      - {run_dir}:{QMP_DIR_CONTAINER}\n      - /dev/bus/usb:/dev/bus/usb\n"
+
+
+def _device_cgroup_rules_block(cfg: Config) -> str:
+    """``device_cgroup_rules:`` granting access to the USB char-major (189).
+
+    The ``/dev/bus/usb`` bind-mount makes the nodes visible, but the container
+    device cgroup still blocks read/write to char devices that aren't allowed.
+    ``c 189:* rmw`` allows every USB device (major 189) — including ones
+    plugged in after the container started, so live hot-plug works for any USB
+    device. Present only when ``usb_live`` is on. Empty otherwise.
+    """
+    if not getattr(cfg.pod, "usb_live", True):
+        return ""
+    return '    device_cgroup_rules:\n      - "c 189:* rmw"\n'
 
 
 def _build_compose_content(cfg: Config) -> str:
@@ -444,6 +472,7 @@ def _build_compose_content(cfg: Config) -> str:
         agent_port=AGENT_PORT,
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),
+        device_cgroup_rules=_device_cgroup_rules_block(cfg),
     )
 
 
