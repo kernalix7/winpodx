@@ -326,9 +326,21 @@ def cli(argv: list[str] | None = None) -> None:
         choices=["auto", "native", "flatpak"],
         default=None,
         help=(
-            "Which FreeRDP client the launcher prefers: auto (Flatpak when "
-            "present, else native), native, or flatpak. Stored in "
+            "Which FreeRDP client the launcher prefers: auto (native when "
+            "present, else Flatpak), native, or flatpak. Stored in "
             "cfg.rdp.freerdp_source."
+        ),
+    )
+    setup_p.add_argument(
+        "--multimon",
+        choices=["span", "off", "multimon"],
+        default=None,
+        help=(
+            "Multi-monitor RAIL strategy: span (default — size the session "
+            "desktop to the host monitor bounding box so a window dragged to "
+            "another monitor keeps input), off (single-monitor desktop; use "
+            "for non-rectangular layouts), or multimon (full MonitorDefArray; "
+            "breaks RAIL input — diagnosis only). Stored in cfg.rdp.multimon."
         ),
     )
     # Curated edition list pulled from winpodx.core.config.WIN_VERSION_LABELS

@@ -157,10 +157,19 @@ class RDPConfig:
     scale: int = 100
     dpi: int = 0  # Windows DPI %, 0 = auto-detect from Linux
     extra_flags: str = ""
-    # Which FreeRDP client to prefer: "auto" (Flatpak when installed, else
-    # native — see core/rdp.find_freerdp), "native", or "flatpak". Lets a user
-    # force the native client if the Flatpak's sandbox is a problem for them.
+    # Which FreeRDP client to prefer: "auto" (native when present, else Flatpak
+    # — see core/rdp.find_freerdp), "native", or "flatpak". Lets a user force
+    # the Flatpak client, or pin native if the Flatpak sandbox is a problem.
     freerdp_source: str = "auto"
+    # Multi-monitor RAIL strategy. A RAIL window dragged onto a second monitor
+    # lands at host-virtual-screen coords outside the default single-monitor
+    # session desktop, so input/repaint desync (clicks miss). "span" makes the
+    # session desktop the bounding box of all host monitors — one wide
+    # rectangle, no per-monitor MonitorDefArray. "off" keeps the legacy
+    # single-monitor desktop (use for non-rectangular layouts). "multimon"
+    # sends the full MonitorDefArray, which rdprrap can't handle — kept for
+    # diagnosis only (kills RAIL input).
+    multimon: str = "span"
 
     def __post_init__(self) -> None:
         self.port = max(1, min(65535, int(self.port)))
@@ -169,6 +178,8 @@ class RDPConfig:
         self.password_max_age = max(0, int(self.password_max_age))
         if self.freerdp_source not in ("auto", "native", "flatpak"):
             self.freerdp_source = "auto"
+        if self.multimon not in ("span", "off", "multimon"):
+            self.multimon = "span"
 
 
 @dataclass
@@ -680,6 +691,7 @@ class Config:
                 "dpi": self.rdp.dpi,
                 "extra_flags": self.rdp.extra_flags,
                 "freerdp_source": self.rdp.freerdp_source,
+                "multimon": self.rdp.multimon,
             },
             "pod": {
                 "backend": self.pod.backend,

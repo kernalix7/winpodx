@@ -664,12 +664,17 @@ def handle_setup(args: argparse.Namespace) -> None:
             # config still persists the preference (this branch otherwise
             # short-circuits before the main apply below).
             _fr_src = getattr(args, "freerdp_source", None)
+            _mm = getattr(args, "multimon", None)
             changed = False
             if not cfg.pod.initialized:
                 cfg.pod.initialized = True
                 changed = True
             if _fr_src and _fr_src != cfg.rdp.freerdp_source:
                 cfg.rdp.freerdp_source = _fr_src
+                cfg.rdp.__post_init__()
+                changed = True
+            if _mm and _mm != cfg.rdp.multimon:
+                cfg.rdp.multimon = _mm
                 cfg.rdp.__post_init__()
                 changed = True
             if changed:
@@ -732,11 +737,19 @@ def handle_setup(args: argparse.Namespace) -> None:
 
     # Persist the FreeRDP source preference (native / flatpak / auto) chosen in
     # install.sh Custom mode or via `winpodx setup --freerdp-source`. "auto"
-    # (the default) prefers the Flatpak when present; an explicit value forces
-    # that client. RDPConfig.__post_init__ validates the value.
+    # (the default) prefers the native client when present; an explicit value
+    # forces that client. RDPConfig.__post_init__ validates the value.
     freerdp_source_arg = getattr(args, "freerdp_source", None)
     if freerdp_source_arg:
         cfg.rdp.freerdp_source = freerdp_source_arg
+        cfg.rdp.__post_init__()
+
+    # Persist the multi-monitor RAIL strategy chosen via `winpodx setup
+    # --multimon`. Defaults to "span" (RDPConfig default); an explicit value
+    # overrides. RDPConfig.__post_init__ validates the value.
+    multimon_arg = getattr(args, "multimon", None)
+    if multimon_arg:
+        cfg.rdp.multimon = multimon_arg
         cfg.rdp.__post_init__()
 
     _resolve_credentials(cfg, non_interactive=non_interactive, config_existed=config_existed)

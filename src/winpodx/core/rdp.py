@@ -396,6 +396,22 @@ def build_rdp_command(
     if (app_executable or launch_uri) and "/dynamic-resolution" in cmd:
         cmd.remove("/dynamic-resolution")
 
+    # Multi-monitor RAIL: without a desktop big enough to cover every host
+    # monitor, a RAIL window dragged onto a second monitor lands at coords
+    # outside the (single-monitor) session desktop, so input/repaint desync
+    # and clicks miss. "/span" sizes the session desktop to the bounding box
+    # of all host monitors -- one wide rectangle, NO per-monitor
+    # MonitorDefArray (which rdprrap can't handle, so "/multimon" kills input
+    # entirely). Scoped to RAIL app launches; the full-desktop path keeps
+    # /dynamic-resolution instead. cfg.rdp.multimon "off" disables it for
+    # non-rectangular layouts.
+    if app_executable or launch_uri:
+        _multimon = getattr(cfg.rdp, "multimon", "span")
+        if _multimon == "span":
+            cmd.append("/span")
+        elif _multimon == "multimon":
+            cmd.append("/multimon")
+
     # Share a directory as \\tsclient\media so the guest's USB desktop
     # shortcut always resolves: the real removable-media base when mounted,
     # else an empty placeholder (so clicking USB with nothing plugged in

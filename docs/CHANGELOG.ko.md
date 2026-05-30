@@ -11,7 +11,8 @@
 
 ### Added
 
-- **`--extra-args` / `cfg.rdp.extra_flags` 가 이제 멀티모니터 + 리페인트 knob 을 허용합니다** (`/multimon`, `/multimon:force`, `/span`, `/gdi:sw|hw`, `/smart-sizing[:WxH]`, `/monitors:0,1`), 각각 값 검증됨. 일부 멀티디스플레이 환경의 RAIL 창-이동 깨짐(해상도/DPI 다른 모니터 사이로 창을 끌면 뭉개지거나 깨짐) 해결 레버 — 예: `winpodx app run <app> --extra-args="/multimon"` 는 전체 호스트 모니터 레이아웃을 세션에 광고해 창이 게스트가 아는 geometry 안에 머물게 함. 지금은 override 전용; 최적 조합 확정되면 기본값으로 넣을 수 있음.
+- **멀티모니터 RAIL 이 이제 기본으로 동작합니다 — RemoteApp 창을 두 번째 모니터로 끌어도 입력이 계속 먹힙니다 (`cfg.rdp.multimon`, 기본값 `span`).** 이게 없으면 RAIL 앱 실행이 세션 데스크탑을 모니터 1개 크기로 잡아서, 두 번째 모니터로 끈 창이 그 데스크탑 *밖*의 호스트 가상스크린 좌표에 놓임 — 클릭이 빗나가다가 아예 안 먹힘. 이제 winpodx 가 RAIL 앱 실행에 `/span` 을 추가해 세션 데스크탑을 전체 호스트 모니터의 bounding box(모니터별 `MonitorDefArray` 없는 하나의 넓은 직사각형)로 잡습니다. `/multimon` 을 먼저 시도했지만 전체 모니터 레이아웃을 전송해서 게스트의 `rdprrap` RAIL 헬퍼가 처리 못 하고 입력을 완전히 죽임 — 그래서 기본값은 `multimon` 이 아니라 `span`. 스팬된 bounding box 에 빈 공간이 생기는 비직사각형 배치에선 `cfg.rdp.multimon = "off"`(또는 `winpodx setup --multimon off`) 설정; `multimon` 은 진단 전용 값으로 남겨둠.
+- **`--extra-args` / `cfg.rdp.extra_flags` 가 이제 멀티모니터 + 리페인트 knob 을 허용합니다** (`/multimon`, `/multimon:force`, `/span`, `/gdi:sw|hw`, `/smart-sizing[:WxH]`, `/monitors:0,1`), 각각 값 검증됨. 일부 멀티디스플레이 환경의 RAIL 창-이동 깨짐(해상도/DPI 다른 모니터 사이로 창을 끌면 뭉개지거나 깨짐) 의 수동 레버. 이제 `cfg.rdp.multimon` 이 기본 `span`(위 항목)이라 입력 손실 케이스는 기본으로 처리됨; 이 플래그들은 리페인트 / 스케일링 knob 의 실행별 실험용으로 남음.
 
 ### Fixed
 

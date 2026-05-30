@@ -381,6 +381,47 @@ class TestBuildRdpCommand:
         assert any(c.startswith("/app:") for c in cmd)
         assert "/dynamic-resolution" not in cmd
 
+    def test_span_added_to_app_launch_by_default(self, cfg, monkeypatch):
+        # multimon defaults to "span": a RAIL app launch sizes the session
+        # desktop to the host monitor bounding box so a window dragged to a
+        # second monitor keeps input mapping (clicks would otherwise miss).
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        assert "/span" in cmd
+        assert "/multimon" not in cmd
+
+    def test_span_not_in_full_desktop_launch(self, cfg, monkeypatch):
+        # The full-desktop path keeps /dynamic-resolution and must not span.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cmd, _ = build_rdp_command(cfg)
+        assert "/span" not in cmd
+
+    def test_multimon_off_omits_span(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg.rdp.multimon = "off"
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        assert "/span" not in cmd
+        assert "/multimon" not in cmd
+
+    def test_multimon_explicit_uses_multimon_flag(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg.rdp.multimon = "multimon"
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        assert "/multimon" in cmd
+        assert "/span" not in cmd
+
     def test_dpi_flag_omitted_when_zero(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
