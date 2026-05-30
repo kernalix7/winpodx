@@ -31,7 +31,7 @@ from winpodx.utils.deps import DepCheck, podman_major_version
 # Priority order for auto-pick. Lowest index wins when present + usable.
 # Tuple form so a test (or a future packager) can iterate the same way the
 # bash mirror in install.sh does.
-AUTO_PRIORITY: tuple[str, ...] = ("podman", "docker", "libvirt")
+AUTO_PRIORITY: tuple[str, ...] = ("podman", "docker")
 
 # Rootless dockur/windows needs features that landed in podman 4.x; Ubuntu
 # 22.04's podman 3.4 doesn't work (#271). Bump this if a future minimum
@@ -39,8 +39,11 @@ AUTO_PRIORITY: tuple[str, ...] = ("podman", "docker", "libvirt")
 PODMAN_MIN_MAJOR_VERSION = 4
 
 # Valid backend identifiers winpodx supports. Includes "manual" for the no-
-# backend, raw-RDP path (Config.pod.backend is the same set).
-VALID_BACKENDS: frozenset[str] = frozenset({"podman", "docker", "libvirt", "manual"})
+# backend, raw-RDP path (Config.pod.backend is the same set). The libvirt
+# backend was dropped in 0.6.0 — dockur (podman/docker) is QEMU/KVM in a
+# container and now covers device passthrough too (#286), so the thin
+# bring-your-own-domain libvirt wrapper had no remaining justification.
+VALID_BACKENDS: frozenset[str] = frozenset({"podman", "docker", "manual"})
 
 
 def choose_backend(
@@ -57,12 +60,11 @@ def choose_backend(
        when set. Validated against :data:`VALID_BACKENDS` -- an unknown value
        raises ``ValueError`` so a typo fails loudly rather than silently
        falling through to podman.
-    2. Otherwise walk :data:`AUTO_PRIORITY` (``podman → docker → libvirt``)
-       and return the first that is present in ``deps`` AND usable. "Usable"
-       for podman means the installed major version is at least
-       ``podman_min_major`` -- podman 3.x is treated as absent so the rotation
-       falls through to docker / libvirt rather than choosing a runtime
-       dockur can't drive.
+    2. Otherwise walk :data:`AUTO_PRIORITY` (``podman → docker``) and return
+       the first that is present in ``deps`` AND usable. "Usable" for podman
+       means the installed major version is at least ``podman_min_major`` --
+       podman 3.x is treated as absent so the rotation falls through to docker
+       rather than choosing a runtime dockur can't drive.
     3. Fall back to ``"podman"``. The recommended-mode install path then
        installs the missing podman packages; this matches install.sh's
        Recommended fallback, where the same string flows into apt/dnf.
@@ -82,7 +84,7 @@ def choose_backend(
         deps = check_all()
 
     for candidate in AUTO_PRIORITY:
-        dep = deps.get(candidate if candidate != "libvirt" else "virsh")
+        dep = deps.get(candidate)
         if dep is None or not dep.found:
             continue
         if candidate == "podman":

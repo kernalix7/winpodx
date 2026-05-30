@@ -320,7 +320,7 @@ def cli(argv: list[str] | None = None) -> None:
 
     # --- setup ---
     setup_p = sub.add_parser("setup", help="Run setup wizard")
-    setup_p.add_argument("--backend", choices=["podman", "docker", "libvirt", "manual"])
+    setup_p.add_argument("--backend", choices=["podman", "docker", "manual"])
     setup_p.add_argument(
         "--freerdp-source",
         choices=["auto", "native", "flatpak"],

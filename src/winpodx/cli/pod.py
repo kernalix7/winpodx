@@ -1455,7 +1455,7 @@ def _recover_oem() -> None:
         print(
             tr(
                 "Error: recover-oem only supports podman/docker backends "
-                "(current: {backend}). For libvirt/manual backends, "
+                "(current: {backend}). For the manual backend, "
                 "copy /oem into the guest manually."
             ).format(backend=backend_name)
         )

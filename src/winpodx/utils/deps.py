@@ -30,11 +30,11 @@ class DepCheck:
 
 # Optional dependencies probed by name on PATH. Order matches what we want
 # the setup wizard's status block to show -- container backends first
-# (podman / docker / virsh), then the Flatpak fallback.
+# (podman / docker), then the Flatpak fallback. (The libvirt backend was
+# dropped in 0.6.0, so ``virsh`` is no longer probed.)
 OPTIONAL_DEPS = {
     "docker": "Docker backend",
     "podman": "Podman backend",
-    "virsh": "libvirt backend",
     "flatpak": "Flatpak FreeRDP fallback",
 }
 
@@ -82,9 +82,9 @@ def check_all() -> dict[str, DepCheck]:
     """Run every host dep check.
 
     Returns a dict keyed by canonical short name (``freerdp``, ``podman``,
-    ``docker``, ``virsh``, ``flatpak``, ``kvm``). Every dependency has an
-    entry; the caller decides what's required vs optional. Missing entries
-    indicate a bug in this function, never a missing dependency.
+    ``docker``, ``flatpak``, ``kvm``). Every dependency has an entry; the
+    caller decides what's required vs optional. Missing entries indicate a bug
+    in this function, never a missing dependency.
     """
     checks: dict[str, DepCheck] = {}
     checks["freerdp"] = check_freerdp()

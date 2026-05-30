@@ -707,8 +707,6 @@ def handle_setup(args: argparse.Namespace) -> None:
             available.append("podman")
         if deps.get("docker") and deps["docker"].found:
             available.append("docker")
-        if deps.get("virsh") and deps["virsh"].found:
-            available.append("libvirt")
         available.append("manual")
 
         if len(available) == 1 and available[0] == "manual":
@@ -845,9 +843,6 @@ def handle_setup(args: argparse.Namespace) -> None:
 
         _generate_compose(cfg)
         _recreate_container(cfg)
-
-    if cfg.pod.backend == "libvirt" and not non_interactive:
-        cfg.pod.vm_name = _ask(tr("VM name [RDPWindows]: "), default="RDPWindows")
 
     from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
 

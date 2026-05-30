@@ -311,7 +311,7 @@ class SettingsPageMixin:
         cols.addWidget(rdp_card)
 
         self.input_backend = QComboBox()
-        self.input_backend.addItems(["podman", "docker", "libvirt", "manual"])
+        self.input_backend.addItems(["podman", "docker", "manual"])
         self.input_backend.setCurrentText(self.cfg.pod.backend)
 
         self.input_cpu = QLineEdit(str(self.cfg.pod.cpu_cores))

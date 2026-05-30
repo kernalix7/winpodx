@@ -69,10 +69,6 @@ def get_backend(cfg: Config) -> Backend:
         from winpodx.backend.podman import PodmanBackend
 
         return PodmanBackend(cfg)
-    elif name == "libvirt":
-        from winpodx.backend.libvirt import LibvirtBackend
-
-        return LibvirtBackend(cfg)
     elif name == "manual":
         from winpodx.backend.manual import ManualBackend
 

@@ -468,7 +468,7 @@ def finish_provisioning(
             except Exception:  # noqa: BLE001 — progress is best-effort, never fatal
                 log.debug("finish_provisioning on_progress(%s) raised", stage, exc_info=True)
 
-    # Backend gate: libvirt / manual have no Windows-side runtime apply,
+    # Backend gate: the manual backend has no Windows-side runtime apply,
     # discovery channel, or reverse-open. Return early with a marker so the
     # caller knows nothing was attempted (mirrors apply_windows_runtime_fixes).
     if cfg.pod.backend not in ("podman", "docker"):
@@ -885,7 +885,7 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
 
     Returns a per-helper result map: ``{helper_name: "ok" | "failed: ..."}``
     so the caller can render success/failure rows. Backend gating returns
-    ``{"backend": "skipped (libvirt/manual not supported)"}`` so the caller
+    ``{"backend": "skipped (manual not supported)"}`` so the caller
     knows nothing was attempted.
     """
     if cfg.pod.backend not in ("podman", "docker"):
@@ -1281,8 +1281,6 @@ def _ensure_config() -> Config:
         cfg.pod.backend = "podman"
     elif shutil.which("docker"):
         cfg.pod.backend = "docker"
-    elif shutil.which("virsh"):
-        cfg.pod.backend = "libvirt"
     else:
         cfg.pod.backend = "podman"  # Default, will fail with clear error
 

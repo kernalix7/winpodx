@@ -35,7 +35,10 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 # evolves. See docs/design/ROADMAP-0.6.0.md item J.
 SCHEMA_VERSION = 1
 
-_VALID_BACKENDS = frozenset({"podman", "docker", "libvirt", "manual"})
+# "libvirt" was dropped in 0.6.0 (dockur is QEMU/KVM in a container and now
+# covers device passthrough — #286). An existing config with backend="libvirt"
+# falls back to "podman" in PodConfig.__post_init__ (with a warning).
+_VALID_BACKENDS = frozenset({"podman", "docker", "manual"})
 _VALID_TUNING_PROFILES = frozenset({"auto", "performance", "safe", "off", "manual"})
 
 # Display labels for every value in _KNOWN_WIN_VERSIONS, in the order they
@@ -230,7 +233,7 @@ class RDPConfig:
 
 @dataclass
 class PodConfig:
-    backend: str = "podman"  # podman | docker | libvirt | manual
+    backend: str = "podman"  # podman | docker | manual  (libvirt dropped in 0.6.0)
     vm_name: str = "RDPWindows"
     container_name: str = "winpodx-windows"
     # Windows edition picker — passed through to dockur/windows via the
@@ -382,6 +385,11 @@ class PodConfig:
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
+            if self.backend == "libvirt":
+                logging.getLogger(__name__).warning(
+                    "backend=libvirt was removed in 0.6.0 (dockur now covers device "
+                    "passthrough); falling back to podman. Set backend explicitly to silence."
+                )
             self.backend = "podman"
         self.cpu_cores = max(1, min(128, int(self.cpu_cores)))
         self.ram_gb = max(1, min(512, int(self.ram_gb)))

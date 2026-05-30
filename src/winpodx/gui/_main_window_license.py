@@ -109,11 +109,6 @@ _THIRD_PARTY_ACK: tuple[tuple[str, str, str], ...] = (
         "freedesktop .desktop file parser for host-app discovery (optional, reverse-open extra)",
     ),
     (
-        "libvirt-python",
-        "LGPL-2.1-or-later",
-        "Python bindings for libvirt (optional, only with the libvirt extra)",
-    ),
-    (
         "docker (docker-py)",
         "Apache-2.0",
         "Python client for the Docker Engine API (optional, only with the docker extra)",

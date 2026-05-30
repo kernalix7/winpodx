@@ -48,7 +48,6 @@ class LogsMixin:
     _ALLOWED_COMMANDS = {
         "podman",
         "docker",
-        "virsh",
         "winpodx",
         "podman-compose",
         "docker-compose",
