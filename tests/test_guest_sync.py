@@ -130,10 +130,10 @@ def test_maybe_autosync_absent_stamp_records_no_sync(monkeypatch: pytest.MonkeyP
 
 def test_maybe_autosync_skips_unsupported_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = _cfg()
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "manual"
     monkeypatch.setattr(
         "winpodx.core.guest_sync.sync_guest",
-        lambda *a, **k: pytest.fail("sync should not run on libvirt"),
+        lambda *a, **k: pytest.fail("sync should not run on the manual backend"),
     )
     assert maybe_autosync(cfg) is False
 

@@ -17,7 +17,7 @@
 #
 # The recipe directory describes a "lean" Thin AppImage: Python runtime +
 # winpodx wheel + PySide6 (Qt6) + reverse-open extras. System binaries
-# (FreeRDP, podman, libvirt) are NOT bundled; winpodx's existing
+# (FreeRDP, podman/docker) are NOT bundled; winpodx's existing
 # `winpodx setup` / `winpodx doctor` paths detect them and emit per-
 # distro install hints if any are missing.
 #

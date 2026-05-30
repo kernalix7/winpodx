@@ -102,7 +102,7 @@ class TestContainerExistsOnBackend:
     def test_returns_false_when_backend_not_container(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         cfg = _make_existing_config(tmp_path)
-        cfg.pod.backend = "libvirt"
+        cfg.pod.backend = "manual"
 
         from winpodx.cli.setup_cmd import _container_exists_on_backend
 
@@ -260,14 +260,14 @@ class TestHalfUninstalledGuard:
         assert "podman socket down" in captured
         assert "uninstall.sh --purge" in captured
 
-    def test_does_not_run_for_libvirt_backend(self, tmp_path, monkeypatch):
-        """Libvirt / manual backends don't have a 'container' to detect;
-        the heal path must short-circuit before probing pod_status so the
-        function is a no-op for non-container deployments."""
+    def test_does_not_run_for_manual_backend(self, tmp_path, monkeypatch):
+        """The manual backend doesn't have a 'container' to detect; the heal
+        path must short-circuit before probing pod_status so the function is a
+        no-op for non-container deployments. (libvirt was dropped in 0.6.0.)"""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
         cfg = _make_existing_config(tmp_path)
-        cfg.pod.backend = "libvirt"
+        cfg.pod.backend = "manual"
         cfg.save()
 
         ensure_ready_mock = MagicMock()

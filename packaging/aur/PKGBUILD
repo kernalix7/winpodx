@@ -21,7 +21,6 @@ depends=(
 optdepends=(
   'podman: default container backend'
   'docker: alternative container backend'
-  'libvirt: VM backend'
   'pyside6: Qt6 GUI and system tray'
 )
 makedepends=(

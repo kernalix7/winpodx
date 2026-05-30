@@ -167,8 +167,8 @@ class Backend(ABC):
 
         Default: False. Container backends (podman/docker) override this
         so the CLI / GUI / tray can surface the ``PAUSED`` pod state that
-        the idle monitor puts the container into. libvirt and manual
-        have no equivalent primitive.
+        the idle monitor puts the container into. The manual backend
+        has no equivalent primitive.
         """
         return False
 

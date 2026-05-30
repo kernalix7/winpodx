@@ -35,9 +35,6 @@ dependencies = [
 gui = [
     "PySide6>=6.5,<7.0",
 ]
-libvirt = [
-    "libvirt-python>=9.0,<11.0",
-]
 docker = [
     "docker>=7.0,<8.0",
 ]
@@ -58,12 +55,6 @@ dev = [
     "Pillow>=10.0,<12.0",
 ]
 all = [
-    "winpodx[gui,libvirt,docker,reverse-open,dev]",
-]
-# Same as `all` but without libvirt-python, which requires libvirt-dev system
-# headers to build from source. Use this for CI, docs builds, and minimal
-# environments (Debian slim, Alpine, Flatpak) where libvirt-dev is unavailable.
-all-no-libvirt = [
     "winpodx[gui,docker,reverse-open,dev]",
 ]
 

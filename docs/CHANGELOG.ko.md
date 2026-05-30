@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **libvirt 백엔드 제거 (breaking).** `backend = "libvirt"` 는 더 이상 유효하지 않습니다 — 기본 dockur 백엔드가 컨테이너 안 QEMU/KVM이고 이제 디바이스 패스스루까지 커버하므로(#286), 얇은 "bring-your-own libvirt 도메인" 래퍼는 존재 이유가 없어졌습니다. `--backend` 는 `podman | docker | manual` 만 받고, `backend = "libvirt"` 인 기존 config는 로드 시 `podman` 으로 fallback(경고와 함께). `libvirt` pip extra(`libvirt-python`) + install.sh/AUR/RPM/DEB 의 libvirt 참조 제거; `winpodx[all]` 이 이제 libvirt-free(`libvirt-dev` 빌드 의존성 없음). 자체 libvirt 도메인에 Windows 운영 중이라면 winpodx ≤ 0.5.x 유지하거나 `manual` 백엔드를 그 RDP 엔드포인트에 연결하세요.
+
 ### Added
 
 - **호스트 USB / PCI 디바이스를 Windows 게스트로 패스스루 — CLI + GUI (#286).** 호스트 디바이스(USB 보안 동글, 캡처 카드, GPU 아닌 PCI 카드 등)를 Windows 게스트에 넘길 수 있습니다. 기본 백엔드가 dockur(컨테이너 안 QEMU/KVM)라 패스스루를 QEMU 레벨에 배선 — libvirt 불필요. `winpodx device list`로 호스트 USB/PCI 디바이스 + 할당 여부 확인, `device attach <id>` / `detach <id>`로 할당/해제(`cfg.pod.devices`에 영속), GUI에는 **Devices 탭**(호스트↔게스트 2컬럼 mover). **USB는 실행 중인 게스트에 QMP로 라이브 핫플러그**(재시작 없음) — `cfg.pod.usb_live`(기본 켬)면 QMP 제어 소켓 + 호스트 USB 버스 + USB device-cgroup 규칙이 매 시작 시 컨테이너에 배선되어 **첫 attach부터 recreate 없이 라이브**(끄려면 `usb_live = false`). **PCI**는 `vfio-pci` 바인딩이라 컨테이너 QEMU에 핫플러그 불가 → 부팅 시 추가 + 게스트 재시작 필요 + 안전 검사 게이트 — 위험 디바이스(주 GPU, 부팅 디스크 컨트롤러, 활성 NIC)는 명시적 `--force`(CLI) 또는 확인 다이얼로그(GUI) 필요하고, IOMMU 그룹은 통째로 움직이므로 함께 표시됨. 디바이스 id는 hex 검증.

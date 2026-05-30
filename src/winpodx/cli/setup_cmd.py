@@ -931,7 +931,7 @@ def handle_setup(args: argparse.Namespace) -> None:
     # WINPODX_NO_PROVISION=1 so setup skips its own provision tail and leaves
     # it to the explicit `winpodx provision` call. A standalone `winpodx
     # setup` (no env var) still finishes the full flow. Non-container
-    # backends short-circuit (the helper has nothing to do for libvirt/manual).
+    # backends short-circuit (the helper has nothing to do for the manual backend).
     import os
 
     skip_provision = os.environ.get("WINPODX_NO_PROVISION") == "1"

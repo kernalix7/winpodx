@@ -1078,7 +1078,7 @@ def _attempt_refresh() -> None:
 def _pod_is_running(cfg) -> bool:
     """Lightweight ``{runtime} ps --filter name=...`` check.
 
-    Returns ``False`` for libvirt/manual backends — those don't support
+    Returns ``False`` for the manual backend — it doesn't support
     discovery yet (v0.2.0 guest-agent work), so migrate just surfaces
     whatever error ``core.discovery`` emits when called.
     """

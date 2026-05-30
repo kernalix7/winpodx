@@ -246,13 +246,23 @@ def test_config_save_load(tmp_path, monkeypatch):
     cfg = Config()
     cfg.rdp.user = "testuser"
     cfg.rdp.ip = "192.168.1.100"
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "docker"
     cfg.save()
 
     loaded = Config.load()
     assert loaded.rdp.user == "testuser"
     assert loaded.rdp.ip == "192.168.1.100"
-    assert loaded.pod.backend == "libvirt"
+    assert loaded.pod.backend == "docker"
+
+
+def test_config_load_libvirt_backend_migrates_to_podman(tmp_path, monkeypatch):
+    # libvirt was dropped in 0.6.0 — an existing config with backend=libvirt
+    # falls back to podman on load (with a warning).
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path = Config.path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('[pod]\nbackend = "libvirt"\n', encoding="utf-8")
+    assert Config.load().pod.backend == "podman"
 
 
 def test_config_load_revalidates_loaded_values(tmp_path, monkeypatch):

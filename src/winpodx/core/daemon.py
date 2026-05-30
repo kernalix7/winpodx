@@ -57,7 +57,7 @@ def _run_container_cmd(
 def suspend_pod(cfg: Config) -> bool:
     """Pause the Windows container to free CPU (keeps memory)."""
     if cfg.pod.backend not in ("podman", "docker"):
-        return False  # libvirt/manual don't support pause
+        return False  # the manual backend doesn't support pause
     cmd = [cfg.pod.backend, "pause", cfg.pod.container_name]
     result = _run_container_cmd(cfg, cmd, timeout=90, timeout_msg="Pod suspend timed out after 90s")
     if result is None:

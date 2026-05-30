@@ -160,14 +160,14 @@ def test_pod_status_unresponsive_when_container_old_and_rdp_down():
 
 
 def test_pod_status_starting_when_uptime_unknown_on_non_container_backend():
-    """libvirt + manual backends return None from uptime_secs() — they
+    """the manual backend return None from uptime_secs() — they
     must fall back to STARTING (no auto-recovery for non-container)."""
     status = _patched_pod_status(
         running=True,
         paused=False,
         rdp_ok=False,
         uptime=None,
-        backend_name="libvirt",
+        backend_name="manual",
     )
     assert status.state == PodState.STARTING
 

@@ -213,7 +213,7 @@ _UWP_DOTTED_ALLOWLIST = frozenset(
 class DiscoveryError(RuntimeError):
     """Raised when guest-side discovery cannot complete.
 
-    Covers: unsupported backend (libvirt/manual), container runtime
+    Covers: unsupported backend (manual), container runtime
     missing, script copy/exec failure, timeout, malformed JSON, or
     the pod not being running.
 

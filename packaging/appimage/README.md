@@ -17,7 +17,7 @@ container runtime.
 
 Same model as `install.sh`:
 
-- **`podman` (recommended)** or `docker` / `libvirt` — installed via the
+- **`podman` (recommended)** or `docker` — installed via the
   host distro package manager. Rootless podman fundamentally needs host
   systemd / subuid integration that an AppImage can't carry, so winpodx
   cannot ship one that works.
@@ -48,7 +48,7 @@ already had a working podman:
 
 PR #365 patched around it with a host-first `_hostenv` helper. 0.6.0
 item A removes the root cause: drop the entire container stack, require
-host podman/docker/libvirt (same model as `install.sh`). The AppImage
+host podman/docker (same model as `install.sh`). The AppImage
 shrinks ~150 MB → ~50 MB and stops fighting the host. `_hostenv`
 collapses to an `LD_LIBRARY_PATH` strip (still needed: bundled FreeRDP /
 Python / Qt keep the AppImage's `LD_LIBRARY_PATH`, and host helpers

@@ -45,7 +45,7 @@ Pod 의 명령 채널은 게스트 안에서 `127.0.0.1:8765` 에 listen 하는 
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64 인코딩 `/exec` payload) |
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
-| VM | libvirt / KVM |
+| 하이퍼바이저 | QEMU / KVM (dockur 컨테이너 내부) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, vendored rcedit 로 슬러그별 아이콘 embed) |
 | i18n | `winpodx.core.i18n` (영어 원문을 key 로, 언어별 flat JSON 카탈로그) |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
@@ -59,7 +59,7 @@ winpodx/
 ├── src/winpodx/
 │   ├── cli/               # argparse 명령 (app, pod, config, setup, host-open, ...)
 │   ├── core/              # Config, RDP, pod lifecycle, provisioner, daemon
-│   ├── backend/           # Podman, Docker, libvirt, manual
+│   ├── backend/           # Podman, Docker, manual
 │   ├── desktop/           # .desktop 엔트리, 아이콘, MIME, tray, 알림
 │   ├── display/           # X11/Wayland 감지, DPI 스케일링
 │   ├── gui/               # Qt6 메인 윈도, 앱 다이얼로그, 테마, reverse-open Settings 카드

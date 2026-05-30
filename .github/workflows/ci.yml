@@ -91,10 +91,9 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install pip-audit
-      # Avoid `[all]` here: libvirt-python requires libvirt-dev system headers
-      # that are not preinstalled on ubuntu-latest runners, which would break
-      # the audit job (including on docs-only PRs). `all-no-libvirt` covers
-      # gui/docker/dev extras without the native build dependency.
-      - run: pip install -e ".[all-no-libvirt]" || pip install -e ".[dev]"
+      # `[all]` is libvirt-free as of 0.6.0 (the libvirt backend + its
+      # libvirt-python extra were dropped — #286), so it no longer needs the
+      # libvirt-dev native headers and is safe to install on ubuntu-latest.
+      - run: pip install -e ".[all]" || pip install -e ".[dev]"
       - run: pip-audit --desc --skip-editable
         continue-on-error: true

@@ -77,7 +77,7 @@ def test_wizard_rejects_unknown_tuning_profile_keeps_default() -> None:
 
 
 def test_full_provision_noop_for_non_container_backend() -> None:
-    """libvirt / manual backends have no container provision flow -- the
+    """manual backends have no container provision flow -- the
     helper must return immediately without touching wait-ready etc."""
     cfg = _cfg()
     cfg.pod.backend = "manual"

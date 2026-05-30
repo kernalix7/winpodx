@@ -45,7 +45,7 @@ The pod's command channel is a bearer-authed HTTP agent listening on `127.0.0.1:
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
-| VM | libvirt / KVM |
+| Hypervisor | QEMU / KVM (inside the dockur container) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, embedded per-slug icon via vendored rcedit) |
 | i18n | `winpodx.core.i18n` (English-source-as-key, flat JSON catalogs per language) |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
@@ -59,7 +59,7 @@ winpodx/
 ├── src/winpodx/
 │   ├── cli/               # argparse commands (app, pod, config, setup, host-open, ...)
 │   ├── core/              # Config, RDP, pod lifecycle, provisioner, daemon
-│   ├── backend/           # Podman, Docker, libvirt, manual
+│   ├── backend/           # Podman, Docker, manual
 │   ├── desktop/           # .desktop entries, icons, MIME, tray, notifications
 │   ├── display/           # X11/Wayland detection, DPI scaling
 │   ├── gui/               # Qt6 main window, app dialog, theme, reverse-open Settings card

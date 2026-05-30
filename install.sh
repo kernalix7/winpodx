@@ -8,7 +8,7 @@ set -euo pipefail
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 #   or: ./install.sh [--main] [--ref TAG] [--source PATH] [--image-tar PATH]
-#                    [--mode r|a|c|n] [--backend podman|docker|libvirt|manual]
+#                    [--mode r|a|c|n] [--backend podman|docker|manual]
 #                    [--no-gui] [--manual] [--skip-deps] [--win-version VER]
 #                    [--help]
 #
@@ -23,7 +23,7 @@ set -euo pipefail
 #   --mode a           Automatic — reuse what's already installed; only install
 #                      what's strictly missing; pick the backend from what's
 #                      present (prefer an already-working docker/podman).
-#   --mode c           Custom — choose backend (podman/docker/libvirt) and
+#   --mode c           Custom — choose backend (podman/docker) and
 #                      whether to include the GUI, then install accordingly.
 #   --mode n           No — cancel without changing anything.
 #                      (env: WINPODX_MODE=<r|a|c|n>)
@@ -33,8 +33,10 @@ set -euo pipefail
 #                      stdin+/dev/tty both absent).
 #
 # Backend / GUI:
-#   --backend BACKEND  podman | docker | libvirt | manual. Passed through to
+#   --backend BACKEND  podman | docker | manual. Passed through to
 #                      `winpodx setup --backend <x>`. (env: WINPODX_BACKEND)
+#                      (libvirt was dropped in 0.6.0 — dockur covers device
+#                      passthrough now, #286.)
 #   --verbose, -v      Stream raw container logs during the Windows-boot wait.
 #                      Default collapses the ISO download to one clean progress
 #                      line + hides UEFI boot noise. (env: WINPODX_VERBOSE=1)
@@ -112,7 +114,7 @@ winpodx installer — see install.sh header for full usage.
 
 Flags:
   --mode r|a|c|n      Install mode (Recommended / Automatic / Custom / No)
-  --backend BACKEND   podman | docker | libvirt | manual
+  --backend BACKEND   podman | docker | manual
   --no-gui            Headless install — skip PySide6 in the venv
   --verbose, -v       Stream raw container logs during the Windows-boot wait
                       (default: clean ISO-download progress + hidden UEFI noise)
@@ -171,7 +173,7 @@ while [ $# -gt 0 ]; do
         --backend)
             WINPODX_BACKEND="${2:-}"
             if [ -z "$WINPODX_BACKEND" ]; then
-                err "--backend requires a value (podman | docker | libvirt | manual)"
+                err "--backend requires a value (podman | docker | manual)"
                 exit 1
             fi
             shift 2
@@ -208,9 +210,9 @@ done
 if [ -n "$WINPODX_BACKEND" ]; then
     WINPODX_BACKEND="$(echo "$WINPODX_BACKEND" | tr '[:upper:]' '[:lower:]')"
     case "$WINPODX_BACKEND" in
-        podman|docker|libvirt|manual) ;;
+        podman|docker|manual) ;;
         *)
-            err "--backend must be one of: podman, docker, libvirt, manual (got '$WINPODX_BACKEND')"
+            err "--backend must be one of: podman, docker, manual (got '$WINPODX_BACKEND')"
             exit 1
             ;;
     esac
@@ -366,7 +368,6 @@ pkg_name() {
                 python3-venv)   echo "python3" ;;
                 podman)         echo "podman" ;;
                 docker)         echo "docker" ;;
-                libvirt)        echo "libvirt" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
             esac ;;
@@ -376,7 +377,6 @@ pkg_name() {
                 python3-venv)   echo "python3" ;;
                 podman)         echo "podman" ;;
                 docker)         echo "docker" ;;
-                libvirt)        echo "libvirt" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
             esac ;;
@@ -390,7 +390,6 @@ pkg_name() {
                 python3-venv)   echo "python3-venv" ;;
                 podman)         echo "podman" ;;
                 docker)         echo "docker.io" ;;
-                libvirt)        echo "libvirt-daemon-system" ;;
                 freerdp)
                     # Debian 13+ (Trixie) and recent Ubuntu (24.10+, 25.04, 25.10)
                     # only ship freerdp3-x11; the stock freerdp2-x11 package is
@@ -448,7 +447,6 @@ pkg_name() {
                 python3-venv)   echo "python" ;;
                 podman)         echo "podman" ;;
                 docker)         echo "docker" ;;
-                libvirt)        echo "libvirt" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-full" ;;
             esac ;;
@@ -542,7 +540,6 @@ tool_version() {
     case "$tool" in
         podman)  podman --version 2>/dev/null | head -n1 ;;
         docker)  docker --version 2>/dev/null | head -n1 ;;
-        virsh)   virsh --version 2>/dev/null | head -n1 ;;
         python3) python3 --version 2>&1 | head -n1 ;;
         freerdp)
             local c
@@ -574,8 +571,6 @@ fi
 
 DOCKER_PRESENT=false
 command -v docker >/dev/null 2>&1 && DOCKER_PRESENT=true
-LIBVIRT_PRESENT=false
-command -v virsh >/dev/null 2>&1 && LIBVIRT_PRESENT=true
 # FreeRDP detection — track native client, Flatpak client, and the Flatpak
 # runtime separately so the install policy + Custom mode can choose a source.
 # Mirrors core/rdp.py:find_freerdp's accepted native set.
@@ -642,7 +637,6 @@ print_system_check() {
         echo "  podman:        no"
     fi
     echo "  docker:        $(yesno "$DOCKER_PRESENT")  $(tool_version docker)"
-    echo "  libvirt/virsh: $(yesno "$LIBVIRT_PRESENT")  $(tool_version virsh)"
     echo "  freerdp:       $(yesno "$FREERDP_PRESENT")  ${FREERDP_KIND:+$FREERDP_KIND }$(tool_version freerdp)"
     echo "  /dev/kvm:      $(yesno "$KVM_PRESENT")"
     echo "======================================================"
@@ -698,7 +692,7 @@ if [ -z "$INSTALL_MODE" ]; then
 Install mode?
   [R]ecommended  winpodx's recommended stack (Podman backend + deps); installs missing system packages via the distro package manager (sudo).
   [A]utomatic    Reuse what's already installed; only install what's strictly missing; pick the backend from what's present (prefer an already-working docker/podman). Minimal sudo.
-  [C]ustom       Choose backend (podman/docker/libvirt) and whether to include the GUI, then install accordingly.
+  [C]ustom       Choose backend (podman/docker) and whether to include the GUI, then install accordingly.
   [N]o           Cancel without changing anything.
 MODE_EOF
         echo -n "Choice [R/a/c/n]: "
@@ -725,19 +719,18 @@ if [ "$INSTALL_MODE" = "n" ]; then
 fi
 
 # --- Custom mode: interactively pick the source of each major dependency ---
-# Components with a real source choice: the container backend (podman / docker
-# / libvirt), the FreeRDP client (native package / Flatpak), and the GUI
+# Components with a real source choice: the container backend (podman /
+# docker), the FreeRDP client (native package / Flatpak), and the GUI
 # (PySide6 yes/no). Everything else is a plain distro package with no
 # meaningful alternative. Each prompt has a sensible default so just hitting
 # Enter reproduces the Recommended stack.
 if [ "$INSTALL_MODE" = "c" ]; then
     if [ -z "$WINPODX_BACKEND" ]; then
         if [ "$INTERACTIVE" = true ]; then
-            echo -n "Container backend? [podman/docker/libvirt] (default podman): "
+            echo -n "Container backend? [podman/docker] (default podman): "
             read -r be_answer < "$TTY_DEV"
             case "$(echo "${be_answer:-podman}" | tr '[:upper:]' '[:lower:]')" in
                 docker)  WINPODX_BACKEND="docker" ;;
-                libvirt) WINPODX_BACKEND="libvirt" ;;
                 *)       WINPODX_BACKEND="podman" ;;
             esac
         else
@@ -767,9 +760,9 @@ if [ "$INSTALL_MODE" = "c" ]; then
 fi
 
 # --- Automatic mode: pick a usable, already-present backend ---
-# Walk winpodx's RECOMMENDED backend order (podman first, then docker, then
-# libvirt -- podman is the project default per CLAUDE.md) and select the
-# first one that's both present AND usable. So when several runtimes are
+# Walk winpodx's RECOMMENDED backend order (podman first, then docker --
+# podman is the project default per CLAUDE.md; libvirt was dropped in 0.6.0)
+# and select the first one that's both present AND usable. So when several runtimes are
 # installed, the recommended one wins; we only move down the list when the
 # higher-priority runtime is absent or unusable (e.g. podman < 4 on Ubuntu
 # 22.04, #271). Fall back to Recommended behaviour (podman + install missing
@@ -782,7 +775,7 @@ fi
 # same order + version gate so they cannot drift. See docs/design/ROADMAP-
 # 0.6.0.md item E.
 if [ "$INSTALL_MODE" = "a" ] && [ -z "$WINPODX_BACKEND" ]; then
-    for candidate in podman docker libvirt; do
+    for candidate in podman docker; do
         case "$candidate" in
             podman)
                 [ "$PODMAN_PRESENT" = true ] && [ "$PODMAN_TOO_OLD" = false ] || continue
@@ -793,11 +786,6 @@ if [ "$INSTALL_MODE" = "a" ] && [ -z "$WINPODX_BACKEND" ]; then
                 [ "$DOCKER_PRESENT" = true ] || continue
                 WINPODX_BACKEND="docker"
                 log "Automatic: podman absent/too-old, docker present — selecting docker."
-                ;;
-            libvirt)
-                [ "$LIBVIRT_PRESENT" = true ] || continue
-                WINPODX_BACKEND="libvirt"
-                log "Automatic: only libvirt present — selecting libvirt."
                 ;;
         esac
         break
@@ -819,8 +807,8 @@ if [ "$WINPODX_BACKEND" = "manual" ]; then
 fi
 
 # --- Too-old-podman guard (#271, ask 3: graceful handling) ---
-# Automatic mode (above) already walks past an unusable podman to docker /
-# libvirt, but Recommended mode and an explicit `--backend podman` do not, so
+# Automatic mode (above) already walks past an unusable podman to docker,
+# but Recommended mode and an explicit `--backend podman` do not, so
 # a host with podman < 4 (Ubuntu 22.04 ships 3.4) would proceed and then fail
 # at provisioning -- AFTER we'd installed packages. Refuse to blindly
 # continue: offer a usable alternative when one is present, otherwise exit
@@ -828,43 +816,29 @@ fi
 # WINPODX_ALLOW_OLD_PODMAN=1 / --allow-old-podman overrides (e.g. podman was
 # upgraded out-of-band since the probe).
 if [ "$WINPODX_BACKEND" = "podman" ] && [ "$PODMAN_TOO_OLD" = true ] && [ "$WINPODX_ALLOW_OLD_PODMAN" != "1" ]; then
-    _pm_alts=""
-    if [ "$DOCKER_PRESENT" = true ]; then _pm_alts="${_pm_alts}docker "; fi
-    if [ "$LIBVIRT_PRESENT" = true ]; then _pm_alts="${_pm_alts}libvirt "; fi
     warn "podman $PODMAN_MAJOR.x is too old for winpodx (need >= 4; Ubuntu 22.04 ships 3.4 -- #271)."
     if [ "$INTERACTIVE" = true ]; then
-        if [ -n "$_pm_alts" ]; then
-            echo "A usable alternative backend is installed: ${_pm_alts}"
-            echo "  [d] switch to docker / [l] switch to libvirt (whichever is listed above)"
+        if [ "$DOCKER_PRESENT" = true ]; then
+            echo "docker is installed and usable."
+            echo "  [d] switch to the docker backend"
             echo "  [c] continue with podman anyway (will likely fail)"
             echo "  [a] abort without changing anything (default)"
-            printf 'Choice [d/l/c/a]: '
+            printf 'Choice [d/c/a]: '
             read -r _pm_choice < "$TTY_DEV"
             case "$(echo "${_pm_choice:-a}" | tr '[:upper:]' '[:lower:]')" in
                 d|docker)
-                    if [ "$DOCKER_PRESENT" = true ]; then
-                        WINPODX_BACKEND="docker"; log "Switched backend to docker."
-                    else
-                        err "docker is not installed; cannot switch."; exit 1
-                    fi
-                    ;;
-                l|libvirt)
-                    if [ "$LIBVIRT_PRESENT" = true ]; then
-                        WINPODX_BACKEND="libvirt"; log "Switched backend to libvirt."
-                    else
-                        err "libvirt is not installed; cannot switch."; exit 1
-                    fi
+                    WINPODX_BACKEND="docker"; log "Switched backend to docker."
                     ;;
                 c|continue)
                     warn "Continuing with podman $PODMAN_MAJOR.x at your own risk."
                     ;;
                 *)
-                    err "Aborted: upgrade podman to >= 4 or re-run with --backend docker|libvirt. No changes were made."
+                    err "Aborted: upgrade podman to >= 4 or re-run with --backend docker. No changes were made."
                     exit 1
                     ;;
             esac
         else
-            echo "No alternative backend (docker / libvirt) is installed."
+            echo "No alternative backend (docker) is installed."
             printf 'Continue with podman %s.x anyway? It will likely fail. [y/N]: ' "$PODMAN_MAJOR"
             read -r _pm_choice < "$TTY_DEV"
             case "$(echo "${_pm_choice:-n}" | tr '[:upper:]' '[:lower:]')" in
@@ -872,7 +846,7 @@ if [ "$WINPODX_BACKEND" = "podman" ] && [ "$PODMAN_TOO_OLD" = true ] && [ "$WINP
                     warn "Continuing with podman $PODMAN_MAJOR.x at your own risk."
                     ;;
                 *)
-                    err "Aborted: upgrade podman to >= 4 (e.g. the Kubic repo) or install docker / libvirt, then re-run. No changes were made."
+                    err "Aborted: upgrade podman to >= 4 (e.g. the Kubic repo) or install docker, then re-run. No changes were made."
                     exit 1
                     ;;
             esac
@@ -880,8 +854,8 @@ if [ "$WINPODX_BACKEND" = "podman" ] && [ "$PODMAN_TOO_OLD" = true ] && [ "$WINP
     else
         # Non-interactive: do NOT silently switch the backend or run a known-
         # failing podman install. Exit cleanly with guidance.
-        if [ -n "$_pm_alts" ]; then
-            warn "A usable alternative is installed (${_pm_alts})-- re-run with --backend docker (or libvirt)."
+        if [ "$DOCKER_PRESENT" = true ]; then
+            warn "docker is installed -- re-run with --backend docker."
         fi
         warn "Or upgrade podman to >= 4, or pass --allow-old-podman / WINPODX_ALLOW_OLD_PODMAN=1 to force."
         err "Non-interactive install aborted before modifying the system: backend=podman but podman $PODMAN_MAJOR.x is too old (#271)."
@@ -914,7 +888,7 @@ chmod 600 "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
 #   A  -> install only genuinely-missing required deps (same set; A
 #         differs only in backend selection, which is already done).
 #   C  -> install deps appropriate to the chosen backend.
-# The chosen backend decides whether podman/docker/libvirt is required.
+# The chosen backend decides whether podman/docker is required.
 # =====================================================================
 log "Checking dependencies..."
 
@@ -937,9 +911,6 @@ case "${WINPODX_BACKEND:-podman}" in
         ;;
     docker)
         [ "$DOCKER_PRESENT" = false ] && MISSING+=("docker")
-        ;;
-    libvirt)
-        [ "$LIBVIRT_PRESENT" = false ] && MISSING+=("libvirt")
         ;;
 esac
 
@@ -1016,7 +987,6 @@ _resolved_backend="${WINPODX_BACKEND:-podman}"
 case "$_resolved_backend" in
     podman)  _backend_present="$PODMAN_PRESENT" ;;
     docker)  _backend_present="$DOCKER_PRESENT" ;;
-    libvirt) _backend_present="$LIBVIRT_PRESENT" ;;
     *)       _backend_present=false ;;
 esac
 echo ""

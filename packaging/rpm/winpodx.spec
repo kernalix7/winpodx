@@ -68,8 +68,8 @@ Requires:       freerdp >= 3.0
 Recommends:     podman
 
 %description
-Native integration layer that runs Windows applications from a Podman, Docker,
-or libvirt backend and exposes them on the Linux desktop with desktop entries,
+Native integration layer that runs Windows applications from a Podman or Docker
+backend and exposes them on the Linux desktop with desktop entries,
 MIME handlers, icons, and a Qt tray.
 
 %prep

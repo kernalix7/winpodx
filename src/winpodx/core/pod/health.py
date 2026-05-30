@@ -112,7 +112,7 @@ def recover_rdp_if_needed(cfg: Config, *, max_attempts: int = 3) -> bool:
     vs. some unknown hung-state.
 
     Returns True if RDP is reachable on return, False if recovery failed.
-    Skips silently for libvirt / manual backends.
+    Skips silently for the manual backend.
     """
     backend = cfg.pod.backend
     if backend not in ("podman", "docker"):

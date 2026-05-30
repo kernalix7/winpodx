@@ -642,7 +642,9 @@ class TestRefreshAppsCli:
             patch("winpodx.core.config.Config.load", return_value=Config()),
             patch(
                 "winpodx.core.discovery.discover_apps",
-                side_effect=DiscoveryError("libvirt not supported", kind="unsupported_backend"),
+                side_effect=DiscoveryError(
+                    "manual backend not supported", kind="unsupported_backend"
+                ),
             ),
             pytest.raises(SystemExit) as excinfo,
         ):

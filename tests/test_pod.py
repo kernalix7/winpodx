@@ -42,11 +42,11 @@ def test_recover_rdp_returns_false_when_vnc_also_dead(monkeypatch):
     fake_run.assert_not_called()
 
 
-def test_recover_rdp_skips_libvirt_backend(monkeypatch):
+def test_recover_rdp_skips_manual_backend(monkeypatch):
     fake_run = MagicMock()
     monkeypatch.setattr("winpodx.core.pod.health.subprocess.run", fake_run)
-    # Returns True for libvirt/manual so callers don't block.
-    assert recover_rdp_if_needed(_cfg(backend="libvirt")) is True
+    # Returns True for manual so callers don't block.
+    assert recover_rdp_if_needed(_cfg(backend="manual")) is True
     assert recover_rdp_if_needed(_cfg(backend="manual")) is True
     fake_run.assert_not_called()
 
@@ -193,7 +193,7 @@ class TestWaitReady:
         from winpodx.core.config import Config
 
         cfg = Config()
-        cfg.pod.backend = "libvirt"
+        cfg.pod.backend = "manual"
         monkeypatch.setattr("winpodx.core.config.Config.load", classmethod(lambda cls: cfg))
 
         with pytest.raises(SystemExit) as excinfo:

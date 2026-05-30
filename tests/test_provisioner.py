@@ -61,12 +61,12 @@ def _mock_run_in_windows(monkeypatch, *, rc: int = 0, stdout: str = "", stderr: 
     return captured
 
 
-def test_apply_max_sessions_skips_libvirt_backend(monkeypatch):
+def test_apply_max_sessions_skips_manual_backend(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "manual"
     captured = _mock_run_in_windows(monkeypatch)
     provisioner._apply_max_sessions(cfg)
     assert captured == []
@@ -120,12 +120,12 @@ def test_apply_max_sessions_propagates_channel_error(monkeypatch):
         provisioner._apply_max_sessions(cfg)
 
 
-def test_apply_rdp_timeouts_skips_libvirt(monkeypatch):
+def test_apply_rdp_timeouts_skips_manual(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "manual"
     captured = _mock_run_in_windows(monkeypatch)
     provisioner._apply_rdp_timeouts(cfg)
     assert captured == []
@@ -154,12 +154,12 @@ def test_apply_rdp_timeouts_payload_contains_all_keys(monkeypatch):
         assert token in payload, f"missing {token!r} in payload"
 
 
-def test_apply_agent_keepalive_skips_libvirt(monkeypatch):
+def test_apply_agent_keepalive_skips_manual(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "manual"
     captured = _mock_run_in_windows(monkeypatch)
     provisioner._apply_agent_keepalive(cfg)
     assert captured == []
@@ -207,12 +207,12 @@ def test_apply_agent_keepalive_raises_on_nonzero_rc(monkeypatch):
         provisioner._apply_agent_keepalive(cfg)
 
 
-def test_apply_oem_runtime_fixes_skips_libvirt(monkeypatch):
+def test_apply_oem_runtime_fixes_skips_manual(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "manual"
     captured = _mock_run_in_windows(monkeypatch)
     provisioner._apply_oem_runtime_fixes(cfg)
     assert captured == []
@@ -313,12 +313,12 @@ def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
 # --- v0.1.9.3: apply_windows_runtime_fixes public API ---
 
 
-def test_apply_windows_runtime_fixes_skips_libvirt():
+def test_apply_windows_runtime_fixes_skips_manual():
     from winpodx.core import provisioner
     from winpodx.core.config import Config
 
     cfg = Config()
-    cfg.pod.backend = "libvirt"
+    cfg.pod.backend = "manual"
     result = provisioner.apply_windows_runtime_fixes(cfg)
     assert "backend" in result
     assert "skipped" in result["backend"]
