@@ -9,22 +9,23 @@ label=disable` fix already on `main` (PR #411).
 
 ## TL;DR
 
-Live USB hot-plug is **not achievable** in winpodx's architecture. dockur
-runs QEMU inside a **rootless Podman container**, and QEMU's libusb device
-list is **frozen at container/QEMU start** — the container's separate
+Live USB hot-plug via **QEMU's own `usb-host`** is not achievable here:
+dockur runs QEMU inside a **rootless Podman container**, and QEMU's libusb
+device list is **frozen at container/QEMU start** — the container's separate
 network namespace (plus no `udevd` / `/run/udev`) means libusb's udev
 netlink hotplug monitor never receives kernel uevents. So `device_add
-usb-host` can only attach a device that was present **and at the same bus
-address** when QEMU started.
+usb-host` can only attach a device present **and at the same bus address**
+as at QEMU start. VirtualBox / virt-manager succeed because they are **host
+processes** (host netns, live libusb hotplug) — the containerization is the
+difference.
 
-VirtualBox / virt-manager succeed because they are **host processes**
-(host netns, live libusb hotplug). The containerization is the difference.
-
-The realistic fix is **boot-time passthrough (recreate-to-attach, like
-PCI)**: pass assigned USB devices on QEMU's start-up command line so the
-fresh boot enumeration grabs them. This is **not yet implemented** —
-it needs a real-hardware smoke test before merge (no blind compose
-changes; that has broken pod boot three times historically).
+**But live IS achievable by bypassing the container:** redirect USB from a
+**host** process (`usbredirect`) into a QEMU `usb-redir` socket channel —
+the host process has live libusb hotplug, so attach/detach is truly live.
+Write access needs no persistent udev rule — run just `usbredirect` under
+`pkexec`/`sudo` at attach time (transient root, nothing persistent touched).
+See "Live fix that bypasses the container" below. Feasible at every layer
+tested; end-to-end (device-in-Windows) not yet smoke-verified.
 
 ## The layered walls (each independently necessary)
 
@@ -128,6 +129,63 @@ the fresh boot enumeration grabs them.
    a stub)?
 4. Address-churning devices (some USB3 bridges/docks re-enumerate
    repeatedly) may still miss the boot enumeration window — acceptable?
+
+## Live fix that bypasses the container — usbredir + transient root
+
+The frozen-libusb wall only applies to QEMU **inside** the container. A
+**host** process has live libusb hotplug (that's why VirtualBox /
+virt-manager work). So redirect USB from the host:
+
+```
+[host] usbredirect --device VID:PID  <--socket-->  [qemu] usb-redir chardev  -->  Windows (native driver)
+       ^ host process => live libusb hotplug => true live attach/detach
+```
+
+- QEMU side: `-chardev socket,id=urN,... -device usb-redir,chardev=urN`.
+  Confirmed: dockur's QEMU has the `usb-redir` device; the channel can even
+  be added to a running guest via HMP `chardev-add` + `device_add usb-redir`
+  (no recreate). USB-over-socket is the same mechanism SPICE uses.
+- Host side: `usbredirect` (openSUSE `usbredir` package) grabs the device
+  with the **host's** libusb and pipes it to QEMU. Live: spawn = attach,
+  kill = detach.
+- **Write permission, without a persistent system change** (the user does
+  not want to touch udev rules): run **just `usbredirect`** under
+  `pkexec`/`sudo` at attach time. Root opens the root-owned device node
+  directly — no udev rule, no group, nothing persistent. The privileged
+  process is one small short-lived USB forwarder, not winpodx. (Contrast:
+  VirtualBox ships a broad install-time udev rule + `vboxusers` group; we
+  can avoid that entirely with transient root.)
+- Windows guest sees the **real device with its native driver** (URB-level
+  redirection), not a translated/class share.
+
+### Transport snag (the one open item)
+
+The usbredir socket must be reachable host<->container. On this host the
+podman bridge firewall blocks **both** directions for arbitrary ports
+(host->10.89.0.2:port refused; container->10.89.0.1:port refused). So the
+socket has to ride winpodx's existing **compose `ports:` mapping**
+(`127.0.0.1:<port>:<port>`, same as RDP/VNC/agent) — which means a
+**one-time recreate** to add the `usb-redir` channel + port-map. After
+that, attach/detach is fully live via `usbredirect`. (The HMP live-add of
+the channel works but is moot until the socket is reachable.)
+
+### Status
+
+Feasible at every layer tested (QEMU `usb-redir` ✓, HMP channel-add ✓, host
+`usbredirect` ✓, `pkexec` ✓, transient-root model ✓). **End-to-end not yet
+verified** — device-appears-in-Windows needs the port-mapped socket wired
+(one recreate) + a real smoke. No blind compose change before that smoke.
+
+### Proposed winpodx integration
+
+1. compose: add a `usb-redir` chardev (socket server) + `127.0.0.1:<port>:<port>`
+   map per concurrent USB slot (e.g. 4 slots). One-time recreate when the
+   feature is enabled.
+2. `device attach <usb>`: spawn `pkexec usbredirect --device <vid:pid> --to
+   tcp:127.0.0.1:<port>` (transient root, no persistent change). `detach`:
+   kill that process. Replaces the broken qemu-libusb `live_attach`.
+3. GUI Devices tab drives the same; surface the pkexec prompt / failures.
+4. Security keys etc. (uaccess) can still use the existing path without root.
 
 ## What works today (shipped on main)
 
