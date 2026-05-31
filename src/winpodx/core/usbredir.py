@@ -299,7 +299,13 @@ def attach(backend: str, container: str, dev: DeviceConfig) -> None:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        _wait_port(host_port, timeout=5.0)
+        # Wait for the relay to be *listening* — by polling its log for the
+        # "relay up" marker, NOT by connecting. The relay accepts exactly one
+        # connection, so a probe connect would be consumed in usbredirect's
+        # place (the relay would then bridge an empty socket and exit, leaving
+        # usbredirect with "connection refused"). Once listen() has run the OS
+        # queues incoming connections, so usbredirect can connect with no race.
+        _wait_relay_ready(relay_log, timeout=5.0)
 
         # 3) usbredirect (root, transient) grabs the device + connects to relay.
         ured_proc = subprocess.Popen(
@@ -383,15 +389,23 @@ def _tail(reply: str) -> str:
     return " ".join(reply.split())[-200:]
 
 
-def _wait_port(port: int, timeout: float) -> None:
+def _wait_relay_ready(log_path: Path, timeout: float) -> None:
+    """Wait until the relay has called ``listen()`` (it logs ``relay up``).
+
+    We poll the relay's log rather than opening a probe connection: the relay
+    accepts a single connection, so a probe would be consumed in usbredirect's
+    place. After ``listen()`` the kernel queues connects, so usbredirect won't
+    get "connection refused".
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            if "relay up" in log_path.read_text(errors="replace"):
                 return
         except OSError:
-            time.sleep(0.2)
-    raise HmpError(f"relay never came up on 127.0.0.1:{port}")
+            pass
+        time.sleep(0.1)
+    raise HmpError("relay did not start listening in time")
 
 
 def _wait_chardev_connected(backend: str, container: str, qom: str, timeout: float) -> bool:

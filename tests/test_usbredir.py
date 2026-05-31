@@ -79,7 +79,7 @@ def test_attach_rolls_back_when_channel_never_connects(statedir, monkeypatch):
     monkeypatch.setattr(U, "usbredirect_path", lambda: "/usr/bin/usbredirect")
     monkeypatch.setattr(U, "_privilege_wrapper", lambda: ["sudo"])
     monkeypatch.setattr(U, "hmp_command", lambda be, c, cmd, **kw: "(qemu) ")
-    monkeypatch.setattr(U, "_wait_port", lambda port, timeout: None)
+    monkeypatch.setattr(U, "_wait_relay_ready", lambda log, timeout: None)
     monkeypatch.setattr(U, "_wait_chardev_connected", lambda be, c, qom, timeout: False)
     monkeypatch.setattr(U, "_kill", lambda p: None)
 
@@ -102,7 +102,7 @@ def test_attach_writes_state_on_success(statedir, monkeypatch):
     monkeypatch.setattr(U, "usbredirect_path", lambda: "/usr/bin/usbredirect")
     monkeypatch.setattr(U, "_privilege_wrapper", lambda: ["sudo"])
     monkeypatch.setattr(U, "hmp_command", lambda be, c, cmd, **kw: "(qemu) ")
-    monkeypatch.setattr(U, "_wait_port", lambda port, timeout: None)
+    monkeypatch.setattr(U, "_wait_relay_ready", lambda log, timeout: None)
     monkeypatch.setattr(U, "_wait_chardev_connected", lambda be, c, qom, timeout: True)
 
     class _FakeProc:
