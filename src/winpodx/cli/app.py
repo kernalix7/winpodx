@@ -37,13 +37,37 @@ def handle_app(args: argparse.Namespace) -> None:
         _install_all()
     elif cmd == "remove":
         _remove_app(args.name)
+    elif cmd == "hide":
+        _set_hidden(args.name, True)
+    elif cmd == "show":
+        _set_hidden(args.name, False)
     elif cmd == "sessions":
         _show_sessions()
     elif cmd == "kill":
         _kill_session(args.name)
     else:
-        print(tr("Usage: winpodx app {list|refresh|run|install|install-all|remove|sessions|kill}"))
+        print(
+            tr(
+                "Usage: winpodx app "
+                "{list|refresh|run|install|install-all|remove|hide|show|sessions|kill}"
+            )
+        )
         sys.exit(1)
+
+
+def _set_hidden(name: str, hidden: bool) -> None:
+    """Hide/show an app in the Linux menu (persists across rescans)."""
+    _validate_app_name(name)
+    from winpodx.core.app import set_app_hidden
+
+    app = set_app_hidden(name, hidden)
+    if app is None:
+        print(tr("App '{name}' not found.").format(name=name), file=sys.stderr)
+        sys.exit(1)
+    if hidden:
+        print(tr("Hid '{name}' — removed from the Linux app menu.").format(name=name))
+    else:
+        print(tr("Showing '{name}' — added to the Linux app menu.").format(name=name))
 
 
 def _list_apps() -> None:

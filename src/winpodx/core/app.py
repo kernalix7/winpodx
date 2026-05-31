@@ -185,3 +185,55 @@ def find_app(name: str) -> AppInfo | None:
         if app.name == name:
             return app
     return None
+
+
+def _find_app_dir(name: str) -> Path | None:
+    """Return the directory holding ``<name>/app.toml`` (user dir wins over
+    discovered), or None. Name is validated to block path traversal."""
+    if not name or len(name) > 255 or not _SAFE_NAME_RE.match(name):
+        return None
+    for base in (user_apps_dir(), discovered_apps_dir()):
+        cand = base / name
+        if _is_within(cand, base) and (cand / "app.toml").is_file():
+            return cand
+    return None
+
+
+def set_app_hidden(name: str, hidden: bool) -> AppInfo | None:
+    """Set an app's ``hidden`` flag in its app.toml and sync its Linux menu entry.
+
+    Hidden apps are dropped from the app menu (``.desktop`` removed); shown apps
+    get it (re)installed. The flag is persisted to app.toml so the choice
+    survives the next discovery sweep (discovery honours an explicit override).
+    Returns the updated :class:`AppInfo`, or ``None`` if the app isn't found.
+    """
+    from winpodx.utils.toml_writer import dumps as toml_dumps
+
+    app_dir = _find_app_dir(name)
+    if app_dir is None:
+        return None
+    toml_path = app_dir / "app.toml"
+    try:
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+        return None
+    data["hidden"] = bool(hidden)
+    toml_path.write_text(toml_dumps(data), encoding="utf-8")
+
+    app = load_app(app_dir)
+    if app is None:
+        return None
+
+    # Sync the Linux app-menu entry: drop it when hidden, (re)install when shown.
+    try:
+        from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
+        from winpodx.desktop.icons import update_icon_cache
+
+        if hidden:
+            remove_desktop_entry(name)
+        else:
+            install_desktop_entry(app)
+        update_icon_cache()
+    except Exception as e:  # noqa: BLE001 — menu sync is best-effort
+        log.warning("desktop entry sync for %s failed: %s", name, e)
+    return app

@@ -89,3 +89,74 @@ def test_list_available_apps_user_overrides_discovered(monkeypatch, tmp_path):
     assert len(apps) == 1
     assert apps[0].full_name == "User Word"
     assert apps[0].source == "user"
+
+
+# -- hide / show (set_app_hidden) -----------------------------------------
+
+
+def _write_app(d, name="myapp"):
+    (d / name).mkdir(parents=True)
+    (d / name / "app.toml").write_text(
+        f'name = "{name}"\nfull_name = "My App"\nexecutable = "C:\\\\a.exe"\n'
+    )
+
+
+def test_set_app_hidden_toggles_toml_and_desktop(monkeypatch, tmp_path):
+    import winpodx.core.app as app_mod
+    import winpodx.desktop.entry as entry_mod
+    import winpodx.desktop.icons as icons_mod
+
+    user = tmp_path / "user"
+    _write_app(user)
+    monkeypatch.setattr(app_mod, "user_apps_dir", lambda: user)
+    monkeypatch.setattr(app_mod, "discovered_apps_dir", lambda: tmp_path / "discovered")
+    calls: list = []
+    monkeypatch.setattr(entry_mod, "remove_desktop_entry", lambda n: calls.append(("rm", n)))
+    monkeypatch.setattr(entry_mod, "install_desktop_entry", lambda a: calls.append(("add", a.name)))
+    monkeypatch.setattr(icons_mod, "update_icon_cache", lambda: None)
+
+    app = app_mod.set_app_hidden("myapp", True)
+    assert app is not None and app.hidden is True
+    assert "hidden = true" in (user / "myapp" / "app.toml").read_text()
+    assert ("rm", "myapp") in calls  # dropped from the Linux menu
+
+    app = app_mod.set_app_hidden("myapp", False)
+    assert app is not None and app.hidden is False
+    assert "hidden = false" in (user / "myapp" / "app.toml").read_text()
+    assert ("add", "myapp") in calls  # re-added to the Linux menu
+
+
+def test_set_app_hidden_not_found(monkeypatch, tmp_path):
+    import winpodx.core.app as app_mod
+
+    monkeypatch.setattr(app_mod, "user_apps_dir", lambda: tmp_path / "u")
+    monkeypatch.setattr(app_mod, "discovered_apps_dir", lambda: tmp_path / "d")
+    assert app_mod.set_app_hidden("ghost", True) is None
+
+
+def test_set_app_hidden_rejects_bad_name(monkeypatch, tmp_path):
+    import winpodx.core.app as app_mod
+
+    monkeypatch.setattr(app_mod, "user_apps_dir", lambda: tmp_path / "u")
+    monkeypatch.setattr(app_mod, "discovered_apps_dir", lambda: tmp_path / "d")
+    assert app_mod.set_app_hidden("../etc", True) is None
+    assert app_mod.set_app_hidden("a/b", True) is None
+    assert app_mod._find_app_dir("..") is None
+
+
+def test_cli_app_hide_dispatch(monkeypatch):
+    import argparse
+
+    from winpodx.cli import app as app_cli
+
+    calls: list = []
+    monkeypatch.setattr(
+        "winpodx.core.app.set_app_hidden",
+        lambda name, hidden: (
+            calls.append((name, hidden))
+            or type("A", (), {"hidden": hidden, "full_name": name, "name": name})()
+        ),
+    )
+    app_cli.handle_app(argparse.Namespace(app_command="hide", name="myapp"))
+    app_cli.handle_app(argparse.Namespace(app_command="show", name="myapp"))
+    assert calls == [("myapp", True), ("myapp", False)]

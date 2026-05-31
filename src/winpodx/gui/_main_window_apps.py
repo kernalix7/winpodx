@@ -80,6 +80,25 @@ class AppCrudMixin:
         self._reload_apps()
         self.info_label.setText(tr("Removed: {name}").format(name=app.full_name))
 
+    def _on_toggle_app_hidden(self, app: AppInfo) -> None:
+        """Hide a visible app (or show a hidden one) from the Linux app menu.
+
+        Persists the choice into app.toml (sticky across rescans) and syncs the
+        ``.desktop`` entry. After hiding, the app drops out of the default grid
+        but is still reachable via the "Hidden" toggle for un-hiding.
+        """
+        from winpodx.core.app import set_app_hidden
+
+        updated = set_app_hidden(app.name, not app.hidden)
+        if updated is None:
+            self.info_label.setText(tr("Could not update: {name}").format(name=app.full_name))
+            return
+        self._reload_apps()
+        if updated.hidden:
+            self.info_label.setText(tr("Hidden: {name}").format(name=app.full_name))
+        else:
+            self.info_label.setText(tr("Shown: {name}").format(name=app.full_name))
+
     def _reload_apps(self) -> None:
         self.apps = list_available_apps()
         self._refresh_hidden_button()

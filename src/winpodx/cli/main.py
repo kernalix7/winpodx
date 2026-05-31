@@ -88,6 +88,14 @@ def cli(argv: list[str] | None = None) -> None:
     rm_p = app_sub.add_parser("remove", help="Remove app from desktop")
     rm_p.add_argument("name", help="App name to remove")
 
+    hide_p = app_sub.add_parser(
+        "hide", help="Hide an app from the Linux app menu (persists across rescans)"
+    )
+    hide_p.add_argument("name", help="App name to hide")
+
+    show_p = app_sub.add_parser("show", help="Show a previously hidden app in the Linux app menu")
+    show_p.add_argument("name", help="App name to show")
+
     app_sub.add_parser("sessions", help="Show active sessions")
 
     kill_p = app_sub.add_parser("kill", help="Kill an active session")

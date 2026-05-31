@@ -357,6 +357,27 @@ class LibraryPageMixin:
         edit_btn.clicked.connect(lambda _, a=app: self._on_edit_app(a))
         bottom.addWidget(edit_btn)
 
+        hide_btn = QPushButton("🙈" if not app.hidden else "👁")
+        hide_btn.setFixedSize(28, 28)
+        hide_btn.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
+        hide_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                color: {C.OVERLAY0};
+                border: none;
+                border-radius: 14px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                color: {C.TEXT};
+                background: {C.SURFACE1};
+            }}
+            """
+        )
+        hide_btn.clicked.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
+        bottom.addWidget(hide_btn)
+
         del_btn = QPushButton("✕")
         del_btn.setFixedSize(28, 28)
         del_btn.setToolTip(tr("Delete"))
@@ -435,6 +456,18 @@ class LibraryPageMixin:
         )
         edit_btn.clicked.connect(lambda: self._on_edit_app(app))
         layout.addWidget(edit_btn)
+        layout.addSpacing(6)
+
+        hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
+        hide_btn.setStyleSheet(
+            f"QPushButton {{ background: {C.SURFACE1}; color: {C.SUBTEXT0};"
+            f" font-size: 12px; border-radius: 6px; padding: 6px 14px;"
+            f" border: none; }}"
+            f"QPushButton:hover {{ background: {C.SURFACE2};"
+            f" color: {C.TEXT}; }}"
+        )
+        hide_btn.clicked.connect(lambda: self._on_toggle_app_hidden(app))
+        layout.addWidget(hide_btn)
         layout.addSpacing(6)
 
         del_btn = QPushButton("✕")
