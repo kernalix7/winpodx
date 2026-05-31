@@ -18,7 +18,7 @@ CLI never drift.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -34,6 +34,29 @@ from winpodx.core import devices as D
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui.theme import C
+
+
+class _LiveOpSignals(QObject):
+    """Carries a background device op's result back to the GUI thread."""
+
+    done = Signal(str)  # "" on success, else the error message
+
+
+class _LiveOp(QRunnable):
+    """Runs a slow live attach/detach off the Qt main thread so the window
+    doesn't freeze during HMP + relay setup + the pkexec prompt (~tens of s)."""
+
+    def __init__(self, fn) -> None:
+        super().__init__()
+        self._fn = fn
+        self.signals = _LiveOpSignals()
+
+    def run(self) -> None:  # executed on a QThreadPool worker thread
+        try:
+            self._fn()
+            self.signals.done.emit("")
+        except Exception as e:  # noqa: BLE001 — marshalled to the GUI thread
+            self.signals.done.emit(str(e))
 
 
 class DevicesMixin:
@@ -180,9 +203,42 @@ class DevicesMixin:
 
     # -- actions ----------------------------------------------------------
 
+    def _run_live_op(self, fn, *, busy: str, ok: str, fail_title: str, did: str) -> None:
+        """Run a slow live attach/detach (``fn``) on a worker thread so the GUI
+        stays responsive (no freeze during HMP + relay + the pkexec prompt).
+
+        Shows *busy* while it runs, then *ok* on success or a critical dialog on
+        failure. Ignores new clicks while one op is in flight. The result is
+        delivered to ``_on_live_op_finished`` — a bound method of the window
+        (a QObject in the GUI thread), so Qt marshals it back via a queued
+        connection rather than touching widgets from the worker thread.
+        """
+        if getattr(self, "_dev_busy", False):
+            return
+        self._dev_busy = True
+        self._dev_op_ctx = (ok, fail_title, did)
+        self._devices_status.setText(busy)
+        op = _LiveOp(fn)
+        op.signals.done.connect(self._on_live_op_finished)
+        self._dev_op = op  # keep a reference so it isn't garbage-collected
+        QThreadPool.globalInstance().start(op)
+
+    def _on_live_op_finished(self, err: str) -> None:
+        ok, fail_title, did = getattr(self, "_dev_op_ctx", ("", tr("Device op failed"), ""))
+        self._dev_busy = False
+        self._dev_op = None
+        self._render_devices()
+        if err:
+            self._devices_status.setText(tr("Failed: ") + did)
+            QMessageBox.critical(self, fail_title, f"{did}:\n\n{err}")
+        else:
+            self._devices_status.setText(ok)
+
     def _on_attach(self, host: D.HostDevice) -> None:
         from winpodx.cli.device import _guest_running
 
+        if getattr(self, "_dev_busy", False):
+            return
         dc = host.to_device_config()
         safety = D.classify_safety(host)
         if not safety.safe:
@@ -208,31 +264,33 @@ class DevicesMixin:
         cfg.pod.devices = list(cfg.pod.devices) + [dc.to_entry()]
         cfg.pod.__post_init__()
         cfg.save()
+        self._render_devices()  # reflect the assignment immediately
 
-        msg = tr("Assigned ") + f"{dc.dtype} {dc.did}. "
         if dc.dtype == "usb":
             if _guest_running(cfg):
-                try:
-                    D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
-                    msg += tr("Hot-plugged live.")
-                except D.HmpError as e:
-                    msg += tr("Live attach failed.")
-                    # Surface the failure loudly — don't bury it in the status line.
-                    QMessageBox.critical(
-                        self,
-                        tr("USB hot-plug failed"),
-                        tr("Couldn't hot-plug ") + f"{dc.did}:\n\n{e}",
-                    )
+                self._run_live_op(
+                    lambda: D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc),
+                    busy=tr("Live-attaching ")
+                    + f"{dc.did} … "
+                    + tr("(you may be prompted for your password)"),
+                    ok=tr("Hot-plugged live: ") + dc.did,
+                    fail_title=tr("USB hot-plug failed"),
+                    did=dc.did,
+                )
             else:
-                msg += tr("Applies when the guest is running.")
+                self._devices_status.setText(
+                    tr("Assigned ") + f"{dc.did}. " + tr("Applies when the guest is running.")
+                )
         else:
-            msg += tr("Restart the pod to apply (winpodx pod recreate).")
-        self._render_devices()
-        self._devices_status.setText(msg)
+            self._devices_status.setText(
+                tr("Assigned ") + f"{dc.did}. " + tr("Restart the pod to apply (pod recreate).")
+            )
 
     def _on_detach(self, host: D.HostDevice) -> None:
         from winpodx.cli.device import _guest_running
 
+        if getattr(self, "_dev_busy", False):
+            return
         dc = host.to_device_config()
         cfg = Config.load()
         cfg.pod.devices = [
@@ -240,21 +298,20 @@ class DevicesMixin:
         ]
         cfg.pod.__post_init__()
         cfg.save()
+        self._render_devices()
 
-        msg = tr("Released ") + f"{dc.dtype} {dc.did}. "
         if dc.dtype == "usb":
             if _guest_running(cfg):
-                try:
-                    D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
-                    msg += tr("Unplugged live.")
-                except D.HmpError as e:
-                    msg += tr("Live detach failed.")
-                    QMessageBox.critical(
-                        self,
-                        tr("USB unplug failed"),
-                        tr("Couldn't unplug ") + f"{dc.did}:\n\n{e}",
-                    )
+                self._run_live_op(
+                    lambda: D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc),
+                    busy=tr("Unplugging ") + f"{dc.did} …",
+                    ok=tr("Unplugged live: ") + dc.did,
+                    fail_title=tr("USB unplug failed"),
+                    did=dc.did,
+                )
+            else:
+                self._devices_status.setText(tr("Released ") + dc.did + ".")
         else:
-            msg += tr("Restart the pod to apply.")
-        self._render_devices()
-        self._devices_status.setText(msg)
+            self._devices_status.setText(
+                tr("Released ") + f"{dc.did}. " + tr("Restart the pod to apply.")
+            )

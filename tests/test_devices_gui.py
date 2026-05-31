@@ -77,6 +77,36 @@ def test_detach_persists(host):
     assert "Released" in host._devices_status.text()
 
 
+def test_attach_usb_live_is_nonblocking(host, monkeypatch):
+    # The slow live attach must run off the GUI thread — `_on_attach` returns
+    # immediately with a "busy" status instead of freezing the window.
+    import time
+
+    monkeypatch.setattr(DC, "_guest_running", lambda _c: True)
+    monkeypatch.setattr(host, "_render_devices", lambda: None)  # no off-thread widget rebuild
+    started: list = []
+
+    def _slow_attach(be, c, dc):
+        started.append(dc.did)
+        time.sleep(0.5)  # would freeze the GUI if run on the main thread
+
+    monkeypatch.setattr(D, "live_attach", _slow_attach)
+
+    t0 = time.monotonic()
+    host._on_attach(D.HostDevice(dtype="usb", did="1234:5678", label="ACME"))
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 0.3  # returned without waiting for the 0.5s work
+    assert host._dev_busy is True
+    assert "Live-attaching" in host._devices_status.text()
+    # drain the worker so it doesn't bleed into other tests
+    for _ in range(100):
+        if not host._dev_busy:
+            break
+        time.sleep(0.02)
+    assert started == ["1234:5678"]
+
+
 def test_pci_attach_requires_confirmation(host, monkeypatch):
     # Decline the risky-PCI dialog -> nothing persisted.
     from PySide6.QtWidgets import QMessageBox
