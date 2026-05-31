@@ -213,31 +213,33 @@ def _detach(args: argparse.Namespace) -> None:
 
 
 def _live_unavailable_reason(cfg: Config) -> str | None:
-    """Return why live USB isn't available (for diagnostics), or None if it is."""
-    if not getattr(cfg.pod, "usb_live", True):
-        return (
-            "usb_live is disabled in config — set `usb_live = true` and "
-            "`winpodx pod recreate` to expose the host USB bus to the guest"
-        )
+    """Return why live USB isn't available (for diagnostics), or None if it is.
+
+    Live USB now rides usbredir (host ``usbredirect`` -> QEMU ``usb-redir``
+    socket), which needs neither the ``/dev/bus/usb`` bind nor ``usb_live`` —
+    the host side opens the device, not the container. So the only gate is the
+    guest being up.
+    """
     if not _guest_running(cfg):
         return "the guest isn't running"
     return None
 
 
 def _apply_usb_attach(cfg: Config, dc: D.DeviceConfig) -> None:
-    """Hot-plug a USB device into the running guest via dockur's QEMU monitor
-    (no restart). Prints exactly what happened so a failure is visible."""
+    """Live-attach a USB device into the running guest via usbredir (no
+    restart). A host ``usbredirect`` runs under pkexec/sudo to open the device,
+    so a password prompt may appear. Prints exactly what happened."""
     reason = _live_unavailable_reason(cfg)
     if reason is not None:
         print(f"  Persisted; live attach skipped because {reason}.")
         return
-    print("  Hot-plugging via the QEMU monitor …")
+    print("  Live-attaching via usbredir (you may be prompted for your password) …")
     try:
         D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
-        print("  Hot-plugged into the running guest (live, no restart).")
+        print("  Redirected into the running guest (live, no restart).")
     except D.HmpError as e:
         print(f"  Live attach FAILED: {e}")
-        print("  (Persisted. Check `podman logs` / that the device is plugged in.)")
+        print("  (Persisted. Check that the device is plugged in + usbredir is installed.)")
 
 
 def _apply_usb_detach(cfg: Config, dc: D.DeviceConfig) -> None:
@@ -245,7 +247,7 @@ def _apply_usb_detach(cfg: Config, dc: D.DeviceConfig) -> None:
     if reason is not None:
         print(f"  Un-persisted; live detach skipped because {reason}.")
         return
-    print("  Unplugging via the QEMU monitor …")
+    print("  Unplugging (tearing down the usbredir session) …")
     try:
         D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
         print("  Unplugged from the running guest (live).")

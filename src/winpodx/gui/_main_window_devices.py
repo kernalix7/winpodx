@@ -211,9 +211,7 @@ class DevicesMixin:
 
         msg = tr("Assigned ") + f"{dc.dtype} {dc.did}. "
         if dc.dtype == "usb":
-            if not getattr(cfg.pod, "usb_live", True):
-                msg += tr("Enable usb_live + recreate to hot-plug USB.")
-            elif _guest_running(cfg):
+            if _guest_running(cfg):
                 try:
                     D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
                     msg += tr("Hot-plugged live.")
@@ -245,7 +243,7 @@ class DevicesMixin:
 
         msg = tr("Released ") + f"{dc.dtype} {dc.did}. "
         if dc.dtype == "usb":
-            if getattr(cfg.pod, "usb_live", True) and _guest_running(cfg):
+            if _guest_running(cfg):
                 try:
                     D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
                     msg += tr("Unplugged live.")

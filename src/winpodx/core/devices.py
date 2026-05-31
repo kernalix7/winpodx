@@ -380,27 +380,31 @@ def _hmp_raise_on_error(reply: str, action: str, dev: DeviceConfig) -> None:
 
 
 def live_attach(backend: str, container: str, dev: DeviceConfig) -> None:
-    """Hot-plug a USB device into the running guest via the QEMU monitor
-    (``device_add usb-host``). Raises :class:`HmpError` on failure. PCI is not
-    supported live — pass it via a recreate."""
+    """Live-attach a USB device to the running guest.
+
+    Delegates to the **usbredir** path (``core.usbredir``): a host
+    ``usbredirect`` feeds a QEMU ``usb-redir`` socket channel. We do NOT use
+    ``device_add usb-host`` — QEMU's in-container libusb is frozen at boot (the
+    container's netns/userns block USB hotplug), so a runtime ``usb-host`` only
+    yields an empty stub. The usbredir grab runs host-side where libusb hotplug
+    works, so this is truly live. Raises :class:`HmpError` on failure. PCI is
+    not supported live — pass it via a recreate.
+    """
     if dev.dtype != "usb":
         raise HmpError(f"live attach only supports USB devices, not {dev.dtype!r}")
-    vid, pid = dev.did.split(":")
-    cmd = (
-        f"device_add usb-host,vendorid=0x{vid},productid=0x{pid},"
-        f"id={usb_qom_id(dev)},bus={DOCKUR_USB_BUS}"
-    )
-    log.info("HMP live-attach usb %s", dev.did)
-    _hmp_raise_on_error(hmp_command(backend, container, cmd), "attach", dev)
-    log.info("HMP live-attach usb %s ok", dev.did)
+    from winpodx.core import usbredir
+
+    log.info("usbredir live-attach usb %s", dev.did)
+    usbredir.attach(backend, container, dev)
+    log.info("usbredir live-attach usb %s ok", dev.did)
 
 
 def live_detach(backend: str, container: str, dev: DeviceConfig) -> None:
-    """Unplug a previously hot-plugged USB device via ``device_del``."""
+    """Tear down the live usbredir session for a USB device (idempotent)."""
     if dev.dtype != "usb":
         raise HmpError(f"live detach only supports USB devices, not {dev.dtype!r}")
-    log.info("HMP live-detach usb %s", dev.did)
-    _hmp_raise_on_error(
-        hmp_command(backend, container, f"device_del {usb_qom_id(dev)}"), "detach", dev
-    )
-    log.info("HMP live-detach usb %s ok", dev.did)
+    from winpodx.core import usbredir
+
+    log.info("usbredir live-detach usb %s", dev.did)
+    usbredir.detach(backend, container, dev)
+    log.info("usbredir live-detach usb %s ok", dev.did)

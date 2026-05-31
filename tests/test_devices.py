@@ -128,34 +128,35 @@ def _fake_run(reply: str = "", *, rc: int = 0, stderr: str = "", captured: list 
     return run
 
 
-def test_live_attach_builds_device_add(monkeypatch):
-    cap: list = []
-    # Monitor echoes the command; device_add prints nothing on success.
-    monkeypatch.setattr(
-        D.subprocess, "run", _fake_run("(qemu) device_add ...\n(qemu) ", captured=cap)
-    )
+def test_live_attach_delegates_to_usbredir(monkeypatch):
+    # live_attach no longer uses `device_add usb-host` (QEMU's in-container
+    # libusb is frozen — see core/usbredir). It delegates to the usbredir path.
+    from winpodx.core import usbredir
+
+    calls: list = []
+    monkeypatch.setattr(usbredir, "attach", lambda be, c, dev: calls.append((be, c, dev.did)))
     D.live_attach("podman", "winpodx-windows", D.DeviceConfig("usb", "1234:5678", "Dongle"))
-    script = cap[0][-1]  # the bash -c script
-    assert cap[0][:3] == ["podman", "exec", "winpodx-windows"]
-    assert f"/dev/tcp/127.0.0.1/{D.DOCKUR_MONITOR_PORT}" in script
-    assert "device_add usb-host,vendorid=0x1234,productid=0x5678" in script
-    assert f"id={D.usb_qom_id(D.DeviceConfig('usb', '1234:5678'))}" in script
-    assert f"bus={D.DOCKUR_USB_BUS}" in script
+    assert calls == [("podman", "winpodx-windows", "1234:5678")]
 
 
-def test_live_attach_raises_on_error_reply(monkeypatch):
-    monkeypatch.setattr(
-        D.subprocess, "run", _fake_run("(qemu) device_add ...\nError: no device found\n(qemu) ")
-    )
-    with pytest.raises(D.HmpError, match="attach"):
+def test_live_attach_propagates_usbredir_error(monkeypatch):
+    from winpodx.core import usbredir
+
+    def boom(be, c, dev):
+        raise D.HmpError("usbredirect not found")
+
+    monkeypatch.setattr(usbredir, "attach", boom)
+    with pytest.raises(D.HmpError, match="usbredirect"):
         D.live_attach("podman", "winpodx-windows", D.DeviceConfig("usb", "1234:5678"))
 
 
-def test_live_detach_builds_device_del(monkeypatch):
-    cap: list = []
-    monkeypatch.setattr(D.subprocess, "run", _fake_run("(qemu) ", captured=cap))
+def test_live_detach_delegates_to_usbredir(monkeypatch):
+    from winpodx.core import usbredir
+
+    calls: list = []
+    monkeypatch.setattr(usbredir, "detach", lambda be, c, dev: calls.append((be, c, dev.did)))
     D.live_detach("podman", "winpodx-windows", D.DeviceConfig("usb", "1234:5678"))
-    assert f"device_del {D.usb_qom_id(D.DeviceConfig('usb', '1234:5678'))}" in cap[0][-1]
+    assert calls == [("podman", "winpodx-windows", "1234:5678")]
 
 
 def test_live_attach_rejects_pci():
