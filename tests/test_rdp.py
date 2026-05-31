@@ -487,28 +487,18 @@ class TestBuildRdpCommand:
             assert bad not in cmd, f"OPTIONAL-typed flag leaked through: {bad!r}"
 
     def test_codec_toggles_pass_filter(self, cfg, monkeypatch):
-        """Genuine BOOL toggles still pass — gfx-progressive,
-        gfx-thin-client, gfx-small-cache, wallpaper, themes, decorations,
+        """Genuine BOOL toggles still pass — wallpaper, themes, decorations,
         grab-*, async-*, auto-reconnect, *-cache. Without these in
-        _BARE_FLAGS they were silently dropped before reaching
-        xfreerdp3."""
+        _BARE_FLAGS they were silently dropped before reaching xfreerdp3.
+
+        (gfx-progressive / gfx-thin-client / gfx-small-cache were removed in
+        #380 — they are `/gfx:` sub-options, not bare toggles; see
+        ``test_gfx_suboptions_and_window_position``.)"""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
-        # FreeRDP 3.x cmdline split:
-        #   - BOOL flags (`+/-name`): the genuine bare toggles below.
-        #   - OPTIONAL/REQUIRED (`/name:value` only): rfx, gfx-h264, nsc,
-        #     jpeg, avc444 — these were attempted as bare in the original
-        #     v0.4.3 patch and FreeRDP itself rejected them with
-        #     "Unexpected keyword" (xiyeming's 2026-05-06/07 test in
-        #     #126). Stripped from the allowlist to surface the parse
-        #     failure at the filter layer instead of producing a confusing
-        #     stderr from xfreerdp3.
         toggles = (
-            "-gfx-progressive +gfx-progressive "
-            "-gfx-thin-client +gfx-thin-client "
-            "-gfx-small-cache +gfx-small-cache "
             "-wallpaper +wallpaper -themes +themes "
             "-decorations +decorations "
             "-grab-keyboard +grab-keyboard -grab-mouse +grab-mouse "
@@ -524,6 +514,37 @@ class TestBuildRdpCommand:
         for toggle in toggles.split():
             assert toggle in cmd, f"toggle dropped by filter: {toggle!r}"
 
+    def test_gfx_suboptions_and_window_position(self, cfg, monkeypatch):
+        """#380 (notnotno, FreeRDP 3.26): the gfx sub-options and
+        window-position use `/name:value` syntax, not bare `+/-` toggles.
+
+        - `+gfx-progressive` etc. + `+/-window-position` must be REJECTED
+          (they passed the old allowlist only for xfreerdp to reject them).
+        - `/gfx:progressive:on|off`, `/gfx:thin-client:on`,
+          `/gfx:small-cache:off`, and `/window-position:<x>x<y>` must PASS."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        bad = (
+            "+gfx-progressive -gfx-progressive "
+            "+gfx-thin-client -gfx-thin-client "
+            "+gfx-small-cache -gfx-small-cache "
+            "+window-position -window-position"
+        )
+        cfg.rdp.extra_flags = bad
+        cmd, _ = build_rdp_command(cfg)
+        for flag in bad.split():
+            assert flag not in cmd, f"stale FreeRDP-2 flag leaked: {flag!r}"
+
+        good = (
+            "/gfx:progressive:on /gfx:thin-client:on /gfx:small-cache:off /window-position:100x200"
+        )
+        cfg.rdp.extra_flags = good
+        cmd, _ = build_rdp_command(cfg)
+        for flag in good.split():
+            assert flag in cmd, f"correct FreeRDP-3 flag dropped: {flag!r}"
+
     def test_extra_args_kwarg_appended_after_global_extra_flags(self, cfg, monkeypatch):
         """Per-launch `extra_args` (CLI --extra-args / GUI per-launch)
         is appended AFTER `cfg.rdp.extra_flags` so per-launch overrides
@@ -534,15 +555,17 @@ class TestBuildRdpCommand:
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
-        cfg.rdp.extra_flags = "+gfx-progressive"  # global says: enable
-        cmd, _ = build_rdp_command(cfg, extra_args="-gfx-progressive /not-a-real-flag:bad")
+        # `aero` is not in the default command, so the only occurrences come
+        # from global (+) then per-launch (-) — clean ordering check.
+        cfg.rdp.extra_flags = "+aero"  # global says: enable
+        cmd, _ = build_rdp_command(cfg, extra_args="-aero /not-a-real-flag:bad")
 
         # Both global and per-launch survived the filter.
-        assert "+gfx-progressive" in cmd
-        assert "-gfx-progressive" in cmd
+        assert "+aero" in cmd
+        assert "-aero" in cmd
         # Per-launch lands AFTER global; this is the override semantics
         # callers rely on.
-        assert cmd.index("-gfx-progressive") > cmd.index("+gfx-progressive")
+        assert cmd.index("-aero") > cmd.index("+aero")
         # Unsafe flag in extra_args is dropped, same as via cfg.rdp.extra_flags.
         assert "/not-a-real-flag:bad" not in cmd
 

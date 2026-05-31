@@ -587,19 +587,22 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         # which already passes through the existing `/gfx` value-regex
         # in _SIMPLE_VALUE_FLAGS. Only the genuine BOOL toggles stay
         # in the bare allowlist.
-        "+gfx-progressive",
-        "-gfx-progressive",
-        "+gfx-thin-client",
-        "-gfx-thin-client",
-        "+gfx-small-cache",
-        "-gfx-small-cache",
+        #
+        # #380 (notnotno, FreeRDP 3.26): `progressive`, `thin-client`, and
+        # `small-cache` are the SAME case as `gfx-h264` — they are `/gfx:`
+        # sub-options, NOT bare `+/-` toggles. The earlier fix removed
+        # `gfx-h264` but missed these siblings, so `+gfx-progressive` etc.
+        # passed our allowlist only to be rejected by xfreerdp's own parser.
+        # Removed; use `/gfx:progressive:on|off`, `/gfx:thin-client:on|off`,
+        # `/gfx:small-cache:on|off` instead (the `/gfx` value-regex accepts
+        # all three).
         # Visual / desktop toggles (already in default cmd; expose for override).
         "+wallpaper",
         "-wallpaper",
         "+themes",
         "-themes",
-        "+window-position",
-        "-window-position",
+        # #380: `window-position` takes coordinates (`/window-position:<x>x<y>`),
+        # it is not a bare toggle — moved to _SIMPLE_VALUE_FLAGS below.
         "+decorations",
         "-decorations",
         # Input grab / mouse-keyboard policy.
@@ -661,6 +664,7 @@ _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
     "/gdi": re.compile(r"(sw|hw)"),  # software vs hardware GDI repaint
     "/monitors": re.compile(r"[0-9]{1,2}(,[0-9]{1,2}){0,7}"),  # /monitors:0,1
     "/smart-sizing": re.compile(r"[1-9][0-9]{1,4}x[1-9][0-9]{1,4}"),  # /smart-sizing:WxH
+    "/window-position": re.compile(r"[0-9]{1,5}x[0-9]{1,5}"),  # /window-position:<x>x<y> (#380)
 }
 
 # Device-redirection allowlist; empty set rejects all :value forms.
