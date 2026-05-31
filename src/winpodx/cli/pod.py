@@ -33,7 +33,11 @@ def handle_pod(args: argparse.Namespace) -> None:
     elif cmd == "restart":
         _restart()
     elif cmd == "recreate":
-        _recreate(wipe_storage=getattr(args, "wipe_storage", False))
+        keep_iso = getattr(args, "keep_iso", False)
+        _recreate(
+            wipe_storage=getattr(args, "wipe_storage", False) or keep_iso,
+            keep_iso=keep_iso,
+        )
     elif cmd == "wait-ready":
         _wait_ready(args.timeout, getattr(args, "logs", False), getattr(args, "verbose", False))
     # --- deprecated aliases: guest-side operations ---
@@ -681,7 +685,7 @@ def _restart() -> None:
         sys.exit(1)
 
 
-def _recreate(*, wipe_storage: bool) -> None:
+def _recreate(*, wipe_storage: bool, keep_iso: bool = False) -> None:
     """Regenerate compose.yaml + destroy and re-create the container (#254).
 
     Differs from ``_restart`` in two ways:
@@ -709,14 +713,18 @@ def _recreate(*, wipe_storage: bool) -> None:
         # already coerces dangerous values to "" at load time, so by the
         # time we get here a non-empty value is winpodx-owned. We still
         # confirm explicitly because wipe_storage is destructive.
-        print(
+        warn_msg = (
             tr(
+                "WARNING: this will destroy the Windows disk image (a fresh "
+                "install follows) but KEEP the cached ISO. Type 'WIPE' to confirm: "
+            )
+            if keep_iso
+            else tr(
                 "WARNING: --wipe-storage will destroy the Windows disk image."
                 " Type 'WIPE' to confirm: "
-            ),
-            end="",
-            flush=True,
+            )
         )
+        print(warn_msg, end="", flush=True)
         try:
             answer = input().strip()
         except EOFError:
@@ -729,7 +737,7 @@ def _recreate(*, wipe_storage: bool) -> None:
     stop_pod(cfg)
 
     if wipe_storage:
-        _wipe_pod_storage(cfg)
+        _wipe_pod_storage(cfg, keep_iso=keep_iso)
 
     print(tr("Regenerating compose.yaml from current config..."))
     try:
@@ -742,7 +750,16 @@ def _recreate(*, wipe_storage: bool) -> None:
     status = start_pod(cfg)
 
     if status.state in (PodState.RUNNING, PodState.STARTING):
-        if wipe_storage:
+        if wipe_storage and keep_iso:
+            print(
+                tr(
+                    "Pod recreated for a fresh install, reusing the cached ISO "
+                    "(no Microsoft re-download). Windows reinstall will take "
+                    "~5-10 minutes (Sysprep + OEM apply); watch progress with "
+                    "`winpodx pod wait-ready --logs`."
+                )
+            )
+        elif wipe_storage:
             print(
                 tr(
                     "Pod recreated with fresh storage. Windows reinstall will "
@@ -766,18 +783,24 @@ def _recreate(*, wipe_storage: bool) -> None:
         sys.exit(1)
 
 
-def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
+def _wipe_pod_storage(cfg, *, keep_iso: bool = False) -> None:  # type: ignore[no-untyped-def]
     """Destroy the Windows disk image so dockur re-runs the install.
 
     Two storage regimes (see ``compose._render_storage_blocks``):
 
     * Named volume mode (``cfg.pod.storage_path == ""``): the legacy
       ``winpodx-data`` named volume holds the raw disk. We remove it
-      via ``podman volume rm`` / ``docker volume rm``.
+      via ``podman volume rm`` / ``docker volume rm`` — unless *keep_iso*,
+      in which case we mount the volume in a throwaway container and delete
+      everything except ``*.iso`` (``volume rm`` can't be selective).
     * Bind-mount mode (``cfg.pod.storage_path`` set): the disk lives
       at an explicit host path winpodx owns. We ``rm -rf`` that path's
       contents (preserving the directory itself + its ``chattr +C``
       attribute on btrfs, set by ``setup --migrate-storage``).
+
+    When *keep_iso* is set, the downloaded install ISO (``*.iso``) is
+    preserved so dockur rebuilds from it instead of re-downloading ~5-8 GB
+    from Microsoft (``pod recreate --keep-iso``).
 
     Only callable from the ``--wipe-storage`` path of ``pod recreate``,
     which prompts for a typed confirmation first.
@@ -791,11 +814,7 @@ def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
     if not raw_storage:
         backend = cfg.pod.backend
         volume_name = "winpodx-data"
-        if backend == "podman":
-            cmd = ["podman", "volume", "rm", "-f", volume_name]
-        elif backend == "docker":
-            cmd = ["docker", "volume", "rm", "-f", volume_name]
-        else:
+        if backend not in ("podman", "docker"):
             print(
                 tr(
                     "  Backend {backend} has no named-volume wipe path; "
@@ -803,6 +822,31 @@ def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
                 ).format(backend=repr(backend))
             )
             return
+        if keep_iso:
+            # Can't selectively delete inside a named volume with `volume rm`;
+            # mount it in a throwaway container and remove all but the ISO.
+            cmd = [
+                backend,
+                "run",
+                "--rm",
+                "-v",
+                f"{volume_name}:/storage",
+                cfg.pod.image,
+                "sh",
+                "-c",
+                "find /storage -mindepth 1 -maxdepth 1 ! -name '*.iso' -exec rm -rf {} +",
+            ]
+            result = sp.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                print(tr("  Wiped volume {volume} (ISO kept).").format(volume=volume_name))
+            else:
+                print(
+                    tr("  WARNING: keep-iso wipe returned {rc}: {stderr}").format(
+                        rc=result.returncode, stderr=result.stderr.strip()
+                    )
+                )
+            return
+        cmd = [backend, "volume", "rm", "-f", volume_name]
         result = sp.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode == 0:
             print(tr("  Removed volume {volume}.").format(volume=volume_name))
@@ -822,8 +866,19 @@ def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
     if not bind_path.is_dir():
         print(tr("  Bind-mount path {path} is absent; nothing to wipe.").format(path=bind_path))
         return
-    print(tr("  Wiping bind-mount contents under {path} ...").format(path=bind_path))
+    if keep_iso:
+        print(
+            tr("  Wiping bind-mount under {path} (keeping the cached ISO) ...").format(
+                path=bind_path
+            )
+        )
+    else:
+        print(tr("  Wiping bind-mount contents under {path} ...").format(path=bind_path))
+    kept_iso = False
     for item in bind_path.iterdir():
+        if keep_iso and item.is_file() and item.suffix.lower() == ".iso":
+            kept_iso = True
+            continue
         try:
             if item.is_dir() and not item.is_symlink():
                 shutil.rmtree(item)
@@ -831,6 +886,10 @@ def _wipe_pod_storage(cfg) -> None:  # type: ignore[no-untyped-def]
                 item.unlink()
         except OSError as e:
             print(tr("  WARNING: could not remove {item}: {error}").format(item=item, error=e))
+    if keep_iso and not kept_iso:
+        print(
+            tr("  Note: no cached ISO found to keep — dockur will re-download on the next install.")
+        )
 
 
 def _wait_for_oem_reboot(cfg, timeout: int) -> bool:  # type: ignore[no-untyped-def]

@@ -239,3 +239,55 @@ class TestWaitReady:
         assert "[4/4]" in out
         assert "Windows ready" in out
         assert "OEM reboot pass complete" in out
+
+
+# -- pod recreate --keep-iso (storage wipe that preserves the cached ISO) ----
+
+
+def _populate_storage(d):
+    (d / "data.img").write_text("disk")
+    (d / "win11x64.iso").write_text("iso")
+    (d / "windows.ver").write_text("11")
+    (d / "drivers").mkdir()
+    (d / "drivers" / "x.inf").write_text("drv")
+
+
+def test_wipe_pod_storage_keep_iso_preserves_iso(tmp_path):
+    from winpodx.cli.pod import _wipe_pod_storage
+
+    _populate_storage(tmp_path)
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    cfg.pod.storage_path = str(tmp_path)
+
+    _wipe_pod_storage(cfg, keep_iso=True)
+
+    names = {p.name for p in tmp_path.iterdir()}
+    assert names == {"win11x64.iso"}  # only the ISO survives
+
+
+def test_wipe_pod_storage_full_removes_everything(tmp_path):
+    from winpodx.cli.pod import _wipe_pod_storage
+
+    _populate_storage(tmp_path)
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    cfg.pod.storage_path = str(tmp_path)
+
+    _wipe_pod_storage(cfg, keep_iso=False)
+
+    assert list(tmp_path.iterdir()) == []  # dir kept, contents gone
+
+
+def test_wipe_pod_storage_keep_iso_warns_when_no_iso(tmp_path, capsys):
+    from winpodx.cli.pod import _wipe_pod_storage
+
+    (tmp_path / "data.img").write_text("disk")  # no ISO present
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    cfg.pod.storage_path = str(tmp_path)
+
+    _wipe_pod_storage(cfg, keep_iso=True)
+
+    assert list(tmp_path.iterdir()) == []
+    assert "no cached ISO" in capsys.readouterr().out

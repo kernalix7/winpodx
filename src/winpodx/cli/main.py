@@ -152,6 +152,16 @@ def cli(argv: list[str] | None = None) -> None:
             "edition changes to actually reach the guest. ~10 minute cost."
         ),
     )
+    recreate_p.add_argument(
+        "--keep-iso",
+        action="store_true",
+        help=(
+            "Reinstall Windows fresh but KEEP the cached install ISO, so "
+            "dockur rebuilds from it instead of re-downloading ~5-8 GB from "
+            "Microsoft. Implies a storage wipe of everything except the ISO. "
+            "Use this for a clean reinstall without the download."
+        ),
+    )
     pod_sub.add_parser(
         "apply-fixes",
         help=(
