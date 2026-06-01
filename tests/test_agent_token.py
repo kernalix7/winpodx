@@ -122,7 +122,7 @@ class TestSetupStagesOemToken:
 
         monkeypatch.setattr(
             "winpodx.cli.setup_cmd.check_all",
-            lambda: {"freerdp": DepCheck(name="freerdp", found=True, note="stub")},
+            lambda **_: {"freerdp": DepCheck(name="freerdp", found=True, note="stub")},
         )
 
         args = argparse.Namespace(backend=None, non_interactive=True)
