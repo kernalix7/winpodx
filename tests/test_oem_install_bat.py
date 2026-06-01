@@ -91,3 +91,14 @@ def test_install_bat_writes_setup_done_before_final_termservice_cycle() -> None:
     start_idx = text.index("net start TermService")
 
     assert setup_done_idx < last_step_idx < stop_idx < start_idx
+
+
+def test_install_bat_defender_excludes_reverse_open_shim_path() -> None:
+    # #425: the reverse-open shim + per-slug copies live under
+    # C:\Users\Public\winpodx (register-apps.ps1), NOT C:\winpodx -- so the
+    # Defender exclusion must cover that path or the unsigned Rust shim gets
+    # heuristically quarantined and reverse-open silently breaks.
+    text = INSTALL_BAT.read_text(encoding="utf-8")
+    assert "Add-MpPreference -ExclusionPath" in text
+    assert r"C:\Users\Public\winpodx" in text
+    assert "winpodx-reverse-open-shim.exe" in text

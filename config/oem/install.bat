@@ -39,8 +39,16 @@ REM rdprrap-installer.exe itself out of Defender's process list.
 REM
 REM Add-MpPreference is idempotent - re-running install.bat (e.g., on
 REM container recreate) just re-asserts the exclusion silently.
-echo [winpodx] Adding Windows Defender exclusions for C:\OEM, C:\winpodx, and rdprrap-installer.exe...
-powershell -NoProfile -Command "try { Add-MpPreference -ExclusionPath 'C:\OEM','C:\winpodx' -ErrorAction Stop; Add-MpPreference -ExclusionProcess 'rdprrap-installer.exe' -ErrorAction Stop } catch { Write-Output ('defender-exclusion: ' + $_.Exception.Message) }" >nul 2>&1
+REM C:\Users\Public\winpodx is where register-apps.ps1 stages the
+REM reverse-open shim + its per-slug .exe copies (#425). That tiny,
+REM stripped, unsigned Rust binary trips Defender's ML heuristic
+REM (Trojan:Win32/Rafvartar!rfn -- a false positive), so it gets
+REM quarantined and reverse-open silently breaks. Exclude the path (and
+REM the shim process) here, first-step, so the exclusion is in place
+REM before per-user logon stages the files. Add-MpPreference accepts a
+REM not-yet-existent path, so registering it early is fine.
+echo [winpodx] Adding Windows Defender exclusions for C:\OEM, C:\winpodx, C:\Users\Public\winpodx, and the winpodx helper processes...
+powershell -NoProfile -Command "try { Add-MpPreference -ExclusionPath 'C:\OEM','C:\winpodx','C:\Users\Public\winpodx' -ErrorAction Stop; Add-MpPreference -ExclusionProcess 'rdprrap-installer.exe','winpodx-reverse-open-shim.exe' -ErrorAction Stop } catch { Write-Output ('defender-exclusion: ' + $_.Exception.Message) }" >nul 2>&1
 
 echo [winpodx] Setting DNS...
 netsh interface ip set dns "Ethernet" static 1.1.1.1

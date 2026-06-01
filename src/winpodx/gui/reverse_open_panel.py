@@ -261,7 +261,26 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         status_label.setText(format_status_line(status))
 
     def _on_enable(state: int) -> None:
-        cfg.reverse_open.enabled = state == Qt.CheckState.Checked.value or bool(state)
+        enabled = state == Qt.CheckState.Checked.value or bool(state)
+        cfg.reverse_open.enabled = enabled
+        cfg.save()
+        # Make the checkbox live (#425): enabling starts the listener now,
+        # disabling stops it -- so users don't have to also click "Start
+        # daemon". Best-effort + QUIET: starting needs the guest up, so when
+        # it's down we just persist the flag (the listener comes up on the
+        # next pod bringup) rather than popping the _run_cli error modal for
+        # that expected case.
+        from types import SimpleNamespace
+
+        handler = _cmd_start_listener if enabled else _cmd_stop_listener
+        try:
+            handler(SimpleNamespace(json=False))
+        except Exception:  # noqa: BLE001 — status label reflects the outcome
+            log.debug(
+                "reverse-open %s on toggle failed (guest may be down)",
+                "start" if enabled else "stop",
+                exc_info=True,
+            )
         _refresh_status_label()
 
     def _sync_lists_to_cfg() -> None:
