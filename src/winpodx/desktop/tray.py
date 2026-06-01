@@ -68,6 +68,7 @@ def run_tray() -> None:
         print("PySide6 required. Install with: pip install winpodx[gui]")
         sys.exit(1)
 
+    from winpodx.core import devices as D
     from winpodx.core.app import list_available_apps
     from winpodx.core.config import Config
     from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
@@ -363,6 +364,79 @@ def run_tray() -> None:
     apps_menu.addAction(desktop_action)
 
     menu.addMenu(apps_menu)
+
+    menu.addSeparator()
+
+    # USB device switcher (#300). A checkable entry per host USB device:
+    # checked == redirected to the Windows guest. Toggling runs the
+    # persist + live attach/detach off the UI thread (live op can take a
+    # few seconds and may pop a pkexec prompt). The submenu is rebuilt on
+    # every open so it tracks hot-plugged devices + the current assignment.
+    devices_menu = QMenu(tr("USB Devices"))
+
+    def _make_device_toggle(host: D.HostDevice):
+        dc = host.to_device_config()
+        label = host.label or dc.did
+
+        def handler(checked: bool) -> None:
+            cfg = Config.load()
+
+            def op() -> None:
+                try:
+                    running = pod_status(cfg).state == PodState.RUNNING
+                except Exception:  # noqa: BLE001 — treat unknown state as not-running
+                    running = False
+                if checked:
+                    D.assign_device(cfg, dc)
+                    if running:
+                        D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc)
+                else:
+                    D.unassign_device(cfg, dc)
+                    if running:
+                        D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc)
+
+            if checked:
+                _run_in_thread(
+                    op,
+                    tr("Attached {name} to the guest").format(name=label),
+                    tr("Failed to attach {name}").format(name=label),
+                )
+            else:
+                _run_in_thread(
+                    op,
+                    tr("Released {name} back to the host").format(name=label),
+                    tr("Failed to detach {name}").format(name=label),
+                )
+
+        return handler
+
+    def _rebuild_devices_menu() -> None:
+        devices_menu.clear()
+        try:
+            cfg = Config.load()
+            assigned = {d.key for d in D.parse_entries(cfg.pod.devices) if d.dtype == "usb"}
+            usb = D.list_host_usb()
+        except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
+            log.warning("device menu: enumeration failed: %s", e)
+            usb, assigned = [], set()
+        if not usb:
+            empty = QAction(tr("(no USB devices detected)"))
+            empty.setEnabled(False)
+            devices_menu.addAction(empty)
+            return
+        for host in usb:
+            dc = host.to_device_config()
+            act = QAction(host.label or dc.did)
+            act.setCheckable(True)
+            act.setChecked(dc.key in assigned)
+            # `triggered` (not `toggled`) fires only on user clicks, so the
+            # programmatic setChecked above doesn't kick off a spurious op.
+            act.triggered.connect(_make_device_toggle(host))
+            devices_menu.addAction(act)
+
+    devices_menu.aboutToShow.connect(_rebuild_devices_menu)
+    _rebuild_devices_menu()
+    menu.addMenu(devices_menu)
 
     menu.addSeparator()
 

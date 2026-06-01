@@ -87,6 +87,39 @@ def parse_entries(entries: list[str]) -> list[DeviceConfig]:
     return out
 
 
+def assign_device(cfg, dc: DeviceConfig) -> bool:
+    """Persist a device assignment to ``cfg.pod.devices`` and save the config.
+
+    Returns ``True`` if the device was newly added, ``False`` if it was already
+    assigned (no-op). This is the single source of truth for the persist half of
+    an attach, shared by the CLI / GUI / tray surfaces; the *live* half
+    (:func:`live_attach`) is separate so callers can run it off the UI thread.
+    """
+    if dc.key in {d.key for d in parse_entries(cfg.pod.devices)}:
+        return False
+    cfg.pod.devices = list(cfg.pod.devices) + [dc.to_entry()]
+    cfg.pod.__post_init__()
+    cfg.save()
+    return True
+
+
+def unassign_device(cfg, dc: DeviceConfig) -> bool:
+    """Remove a device assignment from ``cfg.pod.devices`` and save the config.
+
+    Returns ``True`` if the device was removed, ``False`` if it wasn't assigned
+    (no-op). Matches by :attr:`DeviceConfig.key` so the stored label doesn't
+    have to match. Counterpart to :func:`assign_device`.
+    """
+    if dc.key not in {d.key for d in parse_entries(cfg.pod.devices)}:
+        return False
+    cfg.pod.devices = [
+        e for e in cfg.pod.devices if (p := parse_entry(e)) is None or p.key != dc.key
+    ]
+    cfg.pod.__post_init__()
+    cfg.save()
+    return True
+
+
 # --------------------------------------------------------------------------
 # Host enumeration
 # --------------------------------------------------------------------------

@@ -260,3 +260,31 @@ def test_compose_pci_only_still_lifts_selinux():
     out = _build_compose_content(c)
     assert "- /dev/bus/usb" not in out  # usb off
     assert "- label=disable" in out  # but PCI still needs the lift
+
+
+def test_assign_device_persists_and_dedups(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    dc = D.DeviceConfig("usb", "1234:5678", "ACME Dongle")
+    assert D.assign_device(cfg, dc) is True
+    assert cfg.pod.devices == ["usb|1234:5678|ACME Dongle"]
+    # idempotent: same key -> no-op even with a different label
+    assert D.assign_device(cfg, D.DeviceConfig("usb", "1234:5678", "other")) is False
+    assert cfg.pod.devices == ["usb|1234:5678|ACME Dongle"]
+    # persisted to disk
+    assert "usb|1234:5678" in Config.path().read_text()
+
+
+def test_unassign_device_removes_by_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    D.assign_device(cfg, D.DeviceConfig("usb", "1234:5678", "ACME Dongle"))
+    # matches by key, ignores label
+    assert D.unassign_device(cfg, D.DeviceConfig("usb", "1234:5678", "different")) is True
+    assert cfg.pod.devices == []
+    # second call is a no-op
+    assert D.unassign_device(cfg, D.DeviceConfig("usb", "1234:5678")) is False
