@@ -163,3 +163,76 @@ def test_doctor_does_not_shutil_which_freerdp() -> None:
         f"cli/doctor.py calls shutil.which on freerdp binary names {overlap}; "
         "delegate to winpodx.utils.deps.check_freerdp instead"
     )
+
+
+# -- daemon reachability (#395) -------------------------------------------
+
+
+def test_check_backend_daemon_reachable(monkeypatch):
+    import subprocess
+    import types
+
+    import winpodx.utils.deps as D
+
+    monkeypatch.setattr(D.shutil, "which", lambda c: "/usr/bin/" + c)
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    )
+    assert D.check_backend_daemon("docker") == (True, "")
+
+
+def test_check_backend_daemon_podman_socket_hint(monkeypatch):
+    import subprocess
+    import types
+
+    import winpodx.utils.deps as D
+
+    monkeypatch.setattr(D.shutil, "which", lambda c: "/usr/bin/" + c)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: types.SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="Cannot connect to the Docker daemon at unix:///run/user/1000/podman/podman.sock",
+        ),
+    )
+    ok, hint = D.check_backend_daemon("docker")
+    assert ok is False
+    assert "podman socket" in hint.lower()
+
+
+def test_check_backend_daemon_not_on_path(monkeypatch):
+    import winpodx.utils.deps as D
+
+    monkeypatch.setattr(D.shutil, "which", lambda c: None)
+    assert D.check_backend_daemon("docker") == (False, "")
+
+
+def test_check_all_probe_daemons_annotates(monkeypatch):
+    import winpodx.utils.deps as D
+
+    monkeypatch.setattr(
+        D.shutil,
+        "which",
+        lambda c: ("/usr/bin/" + c) if c in ("docker", "podman", "flatpak") else None,
+    )
+    monkeypatch.setattr(D, "check_freerdp", lambda: D.DepCheck(name="x", found=True))
+    monkeypatch.setattr(D, "check_backend_daemon", lambda cmd, **k: (False, f"{cmd} daemon down"))
+
+    deps = D.check_all(probe_daemons=True)
+    assert deps["docker"].daemon_reachable is False
+    assert "daemon down" in deps["docker"].note
+    assert deps["podman"].daemon_reachable is False
+    # flatpak isn't a container backend -> not probed
+    assert deps["flatpak"].daemon_reachable is None
+
+
+def test_check_all_default_does_not_probe(monkeypatch):
+    import winpodx.utils.deps as D
+
+    monkeypatch.setattr(D.shutil, "which", lambda c: "/usr/bin/" + c)
+    monkeypatch.setattr(D, "check_freerdp", lambda: D.DepCheck(name="x", found=True))
+    deps = D.check_all()
+    assert deps["docker"].daemon_reachable is None
+    assert deps["podman"].daemon_reachable is None

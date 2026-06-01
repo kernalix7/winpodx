@@ -627,11 +627,19 @@ def handle_setup(args: argparse.Namespace) -> None:
     print(tr("=== winpodx setup ===\n"))
 
     print(tr("Checking dependencies..."))
-    deps = check_all()
+    # probe_daemons: verify the container backends actually answer, not just
+    # that their CLI is on PATH (#395 — docker CLI present but DOCKER_HOST
+    # pointed at a dead podman socket).
+    deps = check_all(probe_daemons=True)
     # `kvm` is now part of check_all() (0.6.0 item D), so the inline probe
     # this block used to carry is gone -- the iteration below covers it.
     for name, dep in deps.items():
-        status = "OK" if dep.found else "MISSING"
+        if not dep.found:
+            status = "MISSING"
+        elif dep.daemon_reachable is False:
+            status = "DAEMON DOWN"
+        else:
+            status = "OK"
         print(f"  {name:<15} [{status}] {dep.note}")
 
     if not deps["freerdp"].found:
@@ -840,6 +848,26 @@ def handle_setup(args: argparse.Namespace) -> None:
         #      create the directory, and `chattr +C` on btrfs so the
         #      Windows raw disk image inherits NoCoW from day one.
         _decide_storage_mode(cfg, non_interactive=non_interactive)
+
+        # #395: bail out with an actionable message if the selected backend's
+        # daemon isn't reachable, rather than letting compose fail with a
+        # confusing "Cannot connect to the Docker daemon" traceback. `deps`
+        # was probed with probe_daemons=True above.
+        sel = deps.get(cfg.pod.backend)
+        if sel is not None and sel.found and sel.daemon_reachable is False:
+            print()
+            print(
+                tr("Cannot use the {backend} backend: {hint}").format(
+                    backend=cfg.pod.backend, hint=sel.note
+                )
+            )
+            print(
+                tr(
+                    "Fix the daemon (above) and re-run `winpodx setup`, or switch "
+                    "backend with `winpodx config set pod.backend <podman|docker>`."
+                )
+            )
+            raise SystemExit(1)
 
         _generate_compose(cfg)
         _recreate_container(cfg)

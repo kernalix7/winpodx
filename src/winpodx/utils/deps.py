@@ -26,6 +26,12 @@ class DepCheck:
     found: bool
     path: str = ""
     note: str = ""
+    # For container backends only: True/False once the daemon/socket has been
+    # probed (via check_all(probe_daemons=True)), None when not probed. `found`
+    # means the CLI is on PATH; daemon_reachable means a command actually talks
+    # to its daemon (#395 — a docker CLI with DOCKER_HOST set to a dead podman
+    # socket is `found` but not `daemon_reachable`).
+    daemon_reachable: bool | None = None
 
 
 # Optional dependencies probed by name on PATH. Order matches what we want
@@ -78,19 +84,73 @@ def check_kvm() -> DepCheck:
     )
 
 
-def check_all() -> dict[str, DepCheck]:
+def check_backend_daemon(cmd: str, *, timeout: float = 8.0) -> tuple[bool, str]:
+    """Probe whether ``<cmd> info`` can actually reach its daemon / socket.
+
+    ``shutil.which`` only proves the CLI is installed — not that the daemon is
+    running or that ``DOCKER_HOST`` points somewhere valid. #395: a ``docker``
+    CLI with ``DOCKER_HOST`` set to a non-running podman socket looks present,
+    but every compose call fails with "Cannot connect to the Docker daemon".
+
+    Returns ``(reachable, hint)``; ``hint`` is an actionable message when
+    unreachable, else ``""``.
+    """
+    import subprocess
+
+    exe = shutil.which(cmd)
+    if not exe:
+        return (False, "")
+    try:
+        result = subprocess.run(
+            [exe, "info"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return (False, f"{cmd} found but its daemon did not respond in {int(timeout)}s")
+    if result.returncode == 0:
+        return (True, "")
+    low = (result.stderr or result.stdout or "").lower()
+    hint = f"{cmd} CLI found but its daemon is unreachable"
+    if "podman.sock" in low or "/podman/" in low:
+        hint += (
+            " — DOCKER_HOST points at a podman socket; start it with "
+            "`systemctl --user start podman.socket`, unset DOCKER_HOST, or use "
+            "the podman backend (`winpodx config set pod.backend podman`)"
+        )
+    elif "cannot connect" in low or "daemon" in low or "refused" in low:
+        hint += " — is the daemon running? (check DOCKER_HOST)"
+    return (False, hint)
+
+
+def check_all(probe_daemons: bool = False) -> dict[str, DepCheck]:
     """Run every host dep check.
 
     Returns a dict keyed by canonical short name (``freerdp``, ``podman``,
     ``docker``, ``flatpak``, ``kvm``). Every dependency has an entry; the
     caller decides what's required vs optional. Missing entries indicate a bug
     in this function, never a missing dependency.
+
+    ``probe_daemons`` (default False) additionally verifies, for any container
+    backend that's on PATH, that its daemon actually answers (``<cmd> info``)
+    and records the result in ``DepCheck.daemon_reachable`` + an actionable
+    ``note`` when it doesn't. Off by default because the probe spawns a
+    subprocess per backend; the setup wizard opts in, the fast callers (backend
+    selector, GUI quick-check) don't.
     """
     checks: dict[str, DepCheck] = {}
     checks["freerdp"] = check_freerdp()
     for cmd, desc in OPTIONAL_DEPS.items():
         path = shutil.which(cmd)
-        checks[cmd] = DepCheck(name=cmd, found=bool(path), path=path or "", note=desc)
+        dep = DepCheck(name=cmd, found=bool(path), path=path or "", note=desc)
+        if probe_daemons and path and cmd in ("docker", "podman"):
+            reachable, hint = check_backend_daemon(cmd)
+            dep.daemon_reachable = reachable
+            if not reachable and hint:
+                dep.note = hint
+        checks[cmd] = dep
     checks["kvm"] = check_kvm()
     return checks
 
