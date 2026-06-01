@@ -573,8 +573,11 @@ class TestComposeBackendSpecificKeys:
 
 
 class TestComposeNetworkKey:
-    def test_network_slirp_not_emitted(self, tmp_path, monkeypatch):
-        # NETWORK: slirp must not appear in generated compose.
+    def test_network_pins_user_mode_not_slirp(self, tmp_path, monkeypatch):
+        # The compose pins dockur user-mode networking (#269 / #387) so
+        # USER_PORTS (the agent port) is always forwarded. It must be the
+        # "user" mode, never "slirp" (slirp is dockur's fallback-of-last-resort
+        # if passt fails to start, not something we should request directly).
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         from winpodx.core.config import Config
 
@@ -587,9 +590,8 @@ class TestComposeNetworkKey:
 
         _generate_compose(cfg)
         content = (tmp_path / "winpodx" / "compose.yaml").read_text()
-        assert "NETWORK" not in content
-        env_lines = [ln.strip() for ln in content.splitlines() if ":" in ln and "volumes" not in ln]
-        assert not any("slirp" in ln for ln in env_lines if ln.startswith(("NETWORK", "slirp")))
+        assert 'NETWORK: "user"' in content
+        assert "slirp" not in content
 
 
 # --- v0.1.8 audit I1/I2: winpodx app refresh cfg-loading + kind routing ---
