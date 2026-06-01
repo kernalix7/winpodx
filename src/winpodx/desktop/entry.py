@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 
 from winpodx.core.app import AppInfo
+from winpodx.desktop.menu import MENU_CATEGORY, install_menu_folder, remove_menu_folder
 from winpodx.utils.paths import applications_dir, icons_dir
 
 log = logging.getLogger(__name__)
@@ -53,12 +54,19 @@ def install_desktop_entry(app: AppInfo) -> Path:
     comment = (app.description or "").replace("\n", " ").replace("\r", " ").replace("\t", " ")
     comment = comment.strip() or _DEFAULT_COMMENT
 
+    # Consolidate every Windows app under one menu folder (Wine-style) instead
+    # of scattering them across native categories (Office, Graphics, ...). The
+    # entry carries only the custom MENU_CATEGORY, which the winpodx .menu
+    # fragment maps into the "winpodx" submenu. App-type discoverability is
+    # preserved via Keywords (windows;winpodx;<name>) for menu search.
+    categories = f"{MENU_CATEGORY};"
+
     content = DESKTOP_TEMPLATE.format(
         full_name=app.full_name,
         name=app.name,
         comment=comment,
         icon_name=icon_name,
-        categories=";".join(app.categories) + ";" if app.categories else "",
+        categories=categories,
         mime_types=";".join(app.mime_types) + ";" if app.mime_types else "",
         wm_class=wm_class,
     )
@@ -67,6 +75,15 @@ def install_desktop_entry(app: AppInfo) -> Path:
     # Explicit UTF-8: .desktop spec requires UTF-8; system locale may be C/POSIX.
     desktop_path.write_text(content, encoding="utf-8")
     desktop_path.chmod(0o644)
+
+    # Ensure the folder definition exists so the category resolves to a named
+    # submenu rather than "Lost & Found". Idempotent + best-effort: a failure
+    # here must not block the (already written) entry.
+    try:
+        install_menu_folder()
+    except OSError as e:
+        log.warning("Could not write winpodx menu folder definition: %s", e)
+
     return desktop_path
 
 
@@ -81,7 +98,8 @@ def remove_desktop_entry(app_name: str) -> None:
     except Exception as e:  # pragma: no cover - defensive, never blocks removal
         log.warning("MIME unregister failed for %s: %s", app_name, e)
 
-    desktop_path = applications_dir() / f"winpodx-{app_name}.desktop"
+    apps_dir = applications_dir()
+    desktop_path = apps_dir / f"winpodx-{app_name}.desktop"
     desktop_path.unlink(missing_ok=True)
 
     # Clean both scalable/apps (SVG) and sized dirs (PNG fallbacks from old installs).
@@ -93,6 +111,15 @@ def remove_desktop_entry(app_name: str) -> None:
     for size_dir in hicolor.glob("*x*/apps"):
         (size_dir / f"winpodx-{app_name}.svg").unlink(missing_ok=True)
         (size_dir / f"winpodx-{app_name}.png").unlink(missing_ok=True)
+
+    # Tear down the shared menu folder once the last Windows app is gone, so we
+    # don't leave an empty "winpodx" submenu behind. The GUI launcher's entry is
+    # winpodx.desktop (no "winpodx-" prefix), so it never counts here.
+    if apps_dir.exists() and not any(apps_dir.glob("winpodx-*.desktop")):
+        try:
+            remove_menu_folder()
+        except OSError as e:  # pragma: no cover - defensive, never blocks removal
+            log.warning("Could not remove winpodx menu folder definition: %s", e)
 
 
 def _install_icon(app: AppInfo) -> str:

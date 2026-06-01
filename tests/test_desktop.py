@@ -573,3 +573,75 @@ def test_install_desktop_entry_strips_newlines_in_description(tmp_path, monkeypa
 
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])
+
+
+# Menu consolidation: all winpodx apps land under one "winpodx" folder
+# (Wine-style), via a custom X-winpodx category + a .directory/.menu fragment.
+
+
+def _menu_paths(root):
+    """(directory_file, menu_fragment) under an XDG root used as both DATA+CONFIG."""
+    directory = root / "desktop-directories" / "winpodx-windows.directory"
+    fragment = root / "menus" / "applications-merged" / "winpodx.menu"
+    return directory, fragment
+
+
+def test_install_entry_consolidates_category(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    app = AppInfo(
+        name="word",
+        full_name="Microsoft Word",
+        executable="C:\\Office\\WINWORD.EXE",
+        categories=["Office", "WordProcessor"],
+    )
+
+    desktop_path = install_desktop_entry(app)
+    content = desktop_path.read_text(encoding="utf-8")
+
+    # Natural categories are replaced by the single grouping category, so the
+    # app shows ONLY in the winpodx folder, not scattered across Office/etc.
+    assert "Categories=X-winpodx;" in content
+    assert "Office" not in content.split("Categories=")[1].splitlines()[0]
+    # Search still finds it.
+    assert "winpodx;" in content  # Keywords line
+
+
+def test_install_entry_creates_menu_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+
+    install_desktop_entry(app)
+
+    directory, fragment = _menu_paths(tmp_path)
+    assert directory.exists()
+    assert "Type=Directory" in directory.read_text(encoding="utf-8")
+    assert fragment.exists()
+    frag = fragment.read_text(encoding="utf-8")
+    assert "<Category>X-winpodx</Category>" in frag
+    assert "winpodx-windows.directory" in frag
+
+
+def test_remove_last_app_tears_down_menu_folder(tmp_path, monkeypatch):
+    from winpodx.desktop.entry import remove_desktop_entry
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    a = AppInfo(name="word", full_name="Word", executable="C:\\word.exe")
+    b = AppInfo(name="excel", full_name="Excel", executable="C:\\excel.exe")
+    install_desktop_entry(a)
+    install_desktop_entry(b)
+
+    directory, fragment = _menu_paths(tmp_path)
+    assert directory.exists() and fragment.exists()
+
+    # Removing one of two apps keeps the folder.
+    remove_desktop_entry("word")
+    assert directory.exists() and fragment.exists()
+
+    # Removing the last app tears it down.
+    remove_desktop_entry("excel")
+    assert not directory.exists()
+    assert not fragment.exists()
