@@ -581,3 +581,25 @@ class TestBuildRdpCommand:
         cmd_empty, _ = build_rdp_command(cfg, extra_args="")
         assert cmd_no_extra == cmd_empty
         assert "" not in cmd_empty
+
+
+def test_linux_to_unc_home_symlink_atomic(monkeypatch, tmp_path):
+    # Fedora Atomic / Silverblue / Kinoite: /home is a symlink to /var/home.
+    # Path.home() stays the symlink path; the file resolves to the target.
+    # Both sides must resolve so the prefix check matches (#418).
+    real_home = tmp_path / "var_home" / "me"
+    real_home.mkdir(parents=True)
+    home_link = tmp_path / "home" / "me"
+    home_link.parent.mkdir(parents=True)
+    home_link.symlink_to(real_home)  # /home/me -> /var/home/me
+
+    doc = real_home / "Desktop" / "temp.doc"
+    doc.parent.mkdir()
+    doc.touch()
+
+    monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: home_link))
+    monkeypatch.setattr("winpodx.core.rdp._find_media_base", lambda: None)
+
+    # File passed through the symlinked home path, as `app run` would.
+    result = linux_to_unc(str(home_link / "Desktop" / "temp.doc"))
+    assert result == "\\\\tsclient\\home\\Desktop\\temp.doc"

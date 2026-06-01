@@ -972,7 +972,13 @@ def linux_to_unc(path: str) -> str:
     if _INVALID_WIN_CHARS & set(posix_str):
         raise ValueError(f"Path contains characters invalid for Windows: {posix_str}")
 
-    home = Path.home()
+    # Resolve $HOME (and the media base) too, not just the file (#418). On
+    # Fedora Atomic / Silverblue / Kinoite, /home is a symlink to /var/home, so
+    # `Path(path).resolve()` yields /var/home/me/... while a bare `Path.home()`
+    # stays /home/me — the prefix check then wrongly reports the file as
+    # "outside shared locations". Resolving both sides makes the comparison
+    # symlink-agnostic (and is a no-op on normal layouts).
+    home = Path.home().resolve()
     sep = "\\"
     try:
         relative = p.relative_to(home)
@@ -984,6 +990,7 @@ def linux_to_unc(path: str) -> str:
     # Media share mounted as \\tsclient\media.
     media_base = _find_media_base()
     if media_base is not None:
+        media_base = media_base.resolve()
         try:
             relative = p.relative_to(media_base)
             win_path = str(relative).replace("/", sep)
