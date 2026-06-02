@@ -290,11 +290,11 @@ class LogsMixin:
             self.input_log_level.setCurrentIndex(idx)
         self.input_log_level.setToolTip(
             tr(
-                "Set the winpodx logger level. Lower (DEBUG) shows more\n"
+                "Set the WinPodX logger level. Lower (DEBUG) shows more\n"
                 "detail in the log file + this terminal; higher (ERROR)\n"
                 "shows only errors. Change persists to winpodx.toml so\n"
                 "future CLI / GUI runs honour the choice. Applied live —\n"
-                "no winpodx restart needed."
+                "no WinPodX restart needed."
             )
         )
         self.input_log_level.currentIndexChanged.connect(self._on_log_level_changed)
@@ -310,7 +310,7 @@ class LogsMixin:
         container = self.cfg.pod.container_name
         # Non-command tooltips for the buttons that don't shell out a list.
         special_tips = {
-            "App log": tr("Show the tail of winpodx's own log file"),
+            "App log": tr("Show the tail of WinPodX's own log file"),
             "RDP Test": tr("Probe the RDP port (TCP handshake) for the configured guest"),
             "Clear": tr("Clear this terminal view"),
         }

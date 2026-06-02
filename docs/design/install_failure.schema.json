@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/kernalix7/winpodx/blob/main/docs/design/install_failure.schema.json",
-  "title": "winpodx agent-first install failure record",
+  "title": "WinPodX agent-first install failure record",
   "description": "Pinned JSON Schema for install_failure.json, the sanitized failure record written by the in-guest install agent after retry exhaustion. The host reads this file on next 'winpodx app run' / 'pod install-status' / 'pod install-resume'. See docs/design/AGENT_FIRST_INSTALL_DESIGN.md (§Schemas → install_failure.json) for the full design context, including the redactor pipeline that runs before any payload reaches this schema.",
   "type": "object",
   "additionalProperties": false,

@@ -33,8 +33,8 @@ _DIRECTORY_CONTENT = """\
 [Desktop Entry]
 Version=1.0
 Type=Directory
-Name=winpodx (Windows Apps)
-Comment=Windows applications via winpodx
+Name=WinPodX (Windows Apps)
+Comment=Windows applications via WinPodX
 Icon=winpodx
 """
 

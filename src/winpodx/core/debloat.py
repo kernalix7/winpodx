@@ -308,7 +308,7 @@ def build_run_script(catalog: DebloatCatalog, selection: list[str]) -> str:
     """
     blocks: list[str] = []
     blocks.append(_STATE_HELPER_PS)
-    blocks.append('Write-Host "=== winpodx debloat (' + str(len(selection)) + ' items) ==="')
+    blocks.append('Write-Host "=== WinPodX debloat (' + str(len(selection)) + ' items) ==="')
     blocks.append("$winpodxDebloatOk = 0")
     blocks.append("$winpodxDebloatTotal = 0")
 
@@ -356,7 +356,7 @@ def build_undo_script(catalog: DebloatCatalog, selection: list[str]) -> str:
 
     blocks: list[str] = []
     blocks.append(_STATE_HELPER_PS)
-    blocks.append('Write-Host "=== winpodx debloat undo (' + str(len(selection)) + ' items) ==="')
+    blocks.append('Write-Host "=== WinPodX debloat undo (' + str(len(selection)) + ' items) ==="')
     blocks.append("$winpodxDebloatOk = 0")
     blocks.append("$winpodxDebloatTotal = 0")
 

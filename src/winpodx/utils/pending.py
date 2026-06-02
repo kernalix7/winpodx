@@ -112,7 +112,7 @@ def resume(printer=print) -> None:
     from winpodx.core.provisioner import finish_provisioning
 
     cfg = Config.load()
-    printer(f"[winpodx] Resuming {len(pending)} pending setup step(s): {', '.join(pending)}")
+    printer(f"[WinPodX] Resuming {len(pending)} pending setup step(s): {', '.join(pending)}")
 
     # 0.6.0 item B: the wait-ready → apply-fixes → discovery chain this used
     # to assemble by hand (with discover_apps + persist + register inline)
@@ -131,7 +131,7 @@ def resume(printer=print) -> None:
     # 3× retry. Discovery always runs in the helper; we only clear the
     # discovery marker when it was actually pending.
     def _on_progress(stage: str, detail: str) -> None:
-        printer(f"[winpodx] {stage}: {detail}")
+        printer(f"[WinPodX] {stage}: {detail}")
 
     try:
         results = finish_provisioning(
@@ -144,15 +144,15 @@ def resume(printer=print) -> None:
             on_progress=_on_progress,
         )
     except Exception as e:  # noqa: BLE001 — resume is best-effort, never raises
-        printer(f"[winpodx] resume failed: {e}")
+        printer(f"[WinPodX] resume failed: {e}")
         return
 
     if results.get("wait_ready") == "timeout":
-        printer("[winpodx] Guest still booting — leaving pending for next invocation.")
+        printer("[WinPodX] Guest still booting — leaving pending for next invocation.")
         return  # No point clearing migrate/discovery if the guest isn't ready.
     if "wait_ready" in pending:
         remove_step("wait_ready")
-        printer("[winpodx] Windows guest is ready.")
+        printer("[WinPodX] Windows guest is ready.")
 
     if "migrate" in pending:
         apply_results = results.get("apply_fixes", {})
@@ -169,17 +169,17 @@ def resume(printer=print) -> None:
             maybe_autosync(cfg)
         except Exception as e:  # noqa: BLE001 — best-effort; leave pending on failure
             synced = False
-            printer(f"[winpodx] guest-sync deferred ({e}) — leaving migrate pending.")
+            printer(f"[WinPodX] guest-sync deferred ({e}) — leaving migrate pending.")
         if apply_ok and synced:
             remove_step("migrate")
-            printer("[winpodx] Runtime apply + guest-sync complete.")
+            printer("[WinPodX] Runtime apply + guest-sync complete.")
         else:
-            printer(f"[winpodx] migrate partial (apply={apply_results}) — leaving pending.")
+            printer(f"[WinPodX] migrate partial (apply={apply_results}) — leaving pending.")
 
     if "discovery" in pending:
         discovery = results.get("discovery", "")
         if isinstance(discovery, str) and discovery.startswith("failed:"):
-            printer(f"[winpodx] discovery resume failed ({discovery}) — leaving pending.")
+            printer(f"[WinPodX] discovery resume failed ({discovery}) — leaving pending.")
         else:
             remove_step("discovery")
-            printer(f"[winpodx] Discovery complete — {discovery}.")
+            printer(f"[WinPodX] Discovery complete — {discovery}.")

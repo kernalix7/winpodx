@@ -93,8 +93,8 @@ install -Dm755 uninstall.sh \
 if [ "$1" -eq 1 ]; then
     cat <<'EOF'
 
-[winpodx] Package installed. Next step:
-  - Open winpodx from your application menu (GUI) OR
+[WinPodX] Package installed. Next step:
+  - Open WinPodX from your application menu (GUI) OR
   - Run 'winpodx' in a terminal
 First-run prompt will offer auto setup / customize wizard / skip.
 
@@ -118,7 +118,7 @@ fi
 if [ "$1" -eq 0 ]; then
     cat <<'EOF'
 
-[winpodx] Package removed. User-side state (containers, configs,
+[WinPodX] Package removed. User-side state (containers, configs,
 reverse-open daemon, autostart) was NOT touched. To wipe everything:
   winpodx uninstall --purge --yes
 

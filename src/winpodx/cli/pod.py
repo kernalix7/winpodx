@@ -377,7 +377,7 @@ def _sync_password(non_interactive: bool) -> None:
                     )
                 )
                 sys.exit(3)
-            print(tr("OK: Windows account password is now in sync with winpodx config."))
+            print(tr("OK: Windows account password is now in sync with WinPodX config."))
             print(tr("Password rotation will now work normally."))
             return
 
@@ -436,7 +436,7 @@ def _sync_password(non_interactive: bool) -> None:
         )
         sys.exit(3)
 
-    print(tr("OK: Windows account password is now in sync with winpodx config."))
+    print(tr("OK: Windows account password is now in sync with WinPodX config."))
     print(tr("Password rotation will now work normally."))
 
 

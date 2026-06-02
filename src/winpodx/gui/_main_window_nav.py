@@ -114,7 +114,7 @@ class NavigationMixin:
                 # registered entries appear without manual refresh.
                 self.apps = list_available_apps()
                 self.log_signal.emit(
-                    "[winpodx] Pending setup resume finished — app list refreshed.",
+                    "[WinPodX] Pending setup resume finished — app list refreshed.",
                     C.GREEN,
                 )
 
@@ -199,7 +199,7 @@ class NavigationMixin:
             try:
                 handle_setup(args)
                 self.cfg = Config.load()
-                _stream("[winpodx] Setup complete.")
+                _stream("[WinPodX] Setup complete.")
                 # Brief "ready" ack so a first-timer knows the next step.
                 # Marshalled onto the GUI thread (show_toast touches widgets)
                 # via QTimer.singleShot(0, ...) — the same pattern the
@@ -211,7 +211,7 @@ class NavigationMixin:
                     ),
                 )
             except Exception as e:  # noqa: BLE001
-                _stream(f"[winpodx] Setup failed: {e}")
+                _stream(f"[WinPodX] Setup failed: {e}")
 
         threading.Thread(target=_do, daemon=True).start()
 

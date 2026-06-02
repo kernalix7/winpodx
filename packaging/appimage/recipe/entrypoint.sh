@@ -40,7 +40,7 @@ fi
 shopt -s nullglob
 PY_BIN_GLOB=("${APPDIR}"/opt/python*/bin/winpodx)
 if [ ${#PY_BIN_GLOB[@]} -eq 0 ]; then
-    echo "winpodx AppImage: bundled winpodx entrypoint missing -- this AppImage is corrupt." >&2
+    echo "WinPodX AppImage: bundled winpodx entrypoint missing -- this AppImage is corrupt." >&2
     exit 127
 fi
 

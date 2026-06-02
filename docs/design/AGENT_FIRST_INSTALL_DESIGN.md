@@ -96,7 +96,7 @@ answer well.
 | 6 | Non-podman backends | **libvirt / manual = legacy flow only.** Agent-first is podman/docker only for v1. Branch is at the wait-ready orchestrator; install.bat itself stays unified across backends (no agent-first vs legacy fork inside install.bat). *(core review #8)* |
 | 7 | Telemetry / install duration | **Scope-out for v1.** Any future collection must be opt-in, no auto-upload, with a written privacy contract before code lands. *(security review #7)* |
 | 8 | Resume — keep prior session markers? | **Yes, with `<step>.done.session-<old_id>` archive.** A few KB for forensic continuity. Resume reuses the *original* session ID (qa review #5). |
-| 9 | Defender broken / fights us | **Read-after-write verification at Phase 0; if exclusion is reverted within 60s, fail loud with "GPO is removing winpodx Defender exclusions; install cannot proceed safely on this machine."** No silent retry on a fight we can't win. *(security review #8)* |
+| 9 | Defender broken / fights us | **Read-after-write verification at Phase 0; if exclusion is reverted within 60s, fail loud with "GPO is removing WinPodX Defender exclusions; install cannot proceed safely on this machine."** No silent retry on a fight we can't win. *(security review #8)* |
 | 10 | Agent self-test before `agent_ready.done` | **Yes — three-step self-test: (i) `/health` 200; (ii) bearer round-trip; (iii) `/exec` of `Write-Output 'agent-self-test'` returns rc=0.** Adds ~500ms but catches more failures (agent up but token mismatch, agent up but `/exec` broken, etc.). *(v1 author proposal — adopted)* |
 
 ## Architecture overview
@@ -720,7 +720,7 @@ Comprehensive enumeration (v1 had 12 rows, v2 expands to 18):
 
 - Phase 0 writes the exclusion, then reads it back after 60s.
 - If the value is reverted (GPO sweep), fail loud with: `"GPO is
-  removing winpodx Defender exclusions; install cannot proceed safely
+  removing WinPodX Defender exclusions; install cannot proceed safely
   on this machine. Contact your Windows administrator or use a non-
   managed machine."`
 - No silent retry — we cannot win against active GPO management.
@@ -805,9 +805,9 @@ follow-up PR.)
 ### `notify_install_complete` / `notify_install_failed`
 
 - New helpers in `desktop/notify.py`.
-- Complete: `"winpodx ready" / "{N} Windows apps registered. Click
+- Complete: `"WinPodX ready" / "{N} Windows apps registered. Click
   to open."`, normal urgency, `winpodx` icon.
-- Failed: `"winpodx install failed" / "Step '{step}' failed after
+- Failed: `"WinPodX install failed" / "Step '{step}' failed after
   retries. Click to retry."`, critical urgency, `dialog-error` icon,
   with `--action=retry=Retry install` invoking `winpodx pod
   install-resume`.

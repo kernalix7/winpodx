@@ -1,4 +1,4 @@
-# winpodx 0.6.0 — Consolidation & UX Release
+# WinPodX 0.6.0 — Consolidation & UX Release
 
 ## Goal
 
@@ -10,7 +10,7 @@ This roadmap is the cut-list. Items move from "in scope" to "done" only when the
 
 ### Provisioning + AppImage
 
-- **A. Thin AppImage.** Drop bundled podman / podman-compose / conmon / crun / netavark / pasta. Keep FreeRDP + Python + Qt + winpodx. Require host podman/docker/libvirt (same model as `install.sh`). Closes #357 and #363 by *removing the root cause* (bundled podman shadowing or poisoning the host stack) instead of patching around it. AppImage shrinks ~150 MB → ~50 MB. `_hostenv` helper collapses to an `LD_LIBRARY_PATH` strip (no host-first `PATH` games needed once nothing is shadowing). **Effort M / Risk M** (recipe rebuild + reporter smoke).
+- **A. Thin AppImage.** Drop bundled podman / podman-compose / conmon / crun / netavark / pasta. Keep FreeRDP + Python + Qt + WinPodX. Require host podman/docker/libvirt (same model as `install.sh`). Closes #357 and #363 by *removing the root cause* (bundled podman shadowing or poisoning the host stack) instead of patching around it. AppImage shrinks ~150 MB → ~50 MB. `_hostenv` helper collapses to an `LD_LIBRARY_PATH` strip (no host-first `PATH` games needed once nothing is shadowing). **Effort M / Risk M** (recipe rebuild + reporter smoke).
 - **B. P1 — `winpodx provision` single source of truth.** New `core/provisioner.finish_provisioning(cfg, *, wait_timeout, require_agent, with_reverse_open)` consolidates the `wait-ready → apply-fixes → discovery → reverse-open` chain currently duplicated in `install.sh`, `setup_cmd._run_full_provision`, `migrate`, and `pending.resume`. `install.sh` collapses ~140 lines → ~5. `setup --create-only` is dropped. **Effort L / Risk M** (load-bearing; needs real-Windows smoke). **Absorbs I.**
 - **I. Qt GUI bring-up → `winpodx provision`.** `gui/_main_window_bringup.py` is the 5th copy of the chain. Folded into B. **Effort S (inside B).**
 

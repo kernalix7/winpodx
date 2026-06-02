@@ -1150,7 +1150,7 @@ def _cmd_info() -> None:
     from winpodx.core.config import Config
     from winpodx.core.info import gather_info
 
-    print(tr("=== winpodx system info ===\n"))
+    print(tr("=== WinPodX system info ===\n"))
 
     cfg = Config.load()
     info = gather_info(cfg)
@@ -1264,7 +1264,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
         }
         print(json.dumps(out, indent=2))
     else:
-        print(tr("=== winpodx check ===\n"))
+        print(tr("=== WinPodX check ===\n"))
         for p in probes:
             glyph = _CHECK_GLYPHS.get(p.status, p.status.upper())
             print(f"  [{glyph}] {p.name:<18} {p.detail}  ({p.duration_ms}ms)")

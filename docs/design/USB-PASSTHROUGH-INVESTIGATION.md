@@ -88,7 +88,7 @@ Notes:
   address churn + the frozen list. USB3 just churns more (link re-training).
 - `--network=host` + `/run/udev` mount did **not** restore hotplug in
   testing. (It may be theoretically possible with a running udevd in the
-  right netns, but it would break winpodx's `127.0.0.1:port` mapping model
+  right netns, but it would break WinPodX's `127.0.0.1:port` mapping model
   and was not made to work.)
 
 ## Consequence
@@ -152,7 +152,7 @@ virt-manager work). So redirect USB from the host:
   not want to touch udev rules): run **just `usbredirect`** under
   `pkexec`/`sudo` at attach time. Root opens the root-owned device node
   directly — no udev rule, no group, nothing persistent. The privileged
-  process is one small short-lived USB forwarder, not winpodx. (Contrast:
+  process is one small short-lived USB forwarder, not WinPodX. (Contrast:
   VirtualBox ships a broad install-time udev rule + `vboxusers` group; we
   can avoid that entirely with transient root.)
 - Windows guest sees the **real device with its native driver** (URB-level
@@ -163,7 +163,7 @@ virt-manager work). So redirect USB from the host:
 The usbredir socket must be reachable host<->container. On this host the
 podman bridge firewall blocks **both** directions for arbitrary ports
 (host->10.89.0.2:port refused; container->10.89.0.1:port refused). So the
-socket has to ride winpodx's existing **compose `ports:` mapping**
+socket has to ride WinPodX's existing **compose `ports:` mapping**
 (`127.0.0.1:<port>:<port>`, same as RDP/VNC/agent) — which means a
 **one-time recreate** to add the `usb-redir` channel + port-map. After
 that, attach/detach is fully live via `usbredirect`. (The HMP live-add of
@@ -176,7 +176,7 @@ Feasible at every layer tested (QEMU `usb-redir` ✓, HMP channel-add ✓, host
 verified** — device-appears-in-Windows needs the port-mapped socket wired
 (one recreate) + a real smoke. No blind compose change before that smoke.
 
-### Proposed winpodx integration
+### Proposed WinPodX integration
 
 1. compose: add a `usb-redir` chardev (socket server) + `127.0.0.1:<port>:<port>`
    map per concurrent USB slot (e.g. 4 slots). One-time recreate when the

@@ -71,8 +71,8 @@ def enable_tray_autostart() -> Path:
     contents = (
         "[Desktop Entry]\n"
         "Type=Application\n"
-        "Name=winpodx tray\n"
-        "Comment=System tray icon + idle-stall auto-recovery for winpodx\n"
+        "Name=WinPodX tray\n"
+        "Comment=System tray icon + idle-stall auto-recovery for WinPodX\n"
         f"Exec={exec_line}\n"
         "Icon=winpodx\n"
         "Terminal=false\n"

@@ -1,4 +1,4 @@
-# winpodx Transport ABC — host→guest channel contract
+# WinPodX Transport ABC — host→guest channel contract
 
 **Status**: contract spec, Sprint 0 of `feat/redesign`. Both Track A (host
 modular refactor) and Track B (agent-v2 feature) implement against this

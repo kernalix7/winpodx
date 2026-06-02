@@ -1,5 +1,5 @@
 {
-  description = "winpodx — Windows app integration for Linux desktop";
+  description = "WinPodX — Windows app integration for Linux desktop";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

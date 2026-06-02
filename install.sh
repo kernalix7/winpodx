@@ -329,11 +329,11 @@ rollback() {
         return 0
     fi
     if [ "$IS_FRESH_INSTALL" -ne 1 ]; then
-        warn "Install failed during an upgrade — leaving the existing winpodx install intact."
+        warn "Install failed during an upgrade — leaving the existing WinPodX install intact."
         warn "Your previous venv, launcher, and config were not touched."
         return 0
     fi
-    warn "Rolling back winpodx install artifacts..."
+    warn "Rolling back WinPodX install artifacts..."
     # venv + cloned/copied source tree (this whole dir is ours, created
     # this run on a fresh install).
     rm -rf "$INSTALL_DIR" 2>/dev/null || true
@@ -1097,7 +1097,7 @@ fi
 if [ ! -e /dev/kvm ]; then
     err "/dev/kvm still missing after package install."
     err ""
-    err "Hardware virtualisation is required for winpodx. Likely causes:"
+    err "Hardware virtualisation is required for WinPodX. Likely causes:"
     err "  1. Intel VT-x / AMD-V disabled in BIOS / UEFI."
     err "     -> Reboot, enter setup, look for 'Intel Virtualization Technology'"
     err "        / 'SVM Mode' / 'VT-x' and enable it."
@@ -1176,7 +1176,7 @@ resolve_ref() {
 
 if [ -n "$WINPODX_SOURCE" ]; then
     # --source wins over every other path; no git at all.
-    log "Copying winpodx from --source: $WINPODX_SOURCE"
+    log "Copying WinPodX from --source: $WINPODX_SOURCE"
     copy_from_local "$WINPODX_SOURCE"
 else
     INSTALL_REF="$(resolve_ref)"
@@ -1266,7 +1266,7 @@ fi
 # python_version marker) from pyproject. We then add the reverse-open
 # icon deps (cairosvg + pyxdg) and, unless --no-gui, PySide6 — pinned to
 # the same ranges pyproject declares so we don't invent versions.
-log "Installing winpodx into the venv (pip install '$INSTALL_DIR')..."
+log "Installing WinPodX into the venv (pip install '$INSTALL_DIR')..."
 if [ -n "$WINPODX_NO_GUI" ]; then
     # Headless: winpodx core + reverse-open icon quality, no PySide6.
     "$VENV_PY" -m pip install --quiet "${INSTALL_DIR}[reverse-open]"

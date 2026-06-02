@@ -15,7 +15,7 @@
 
 ## Goals
 
-Mirror winpodx's primary direction (Windows app → Linux `.desktop`)
+Mirror WinPodX's primary direction (Windows app → Linux `.desktop`)
 in the opposite direction: every Linux GUI app that handles a MIME
 type (Kate, GIMP, VS Code, Firefox, …) appears as a regular entry
 in the Windows "Open with…" right-click menu. Picking a Linux app
@@ -33,7 +33,7 @@ front-end.
   daemons) — filtered out at discovery time.
 - Windows VM acting as the SOURCE (apps inside the VM picking which
   Linux app handles a file) is the only direction covered. Apps on
-  the host opening files inside the VM is the existing winpodx flow.
+  the host opening files inside the VM is the existing WinPodX flow.
 
 ## Acceptance criteria (from #48)
 

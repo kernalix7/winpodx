@@ -2,7 +2,7 @@
 
 ## Problem
 
-Upgrading winpodx on the host updates the host binary, but the **guest-side**
+Upgrading WinPodX on the host updates the host binary, but the **guest-side**
 artifacts that were staged at first install go stale until the user wipes and
 reinstalls Windows:
 
@@ -98,7 +98,7 @@ Config: `pod.guest_autosync` (bool, default True). `false` = only manual.
 
 Guest-side `/exec` work — pwsh-on-Linux Pester is **not** sufficient.
 
-1. Upgrade host winpodx (bump `oem_bundle`), start an existing pod.
+1. Upgrade host WinPodX (bump `oem_bundle`), start an existing pod.
    → auto-sync runs; `guest_version.json` updates to the new pair.
 2. `C:\OEM\agent.ps1` matches the new host copy (hash/length).
 3. Agent rebinds 8765 after the restart task (no manual step); `winpodx check`

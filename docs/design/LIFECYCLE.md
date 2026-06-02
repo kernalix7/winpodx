@@ -1,8 +1,8 @@
-# winpodx Lifecycle & Processes
+# WinPodX Lifecycle & Processes
 
-End-to-end reference for how a winpodx pod is installed, upgraded, migrated, and kept healthy. Each section describes one phase: who fires it, what it does, where the code lives, and what failure modes it handles.
+End-to-end reference for how a WinPodX pod is installed, upgraded, migrated, and kept healthy. Each section describes one phase: who fires it, what it does, where the code lives, and what failure modes it handles.
 
-> **Audience.** Maintainers and advanced users who need to understand or debug any winpodx code path. For day-to-day usage see [README.md](../README.md).
+> **Audience.** Maintainers and advanced users who need to understand or debug any WinPodX code path. For day-to-day usage see [README.md](../README.md).
 
 ---
 
@@ -126,7 +126,7 @@ The shaded boxes are entry points; everything else is implementation. Each is de
 
 ## 4. Upgrade install (existing config)
 
-**Trigger.** `~/.config/winpodx/winpodx.toml` already exists. Typically `curl -sSL .../install.sh | bash -s -- --main` to update an existing winpodx installation.
+**Trigger.** `~/.config/winpodx/winpodx.toml` already exists. Typically `curl -sSL .../install.sh | bash -s -- --main` to update an existing WinPodX installation.
 
 **Flow.**
 
@@ -432,7 +432,7 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 **Code.** `src/winpodx/core/guest_sync.py::sync_guest`. Full design notes: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
 
-**Goal.** Upgrading winpodx on the host updates the host binary, but the
+**Goal.** Upgrading WinPodX on the host updates the host binary, but the
 guest-side artifacts staged at first install go stale until the user wipes and
 reinstalls Windows: `C:\OEM\agent.ps1`, the urlacl reservation, rdprrap /
 `shim.exe` / `rcedit.exe`, and the helper scripts. The apply chain ([§6](#6-apply-chain-apply_windows_runtime_fixes))

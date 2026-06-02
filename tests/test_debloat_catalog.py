@@ -210,7 +210,7 @@ class TestBuildRunScript:
 
     def test_payload_contains_header_and_footer(self, catalog):
         payload = build_run_script(catalog, ["telemetry"])
-        assert "winpodx debloat" in payload
+        assert "WinPodX debloat" in payload
         assert "=== done:" in payload
 
     def test_payload_includes_each_selected_item_body(self, catalog):
@@ -264,7 +264,7 @@ class TestBuildUndoScript:
 
     def test_undo_payload_has_header_and_footer(self, catalog):
         payload = build_undo_script(catalog, ["telemetry"])
-        assert "winpodx debloat undo" in payload
+        assert "WinPodX debloat undo" in payload
         assert "undo done:" in payload
 
     def test_undo_payload_includes_per_item_undo_body(self, catalog):

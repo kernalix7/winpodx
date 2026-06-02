@@ -28,7 +28,7 @@ from winpodx.setup_wizard.pkexec import (
 
 
 def _print_status(state) -> None:  # type: ignore[no-untyped-def]
-    print("=== winpodx host setup ===\n")
+    print("=== WinPodX host setup ===\n")
 
     def line(label: str, ok: bool, note: str = "") -> None:
         mark = "[OK]" if ok else "[--]"
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m winpodx.setup_wizard",
         description=(
-            "Detect + fix host-side setup that winpodx needs but an "
+            "Detect + fix host-side setup that WinPodX needs but an "
             "AppImage cannot do from user space."
         ),
     )

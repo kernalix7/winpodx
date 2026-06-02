@@ -32,7 +32,7 @@ StartupWMClass={wm_class}
 # Default Comment when discovery couldn't pull a real description from
 # the app's metadata. Better than nothing — keeps the .desktop spec's
 # Comment field non-empty for menu tooltips and file managers.
-_DEFAULT_COMMENT = "Windows application via winpodx"
+_DEFAULT_COMMENT = "Windows application via WinPodX"
 
 
 def install_desktop_entry(app: AppInfo) -> Path:
