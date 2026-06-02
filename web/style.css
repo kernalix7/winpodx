@@ -257,3 +257,46 @@ table.cmp tbody tr:last-child td, table.cmp tbody tr:last-child th { border-bott
   .steps, .dist { grid-template-columns: 1fr; }
   .page-hero h1 { font-size: 28px; }
 }
+
+/* ===== v3: inline SVG icons + motion polish ===== */
+svg.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* accent icon chip (cards, sections) */
+.ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 10px; flex: none;
+  background: rgba(56, 139, 253, 0.12); color: var(--blue);
+  border: 1px solid rgba(56, 139, 253, 0.25);
+}
+.ico svg { width: 22px; height: 22px; stroke: currentColor; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ico.green { background: rgba(63, 185, 80, 0.12); color: var(--green); border-color: rgba(63,185,80,0.28); }
+.ico.peach { background: rgba(255, 166, 87, 0.12); color: var(--peach); border-color: rgba(255,166,87,0.28); }
+
+/* card header with icon */
+.card h3, .step h3, .feat .block h3, .secttl { display: flex; align-items: center; gap: 12px; }
+.card h3 .ico, .feat .block h3 .ico { width: 34px; height: 34px; border-radius: 9px; }
+.card h3 .ico svg, .feat .block h3 .ico svg { width: 19px; height: 19px; }
+
+/* section title with icon (centered) */
+.secttl { justify-content: center; }
+
+/* inline svg sizing for nav/footer/buttons */
+.isvg { width: 16px; height: 16px; vertical-align: -3px; stroke: currentColor; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* motion: cards/steps lift on hover */
+.card, .step, .feat .block, .dist .item, .pill { transition: transform .15s ease, border-color .15s ease, background .15s ease; }
+.card:hover, .step:hover, .feat .block:hover, .dist .item:hover { transform: translateY(-3px); border-color: var(--surface2); }
+.pill:hover { transform: translateY(-2px); border-color: var(--blue); color: var(--text); }
+.btn { transition: transform .12s ease, background .15s ease, border-color .15s ease; }
+.btn:hover { transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) {
+  .card, .step, .feat .block, .dist .item, .pill, .btn { transition: none; }
+  .card:hover, .step:hover, .feat .block:hover, .dist .item:hover, .pill:hover, .btn:hover { transform: none; }
+  html { scroll-behavior: auto; }
+}
+
+/* step: number + icon row */
+.step .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.step .head .n { margin-bottom: 0; }

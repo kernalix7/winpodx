@@ -13,6 +13,20 @@
 </head>
 <body>
 
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9z"/></symbol>
+  <symbol id="i-hdd" viewBox="0 0 24 24"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
+  <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M3 3l7.5 18 2.5-7.5L21 11z"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></symbol>
+</svg>
+
+
 <header class="nav">
   <div class="wrap">
     <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">winpodx</a>
@@ -20,7 +34,7 @@
       <a href="features.html" class="active">Features</a>
       <a href="get-started.html">Get started</a>
       <a href="faq.html">FAQ</a>
-      <a class="gh" href="https://github.com/kernalix7/winpodx">GitHub</a>
+      <a class="gh" href="https://github.com/kernalix7/winpodx"><svg class="isvg"><use href="#i-github"/></svg> GitHub</a>
     </nav>
   </div>
 </header>
@@ -93,13 +107,13 @@
   <section class="alt"><div class="wrap">
     <h2>Peripherals &amp; sharing</h2>
     <div class="grid">
-      <div class="card"><h3><span class="dot">●</span>On by default</h3><ul>
+      <div class="card"><h3><span class="ico"><svg viewBox="0 0 24 24"><use href="#i-bolt"/></svg></span>On by default</h3><ul>
         <li>Clipboard — bidirectional text + images</li>
         <li>Sound — RDP audio streaming</li>
         <li>Printers — Linux printers shared to Windows</li>
         <li>Home directory — shared as <code>\\tsclient\home</code></li>
       </ul></div>
-      <div class="card"><h3><span class="dot">●</span>Storage &amp; devices</h3><ul>
+      <div class="card"><h3><span class="ico"><svg viewBox="0 0 24 24"><use href="#i-hdd"/></svg></span>Storage &amp; devices</h3><ul>
         <li>USB drives auto-mapped to drive letters (E:, F:, …)</li>
         <li>Drives plugged in mid-session resolve, subfolders work</li>
         <li>Live USB device passthrough (host ↔ guest switcher)</li>
@@ -111,25 +125,25 @@
   <section class="wrap">
     <h2>Automation, resilience &amp; security</h2>
     <div class="grid">
-      <div class="card"><h3><span class="dot">●</span>Keeps itself healthy</h3><ul>
+      <div class="card"><h3><span class="ico"><svg viewBox="0 0 24 24"><use href="#i-activity"/></svg></span>Keeps itself healthy</h3><ul>
         <li>Auto suspend / resume — pauses when idle, resumes on launch</li>
         <li>Optional pod auto-start on login</li>
         <li>UNRESPONSIVE → recover: self-heals a stalled RDP guest</li>
         <li>Windows disk auto-grows when C: fills, bounded by host space</li>
       </ul></div>
-      <div class="card"><h3><span class="dot">●</span>Secure &amp; private</h3><ul>
+      <div class="card"><h3><span class="ico"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg></span>Secure &amp; private</h3><ul>
         <li>Password auto-rotation — 20-char, 7-day cycle, atomic rollback</li>
         <li>Windows debloat: telemetry, ads, Cortana off by default</li>
         <li>FreeRDP <code>extra_flags</code> allowlist (regex-validated)</li>
         <li>No winpodx telemetry — ever</li>
       </ul></div>
-      <div class="card"><h3><span class="dot">●</span>Operations</h3><ul>
+      <div class="card"><h3><span class="ico"><svg viewBox="0 0 24 24"><use href="#i-grid"/></svg></span>Operations</h3><ul>
         <li><code>winpodx doctor</code> — deps / pod / RDP / agent / disk health</li>
         <li><code>--json</code>, <code>--quick</code>, and <code>--fix</code> auto-remediation</li>
         <li>Guest sync after a host upgrade; offline / air-gapped install</li>
         <li>One-line uninstall (keeps VM data unless <code>--purge</code>)</li>
       </ul></div>
-      <div class="card"><h3><span class="dot">●</span>Polish</h3><ul>
+      <div class="card"><h3><span class="ico"><svg viewBox="0 0 24 24"><use href="#i-window"/></svg></span>Polish</h3><ul>
         <li>Host-adaptive Windows-on-KVM tuning profile</li>
         <li>Time sync after host sleep/wake</li>
         <li>Multilingual UI (en / ko / zh / ja / de / fr / it)</li>
