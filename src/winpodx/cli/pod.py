@@ -393,7 +393,7 @@ def _sync_password(non_interactive: bool) -> None:
             tr(
                 "WinPodX will authenticate once with a recovery password (the password "
                 "Windows currently accepts), then reset the Windows account to the "
-                "value in your winpodx config."
+                "value in your WinPodX config."
             )
         )
         print()

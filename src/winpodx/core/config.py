@@ -431,7 +431,7 @@ class PodConfig:
                 self.win_version = candidate
                 if self.win_version not in _KNOWN_WIN_VERSIONS:
                     logging.getLogger(__name__).warning(
-                        "win_version=%r not in winpodx's known list (%s); "
+                        "win_version=%r not in WinPodX's known list (%s); "
                         "passing through to dockur as-is",
                         self.win_version,
                         ", ".join(sorted(_KNOWN_WIN_VERSIONS)),

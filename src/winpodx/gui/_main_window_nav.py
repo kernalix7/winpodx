@@ -242,7 +242,7 @@ class NavigationMixin:
             lines.append("")
             lines.append(tr("Pending setup steps detected — running them in the background."))
         lines.append("")
-        lines.append(tr("Tip: Tools → Live (app) tails the winpodx log in real time."))
+        lines.append(tr("Tip: Tools → Live (app) tails the WinPodX log in real time."))
 
         marker = Path(self.cfg.path()).parent / ".welcomed"
         try:

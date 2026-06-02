@@ -301,12 +301,12 @@ def _check_config_state() -> Finding:
             "fail",
             "config present but winpodx binary not on PATH",
             detail=f"config: {config_path}; PATH binary: missing",
-            suggestion="Reinstall winpodx via curl install.sh or your distro's package manager.",
+            suggestion="Reinstall WinPodX via curl install.sh or your distro's package manager.",
         )
     if not binary_path and not config_path.exists():
         return Finding(
             "warn",
-            "winpodx not installed (binary + config both absent)",
+            "WinPodX not installed (binary + config both absent)",
             suggestion="Install via `curl ... install.sh | bash` or distro package manager.",
         )
     return Finding("ok", "binary + config both present")

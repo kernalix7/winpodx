@@ -174,7 +174,7 @@ def cli(argv: list[str] | None = None) -> None:
         "sync-password",
         help=(
             "Re-sync the Windows guest's account password to the value in "
-            "winpodx config. Use when password rotation has drifted (cfg "
+            "WinPodX config. Use when password rotation has drifted (cfg "
             "and Windows disagree). Prompts for the last-known-working "
             "password to authenticate one final time."
         ),
@@ -768,7 +768,7 @@ def cli(argv: list[str] | None = None) -> None:
         "sync-password",
         help=(
             "Re-sync the Windows guest's account password to the value in "
-            "winpodx config. Use when password rotation has drifted."
+            "WinPodX config. Use when password rotation has drifted."
         ),
     )
     guest_syncpw_p.add_argument(
@@ -1119,7 +1119,7 @@ def _cmd_language(code: str | None) -> None:
     cfg.save()
     set_language(code)
     print(f"UI language set to {code} (resolved: {current_language()}).")
-    print("Applies to new winpodx processes (restart the tray / GUI to see it).")
+    print("Applies to new WinPodX processes (restart the tray / GUI to see it).")
 
 
 def _cmd_autostart(action: str) -> None:
@@ -1157,7 +1157,7 @@ def _cmd_info() -> None:
 
     sys_ = info["system"]
     print(tr("[System]"))
-    print(f"  winpodx:        {sys_['winpodx']}")
+    print(f"  WinPodX:        {sys_['winpodx']}")
     print(f"  Install:        {sys_.get('install_source', '(unknown)')}")
     print(f"  OEM bundle:     {sys_['oem_bundle']}")
     print(f"  rdprrap:        {sys_['rdprrap']}")
