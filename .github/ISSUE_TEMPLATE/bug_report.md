@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help us improve winpodx
+about: Report a bug to help us improve WinPodX
 title: "[Bug] "
 labels: bug
 assignees: ''

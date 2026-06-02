@@ -1,6 +1,6 @@
-# OBS 배포 가이드 (winpodx)
+# OBS 배포 가이드 (WinPodX)
 
-openSUSE Build Service에 winpodx를 올려서 Tumbleweed, Fedora, Leap용 RPM을
+openSUSE Build Service에 WinPodX를 올려서 Tumbleweed, Fedora, Leap용 RPM을
 자동 빌드하고, GitHub Release에 첨부하는 절차입니다.
 
 - 프로젝트: https://build.opensuse.org/package/show/home:Kernalix7/winpodx

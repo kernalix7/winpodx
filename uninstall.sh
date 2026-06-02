@@ -43,7 +43,7 @@ export WINPODX_NO_TRAY_SPAWN=1
 ###############################################################################
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
+log()  { echo -e "${GREEN}[WinPodX]${NC} $*"; }
 warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 
 AUTO=false
@@ -168,12 +168,12 @@ detect_install_source() {
 
 echo ""
 echo "=========================================="
-echo " winpodx uninstaller"
+echo " WinPodX uninstaller"
 echo "=========================================="
 if [[ "$PURGE" == true ]]; then
     echo " Mode: FULL PURGE (container + volumes + storage + config + files)"
 else
-    echo " Mode: winpodx files only (container + volumes + config kept)"
+    echo " Mode: WinPodX files only (container + volumes + config kept)"
 fi
 [[ "$FROM_POSTRM" == true ]] && echo " (re-entered from package post-remove hook)"
 echo ""
@@ -354,7 +354,7 @@ DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 # Remove winpodx GUI launcher
 if [[ -f "$DESKTOP_DIR/winpodx.desktop" ]]; then
     rm -f "$DESKTOP_DIR/winpodx.desktop"
-    log "Removed winpodx GUI launcher"
+    log "Removed WinPodX GUI launcher"
     REMOVED=$((REMOVED + 1))
 fi
 # Remove app desktop entries

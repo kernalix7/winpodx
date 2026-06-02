@@ -1,8 +1,8 @@
-# Contributing to winpodx
+# Contributing to WinPodX
 
 **English** | [한국어](docs/CONTRIBUTING.ko.md)
 
-Thank you for your interest in contributing to winpodx! This guide will help you get started.
+Thank you for your interest in contributing to WinPodX! This guide will help you get started.
 
 ## Prerequisites
 

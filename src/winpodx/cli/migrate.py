@@ -189,7 +189,7 @@ def run_migrate(args: argparse.Namespace) -> int:
     if installed is None:
         _write_installed_version(current)
         print(
-            tr("winpodx {version}: fresh install recorded. No migration needed.").format(
+            tr("WinPodX {version}: fresh install recorded. No migration needed.").format(
                 version=current
             )
         )
@@ -200,7 +200,7 @@ def run_migrate(args: argparse.Namespace) -> int:
 
     if inst_cmp >= cur_cmp:
         _write_installed_version(current)
-        print(tr("winpodx {version}: already current.").format(version=current))
+        print(tr("WinPodX {version}: already current.").format(version=current))
         # v0.1.9.3: even on "already current" still run the idempotent
         # Windows-side apply. Patch versions (0.1.9.x) collapse to the
         # same (0,1,9) tuple under [:3] truncation, so without this an
@@ -220,7 +220,7 @@ def run_migrate(args: argparse.Namespace) -> int:
         return 0
 
     print(
-        tr("winpodx: {installed} -> {current} detected\n").format(
+        tr("WinPodX: {installed} -> {current} detected\n").format(
             installed=installed, current=current
         )
     )
@@ -287,7 +287,7 @@ def _maybe_cleanup_legacy_bundled(non_interactive: bool) -> None:
 
     print(
         tr(
-            "\nFound {count} legacy bundled-app entries from a previous winpodx version"
+            "\nFound {count} legacy bundled-app entries from a previous WinPodX version"
             " (these were removed in 0.1.9):"
         ).format(count=len(stale_desktop))
     )
@@ -611,7 +611,7 @@ def _probe_password_sync(non_interactive: bool) -> None:
                 "  WARNING: cfg.password does not match Windows guest's account "
                 "password (FreeRDP authentication failed).\n"
                 "  This usually means password rotation has been silently failing "
-                "for prior winpodx versions (the runtime apply path was broken).\n"
+                "for prior WinPodX versions (the runtime apply path was broken).\n"
                 "\n"
                 "  To fix: run `winpodx pod sync-password` and provide the "
                 "password Windows currently accepts (typically the original "
@@ -662,7 +662,7 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
 
     pin_changed = cfg.pod.image != DOCKUR_IMAGE_PIN
     if pin_changed:
-        print("\nAligning container image with this winpodx version...")
+        print("\nAligning container image with this WinPodX version...")
         print(f"  was: {cfg.pod.image}")
         print(f"  now: {DOCKUR_IMAGE_PIN}")
         cfg.pod.image = DOCKUR_IMAGE_PIN

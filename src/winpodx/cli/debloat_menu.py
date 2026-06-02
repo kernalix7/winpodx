@@ -81,7 +81,7 @@ def run_menu(
     current_preset: str | None = initial_preset
 
     print_fn("")
-    print_fn(tr("=== winpodx debloat (menu) ==="))
+    print_fn(tr("=== WinPodX debloat (menu) ==="))
     print_fn(tr("h / ? for help. Press <a> to apply, <q> to quit."))
     print_fn("")
 

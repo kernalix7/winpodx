@@ -105,7 +105,7 @@ def handle_doctor(args: argparse.Namespace) -> None:
         return
 
     print()
-    print("=== winpodx doctor ===")
+    print("=== WinPodX doctor ===")
     if quick and not do_fix:
         print(tr("(--quick: container-health probe skipped)"))
     print()
@@ -137,7 +137,7 @@ def handle_doctor(args: argparse.Namespace) -> None:
         sys.exit(1)
     elif warn_count:
         print(
-            tr("Summary: {warn_count} WARN, no FAIL — winpodx is mostly OK.").format(
+            tr("Summary: {warn_count} WARN, no FAIL — WinPodX is mostly OK.").format(
                 warn_count=warn_count
             )
         )

@@ -1,4 +1,4 @@
-# winpodx OEM post-install
+# WinPodX OEM post-install
 
 Files in this directory are mounted read-only into the guest at `/oem` by
 `config/oem:/oem:Z` in the generated compose.yaml. The dockur/windows image

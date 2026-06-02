@@ -95,6 +95,6 @@ paru -S winpodx
 - The PKGBUILD builds from the GitHub release tarball, not from the wheel
   uploaded to the GitHub Release. This keeps Arch users building from the
   same source OBS and the debs-publish/rhel-publish workflows build from.
-- No `winpodx-bin` companion package: winpodx is pure-Python `noarch`/`any`,
+- No `winpodx-bin` companion package: WinPodX is pure-Python `noarch`/`any`,
   so building from source takes ~1 second on any Arch install — a -bin
   package would add maintenance burden without any install-speed payoff.

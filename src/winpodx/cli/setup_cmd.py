@@ -624,7 +624,7 @@ def handle_setup(args: argparse.Namespace) -> None:
         non_interactive = True
         customize = False
 
-    print(tr("=== winpodx setup ===\n"))
+    print(tr("=== WinPodX setup ===\n"))
 
     print(tr("Checking dependencies..."))
     # probe_daemons: verify the container backends actually answer, not just
@@ -965,7 +965,7 @@ def handle_setup(args: argparse.Namespace) -> None:
     skip_provision = os.environ.get("WINPODX_NO_PROVISION") == "1"
     if cfg.pod.backend not in ("podman", "docker") or skip_provision:
         print(tr("Apps are now in your application menu."))
-        print(tr("Just click any app. winpodx handles the rest automatically."))
+        print(tr("Just click any app. WinPodX handles the rest automatically."))
         if cfg.pod.backend in ("podman", "docker") and skip_provision:
             print(
                 tr(

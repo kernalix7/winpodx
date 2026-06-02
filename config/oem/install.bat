@@ -3,7 +3,7 @@ REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's un
 
 set WINPODX_OEM_VERSION=26
 
-echo [winpodx] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
+echo [WinPodX] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
 REM ---------------------------------------------------------------------------
 REM Windows Defender exclusions - ABSOLUTE FIRST STEP.
@@ -47,14 +47,14 @@ REM quarantined and reverse-open silently breaks. Exclude the path (and
 REM the shim process) here, first-step, so the exclusion is in place
 REM before per-user logon stages the files. Add-MpPreference accepts a
 REM not-yet-existent path, so registering it early is fine.
-echo [winpodx] Adding Windows Defender exclusions for C:\OEM, C:\winpodx, C:\Users\Public\winpodx, and the winpodx helper processes...
+echo [WinPodX] Adding Windows Defender exclusions for C:\OEM, C:\winpodx, C:\Users\Public\winpodx, and the winpodx helper processes...
 powershell -NoProfile -Command "try { Add-MpPreference -ExclusionPath 'C:\OEM','C:\winpodx','C:\Users\Public\winpodx' -ErrorAction Stop; Add-MpPreference -ExclusionProcess 'rdprrap-installer.exe','winpodx-reverse-open-shim.exe' -ErrorAction Stop } catch { Write-Output ('defender-exclusion: ' + $_.Exception.Message) }" >nul 2>&1
 
-echo [winpodx] Setting DNS...
+echo [WinPodX] Setting DNS...
 netsh interface ip set dns "Ethernet" static 1.1.1.1
 netsh interface ip add dns "Ethernet" 1.0.0.1 index=2
 
-echo [winpodx] Enabling Remote Desktop...
+echo [WinPodX] Enabling Remote Desktop...
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fSingleSessionPerUser /t REG_DWORD /d 0 /f
 
@@ -62,7 +62,7 @@ REM NLA off for automated FreeRDP; SecurityLayer=2 keeps TLS on the RDP channel.
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v UserAuthentication /t REG_DWORD /d 0 /f
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v SecurityLayer /t REG_DWORD /d 2 /f
 
-echo [winpodx] Enabling RemoteApp...
+echo [WinPodX] Enabling RemoteApp...
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList" /v fDisabledAllowList /t REG_DWORD /d 1 /f
 
 REM Without fInheritInitialProgram, Windows ignores /shell: and /app: from the RDP client.
@@ -76,10 +76,10 @@ REM Bug B (v0.1.9 / OEM v7): host suspend / long idle commonly leaves Windows
 REM with TermService stalled or the virtual NIC in power-save, breaking RDP
 REM while VNC keeps working. Two preventive measures so the host-side
 REM recover_rdp_if_needed() helper has less to do.
-echo [winpodx] Disabling NIC power-save...
+echo [WinPodX] Disabling NIC power-save...
 powershell -NoProfile -Command "Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {$_.Status -ne 'Disabled'} | Set-NetAdapterPowerManagement -AllowComputerToTurnOffDevice $false -ErrorAction SilentlyContinue" >nul 2>&1
 
-echo [winpodx] Configuring TermService recovery actions...
+echo [WinPodX] Configuring TermService recovery actions...
 REM 3 attempts at 5s spacing, 24h reset window - Windows itself recovers
 REM TermService crashes without needing host intervention.
 sc.exe failure TermService reset= 86400 actions= restart/5000/restart/5000/restart/5000 >nul 2>&1
@@ -98,7 +98,7 @@ REM     concurrent sessions but doesn't suppress that prompt - only
 REM     auto-logoff does.
 REM Both the machine policy and the RDP-Tcp WinStation keys are set;
 REM whichever Windows consults first finds the saner default.
-echo [winpodx] Disabling RDP session timeouts + enabling keep-alive...
+echo [WinPodX] Disabling RDP session timeouts + enabling keep-alive...
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxIdleTime /t REG_DWORD /d 0 /f >nul 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxDisconnectionTime /t REG_DWORD /d 30000 /f >nul 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v MaxConnectionTime /t REG_DWORD /d 0 /f >nul 2>&1
@@ -109,7 +109,7 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-T
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v MaxConnectionTime /t REG_DWORD /d 0 /f >nul 2>&1
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v KeepAliveTimeout /t REG_DWORD /d 1 /f >nul 2>&1
 
-echo [winpodx] Configuring firewall...
+echo [WinPodX] Configuring firewall...
 REM Delete-then-add keeps the rule idempotent; plain add creates duplicates on re-run.
 netsh advfirewall firewall set rule group="Remote Desktop" new enable=yes 2>nul
 netsh advfirewall firewall delete rule name="RDP TCP" >nul 2>&1
@@ -126,7 +126,7 @@ REM "Remote Desktop" group rule above; 8765 needs an explicit rule.
 netsh advfirewall firewall delete rule name="winpodx-agent" >nul 2>&1
 netsh advfirewall firewall add rule name="winpodx-agent" dir=in action=allow protocol=tcp localport=8765 2>nul
 
-echo [winpodx] Optimizing for RDP...
+echo [WinPodX] Optimizing for RDP...
 reg add "HKCU\Control Panel\Desktop" /v DragFullWindows /t REG_SZ /d 0 /f
 reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
@@ -195,13 +195,13 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v S
 
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 1 /f
 
-echo [winpodx] Home folder is available at \\tsclient\home via RDP drive redirection
+echo [WinPodX] Home folder is available at \\tsclient\home via RDP drive redirection
 
 REM dockur's base image ships a "Shared" desktop item pointing to \\host.lan\Data (SMB) that we don't use; replace with Home/USB shortcuts to the RDP redirections.
-echo [winpodx] Creating desktop shortcuts to tsclient shares...
+echo [WinPodX] Creating desktop shortcuts to tsclient shares...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); foreach($n in 'Shared','Shared.lnk'){ $p=Join-Path $d $n; if(Test-Path -LiteralPath $p){ Remove-Item -Force -Recurse -LiteralPath $p -ErrorAction SilentlyContinue } }; $s=New-Object -ComObject WScript.Shell; foreach($x in @(@('Home','\\tsclient\home'), @('USB','\\tsclient\media'))){ $l=$s.CreateShortcut((Join-Path $d ($x[0]+'.lnk'))); $l.TargetPath=$x[1]; $l.Save() }"
 
-echo [winpodx] Setting up USB media auto-mapping...
+echo [WinPodX] Setting up USB media auto-mapping...
 mkdir C:\winpodx 2>nul
 
 REM Prefer compose-mounted C:\winpodx-scripts; fall back to well-known install locations over \\tsclient\home. See config/oem/README.md.
@@ -224,9 +224,9 @@ if not defined WINPODX_SRC_OK (
     )
 )
 if not defined WINPODX_SRC_OK (
-    echo [winpodx] WARNING: media_monitor.ps1 not found in any known location.
-    echo [winpodx] Mount the scripts dir at C:\winpodx-scripts via compose, or
-    echo [winpodx] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
+    echo [WinPodX] WARNING: media_monitor.ps1 not found in any known location.
+    echo [WinPodX] Mount the scripts dir at C:\winpodx-scripts via compose, or
+    echo [WinPodX] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
 )
 REM WinpodxMedia HKCU\Run registration moved later in install.bat -- the
 REM same PowerShell block that registers WinpodxAgent now writes both
@@ -240,7 +240,7 @@ if exist C:\winpodx\oem_updater.ps1 del /F /Q C:\winpodx\oem_updater.ps1 >nul 2>
 REM Parenthesized echo strips the trailing space that `echo X > file` leaves behind.
 (echo %WINPODX_OEM_VERSION%)>C:\winpodx\oem_version.txt
 
-echo [winpodx] Installing multi-session RDP (rdprrap) - offline bundle...
+echo [WinPodX] Installing multi-session RDP (rdprrap) - offline bundle...
 REM Bundle ships under config/oem/ and is staged into C:\OEM\ by dockur's unattended install.
 REM The pin file (version / filename / sha256) lives next to the zip. No network
 REM access is required - everything is copied straight from the staged folder.
@@ -270,7 +270,7 @@ if exist "%RDPRRAP_INSTALLED%" (
 )
 REM Check sits on its own line so %RDPRRAP_CUR% expands AFTER the for-loop above (no delayed expansion needed).
 if defined RDPRRAP_CUR if /I "%RDPRRAP_CUR%"=="%RDPRRAP_VERSION%" (
-    echo [winpodx] rdprrap %RDPRRAP_VERSION% already installed, skipping.
+    echo [WinPodX] rdprrap %RDPRRAP_VERSION% already installed, skipping.
     goto :rdprrap_done
 )
 
@@ -278,7 +278,7 @@ REM Locate the bundled zip inside the OEM staging folder.
 set "RDPRRAP_ZIP_SRC="
 if exist "C:\OEM\%RDPRRAP_FILENAME%" set "RDPRRAP_ZIP_SRC=C:\OEM\%RDPRRAP_FILENAME%"
 if not defined RDPRRAP_ZIP_SRC (
-    echo [winpodx] WARNING: bundled %RDPRRAP_FILENAME% not found at C:\winpodx or C:\OEM; staying single-session.
+    echo [WinPodX] WARNING: bundled %RDPRRAP_FILENAME% not found at C:\winpodx or C:\OEM; staying single-session.
     goto :rdprrap_done
 )
 
@@ -289,9 +289,9 @@ for /f "usebackq skip=1 delims=" %%H in (`certutil -hashfile "%RDPRRAP_ZIP_SRC%"
 )
 set "RDPRRAP_GOT=%RDPRRAP_GOT: =%"
 if /I not "%RDPRRAP_GOT%"=="%RDPRRAP_SHA256%" (
-    echo [winpodx] WARNING: rdprrap sha256 mismatch on bundle; staying single-session.
-    echo [winpodx]   expected %RDPRRAP_SHA256%
-    echo [winpodx]   got      %RDPRRAP_GOT%
+    echo [WinPodX] WARNING: rdprrap sha256 mismatch on bundle; staying single-session.
+    echo [WinPodX]   expected %RDPRRAP_SHA256%
+    echo [WinPodX]   got      %RDPRRAP_GOT%
     goto :rdprrap_done
 )
 
@@ -340,7 +340,7 @@ REM default for our zip layout, so the inner rdprrap-<version>/ folder
 REM that Expand-Archive used to leave behind isn't present after tar
 REM extraction. We still defensively check + flatten via cmd's MOVE /Y
 REM in case the archive layout changes.
-echo [winpodx] Extracting rdprrap %RDPRRAP_VERSION%...
+echo [WinPodX] Extracting rdprrap %RDPRRAP_VERSION%...
 set "RDPRRAP_EXTRACTED="
 for %%T in (1 2 3) do (
     if not defined RDPRRAP_EXTRACTED (
@@ -349,7 +349,7 @@ for %%T in (1 2 3) do (
         if not errorlevel 1 set "RDPRRAP_EXTRACTED=1"
         if not defined RDPRRAP_EXTRACTED (
             (echo extract attempt %%T failed; sleeping 2s)>>"%RDPRRAP_LOG%"
-            echo [winpodx]   extract attempt %%T failed, retrying after 2s...
+            echo [WinPodX]   extract attempt %%T failed, retrying after 2s...
             REM Plain timeout instead of `powershell Start-Sleep` - PS
             REM call here would re-introduce the very engine load that
             REM tar is bypassing.
@@ -359,8 +359,8 @@ for %%T in (1 2 3) do (
 )
 if not defined RDPRRAP_EXTRACTED (
     (echo FINAL: extract-failed)>>"%RDPRRAP_LOG%"
-    echo [winpodx] WARNING: rdprrap extraction failed after 3 attempts; staying single-session.
-    echo [winpodx]   diagnostic log: %RDPRRAP_LOG%
+    echo [WinPodX] WARNING: rdprrap extraction failed after 3 attempts; staying single-session.
+    echo [WinPodX]   diagnostic log: %RDPRRAP_LOG%
     (echo extract-failed)>"%RDPRRAP_STATUS%"
     goto :rdprrap_done
 )
@@ -379,8 +379,8 @@ for /d %%D in ("%RDPRRAP_DIR%\rdprrap-*") do (
 set "RDPRRAP_EXE=%RDPRRAP_DIR%\rdprrap-installer.exe"
 if not exist "%RDPRRAP_EXE%" (
     (echo FINAL: extract-failed - rdprrap-installer.exe missing after extract)>>"%RDPRRAP_LOG%"
-    echo [winpodx] WARNING: rdprrap-installer.exe missing after extract; staying single-session.
-    echo [winpodx]   diagnostic log: %RDPRRAP_LOG%
+    echo [WinPodX] WARNING: rdprrap-installer.exe missing after extract; staying single-session.
+    echo [WinPodX]   diagnostic log: %RDPRRAP_LOG%
     (echo extract-failed)>"%RDPRRAP_STATUS%"
     goto :rdprrap_done
 )
@@ -400,28 +400,28 @@ REM The script writes the same .activation_status / install.log markers
 REM install.bat used to write directly. Idempotency marker
 REM (.installed_version) stays install.bat's responsibility - only OEM
 REM time has the SHA-pinned bundle context to safely stamp it.
-echo [winpodx] Activating rdprrap (delegating to rdprrap-activate.ps1)...
+echo [WinPodX] Activating rdprrap (delegating to rdprrap-activate.ps1)...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rdprrap-activate.ps1" >>"%RDPRRAP_LOG%" 2>&1
 set "RDPRRAP_RC=%ERRORLEVEL%"
 (echo rdprrap-activate.ps1 exit=%RDPRRAP_RC%)>>"%RDPRRAP_LOG%"
 if not "%RDPRRAP_RC%"=="0" (
-    echo [winpodx] WARNING: rdprrap-activate.ps1 exited with code %RDPRRAP_RC%; staying single-session.
-    echo [winpodx]   diagnostic log: %RDPRRAP_LOG%
+    echo [WinPodX] WARNING: rdprrap-activate.ps1 exited with code %RDPRRAP_RC%; staying single-session.
+    echo [WinPodX]   diagnostic log: %RDPRRAP_LOG%
     goto :rdprrap_done
 )
 
 (echo %RDPRRAP_VERSION%)>"%RDPRRAP_INSTALLED%"
-echo [winpodx] rdprrap %RDPRRAP_VERSION% installed and activated.
+echo [WinPodX] rdprrap %RDPRRAP_VERSION% installed and activated.
 goto :rdprrap_done
 
 :rdprrap_skip
-echo [winpodx] rdprrap_version.txt not found or incomplete; staying single-session.
+echo [WinPodX] rdprrap_version.txt not found or incomplete; staying single-session.
 :rdprrap_done
 
 REM ---------------------------------------------------------------------
 REM v0.2.2-rev1: winpodx guest HTTP agent
 REM ---------------------------------------------------------------------
-echo [winpodx] Installing winpodx guest agent...
+echo [WinPodX] Installing WinPodX guest agent...
 copy /Y "%~dp0agent\agent.ps1" "C:\OEM\agent.ps1" 2>nul
 mkdir C:\OEM\agent-runs 2>nul
 
@@ -534,7 +534,7 @@ REM      install 2026-05-02 18:48).
 REM   3. Single PS round-trip writes both WinpodxAgent and WinpodxMedia,
 REM      replacing the two separate reg-add lines + the WinpodxMedia
 REM      special case below.
-echo [winpodx] Registering HKCU\Run entries...
+echo [WinPodX] Registering HKCU\Run entries...
 echo [agent-install] step=hkcu-run-register status=enter>>"%SETUP_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
@@ -575,7 +575,7 @@ REM Same wscript+hidden-launcher.vbs wrapper / direct-PS fallback
 REM split as the HKCU\Run registration above. Spawned via
 REM Start-Process detached so install.bat doesn't block on the agent's
 REM event loop.
-echo [winpodx] Starting guest agent...
+echo [WinPodX] Starting guest agent...
 echo [agent-install] step=spawn status=enter>>"%SETUP_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
@@ -641,7 +641,7 @@ REM wscript hidden-launcher wrapper so the 1-min wakeups never flash a
 REM console. Registered via the ScheduledTasks cmdlets so we can attach
 REM BOTH an AtLogOn trigger AND a 1-minute repetition (schtasks.exe can
 REM only set one schedule per task).
-echo [winpodx] Registering agent keep-alive scheduled task...
+echo [WinPodX] Registering agent keep-alive scheduled task...
 echo [agent-install] step=keepalive-task status=enter>>"%SETUP_LOG%"
 if exist "C:\Users\Public\winpodx\launchers\agent-keepalive.ps1" (
     if not exist C:\winpodx mkdir C:\winpodx
@@ -675,7 +675,7 @@ echo [agent-install] step=keepalive-task status=exit rc=%ERRORLEVEL%>>"%SETUP_LO
 REM Token is delivered via the OEM bind mount - no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
 REM creation; dockur lays the OEM directory contents into C:\OEM\.
-echo [winpodx] Guest agent installed.
+echo [WinPodX] Guest agent installed.
 
 REM Stage power-monitor.ps1 under C:\winpodx (C:\OEM is wiped after
 REM first boot, so anything we want to keep needs a copy outside it).
@@ -695,14 +695,14 @@ if exist C:\OEM\power-monitor.ps1 (
     REM this session too -- otherwise the very first host suspend
     REM after install (before the next guest reboot) goes unhandled.
     schtasks /run /tn "winpodx-power-monitor" >nul 2>&1
-    echo [winpodx] Guest power monitor scheduled.
+    echo [WinPodX] Guest power monitor scheduled.
 )
 
 REM Sentinel lives under C:\winpodx so it survives past the one-shot C:\OEM stage.
 (echo done)>C:\winpodx\setup_done.txt
 
-echo [winpodx] Post-install configuration complete (version %WINPODX_OEM_VERSION%)!
-echo [winpodx] RDP is now enabled. You can connect with FreeRDP.
+echo [WinPodX] Post-install configuration complete (version %WINPODX_OEM_VERSION%)!
+echo [WinPodX] RDP is now enabled. You can connect with FreeRDP.
 
 REM ---------------------------------------------------------------------------
 REM TermService cycle -- ABSOLUTELY LAST STEP.
@@ -736,7 +736,7 @@ REM cmd.exe dies before reaching that, the marker stays at
 REM `patched-pending-cycle` and the host's `_apply_multi_session`
 REM ServiceDll cross-check (PR #85) will reconcile it to `enabled` on
 REM next apply-fixes.
-echo [winpodx] Cycling TermService to load termwrap.dll (final step)...
+echo [WinPodX] Cycling TermService to load termwrap.dll (final step)...
 net stop TermService /y >nul 2>&1
 net start TermService >nul 2>&1
 
@@ -771,9 +771,9 @@ REM
 REM If shutdown fails for any reason, the marker is left behind --
 REM apply-fixes treats this as "still need second-pass reboot" and
 REM offers to retry. Failure mode is detectable, not silent.
-echo [winpodx] Scheduling reboot to apply registry / power settings...
+echo [WinPodX] Scheduling reboot to apply registry / power settings...
 (echo pending)>C:\winpodx\oem_reboot_pending.txt 2>nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" ^
     /v WinpodxClearOemRebootMarker /t REG_SZ ^
     /d "cmd.exe /c del /q C:\winpodx\oem_reboot_pending.txt" /f >nul
-shutdown /r /t 15 /c "winpodx: applying registry / power settings"
+shutdown /r /t 15 /c "WinPodX: applying registry / power settings"

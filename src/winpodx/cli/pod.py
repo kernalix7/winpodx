@@ -391,7 +391,7 @@ def _sync_password(non_interactive: bool) -> None:
     else:
         print(
             tr(
-                "winpodx will authenticate once with a recovery password (the password "
+                "WinPodX will authenticate once with a recovery password (the password "
                 "Windows currently accepts), then reset the Windows account to the "
                 "value in your winpodx config."
             )
@@ -399,7 +399,7 @@ def _sync_password(non_interactive: bool) -> None:
         print()
         print(tr("Common recovery passwords to try:"))
         print(tr("  - The password from your original setup (compose.yml PASSWORD env)"))
-        print(tr("  - The first password you set when winpodx was installed"))
+        print(tr("  - The first password you set when WinPodX was installed"))
         print()
         recovery_pw = getpass.getpass(tr("Recovery password (input hidden): "))
         if not recovery_pw:
@@ -1205,7 +1205,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             eta_min = max(1, eta_remaining_secs // 60)
             print(
                 tr(
-                    "[winpodx] Slow Windows ISO download detected "
+                    "[WinPodX] Slow Windows ISO download detected "
                     "(~{eta_min}m remaining). "
                     "Extending wait to {total_min}m total."
                 ).format(eta_min=eta_min, total_min=total_min)
@@ -1526,7 +1526,7 @@ def _recover_oem() -> None:
         sys.exit(1)
 
     print(
-        tr("[winpodx] Checking container '{container}' is running...").format(container=container)
+        tr("[WinPodX] Checking container '{container}' is running...").format(container=container)
     )
     try:
         result = subprocess.run(
@@ -1556,7 +1556,7 @@ def _recover_oem() -> None:
         )
         sys.exit(1)
 
-    print(tr("[winpodx] Verifying /oem/install.bat exists inside container..."))
+    print(tr("[WinPodX] Verifying /oem/install.bat exists inside container..."))
     try:
         check = subprocess.run(
             [cmd, "exec", container, "sh", "-c", "test -f /oem/install.bat"],
@@ -1584,7 +1584,7 @@ def _recover_oem() -> None:
     # new trust boundary, but serving the whole /storage would.
     serve_dir = "/tmp/winpodx-recover"
     print(
-        tr("[winpodx] Tarring /oem into {serve_dir}/oem.tar.gz inside container...").format(
+        tr("[WinPodX] Tarring /oem into {serve_dir}/oem.tar.gz inside container...").format(
             serve_dir=serve_dir
         )
     )
@@ -1614,7 +1614,7 @@ def _recover_oem() -> None:
     # not forwarded to the host. Reachable from the Windows guest via
     # QEMU's NAT gateway 10.0.2.2:8766. Serves only the dedicated
     # recover dir (one file), not /storage.
-    print(tr("[winpodx] Starting HTTP server on container port 8766..."))
+    print(tr("[WinPodX] Starting HTTP server on container port 8766..."))
     # Best-effort cleanup of any prior server on 8766.
     subprocess.run(
         [
@@ -1816,7 +1816,7 @@ def _sync_guest(*, force: bool) -> None:
     hv = host_version()
     gv = read_guest_version(cfg)
     print(
-        tr("host:  winpodx {version}, OEM bundle {oem}").format(
+        tr("host:  WinPodX {version}, OEM bundle {oem}").format(
             version=hv.winpodx, oem=hv.oem_bundle
         )
     )
@@ -1824,7 +1824,7 @@ def _sync_guest(*, force: bool) -> None:
         print(tr("guest: version stamp not found (will sync)"))
     else:
         print(
-            tr("guest: winpodx {version}, OEM bundle {oem}").format(
+            tr("guest: WinPodX {version}, OEM bundle {oem}").format(
                 version=gv.winpodx, oem=gv.oem_bundle
             )
         )

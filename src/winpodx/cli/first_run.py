@@ -103,7 +103,7 @@ def maybe_run_first_run_prompt(
         return False
 
     print_fn("")
-    print_fn(tr("winpodx has not been set up yet on this account."))
+    print_fn(tr("WinPodX has not been set up yet on this account."))
     print_fn("")
     print_fn(tr("Run setup now?"))
     print_fn(tr("  [Y]es     -- auto setup (host-detected defaults, no prompts)"))

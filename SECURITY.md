@@ -69,13 +69,13 @@ This project follows these security practices:
 
 ## Host <-> Guest Trust Model
 
-winpodx treats the Windows guest as a **semi-trusted** component, not a trusted
+WinPodX treats the Windows guest as a **semi-trusted** component, not a trusted
 extension of the host. This section documents how that trust boundary is drawn
 and enforced, specifically for the app-discovery channel introduced in v0.1.7.
 
 ### Provisioning scope and threat assumptions
 
-winpodx provisions the Windows guest itself inside a rootless Podman container
+WinPodX provisions the Windows guest itself inside a rootless Podman container
 (or, optionally, Docker / libvirt). Because the host controls the image, the
 unattended-install answer file, and the OEM post-install scripts, a freshly
 provisioned guest starts in a known-good state.
@@ -121,7 +121,7 @@ interpolated into a subprocess argument list:
   decoder before it is written under `~/.local/share/icons/hicolor/`.
 - **`_safe_rmtree`** — refuses to delete any path outside
   `~/.local/share/winpodx/apps/`.
-- **`_is_within`** — refuses to write any path outside the winpodx user data
+- **`_is_within`** — refuses to write any path outside the WinPodX user data
   directory.
 - **List-args subprocess only** — all subprocess invocations pass an argv
   list; `shell=True` is never used on guest-derived strings.

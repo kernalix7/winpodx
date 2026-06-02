@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature or improvement for winpodx
+about: Suggest a new feature or improvement for WinPodX
 title: "[Feature] "
 labels: enhancement
 assignees: ''

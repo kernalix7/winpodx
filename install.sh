@@ -104,13 +104,13 @@ WINPODX_ALLOW_OLD_PODMAN="${WINPODX_ALLOW_OLD_PODMAN:-}"
 WINPODX_VERBOSE="${WINPODX_VERBOSE:-}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-log()  { echo -e "${GREEN}[winpodx]${NC} $*"; }
+log()  { echo -e "${GREEN}[WinPodX]${NC} $*"; }
 warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 err()  { echo -e "${RED}[error]${NC} $*" >&2; }
 
 usage() {
     sed -n '4,93p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || cat <<'USAGE_EOF'
-winpodx installer — see install.sh header for full usage.
+WinPodX installer — see install.sh header for full usage.
 
 Flags:
   --mode r|a|c|n      Install mode (Recommended / Automatic / Custom / No)
@@ -622,7 +622,7 @@ print_system_check() {
         osname="${PRETTY_NAME:-$DISTRO}"
     fi
     echo ""
-    echo "================ winpodx system check ================"
+    echo "================ WinPodX system check ================"
     echo "  Distro:        $osname"
     echo "  Architecture:  $ARCH_LABEL"
     echo "  python3:       $(yesno "$PYTHON3_PRESENT")  $(tool_version python3)"
@@ -642,7 +642,7 @@ print_system_check() {
     echo "======================================================"
     if [ "$PODMAN_TOO_OLD" = true ]; then
         echo ""
-        warn "podman $PODMAN_MAJOR.x is too old for winpodx (need >= 4 for rootless"
+        warn "podman $PODMAN_MAJOR.x is too old for WinPodX (need >= 4 for rootless"
         warn "'group_add: keep-groups' + modern compose; Ubuntu 22.04 ships 3.4 — #271)."
         warn "Either:"
         warn "  - upgrade podman (Kubic / devel:kubic:libcontainers repo:"
@@ -686,11 +686,11 @@ if [ -z "$INSTALL_MODE" ]; then
         # Automatic (reuse what's present, install only what's strictly
         # missing) without prompting.
         INSTALL_MODE="a"
-        log "Existing winpodx install detected — upgrading; reusing current config (skipping install-mode prompt)."
+        log "Existing WinPodX install detected — upgrading; reusing current config (skipping install-mode prompt)."
     elif [ "$INTERACTIVE" = true ]; then
         cat <<'MODE_EOF'
 Install mode?
-  [R]ecommended  winpodx's recommended stack (Podman backend + deps); installs missing system packages via the distro package manager (sudo).
+  [R]ecommended  WinPodX's recommended stack (Podman backend + deps); installs missing system packages via the distro package manager (sudo).
   [A]utomatic    Reuse what's already installed; only install what's strictly missing; pick the backend from what's present (prefer an already-working docker/podman). Minimal sudo.
   [C]ustom       Choose backend (podman/docker) and whether to include the GUI, then install accordingly.
   [N]o           Cancel without changing anything.
@@ -816,7 +816,7 @@ fi
 # WINPODX_ALLOW_OLD_PODMAN=1 / --allow-old-podman overrides (e.g. podman was
 # upgraded out-of-band since the probe).
 if [ "$WINPODX_BACKEND" = "podman" ] && [ "$PODMAN_TOO_OLD" = true ] && [ "$WINPODX_ALLOW_OLD_PODMAN" != "1" ]; then
-    warn "podman $PODMAN_MAJOR.x is too old for winpodx (need >= 4; Ubuntu 22.04 ships 3.4 -- #271)."
+    warn "podman $PODMAN_MAJOR.x is too old for WinPodX (need >= 4; Ubuntu 22.04 ships 3.4 -- #271)."
     if [ "$INTERACTIVE" = true ]; then
         if [ "$DOCKER_PRESENT" = true ]; then
             echo "docker is installed and usable."
@@ -1388,7 +1388,7 @@ fi
 gtk-update-icon-cache -f -t "$ICON_BASE" 2>/dev/null || true
 # Rebuild KDE Plasma sycoca cache
 kbuildsycoca6 --noincremental 2>/dev/null || kbuildsycoca5 --noincremental 2>/dev/null || true
-log "Installed winpodx GUI launcher and icon"
+log "Installed WinPodX GUI launcher and icon"
 
 # v0.1.9: bundled app profiles were dropped. The app menu now populates
 # automatically the first time the Windows pod boots — `winpodx app run
@@ -1543,7 +1543,7 @@ GUI_LABEL="yes"
 [ -n "$WINPODX_NO_GUI" ] && GUI_LABEL="no (--no-gui)"
 
 echo ""
-echo -e "${GREEN}  ┌─ winpodx installed ──────────────────────────────────────${NC}"
+echo -e "${GREEN}  ┌─ WinPodX installed ──────────────────────────────────────${NC}"
 printf "  │  version   %s\n" "$INSTALLED_VER"
 printf "  │  backend   %s\n" "${WINPODX_BACKEND:-podman}"
 printf "  │  GUI       %s\n" "$GUI_LABEL"
@@ -1560,6 +1560,6 @@ echo "    winpodx doctor             # health check if something looks off"
 echo "    winpodx --help             # every command"
 echo ""
 echo "  Your Windows apps are already in the application menu — click any one"
-echo "  and winpodx handles the pod, the RDP session, and the window for you."
+echo "  and WinPodX handles the pod, the RDP session, and the window for you."
 echo ""
 log "Installation complete!"

@@ -60,7 +60,7 @@ def handle_uninstall(args: argparse.Namespace) -> None:
     sys.exit(
         "uninstall.sh not found. Looked in:\n  - "
         + "\n  - ".join(str(p) for p in _candidate_paths())
-        + "\n\nReinstall winpodx, or fetch the script directly:\n"
+        + "\n\nReinstall WinPodX, or fetch the script directly:\n"
         "  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh "
         "| bash -s -- --yes"
     )

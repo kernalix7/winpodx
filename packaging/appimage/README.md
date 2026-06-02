@@ -1,6 +1,6 @@
-# winpodx AppImage build
+# WinPodX AppImage build
 
-Builds a distro-agnostic **Thin** AppImage of winpodx (0.6.0 item A).
+Builds a distro-agnostic **Thin** AppImage of WinPodX (0.6.0 item A).
 
 There are **two build paths**, both producing a Thin AppImage:
 
@@ -19,7 +19,7 @@ Same model as `install.sh`:
 
 - **`podman` (recommended)** or `docker` — installed via the
   host distro package manager. Rootless podman fundamentally needs host
-  systemd / subuid integration that an AppImage can't carry, so winpodx
+  systemd / subuid integration that an AppImage can't carry, so WinPodX
   cannot ship one that works.
 - KVM kernel module + `/dev/kvm` access + `kvm` group membership.
 - `/etc/subuid` + `/etc/subgid` for rootless Podman.
@@ -94,11 +94,11 @@ exactly like the wheel / `.deb` / `.rpm`.
 
 ## Licensing
 
-winpodx itself is **MIT** and stays MIT. The Thin AppImage redistributes
+WinPodX itself is **MIT** and stays MIT. The Thin AppImage redistributes
 only the FreeRDP 3 client stack from Fedora 41, so its license + NOTICE
 texts travel inside it:
 
-- winpodx `LICENSE` (MIT) + `THIRD_PARTY_LICENSES.md` at
+- WinPodX `LICENSE` (MIT) + `THIRD_PARTY_LICENSES.md` at
   `${APPDIR}/usr/share/doc/winpodx/`
 - bundled FreeRDP package licenses (Apache-2.0: `freerdp-libs`,
   `libwinpr`) under `${APPDIR}/usr/share/doc/winpodx/third-party/<pkg>/`
