@@ -10,6 +10,16 @@ license = "MIT"
 # this routes to BCryptGenRandom; no other deps.
 getrandom = "0.2"
 
+[build-dependencies]
+# Embeds a Windows VERSIONINFO resource (CompanyName / ProductName /
+# FileDescription / version) into the PE at build time (#425). A stripped,
+# metadata-less binary scores worse on AV heuristics; stamping real
+# publisher/product info is a cheap signal that this is a legitimate tool.
+# Only runs for windows targets; uses windres / llvm-rc as the resource
+# compiler (windres ships with the same mingw toolchain that links the
+# x86_64-pc-windows-gnu target).
+winresource = "0.1"
+
 [profile.release]
 # Optimise hard for size — the shim ships as N hard links to the same
 # binary, so one copy of the .exe lives on the guest. Smaller is
