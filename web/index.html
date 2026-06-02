@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT — winpodx.org landing page. No trackers. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>winpodx — Windows apps as native Linux windows</title>
+  <meta name="description" content="Run Windows apps on Linux as first-class native windows — real icons, taskbar, file associations. FreeRDP RemoteApp + dockur/windows. One-command setup.">
+  <link rel="icon" type="image/svg+xml" href="assets/winpodx-icon.svg">
+  <link rel="canonical" href="https://winpodx.org/">
+  <!-- Open Graph -->
+  <meta property="og:title" content="winpodx — Windows apps as native Linux windows">
+  <meta property="og:description" content="Click an app. Word opens. That's it. FreeRDP RemoteApp + dockur/windows, zero config.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://winpodx.org/">
+  <meta property="og:image" content="https://winpodx.org/assets/demo.png">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <span class="brand"><img src="assets/winpodx-icon.svg" alt="">winpodx</span>
+    <nav class="links">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/kernalix7/winpodx/blob/main/docs/USAGE.md">Docs</a>
+      <a class="gh" href="https://github.com/kernalix7/winpodx">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap">
+    <img class="logo" src="assets/winpodx-icon.svg" alt="winpodx logo">
+    <h1>Click an app. Word opens.<br>That's it.</h1>
+    <p class="sub">Native Linux windows for every Windows app — real icons, real
+      <code>WM_CLASS</code>, pin-to-taskbar. FreeRDP RemoteApp + dockur/windows.
+      Zero config.</p>
+
+    <div class="badges">
+      <span class="badge beta">beta · v0.6.0</span>
+      <span class="badge">MIT</span>
+      <span class="badge">Python 3.9+</span>
+      <span class="badge">stdlib-only on 3.11+</span>
+    </div>
+
+    <div class="install" id="install">
+      <div class="label">Install (latest stable)</div>
+      <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash">Copy</button><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</div>
+    </div>
+
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/kernalix7/winpodx#quick-install">Get started</a>
+      <a class="btn ghost" href="https://github.com/kernalix7/winpodx">★ Star on GitHub</a>
+    </div>
+  </section>
+
+  <div class="shot wrap">
+    <a href="assets/demo.png"><img src="assets/demo.png" alt="winpodx — Windows apps as native Linux windows on KDE"></a>
+    <div class="cap">Windows About / Performance Monitor / PowerShell each in their own Linux window, alongside the winpodx Apps grid.</div>
+  </div>
+
+  <section id="features" class="wrap">
+    <h2>What it does</h2>
+    <p class="lead">No full-screen RDP. Each Windows app becomes its own Linux window — pinnable, alt-tabbable, file-associated, both directions.</p>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="dot">●</span>Seamless app windows</h3>
+        <ul>
+          <li>RemoteApp (RAIL) renders each app as a native window — no desktop</li>
+          <li>Per-app taskbar icons via <code>WM_CLASS</code> matching</li>
+          <li>Double-click <code>.docx</code> in your file manager → Word opens</li>
+          <li>Multi-session RDP: up to 10 independent sessions</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="dot">●</span>Reverse-open</h3>
+        <ul>
+          <li>Linux apps appear in the Windows "Open with…" menu, by default</li>
+          <li>Correct per-app icons in both Windows chooser dialogs</li>
+          <li>Selecting one round-trips the file open back to host <code>xdg-open</code></li>
+          <li>Auto-discovers host apps + MIME from freedesktop standards</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="dot">●</span>Zero-config launch</h3>
+        <ul>
+          <li>First app click auto-provisions config, container, desktop entries</li>
+          <li>First-boot discovery registers every installed Windows app with its real icon</li>
+          <li>Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop</li>
+          <li>Backends: Podman (default), Docker, libvirt/KVM, manual RDP</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="dot">●</span>Peripherals &amp; sharing</h3>
+        <ul>
+          <li>Clipboard (text + images), sound, and printers — on by default</li>
+          <li>Home directory shared as <code>\\tsclient\home</code></li>
+          <li>USB drives auto-mapped to drive letters; live USB device passthrough</li>
+          <li>Smart DPI scaling auto-detected from your desktop</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="dot">●</span>Automation &amp; resilience</h3>
+        <ul>
+          <li>Auto suspend / resume; optional pod auto-start on login</li>
+          <li>Self-heals a stalled RDP guest (UNRESPONSIVE → recover)</li>
+          <li>Password auto-rotation; Windows disk auto-grow</li>
+          <li>Health checks + auto-remediation via <code>winpodx doctor --fix</code></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="dot">●</span>Lean &amp; private</h3>
+        <ul>
+          <li>Near-zero Python deps — stdlib only on 3.11+</li>
+          <li>No telemetry, ever</li>
+          <li>Multilingual UI (en / ko / zh / ja / de / fr / it)</li>
+          <li>Qt6 GUI + a lightweight system tray</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="distros wrap">
+    <h2>Works on</h2>
+    <p class="lead">One-line install across the major Linux families.</p>
+    <div class="pills">
+      <span class="pill">openSUSE</span>
+      <span class="pill">Fedora</span>
+      <span class="pill">Fedora Atomic</span>
+      <span class="pill">Debian</span>
+      <span class="pill">Ubuntu</span>
+      <span class="pill">RHEL / Alma / Rocky</span>
+      <span class="pill">Arch</span>
+      <span class="pill">NixOS</span>
+      <span class="pill">AppImage (any distro)</span>
+    </div>
+    <div class="note">
+      <b>Needs hardware virtualization.</b> winpodx runs Windows in a KVM-backed
+      container — an x86_64 / aarch64 CPU with virtualization extensions, 8 GB+ RAM
+      (12 GB+ recommended), and ~30 GB free disk. First install takes ~5–10 minutes
+      (Windows ISO download + Sysprep + OEM apply).
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">winpodx</span>
+        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div>
+      </div>
+      <div class="links">
+        <a href="https://github.com/kernalix7/winpodx">GitHub</a>
+        <a href="https://github.com/kernalix7/winpodx/releases">Releases</a>
+        <a href="https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md">Install</a>
+        <a href="https://github.com/kernalix7/winpodx/blob/main/docs/USAGE.md">Usage</a>
+        <a href="https://github.com/kernalix7/winpodx/issues">Issues</a>
+        <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
+      </div>
+    </div>
+    <div class="legal">
+      MIT licensed — Kim DaeHyun ·
+      Powered by <a href="https://github.com/dockur/windows">dockur/windows</a> +
+      <a href="https://www.freerdp.com/">FreeRDP</a>.
+      Not affiliated with Microsoft. "Windows" is a trademark of Microsoft Corporation.
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Minimal copy-to-clipboard for the install command. No external libs, no tracking.
+  document.querySelectorAll("button.copy").forEach(function (b) {
+    b.addEventListener("click", function () {
+      navigator.clipboard.writeText(b.dataset.copy).then(function () {
+        var t = b.textContent; b.textContent = "Copied"; setTimeout(function () { b.textContent = t; }, 1500);
+      });
+    });
+  });
+</script>
+</body>
+</html>

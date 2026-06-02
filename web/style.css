@@ -1,0 +1,161 @@
+/* SPDX-License-Identifier: MIT
+   winpodx.org landing page — GitHub-Dark palette, matching the desktop app.
+   Hand-written, no framework, no trackers. */
+
+:root {
+  --crust: #010409;
+  --mantle: #0d1117;
+  --base: #161b22;
+  --surface0: #21262d;
+  --surface1: #30363d;
+  --surface2: #484f58;
+  --text: #e6edf3;
+  --subtext1: #c9d1d9;
+  --subtext0: #8b949e;
+  --overlay0: #656d76;
+  --blue: #58a6ff;
+  --sapphire: #388bfd;
+  --green: #3fb950;
+  --peach: #ffa657;
+  --max: 1080px;
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--mantle);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+    Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+
+/* ---- top nav ---- */
+header.nav {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(13, 17, 23, 0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--surface1);
+}
+.nav .wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+.nav .brand img { width: 28px; height: 28px; }
+.nav .links { display: flex; align-items: center; gap: 22px; font-size: 14px; }
+.nav .links a { color: var(--subtext1); }
+.nav .links a:hover { color: var(--text); text-decoration: none; }
+
+/* ---- hero ---- */
+.hero { text-align: center; padding: 72px 0 40px; }
+.hero img.logo { width: 84px; height: 84px; margin-bottom: 22px; }
+.hero h1 { font-size: 44px; line-height: 1.15; letter-spacing: -0.5px; }
+.hero p.sub { color: var(--subtext1); font-size: 18px; max-width: 640px; margin: 18px auto 8px; }
+.hero p.sub code {
+  background: var(--surface0); border: 1px solid var(--surface1);
+  border-radius: 6px; padding: 1px 6px; font-size: 15px;
+}
+
+.badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 22px 0 6px; }
+.badge {
+  font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px;
+  border: 1px solid var(--surface1); color: var(--subtext1); background: var(--surface0);
+}
+.badge.beta { color: var(--peach); border-color: var(--peach); }
+
+/* ---- install block ---- */
+.install { max-width: 760px; margin: 28px auto 0; text-align: left; }
+.install .label { font-size: 13px; color: var(--subtext0); margin: 16px 0 6px; font-weight: 600; }
+.code {
+  position: relative; background: var(--crust); border: 1px solid var(--surface1);
+  border-radius: var(--radius); padding: 16px 52px 16px 18px;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px; color: var(--text); overflow-x: auto; white-space: pre;
+}
+.code .prompt { color: var(--green); user-select: none; }
+.code button.copy {
+  position: absolute; top: 10px; right: 10px;
+  background: var(--surface0); color: var(--subtext1); border: 1px solid var(--surface1);
+  border-radius: 6px; padding: 4px 9px; font-size: 12px; cursor: pointer;
+}
+.code button.copy:hover { color: var(--text); border-color: var(--blue); }
+
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 34px 0 4px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 20px; border-radius: 10px; font-weight: 600; font-size: 15px;
+  border: 1px solid var(--surface1); cursor: pointer;
+}
+.btn.primary { background: var(--sapphire); color: var(--crust); border-color: var(--sapphire); }
+.btn.primary:hover { background: var(--blue); text-decoration: none; }
+.btn.ghost { background: var(--surface0); color: var(--text); }
+.btn.ghost:hover { border-color: var(--blue); text-decoration: none; }
+
+/* ---- screenshot ---- */
+.shot { text-align: center; padding: 24px 0 8px; }
+.shot img {
+  max-width: 100%; border-radius: var(--radius); border: 1px solid var(--surface1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.shot .cap { color: var(--subtext0); font-size: 13px; margin-top: 12px; }
+
+/* ---- sections ---- */
+section { padding: 56px 0; }
+section h2 { font-size: 28px; text-align: center; letter-spacing: -0.3px; }
+section h2 + p.lead { text-align: center; color: var(--subtext1); margin: 10px auto 0; max-width: 620px; }
+
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 36px; }
+.card {
+  background: var(--base); border: 1px solid var(--surface1); border-radius: var(--radius);
+  padding: 22px 24px;
+}
+.card h3 { font-size: 17px; margin-bottom: 12px; color: var(--text); }
+.card h3 .dot { color: var(--green); margin-right: 8px; }
+.card ul { list-style: none; }
+.card li { color: var(--subtext1); font-size: 14px; padding: 4px 0 4px 18px; position: relative; }
+.card li::before { content: "›"; position: absolute; left: 2px; color: var(--blue); }
+.card li code {
+  background: var(--surface0); border-radius: 5px; padding: 1px 5px; font-size: 12.5px;
+}
+
+/* ---- distros ---- */
+.distros { text-align: center; }
+.pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 30px; }
+.pill {
+  background: var(--surface0); border: 1px solid var(--surface1); border-radius: 999px;
+  padding: 8px 16px; font-size: 14px; font-weight: 600; color: var(--subtext1);
+}
+
+/* ---- requirements note ---- */
+.note {
+  max-width: 720px; margin: 28px auto 0; background: var(--base);
+  border: 1px solid var(--surface1); border-left: 3px solid var(--peach);
+  border-radius: var(--radius); padding: 16px 20px; color: var(--subtext1); font-size: 14px;
+}
+.note b { color: var(--text); }
+
+/* ---- footer ---- */
+footer {
+  border-top: 1px solid var(--surface1); padding: 40px 0; margin-top: 24px;
+  color: var(--subtext0); font-size: 14px;
+}
+footer .cols { display: flex; flex-wrap: wrap; gap: 40px; justify-content: space-between; }
+footer .links { display: flex; flex-wrap: wrap; gap: 18px; }
+footer .links a { color: var(--subtext1); }
+footer .legal { margin-top: 22px; font-size: 13px; color: var(--overlay0); }
+
+@media (max-width: 720px) {
+  .hero h1 { font-size: 32px; }
+  .grid { grid-template-columns: 1fr; }
+  .nav .links a:not(.gh) { display: none; }
+}
