@@ -793,7 +793,7 @@
   "WinPodX is MIT-licensed open source. See LICENSE in the source tree for the canonical text.": "WinPodX は MIT ライセンスのオープンソースです。正式な本文はソースツリーの LICENSE を参照してください。",
   "WinPodX is MIT-licensed. See the LICENSE file in the project repository for the canonical text:\n  https://github.com/kernalix7/winpodx/blob/main/LICENSE": "WinPodX は MIT ライセンスです。正式な本文はプロジェクトリポジトリの LICENSE ファイルを参照してください:\n  https://github.com/kernalix7/winpodx/blob/main/LICENSE",
   "WinPodX ships and depends on these upstream projects. Each is used under its own license; consult the upstream repository for the canonical text.": "WinPodX はこれらの上流プロジェクトを同梱し、依存しています。それぞれは独自のライセンスの下で使用されています。正式な本文は上流リポジトリを参照してください。",
-  "WinPodX will authenticate once with a recovery password (the password Windows currently accepts), then reset the Windows account to the value in your winpodx config.": "WinPodX はリカバリパスワード (Windows が現在受け入れているパスワード) で一度認証し、その後 Windows アカウントを winpodx の設定の値にリセットします。",
+  "WinPodX will authenticate once with a recovery password (the password Windows currently accepts), then reset the Windows account to the value in your WinPodX config.": "WinPodX はリカバリパスワード (Windows が現在受け入れているパスワード) で一度認証し、その後 Windows アカウントを WinPodX の設定の値にリセットします。",
   "WinPodX {version}: already current.": "WinPodX {version}: 既に最新です。",
   "WinPodX {version}: fresh install recorded. No migration needed.": "WinPodX {version}: 新規インストールを記録しました。移行は不要です。",
   "WinPodX — Quick Start": "WinPodX — クイックスタート",

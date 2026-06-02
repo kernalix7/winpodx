@@ -793,7 +793,7 @@
   "WinPodX is MIT-licensed open source. See LICENSE in the source tree for the canonical text.": "WinPodX 是采用 MIT 许可证的开源软件。规范文本见源代码树中的 LICENSE。",
   "WinPodX is MIT-licensed. See the LICENSE file in the project repository for the canonical text:\n  https://github.com/kernalix7/winpodx/blob/main/LICENSE": "WinPodX 采用 MIT 许可证。规范文本见项目仓库中的 LICENSE 文件：\n  https://github.com/kernalix7/winpodx/blob/main/LICENSE",
   "WinPodX ships and depends on these upstream projects. Each is used under its own license; consult the upstream repository for the canonical text.": "WinPodX 随附并依赖以下上游项目。每个项目均按其自身许可证使用；规范文本请查阅上游仓库。",
-  "WinPodX will authenticate once with a recovery password (the password Windows currently accepts), then reset the Windows account to the value in your winpodx config.": "WinPodX 会先用恢复密码（Windows 当前接受的密码）进行一次身份验证，然后将 Windows 账户重置为你的 winpodx 配置中的值。",
+  "WinPodX will authenticate once with a recovery password (the password Windows currently accepts), then reset the Windows account to the value in your WinPodX config.": "WinPodX 会先用恢复密码（Windows 当前接受的密码）进行一次身份验证，然后将 Windows 账户重置为你的 WinPodX 配置中的值。",
   "WinPodX {version}: already current.": "WinPodX {version}：已是最新。",
   "WinPodX {version}: fresh install recorded. No migration needed.": "WinPodX {version}：已记录全新安装。无需迁移。",
   "WinPodX — Quick Start": "WinPodX — 快速入门",

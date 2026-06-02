@@ -37,7 +37,7 @@ class PodmanBackend(Backend):
         if shutil.which("podman-compose"):
             return ["podman-compose", "-f", self._compose_file()]
         raise RuntimeError(
-            "podman-compose not found on PATH. winpodx requires podman-compose "
+            "podman-compose not found on PATH. WinPodX requires podman-compose "
             "(not the `podman compose` subcommand, which delegates to "
             "docker-compose and breaks our keep-groups extension -- see #288). "
             "Install it with your package manager: "
