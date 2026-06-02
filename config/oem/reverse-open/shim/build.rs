@@ -22,7 +22,7 @@ fn main() {
     // FileVersion / ProductVersion are taken from CARGO_PKG_VERSION by
     // default; the string fields below are what an AV / the file's
     // Properties → Details tab will show.
-    res.set("CompanyName", "winpodx")
+    res.set("CompanyName", "Kim DaeHyun")
         .set("ProductName", "winpodx")
         .set(
             "FileDescription",
@@ -32,7 +32,7 @@ fn main() {
         .set("OriginalFilename", "winpodx-reverse-open-shim.exe")
         .set(
             "LegalCopyright",
-            "MIT licensed — https://github.com/kernalix7/winpodx",
+            "Copyright (c) 2026 Kim DaeHyun. MIT licensed. https://github.com/kernalix7/winpodx",
         );
 
     if let Err(e) = res.compile() {
