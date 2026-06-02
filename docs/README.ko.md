@@ -281,10 +281,11 @@ ruff format --check src/ tests/
 
 winpodx 가 Linux 데스크톱을 조금이라도 더 좋게 만들었다면:
 
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/kernalix7)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/kernalix7)
 [![Fairy](https://img.shields.io/badge/🧚_Fairy-EE6E73?style=for-the-badge&logoColor=white)](https://fairy.hada.io/@kernalix7)
 
-Ko-fi 는 해외 카드 / PayPal 결제; fairy.hada.io 는 국내 결제용.
+GitHub Sponsors 는 정기 / 일시 후원; Ko-fi 는 해외 카드 / PayPal 결제; fairy.hada.io 는 국내 결제용.
 버그 리포트, PR, 별점도 환영합니다 —
 Bug reports, PRs, and stars on the repo are equally appreciated and free.
 
