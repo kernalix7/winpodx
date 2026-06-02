@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -42,7 +43,11 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_app_avatar, make_source_badge
+from winpodx.gui._widget_helpers import (
+    add_shadow,
+    make_app_avatar,
+    make_source_badge,
+)
 from winpodx.gui.theme import (
     APP_CARD,
     APP_TILE,
@@ -51,12 +56,18 @@ from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
     FILTER_CHIP,
+    FONT_CAPTION,
     SCROLL_AREA,
     SEARCH_BAR,
     VIEW_TOGGLE,
     C,
     avatar_color,
 )
+
+# Max category chips shown inline before collapsing the rest into a
+# "+N more" overflow menu (Task 4). "All" is always shown and does not
+# count against this cap.
+_MAX_CATEGORY_CHIPS = 8
 
 
 class LibraryPageMixin:
@@ -71,16 +82,28 @@ class LibraryPageMixin:
         toolbar = QHBoxLayout()
         toolbar.setSpacing(12)
 
+        # Leading magnifier glyph so the box reads as a search field rather
+        # than a bare input (Task 3). Kept as a sibling label — the shared
+        # SEARCH_BAR stylesheet already pads room on the left.
+        search_icon = QLabel("\U0001f50d")  # magnifying glass
+        search_icon.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
+        toolbar.addWidget(search_icon)
+
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText(tr("Search apps..."))
+        self.search_box.setPlaceholderText(tr("Search apps by name..."))
         self.search_box.setStyleSheet(SEARCH_BAR)
         self.search_box.setFixedWidth(340)
+        self.search_box.setClearButtonEnabled(True)
         self.search_box.textChanged.connect(self._filter_apps)
         toolbar.addWidget(self.search_box)
 
         toolbar.addStretch()
 
-        self.app_count_label = QLabel(tr("{n} apps").format(n=len(self.apps)))
+        self.app_count_label = QLabel(
+            tr("{shown} of {total} apps").format(shown=len(self.apps), total=len(self.apps))
+        )
         self.app_count_label.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;"
         )
@@ -174,7 +197,12 @@ class LibraryPageMixin:
         return page
 
     def _build_category_chips(self) -> None:
-        """Build category filter chips from available apps."""
+        """Build category filter chips from available apps.
+
+        Shows "All" first, then up to ``_MAX_CATEGORY_CHIPS`` category chips.
+        Any remaining categories collapse into a "+N more" overflow menu so
+        none are silently dropped (Task 4).
+        """
         cats: set[str] = set()
         for a in self.apps:
             cats.update(a.categories)
@@ -188,7 +216,7 @@ class LibraryPageMixin:
         self._category_row.addWidget(all_btn)
         self._category_btns.append(all_btn)
 
-        for cat in cats_sorted[:8]:
+        for cat in cats_sorted[:_MAX_CATEGORY_CHIPS]:
             btn = QPushButton(cat)
             btn.setCheckable(True)
             btn.setStyleSheet(FILTER_CHIP)
@@ -196,13 +224,37 @@ class LibraryPageMixin:
             self._category_row.addWidget(btn)
             self._category_btns.append(btn)
 
+        overflow = cats_sorted[_MAX_CATEGORY_CHIPS:]
+        if overflow:
+            more_btn = QPushButton(tr("+{n} more").format(n=len(overflow)))
+            more_btn.setCheckable(True)
+            more_btn.setStyleSheet(FILTER_CHIP)
+            more_btn.setToolTip(tr("More categories"))
+            menu = QMenu(more_btn)
+            for cat in overflow:
+                menu.addAction(cat, lambda _=False, c=cat: self._set_category(c))
+            more_btn.setMenu(menu)
+            self._category_row.addWidget(more_btn)
+            self._category_btns.append(more_btn)
+            self._category_more_btn = more_btn
+            self._overflow_categories = list(overflow)
+        else:
+            self._category_more_btn = None
+            self._overflow_categories = []
+
         self._category_row.addStretch()
 
     def _set_category(self, category: str) -> None:
         self._active_category = category
+        more_btn = getattr(self, "_category_more_btn", None)
+        overflow = getattr(self, "_overflow_categories", [])
         for btn in self._category_btns:
-            is_match = (category == "" and btn.text() == "All") or btn.text() == category
-            btn.setChecked(is_match)
+            if btn is more_btn:
+                # The overflow chip stays highlighted while any of its
+                # collapsed categories is the active filter.
+                btn.setChecked(category in overflow)
+            else:
+                btn.setChecked((category == "" and btn.text() == "All") or btn.text() == category)
         self._filter_apps(self.search_box.text())
 
     def _set_view(self, mode: str) -> None:
@@ -224,18 +276,85 @@ class LibraryPageMixin:
                         sub.widget().deleteLater()
 
         if not apps:
-            empty = QLabel(tr("No apps found\n\nAdd a Windows app profile to get started"))
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(
-                f"background: transparent; color: {C.OVERLAY0}; font-size: 15px; padding: 60px;"
-            )
-            self.app_list_layout.addWidget(empty)
+            self.app_list_layout.addWidget(self._make_empty_state())
+            self.app_list_layout.addStretch()
             return
 
         if self._view_mode == "grid":
             self._populate_grid(apps)
         else:
             self._populate_list(apps)
+
+    def _make_empty_state(self) -> QWidget:
+        """Build a context-aware empty-state panel (Task 1).
+
+        Distinguishes the four real causes of an empty grid so the message
+        and any affordance match the situation:
+          (a) pod not running     -> prompt to start Windows
+          (b) search/filter active -> "no match" + clear-filter hint
+          (c) everything hidden     -> hint to toggle Hidden
+          (d) genuinely none        -> the add-a-profile message
+        """
+        query = self.search_box.text().strip()
+        category = self._active_category
+        pod_running = getattr(self, "_pod_state", "checking") == "running"
+        any_apps = bool(self.apps)
+        all_hidden = any_apps and all(a.hidden for a in self.apps)
+
+        action_label = ""
+        action_cb = None
+
+        # (a) Nothing discovered yet AND Windows isn't up — the most likely
+        # cause of an empty library on a fresh/stopped install.
+        if not any_apps and not pod_running:
+            title = tr("Windows isn't running")
+            body = tr("Start it to scan for your installed apps.")
+            action_label = tr("Start Windows")
+            action_cb = getattr(self, "_on_start_pod", None)
+        # (b) A search or category filter is active but matched nothing.
+        elif query or category:
+            if query:
+                title = tr("No apps match '{query}'").format(query=query)
+            else:
+                title = tr("No apps in '{category}'").format(category=category)
+            body = tr("Clear the search or pick 'All' to see every app.")
+        # (c) Everything is hidden and the Hidden toggle is off.
+        elif all_hidden and not self._show_hidden:
+            title = tr("All apps are hidden")
+            body = tr("Toggle 'Hidden' in the toolbar to show them.")
+        # (d) Genuinely nothing registered yet.
+        else:
+            title = tr("No apps yet")
+            body = tr("Add a Windows app profile to get started.")
+
+        panel = QWidget()
+        panel.setStyleSheet("background: transparent;")
+        col = QVBoxLayout(panel)
+        col.setContentsMargins(0, 60, 0, 60)
+        col.setSpacing(8)
+        col.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+
+        title_lbl = QLabel(title)
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_lbl.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: 15px; font-weight: bold;"
+        )
+        col.addWidget(title_lbl)
+
+        body_lbl = QLabel(body)
+        body_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body_lbl.setWordWrap(True)
+        body_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
+        col.addWidget(body_lbl)
+
+        if action_label and callable(action_cb):
+            col.addSpacing(8)
+            btn = QPushButton(action_label)
+            btn.setStyleSheet(BTN_PRIMARY)
+            btn.clicked.connect(action_cb)
+            col.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        return panel
 
     def _populate_grid(self, apps: list[AppInfo]) -> None:
         """Grid view - cards."""
@@ -314,24 +433,16 @@ class LibraryPageMixin:
             vl.addWidget(cat_lbl)
         vl.addStretch()
 
+        # Unified affordances with the list view (Task 2): a labeled
+        # "▶ Launch" button, a text Show/Hide toggle, and the same
+        # confirmed delete. Edit stays a compact "⋯" to keep the narrow
+        # card uncluttered.
         bottom = QHBoxLayout()
         bottom.setSpacing(6)
 
-        launch_btn = QPushButton("▶")
-        launch_btn.setFixedSize(32, 32)
+        launch_btn = QPushButton(tr("▶  Launch"))
+        launch_btn.setStyleSheet(BTN_ACCENT)
         launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
-        launch_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: {C.GREEN};
-                color: {C.CRUST};
-                border: none;
-                border-radius: 16px;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{ background: {C.TEAL}; }}
-            """
-        )
         launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
         bottom.addWidget(launch_btn)
         bottom.addStretch()
@@ -357,23 +468,14 @@ class LibraryPageMixin:
         edit_btn.clicked.connect(lambda _, a=app: self._on_edit_app(a))
         bottom.addWidget(edit_btn)
 
-        hide_btn = QPushButton("🙈" if not app.hidden else "👁")
-        hide_btn.setFixedSize(28, 28)
+        hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
         hide_btn.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
         hide_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: transparent;
-                color: {C.OVERLAY0};
-                border: none;
-                border-radius: 14px;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                color: {C.TEXT};
-                background: {C.SURFACE1};
-            }}
-            """
+            f"QPushButton {{ background: {C.SURFACE1}; color: {C.SUBTEXT0};"
+            f" font-size: 12px; border-radius: 6px; padding: 6px 14px;"
+            f" border: none; }}"
+            f"QPushButton:hover {{ background: {C.SURFACE2};"
+            f" color: {C.TEXT}; }}"
         )
         hide_btn.clicked.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
         bottom.addWidget(hide_btn)
@@ -516,4 +618,8 @@ class LibraryPageMixin:
         if self._active_category:
             filtered = [a for a in filtered if self._active_category in a.categories]
         self._populate_app_view(filtered)
-        self.app_count_label.setText(tr("{n} apps").format(n=len(filtered)))
+        # "X of Y" so the toolbar count reconciles with the info bar's total
+        # after a search/filter (Task 5).
+        self.app_count_label.setText(
+            tr("{shown} of {total} apps").format(shown=len(filtered), total=len(self.apps))
+        )

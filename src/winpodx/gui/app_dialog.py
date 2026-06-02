@@ -23,6 +23,7 @@ from winpodx.core.i18n import tr
 from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
+    FONT_CAPTION,
     INPUT,
     C,
     avatar_color,
@@ -48,7 +49,9 @@ class AppProfileDialog(QDialog):
         super().__init__(parent)
         self.edit_mode = edit_mode
         self.setWindowTitle(tr("Edit App") if edit_mode else tr("Add App"))
-        self.setFixedSize(580, 460)
+        # Taller than before to fit the per-field helper text + the inline
+        # validation message added in the GUI UX overhaul.
+        self.setFixedSize(580, 540)
         self.setStyleSheet(f"""
             QDialog {{ background: {C.MANTLE}; }}
             QLabel {{ color: {C.TEXT}; font-size: 13px; }}
@@ -119,30 +122,49 @@ class AppProfileDialog(QDialog):
         self.input_mime_types = QLineEdit(mime_types)
         self.input_mime_types.setPlaceholderText(tr("e.g. image/png, image/jpeg"))
 
+        # Per-field inline guidance (Tasks 8 + 9). ``None`` = no helper.
         fields = [
-            (tr("Short Name"), self.input_name),
-            (tr("Display Name"), self.input_full_name),
-            (tr("Executable"), self.input_executable),
-            (tr("Categories"), self.input_categories),
-            (tr("MIME Types"), self.input_mime_types),
+            (tr("Short Name"), self.input_name, None),
+            (tr("Display Name"), self.input_full_name, None),
+            (
+                tr("Executable"),
+                self.input_executable,
+                tr(r"Full Windows path to the .exe, e.g. C:\Program Files\App\app.exe"),
+            ),
+            (
+                tr("Categories"),
+                self.input_categories,
+                tr("Optional. Comma-separated freedesktop categories."),
+            ),
+            (
+                tr("MIME Types"),
+                self.input_mime_types,
+                tr("Optional. Comma-separated MIME types this app can open."),
+            ),
         ]
-        for row, (label, widget) in enumerate(fields):
+        row = 0
+        for label, widget, helper in fields:
             lbl = QLabel(label)
             lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 13px;")
-            form.addWidget(lbl, row, 0)
+            form.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignTop)
             form.addWidget(widget, row, 1)
+            if helper:
+                row += 1
+                help_lbl = QLabel(helper)
+                help_lbl.setStyleSheet(f"color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;")
+                help_lbl.setWordWrap(True)
+                form.addWidget(help_lbl, row, 1)
+            row += 1
 
         body_l.addLayout(form)
 
-        help_lbl = QLabel(
-            tr(
-                "Executable: full Windows path to the .exe file.  "
-                "Categories/MIME: comma-separated or leave empty."
-            )
-        )
-        help_lbl.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
-        help_lbl.setWordWrap(True)
-        body_l.addWidget(help_lbl)
+        # Inline validation message (Task 8); hidden until a save attempt
+        # surfaces a shape problem with the executable path.
+        self._validation_lbl = QLabel("")
+        self._validation_lbl.setStyleSheet(f"color: {C.PEACH}; font-size: {FONT_CAPTION}px;")
+        self._validation_lbl.setWordWrap(True)
+        self._validation_lbl.setVisible(False)
+        body_l.addWidget(self._validation_lbl)
         body_l.addStretch()
 
         btn_row = QHBoxLayout()
@@ -150,7 +172,7 @@ class AppProfileDialog(QDialog):
 
         cancel = QPushButton(tr("Cancel"))
         cancel.setStyleSheet(BTN_GHOST)
-        cancel.clicked.connect(self.reject)
+        cancel.clicked.connect(self._on_cancel)
         btn_row.addWidget(cancel)
 
         save = QPushButton(tr("Save") if edit_mode else tr("Create"))
@@ -160,6 +182,35 @@ class AppProfileDialog(QDialog):
 
         body_l.addLayout(btn_row)
         layout.addWidget(body)
+
+        # Snapshot of the initial field values so Cancel can detect edits
+        # and confirm before discarding (Task 10).
+        self._initial_values = self._current_values()
+
+    def _current_values(self) -> tuple[str, ...]:
+        """Current text of every editable field, for dirty-state detection."""
+        return (
+            self.input_name.text(),
+            self.input_full_name.text(),
+            self.input_executable.text(),
+            self.input_categories.text(),
+            self.input_mime_types.text(),
+        )
+
+    def _is_dirty(self) -> bool:
+        return self._current_values() != self._initial_values
+
+    def _on_cancel(self) -> None:
+        """Confirm before discarding unsaved edits (Task 10)."""
+        if self._is_dirty():
+            reply = QMessageBox.question(
+                self,
+                tr("Discard changes?"),
+                tr("You have unsaved changes. Discard them?"),
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self.reject()
 
     def _update_preview(self) -> None:
         """Update avatar preview as user types."""
@@ -195,7 +246,49 @@ class AppProfileDialog(QDialog):
             )
             return
 
+        # Light shape check on the executable (Task 8). It's a Windows path
+        # (e.g. C:\Program Files\App\app.exe), so we don't touch the host
+        # filesystem -- just sanity-check it looks like a Windows path
+        # ending in .exe. A mismatch is a non-blocking warning the user can
+        # override, since unusual launchers (.bat, .com, UWP aliases) exist.
+        shape_warning = self._executable_shape_warning(executable)
+        if shape_warning:
+            self._validation_lbl.setText(shape_warning)
+            self._validation_lbl.setVisible(True)
+            reply = QMessageBox.question(
+                self,
+                tr("Check the executable path"),
+                tr("{warning}\n\nSave anyway?").format(warning=shape_warning),
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        else:
+            self._validation_lbl.setVisible(False)
+
         self.accept()
+
+    @staticmethod
+    def _executable_shape_warning(executable: str) -> str:
+        """Return a warning if ``executable`` doesn't look like a Windows .exe path.
+
+        Empty string means the shape is fine. Used for the non-blocking save
+        validation in :meth:`_on_accept` (Task 8).
+        """
+        import re
+
+        value = executable.strip()
+        if not value:
+            return tr("The executable path is empty.")
+        # Accept a drive-letter path (C:\...) or a UNC path (\\host\share\...).
+        looks_windows = bool(re.match(r"^[a-zA-Z]:\\", value)) or value.startswith("\\\\")
+        if not looks_windows:
+            return tr(
+                r"This doesn't look like a Windows path "
+                r"(e.g. C:\Program Files\App\app.exe)."
+            )
+        if not value.lower().endswith(".exe"):
+            return tr("This doesn't end in .exe — double-check the executable.")
+        return ""
 
     def get_result(self) -> dict[str, str | list[str]]:
         """Return the form data as a dict."""

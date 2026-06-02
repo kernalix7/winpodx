@@ -98,7 +98,7 @@ def test_attach_usb_live_is_nonblocking(host, monkeypatch):
 
     assert elapsed < 0.3  # returned without waiting for the 0.5s work
     assert host._dev_busy is True
-    assert "Live-attaching" in host._devices_status.text()
+    assert "Attaching" in host._devices_status.text()
     # drain the worker so it doesn't bleed into other tests
     for _ in range(100):
         if not host._dev_busy:
@@ -108,14 +108,15 @@ def test_attach_usb_live_is_nonblocking(host, monkeypatch):
 
 
 def test_pci_attach_requires_confirmation(host, monkeypatch):
-    # Decline the risky-PCI dialog -> nothing persisted.
-    from PySide6.QtWidgets import QMessageBox
-
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.No))
+    # The risky-PCI confirm is now a custom dialog (_confirm_risky_pci, which
+    # renders the plain-language "host will lose ..." warning callout), not a
+    # bare QMessageBox.warning. Mock that method's verdict.
+    # Decline -> nothing persisted.
+    monkeypatch.setattr(host, "_confirm_risky_pci", lambda host_dev, safety: False)
     host._on_attach(D.HostDevice(dtype="pci", did="0000:01:00.0", label="GPU", pci_class="03"))
     assert host._cfg.pod.devices == []
 
     # Accept -> persisted.
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(host, "_confirm_risky_pci", lambda host_dev, safety: True)
     host._on_attach(D.HostDevice(dtype="pci", did="0000:01:00.0", label="GPU", pci_class="03"))
     assert host._cfg.pod.devices == ["pci|0000:01:00.0|GPU"]

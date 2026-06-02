@@ -27,7 +27,13 @@ from PySide6.QtWidgets import QMessageBox
 
 from winpodx.core.app import AppInfo, list_available_apps
 from winpodx.core.i18n import tr
+from winpodx.gui._widget_helpers import actionable_error, show_toast
 from winpodx.gui.workers import DiscoveryWorker
+
+# QStackedWidget index of the Logs page (see main_window._build_ui page
+# order: library/settings/maintenance/logs/...). Used by the refresh
+# failure dialog's "View logs" action.
+_LOGS_PAGE_INDEX = 3
 
 
 class AppCrudMixin:
@@ -105,7 +111,11 @@ class AppCrudMixin:
         visible = self._visible_apps()
         self._populate_app_view(visible)
         self.search_box.clear()
-        self.app_count_label.setText(tr("{n} apps").format(n=len(visible)))
+        # "X of Y" mirrors the library toolbar format (Task 5); no search is
+        # active right after a reload, so shown == total.
+        self.app_count_label.setText(
+            tr("{shown} of {total} apps").format(shown=len(visible), total=len(self.apps))
+        )
 
     def _on_refresh_apps(self) -> None:
         """Entry point for the "Refresh Apps" button; kicks off the QThread worker."""
@@ -157,11 +167,13 @@ class AppCrudMixin:
         # any pending deleteLater on the worker).
         self._reload_apps()
         if count:
-            self.info_label.setText(
-                tr("Discovery complete: {count} app(s) updated").format(count=count)
-            )
+            msg = tr("Discovery complete: {count} app(s) updated").format(count=count)
+            self.info_label.setText(msg)
+            show_toast(self, msg, kind="success")
         else:
-            self.info_label.setText(tr("Discovery complete: no new apps found"))
+            msg = tr("Discovery complete: no new apps found")
+            self.info_label.setText(msg)
+            show_toast(self, msg, kind="info")
 
     @Slot()
     def _cleanup_refresh_worker(self) -> None:
@@ -190,18 +202,23 @@ class AppCrudMixin:
         QTimer.singleShot(0, lambda: self._show_refresh_failure_dialog(kind, detail))
 
     def _show_refresh_failure_dialog(self, kind: str, detail: str) -> None:
-        """Build the failure QMessageBox after the signal handler has unwound."""
+        """Show an actionable failure dialog after the signal handler unwinds.
+
+        Each failure kind offers the buttons that actually help recover from
+        it (Task 6): start the pod, retry discovery, or jump to the Logs
+        page. ``actionable_error`` returns the clicked label so we branch on
+        it rather than juggling button objects.
+        """
         if kind == "pod_not_running":
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle(tr("Pod Not Running"))
-            box.setText(tr("The Windows pod must be running to scan for apps."))
-            if detail:
-                box.setInformativeText(detail)
-            start_btn = box.addButton(tr("Start Pod"), QMessageBox.ButtonRole.AcceptRole)
-            box.addButton(QMessageBox.StandardButton.Cancel)
-            box.exec()
-            if box.clickedButton() is start_btn:
+            start_label = tr("Start pod")
+            choice = actionable_error(
+                self,
+                tr("Pod Not Running"),
+                tr("The Windows pod must be running to scan for apps."),
+                actions=[start_label, tr("Close")],
+                detail=detail,
+            )
+            if choice == start_label:
                 self._on_start_pod()
             return
 
@@ -211,39 +228,42 @@ class AppCrudMixin:
             # activation (TermService cycle terminates the call) or
             # when the autologon session blipped. Don't suggest "Start
             # Pod" -- that's wrong. Suggest "Retry" instead.
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle(tr("Discovery Session Disconnected"))
-            box.setText(
+            retry_label = tr("Retry")
+            choice = actionable_error(
+                self,
+                tr("Discovery Session Disconnected"),
                 tr(
                     "The discovery session was terminated by the guest before "
                     "results could be written.\n\n"
                     "This can happen when multi-session activation just cycled "
                     "TermService, or the autologon session briefly disconnected. "
                     "The pod itself is running; retrying usually succeeds."
-                )
+                ),
+                actions=[retry_label, tr("Close")],
+                detail=detail,
             )
-            if detail:
-                box.setInformativeText(detail)
-            retry_btn = box.addButton(tr("Retry"), QMessageBox.ButtonRole.AcceptRole)
-            box.addButton(QMessageBox.StandardButton.Cancel)
-            box.exec()
-            if box.clickedButton() is retry_btn:
+            if choice == retry_label:
                 self._on_refresh_apps()
             return
 
+        # Generic / module_missing: the only useful next step is to inspect
+        # the logs, so offer "View logs".
+        logs_label = tr("View logs")
         if kind == "module_missing":
-            QMessageBox.critical(
-                self,
-                tr("Discovery Unavailable"),
-                tr("The app discovery module is not available in this install.\n\n{detail}").format(
-                    detail=detail
-                ),
-            )
-            return
-
-        QMessageBox.critical(
+            title = tr("Discovery Unavailable")
+            message = tr("The app discovery module is not available in this install.")
+        else:
+            title = tr("Discovery Failed")
+            message = detail or tr("An unexpected error occurred during app discovery.")
+        choice = actionable_error(
             self,
-            tr("Discovery Failed"),
-            detail or tr("An unexpected error occurred during app discovery."),
+            title,
+            message,
+            actions=[logs_label, tr("Close")],
+            detail=detail,
         )
+        if choice == logs_label:
+            # Jump to the Logs page so the user can read the failure detail.
+            switch = getattr(self, "_switch_page", None)
+            if callable(switch):
+                switch(_LOGS_PAGE_INDEX)

@@ -214,9 +214,13 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     layout.addLayout(buttons_row)
 
     # --- allow / deny lists --------------------------------------------------
+    lists_hint = QLabel(tr("Allowlist = only these apps are offered; Denylist = these are hidden."))
+    lists_hint.setWordWrap(True)
+    layout.addWidget(lists_hint)
+
     lists_grid = QGridLayout()
-    allow_label = QLabel(tr("Allowlist (empty = all discovered)"))
-    deny_label = QLabel(tr("Denylist"))
+    allow_label = QLabel(tr("Allowlist (empty = show all discovered apps)"))
+    deny_label = QLabel(tr("Denylist (apps to hide)"))
     allow_list = QListWidget()
     deny_list = QListWidget()
     for slug in cfg.reverse_open.allowlist:
@@ -293,7 +297,13 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
             return None
         valid, value_or_err = validate_slug(text)
         if not valid:
-            QMessageBox.warning(card, tr("Invalid slug"), value_or_err)
+            # validate_slug() returns a regex-dump for the CLI round-trip;
+            # show the user a friendly, example-led message instead.
+            QMessageBox.warning(
+                card,
+                tr("Invalid slug"),
+                tr("Use lowercase letters, numbers and dashes (e.g. my-app)."),
+            )
             return None
         return value_or_err
 
@@ -341,18 +351,51 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
             log.exception("host-open CLI handler raised")
             QMessageBox.warning(card, tr("reverse-open"), str(exc))
 
-    btn_refresh.clicked.connect(
-        lambda: (
-            _sync_lists_to_cfg(),
-            _run_cli(
-                _cmd_refresh,
-                json=False,
-                skip_icons=False,
-                include_nodisplay=False,
-            ),
-            _refresh_status_label(),
+    def _on_refresh_sync() -> None:
+        """Refresh + sync the reverse-open handlers off the GUI thread.
+
+        The CLI ``_cmd_refresh`` re-discovers guest apps and re-syncs the
+        Windows-side handlers, which can take 30s+ — running it inline
+        freezes the UI. Read the lists on the GUI thread first, then do the
+        work on a daemon worker while a :class:`BusyDialog` spins, and
+        marshal completion back to the GUI thread.
+        """
+        import threading
+
+        from PySide6.QtCore import QTimer
+
+        from winpodx.gui._widget_helpers import BusyDialog
+
+        _sync_lists_to_cfg()
+        dlg = BusyDialog(
+            card.window(),
+            tr("Reverse-open"),
+            tr("Refreshing reverse-open handlers…"),
+            eta_hint=tr("This can take 30 seconds or more."),
         )
-    )
+        error: list[Exception] = []
+
+        def _work() -> None:
+            from types import SimpleNamespace
+
+            try:
+                _cmd_refresh(SimpleNamespace(json=False, skip_icons=False, include_nodisplay=False))
+            except Exception as exc:  # noqa: BLE001 — surfaced on the GUI thread
+                log.exception("host-open refresh raised")
+                error.append(exc)
+
+            def _done() -> None:
+                dlg.finish()
+                if error:
+                    QMessageBox.warning(card, tr("reverse-open"), str(error[0]))
+                _refresh_status_label()
+
+            QTimer.singleShot(0, _done)
+
+        threading.Thread(target=_work, daemon=True).start()
+        dlg.exec()
+
+    btn_refresh.clicked.connect(_on_refresh_sync)
     btn_start.clicked.connect(
         lambda: (_run_cli(_cmd_start_listener, json=False), _refresh_status_label())
     )

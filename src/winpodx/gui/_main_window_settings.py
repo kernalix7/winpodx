@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow
+from winpodx.gui._widget_helpers import add_shadow, make_warning_callout
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     COMBO,
@@ -221,6 +221,14 @@ class SettingsPageMixin:
 
         self.input_user = QLineEdit(self.cfg.rdp.user)
         self.input_ip = QLineEdit(self.cfg.rdp.ip)
+        self.input_ip.setToolTip(
+            tr(
+                "Address FreeRDP connects to for the Windows guest. The default\n"
+                "127.0.0.1 reaches the local container's forwarded RDP port.\n"
+                "Use a non-loopback address only for a remote/manual backend —\n"
+                "the RDP port must be reachable at that address."
+            )
+        )
         self.input_port = QLineEdit(str(self.cfg.rdp.port))
         self.input_scale = QComboBox()
         scale_options = [("100%", 100), ("140%", 140), ("180%", 180)]
@@ -229,6 +237,14 @@ class SettingsPageMixin:
         current_scale = self.cfg.rdp.scale
         idx = next((i for i, (_, v) in enumerate(scale_options) if v == current_scale), 0)
         self.input_scale.setCurrentIndex(idx)
+        self.input_scale.setToolTip(
+            tr(
+                "Client-side zoom applied by FreeRDP after the guest renders.\n"
+                "Use this on a HiDPI Linux display to enlarge a normal-DPI\n"
+                "Windows desktop. Crisp text, but the guest still thinks it\n"
+                "is at 100% — for true guest-side scaling set Windows DPI instead."
+            )
+        )
 
         self.input_dpi = QComboBox()
         dpi_options = [
@@ -250,6 +266,14 @@ class SettingsPageMixin:
         elif current_dpi > 0:
             self.input_dpi.addItem(f"{current_dpi}%", current_dpi)
             self.input_dpi.setCurrentIndex(self.input_dpi.count() - 1)
+        self.input_dpi.setToolTip(
+            tr(
+                "Guest-side scaling: tells Windows to render UI at this DPI.\n"
+                "Use this (not Scale %) when you want larger, sharp Windows UI\n"
+                "and apps that respect system DPI. Auto picks a value from the\n"
+                "detected Linux display scale."
+            )
+        )
 
         self.input_pw_max_age = QComboBox()
         pw_age_options = [
@@ -270,6 +294,14 @@ class SettingsPageMixin:
         elif current_age > 0:
             self.input_pw_max_age.addItem(f"{current_age} days", current_age)
             self.input_pw_max_age.setCurrentIndex(self.input_pw_max_age.count() - 1)
+        self.input_pw_max_age.setToolTip(
+            tr(
+                "Auto-rotate the Windows RDP account password after this many\n"
+                "days. On the next launch past the limit winpodx generates a new\n"
+                "password, recreates the container to apply it, and rolls back on\n"
+                "failure. Disabled keeps the current password indefinitely."
+            )
+        )
 
         # Extra FreeRDP arguments — escape hatch for codec / cache / RAIL
         # tuning. Common case as of 2026-05-06: cachyos ships xfreerdp3
@@ -475,9 +507,46 @@ class SettingsPageMixin:
                 (tr("Max Sessions (1-50)"), self.input_max_sessions),
             ],
         )
+        # Always-visible RAM budget summary on the Hardware card, so the
+        # session math is shown up front rather than only surfacing when
+        # the over-subscription warning fires. Reuses the same
+        # estimate_session_memory() math as check_session_budget().
+        self.budget_summary_label = QLabel("")
+        self.budget_summary_label.setWordWrap(True)
+        self.budget_summary_label.setStyleSheet(
+            f"color: {C.SUBTEXT0}; background: transparent; font-size: {FONT_CAPTION}px;"
+        )
+        hardware_card.layout().addWidget(self.budget_summary_label)
         cols.addWidget(hardware_card)
 
+        # Surface the recreate consequence before the user edits Port /
+        # CPU / RAM / Edition rather than only inside the save-time
+        # confirm dialog. Changing Edition additionally triggers a disk
+        # wipe (covered by the Localization callout's wording too).
+        recreate_callout = make_warning_callout(
+            tr(
+                "Changing Port, CPU, RAM, Edition or Tuning Profile recreates the "
+                "container (Windows reboots, ~1-2 min). Changing the Edition also "
+                "wipes the Windows disk and reinstalls (~5-10 min)."
+            ),
+            level="warn",
+        )
+        layout.addWidget(recreate_callout)
+
         layout.addLayout(cols)
+
+        # Language / Region / Keyboard are first-install-only env knobs:
+        # applying a change destroys the Windows disk and reinstalls.
+        # Timezone is OEM-applied on every (re)create and does NOT wipe.
+        locale_callout = make_warning_callout(
+            tr(
+                "Changing Language, Region or Keyboard wipes the Windows disk and "
+                "reinstalls (~5-10 min) — these only apply on a fresh install. "
+                "Timezone applies on the next recreate without a wipe."
+            ),
+            level="danger",
+        )
+        layout.addWidget(locale_callout)
 
         localization_card = self._settings_card(
             tr("🌐  Localization"),
@@ -530,6 +599,28 @@ class SettingsPageMixin:
             logging.getLogger(__name__).exception(
                 "reverse-open panel failed to build; Settings page continues without it"
             )
+
+        # "Applies immediately" subsection. The controls below (autostart,
+        # UI language; the reverse-open enable checkbox above behaves the
+        # same) persist the moment you change them — unlike the form fields
+        # above, which only commit when you click "Save Settings". The
+        # header makes that split explicit so the Save button's scope isn't
+        # ambiguous.
+        layout.addSpacing(SPACE_M)
+        applies_now_header = QLabel(tr("Applies immediately"))
+        applies_now_header.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; "
+            f"font-size: {FONT_CAPTION}px; font-weight: bold;"
+        )
+        layout.addWidget(applies_now_header)
+        applies_now_caption = QLabel(
+            tr("These take effect right away — no need to click Save Settings.")
+        )
+        applies_now_caption.setWordWrap(True)
+        applies_now_caption.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
+        layout.addWidget(applies_now_caption)
 
         # Autostart-at-login toggle. File existence under
         # ``~/.config/autostart/winpodx-tray.desktop`` is the source of
@@ -626,6 +717,15 @@ class SettingsPageMixin:
         save_btn.setFixedWidth(180)
         save_btn.clicked.connect(self._save_settings)
         layout.addWidget(save_btn)
+
+        save_caption = QLabel(
+            tr("Persists the form fields above. The ‘Applies immediately’ controls save on change.")
+        )
+        save_caption.setWordWrap(True)
+        save_caption.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
+        layout.addWidget(save_caption)
 
         layout.addStretch()
         scroll.setWidget(content)
@@ -776,21 +876,44 @@ class SettingsPageMixin:
         """Live-update the session memory budget warning label.
 
         Quiet when the estimate fits; shows a wrapped message when
-        max_sessions over-subscribes ram_gb. Called whenever either
-        spinbox text changes.
+        max_sessions over-subscribes ram_gb. Also refreshes the
+        always-visible one-line budget summary on the Hardware card.
+        Called whenever either spinbox text changes.
         """
-        from winpodx.core.config import Config, check_session_budget
+        from winpodx.core.config import (
+            Config,
+            check_session_budget,
+            estimate_session_memory,
+        )
 
         try:
             sessions = int(self.input_max_sessions.text() or "10")
             ram = int(self.input_ram.text() or "4")
         except ValueError:
             self.budget_warning_label.setVisible(False)
+            if hasattr(self, "budget_summary_label"):
+                self.budget_summary_label.setText("")
             return
 
+        clamped_sessions = max(1, min(50, sessions))
+        clamped_ram = max(1, ram)
+
+        # Always-visible budget math (~100 MB/session + ~2 GB guest base).
+        if hasattr(self, "budget_summary_label"):
+            est = estimate_session_memory(clamped_sessions)
+            per_session_mb = 100
+            self.budget_summary_label.setText(
+                tr("Budget: {sessions} sessions x ~{per} MB + base ≈ {est:.1f} of {ram} GB").format(
+                    sessions=clamped_sessions,
+                    per=per_session_mb,
+                    est=est,
+                    ram=clamped_ram,
+                )
+            )
+
         tmp = Config()
-        tmp.pod.max_sessions = max(1, min(50, sessions))
-        tmp.pod.ram_gb = max(1, ram)
+        tmp.pod.max_sessions = clamped_sessions
+        tmp.pod.ram_gb = clamped_ram
         msg = check_session_budget(tmp)
         if msg:
             self.budget_warning_label.setText(tr("WARNING: {msg}").format(msg=msg))

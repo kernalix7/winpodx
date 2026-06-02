@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -227,7 +228,15 @@ class LogsMixin:
 
         if not cmd or cmd[0] not in self._ALLOWED_COMMANDS:
             allowed = ", ".join(sorted(self._ALLOWED_COMMANDS))
-            self._log_append(f"Blocked: allowed commands: {allowed}", C.RED)
+            # Explain *why* it was blocked: this is a debug surface, not a
+            # general shell, so only a safe allowlist runs.
+            self._log_append(
+                tr(
+                    "Blocked: this is a debug terminal, not a general shell — only a "
+                    "safe allowlist runs. Allowed commands: {allowed}"
+                ).format(allowed=allowed),
+                C.RED,
+            )
             return
 
         self._run_log_cmd(cmd)
@@ -264,6 +273,17 @@ class LogsMixin:
             # is in dockur / QEMU / Windows-side output, not in the
             # winpodx Python logger.
             self.input_log_level.addItem(value, value)
+            if value == "RAW":
+                # Per-item hover hint so the user knows what RAW adds before
+                # selecting it.
+                self.input_log_level.setItemData(
+                    self.input_log_level.count() - 1,
+                    tr(
+                        "RAW = DEBUG plus a live tail of the container's logs "
+                        "(podman logs -f). Use when triaging boot / QEMU issues."
+                    ),
+                    Qt.ItemDataRole.ToolTipRole,
+                )
         current_level = self.cfg.logging.level
         idx = self.input_log_level.findData(current_level)
         if idx >= 0:
@@ -288,6 +308,12 @@ class LogsMixin:
         # those buttons would be redundant (and prone to fighting with
         # the always-on tails). What's left is one-shot diagnostics.
         container = self.cfg.pod.container_name
+        # Non-command tooltips for the buttons that don't shell out a list.
+        special_tips = {
+            "App log": tr("Show the tail of winpodx's own log file"),
+            "RDP Test": tr("Probe the RDP port (TCP handshake) for the configured guest"),
+            "Clear": tr("Clear this terminal view"),
+        }
         quick = [
             ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
             ("Pod logs", ["podman", "logs", "--tail", "100", container]),
@@ -299,6 +325,12 @@ class LogsMixin:
         for label, cmd in quick:
             btn = QPushButton(tr(label))
             btn.setStyleSheet(BTN_GHOST)
+            # Tooltip states the actual command the button runs, so the user
+            # can see (and learn) what each shortcut does.
+            if isinstance(cmd, list):
+                btn.setToolTip(tr("Runs: {cmd}").format(cmd=" ".join(cmd)))
+            elif label in special_tips:
+                btn.setToolTip(special_tips[label])
             if label == "Clear":
                 btn.clicked.connect(lambda: self.log_output.clear())
             elif label == "RDP Test":

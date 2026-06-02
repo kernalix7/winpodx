@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow
+from winpodx.gui._widget_helpers import BusyDialog, add_shadow, make_warning_callout
 from winpodx.gui.theme import (
     ACTION_ROW,
     BTN_DANGER,
@@ -46,6 +46,49 @@ from winpodx.gui.theme import (
     C,
     accent_color,
 )
+
+
+def _confirm_with_callout(
+    parent: QWidget,
+    title: str,
+    body: str,
+    callout: str,
+    *,
+    level: str = "warn",
+) -> bool:
+    """Yes/No confirm with an inline warning callout above the prompt.
+
+    Reuses the shared ``make_warning_callout`` banner so the risk is
+    visible *before* the user clicks Yes, rather than buried in a plain
+    QMessageBox body. Returns True only when the user confirms.
+    """
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(title)
+    dlg.setModal(True)
+    dlg.setMinimumWidth(420)
+    lay = QVBoxLayout(dlg)
+    lay.setContentsMargins(20, 18, 20, 16)
+    lay.setSpacing(12)
+
+    lay.addWidget(make_warning_callout(callout, level=level))
+
+    msg = QLabel(body)
+    msg.setWordWrap(True)
+    msg.setStyleSheet(f"color: {C.TEXT}; font-size: 13px; background: transparent;")
+    lay.addWidget(msg)
+
+    btn_row = QHBoxLayout()
+    btn_row.addStretch(1)
+    cancel = QPushButton(tr("Cancel"))
+    cancel.clicked.connect(dlg.reject)
+    btn_row.addWidget(cancel)
+    proceed = QPushButton(tr("Proceed"))
+    proceed.setStyleSheet(BTN_DANGER if level == "danger" else BTN_PRIMARY)
+    proceed.clicked.connect(dlg.accept)
+    btn_row.addWidget(proceed)
+    lay.addLayout(btn_row)
+
+    return dlg.exec() == QDialog.DialogCode.Accepted
 
 
 class MaintenanceMixin:
@@ -114,7 +157,7 @@ class MaintenanceMixin:
             (
                 "⚙",
                 tr("Apply Windows Fixes"),
-                tr("Re-apply RDP timeout / NIC / TermService recovery to existing pod"),
+                tr("Re-apply network + remote-desktop service fixes to the guest (safe to repeat)"),
                 self._on_apply_fixes,
             ),
             (
@@ -126,7 +169,10 @@ class MaintenanceMixin:
             (
                 "↻",
                 tr("Sync Guest"),
-                tr("Push host updates (agent, fixes, rdprrap) into the guest -- no reinstall"),
+                tr(
+                    "Push winpodx's updated guest files into the running Windows "
+                    "guest (no reinstall; agent restarts briefly)"
+                ),
                 self._on_sync_guest,
             ),
         ]
@@ -187,6 +233,16 @@ class MaintenanceMixin:
         self._btn_disable_updates.clicked.connect(self._on_disable_updates)
         rl.addWidget(self._btn_disable_updates)
 
+        # Shown only when the status probe can't reach the guest (state
+        # unknown): the Enable / Disable buttons are meaningless until we
+        # know the current state, so we hide them and offer a re-probe.
+        self._btn_retry_updates = QPushButton(tr("Retry"))
+        self._btn_retry_updates.setStyleSheet(BTN_PRIMARY)
+        self._btn_retry_updates.setFixedWidth(90)
+        self._btn_retry_updates.clicked.connect(self._refresh_update_status)
+        self._btn_retry_updates.setVisible(False)
+        rl.addWidget(self._btn_retry_updates)
+
         layout.addWidget(update_row)
 
         self._refresh_update_status()
@@ -245,6 +301,35 @@ class MaintenanceMixin:
         row.mousePressEvent = lambda ev, h=handler: h()
         return row
 
+    def _run_busy_op(
+        self,
+        title: str,
+        message: str,
+        work: object,
+        *,
+        eta_hint: str = "",
+    ) -> None:
+        """Run a long maintenance op on a worker thread behind a BusyDialog.
+
+        ``work`` is a no-argument callable executed off the Qt main thread
+        (it owns its own success / failure ``app_launched`` / ``app_launch_
+        failed`` emission). The modal BusyDialog stays up for the duration so
+        the user can see the op is working, with an honest ``eta_hint``; it is
+        closed from the GUI thread via ``QTimer.singleShot`` when the worker
+        returns.
+        """
+        dlg = BusyDialog(self, title, message, eta_hint=eta_hint)
+
+        def _do() -> None:
+            try:
+                work()
+            finally:
+                # Marshal the close back onto the GUI thread.
+                QTimer.singleShot(0, dlg.finish)
+
+        threading.Thread(target=_do, daemon=True).start()
+        dlg.exec()
+
     def _on_cleanup(self) -> None:
         from winpodx.core.daemon import cleanup_lock_files
 
@@ -281,19 +366,20 @@ class MaintenanceMixin:
             QMessageBox.information(self, tr("Grow Disk"), tr("Cannot grow disk: {e}").format(e=e))
             return
 
-        reply = QMessageBox.question(
+        if not _confirm_with_callout(
             self,
             tr("Grow Disk"),
             tr(
                 "Grow the Windows disk {old} → {new}?\n\n"
                 "This stops the pod, recreates the container so the virtual disk "
-                "grows, then extends C: to fill it. Windows data is preserved, but "
-                "the guest will reboot and this can take a few minutes.\n\nProceed?"
+                "grows, then extends C: to fill it. Windows data is preserved."
             ).format(old=cfg.pod.disk_size, new=new_size),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            tr(
+                "The guest reboots and any running Windows apps are killed. This "
+                "can take a few minutes — don't close winpodx until it finishes."
+            ),
+            level="danger",
+        ):
             return
 
         self.info_label.setText(
@@ -322,7 +408,12 @@ class MaintenanceMixin:
                     + (result.note or tr("C: not extended yet."))
                 )
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._run_busy_op(
+            tr("Grow Disk"),
+            tr("Growing disk {old} → {new}...").format(old=cfg.pod.disk_size, new=new_size),
+            _do,
+            eta_hint=tr("Reboots the guest; typically takes a few minutes."),
+        )
 
     def _on_sync_guest(self) -> None:
         """Push refreshed guest artifacts into the running guest (guest-sync).
@@ -372,7 +463,12 @@ class MaintenanceMixin:
             else:
                 self.app_launched.emit(tr("Guest synced; agent restarting (~5s)."))
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._run_busy_op(
+            tr("Sync Guest"),
+            tr("Pushing updated guest files into the running Windows guest..."),
+            _do,
+            eta_hint=tr("Agent restarts briefly at the end; usually under a minute."),
+        )
 
     def _refresh_update_status(self) -> None:
         def _do() -> None:
@@ -382,16 +478,29 @@ class MaintenanceMixin:
             status = get_update_status(cfg)
             if status == "enabled":
                 self._update_status_label.setText(tr("Windows Update is enabled"))
+                self._btn_enable_updates.setVisible(True)
+                self._btn_disable_updates.setVisible(True)
+                self._btn_retry_updates.setVisible(False)
                 self._btn_enable_updates.setEnabled(False)
                 self._btn_disable_updates.setEnabled(True)
             elif status == "disabled":
                 self._update_status_label.setText(tr("Windows Update is disabled"))
+                self._btn_enable_updates.setVisible(True)
+                self._btn_disable_updates.setVisible(True)
+                self._btn_retry_updates.setVisible(False)
                 self._btn_enable_updates.setEnabled(True)
                 self._btn_disable_updates.setEnabled(False)
             else:
-                self._update_status_label.setText(tr("Status unknown (container not running?)"))
-                self._btn_enable_updates.setEnabled(True)
-                self._btn_disable_updates.setEnabled(True)
+                # Can't reach the guest -- the current state is unknown, so
+                # Enable / Disable would be a guess. Hide them and offer a
+                # re-probe instead of leaving both in an ambiguous state.
+                self._update_status_label.setText(
+                    tr("Can't check status — start the pod, then Retry.")
+                )
+                self._btn_enable_updates.setVisible(False)
+                self._btn_disable_updates.setVisible(False)
+                self._btn_retry_updates.setVisible(True)
+                self._btn_retry_updates.setEnabled(True)
 
         threading.Thread(target=_do, daemon=True).start()
 
@@ -414,17 +523,19 @@ class MaintenanceMixin:
         threading.Thread(target=_do, daemon=True).start()
 
     def _on_disable_updates(self) -> None:
-        reply = QMessageBox.question(
+        if not _confirm_with_callout(
             self,
             tr("Disable Windows Update"),
             tr(
-                "This will stop Windows Update services and block update domains.\n"
-                "Security updates will NOT be installed while disabled.\n\nProceed?"
+                "This will stop Windows Update services and block update domains. "
+                "You can re-enable it any time from this page."
             ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            tr(
+                "No security updates will be installed until you re-enable Windows "
+                "Update. Only disable this if you understand the risk."
+            ),
+            level="danger",
+        ):
             return
 
         self._update_status_label.setText(tr("Disabling Windows Update..."))
@@ -528,7 +639,14 @@ class MaintenanceMixin:
                 )
             self.pod_status_updated.emit("running", cfg.rdp.ip)
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._run_busy_op(
+            tr("Debloat"),
+            tr("Running debloat ({n} item(s)) inside the Windows guest...").format(
+                n=len(selection)
+            ),
+            _do,
+            eta_hint=tr("Runs guest-side via the agent; usually under a minute."),
+        )
 
     def _on_apply_fixes(self) -> None:
         """v0.1.9.3: Apply Windows-side runtime fixes to the existing pod.
@@ -583,7 +701,12 @@ class MaintenanceMixin:
                     )
                 )
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._run_busy_op(
+            tr("Apply Windows Fixes"),
+            tr("Re-applying network + remote-desktop service fixes to the guest..."),
+            _do,
+            eta_hint=tr("Safe to repeat; usually a few seconds."),
+        )
 
     def _on_open_desktop(self) -> None:
         self.info_label.setText(tr("Opening Windows desktop..."))

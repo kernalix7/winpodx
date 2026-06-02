@@ -536,7 +536,7 @@ def test_dialog_phase_routing_updates_checklist() -> None:
         # Row 0 should now be ticked, row 1 in-progress.
         glyph0, _, _ = dlg._row_widgets[0]
         glyph1, _, _ = dlg._row_widgets[1]
-        assert glyph0.text().startswith("v")
+        assert glyph0.text().startswith("✓")
         assert glyph1.text().startswith(">")
     finally:
         dlg.reject()
@@ -575,7 +575,7 @@ def test_dialog_done_freezes_active_phase_elapsed() -> None:
         # All three started rows must be ticked.
         for i in range(3):
             glyph, _, elapsed_label = dlg._row_widgets[i]
-            assert glyph.text().startswith("v"), f"row {i} not ticked"
+            assert glyph.text().startswith("✓"), f"row {i} not ticked"
             assert elapsed_label.text(), f"row {i} elapsed empty"
     finally:
         dlg.reject()

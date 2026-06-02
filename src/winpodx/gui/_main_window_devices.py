@@ -19,7 +19,10 @@ CLI never drift.
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -33,6 +36,7 @@ from PySide6.QtWidgets import (
 from winpodx.core import devices as D
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
+from winpodx.gui._widget_helpers import make_warning_callout, show_toast
 from winpodx.gui.theme import C
 
 
@@ -188,8 +192,15 @@ class DevicesMixin:
         badge.setAlignment(Qt.AlignCenter)
         h.addWidget(badge)
 
-        text = QLabel(f"{host.did}\n{host.label[:40] or tr('(unknown)')}")
+        full_label = host.label or tr("(unknown)")
+        text = QLabel()
         text.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
+        # Elide the (often long) device label with a real "…" rather than a
+        # hard slice, and expose the full text on hover so nothing is lost.
+        metrics = QFontMetrics(text.font())
+        elided = metrics.elidedText(full_label, Qt.TextElideMode.ElideRight, 240)
+        text.setText(f"{host.did}\n{elided}")
+        text.setToolTip(f"{host.did}\n{full_label}")
         h.addWidget(text, 1)
 
         if assigned:
@@ -218,6 +229,13 @@ class DevicesMixin:
         self._dev_busy = True
         self._dev_op_ctx = (ok, fail_title, did)
         self._devices_status.setText(busy)
+        # Feedback is a NON-blocking toast, not a modal dialog: the live op
+        # already runs off the UI thread (QThreadPool worker + queued result
+        # signal, #414) and a modal exec() here would re-block the launch
+        # path and defeat that. The toast tells the user it's working + why a
+        # pkexec prompt may appear; the status label carries the running text.
+        toast_parent = self.window() if hasattr(self, "window") else self
+        show_toast(toast_parent, busy, kind="info")
         op = _LiveOp(fn)
         op.signals.done.connect(self._on_live_op_finished)
         self._dev_op = op  # keep a reference so it isn't garbage-collected
@@ -228,11 +246,75 @@ class DevicesMixin:
         self._dev_busy = False
         self._dev_op = None
         self._render_devices()
+        toast_parent = self.window() if hasattr(self, "window") else self
         if err:
             self._devices_status.setText(tr("Failed: ") + did)
+            show_toast(toast_parent, tr("Failed: ") + did, kind="error")
             QMessageBox.critical(self, fail_title, f"{did}:\n\n{err}")
         else:
             self._devices_status.setText(ok)
+            show_toast(toast_parent, ok, kind="success")
+
+    def _iommu_siblings(self, host: D.HostDevice) -> list[D.HostDevice]:
+        """Other host PCI devices sharing ``host``'s IOMMU group.
+
+        Empty when the group is unknown or the device sits alone — used to
+        name what the host gives up alongside the chosen device.
+        """
+        if host.dtype != "pci" or host.iommu_group is None:
+            return []
+        try:
+            peers = D.list_host_pci()
+        except Exception:  # noqa: BLE001
+            return []
+        return [p for p in peers if p.iommu_group == host.iommu_group and p.did != host.did]
+
+    def _confirm_risky_pci(self, host: D.HostDevice, safety: D.Safety) -> bool:
+        """Confirm a risky PCI passthrough with a plain-language warning.
+
+        Surfaces the IOMMU reasons *and* a one-line plain explanation of the
+        host-side cost, naming the sibling devices that move with the group.
+        Reuses ``make_warning_callout`` so the danger reads the same as the
+        rest of the GUI. Returns True only when the user confirms.
+        """
+        siblings = self._iommu_siblings(host)
+        device_name = host.label or host.did
+        if siblings:
+            names = ", ".join(s.label or s.did for s in siblings)
+            lost = tr("{device} (and {extra} in the same IOMMU group: {names})").format(
+                device=device_name, extra=len(siblings), names=names
+            )
+        else:
+            lost = device_name
+        plain = tr(
+            "Passing this device unbinds it from the host: the host will lose "
+            "{lost} until you detach + restart."
+        ).format(lost=lost)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Risky passthrough"))
+        dlg.setModal(True)
+        dlg.setMinimumWidth(460)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(12)
+
+        lay.addWidget(make_warning_callout(plain, level="danger"))
+
+        reasons = QLabel(tr("Why this is flagged:\n") + "\n".join(f"• {r}" for r in safety.reasons))
+        reasons.setWordWrap(True)
+        reasons.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 12px; background: transparent;")
+        lay.addWidget(reasons)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Pass through anyway"))
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+
+        return dlg.exec() == QDialog.DialogCode.Accepted
 
     def _on_attach(self, host: D.HostDevice) -> None:
         from winpodx.cli.device import _guest_running
@@ -242,20 +324,7 @@ class DevicesMixin:
         dc = host.to_device_config()
         safety = D.classify_safety(host)
         if not safety.safe:
-            reasons = "\n".join(f"• {r}" for r in safety.reasons)
-            resp = QMessageBox.warning(
-                self,
-                tr("Risky passthrough"),
-                tr("Passing this PCI device to the guest is risky:\n\n")
-                + reasons
-                + tr(
-                    "\n\nThe whole IOMMU group moves together and the host"
-                    " loses the device. Continue?"
-                ),
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if resp != QMessageBox.Yes:
+            if not self._confirm_risky_pci(host, safety):
                 return
 
         cfg = Config.load()
@@ -270,9 +339,9 @@ class DevicesMixin:
             if _guest_running(cfg):
                 self._run_live_op(
                     lambda: D.live_attach(cfg.pod.backend, cfg.pod.container_name, dc),
-                    busy=tr("Live-attaching ")
-                    + f"{dc.did} … "
-                    + tr("(you may be prompted for your password)"),
+                    busy=tr(
+                        "Attaching {device} to the guest — you may be prompted for your password."
+                    ).format(device=dc.did),
                     ok=tr("Hot-plugged live: ") + dc.did,
                     fail_title=tr("USB hot-plug failed"),
                     did=dc.did,
@@ -304,7 +373,9 @@ class DevicesMixin:
             if _guest_running(cfg):
                 self._run_live_op(
                     lambda: D.live_detach(cfg.pod.backend, cfg.pod.container_name, dc),
-                    busy=tr("Unplugging ") + f"{dc.did} …",
+                    busy=tr(
+                        "Detaching {device} from the guest — you may be prompted for your password."
+                    ).format(device=dc.did),
                     ok=tr("Unplugged live: ") + dc.did,
                     fail_title=tr("USB unplug failed"),
                     did=dc.did,

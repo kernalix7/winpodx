@@ -23,11 +23,13 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QMessageBox
 
 from winpodx.core.app import list_available_apps
 from winpodx.core.i18n import tr
+from winpodx.gui._widget_helpers import show_toast
 from winpodx.gui.theme import C
 
 
@@ -56,6 +58,32 @@ class NavigationMixin:
         else:
             self._stop_info_auto_refresh()
 
+    def _install_shortcuts(self) -> None:
+        """Wire keyboard navigation: Alt+1..N switch top-nav pages and
+        Ctrl+F focuses the library search box.
+
+        Idempotent — guarded so the once-on-startup caller (or any future
+        re-entry) doesn't stack duplicate QShortcuts.
+        """
+        if getattr(self, "_shortcuts_installed", False):
+            return
+        self._shortcuts_installed = True
+
+        for i, _btn in enumerate(self.nav_buttons):
+            sc = QShortcut(QKeySequence(f"Alt+{i + 1}"), self)
+            sc.activated.connect(lambda idx=i: self._switch_page(idx))
+
+        search_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self)
+
+        def _focus_search() -> None:
+            # Search lives on the library page; jump there first so the box
+            # is visible, then focus + select-all for an immediate retype.
+            self._switch_page(0)
+            self.search_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            self.search_box.selectAll()
+
+        search_sc.activated.connect(_focus_search)
+
     def _maybe_run_first_launch_checks(self) -> None:
         """v0.2.1: on GUI startup, resume any pending install steps and —
         if this is genuinely a first run (no apps registered yet) —
@@ -66,6 +94,11 @@ class NavigationMixin:
         auto / customize / skip, setup runs (auto) or wizard opens
         (customize), then we proceed to the normal quick-start flow.
         Both branches stay best-effort and silent on success."""
+        # Startup-time GUI-thread hook (fired once via QTimer from __init__)
+        # — a convenient, owned place to register keyboard shortcuts now
+        # that nav_buttons + search_box exist.
+        self._install_shortcuts()
+
         from winpodx.utils.pending import has_pending
 
         if has_pending():
@@ -167,6 +200,16 @@ class NavigationMixin:
                 handle_setup(args)
                 self.cfg = Config.load()
                 _stream("[winpodx] Setup complete.")
+                # Brief "ready" ack so a first-timer knows the next step.
+                # Marshalled onto the GUI thread (show_toast touches widgets)
+                # via QTimer.singleShot(0, ...) — the same pattern the
+                # bring-up worker uses.
+                QTimer.singleShot(
+                    0,
+                    lambda: show_toast(
+                        self, tr("Windows is ready — launch an app"), kind="success"
+                    ),
+                )
             except Exception as e:  # noqa: BLE001
                 _stream(f"[winpodx] Setup failed: {e}")
 
@@ -207,4 +250,19 @@ class NavigationMixin:
         except OSError:
             pass
 
-        QMessageBox.information(self, tr("winpodx — Quick Start"), "\n".join(lines))
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("winpodx — Quick Start"))
+        box.setText("\n".join(lines))
+        # Real next-actions so a first-timer has somewhere obvious to go,
+        # wired to the existing page-switch + refresh handlers.
+        settings_btn = box.addButton(tr("Open Settings"), QMessageBox.ButtonRole.ActionRole)
+        refresh_btn = box.addButton(tr("Refresh apps"), QMessageBox.ButtonRole.ActionRole)
+        close_btn = box.addButton(tr("Close"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(close_btn)
+        box.exec()
+        clicked = box.clickedButton()
+
+        if clicked is settings_btn:
+            self._switch_page(1)  # Settings page (nav index == page index)
+        elif clicked is refresh_btn:
+            self._on_refresh_apps()

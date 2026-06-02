@@ -14,9 +14,9 @@ Host-class contract (only listed for readers; not enforced):
     _switch_page(idx) -> None       — defined on the host class.
     _on_start_pod() / _on_stop_pod()  — defined on PodStatusMixin.
     Widgets created here (nav_buttons, pod_dot, pod_label, agent_dot,
-    rdp_dot, btn_start, btn_stop, banner_icon, banner_text, info_label,
-    info_pod_dot, info_pod_state) are accessed from sibling mixins
-    via the shared ``self`` instance.
+    rdp_dot, btn_start, btn_stop, banner_icon, banner_text, banner_btn,
+    info_label, info_pod_dot, info_pod_addr) are accessed from sibling
+    mixins via the shared ``self`` instance.
 """
 
 from __future__ import annotations
@@ -192,15 +192,18 @@ class HeaderMixin:
         layout.addWidget(self.banner_text)
         layout.addStretch()
 
-        start_btn = QPushButton(tr("Start Now"))
-        start_btn.setStyleSheet(
+        # Kept as an instance attribute so the degraded-transport state can
+        # relabel it "Restart" (recovery) vs the default "Start Now". The
+        # action is the same ensure_ready() path either way.
+        self.banner_btn = QPushButton(tr("Start Now"))
+        self.banner_btn.setStyleSheet(
             f"QPushButton {{ background: {C.BLUE}; color: {C.CRUST};"
             f" border: none; border-radius: 6px;"
             f" padding: 4px 14px; font-size: 12px; font-weight: bold; }}"
             f"QPushButton:hover {{ background: {C.LAVENDER}; }}"
         )
-        start_btn.clicked.connect(self._on_start_pod)
-        layout.addWidget(start_btn)
+        self.banner_btn.clicked.connect(self._on_start_pod)
+        layout.addWidget(self.banner_btn)
 
         banner.setVisible(True)
         return banner
@@ -221,17 +224,22 @@ class HeaderMixin:
         layout.addWidget(self.info_label)
         layout.addStretch()
 
+        # The pod *state* word lives authoritatively in the top-bar chip
+        # and the status banner; repeating it here was pure noise. Keep
+        # only the tiny colour dot (a glanceable health indicator, not a
+        # word) and show the pod IP/address instead — complementary info
+        # the chip/banner don't surface. _on_pod_status fills it in.
         self.info_pod_dot = QLabel("●")
         self.info_pod_dot.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 8px;"
         )
         layout.addWidget(self.info_pod_dot)
 
-        self.info_pod_state = QLabel(tr("checking"))
-        self.info_pod_state.setStyleSheet(
+        self.info_pod_addr = QLabel("")
+        self.info_pod_addr.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;"
         )
-        layout.addWidget(self.info_pod_state)
+        layout.addWidget(self.info_pod_addr)
 
         sep = QLabel("│")
         sep.setStyleSheet(f"background: transparent; color: {C.SURFACE1}; font-size: 11px;")

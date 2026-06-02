@@ -40,6 +40,26 @@ _RISK_COLOR = {
     "high": "#E06C75",  # red
 }
 
+# Hover text for each risk badge, mirroring the legend.
+_RISK_TOOLTIP = {
+    "low": "LOW — generally safe to apply.",
+    "medium": "MEDIUM — changes behavior; review before applying.",
+    "high": "HIGH — may break features or remove apps.",
+}
+
+# Plain-language description of what each named preset does. Keyed by the
+# lowercase preset name from the catalog; presets the catalog ships that
+# aren't listed here fall back to a generic "N item(s)" line so a future
+# catalog addition still renders sensibly.
+_PRESET_DESCRIPTIONS = {
+    "normal": "Normal — disable telemetry, ads, and suggestions. Generally safe.",
+    "aggressive": (
+        "Aggressive — Normal plus removing built-in apps (e.g. OneDrive). "
+        "Frees more but may break some features."
+    ),
+    "custom": "Custom — your own hand-picked set; nothing is assumed.",
+}
+
 
 class DebloatPickerDialog(QDialog):
     """Modal item picker driven by a ``DebloatCatalog``.
@@ -94,14 +114,32 @@ class DebloatPickerDialog(QDialog):
         subtitle = QLabel(
             tr(
                 "Pick a preset and (optionally) tweak the per-item checkboxes. "
-                "Selected items will run inside the Windows guest via the agent "
-                "transport. Items with no undo path (one-way) are noted in their "
-                "description."
+                "Selected items run inside the Windows guest via the agent "
+                "transport. Items tagged (one-way) cannot be undone — they have "
+                "no reverse script."
             )
         )
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: #888; font-size: 12px;")
         outer.addWidget(subtitle)
+
+        # Risk-scale legend so the per-item badges read clearly.
+        legend = QLabel(
+            tr("Risk: ")
+            + f'<span style="color:{_RISK_COLOR["low"]}">'
+            + tr("LOW = generally safe")
+            + "</span>  ·  "
+            + f'<span style="color:{_RISK_COLOR["medium"]}">'
+            + tr("MEDIUM = changes behavior")
+            + "</span>  ·  "
+            + f'<span style="color:{_RISK_COLOR["high"]}">'
+            + tr("HIGH = may break features")
+            + "</span>"
+        )
+        legend.setTextFormat(Qt.TextFormat.RichText)
+        legend.setWordWrap(True)
+        legend.setStyleSheet("font-size: 11px;")
+        outer.addWidget(legend)
 
         # --- Preset radio group ------------------------------------------
         preset_row = QHBoxLayout()
@@ -130,6 +168,13 @@ class DebloatPickerDialog(QDialog):
 
         outer.addLayout(preset_row)
 
+        # Plain-language description of the currently-selected preset,
+        # refreshed by the preset/custom toggles.
+        self._preset_desc = QLabel("")
+        self._preset_desc.setWordWrap(True)
+        self._preset_desc.setStyleSheet("color: #aaa; font-size: 11px;")
+        outer.addWidget(self._preset_desc)
+
         # --- Item list ---------------------------------------------------
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -151,6 +196,7 @@ class DebloatPickerDialog(QDialog):
             badge = QLabel(item.risk.upper())
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setFixedWidth(60)
+            badge.setToolTip(_RISK_TOOLTIP.get(item.risk, ""))
             badge.setStyleSheet(
                 f"background: {_RISK_COLOR.get(item.risk, '#888')};"
                 " color: white; border-radius: 4px;"
@@ -159,11 +205,15 @@ class DebloatPickerDialog(QDialog):
             row.addWidget(badge)
 
             label = QLabel(item.label)
+            # Full purpose on hover so every item is explainable even when the
+            # short label can't carry it.
             label.setToolTip(item.description)
             label.setStyleSheet("font-size: 13px;")
             row.addWidget(label, 1)
 
             one_way = QLabel(tr("(one-way)")) if not item.is_reversible else QLabel("")
+            if not item.is_reversible:
+                one_way.setToolTip(tr("Cannot be undone — this item has no reverse script."))
             one_way.setStyleSheet("color: #888; font-size: 11px;")
             row.addWidget(one_way)
 
@@ -215,7 +265,20 @@ class DebloatPickerDialog(QDialog):
             if btn is sender:
                 members = set(self._catalog.items_for_preset(preset_name))
                 self._set_checkboxes_to(members)
+                self._update_preset_desc(preset_name)
                 break
+
+    def _update_preset_desc(self, preset_name: str) -> None:
+        """Refresh the plain-language description for the active preset."""
+        desc = _PRESET_DESCRIPTIONS.get(preset_name.lower())
+        if desc is None:
+            count = len(self._catalog.items_for_preset(preset_name))
+            desc = tr("{name} — preset with {count} item(s).").format(
+                name=preset_name.capitalize(), count=count
+            )
+        else:
+            desc = tr(desc)
+        self._preset_desc.setText(desc)
 
     def _set_checkboxes_to(self, members: set[str]) -> None:
         """Apply ``members`` as the checked set without re-firing toggles
@@ -241,6 +304,7 @@ class DebloatPickerDialog(QDialog):
                 self._custom_button.setChecked(True)
             finally:
                 self._suppress_recompute = False
+            self._update_preset_desc("custom")
         self._refresh_count()
 
     def _refresh_count(self) -> None:

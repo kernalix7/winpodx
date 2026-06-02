@@ -159,7 +159,13 @@ def show_toast(
     without a modal. ``kind`` is one of info / success / warn / error.
 
     No telemetry, no persistence -- purely a visual ack.
+
+    Defensive: a toast is a non-critical visual ack, so if ``parent`` isn't a
+    real QWidget (e.g. a test stub or a headless caller) this is a no-op
+    rather than an error -- never crash a real action over a missed toast.
     """
+    if not isinstance(parent, QWidget):
+        return
     accent = _TOAST_ACCENT.get(kind, C.BLUE)
     toast = QLabel(message, parent)
     toast.setObjectName("winpodxToast")

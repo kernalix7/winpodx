@@ -55,9 +55,11 @@ is preserved on the wire: the dialog looks the ID up in
 
 Cancellation is best-effort: polling loops (Phase 1/2) honour the event
 within a 2 s cycle, but the blocking apply / discover / sync calls
-(Phase 3-5) cannot be interrupted mid-call. The dialog's Cancel button
-disables itself with "Cancelling..." text so the user knows the request
-landed.
+(Phase 3-5) cannot be interrupted mid-call. Because those phases can't
+honour Cancel, the dialog DISABLES its Cancel button (with an explanatory
+tooltip) for the duration of a non-cancellable phase and re-enables it
+only while a cancellable polling phase is active, so the user never gets
+the false hope of a "Cancelling..." spinner that never lands.
 """
 
 from __future__ import annotations
@@ -82,6 +84,8 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
+from winpodx.gui._widget_helpers import BusyDialog
+from winpodx.gui.theme import FONT_CAPTION, FONT_SUBHEAD, C
 
 log = logging.getLogger(__name__)
 
@@ -92,16 +96,29 @@ log = logging.getLogger(__name__)
 _POLL_CADENCE_SECS = 2.0
 
 
-# Stable phase identifiers + their display labels. The phase ID is the
-# wire contract between BringUpMixin and BringUpProgressDialog -- the
-# label is presentational only. Adding a new phase = new entry here +
-# matching ``_phaseN_*`` method on BringUpMixin.
-_PHASE_DEFS: tuple[tuple[str, str], ...] = (
-    ("phase_1_pod", "Pod ready"),
-    ("phase_2_agent", "Agent ready"),
-    ("phase_3_fixes", "Apply Windows runtime fixes"),
-    ("phase_4_discovery", "App discovery"),
-    ("phase_5_refresh", "Reverse-open refresh"),
+# Stable phase identifiers + their display label / ETA hint / cancellable
+# flag. The phase ID is the wire contract between BringUpMixin and
+# BringUpProgressDialog -- the label + hint are presentational only.
+# Adding a new phase = new entry here + matching ``_phaseN_*`` method on
+# BringUpMixin.
+#
+# Each entry is ``(phase_id, label, eta_hint, cancellable)``:
+#   * ``eta_hint`` is a static, honest "usually ~N" note shown next to the
+#     row so a long wait reads as normal rather than hung. NOT a live ETA.
+#   * ``cancellable`` is False for the blocking apply / discover / sync
+#     phases (3-5) that can't honour the cancel event mid-call -- the
+#     dialog disables Cancel while those run.
+_PHASE_DEFS: tuple[tuple[str, str, str, bool], ...] = (
+    ("phase_1_pod", "Pod ready", "usually ~1-2 min", True),
+    (
+        "phase_2_agent",
+        "Agent ready",
+        "usually a few min, up to ~30 min on a fresh install",
+        True,
+    ),
+    ("phase_3_fixes", "Apply Windows runtime fixes", "usually ~1-2 min", False),
+    ("phase_4_discovery", "App discovery", "usually ~1-2 min", False),
+    ("phase_5_refresh", "Reverse-open refresh", "usually ~1-2 min", False),
 )
 
 
@@ -111,8 +128,8 @@ def _phase_index(phase_id: str) -> int:
     Returns -1 if the ID is unknown -- callers fall back to leaving
     the checklist untouched rather than crashing on a typo.
     """
-    for idx, (pid, _label) in enumerate(_PHASE_DEFS):
-        if pid == phase_id:
+    for idx, entry in enumerate(_PHASE_DEFS):
+        if entry[0] == phase_id:
             return idx
     return -1
 
@@ -122,6 +139,22 @@ def _phase_label(phase_id: str) -> str:
     if idx < 0:
         return phase_id
     return _PHASE_DEFS[idx][1]
+
+
+def _phase_eta_hint(phase_id: str) -> str:
+    """Return the static "usually ~N" hint for ``phase_id`` (``""`` if none)."""
+    idx = _phase_index(phase_id)
+    if idx < 0:
+        return ""
+    return _PHASE_DEFS[idx][2]
+
+
+def _phase_cancellable(phase_id: str) -> bool:
+    """Whether ``phase_id`` honours the cancel event (unknown -> False)."""
+    idx = _phase_index(phase_id)
+    if idx < 0:
+        return False
+    return _PHASE_DEFS[idx][3]
 
 
 def _format_mmss(secs: float) -> str:
@@ -171,7 +204,7 @@ class BringUpProgressDialog(QDialog):
 
         # ----- header row (phase progress + label) -----------------------
         self.header = QLabel(tr("Starting..."))
-        self.header.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.header.setStyleSheet(f"font-size: {FONT_SUBHEAD}px; font-weight: bold;")
         self.header.setWordWrap(True)
         layout.addWidget(self.header)
 
@@ -191,7 +224,7 @@ class BringUpProgressDialog(QDialog):
         self._mono_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
 
         self._row_widgets: list[tuple[QLabel, QLabel, QLabel]] = []
-        for idx, (_pid, label) in enumerate(_PHASE_DEFS):
+        for idx, (_pid, label, eta_hint, _cancellable) in enumerate(_PHASE_DEFS):
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
@@ -200,17 +233,30 @@ class BringUpProgressDialog(QDialog):
             glyph = QLabel("   ")
             glyph.setFont(self._mono_font)
             glyph.setFixedWidth(20)
+            glyph.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+            # Name + a static "usually ~N" hint stacked beneath it so a
+            # long wait reads as normal rather than hung.
+            name_col = QWidget()
+            name_layout = QVBoxLayout(name_col)
+            name_layout.setContentsMargins(0, 0, 0, 0)
+            name_layout.setSpacing(0)
 
             name = QLabel(f"{idx + 1}. {tr(label)}")
             name.setFont(self._mono_font)
 
+            hint = QLabel(tr(eta_hint) if eta_hint else "")
+            hint.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
+            name_layout.addWidget(name)
+            name_layout.addWidget(hint)
+
             elapsed = QLabel("")
             elapsed.setFont(self._mono_font)
-            elapsed.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            elapsed.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
             elapsed.setMinimumWidth(56)
 
             row_layout.addWidget(glyph)
-            row_layout.addWidget(name, stretch=1)
+            row_layout.addWidget(name_col, stretch=1)
             row_layout.addWidget(elapsed)
             layout.addWidget(row)
 
@@ -247,7 +293,7 @@ class BringUpProgressDialog(QDialog):
         footer_layout.setContentsMargins(0, 0, 0, 0)
 
         self.elapsed_label = QLabel(tr("Elapsed 0:00"))
-        self.elapsed_label.setStyleSheet("color: #888;")
+        self.elapsed_label.setStyleSheet(f"color: {C.SUBTEXT0};")
         footer_layout.addWidget(self.elapsed_label, stretch=1)
 
         self.cancel_btn = QPushButton(tr("Cancel"))
@@ -266,6 +312,23 @@ class BringUpProgressDialog(QDialog):
         self._tick_timer.start()
 
     # ----- cancel ---------------------------------------------------------
+
+    def _apply_cancel_state(self, cancellable: bool) -> None:
+        """Enable/disable Cancel for the active phase.
+
+        Polling phases honour the cancel event, so Cancel stays live.
+        Blocking phases can't be interrupted -- disable the button and
+        explain why via a tooltip so the user doesn't expect a response.
+        Skipped once the dialog is done (the button is repurposed to Close).
+        """
+        if self._done:
+            return
+        if cancellable:
+            self.cancel_btn.setEnabled(True)
+            self.cancel_btn.setToolTip("")
+        else:
+            self.cancel_btn.setEnabled(False)
+            self.cancel_btn.setToolTip(tr("This step can't be interrupted"))
 
     def _handle_cancel(self) -> None:
         # Cancellation is best-effort: long blocking subprocess calls
@@ -306,6 +369,13 @@ class BringUpProgressDialog(QDialog):
         if idx < 0:
             return
 
+        # Cancel correctness: only the polling phases (1-2) honour the
+        # cancel event. The blocking apply / discover / sync phases (3-5)
+        # can't be interrupted mid-call, so disable Cancel while they run
+        # rather than leave the user staring at a "Cancelling..." spinner
+        # that never lands.
+        self._apply_cancel_state(_phase_cancellable(phase_id))
+
         now = self._monotonic()
         # Close out all previously-started rows up to (but not
         # including) the new active row. This makes phase transitions
@@ -342,13 +412,25 @@ class BringUpProgressDialog(QDialog):
                 self._phase_done_at[self._active_phase_idx] = now
 
         if success:
-            self.header.setText(tr("Done."))
-            self.sub_detail.setText(tr("Bring-up complete."))
+            # Make the finished state unmistakable: a ticked header plus a
+            # plain-language "you can launch apps now" sub-line, and a
+            # determinate full bar so the progress no longer reads as busy.
+            self.header.setText(tr("✓ Ready"))
+            self.header.setStyleSheet(
+                f"font-size: {FONT_SUBHEAD}px; font-weight: bold; color: {C.GREEN};"
+            )
+            self.sub_detail.setText(tr("Windows is ready — you can launch apps now."))
+            self.bar.setMaximum(1)
+            self.bar.setValue(1)
         else:
             self.header.setText(tr("Bring-up did not complete"))
+            self.header.setStyleSheet(
+                f"font-size: {FONT_SUBHEAD}px; font-weight: bold; color: {C.RED};"
+            )
             self.sub_detail.setText(error_msg or tr("(no error message)"))
         self.cancel_btn.setText(tr("Close"))
         self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setToolTip("")
         try:
             self.cancel_btn.clicked.disconnect()
         except (RuntimeError, TypeError):
@@ -390,16 +472,19 @@ class BringUpProgressDialog(QDialog):
             started = self._phase_started_at.get(idx)
             done = self._phase_done_at.get(idx)
             if done is not None and started is not None:
-                glyph.setText("v  ")
+                glyph.setText("✓  ")
+                glyph.setStyleSheet(f"color: {C.GREEN};")
                 name.setStyleSheet("")
                 elapsed.setText(_format_mmss(done - started))
             elif started is not None:
                 glyph.setText(">  ")
+                glyph.setStyleSheet(f"color: {C.BLUE};")
                 name.setStyleSheet("font-weight: bold;")
                 elapsed.setText(_format_mmss(now - started))
             else:
                 glyph.setText("   ")
-                name.setStyleSheet("color: #888;")
+                glyph.setStyleSheet("")
+                name.setStyleSheet(f"color: {C.SUBTEXT0};")
                 elapsed.setText("")
 
     def _stop_tick_timer(self) -> None:
@@ -600,6 +685,56 @@ class BringUpMixin:
         ev = getattr(self, "_bringup_cancel", None)
         if ev is not None:
             ev.set()
+
+    # ----- first-run "winpodx setup" progress ----------------------------
+    #
+    # The first-run Auto / Customize flow (NavigationMixin._run_first_run_
+    # setup) runs ``winpodx setup`` on a worker thread and used to surface
+    # only bottom-bar log lines, so the window felt frozen for the 5-10 min
+    # of ISO download + Sysprep. These helpers front that wait with a
+    # BusyDialog so it's obviously working; the streamed logs keep flowing
+    # underneath into the bottom bar / Terminal exactly as before.
+
+    def _show_setup_busy_dialog(self) -> None:
+        """GUI-thread: show a BusyDialog over the long ``winpodx setup`` run.
+
+        Idempotent -- a second call while one is showing is a no-op. Must be
+        called on the GUI thread (the first-run prompt handler already is).
+        """
+        if getattr(self, "_setup_busy_dialog", None) is not None:
+            return
+        try:
+            dlg = BusyDialog(
+                self,
+                tr("Setting up Windows"),
+                tr("Setting up Windows — this can take 5-10 minutes (ISO download + Sysprep)."),
+                eta_hint=tr("You can watch progress in the log bar below."),
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("setup BusyDialog construction failed")
+            return
+        self._setup_busy_dialog = dlg
+        dlg.show()
+
+    def _finish_setup_busy_dialog(self) -> None:
+        """Dismiss the setup BusyDialog. Safe to call from any thread.
+
+        The first-run setup work runs on a worker thread; marshal the close
+        onto the GUI thread via ``QTimer.singleShot(0, ...)`` so we never
+        touch a widget off-thread.
+        """
+        QTimer.singleShot(0, self._close_setup_busy_dialog)
+
+    def _close_setup_busy_dialog(self) -> None:
+        """GUI-thread: actually close + drop the setup BusyDialog reference."""
+        dlg = getattr(self, "_setup_busy_dialog", None)
+        self._setup_busy_dialog = None
+        if dlg is None:
+            return
+        try:
+            dlg.finish()
+        except Exception:  # noqa: BLE001
+            log.debug("setup BusyDialog finish() raised", exc_info=True)
 
     # ----- worker --------------------------------------------------------
 

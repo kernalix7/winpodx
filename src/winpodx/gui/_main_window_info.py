@@ -36,6 +36,18 @@ from winpodx.gui.workers import InfoWorker
 class InfoPageMixin:
     """Info-tab behavior. Mix into ``WinpodxWindow``."""
 
+    # Plain "what to install" hints appended to a MISSING dependency row so
+    # the user isn't left guessing. Text-only (no buttons) by design — the
+    # exact package name varies per distro, so we point at the upstream
+    # rather than shell out a package-manager command.
+    _DEP_INSTALL_HINTS: dict[str, str] = {
+        "freerdp": "install FreeRDP 3+ (e.g. your distro's 'freerdp3' / 'freerdp' package)",
+        "podman": "install Podman 4+ (your distro's 'podman' package) — the default backend",
+        "docker": "install Docker Engine if you prefer the docker backend",
+        "flatpak": "install 'flatpak' only if you use the Flatpak FreeRDP fallback",
+        "kvm": "enable KVM (load the kvm module; add yourself to the 'kvm' group)",
+    }
+
     _HEALTH_BADGE_COLORS: dict[str, str] = {
         "ok": "#a6e3a1",  # Catppuccin GREEN
         "warn": "#f9e2af",  # YELLOW
@@ -295,13 +307,22 @@ class InfoPageMixin:
         for name, dep in info.get("dependencies", {}).items():
             ok = dep.get("found") == "true"
             path = dep.get("path") or ""
-            value = (tr("OK") + " " + path).strip() if ok else tr("MISSING")
+            if ok:
+                value = (tr("OK") + " " + path).strip()
+            else:
+                # Tack on a short, plain "how to install" hint so a MISSING
+                # row is actionable without leaving the page.
+                hint = self._DEP_INSTALL_HINTS.get(name)
+                value = tr("MISSING") + (f" — {tr(hint)}" if hint else "")
             deps_rows.append((name, value))
         self._set_info_card_rows("dependencies", deps_rows)
 
         pod = info.get("pod", {})
-        rdp_label = tr("reachable") if pod.get("rdp_reachable") else tr("unreachable")
-        vnc_label = tr("reachable") if pod.get("vnc_reachable") else tr("unreachable")
+        # "reachable" here means the TCP port accepts a connection — it does
+        # NOT mean Windows has finished booting / the RemoteApp service is
+        # ready. Spell that out so a user doesn't read "reachable" as "ready".
+        rdp_label = tr("port open") if pod.get("rdp_reachable") else tr("port closed")
+        vnc_label = tr("port open") if pod.get("vnc_reachable") else tr("port closed")
         pod_rows = [
             (tr("State"), str(pod.get("state", ""))),
         ]
@@ -312,6 +333,14 @@ class InfoPageMixin:
                 (tr("RDP {port}").format(port=pod.get("rdp_port", "")), rdp_label),
                 (tr("VNC {port}").format(port=pod.get("vnc_port", "")), vnc_label),
                 (tr("Active sessions"), str(pod.get("active_sessions", 0))),
+                (
+                    tr("Note"),
+                    tr(
+                        "Port open ≠ Windows ready — the guest may still be "
+                        "booting after the port opens. Pod state flows: "
+                        "stopped → running → paused (suspend) → running (resume)."
+                    ),
+                ),
             ]
         )
         self._set_info_card_rows("pod", pod_rows)
@@ -329,7 +358,10 @@ class InfoPageMixin:
         ]
         warning = conf.get("budget_warning") or ""
         if warning:
-            cfg_rows.append((tr("WARNING"), warning))
+            # Read-only mirror — the Settings page owns the RAM budget control.
+            # Tag it "(see Settings)" so this doesn't read as a second place
+            # to fix the same thing.
+            cfg_rows.append((tr("WARNING"), warning + " " + tr("(adjust in Settings)")))
         self._set_info_card_rows("config", cfg_rows)
 
     def _start_info_auto_refresh(self) -> None:

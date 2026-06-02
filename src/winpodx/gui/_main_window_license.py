@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -35,9 +36,10 @@ log = logging.getLogger(__name__)
 
 
 # Hand-maintained acknowledgments. Each entry: (display_name, license,
-# what-we-use-it-for). Kept short on purpose — the LICENSE file +
-# upstream project pages are the canonical legal source; this is just
-# a "who got us here" summary the user can scan in 10 seconds.
+# what-we-use-it-for, upstream_url). Kept short on purpose — the LICENSE
+# file + upstream project pages are the canonical legal source; this is
+# just a "who got us here" summary the user can scan in 10 seconds. The
+# URL lets the user find the upstream source + its full license text.
 #
 # ``rdprrap`` is bundled in ``config/oem/`` and is technically a
 # sibling project authored by the same maintainer (MIT, same
@@ -46,88 +48,104 @@ log = logging.getLogger(__name__)
 # strict sense. Its own NOTICE file documents that portions are
 # source-level ports of stascorp/rdpwrap (Apache-2.0), which is
 # why that upstream is also listed below.
-_THIRD_PARTY_ACK: tuple[tuple[str, str, str], ...] = (
+_THIRD_PARTY_ACK: tuple[tuple[str, str, str, str], ...] = (
     (
         "dockur/windows",
         "MIT",
         "Windows-in-Docker base image (pulled from Docker Hub at runtime, not bundled)",
+        "https://github.com/dockur/windows",
     ),
     (
         "dockur/windows-arm",
         "MIT",
         "Windows-on-ARM container image for aarch64 hosts (Pi 5, Ampere) — runtime-pulled",
+        "https://github.com/dockur/windows-arm",
     ),
     (
         "FreeRDP 3",
         "Apache-2.0",
         "RDP client with RemoteApp/RAIL (system-installed dependency)",
+        "https://github.com/FreeRDP/FreeRDP",
     ),
     (
         "rdprrap",
         "MIT",
         "TermService DLL hook for multi-session RDP in the guest "
         "(same maintainer; bundled in OEM zip)",
+        "https://github.com/kernalix7/rdprrap",
     ),
     (
         "stascorp/rdpwrap",
         "Apache-2.0",
         "Source-level ancestor of rdprrap — bundled rdprrap ports portions of rdpwrap",
+        "https://github.com/stascorp/rdpwrap",
     ),
     (
         "llccd/TermWrap",
         "MIT",
         "Source-level ancestor of rdprrap's termwrap DLL (per rdprrap NOTICE section 2)",
+        "https://github.com/llccd/TermWrap",
     ),
     (
         "llccd/RDPWrapOffsetFinder",
         "MIT",
         "Source-level ancestor of rdprrap's offset-finder tool (per rdprrap NOTICE section 3)",
+        "https://github.com/llccd/RDPWrapOffsetFinder",
     ),
     (
         "PySide6 / Qt 6",
         "LGPL-3.0-only WITH Qt-LGPL-exception-1.1",
         "GUI framework — dynamically linked via import; LGPL §4(d) satisfied",
+        "https://doc.qt.io/qtforpython/",
     ),
     (
         "electron/rcedit",
         "MIT (Copyright 2013 GitHub Inc.)",
         "Vendored Windows .exe resource editor for embedding per-slug reverse-open icons",
+        "https://github.com/electron/rcedit",
     ),
     (
         "Pillow",
         "MIT-CMU",
         "PNG / SVG → ICO conversion for reverse-open (optional, only with the reverse-open extra)",
+        "https://github.com/python-pillow/Pillow",
     ),
     (
         "cairosvg",
         "LGPL-3.0-or-later",
         "SVG rasterizer used during ICO build (optional, only with the reverse-open extra)",
+        "https://github.com/Kozea/CairoSVG",
     ),
     (
         "pyxdg",
         "LGPL-2.0-only",
         "freedesktop .desktop file parser for host-app discovery (optional, reverse-open extra)",
+        "https://gitlab.freedesktop.org/xdg/pyxdg",
     ),
     (
         "docker (docker-py)",
         "Apache-2.0",
         "Python client for the Docker Engine API (optional, only with the docker extra)",
+        "https://github.com/docker/docker-py",
     ),
     (
         "tomli",
         "MIT",
         "TOML parser fallback for Python 3.9 / 3.10 (stdlib tomllib used on 3.11+)",
+        "https://github.com/hukkin/tomli",
     ),
     (
         "getrandom (Rust crate)",
         "MIT OR Apache-2.0",
         "Crypto-quality randomness for the reverse-open Windows shim "
         "(statically linked into the vendored .exe)",
+        "https://github.com/rust-random/getrandom",
     ),
     (
         "GitHub Primer Dark",
         "MIT (Copyright 2013 GitHub Inc.)",
         "Color palette inspiration for the GUI theme (see src/winpodx/gui/theme.py)",
+        "https://github.com/primer/primitives",
     ),
 )
 
@@ -187,15 +205,17 @@ class LicensePageMixin:
         ack_intro = QLabel(
             tr(
                 "winpodx ships and depends on these upstream projects. Each is "
-                "used under its own license; consult the upstream repository for "
-                "the canonical text."
+                "used under its own license; the upstream link below points at the "
+                "source and its canonical license text. The full MIT text for "
+                "winpodx itself is in the LICENSE box above (and in LICENSE in the "
+                "source tree)."
             )
         )
         ack_intro.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
         ack_intro.setWordWrap(True)
         layout.addWidget(ack_intro)
 
-        for name, license_, purpose in _THIRD_PARTY_ACK:
+        for name, license_, purpose, url in _THIRD_PARTY_ACK:
             row = QFrame()
             row.setStyleSheet(f"background: {C.SURFACE0}; border-radius: 6px; padding: 8px;")
             row_layout = QVBoxLayout(row)
@@ -212,6 +232,16 @@ class LicensePageMixin:
             detail.setStyleSheet(f"background: transparent; color: {C.SUBTEXT1}; font-size: 12px;")
             detail.setWordWrap(True)
             row_layout.addWidget(detail)
+
+            # Upstream source link. Rendered as selectable text (not an
+            # auto-opening hyperlink) so winpodx never initiates a network
+            # call — the user copies the URL to find the source + its
+            # license themselves.
+            link = QLabel(url)
+            link.setStyleSheet(f"background: transparent; color: {C.BLUE}; font-size: 11px;")
+            link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            link.setWordWrap(True)
+            row_layout.addWidget(link)
 
             layout.addWidget(row)
 

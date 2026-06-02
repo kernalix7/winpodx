@@ -18,8 +18,8 @@ Host-class contract (only listed for readers; not enforced):
     app_launched: Signal(str)
     app_launch_failed: Signal(str)
     info_label / btn_start / btn_stop / pod_dot / pod_label /
-    info_pod_dot / info_pod_state / status_banner / banner_icon /
-    banner_text / agent_dot / rdp_dot                   — built widgets.
+    info_pod_dot / info_pod_addr / status_banner / banner_icon /
+    banner_text / banner_btn / agent_dot / rdp_dot      — built widgets.
     _on_refresh_apps()                                  — defined on AppCrudMixin.
 """
 
@@ -35,6 +35,7 @@ from winpodx.core.app import AppInfo
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.core.pod import pod_status
+from winpodx.gui._widget_helpers import show_toast
 from winpodx.gui.theme import C
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class PodStatusMixin:
         QTimer.singleShot(3000, lambda n=app.name: self._recently_launched.discard(n))
 
         self.info_label.setText(tr("Launching {app}...").format(app=app.full_name))
+        show_toast(self, tr("Launching {app}…").format(app=app.full_name), kind="info")
 
         def _do() -> None:
             # Lock guards ensure_ready + launch_app only; dropped before the wait.
@@ -190,13 +192,31 @@ class PodStatusMixin:
 
     @Slot(bool, bool, str)
     def _on_transport_status(self, agent_ok: bool, rdp_ok: bool, agent_version: str) -> None:
-        """Paint the agent + RDP mini dots on the sidebar pod chip."""
+        """Paint the agent + RDP mini dots on the pod chip.
+
+        Colour semantics, by anxiety level:
+          green  = reachable;
+          orange = agent down but RDP up — host→guest still works via the
+                   FreeRDP RemoteApp fallback, so apps launch fine (no panic);
+          red    = RDP down — apps genuinely can't launch.
+        Reserving red for the launch-breaking case keeps the indicator honest.
+        """
+        # Cache so the banner (running-but-degraded) can re-derive itself.
+        self._last_agent_ok = agent_ok
+        self._last_rdp_ok = rdp_ok
+
         green = C.GREEN
         red = C.RED
 
+        # Agent down while RDP is up is a soft/fallback condition → orange.
+        if agent_ok:
+            agent_color = green
+        elif rdp_ok:
+            agent_color = C.PEACH
+        else:
+            agent_color = red
         self.agent_dot.setStyleSheet(
-            f"background: transparent; color: {green if agent_ok else red}; "
-            f"font-size: 10px; font-weight: bold;"
+            f"background: transparent; color: {agent_color}; font-size: 10px; font-weight: bold;"
         )
         if agent_ok:
             tip = (
@@ -204,6 +224,8 @@ class PodStatusMixin:
                 if agent_version
                 else tr("Guest agent OK")
             )
+        elif rdp_ok:
+            tip = tr("Agent down — using FreeRDP fallback (apps still launch)")
         else:
             tip = tr("Guest agent unreachable — host→guest commands fall back to FreeRDP RemoteApp")
         self.agent_dot.setToolTip(tip)
@@ -217,6 +239,11 @@ class PodStatusMixin:
             if rdp_ok
             else tr("RDP port 3390 unreachable — apps cannot launch")
         )
+
+        # Re-evaluate the banner: a RUNNING pod with a dead transport must
+        # surface as degraded, not silently hide behind the green chip.
+        if getattr(self, "_pod_state", "") == "running":
+            self._apply_status_banner()
 
     @Slot(str, str)
     def _on_pod_status(self, state: str, ip: str) -> None:
@@ -243,61 +270,102 @@ class PodStatusMixin:
             "error": C.RED,
         }
         color = colors.get(state, C.SUBTEXT0)
+        # User-visible label: "checking" is a transient probe, not a stuck
+        # state — read it as "probing…" so it doesn't look frozen.
+        label = tr("probing…") if state == "checking" else state
         ip_suffix = f" ({ip})" if ip and state == "running" else ""
-        display = state + ip_suffix
+        display = label + ip_suffix
 
         self.pod_dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 10px;")
         self.pod_label.setText(display)
         self.pod_label.setStyleSheet(f"background: transparent; color: {color}; font-size: 12px;")
 
+        # Info bar no longer repeats the state word (chip + banner own it);
+        # it shows the pod IP instead. Keep the colour dot as a glanceable
+        # health cue.
         self.info_pod_dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 8px;")
-        self.info_pod_state.setText(state)
-        self.info_pod_state.setStyleSheet(
-            f"background: transparent; color: {color}; font-size: 11px;"
-        )
+        self.info_pod_addr.setText(ip if ip and state == "running" else "")
 
         self.btn_start.setEnabled(state == "stopped")
         self.btn_stop.setEnabled(state == "running")
 
-        self.status_banner.setVisible(state != "running")
+        self._apply_status_banner()
+
+    def _set_banner(self, icon: str, icon_color: str, text: str, *, restart: bool = False) -> None:
+        """Paint the status banner row (icon + text + button label)."""
+        self.banner_icon.setText(icon)
+        self.banner_icon.setStyleSheet(
+            f"background: transparent; color: {icon_color}; font-size: 14px;"
+        )
+        self.banner_text.setText(text)
+        # Same ensure_ready() action either way; only the label differs so a
+        # running-but-degraded pod reads as a repair, not a cold start.
+        self.banner_btn.setText(tr("Restart") if restart else tr("Start Now"))
+
+    def _apply_status_banner(self) -> None:
+        """Derive the banner from pod state + last transport probe.
+
+        The chip and this banner are the authoritative state surfaces.
+        When the pod is RUNNING the banner normally hides, but if the
+        transport probe says RDP (or the agent) is unreachable we keep it
+        visible in a distinct "degraded" form so the user understands why
+        launches might stall — with a Restart affordance.
+        """
+        state = self._pod_state
+        if state == "running":
+            rdp_ok = getattr(self, "_last_rdp_ok", True)
+            agent_ok = getattr(self, "_last_agent_ok", True)
+            if not rdp_ok:
+                self.status_banner.setVisible(True)
+                self._set_banner(
+                    "⚠",
+                    C.RED,
+                    tr("Pod is running but RDP is unreachable — apps can't launch. Try Restart."),
+                    restart=True,
+                )
+            elif not agent_ok:
+                self.status_banner.setVisible(True)
+                self._set_banner(
+                    "⚠",
+                    C.PEACH,
+                    tr(
+                        "Pod is running but the guest agent is unreachable — "
+                        "launches use the FreeRDP fallback. Restart to repair."
+                    ),
+                    restart=True,
+                )
+            else:
+                self.status_banner.setVisible(False)
+            return
+
+        self.status_banner.setVisible(True)
         if state == "paused":
-            self.banner_icon.setText("⏸")
-            self.banner_icon.setStyleSheet(
-                f"background: transparent; color: {C.PEACH}; font-size: 14px;"
-            )
-            self.banner_text.setText(tr("Pod is paused"))
+            self._set_banner("⏸", C.PEACH, tr("Pod is paused"))
         elif state == "stopped":
-            self.banner_icon.setText("⚠")
-            self.banner_icon.setStyleSheet(
-                f"background: transparent; color: {C.YELLOW}; font-size: 14px;"
-            )
-            self.banner_text.setText(tr("Pod is not running"))
+            self._set_banner("⚠", C.YELLOW, tr("Pod is not running"))
         elif state == "starting":
-            self.banner_icon.setText("▶")
-            self.banner_icon.setStyleSheet(
-                f"background: transparent; color: {C.BLUE}; font-size: 14px;"
-            )
-            self.banner_text.setText(tr("Pod is starting..."))
+            self._set_banner("▶", C.BLUE, tr("Pod is starting..."))
         elif state == "unresponsive":
-            self.banner_icon.setText("⚠")
-            self.banner_icon.setStyleSheet(
-                f"background: transparent; color: {C.PEACH}; font-size: 14px;"
-            )
-            self.banner_text.setText(
-                tr("Pod is alive but RDP is unresponsive — auto-recovering, or click Restart Pod")
+            self._set_banner(
+                "⚠",
+                C.PEACH,
+                tr("Pod is alive but RDP is unresponsive — auto-recovering, or click Restart"),
+                restart=True,
             )
         elif state == "error":
-            self.banner_icon.setText("✗")
-            self.banner_icon.setStyleSheet(
-                f"background: transparent; color: {C.RED}; font-size: 14px;"
-            )
-            self.banner_text.setText(tr("Pod error"))
+            self._set_banner("✗", C.RED, tr("Pod error"))
+        else:
+            # "checking" / unknown transient — show a neutral probing row
+            # rather than the alarming "not running" copy.
+            self._set_banner("…", C.SUBTEXT0, tr("Probing pod state…"))
 
     @Slot(str)
     def _on_app_launched(self, name: str) -> None:
         self.info_label.setText(tr("{name} launched").format(name=name))
+        show_toast(self, tr("{name} launched").format(name=name), kind="success")
 
     @Slot(str)
     def _on_app_launch_failed(self, error: str) -> None:
         self.info_label.setText(tr("Launch failed: {error}").format(error=error))
+        show_toast(self, tr("Launch failed"), kind="error")
         QMessageBox.critical(self, tr("Launch Error"), error)
