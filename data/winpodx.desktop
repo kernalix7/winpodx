@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=winpodx
+Name=WinPodX
 Comment=Windows App Integration for Linux
 Exec=winpodx gui
 Icon=winpodx

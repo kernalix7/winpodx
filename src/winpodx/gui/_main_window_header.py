@@ -73,7 +73,7 @@ class HeaderMixin:
             layout.addWidget(logo_icon)
             layout.addSpacing(8)
 
-        logo_text = QLabel("winpodx")
+        logo_text = QLabel("WinPodX")
         logo_text.setStyleSheet(
             f"background: transparent; color: {C.TEXT};"
             " font-size: 16px; font-weight: bold;"

@@ -135,7 +135,7 @@ class LogsMixin:
         self._log_append(f"$ tail {log_path}", C.BLUE)
         if not log_path.exists():
             self._log_append(
-                "(no app log file yet — winpodx writes to it after the next CLI / GUI action)",
+                "(no app log file yet — WinPodX writes to it after the next CLI / GUI action)",
                 C.OVERLAY0,
             )
             return

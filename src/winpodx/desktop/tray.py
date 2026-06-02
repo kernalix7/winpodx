@@ -94,7 +94,7 @@ def run_tray() -> None:
 
     tray = QSystemTrayIcon()
     tray.setIcon(tray_icon)
-    tray.setToolTip(tr("winpodx - Windows App Integration"))
+    tray.setToolTip(tr("WinPodX - Windows App Integration"))
 
     menu = QMenu()
 
@@ -142,7 +142,7 @@ def run_tray() -> None:
             )
         except OSError as e:
             tray.showMessage(
-                "winpodx",
+                "WinPodX",
                 tr("Could not open dashboard: {e}").format(e=e),
                 QSystemTrayIcon.MessageIcon.Warning,
             )
@@ -258,7 +258,7 @@ def run_tray() -> None:
                     QTimer.singleShot(
                         0,
                         lambda: tray.showMessage(
-                            "winpodx",
+                            "WinPodX",
                             tr("{msg}: {detail}").format(msg=error_msg, detail=result.error),
                             QSystemTrayIcon.MessageIcon.Critical,
                         ),
@@ -267,7 +267,7 @@ def run_tray() -> None:
                     QTimer.singleShot(
                         0,
                         lambda: tray.showMessage(
-                            "winpodx",
+                            "WinPodX",
                             success_msg,
                             QSystemTrayIcon.MessageIcon.Information,
                         ),
@@ -279,7 +279,7 @@ def run_tray() -> None:
                 QTimer.singleShot(
                     0,
                     lambda msg=err_detail: tray.showMessage(
-                        "winpodx",
+                        "WinPodX",
                         tr("{msg}: {detail}").format(msg=error_msg, detail=msg),
                         QSystemTrayIcon.MessageIcon.Critical,
                     ),
@@ -324,13 +324,13 @@ def run_tray() -> None:
             try:
                 launch_app(cfg, executable)
                 tray.showMessage(
-                    "winpodx",
+                    "WinPodX",
                     tr("Launching {name}...").format(name=full_name),
                     QSystemTrayIcon.MessageIcon.Information,
                 )
             except RuntimeError as e:
                 tray.showMessage(
-                    "winpodx Error",
+                    "WinPodX Error",
                     str(e),
                     QSystemTrayIcon.MessageIcon.Critical,
                 )
@@ -355,10 +355,10 @@ def run_tray() -> None:
         try:
             launch_app(Config.load())
             tray.showMessage(
-                "winpodx", tr("Opening desktop..."), QSystemTrayIcon.MessageIcon.Information
+                "WinPodX", tr("Opening desktop..."), QSystemTrayIcon.MessageIcon.Information
             )
         except RuntimeError as e:
-            tray.showMessage("winpodx Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
+            tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
 
     desktop_action.triggered.connect(on_desktop)
     apps_menu.addAction(desktop_action)
@@ -464,7 +464,7 @@ def run_tray() -> None:
             if removed
             else tr("No lock files found")
         )
-        tray.showMessage("winpodx", msg, QSystemTrayIcon.MessageIcon.Information)
+        tray.showMessage("WinPodX", msg, QSystemTrayIcon.MessageIcon.Information)
 
     cleanup_action.triggered.connect(on_cleanup)
     maint_menu.addAction(cleanup_action)
@@ -476,7 +476,7 @@ def run_tray() -> None:
 
         ok = sync_windows_time(Config.load())
         msg = tr("Time synced") if ok else tr("Time sync failed")
-        tray.showMessage("winpodx", msg, QSystemTrayIcon.MessageIcon.Information)
+        tray.showMessage("WinPodX", msg, QSystemTrayIcon.MessageIcon.Information)
 
     timesync_action.triggered.connect(on_timesync)
     maint_menu.addAction(timesync_action)
@@ -487,7 +487,7 @@ def run_tray() -> None:
         from winpodx.core.daemon import suspend_pod
 
         suspend_pod(Config.load())
-        tray.showMessage("winpodx", tr("Pod suspended"), QSystemTrayIcon.MessageIcon.Information)
+        tray.showMessage("WinPodX", tr("Pod suspended"), QSystemTrayIcon.MessageIcon.Information)
         refresh_status()
 
     suspend_action.triggered.connect(on_suspend)
@@ -497,7 +497,7 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    quit_action = QAction(tr("Quit winpodx"))
+    quit_action = QAction(tr("Quit WinPodX"))
 
     def _confirmed_quit() -> None:
         """Tear down GUI + pod before closing the tray.
@@ -512,9 +512,9 @@ def run_tray() -> None:
 
         reply = QMessageBox.question(
             None,
-            "winpodx",
+            "WinPodX",
             tr(
-                "Quit winpodx completely?\n\nThis stops the Windows container "
+                "Quit WinPodX completely?\n\nThis stops the Windows container "
                 "and closes any open dashboard window."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -675,7 +675,7 @@ def run_tray() -> None:
             try:
                 launch_app(Config.load())
             except RuntimeError as e:
-                tray.showMessage("winpodx Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
+                tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
 
     tray.activated.connect(on_tray_activate)
 

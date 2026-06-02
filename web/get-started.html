@@ -4,8 +4,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Get started — winpodx</title>
-  <meta name="description" content="Install winpodx: one-line curl, or native packages for openSUSE, Fedora, Debian/Ubuntu, RHEL, Arch, NixOS, and AppImage. Requirements + first-time setup.">
+  <title>Get started — WinPodX</title>
+  <meta name="description" content="Install WinPodX: one-line curl, or native packages for openSUSE, Fedora, Debian/Ubuntu, RHEL, Arch, NixOS, and AppImage. Requirements + first-time setup.">
   <link rel="icon" type="image/svg+xml" href="assets/winpodx-icon.svg">
   <link rel="canonical" href="https://winpodx.org/get-started.html">
   <meta name="theme-color" content="#0d1117">
@@ -29,7 +29,7 @@
 
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">winpodx</a>
+    <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">WinPodX</a>
     <nav class="links">
       <a href="features.html">Features</a>
       <a href="get-started.html" class="active">Get started</a>
@@ -48,7 +48,7 @@
 
   <section class="wrap">
     <h2>1 · Install</h2>
-    <p class="lead">The one-liner installs winpodx, runs setup, and waits for the first Windows boot (~5–10 min).</p>
+    <p class="lead">The one-liner installs WinPodX, runs setup, and waits for the first Windows boot (~5–10 min).</p>
     <div class="install" style="margin-top:24px">
       <div class="label">Any supported distro</div>
       <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash">Copy</button><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</div>
@@ -96,7 +96,7 @@ sudo dnf install winpodx</div></div>
         <div class="code"><button class="copy" data-copy="winpodx setup --customize">Copy</button><span class="prompt">$ </span>winpodx setup --customize</div></div>
     </div>
     <p class="lead" style="margin-top:18px;text-align:left;max-width:none">
-      Setup writes <code>~/.config/winpodx/winpodx.toml</code> + <code>compose.yaml</code>, registers the GUI launcher,
+      Setup writes <code>~/.config/winpodx.toml</code> + <code>compose.yaml</code>, registers the GUI launcher,
       and confirms FreeRDP + Podman/Docker + KVM. The first app launch then provisions the pod and reaches a usable
       RDP session in ~5–10 min.</p>
     <div class="install" style="margin-top:8px">
@@ -112,7 +112,7 @@ winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch pro
     <div class="feat" style="margin-top:24px">
       <div class="block">
         <h3>Hardware virtualization</h3>
-        <p>An x86_64 or aarch64 CPU with virtualization extensions (VT-x / AMD-V / EL2), and access to <code>/dev/kvm</code>. winpodx runs Windows in a KVM-backed container — without KVM the install completes but Windows never boots.</p>
+        <p>An x86_64 or aarch64 CPU with virtualization extensions (VT-x / AMD-V / EL2), and access to <code>/dev/kvm</code>. WinPodX runs Windows in a KVM-backed container — without KVM the install completes but Windows never boots.</p>
       </div>
       <div class="block">
         <h3>Memory &amp; disk</h3>
@@ -132,7 +132,7 @@ winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch pro
 <footer>
   <div class="wrap">
     <div class="cols">
-      <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">winpodx</span>
+      <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">WinPodX</span>
         <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
       <div class="links">
         <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>

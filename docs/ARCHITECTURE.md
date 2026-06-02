@@ -2,7 +2,7 @@
 
 **English** | [한국어](ARCHITECTURE.ko.md)
 
-How winpodx is put together: the data flow on app launch, the technology stack, and the source tree layout.
+How WinPodX is put together: the data flow on app launch, the technology stack, and the source tree layout.
 
 ## How It Works
 
@@ -91,7 +91,7 @@ winpodx/
 
 **Code.** `src/winpodx/core/guest_sync.py`. Design notes: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
 
-Upgrading winpodx on the host updates the host binary, but the guest-side
+Upgrading WinPodX on the host updates the host binary, but the guest-side
 artifacts staged at first install (`C:\OEM\agent.ps1`, the urlacl reservation,
 rdprrap / `shim.exe` / `rcedit.exe`, helper scripts) would otherwise go stale
 until the user wipes and reinstalls Windows. Guest sync closes that gap
@@ -140,7 +140,7 @@ the CLI/GUI can render rows.
 
 dockur only grows the virtual disk *image* when `cfg.pod.disk_size` increases
 and the container is recreated — it never extends the guest's C: partition, and
-it has **no online resize**. winpodx adds an idle-time auto-grow that handles
+it has **no online resize**. WinPodX adds an idle-time auto-grow that handles
 both ends.
 
 **Trigger.** On pod start / idle, if C: used% exceeds
@@ -182,7 +182,7 @@ Seven languages ship: en, ko, zh, ja, de, fr, it. (Distinct from
 
 ## Advanced: Custom Windows ISO
 
-winpodx ships first-class support for the dockur-curated Windows
+WinPodX ships first-class support for the dockur-curated Windows
 editions (Win10 / 11, LTSC, IoT LTSC, Tiny, Server 2016+). The list
 lives in `_KNOWN_WIN_VERSIONS` in `src/winpodx/core/config.py` and
 the GUI Settings → Container/VM card exposes it as a dropdown.
@@ -191,7 +191,7 @@ If you need to boot a Windows ISO that dockur does **not** curate
 (your own pre-loaded installer image, an Enterprise edition with
 specific debloat preset, a localised build dockur hasn't tagged),
 you can pass it through manually. **This path is unsupported** —
-winpodx's OEM scripts (`install.bat`, `agent.ps1`, `rdprrap`) are
+WinPodX's OEM scripts (`install.bat`, `agent.ps1`, `rdprrap`) are
 written against the dockur-curated Win10+ family. A custom ISO may
 boot but fail to surface the agent, the multi-session enabler, or
 RemoteApp discovery. Bug reports specific to custom-ISO installs
@@ -207,7 +207,7 @@ With that disclaimer:
    win_version = "custom"
    ```
 
-   winpodx will log a one-line WARNING that the value isn't on its
+   WinPodX will log a one-line WARNING that the value isn't on its
    known list, then pass it through to dockur as-is.
 
 3. Edit the generated `~/.config/winpodx/compose.yaml` to mount the

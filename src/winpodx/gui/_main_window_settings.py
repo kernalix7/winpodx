@@ -297,7 +297,7 @@ class SettingsPageMixin:
         self.input_pw_max_age.setToolTip(
             tr(
                 "Auto-rotate the Windows RDP account password after this many\n"
-                "days. On the next launch past the limit winpodx generates a new\n"
+                "days. On the next launch past the limit WinPodX generates a new\n"
                 "password, recreates the container to apply it, and rolls back on\n"
                 "failure. Disabled keeps the current password indefinitely."
             )
@@ -478,7 +478,7 @@ class SettingsPageMixin:
                 "                  host workloads).\n"
                 "  performance  -- like auto + force CPU pinning + no-balloon\n"
                 "                  regardless of host idle headroom. Use when\n"
-                "                  this box is mostly dedicated to winpodx.\n"
+                "                  this box is mostly dedicated to WinPodX.\n"
                 "  safe         -- Windows-guest-only knobs (hv-*, virtio-rng,\n"
                 "                  +invtsc, platform_tick) -- no host setup.\n"
                 "  off          -- dockur defaults only.\n"
@@ -668,7 +668,7 @@ class SettingsPageMixin:
             "it": "Italiano",
         }
         lang_row = QHBoxLayout()
-        lang_row.addWidget(QLabel(tr("winpodx UI language")))
+        lang_row.addWidget(QLabel(tr("WinPodX UI language")))
         self.input_ui_language = QComboBox()
         for code in _UI_LANGUAGES:
             self.input_ui_language.addItem(_LANG_LABELS.get(code, code), code)
@@ -694,7 +694,7 @@ class SettingsPageMixin:
         self.input_ui_language.currentIndexChanged.connect(_on_ui_language_changed)
         lang_row.addWidget(self.input_ui_language, 1)
         layout.addLayout(lang_row)
-        layout.addWidget(QLabel(tr("Restart winpodx (tray / GUI) to apply the language change.")))
+        layout.addWidget(QLabel(tr("Restart WinPodX (tray / GUI) to apply the language change.")))
 
         # Budget warning — only visible when max_sessions over-subscribes ram_gb.
         # Live-updates as the user types in either field.

@@ -43,15 +43,15 @@ def send_notification(
 
 
 def notify_pod_started(ip: str) -> None:
-    send_notification("winpodx", tr("Windows pod started at {ip}").format(ip=ip))
+    send_notification("WinPodX", tr("Windows pod started at {ip}").format(ip=ip))
 
 
 def notify_pod_stopped() -> None:
-    send_notification("winpodx", tr("Windows pod stopped"))
+    send_notification("WinPodX", tr("Windows pod stopped"))
 
 
 def notify_error(message: str) -> None:
-    send_notification("winpodx Error", message, urgency="critical")
+    send_notification("WinPodX Error", message, urgency="critical")
 
 
 def notify_pod_unresponsive(ip: str) -> None:
@@ -62,8 +62,7 @@ def notify_pod_unresponsive(ip: str) -> None:
     is reported via ``notify_pod_recovered`` or
     ``notify_pod_needs_manual_restart``.
     """
-    send_notification(
-        "winpodx",
+    send_notification("WinPodX",
         tr(
             "Windows pod at {ip} stopped responding to RDP. "
             "Attempting to restart the RDP service in the guest..."
@@ -74,8 +73,7 @@ def notify_pod_unresponsive(ip: str) -> None:
 
 def notify_pod_recovered() -> None:
     """Auto-recovery succeeded — TermService was cycled and RDP came back."""
-    send_notification(
-        "winpodx",
+    send_notification("WinPodX",
         tr("Windows pod recovered (RDP service restarted in the guest). No action needed."),
         urgency="low",
     )
@@ -95,4 +93,4 @@ def notify_pod_needs_manual_restart(detail: str = "") -> None:
     )
     if detail:
         body += f"\n({detail})"
-    send_notification("winpodx", body, urgency="critical")
+    send_notification("WinPodX", body, urgency="critical")

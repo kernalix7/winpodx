@@ -177,7 +177,7 @@ class LicensePageMixin:
 
         subtitle = QLabel(
             tr(
-                "winpodx is MIT-licensed open source. See LICENSE in the source "
+                "WinPodX is MIT-licensed open source. See LICENSE in the source "
                 "tree for the canonical text."
             )
         )
@@ -204,10 +204,10 @@ class LicensePageMixin:
 
         ack_intro = QLabel(
             tr(
-                "winpodx ships and depends on these upstream projects. Each is "
+                "WinPodX ships and depends on these upstream projects. Each is "
                 "used under its own license; the upstream link below points at the "
                 "source and its canonical license text. The full MIT text for "
-                "winpodx itself is in the LICENSE box above (and in LICENSE in the "
+                "WinPodX itself is in the LICENSE box above (and in LICENSE in the "
                 "source tree)."
             )
         )
@@ -266,7 +266,7 @@ class LicensePageMixin:
         except Exception:  # noqa: BLE001
             log.warning("Could not read LICENSE from bundle_dir", exc_info=True)
             return tr(
-                "winpodx is MIT-licensed. See the LICENSE file in the "
+                "WinPodX is MIT-licensed. See the LICENSE file in the "
                 "project repository for the canonical text:\n"
                 "  https://github.com/kernalix7/winpodx/blob/main/LICENSE"
             )

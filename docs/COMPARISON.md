@@ -2,13 +2,13 @@
 
 **English** | [한국어](COMPARISON.ko.md)
 
-How winpodx compares to other tools for running Windows applications on Linux.
+How WinPodX compares to other tools for running Windows applications on Linux.
 
-## Why winpodx?
+## Why WinPodX?
 
 Existing tools for running Windows apps on Linux all have trade-offs:
 
-| | winapps | LinOffice | winboat | winpodx |
+| | winapps | LinOffice | winboat | WinPodX |
 |---|---|---|---|---|
 | Core tech | Any RDP-capable Windows host (cloud / physical / container) + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur (Podman) + FreeRDP + HTTP guest agent |
 | Setup | Manual (shell + config + RDP testing) | One-liner script | One-click GUI installer | **Zero-config** (auto on first launch) |
@@ -33,22 +33,22 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 > winboat is the closest peer in scope and was an inspiration. We focus on a different mix — stdlib-leaning Python + Qt6 instead of Electron, deeper auto-config (auto suspend, 7-day password rotation, multi-DE HiDPI), reverse-open (the only project where Linux apps appear in the Windows "Open with…" menu by default), a multilingual UI (7 languages, auto-detected from the locale), self-managing Windows disk that auto-grows as it fills, in-place guest sync that pushes host updates into a running guest without reinstalling, and an explicit air-gapped install path. Both projects build on dockur/windows; that ecosystem is bigger than any one app.
 
-## winpodx vs Wine
+## WinPodX vs Wine
 
-**winpodx is not a Wine replacement.** Wine translates Windows API calls; winpodx runs the actual Windows OS in a container. The two solve different problems and many users have both installed.
+**WinPodX is not a Wine replacement.** Wine translates Windows API calls; WinPodX runs the actual Windows OS in a container. The two solve different problems and many users have both installed.
 
 | When you need... | Use |
 |---|---|
 | Older Win32 apps, indie games, lightweight utilities | **Wine / Bottles / Lutris** |
-| GPU-accelerated games / 3D apps (DirectX 9 – 12) | **Wine** — DXVK / VKD3D give near-native frame rates. winpodx has no GPU passthrough by default; QEMU CPU rendering is much slower. (GPU passthrough via VFIO is a manual bring-your-own setup — not yet packaged.) |
-| Microsoft 365 with full Outlook + Teams + OneDrive integration | **winpodx** |
-| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | winpodx — but heavy GPU effects will be CPU-bound (see GPU row above) |
+| GPU-accelerated games / 3D apps (DirectX 9 – 12) | **Wine** — DXVK / VKD3D give near-native frame rates. WinPodX has no GPU passthrough by default; QEMU CPU rendering is much slower. (GPU passthrough via VFIO is a manual bring-your-own setup — not yet packaged.) |
+| Microsoft 365 with full Outlook + Teams + OneDrive integration | **WinPodX** |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | WinPodX — but heavy GPU effects will be CPU-bound (see GPU row above) |
 | Anti-cheat games (Valorant, EAC, BattlEye) | **TBD** — anti-cheats vary by VM-detection policy (Vanguard needs TPM 2.0 + no hypervisor, EAC mostly blocks VMs, VAC is lenient). Test before committing. |
-| DRM-heavy software / hardware dongle apps | **winpodx** |
-| Apps that ship kernel-mode drivers (some VPNs, security suites) | **winpodx** |
-| Banking / tax / government tools with regional certificates | **winpodx** |
-| Visual Studio, WinUI 3 / WinRT, .NET features Wine hasn't caught up to | **winpodx** |
-| IE-only legacy enterprise web apps | **winpodx** |
-| Anything where "mostly works" isn't acceptable | **winpodx** |
+| DRM-heavy software / hardware dongle apps | **WinPodX** |
+| Apps that ship kernel-mode drivers (some VPNs, security suites) | **WinPodX** |
+| Banking / tax / government tools with regional certificates | **WinPodX** |
+| Visual Studio, WinUI 3 / WinRT, .NET features Wine hasn't caught up to | **WinPodX** |
+| IE-only legacy enterprise web apps | **WinPodX** |
+| Anything where "mostly works" isn't acceptable | **WinPodX** |
 
-Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. winpodx wins on **100% Windows feature parity** for everything else — every app runs on a real Windows kernel, rendered into your Linux desktop as a native window via FreeRDP RemoteApp.
+Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. WinPodX wins on **100% Windows feature parity** for everything else — every app runs on a real Windows kernel, rendered into your Linux desktop as a native window via FreeRDP RemoteApp.

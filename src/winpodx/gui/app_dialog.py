@@ -84,7 +84,7 @@ class AppProfileDialog(QDialog):
         title = QLabel(tr("Edit App Profile") if edit_mode else tr("New App Profile"))
         title.setStyleSheet(f"color: {C.TEXT}; font-size: 18px; font-weight: bold;")
         title_col.addWidget(title)
-        sub = QLabel(tr("Define a Windows application for winpodx"))
+        sub = QLabel(tr("Define a Windows application for WinPodX"))
         sub.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 12px;")
         title_col.addWidget(sub)
         header_l.addLayout(title_col)

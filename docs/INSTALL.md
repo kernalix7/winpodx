@@ -2,7 +2,7 @@
 
 **English** | [한국어](INSTALL.ko.md)
 
-Every way to install winpodx — the one-line installer, distro package managers, Nix, source builds, and offline scenarios.
+Every way to install WinPodX — the one-line installer, distro package managers, Nix, source builds, and offline scenarios.
 
 ## One-line install
 
@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 
 Detects your distro, installs missing system dependencies (Podman, FreeRDP, KVM, Python 3.9+) with your confirmation, drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically the first time the pod boots — discovery scans your running Windows guest and registers every installed app with its real icon. No root required except for the dependency install step. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, and NixOS.
 
-> **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). winpodx does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
+> **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). WinPodX does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
 
 By default the installer pins to the **latest published GitHub release**. Pre-release / development versions stay opt-in.
 
@@ -75,7 +75,7 @@ Env vars are honored even under `curl | bash`, so `WINPODX_SKIP_DEPS=1 curl ... 
 
 ## Choosing the Windows edition
 
-By default winpodx installs the latest dockur Windows 11 image. Pass `--win-version VER` (or the `WINPODX_WIN_VERSION` env var) to pick a different curated edition during a fresh install:
+By default WinPodX installs the latest dockur Windows 11 image. Pass `--win-version VER` (or the `WINPODX_WIN_VERSION` env var) to pick a different curated edition during a fresh install:
 
 ```bash
 # Install Windows 10 LTSC instead of Win11
@@ -91,7 +91,7 @@ By default winpodx installs the latest dockur Windows 11 image. Pass `--win-vers
 ./install.sh --win-version 2022
 ```
 
-Curated set: `11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016`. Pre-Win10 editions (XP / Vista / 7 / 8 / Server 2003-2012) are out of Microsoft security support and don't match the rdprrap / agent.ps1 / install.bat assumptions winpodx is built on — they'll still pass through to dockur with a WARNING but aren't first-class supported.
+Curated set: `11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016`. Pre-Win10 editions (XP / Vista / 7 / 8 / Server 2003-2012) are out of Microsoft security support and don't match the rdprrap / agent.ps1 / install.bat assumptions WinPodX is built on — they'll still pass through to dockur with a WARNING but aren't first-class supported.
 
 The `--win-version` flag only applies on fresh installs (no existing `winpodx.toml`). Existing installs change the edition via the GUI Settings → Container/VM → **Windows Edition** dropdown (or `winpodx setup --win-version VER` if you've removed the config).
 
@@ -210,7 +210,7 @@ The PKGBUILD lives at [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD); eac
 
 ## AppImage (Thin bundle: Python + Qt + FreeRDP + winpodx; host container runtime required)
 
-A distro-agnostic AppImage of winpodx ships as a release asset on every tagged release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~150 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. AppImage shrinks ~150 MB → ~50 MB.
+A distro-agnostic AppImage of WinPodX ships as a release asset on every tagged release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~150 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. AppImage shrinks ~150 MB → ~50 MB.
 
 Host-side requirements:
 
@@ -299,7 +299,7 @@ python3 -m winpodx app run word
 
 ## Uninstall
 
-One canonical script -- same behavior regardless of how winpodx was installed (curl / pip / deb / rpm / aur).
+One canonical script -- same behavior regardless of how WinPodX was installed (curl / pip / deb / rpm / aur).
 
 Two equivalent entry points:
 

@@ -148,8 +148,8 @@ class NavigationMixin:
         from PySide6.QtWidgets import QMessageBox
 
         box = QMessageBox(self)
-        box.setWindowTitle(tr("Set up winpodx"))
-        box.setText(tr("winpodx has not been set up yet on this account.\n\nRun setup now?"))
+        box.setWindowTitle(tr("Set up WinPodX"))
+        box.setText(tr("WinPodX has not been set up yet on this account.\n\nRun setup now?"))
         box.setInformativeText(
             tr(
                 "Auto:      host-detected defaults, no prompts (~5-10 min for "
@@ -227,7 +227,7 @@ class NavigationMixin:
 
         snapshot = collect_first_run_checks(self.cfg)
         lines = [
-            tr("Welcome to winpodx!"),
+            tr("Welcome to WinPodX!"),
             "",
             tr("First-run quick check:"),
             tr("  · Container backend ({backend}): {status}").format(
@@ -251,7 +251,7 @@ class NavigationMixin:
             pass
 
         box = QMessageBox(self)
-        box.setWindowTitle(tr("winpodx — Quick Start"))
+        box.setWindowTitle(tr("WinPodX — Quick Start"))
         box.setText("\n".join(lines))
         # Real next-actions so a first-timer has somewhere obvious to go,
         # wired to the existing page-switch + refresh handlers.

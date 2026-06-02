@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/CI.svg" alt="winpodx" width="320">
+<img src="docs/images/CI.svg" alt="WinPodX" width="320">
 
 ### Click an app. Word opens. That's it.
 
@@ -17,10 +17,10 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm</code></pre>
 
 <a href="docs/images/demo.png">
-  <img src="docs/images/demo.png" alt="winpodx in action — Windows apps as native Linux windows on KDE" width="720">
+  <img src="docs/images/demo.png" alt="WinPodX in action — Windows apps as native Linux windows on KDE" width="720">
 </a>
 
-<sub>Windows About / Performance Monitor / PowerShell each in their own Linux window, alongside the winpodx Apps grid.</sub>
+<sub>Windows About / Performance Monitor / PowerShell each in their own Linux window, alongside the WinPodX Apps grid.</sub>
 
 [![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#status-beta)
 [![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
@@ -51,15 +51,15 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### Status: Beta
-> winpodx is in active development (**v0.6.0**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions; v0.5.8 fixed the two big fresh-install dead-ends (#269 urlacl ownership and #287 OEM copy never running `install.bat`). **v0.6.0 is a consolidation + UX release.** The post-create chain (wait-ready → apply-fixes → discovery → reverse-open) collapses into a single **`winpodx provision`** that is now the only path used by `install.sh`, `winpodx setup`, `winpodx migrate`, and the GUI bring-up; `install.sh`'s ~140 lines of provisioning drop to ~5. The AppImage is **Thin** (~50 MB) — only FreeRDP + Python + Qt + winpodx — and uses the host's `podman` / `docker` / `libvirt`, fixing the bundled-stack crashes #357 and #363 (the old fat AppImage shadowed the host stack). The CLI command surface is reorganised — **`winpodx guest`** owns guest-side operations (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** owns install / disk operations (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** absorbs `info` and `check` and gains `--json` / `--quick` / `--fix` (idempotent auto-remediation for dead agent, stale locks, missing desktop entries, and OEM-version drift). All old `pod <x>` subcommand spellings still work through 0.6.x with a deprecation notice and will be removed in 0.7.0. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> WinPodX is in active development (**v0.6.0**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions; v0.5.8 fixed the two big fresh-install dead-ends (#269 urlacl ownership and #287 OEM copy never running `install.bat`). **v0.6.0 is a consolidation + UX release.** The post-create chain (wait-ready → apply-fixes → discovery → reverse-open) collapses into a single **`winpodx provision`** that is now the only path used by `install.sh`, `winpodx setup`, `winpodx migrate`, and the GUI bring-up; `install.sh`'s ~140 lines of provisioning drop to ~5. The AppImage is **Thin** (~50 MB) — only FreeRDP + Python + Qt + winpodx — and uses the host's `podman` / `docker` / `libvirt`, fixing the bundled-stack crashes #357 and #363 (the old fat AppImage shadowed the host stack). The CLI command surface is reorganised — **`winpodx guest`** owns guest-side operations (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** owns install / disk operations (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** absorbs `info` and `check` and gains `--json` / `--quick` / `--fix` (idempotent auto-remediation for dead agent, stale locks, missing desktop entries, and OEM-version drift). All old `pod <x>` subcommand spellings still work through 0.6.x with a deprecation notice and will be removed in 0.7.0. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated, both directions. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
-winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp, while a bearer-authed HTTP agent inside the guest handles the host→guest command channel without flashing a PowerShell window. The reverse direction — Linux apps surfaced in the Windows "Open with…" menu — is handled by a host-side listener that consumes JSON requests written by per-slug Rust shims inside the guest. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
+WinPodX runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp, while a bearer-authed HTTP agent inside the guest handles the host→guest command channel without flashing a PowerShell window. The reverse direction — Linux apps surfaced in the Windows "Open with…" menu — is handled by a host-side listener that consumes JSON requests written by per-slug Rust shims inside the guest. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 
 ## Minimum requirements
 
-**Before installing**, make sure your machine actually supports virtualisation. winpodx runs Windows in a KVM-backed container; without these three, the install will run to completion but Windows will never boot.
+**Before installing**, make sure your machine actually supports virtualisation. WinPodX runs Windows in a KVM-backed container; without these three, the install will run to completion but Windows will never boot.
 
 | Requirement | How to check | Fix |
 |---|---|---|
@@ -230,7 +230,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for deep dives, including multi-session
 | [USAGE.md](docs/USAGE.md) | CLI reference, Qt6 GUI tour, health checks, configuration file |
 | [FEATURES.md](docs/FEATURES.md) | Reverse-open, multi-session RDP, peripherals, app profiles, auto-discovery |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works (diagram), tech stack, source tree, data flows |
-| [COMPARISON.md](docs/COMPARISON.md) | winpodx vs winapps / LinOffice / winboat, and winpodx vs Wine |
+| [COMPARISON.md](docs/COMPARISON.md) | WinPodX vs winapps / LinOffice / winboat, and WinPodX vs Wine |
 | [CHANGELOG.md](CHANGELOG.md) | Full version history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and workflow |
 | [SECURITY.md](SECURITY.md) | Security disclosure process |
@@ -279,7 +279,7 @@ For security issues, follow the process in [SECURITY.md](SECURITY.md).
 
 ## Support
 
-If winpodx makes your Linux desktop a little nicer:
+If WinPodX makes your Linux desktop a little nicer:
 
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/kernalix7)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/kernalix7)

@@ -2,7 +2,7 @@
 
 [English](INSTALL.md) | **한국어**
 
-winpodx 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 매니저, Nix, 소스 빌드, 오프라인 시나리오.
+WinPodX 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 매니저, Nix, 소스 빌드, 오프라인 시나리오.
 
 ## 원라인 설치
 
@@ -10,9 +10,9 @@ winpodx 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, winpodx 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트를 스캔하고 설치된 모든 앱을 실제 아이콘과 함께 등록. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
+distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, WinPodX 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트를 스캔하고 설치된 모든 앱을 실제 아이콘과 함께 등록. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
 
-> **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. winpodx 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
+> **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. WinPodX 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
 
 기본적으로 인스톨러는 **가장 최신의 GitHub release** 에 pin. 프리릴리스 / 개발 버전은 opt-in.
 
@@ -91,7 +91,7 @@ Manual 모드는 바이너리 + desktop entry + 아이콘만 설치 — `winpodx
 ./install.sh --win-version 2022
 ```
 
-큐레이트 셋: `11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016`. Pre-Win10 에디션 (XP / Vista / 7 / 8 / Server 2003-2012) 은 Microsoft 보안 지원이 끝났고 winpodx 의 rdprrap / agent.ps1 / install.bat 가정과 안 맞음 — WARNING 한 줄 로그하고 dockur 로 통과되지만 정식 지원 아님.
+큐레이트 셋: `11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016`. Pre-Win10 에디션 (XP / Vista / 7 / 8 / Server 2003-2012) 은 Microsoft 보안 지원이 끝났고 WinPodX 의 rdprrap / agent.ps1 / install.bat 가정과 안 맞음 — WARNING 한 줄 로그하고 dockur 로 통과되지만 정식 지원 아님.
 
 `--win-version` 플래그는 fresh install 에만 적용 (기존 `winpodx.toml` 없을 때). 기존 설치에서 에디션 변경은 GUI 설정 → Container/VM → **Windows Edition** 드롭다운 (또는 config 삭제 후 `winpodx setup --win-version VER`).
 
@@ -209,9 +209,9 @@ paru -S winpodx
 
 PKGBUILD 는 [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) 에 있고, 태그 푸시 (`v*.*.*`) 마다 버전 + tarball sha256 자동 stamp 후 `aur.archlinux.org/winpodx.git` 로 푸시.
 
-## AppImage (Thin 번들: Python + Qt + FreeRDP + winpodx; 호스트 컨테이너 런타임 필요)
+## AppImage (Thin 번들: Python + Qt + FreeRDP + WinPodX; 호스트 컨테이너 런타임 필요)
 
-distro 무관 winpodx AppImage 가 태그 release 마다 asset 으로 ship 됨. **0.6.0 에서 Thin AppImage 로 재설계 (item A).** 0.6.0 이전엔 ~150 MB fat 번들이 컨테이너 stack 전부 (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive lib) 를 AppImage 의 `PATH` / `LD_LIBRARY_PATH` 에 실음. 이미 podman 이 있는 distro 에선 호스트 stack 을 가려서 망가뜨림 — Ubuntu 26.04 의 `it seems that you do not have podman installed` (#357), Fedora Bluefin 의 aardvark-dns 가 던지는 `OPENSSL_3.4.0 not found` (#363) 등. 0.6.0 은 컨테이너 stack 전체를 AppImage 에서 제거해 **근본 원인을 제거**. 현 번들은 안전하게 묶을 수 있는 것만 — Python 3, winpodx, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — 표준 `PATH` 해석으로 호스트 컨테이너 런타임 사용. 크기 ~150 MB → ~50 MB.
+distro 무관 WinPodX AppImage 가 태그 release 마다 asset 으로 ship 됨. **0.6.0 에서 Thin AppImage 로 재설계 (item A).** 0.6.0 이전엔 ~150 MB fat 번들이 컨테이너 stack 전부 (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive lib) 를 AppImage 의 `PATH` / `LD_LIBRARY_PATH` 에 실음. 이미 podman 이 있는 distro 에선 호스트 stack 을 가려서 망가뜨림 — Ubuntu 26.04 의 `it seems that you do not have podman installed` (#357), Fedora Bluefin 의 aardvark-dns 가 던지는 `OPENSSL_3.4.0 not found` (#363) 등. 0.6.0 은 컨테이너 stack 전체를 AppImage 에서 제거해 **근본 원인을 제거**. 현 번들은 안전하게 묶을 수 있는 것만 — Python 3, WinPodX, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — 표준 `PATH` 해석으로 호스트 컨테이너 런타임 사용. 크기 ~150 MB → ~50 MB.
 
 호스트 측 요구사항:
 
@@ -284,7 +284,7 @@ cd winpodx
 소스 인스톨러는 자동으로:
 1. distro 감지 (openSUSE, Fedora, Ubuntu, Arch, ...)
 2. 누락된 의존성 (Podman, FreeRDP, KVM) 설치, 설치 전 확인
-3. winpodx 를 `~/.local/bin/winpodx-app/` 로 복사
+3. WinPodX 를 `~/.local/bin/winpodx-app/` 로 복사
 4. config 와 `compose.yaml` 생성
 5. pod 첫 부팅 시 자동 discovery (`winpodx app refresh`) fire 해서 메뉴 채우기
 

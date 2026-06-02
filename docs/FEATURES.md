@@ -96,7 +96,7 @@ media_monitor.ps1 detects → net use E: \\tsclient\media\USBNAME
 Windows Explorer shows E: drive
 ```
 
-**GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [COMPARISON.md](COMPARISON.md) → winpodx vs Wine — Wine + DXVK is the right tool when you need GPU.)
+**GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [COMPARISON.md](COMPARISON.md) → WinPodX vs Wine — Wine + DXVK is the right tool when you need GPU.)
 
 ## Automation & Security
 
@@ -120,18 +120,18 @@ The Windows `C:` drive grows itself as it fills, so you don't have to pre-provis
 
 ## Guest sync
 
-Push host-side updates into a running Windows guest without reinstalling it. When winpodx ships a newer guest agent, urlacl reservation, rdprrap build, or post-install fix, the guest picks it up in place.
+Push host-side updates into a running Windows guest without reinstalling it. When WinPodX ships a newer guest agent, urlacl reservation, rdprrap build, or post-install fix, the guest picks it up in place.
 
 - **Automatic** on pod start when `guest_autosync` is enabled — the guest is reconciled to the current host version every time it comes up.
 - **Manual**: `winpodx guest sync [--force]` to reconcile on demand (`--force` re-pushes even when versions already match).
 
 ## App Profiles
 
-App profiles are **metadata only**: they describe where a Windows app lives so winpodx can launch it through FreeRDP RemoteApp. The actual Windows application must be installed inside the Windows container.
+App profiles are **metadata only**: they describe where a Windows app lives so WinPodX can launch it through FreeRDP RemoteApp. The actual Windows application must be installed inside the Windows container.
 
 ### Auto-discovery (default)
 
-Starting from v0.1.9 winpodx ships **no curated profile list**. The first time the Windows pod boots, the provisioner runs `winpodx app refresh` and that scans the running guest:
+Starting from v0.1.9 WinPodX ships **no curated profile list**. The first time the Windows pod boots, the provisioner runs `winpodx app refresh` and that scans the running guest:
 
 - Registry `App Paths` (`HKLM` + `HKCU`)
 - Start Menu `.lnk` recursion (depth-capped)
@@ -164,12 +164,12 @@ winpodx app install myapp   # Register in desktop menu
 
 ## Multi-Session RDP
 
-Stock Windows Desktop editions limit RDP to one session per user; a second app would otherwise reconnect and steal the first session. winpodx bundles [rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of RDPWrap — inside the package itself and installs it automatically during the Windows unattended install, so each RemoteApp window gets its own independent session.
+Stock Windows Desktop editions limit RDP to one session per user; a second app would otherwise reconnect and steal the first session. WinPodX bundles [rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of RDPWrap — inside the package itself and installs it automatically during the Windows unattended install, so each RemoteApp window gets its own independent session.
 
-**RAIL prerequisites.** RemoteApp itself requires three registry settings that winpodx applies during unattended setup: `fDisabledAllowList=1` (enables RemoteApp publishing), `fInheritInitialProgram=1` (required for `/app:program:...` to launch the target executable instead of a shell), and `MaxInstanceCount=10` paired with `fSingleSessionPerUser=0` (lifts the single-session cap up to 10 concurrent RemoteApp windows). These are set regardless of whether rdprrap installs successfully — rdprrap is what makes the sessions *independent*, but the registry keys are what make RemoteApp work at all. After rdprrap install `TermService` is cycled so the wrapper DLL activates without a reboot.
+**RAIL prerequisites.** RemoteApp itself requires three registry settings that WinPodX applies during unattended setup: `fDisabledAllowList=1` (enables RemoteApp publishing), `fInheritInitialProgram=1` (required for `/app:program:...` to launch the target executable instead of a shell), and `MaxInstanceCount=10` paired with `fSingleSessionPerUser=0` (lifts the single-session cap up to 10 concurrent RemoteApp windows). These are set regardless of whether rdprrap installs successfully — rdprrap is what makes the sessions *independent*, but the registry keys are what make RemoteApp work at all. After rdprrap install `TermService` is cycled so the wrapper DLL activates without a reboot.
 
 **Authentication channel.** NLA is disabled (`UserAuthentication=0`) so the FreeRDP command line can authenticate unattended from under `podman unshare --rootless-netns`, but `SecurityLayer=2` keeps the RDP channel itself encrypted with TLS (so `/sec:tls /cert:ignore` against `127.0.0.1` is the full authenticated + encrypted path — no cleartext on the wire even though NLA is off).
 
-**Works fully offline.** The rdprrap zip ships inside winpodx's data directory (`config/oem/`) and is staged into `C:\OEM\` during the guest's first boot. sha256 is verified against a pin file before extraction. No network access is required at install time.
+**Works fully offline.** The rdprrap zip ships inside WinPodX's data directory (`config/oem/`) and is staged into `C:\OEM\` during the guest's first boot. sha256 is verified against a pin file before extraction. No network access is required at install time.
 
-Install is one-shot: the patch is applied during dockur's unattended setup phase. If anything in that step fails (hash mismatch, extraction, installer error), winpodx logs a warning and the guest stays in single-session mode — app launch never blocks on this step. A guest-side management channel (enable/disable/status after install) is planned for a later release.
+Install is one-shot: the patch is applied during dockur's unattended setup phase. If anything in that step fails (hash mismatch, extraction, installer error), WinPodX logs a warning and the guest stays in single-session mode — app launch never blocks on this step. A guest-side management channel (enable/disable/status after install) is planned for a later release.

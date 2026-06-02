@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="images/CI.svg" alt="winpodx" width="320">
+<img src="images/CI.svg" alt="WinPodX" width="320">
 
 ### 앱 클릭하면 Word 가 뜬다. 끝.
 
@@ -17,10 +17,10 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm</code></pre>
 
 <a href="images/demo.png">
-  <img src="images/demo.png" alt="winpodx 실행 모습 — KDE 데스크톱 위에서 Windows 앱이 각각 네이티브 Linux 창으로" width="720">
+  <img src="images/demo.png" alt="WinPodX 실행 모습 — KDE 데스크톱 위에서 Windows 앱이 각각 네이티브 Linux 창으로" width="720">
 </a>
 
-<sub>Windows 정보 / 작업 관리자 / PowerShell 이 각각 Linux 창으로, winpodx Apps 그리드와 나란히.</sub>
+<sub>Windows 정보 / 작업 관리자 / PowerShell 이 각각 Linux 창으로, WinPodX Apps 그리드와 나란히.</sub>
 
 [![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#상태-베타)
 [![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
@@ -51,15 +51,15 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### 상태: 베타
-> winpodx 는 활발히 개발 중입니다 (**v0.6.0**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 + stalled RDP 세션 자동 `UNRESPONSIVE → recover` 추가; v0.5.8 은 두 fresh-install 막힘 수정 (#269 urlacl 소유자, #287 첫 부팅 OEM 복사 실패). **v0.6.0 은 통합 + UX 릴리즈.** post-create 체인 (wait-ready → apply-fixes → discovery → reverse-open) 이 단일 **`winpodx provision`** 으로 통합되어 `install.sh`, `winpodx setup`, `winpodx migrate`, GUI bring-up 이 모두 이걸 호출 — `install.sh` 의 ~140줄 provisioning 이 ~5줄로 축소. AppImage 는 **Thin** (~50 MB) — FreeRDP + Python + Qt + winpodx 만 — 컨테이너 런타임은 호스트의 `podman` / `docker` / `libvirt` 사용, #357 · #363 의 번들 stack 충돌 근본 해소 (구 fat AppImage 는 호스트 stack 을 가렸음). CLI 명령 표면 재편 — **`winpodx guest`** 가 게스트 작업 (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** 이 설치/디스크 작업 (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** 가 `info` + `check` 흡수 + `--json` / `--quick` / `--fix` (dead agent / stale lock / 누락 desktop entry / OEM 버전 drift 의 idempotent 자동 복구) 추가. 기존 `pod <x>` 철자도 0.6.x 동안 deprecation 경고와 함께 동작; 0.7.0 에서 제거. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+> WinPodX 는 활발히 개발 중입니다 (**v0.6.0**). Reverse-open (v0.5.0) — Windows "Open with…" 메뉴에 Linux 앱 노출 — default-on, 앱별 아이콘이 호스트 `xdg-open` 까지 라운드트립. v0.5.5 는 호스트 적응형 Windows-on-KVM 튜닝 프로파일 + stalled RDP 세션 자동 `UNRESPONSIVE → recover` 추가; v0.5.8 은 두 fresh-install 막힘 수정 (#269 urlacl 소유자, #287 첫 부팅 OEM 복사 실패). **v0.6.0 은 통합 + UX 릴리즈.** post-create 체인 (wait-ready → apply-fixes → discovery → reverse-open) 이 단일 **`winpodx provision`** 으로 통합되어 `install.sh`, `winpodx setup`, `winpodx migrate`, GUI bring-up 이 모두 이걸 호출 — `install.sh` 의 ~140줄 provisioning 이 ~5줄로 축소. AppImage 는 **Thin** (~50 MB) — FreeRDP + Python + Qt + WinPodX 만 — 컨테이너 런타임은 호스트의 `podman` / `docker` / `libvirt` 사용, #357 · #363 의 번들 stack 충돌 근본 해소 (구 fat AppImage 는 호스트 stack 을 가렸음). CLI 명령 표면 재편 — **`winpodx guest`** 가 게스트 작업 (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** 이 설치/디스크 작업 (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** 가 `info` + `check` 흡수 + `--json` / `--quick` / `--fix` (dead agent / stale lock / 누락 desktop entry / OEM 버전 drift 의 idempotent 자동 복구) 추가. 기존 `pod <x>` 철자도 0.6.x 동안 deprecation 경고와 함께 동작; 0.7.0 에서 제거. 첫 설치는 여전히 ~5–10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — 진짜 아이콘, pin 가능, alt-tab, 파일 연결 양방향. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
-winpodx 는 백그라운드에서 Windows 컨테이너 ([dockur/windows](https://github.com/dockur/windows)) 를 실행하고, FreeRDP RemoteApp 으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. 게스트 안의 bearer-auth HTTP agent 가 host→guest 명령 채널을 처리해서 PowerShell 창이 깜빡이지 않음. 반대 방향 — Linux 앱이 Windows "Open with…" 메뉴에 노출 — 은 호스트 측 listener 가 게스트 내 슬러그별 Rust shim 이 작성한 JSON 요청을 소비하는 식으로 처리. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
+WinPodX 는 백그라운드에서 Windows 컨테이너 ([dockur/windows](https://github.com/dockur/windows)) 를 실행하고, FreeRDP RemoteApp 으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. 게스트 안의 bearer-auth HTTP agent 가 host→guest 명령 채널을 처리해서 PowerShell 창이 깜빡이지 않음. 반대 방향 — Linux 앱이 Windows "Open with…" 메뉴에 노출 — 은 호스트 측 listener 가 게스트 내 슬러그별 Rust shim 이 작성한 JSON 요청을 소비하는 식으로 처리. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
 
 ## 최소 요구사항
 
-**설치 전에** 머신이 가상화를 실제로 지원하는지 확인. winpodx 는 KVM 기반 컨테이너에서 Windows 실행 — 아래 셋 없으면 설치는 끝까지 진행되지만 Windows 가 절대 부팅 안 됨.
+**설치 전에** 머신이 가상화를 실제로 지원하는지 확인. WinPodX 는 KVM 기반 컨테이너에서 Windows 실행 — 아래 셋 없으면 설치는 끝까지 진행되지만 Windows 가 절대 부팅 안 됨.
 
 | 요구사항 | 확인 명령 | 해결 |
 |---|---|---|
@@ -108,7 +108,7 @@ chmod +x winpodx-*-x86_64.AppImage
 
 > **패키지 매니저 / AppImage 설치 후:** `winpodx setup` 한번 실행 → `~/.config/winpodx/winpodx.toml` + compose.yaml 생성. curl 원라이너는 이 단계를 자동으로 해주고 Windows 첫 부팅까지 ~5–10분 대기; 패키지 설치는 바이너리만 ship — `apt install` / `dnf install` / `yay -S` / 첫 AppImage 실행이 갑자기 10분짜리 Windows ISO 다운로드 트리거하지 않게. setup 후엔 그냥 앱 실행 (`winpodx app run desktop`) 만 해도 첫 실행시 pod 자동 provision.
 >
-> Thin AppImage (0.6.0) 는 Python + Qt + winpodx + FreeRDP 만 번들 — 컨테이너 런타임은 호스트 (`podman` ≥ 4 권장, `docker` / `libvirt` 도 지원) 에 두어서 이미 있는 호스트 stack 과 충돌하지 않음 (#357, #363). 0.6.0 이전 fat AppImage 는 podman stack 전체를 번들하고 호스트 것을 가렸음. 남은 호스트 측 요건: 패키지 매니저로 설치한 컨테이너 런타임, `/dev/kvm`, `kvm` 그룹 멤버십, rootless Podman 용 `/etc/subuid` / `/etc/subgid`. `winpodx setup-host` 가 kvm / subuid 부분을 `pkexec` 한 번으로 처리; `winpodx doctor` 가 그래도 부족한 걸 안내.
+> Thin AppImage (0.6.0) 는 Python + Qt + WinPodX + FreeRDP 만 번들 — 컨테이너 런타임은 호스트 (`podman` ≥ 4 권장, `docker` / `libvirt` 도 지원) 에 두어서 이미 있는 호스트 stack 과 충돌하지 않음 (#357, #363). 0.6.0 이전 fat AppImage 는 podman stack 전체를 번들하고 호스트 것을 가렸음. 남은 호스트 측 요건: 패키지 매니저로 설치한 컨테이너 런타임, `/dev/kvm`, `kvm` 그룹 멤버십, rootless Podman 용 `/etc/subuid` / `/etc/subgid`. `winpodx setup-host` 가 kvm / subuid 부분을 `pkexec` 한 번으로 처리; `winpodx doctor` 가 그래도 부족한 걸 안내.
 
 오프라인 / 에어갭 빌드, 소스 설치, 버전 pin, 언인스톨은 [docs/INSTALL.ko.md](INSTALL.ko.md) 참조.
 
@@ -208,7 +208,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 </td><td width="50%">
 
 **운영 & 회복력**
-- 다국어 UI (v0.5.9): 트레이 / GUI / CLI 가 7개 언어로 완전 번역 (en / ko / zh / ja / de / fr / it), `$LANG` 에서 자동 감지 — `winpodx language <code>` 또는 GUI Settings → "winpodx UI language" 로 변경
+- 다국어 UI (v0.5.9): 트레이 / GUI / CLI 가 7개 언어로 완전 번역 (en / ko / zh / ja / de / fr / it), `$LANG` 에서 자동 감지 — `winpodx language <code>` 또는 GUI Settings → "WinPodX UI language" 로 변경
 - Windows 디스크 자동 확장 (v0.5.9): C: 가 idle 중 임계치 넘게 차면 호스트 여유 공간 한도 내에서 스스로 확장 — 수동은 `winpodx install grow-disk [SIZE]`, `winpodx install disk-usage`, GUI Tools → Grow Disk
 - Guest sync (v0.5.9): 호스트 업그레이드 후 갱신된 agent / urlacl / rdprrap / fixes 를 실행 중인 게스트에 push — pod 시작 시 1회 자동, 또는 `winpodx guest sync [--force]`
 - 오프라인 / 에어갭 설치 (`--source` + `--image-tar`)
@@ -230,7 +230,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 | [USAGE.ko.md](USAGE.ko.md) | CLI 레퍼런스, Qt6 GUI 투어, 헬스 체크, 설정 파일 |
 | [FEATURES.ko.md](FEATURES.ko.md) | Reverse-open, 멀티세션 RDP, 주변기기, 앱 프로필, 자동 discovery |
 | [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md) | 동작 방식 (다이어그램), 기술 스택, 소스 트리, 데이터 흐름 |
-| [COMPARISON.ko.md](COMPARISON.ko.md) | winpodx vs winapps / LinOffice / winboat, 그리고 winpodx vs Wine |
+| [COMPARISON.ko.md](COMPARISON.ko.md) | WinPodX vs winapps / LinOffice / winboat, 그리고 WinPodX vs Wine |
 | [CHANGELOG.ko.md](CHANGELOG.ko.md) | 전체 버전 이력 |
 | [CONTRIBUTING.ko.md](CONTRIBUTING.ko.md) | 개발 셋업 + 워크플로우 |
 | [SECURITY.ko.md](SECURITY.ko.md) | 보안 공개 프로세스 |
@@ -279,7 +279,7 @@ ruff format --check src/ tests/
 
 ## 후원 / Support
 
-winpodx 가 Linux 데스크톱을 조금이라도 더 좋게 만들었다면:
+WinPodX 가 Linux 데스크톱을 조금이라도 더 좋게 만들었다면:
 
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/kernalix7)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/kernalix7)

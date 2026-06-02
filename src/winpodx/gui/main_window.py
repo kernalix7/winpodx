@@ -73,7 +73,7 @@ class WinpodxWindow(
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("winpodx")
+        self.setWindowTitle("WinPodX")
         self.setMinimumSize(1000, 640)
         self.resize(1100, 720)
 

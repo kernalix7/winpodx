@@ -471,7 +471,7 @@ def cli(argv: list[str] | None = None) -> None:
     language_p = sub.add_parser(
         "language",
         help=(
-            "Show or set the winpodx UI language (tray / GUI / CLI text). "
+            "Show or set the WinPodX UI language (tray / GUI / CLI text). "
             "No arg = show current. 'auto' = follow the host locale ($LANG)."
         ),
     )
@@ -579,7 +579,7 @@ def cli(argv: list[str] | None = None) -> None:
     doctor_p = sub.add_parser(
         "doctor",
         help=(
-            "Diagnose common winpodx state issues (orphan container, stale "
+            "Diagnose common WinPodX state issues (orphan container, stale "
             "config, missing deps, half-installed state, broken autostart). "
             "Read-only by default -- prints per-check findings + suggested "
             "next command; --fix runs idempotent auto-remediation. Exits "
@@ -638,7 +638,7 @@ def cli(argv: list[str] | None = None) -> None:
     unsub = sub.add_parser(
         "uninstall",
         help=(
-            "Remove winpodx user state. Default: stop container, kill tray/GUI/listener, "
+            "Remove WinPodX user state. Default: stop container, kill tray/GUI/listener, "
             "remove desktop entries/icons/data dir/autostart, keep config + container disk. "
             "--purge also removes container, podman volume, storage path, and config dir."
         ),

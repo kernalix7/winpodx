@@ -12,7 +12,7 @@ winpodx app run word ~/doc.docx   # Open a file
 winpodx app run desktop           # Full Windows desktop
 ```
 
-Or just click an app icon in your application menu — winpodx registers every discovered Windows app as a `.desktop` entry the first time the pod boots.
+Or just click an app icon in your application menu — WinPodX registers every discovered Windows app as a `.desktop` entry the first time the pod boots.
 
 ## CLI reference
 
@@ -172,7 +172,7 @@ If you ran `winpodx setup` on an older release and can no longer log in:
 
 ## Performance tuning profile
 
-`cfg.pod.tuning_profile` controls how aggressively winpodx tunes the dockur compose for the underlying host. It defaults to `"auto"` — winpodx probes the host once at compose time and turns on the matching subset of safe Windows-on-KVM tweaks. Look at the `[Tuning]` block in `winpodx doctor` to see what was detected and applied:
+`cfg.pod.tuning_profile` controls how aggressively WinPodX tunes the dockur compose for the underlying host. It defaults to `"auto"` — WinPodX probes the host once at compose time and turns on the matching subset of safe Windows-on-KVM tweaks. Look at the `[Tuning]` block in `winpodx doctor` to see what was detected and applied:
 
 ```
 [Tuning]
@@ -200,7 +200,7 @@ Profiles:
 | `tuning_profile` | What it does |
 |---|---|
 | `auto` (default) | Detect host capability + apply every safe tuning the host can support, including the Hyper-V enlightenments, virtio-rng, and nested-virt pass-through when `/sys/module/kvm_*/parameters/nested` is set. CPU pinning + no-balloon gated on `dedicated_host` (idle CPU + free RAM ≥ 2× VM allocation) so we don't starve other host workloads. Recommended for most users. |
-| `performance` | Same as `auto` but bypasses the `dedicated_host` gate: CPU pinning + no-balloon flip on regardless of current host load. Use when the box is mostly dedicated to winpodx and you want minimum guest latency at the cost of other host workloads. Hard-gated knobs (`+invtsc`, `io_uring`) still respect capability detection -- `performance` can't force a CPU flag QEMU would reject or a kernel feature that crashes. |
+| `performance` | Same as `auto` but bypasses the `dedicated_host` gate: CPU pinning + no-balloon flip on regardless of current host load. Use when the box is mostly dedicated to WinPodX and you want minimum guest latency at the cost of other host workloads. Hard-gated knobs (`+invtsc`, `io_uring`) still respect capability detection -- `performance` can't force a CPU flag QEMU would reject or a kernel feature that crashes. |
 | `safe` | Apply the Windows-guest-only subset that requires no host configuration: `+invtsc` (when supported), `platform_tick` BCD tweak, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), and `virtio-rng`. Excludes nested-virt + `hv-evmcs` which need explicit host-side opt-in. |
 | `off` | Apply nothing; the dockur defaults stand. Use when troubleshooting suspected tuning interaction. |
 | `manual` | Same shape as `safe`; reserved for future per-knob overrides. |
@@ -213,8 +213,8 @@ Profiles:
 * **`+vmx` / `+svm` nested virt** (#245) — auto-enabled when `/sys/module/kvm_intel/parameters/nested` or `kvm_amd` reads `Y`. Required for Hyper-V / WSL2 / Docker Desktop inside the Windows guest. No effect when the host kernel hasn't opted in.
 * **`hv-evmcs`** (#245) — Intel-only nested-VMCS optimisation, paired with `+vmx`. Zero overhead when the guest doesn't run nested VMs.
 * **`io_uring` AIO** — kernel ≥ 5.6 disk I/O backend; lower latency than legacy threads.
-* **Hugepages** — backs the QEMU memory with 2 MB pages. Requires `vm.nr_hugepages` reserved on the host (winpodx does not auto-reserve).
-* **CPU pinning** — winpodx flags the host as `dedicated` and applies QEMU vCPU pinning when host idle CPU + RAM ≥ 2× VM allocation.
+* **Hugepages** — backs the QEMU memory with 2 MB pages. Requires `vm.nr_hugepages` reserved on the host (WinPodX does not auto-reserve).
+* **CPU pinning** — WinPodX flags the host as `dedicated` and applies QEMU vCPU pinning when host idle CPU + RAM ≥ 2× VM allocation.
 
 ### One-shot override
 
@@ -222,11 +222,11 @@ Profiles:
 
 ### Items that require host-side setup (not auto-applied)
 
-These are standard Windows-on-KVM tweaks that need operator action on the Linux host before winpodx can take advantage of them. The `[Tuning]` block in `winpodx doctor` will show them as `no` until the host is set up; flipping to `yes` happens automatically the next time `cfg.pod.tuning_profile = auto` runs.
+These are standard Windows-on-KVM tweaks that need operator action on the Linux host before WinPodX can take advantage of them. The `[Tuning]` block in `winpodx doctor` will show them as `no` until the host is set up; flipping to `yes` happens automatically the next time `cfg.pod.tuning_profile = auto` runs.
 
-* **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. winpodx detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
-* **CPU pinning.** winpodx flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; winpodx will not modify host scheduling.
-* **VFIO GPU passthrough.** Out of scope for the RDP-based winpodx architecture. Use a libvirt setup directly if you need bare-metal GPU performance.
+* **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. WinPodX detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
+* **CPU pinning.** WinPodX flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; WinPodX will not modify host scheduling.
+* **VFIO GPU passthrough.** Out of scope for the RDP-based WinPodX architecture. Use a libvirt setup directly if you need bare-metal GPU performance.
 
 ## Configuration
 

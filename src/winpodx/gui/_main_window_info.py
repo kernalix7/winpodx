@@ -285,7 +285,7 @@ class InfoPageMixin:
         self._set_info_card_rows(
             "system",
             [
-                ("winpodx", sys_.get("winpodx", "")),
+                ("WinPodX", sys_.get("winpodx", "")),
                 (tr("OEM bundle"), sys_.get("oem_bundle", "")),
                 ("rdprrap", sys_.get("rdprrap", "")),
                 (tr("Distro"), sys_.get("distro", "")),

@@ -12,7 +12,7 @@ winpodx app run word ~/doc.docx   # 파일 열기
 winpodx app run desktop           # 전체 Windows 데스크톱
 ```
 
-또는 그냥 애플리케이션 메뉴에서 앱 아이콘 클릭 — winpodx 가 pod 첫 부팅 시 발견된 모든 Windows 앱을 `.desktop` 엔트리로 등록함.
+또는 그냥 애플리케이션 메뉴에서 앱 아이콘 클릭 — WinPodX 가 pod 첫 부팅 시 발견된 모든 Windows 앱을 `.desktop` 엔트리로 등록함.
 
 ## CLI 레퍼런스
 
@@ -172,7 +172,7 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
 
 ## 성능 튜닝 프로파일
 
-`cfg.pod.tuning_profile` 이 호스트에 대한 winpodx 의 dockur compose 튜닝 적극성을 제어. 기본값 `"auto"` — winpodx 가 compose 생성 시점에 호스트를 한 번 probe 하고 매칭되는 안전한 Windows-on-KVM 튜닝을 활성화. `winpodx doctor` 의 `[Tuning]` 블록에서 무엇이 감지되고 적용됐는지 확인 가능:
+`cfg.pod.tuning_profile` 이 호스트에 대한 WinPodX 의 dockur compose 튜닝 적극성을 제어. 기본값 `"auto"` — WinPodX 가 compose 생성 시점에 호스트를 한 번 probe 하고 매칭되는 안전한 Windows-on-KVM 튜닝을 활성화. `winpodx doctor` 의 `[Tuning]` 블록에서 무엇이 감지되고 적용됐는지 확인 가능:
 
 ```
 [Tuning]
@@ -200,7 +200,7 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
 | `tuning_profile` | 동작 |
 |---|---|
 | `auto` (기본) | 호스트 capability 감지 + 호스트가 지원하는 모든 안전 튜닝 적용 (Hyper-V enlightenments, virtio-rng, `/sys/module/kvm_*/parameters/nested == Y` 시 nested-virt pass-through 포함). CPU pinning + no-balloon 은 `dedicated_host` (idle CPU + free RAM ≥ VM 할당의 2배) gate 통과 시에만 — 다른 호스트 워크로드 starve 방지. 대부분 사용자에게 권장. |
-| `performance` | `auto` 와 동일하나 `dedicated_host` gate 우회: CPU pinning + no-balloon 이 호스트 현재 부하 무관하게 강제 on. 박스가 winpodx 에 거의 dedicated 이고 다른 호스트 워크로드 희생해서라도 게스트 latency 최소화하고 싶을 때 사용. Hard-gated 항목 (`+invtsc`, `io_uring`) 은 여전히 capability 감지 존중 — `performance` 가 QEMU 가 거부할 CPU flag 나 kernel crash 일으킬 feature 를 강제할 수는 없음. |
+| `performance` | `auto` 와 동일하나 `dedicated_host` gate 우회: CPU pinning + no-balloon 이 호스트 현재 부하 무관하게 강제 on. 박스가 WinPodX 에 거의 dedicated 이고 다른 호스트 워크로드 희생해서라도 게스트 latency 최소화하고 싶을 때 사용. Hard-gated 항목 (`+invtsc`, `io_uring`) 은 여전히 capability 감지 존중 — `performance` 가 QEMU 가 거부할 CPU flag 나 kernel crash 일으킬 feature 를 강제할 수는 없음. |
 | `safe` | 호스트 설정 무관한 Windows-guest-only 부분만 적용: `+invtsc` (지원 시), `platform_tick` BCD, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), `virtio-rng`. 호스트 측 명시적 opt-in 필요한 nested-virt + `hv-evmcs` 는 제외. |
 | `off` | 아무것도 적용 안 함; dockur 기본만 유지. 튜닝 간섭 디버깅 시 사용. |
 | `manual` | `safe` 와 동일 shape; 향후 개별 knob override 용 예약. |
@@ -213,7 +213,7 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
 * **`+vmx` / `+svm` nested virt** (#245) — `/sys/module/kvm_intel/parameters/nested` 또는 `kvm_amd` 가 `Y` 일때 자동 활성화. Windows 게스트 안에서 Hyper-V / WSL2 / Docker Desktop 실행 필수. 호스트 kernel 미 opt-in 시 무영향.
 * **`hv-evmcs`** (#245) — Intel 전용 nested-VMCS 최적화, `+vmx` 와 페어. nested VM 미실행 시 overhead zero.
 * **`io_uring` AIO** — kernel ≥ 5.6 디스크 I/O backend; 기존 thread 보다 latency 낮음.
-* **Hugepages** — QEMU 메모리를 2 MB 페이지로 backing. 호스트 `vm.nr_hugepages` 예약 필요 (winpodx 자동 예약 없음).
+* **Hugepages** — QEMU 메모리를 2 MB 페이지로 backing. 호스트 `vm.nr_hugepages` 예약 필요 (WinPodX 자동 예약 없음).
 * **CPU pinning** — 호스트 idle CPU + RAM ≥ VM 할당의 2배일때 `dedicated` flag 세움, QEMU vCPU pinning 적용.
 
 ### One-shot override
@@ -222,11 +222,11 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
 
 ### 호스트 사전 설정 필요 항목 (자동 적용 안 됨)
 
-다음은 Linux 호스트에서 운영자가 사전 작업해야 winpodx 가 활용 가능한 표준 Windows-on-KVM 튜닝. 호스트 미설정 시 `winpodx doctor` 의 `[Tuning]` 블록에 `no` 로 표시; 호스트 설정 후 다음 `cfg.pod.tuning_profile = auto` 실행 시 자동 `yes`.
+다음은 Linux 호스트에서 운영자가 사전 작업해야 WinPodX 가 활용 가능한 표준 Windows-on-KVM 튜닝. 호스트 미설정 시 `winpodx doctor` 의 `[Tuning]` 블록에 `no` 로 표시; 호스트 설정 후 다음 `cfg.pod.tuning_profile = auto` 실행 시 자동 `yes`.
 
-* **Transparent hugepages / explicit hugepages.** `sysctl vm.nr_hugepages` 설정 (또는 `madvise` THP 사용) 으로 QEMU 프로세스 메모리 hugepage backing. winpodx 가 `/proc/meminfo` 의 `HugePages_Total > 0` 감지 시 auto-apply, 미예약 시 skip.
-* **CPU pinning.** winpodx 가 현재 idle CPU + RAM 이 VM 할당량의 2배 이상일 때 호스트를 `dedicated` 로 flag. QEMU 스레드를 특정 코어에 `taskset` 또는 systemd `CPUAffinity=` 으로 pin 하는 건 운영자 책임; winpodx 는 호스트 스케줄링 수정 안 함.
-* **VFIO GPU passthrough.** RDP 기반 winpodx 아키텍처에 scope 밖. 베어메탈 GPU 성능 필요 시 libvirt 직접 사용.
+* **Transparent hugepages / explicit hugepages.** `sysctl vm.nr_hugepages` 설정 (또는 `madvise` THP 사용) 으로 QEMU 프로세스 메모리 hugepage backing. WinPodX 가 `/proc/meminfo` 의 `HugePages_Total > 0` 감지 시 auto-apply, 미예약 시 skip.
+* **CPU pinning.** WinPodX 가 현재 idle CPU + RAM 이 VM 할당량의 2배 이상일 때 호스트를 `dedicated` 로 flag. QEMU 스레드를 특정 코어에 `taskset` 또는 systemd `CPUAffinity=` 으로 pin 하는 건 운영자 책임; WinPodX 는 호스트 스케줄링 수정 안 함.
+* **VFIO GPU passthrough.** RDP 기반 WinPodX 아키텍처에 scope 밖. 베어메탈 GPU 성능 필요 시 libvirt 직접 사용.
 
 ## 설정
 

@@ -170,7 +170,7 @@ class MaintenanceMixin:
                 "↻",
                 tr("Sync Guest"),
                 tr(
-                    "Push winpodx's updated guest files into the running Windows "
+                    "Push WinPodX's updated guest files into the running Windows "
                     "guest (no reinstall; agent restarts briefly)"
                 ),
                 self._on_sync_guest,
@@ -376,7 +376,7 @@ class MaintenanceMixin:
             ).format(old=cfg.pod.disk_size, new=new_size),
             tr(
                 "The guest reboots and any running Windows apps are killed. This "
-                "can take a few minutes — don't close winpodx until it finishes."
+                "can take a few minutes — don't close WinPodX until it finishes."
             ),
             level="danger",
         ):
