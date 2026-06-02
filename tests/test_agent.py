@@ -12,6 +12,7 @@ from urllib import error as urllib_error
 import pytest
 
 from winpodx.core.agent import (
+    AGENT_PORT,
     AgentAuthError,
     AgentClient,
     AgentError,
@@ -329,3 +330,34 @@ class TestRunViaAgentOrFreerdp:
         assert captured["payload"] == "Write-Output ok"
         assert captured["kwargs"]["timeout"] == 15
         assert captured["kwargs"]["description"] == "test"
+
+
+def test_agent_base_url_follows_rdp_ip_manual_backend():
+    # #426: manual backend pointed at a VM not on loopback — the agent host
+    # must follow cfg.rdp.ip, the same address RDP uses.
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    cfg.rdp.ip = "LTSC11P.local"
+    client = AgentClient(cfg)
+    assert client.base_url == f"http://LTSC11P.local:{AGENT_PORT}"
+
+
+def test_agent_base_url_defaults_to_loopback():
+    # podman/docker: cfg.rdp.ip defaults to 127.0.0.1 (port forwarded to host
+    # loopback), so the agent host stays loopback — unchanged behaviour.
+    client = AgentClient(Config())
+    assert client.base_url == f"http://127.0.0.1:{AGENT_PORT}"
+
+
+def test_agent_base_url_brackets_ipv6_literal():
+    cfg = Config()
+    cfg.rdp.ip = "fe80::1"
+    client = AgentClient(cfg)
+    assert client.base_url == f"http://[fe80::1]:{AGENT_PORT}"
+
+
+def test_agent_explicit_base_url_overrides_cfg():
+    cfg = Config()
+    cfg.rdp.ip = "LTSC11P.local"
+    client = AgentClient(cfg, base_url="http://10.0.0.5:9999")
+    assert client.base_url == "http://10.0.0.5:9999"

@@ -95,8 +95,21 @@ class ExecResult:
 
 
 class AgentClient:
-    """HTTP client for the guest agent on ``127.0.0.1:{AGENT_PORT}``."""
+    """HTTP client for the guest agent.
 
+    The agent host follows the *same* address RDP uses — ``cfg.rdp.ip`` — so
+    it works on every backend without special-casing (#426). For
+    podman/docker that's the default ``127.0.0.1`` (the container publishes
+    ``8765`` to host loopback); for the ``manual`` backend pointed at a VM
+    that isn't on loopback (e.g. a VMware guest at ``LTSC11P.local``) it's the
+    VM's own address, where the agent actually listens — instead of the old
+    hard-coded loopback, which left agent-backed features falling back to
+    FreeRDP-only even though the agent was reachable.
+    """
+
+    # Loopback fallback, kept as a named constant for callers/tests that
+    # reference the canonical default. The live base URL is derived per
+    # instance from cfg.rdp.ip (see _default_base_url).
     DEFAULT_BASE_URL = f"http://127.0.0.1:{AGENT_PORT}"
     HEALTH_TIMEOUT = 5.0
 
@@ -109,9 +122,24 @@ class AgentClient:
         default_timeout: float = 30.0,
     ) -> None:
         self.cfg = cfg
-        self.base_url = (base_url or self.DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = (base_url or self._default_base_url(cfg)).rstrip("/")
         self.default_timeout = default_timeout
         self._cached_token = token
+
+    @staticmethod
+    def _default_base_url(cfg: Config) -> str:
+        """Agent base URL derived from ``cfg.rdp.ip`` (the VM address).
+
+        Mirrors the RDP reachability check so the ``manual`` backend reaches
+        the agent at the VM's address; podman/docker keep ``127.0.0.1`` since
+        ``cfg.rdp.ip`` defaults to loopback there. The agent always listens on
+        :data:`AGENT_PORT` — the host RDP port mapping doesn't apply to it.
+        """
+        host = (getattr(cfg.rdp, "ip", "") or "").strip() or "127.0.0.1"
+        # Bracket a bare IPv6 literal so the URL stays valid.
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{AGENT_PORT}"
 
     def _token(self) -> str:
         """Return the bearer token, lazily loaded from the host token file.
