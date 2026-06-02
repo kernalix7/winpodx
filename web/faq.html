@@ -24,6 +24,7 @@
   <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
   <symbol id="i-cursor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.5 18 2.5-7.5L21 11z"/></symbol>
   <symbol id="i-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
 </svg>
 
 
@@ -31,70 +32,71 @@
   <div class="wrap">
     <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">WinPodX</a>
     <nav class="links">
-      <a href="features.html">Features</a>
-      <a href="get-started.html">Get started</a>
-      <a href="faq.html" class="active">FAQ</a>
+      <a href="features.html" data-i18n="nav.features">Features</a>
+      <a href="get-started.html" data-i18n="nav.get_started">Get started</a>
+      <a href="faq.html" class="active" data-i18n="nav.faq">FAQ</a>
       <a class="gh" href="https://github.com/kernalix7/winpodx"><svg class="isvg" width="16" height="16" viewBox="0 0 24 24"><use href="#i-github"/></svg> GitHub</a>
+      <span class="lang-wrap"><svg class="isvg" width="15" height="15" viewBox="0 0 24 24"><use href="#i-globe"/></svg><select id="lang-select" aria-label="Language"></select></span>
     </nav>
   </div>
 </header>
 
 <main>
   <section class="page-hero wrap">
-    <span class="eyebrow">FAQ</span>
-    <h1>Common questions</h1>
-    <p>Still stuck? Open an issue on <a href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</p>
+    <span class="eyebrow" data-i18n="faq.hero.eyebrow">FAQ</span>
+    <h1 data-i18n="faq.hero.h1">Common questions</h1>
+    <p data-i18n-html="faq.hero.sub">Still stuck? Open an issue on <a href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</p>
   </section>
 
   <section class="wrap">
     <div class="faq">
       <details open>
-        <summary>Is this a VM, Wine, or something else?</summary>
-        <div class="a">It's a real Windows VM presented as native windows. WinPodX runs Windows in a KVM-backed container (via <a href="https://github.com/dockur/windows">dockur/windows</a>) and surfaces each app as its own Linux window over FreeRDP RemoteApp (RAIL). So you get full Windows compatibility — unlike Wine — without staring at a full-screen Windows desktop.</div>
+        <summary data-i18n="faq.q.vm.q">Is this a VM, Wine, or something else?</summary>
+        <div class="a" data-i18n-html="faq.q.vm.a">It's a real Windows VM presented as native windows. WinPodX runs Windows in a KVM-backed container (via <a href="https://github.com/dockur/windows">dockur/windows</a>) and surfaces each app as its own Linux window over FreeRDP RemoteApp (RAIL). So you get full Windows compatibility — unlike Wine — without staring at a full-screen Windows desktop.</div>
       </details>
       <details>
-        <summary>Do I need a Windows license?</summary>
-        <div class="a">Same as any Windows VM: you need a valid Windows license to activate it for normal use. WinPodX automates the install but doesn't provide Windows or a license — those come from Microsoft.</div>
+        <summary data-i18n="faq.q.license.q">Do I need a Windows license?</summary>
+        <div class="a" data-i18n-html="faq.q.license.a">Same as any Windows VM: you need a valid Windows license to activate it for normal use. WinPodX automates the install but doesn't provide Windows or a license — those come from Microsoft.</div>
       </details>
       <details>
-        <summary>How fast is it? Is it just remote desktop?</summary>
-        <div class="a">It's local RDP to a VM on your own machine over loopback — not a network connection to a remote server — so latency is minimal. Windows runs natively on KVM, and a host-adaptive tuning profile (<code>+invtsc</code>, <code>platform_tick</code>, etc.) is applied based on your CPU. The first launch takes ~5–10 min (Windows ISO download + Sysprep); subsequent launches are near-instant.</div>
+        <summary data-i18n="faq.q.fast.q">How fast is it? Is it just remote desktop?</summary>
+        <div class="a" data-i18n-html="faq.q.fast.a">It's local RDP to a VM on your own machine over loopback — not a network connection to a remote server — so latency is minimal. Windows runs natively on KVM, and a host-adaptive tuning profile (<code>+invtsc</code>, <code>platform_tick</code>, etc.) is applied based on your CPU. The first launch takes ~5–10 min (Windows ISO download + Sysprep); subsequent launches are near-instant.</div>
       </details>
       <details>
-        <summary>Does it phone home or collect telemetry?</summary>
-        <div class="a">No. WinPodX has <b>no telemetry of any kind</b> — no analytics, no usage tracking, no phone-home. It even disables Windows' own telemetry/ads/Cortana by default (debloat). It's MIT-licensed and the source is fully public.</div>
+        <summary data-i18n="faq.q.telemetry.q">Does it phone home or collect telemetry?</summary>
+        <div class="a" data-i18n-html="faq.q.telemetry.a">No. WinPodX has <b>no telemetry of any kind</b> — no analytics, no usage tracking, no phone-home. It even disables Windows' own telemetry/ads/Cortana by default (debloat). It's MIT-licensed and the source is fully public.</div>
       </details>
       <details>
-        <summary>Which apps work?</summary>
-        <div class="a">Anything that runs on Windows — Office, Adobe, niche enterprise tools, games' launchers, etc. First boot auto-discovers installed apps from Registry App Paths, the Start Menu, UWP/MSIX, Chocolatey, and Scoop, then registers each with its real icon. You can add custom app profiles in the GUI or with <code>winpodx app</code>.</div>
+        <summary data-i18n="faq.q.apps.q">Which apps work?</summary>
+        <div class="a" data-i18n-html="faq.q.apps.a">Anything that runs on Windows — Office, Adobe, niche enterprise tools, games' launchers, etc. First boot auto-discovers installed apps from Registry App Paths, the Start Menu, UWP/MSIX, Chocolatey, and Scoop, then registers each with its real icon. You can add custom app profiles in the GUI or with <code>winpodx app</code>.</div>
       </details>
       <details>
-        <summary>Can Linux apps open from inside Windows too?</summary>
-        <div class="a">Yes — that's "reverse-open". Your Linux apps appear in the Windows guest's "Open with…" menu with their real icons; picking one round-trips the file open back to the host's <code>xdg-open</code>. It's on by default.</div>
+        <summary data-i18n="faq.q.reverse.q">Can Linux apps open from inside Windows too?</summary>
+        <div class="a" data-i18n-html="faq.q.reverse.a">Yes — that's "reverse-open". Your Linux apps appear in the Windows guest's "Open with…" menu with their real icons; picking one round-trips the file open back to the host's <code>xdg-open</code>. It's on by default.</div>
       </details>
       <details>
-        <summary>What about clipboard, sound, printers, and USB?</summary>
-        <div class="a">Clipboard (text + images), sound, printers, and your home directory (<code>\\tsclient\home</code>) are shared by default. USB drives auto-map to drive letters, and there's live USB device passthrough (a host ↔ guest switcher) for things like security dongles.</div>
+        <summary data-i18n="faq.q.peripherals.q">What about clipboard, sound, printers, and USB?</summary>
+        <div class="a" data-i18n-html="faq.q.peripherals.a">Clipboard (text + images), sound, printers, and your home directory (<code>\\tsclient\home</code>) are shared by default. USB drives auto-map to drive letters, and there's live USB device passthrough (a host ↔ guest switcher) for things like security dongles.</div>
       </details>
       <details>
-        <summary>What are the requirements?</summary>
-        <div class="a">A CPU with virtualization extensions + <code>/dev/kvm</code>, 8 GB+ RAM (12 GB+ recommended), ~30 GB free disk, a container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> / <code>libvirt</code> also work), and FreeRDP 3+. See <a href="get-started.html">Get started</a> for the full list and per-distro install.</div>
+        <summary data-i18n="faq.q.requirements.q">What are the requirements?</summary>
+        <div class="a" data-i18n-html="faq.q.requirements.a">A CPU with virtualization extensions + <code>/dev/kvm</code>, 8 GB+ RAM (12 GB+ recommended), ~30 GB free disk, a container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> / <code>libvirt</code> also work), and FreeRDP 3+. See <a href="get-started.html">Get started</a> for the full list and per-distro install.</div>
       </details>
       <details>
-        <summary>Which Linux distros are supported?</summary>
-        <div class="a">openSUSE, Fedora (incl. Atomic/Silverblue/Kinoite), Debian, Ubuntu, RHEL / AlmaLinux / Rocky, Arch, and NixOS — plus a distro-agnostic AppImage. Install is one line on all of them.</div>
+        <summary data-i18n="faq.q.distros.q">Which Linux distros are supported?</summary>
+        <div class="a" data-i18n-html="faq.q.distros.a">openSUSE, Fedora (incl. Atomic/Silverblue/Kinoite), Debian, Ubuntu, RHEL / AlmaLinux / Rocky, Arch, and NixOS — plus a distro-agnostic AppImage. Install is one line on all of them.</div>
       </details>
       <details>
-        <summary>Does the container keep running and eating resources?</summary>
-        <div class="a">No — it auto-suspends when idle and resumes on the next launch. You can also enable pod auto-start on login, or stop it entirely. A stalled RDP guest is detected and self-healed without a manual restart.</div>
+        <summary data-i18n="faq.q.resources.q">Does the container keep running and eating resources?</summary>
+        <div class="a" data-i18n-html="faq.q.resources.a">No — it auto-suspends when idle and resumes on the next launch. You can also enable pod auto-start on login, or stop it entirely. A stalled RDP guest is detected and self-healed without a manual restart.</div>
       </details>
       <details>
-        <summary>How do I uninstall? Will it wipe my Windows data?</summary>
-        <div class="a">One line: <code>curl -fsSL …/uninstall.sh | bash -s -- --confirm</code>. It keeps the Windows VM data by default; pass <code>--purge</code> to wipe everything.</div>
+        <summary data-i18n="faq.q.uninstall.q">How do I uninstall? Will it wipe my Windows data?</summary>
+        <div class="a" data-i18n-html="faq.q.uninstall.a">One line: <code>curl -fsSL …/uninstall.sh | bash -s -- --confirm</code>. It keeps the Windows VM data by default; pass <code>--purge</code> to wipe everything.</div>
       </details>
       <details>
-        <summary>Is it stable? What's the project status?</summary>
-        <div class="a">It's in active <b>beta</b> (v0.6.0) — usable day-to-day, with ongoing polish. Bug reports and PRs are welcome on <a href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</div>
+        <summary data-i18n="faq.q.status.q">Is it stable? What's the project status?</summary>
+        <div class="a" data-i18n-html="faq.q.status.a">It's in active <b>beta</b> (v0.6.0) — usable day-to-day, with ongoing polish. Bug reports and PRs are welcome on <a href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</div>
       </details>
     </div>
   </section>
@@ -104,7 +106,7 @@
   <div class="wrap">
     <div class="cols">
       <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">WinPodX</span>
-        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
+        <div class="footer-tagline" data-i18n="footer.tagline">Windows apps, as native Linux citizens.</div></div>
       <div class="links">
         <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>
         <a href="https://github.com/kernalix7/winpodx">GitHub</a>
@@ -112,10 +114,12 @@
         <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
       </div>
     </div>
-    <div class="legal">MIT licensed — Kim DaeHyun · Powered by
+    <div class="legal" data-i18n-html="footer.legal">MIT licensed — Kim DaeHyun · Powered by
       <a href="https://github.com/dockur/windows">dockur/windows</a> + <a href="https://www.freerdp.com/">FreeRDP</a>.
       Not affiliated with Microsoft.</div>
   </div>
 </footer>
+<script src="lang/translations.js"></script>
+<script src="i18n.js"></script>
 </body>
 </html>

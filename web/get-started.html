@@ -24,6 +24,7 @@
   <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
   <symbol id="i-cursor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.5 18 2.5-7.5L21 11z"/></symbol>
   <symbol id="i-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
 </svg>
 
 
@@ -31,55 +32,56 @@
   <div class="wrap">
     <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">WinPodX</a>
     <nav class="links">
-      <a href="features.html">Features</a>
-      <a href="get-started.html" class="active">Get started</a>
-      <a href="faq.html">FAQ</a>
+      <a href="features.html" data-i18n="nav.features">Features</a>
+      <a href="get-started.html" class="active" data-i18n="nav.get_started">Get started</a>
+      <a href="faq.html" data-i18n="nav.faq">FAQ</a>
       <a class="gh" href="https://github.com/kernalix7/winpodx"><svg class="isvg" width="16" height="16" viewBox="0 0 24 24"><use href="#i-github"/></svg> GitHub</a>
+      <span class="lang-wrap"><svg class="isvg" width="15" height="15" viewBox="0 0 24 24"><use href="#i-globe"/></svg><select id="lang-select" aria-label="Language"></select></span>
     </nav>
   </div>
 </header>
 
 <main>
   <section class="page-hero wrap">
-    <span class="eyebrow">Get started</span>
-    <h1>Up and running in one line</h1>
-    <p>The curl installer works on every supported distro and runs setup for you. Or use your native package manager and run <code>winpodx setup</code> once.</p>
+    <span class="eyebrow" data-i18n="gs.hero.eyebrow">Get started</span>
+    <h1 data-i18n="gs.hero.h1">Up and running in one line</h1>
+    <p data-i18n-html="gs.hero.sub">The curl installer works on every supported distro and runs setup for you. Or use your native package manager and run <code>winpodx setup</code> once.</p>
   </section>
 
   <section class="wrap">
-    <h2>1 · Install</h2>
-    <p class="lead">The one-liner installs WinPodX, runs setup, and waits for the first Windows boot (~5–10 min).</p>
-    <div class="install" style="margin-top:24px">
-      <div class="label">Any supported distro</div>
+    <h2 data-i18n="gs.install.title">1 · Install</h2>
+    <p class="lead" data-i18n="gs.install.lead">The one-liner installs WinPodX, runs setup, and waits for the first Windows boot (~5–10 min).</p>
+    <div class="install">
+      <div class="label" data-i18n="gs.install.label">Any supported distro</div>
       <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash">Copy</button><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</div>
     </div>
 
-    <h2 style="margin-top:48px;font-size:22px">Or via a package manager</h2>
+    <h2 class="subhead" data-i18n="gs.pkg.title">Or via a package manager</h2>
     <div class="dist">
-      <div class="item"><h3>openSUSE (Tumbleweed / Leap / Slowroll)</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.opensuse">openSUSE (Tumbleweed / Leap / Slowroll)</h3>
         <div class="code"><button class="copy" data-copy="sudo zypper addrepo https://download.opensuse.org/repositories/home:/Kernalix7/openSUSE_Tumbleweed/home:Kernalix7.repo
 sudo zypper install winpodx">Copy</button>sudo zypper addrepo …home:Kernalix7.repo
 sudo zypper install winpodx</div></div>
-      <div class="item"><h3>Fedora 42 / 43 / 44</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.fedora">Fedora 42 / 43 / 44</h3>
         <div class="code"><button class="copy" data-copy="sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
 sudo dnf install winpodx">Copy</button>sudo dnf config-manager addrepo --from-repofile=…
 sudo dnf install winpodx</div></div>
-      <div class="item"><h3>Arch / Manjaro</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.arch">Arch / Manjaro</h3>
         <div class="code"><button class="copy" data-copy="yay -S winpodx">Copy</button><span class="prompt">$ </span>yay -S winpodx</div></div>
-      <div class="item"><h3>NixOS</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.nixos">NixOS</h3>
         <div class="code"><button class="copy" data-copy="nix run github:kernalix7/winpodx">Copy</button><span class="prompt">$ </span>nix run github:kernalix7/winpodx</div></div>
-      <div class="item"><h3>Debian / Ubuntu (.deb)</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.debian">Debian / Ubuntu (.deb)</h3>
         <div class="code"><button class="copy" data-copy="sudo apt install ./winpodx_<version>_all_debian13.deb">Copy</button><span class="prompt">$ </span>sudo apt install ./winpodx_&lt;version&gt;_all_debian13.deb</div></div>
-      <div class="item"><h3>AlmaLinux / Rocky / RHEL (.rpm)</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.rhel">AlmaLinux / Rocky / RHEL (.rpm)</h3>
         <div class="code"><button class="copy" data-copy="sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm">Copy</button><span class="prompt">$ </span>sudo dnf install ./winpodx-&lt;version&gt;-0.noarch.el10.rpm</div></div>
-      <div class="item"><h3>AppImage (any distro)</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.appimage">AppImage (any distro)</h3>
         <div class="code"><button class="copy" data-copy="chmod +x winpodx-*-x86_64.AppImage
 ./winpodx-*-x86_64.AppImage setup">Copy</button>chmod +x winpodx-*-x86_64.AppImage
 ./winpodx-*-x86_64.AppImage setup</div></div>
-      <div class="item"><h3>Uninstall</h3>
+      <div class="item"><h3 data-i18n="gs.pkg.uninstall">Uninstall</h3>
         <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm">Copy</button>curl -fsSL …/uninstall.sh | bash -s -- --confirm</div></div>
     </div>
-    <div class="note" style="border-left-color:var(--blue)">
+    <div class="note" style="border-left-color:var(--blue)" data-i18n-html="gs.install.note">
       <b>After a package / AppImage install</b>, run <code>winpodx setup</code> once to generate the
       config + compose and confirm host deps — package installs ship the binary only, so they don't
       kick off a 10-minute Windows download out of the blue. The curl one-liner does this for you.
@@ -87,44 +89,44 @@ sudo dnf install winpodx</div></div>
   </section>
 
   <section class="alt"><div class="wrap">
-    <h2>2 · First-time setup</h2>
-    <p class="lead">Already used the curl one-liner? It ran setup — skip to launch.</p>
+    <h2 data-i18n="gs.setup.title">2 · First-time setup</h2>
+    <p class="lead" data-i18n="gs.setup.lead">Already used the curl one-liner? It ran setup — skip to launch.</p>
     <div class="dist">
-      <div class="item"><h3>Auto (host-detected defaults)</h3>
+      <div class="item"><h3 data-i18n="gs.setup.auto.title">Auto (host-detected defaults)</h3>
         <div class="code"><button class="copy" data-copy="winpodx setup">Copy</button><span class="prompt">$ </span>winpodx setup</div></div>
-      <div class="item"><h3>Interactive wizard</h3>
+      <div class="item"><h3 data-i18n="gs.setup.wizard.title">Interactive wizard</h3>
         <div class="code"><button class="copy" data-copy="winpodx setup --customize">Copy</button><span class="prompt">$ </span>winpodx setup --customize</div></div>
     </div>
-    <p class="lead" style="margin-top:18px;text-align:left;max-width:none">
+    <p class="lead lead-left" data-i18n-html="gs.setup.body">
       Setup writes <code>~/.config/winpodx.toml</code> + <code>compose.yaml</code>, registers the GUI launcher,
       and confirms FreeRDP + Podman/Docker + KVM. The first app launch then provisions the pod and reaches a usable
       RDP session in ~5–10 min.</p>
-    <div class="install" style="margin-top:8px">
-      <div class="label">Launch (first run ~5–10 min, then near-instant)</div>
-      <div class="code"><button class="copy" data-copy="winpodx app run desktop
-winpodx pod wait-ready --logs">Copy</button>winpodx app run desktop          <span style="color:var(--overlay0)"># first launch</span>
-winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch progress</span></div>
+    <div class="install">
+      <div class="label" data-i18n="gs.setup.launch.label">Launch (first run ~5–10 min, then near-instant)</div>
+        <div class="code"><button class="copy" data-copy="winpodx app run desktop
+winpodx pod wait-ready --logs">Copy</button>winpodx app run desktop          <span class="code-comment" data-i18n="gs.setup.cmt.first"># first launch</span>
+winpodx pod wait-ready --logs    <span class="code-comment" data-i18n="gs.setup.cmt.watch"># watch progress</span></div>
     </div>
   </div></section>
 
   <section class="wrap">
-    <h2>3 · Requirements</h2>
-    <div class="feat" style="margin-top:24px">
+    <h2 data-i18n="gs.req.title">3 · Requirements</h2>
+    <div class="feat">
       <div class="block">
-        <h3>Hardware virtualization</h3>
-        <p>An x86_64 or aarch64 CPU with virtualization extensions (VT-x / AMD-V / EL2), and access to <code>/dev/kvm</code>. WinPodX runs Windows in a KVM-backed container — without KVM the install completes but Windows never boots.</p>
+        <h3 data-i18n="gs.req.virt.title">Hardware virtualization</h3>
+        <p data-i18n-html="gs.req.virt.body">An x86_64 or aarch64 CPU with virtualization extensions (VT-x / AMD-V / EL2), and access to <code>/dev/kvm</code>. WinPodX runs Windows in a KVM-backed container — without KVM the install completes but Windows never boots.</p>
       </div>
       <div class="block">
-        <h3>Memory &amp; disk</h3>
-        <p>8 GB+ RAM (12 GB+ recommended) and ~30 GB free disk for the Windows image.</p>
+        <h3 data-i18n="gs.req.mem.title">Memory &amp; disk</h3>
+        <p data-i18n="gs.req.mem.body">8 GB+ RAM (12 GB+ recommended) and ~30 GB free disk for the Windows image.</p>
       </div>
       <div class="block">
-        <h3>Container runtime + FreeRDP</h3>
-        <p>A host container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> / <code>libvirt</code> also supported) and FreeRDP 3+. <code>winpodx setup-host</code> fixes kvm-group + <code>/etc/subuid</code> / <code>subgid</code> via one <code>pkexec</code> prompt; <code>winpodx doctor</code> surfaces anything still missing.</p>
+        <h3 data-i18n="gs.req.rt.title">Container runtime + FreeRDP</h3>
+        <p data-i18n-html="gs.req.rt.body">A host container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> / <code>libvirt</code> also supported) and FreeRDP 3+. <code>winpodx setup-host</code> fixes kvm-group + <code>/etc/subuid</code> / <code>subgid</code> via one <code>pkexec</code> prompt; <code>winpodx doctor</code> surfaces anything still missing.</p>
       </div>
     </div>
-    <p class="lead" style="margin-top:26px">
-      <a class="btn primary" href="https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md">Full install docs →</a>
+    <p class="lead cta-lead">
+      <a class="btn primary" href="https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md" data-i18n="gs.req.docs_btn">Full install docs →</a>
     </p>
   </section>
 </main>
@@ -133,7 +135,7 @@ winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch pro
   <div class="wrap">
     <div class="cols">
       <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">WinPodX</span>
-        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
+        <div class="footer-tagline" data-i18n="footer.tagline">Windows apps, as native Linux citizens.</div></div>
       <div class="links">
         <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>
         <a href="https://github.com/kernalix7/winpodx">GitHub</a>
@@ -141,7 +143,7 @@ winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch pro
         <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
       </div>
     </div>
-    <div class="legal">MIT licensed — Kim DaeHyun · Powered by
+    <div class="legal" data-i18n-html="footer.legal">MIT licensed — Kim DaeHyun · Powered by
       <a href="https://github.com/dockur/windows">dockur/windows</a> + <a href="https://www.freerdp.com/">FreeRDP</a>.
       Not affiliated with Microsoft.</div>
   </div>
@@ -156,5 +158,7 @@ winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch pro
     });
   });
 </script>
+<script src="lang/translations.js"></script>
+<script src="i18n.js"></script>
 </body>
 </html>
