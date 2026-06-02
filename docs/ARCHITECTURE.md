@@ -13,7 +13,7 @@ How WinPodX is put together: the data flow on app launch, the technology stack, 
                      └──────────────┬──────────────┘
                                     │
                      ┌──────────────▼──────────────┐
-                     │         winpodx             │
+                     │         WinPodX             │
                      │  ┌─────────────────────┐    │
                      │  │ auto-provision:     │    │
                      │  │  config → password  │    │

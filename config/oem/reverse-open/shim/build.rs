@@ -23,10 +23,10 @@ fn main() {
     // default; the string fields below are what an AV / the file's
     // Properties → Details tab will show.
     res.set("CompanyName", "Kim DaeHyun")
-        .set("ProductName", "winpodx")
+        .set("ProductName", "WinPodX")
         .set(
             "FileDescription",
-            "winpodx reverse-open shim — relays a Windows file-open back to the Linux host",
+            "WinPodX reverse-open shim — relays a Windows file-open back to the Linux host",
         )
         .set("InternalName", "winpodx-reverse-open-shim")
         .set("OriginalFilename", "winpodx-reverse-open-shim.exe")

@@ -271,7 +271,7 @@ fi
 # observable so a surprise hit is at least obvious in the output.
 WINPODX_PROCS=$(pgrep -fa 'python.*winpodx' 2>/dev/null || true)
 if [[ -n "$WINPODX_PROCS" ]]; then
-    log "Stopping winpodx processes:"
+    log "Stopping WinPodX processes:"
     while IFS= read -r line; do
         log "  $line"
     done <<<"$WINPODX_PROCS"
@@ -394,7 +394,7 @@ fi
 MIMEINFO="${XDG_DATA_HOME:-$HOME/.local/share}/applications/mimeinfo.cache"
 if [[ -f "$MIMEINFO" ]] && grep -q "winpodx" "$MIMEINFO" 2>/dev/null; then
     sed -i '/winpodx/d' "$MIMEINFO" 2>/dev/null || true
-    log "Cleaned winpodx MIME associations"
+    log "Cleaned WinPodX MIME associations"
 fi
 
 # --- 5. App definitions ---

@@ -208,7 +208,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 </td><td width="50%">
 
 **Operations & resilience**
-- Multilingual UI (v0.5.9): tray / GUI / CLI fully translated to 7 languages (en / ko / zh / ja / de / fr / it), auto-detected from `$LANG` — override with `winpodx language <code>` or GUI Settings → "winpodx UI language"
+- Multilingual UI (v0.5.9): tray / GUI / CLI fully translated to 7 languages (en / ko / zh / ja / de / fr / it), auto-detected from `$LANG` — override with `winpodx language <code>` or GUI Settings → "WinPodX UI language"
 - Windows disk auto-grow (v0.5.9): C: grows itself when it fills past a threshold while idle, bounded by host free space — or grow on demand (`winpodx install grow-disk [SIZE]`, `winpodx install disk-usage`, GUI Tools → Grow Disk)
 - Guest sync (v0.5.9): push updated agent / urlacl / rdprrap / fixes into a running guest after a host upgrade — automatic once per pod start, or `winpodx guest sync [--force]`
 - Offline / air-gapped install (`--source` + `--image-tar`)

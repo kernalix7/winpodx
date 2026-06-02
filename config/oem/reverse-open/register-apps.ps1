@@ -423,7 +423,7 @@ if (-not $DryRun -and (Test-Path -LiteralPath $StartMenuDir)) {
             $desktopLnk = Join-Path $desktopDir 'Linux Apps.lnk'
             $lnk = $shell.CreateShortcut($desktopLnk)
             $lnk.TargetPath = $StartMenuDir
-            $lnk.Description = 'Linux apps available via winpodx'
+            $lnk.Description = 'Linux apps available via WinPodX'
             # Use the generic shell32 folder icon (index 4) so the
             # shortcut renders as a normal folder. Trying to embed our
             # own .ico here would require shipping a winpodx-folder.ico;

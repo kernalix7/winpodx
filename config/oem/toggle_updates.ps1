@@ -23,7 +23,7 @@ function Get-UpdateStatus {
 }
 
 function Disable-Updates {
-    Write-Host "[winpodx] Disabling Windows Update..."
+    Write-Host "[WinPodX] Disabling Windows Update..."
 
     foreach ($svc in $Services) {
         Stop-Service $svc -Force -ErrorAction SilentlyContinue
@@ -64,11 +64,11 @@ function Disable-Updates {
     # ASCII is the only encoding the hosts resolver has accepted since XP.
     Set-Content -Path $hostsFile -Value $content -Encoding ASCII -Force
 
-    Write-Host "[winpodx] Windows Update disabled"
+    Write-Host "[WinPodX] Windows Update disabled"
 }
 
 function Enable-Updates {
-    Write-Host "[winpodx] Enabling Windows Update..."
+    Write-Host "[WinPodX] Enabling Windows Update..."
 
     foreach ($svc in $Services) {
         Set-Service $svc -StartupType Manual -ErrorAction SilentlyContinue
@@ -94,7 +94,7 @@ function Enable-Updates {
     # -Encoding ASCII: hosts file must stay ASCII so the DNS client parses it on both PS 5.1 and PS 7.
     Set-Content -Path $hostsFile -Value $content -Encoding ASCII -Force
 
-    Write-Host "[winpodx] Windows Update enabled"
+    Write-Host "[WinPodX] Windows Update enabled"
 }
 
 switch ($Action) {
