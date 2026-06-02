@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT — winpodx.org/faq. No trackers. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FAQ — winpodx</title>
+  <meta name="description" content="winpodx FAQ: how it works, Windows licensing, performance, security & telemetry, which apps work, and how it compares to a VM, RDP, or Wine.">
+  <link rel="icon" type="image/svg+xml" href="assets/winpodx-icon.svg">
+  <link rel="canonical" href="https://winpodx.org/faq.html">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">winpodx</a>
+    <nav class="links">
+      <a href="features.html">Features</a>
+      <a href="get-started.html">Get started</a>
+      <a href="faq.html" class="active">FAQ</a>
+      <a class="gh" href="https://github.com/kernalix7/winpodx">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-hero wrap">
+    <span class="eyebrow">FAQ</span>
+    <h1>Common questions</h1>
+    <p>Still stuck? Open an issue on <a href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</p>
+  </section>
+
+  <section class="wrap">
+    <div class="faq">
+      <details open>
+        <summary>Is this a VM, Wine, or something else?</summary>
+        <div class="a">It's a real Windows VM presented as native windows. winpodx runs Windows in a KVM-backed container (via <a href="https://github.com/dockur/windows">dockur/windows</a>) and surfaces each app as its own Linux window over FreeRDP RemoteApp (RAIL). So you get full Windows compatibility — unlike Wine — without staring at a full-screen Windows desktop.</div>
+      </details>
+      <details>
+        <summary>Do I need a Windows license?</summary>
+        <div class="a">Same as any Windows VM: you need a valid Windows license to activate it for normal use. winpodx automates the install but doesn't provide Windows or a license — those come from Microsoft.</div>
+      </details>
+      <details>
+        <summary>How fast is it? Is it just remote desktop?</summary>
+        <div class="a">It's local RDP to a VM on your own machine over loopback — not a network connection to a remote server — so latency is minimal. Windows runs natively on KVM, and a host-adaptive tuning profile (<code>+invtsc</code>, <code>platform_tick</code>, etc.) is applied based on your CPU. The first launch takes ~5–10 min (Windows ISO download + Sysprep); subsequent launches are near-instant.</div>
+      </details>
+      <details>
+        <summary>Does it phone home or collect telemetry?</summary>
+        <div class="a">No. winpodx has <b>no telemetry of any kind</b> — no analytics, no usage tracking, no phone-home. It even disables Windows' own telemetry/ads/Cortana by default (debloat). It's MIT-licensed and the source is fully public.</div>
+      </details>
+      <details>
+        <summary>Which apps work?</summary>
+        <div class="a">Anything that runs on Windows — Office, Adobe, niche enterprise tools, games' launchers, etc. First boot auto-discovers installed apps from Registry App Paths, the Start Menu, UWP/MSIX, Chocolatey, and Scoop, then registers each with its real icon. You can add custom app profiles in the GUI or with <code>winpodx app</code>.</div>
+      </details>
+      <details>
+        <summary>Can Linux apps open from inside Windows too?</summary>
+        <div class="a">Yes — that's "reverse-open". Your Linux apps appear in the Windows guest's "Open with…" menu with their real icons; picking one round-trips the file open back to the host's <code>xdg-open</code>. It's on by default.</div>
+      </details>
+      <details>
+        <summary>What about clipboard, sound, printers, and USB?</summary>
+        <div class="a">Clipboard (text + images), sound, printers, and your home directory (<code>\\tsclient\home</code>) are shared by default. USB drives auto-map to drive letters, and there's live USB device passthrough (a host ↔ guest switcher) for things like security dongles.</div>
+      </details>
+      <details>
+        <summary>What are the requirements?</summary>
+        <div class="a">A CPU with virtualization extensions + <code>/dev/kvm</code>, 8 GB+ RAM (12 GB+ recommended), ~30 GB free disk, a container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> / <code>libvirt</code> also work), and FreeRDP 3+. See <a href="get-started.html">Get started</a> for the full list and per-distro install.</div>
+      </details>
+      <details>
+        <summary>Which Linux distros are supported?</summary>
+        <div class="a">openSUSE, Fedora (incl. Atomic/Silverblue/Kinoite), Debian, Ubuntu, RHEL / AlmaLinux / Rocky, Arch, and NixOS — plus a distro-agnostic AppImage. Install is one line on all of them.</div>
+      </details>
+      <details>
+        <summary>Does the container keep running and eating resources?</summary>
+        <div class="a">No — it auto-suspends when idle and resumes on the next launch. You can also enable pod auto-start on login, or stop it entirely. A stalled RDP guest is detected and self-healed without a manual restart.</div>
+      </details>
+      <details>
+        <summary>How do I uninstall? Will it wipe my Windows data?</summary>
+        <div class="a">One line: <code>curl -fsSL …/uninstall.sh | bash -s -- --confirm</code>. It keeps the Windows VM data by default; pass <code>--purge</code> to wipe everything.</div>
+      </details>
+      <details>
+        <summary>Is it stable? What's the project status?</summary>
+        <div class="a">It's in active <b>beta</b> (v0.6.0) — usable day-to-day, with ongoing polish. Bug reports and PRs are welcome on <a href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</div>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">winpodx</span>
+        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
+      <div class="links">
+        <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>
+        <a href="https://github.com/kernalix7/winpodx">GitHub</a>
+        <a href="https://github.com/kernalix7/winpodx/releases">Releases</a>
+        <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
+      </div>
+    </div>
+    <div class="legal">MIT licensed — Kim DaeHyun · Powered by
+      <a href="https://github.com/dockur/windows">dockur/windows</a> + <a href="https://www.freerdp.com/">FreeRDP</a>.
+      Not affiliated with Microsoft.</div>
+  </div>
+</footer>
+</body>
+</html>

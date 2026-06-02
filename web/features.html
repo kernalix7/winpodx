@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT — winpodx.org/features. No trackers. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Features — winpodx</title>
+  <meta name="description" content="winpodx features: seamless RemoteApp windows, reverse-open, zero-config discovery, peripherals, multi-session RDP, automation & resilience.">
+  <link rel="icon" type="image/svg+xml" href="assets/winpodx-icon.svg">
+  <link rel="canonical" href="https://winpodx.org/features.html">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">winpodx</a>
+    <nav class="links">
+      <a href="features.html" class="active">Features</a>
+      <a href="get-started.html">Get started</a>
+      <a href="faq.html">FAQ</a>
+      <a class="gh" href="https://github.com/kernalix7/winpodx">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-hero wrap">
+    <span class="eyebrow">Features</span>
+    <h1>Windows apps, as native Linux citizens</h1>
+    <p>The full picture — from per-app RemoteApp windows to the bidirectional "Open with…" bridge, peripherals, multi-session RDP, and self-healing operations.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Seamless app windows</h2>
+    <div class="feat">
+      <div class="block">
+        <h3>RemoteApp (RAIL), not a desktop</h3>
+        <p>Each Windows app renders as its own native Linux window — no full-screen Windows desktop. Drop into a full desktop only when you actually want one (<code>winpodx app run desktop</code>).</p>
+      </div>
+      <div class="block">
+        <h3>Real taskbar identity</h3>
+        <p>Per-app taskbar icons via <code>WM_CLASS</code> matching (<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>), so each window pins and alt-tabs like a first-class Linux app.</p>
+      </div>
+      <div class="block">
+        <h3>Bidirectional file associations</h3>
+        <p>Double-click a <code>.docx</code> in your file manager and Word opens. The reverse works too — see below.</p>
+      </div>
+      <div class="block">
+        <h3>Multi-session RDP</h3>
+        <p>The bundled <a href="https://github.com/kernalix7/rdprrap">rdprrap</a> auto-enables up to 10 independent RDP sessions, so multiple apps run truly in parallel. RAIL prerequisites are set automatically during the unattended install.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt"><div class="wrap">
+    <h2>Reverse-open — Linux apps inside Windows</h2>
+    <div class="feat">
+      <div class="block">
+        <h3>In the Windows "Open with…" menu</h3>
+        <p>Your Linux apps appear in the Windows guest's right-click "Open with…" menu by default, with correct per-app icons in both the short menu and the long "Choose another app" dialog.</p>
+      </div>
+      <div class="block">
+        <h3>Round-trips to the host</h3>
+        <p>Pick a Linux app inside Windows and the file open round-trips back to the host's <code>xdg-open</code>. winpodx auto-discovers host-side Linux apps and their MIME associations from freedesktop standards.</p>
+      </div>
+      <div class="block">
+        <h3>Manageable</h3>
+        <p>Tune the allow/deny lists via <code>winpodx host-open</code> or the GUI Settings panel.</p>
+      </div>
+    </div>
+  </div></section>
+
+  <section class="wrap">
+    <h2>Zero-config launch &amp; discovery</h2>
+    <div class="feat">
+      <div class="block">
+        <h3>First click provisions everything</h3>
+        <p>Config, container, and desktop entries are created on the first app launch — no manual VM setup.</p>
+      </div>
+      <div class="block">
+        <h3>Auto-discovery</h3>
+        <p>First boot scans the running Windows guest and registers every installed app with its real icon — Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop. Rescan any time with <code>winpodx app refresh</code> or the GUI Refresh button.</p>
+      </div>
+      <div class="block">
+        <h3>Multi-backend</h3>
+        <p>Podman (default), Docker, libvirt/KVM, or a manual RDP endpoint — pick at setup.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt"><div class="wrap">
+    <h2>Peripherals &amp; sharing</h2>
+    <div class="grid">
+      <div class="card"><h3><span class="dot">●</span>On by default</h3><ul>
+        <li>Clipboard — bidirectional text + images</li>
+        <li>Sound — RDP audio streaming</li>
+        <li>Printers — Linux printers shared to Windows</li>
+        <li>Home directory — shared as <code>\\tsclient\home</code></li>
+      </ul></div>
+      <div class="card"><h3><span class="dot">●</span>Storage &amp; devices</h3><ul>
+        <li>USB drives auto-mapped to drive letters (E:, F:, …)</li>
+        <li>Drives plugged in mid-session resolve, subfolders work</li>
+        <li>Live USB device passthrough (host ↔ guest switcher)</li>
+        <li>Smart DPI scaling from GNOME / KDE / Sway / Hyprland / Cinnamon</li>
+      </ul></div>
+    </div>
+  </div></section>
+
+  <section class="wrap">
+    <h2>Automation, resilience &amp; security</h2>
+    <div class="grid">
+      <div class="card"><h3><span class="dot">●</span>Keeps itself healthy</h3><ul>
+        <li>Auto suspend / resume — pauses when idle, resumes on launch</li>
+        <li>Optional pod auto-start on login</li>
+        <li>UNRESPONSIVE → recover: self-heals a stalled RDP guest</li>
+        <li>Windows disk auto-grows when C: fills, bounded by host space</li>
+      </ul></div>
+      <div class="card"><h3><span class="dot">●</span>Secure &amp; private</h3><ul>
+        <li>Password auto-rotation — 20-char, 7-day cycle, atomic rollback</li>
+        <li>Windows debloat: telemetry, ads, Cortana off by default</li>
+        <li>FreeRDP <code>extra_flags</code> allowlist (regex-validated)</li>
+        <li>No winpodx telemetry — ever</li>
+      </ul></div>
+      <div class="card"><h3><span class="dot">●</span>Operations</h3><ul>
+        <li><code>winpodx doctor</code> — deps / pod / RDP / agent / disk health</li>
+        <li><code>--json</code>, <code>--quick</code>, and <code>--fix</code> auto-remediation</li>
+        <li>Guest sync after a host upgrade; offline / air-gapped install</li>
+        <li>One-line uninstall (keeps VM data unless <code>--purge</code>)</li>
+      </ul></div>
+      <div class="card"><h3><span class="dot">●</span>Polish</h3><ul>
+        <li>Host-adaptive Windows-on-KVM tuning profile</li>
+        <li>Time sync after host sleep/wake</li>
+        <li>Multilingual UI (en / ko / zh / ja / de / fr / it)</li>
+        <li>Qt6 GUI: Apps / Settings / Tools / Terminal / Info + tray</li>
+      </ul></div>
+    </div>
+    <p class="lead" style="margin-top:26px"><a href="https://github.com/kernalix7/winpodx/blob/main/docs/FEATURES.md">Deep dives in the docs →</a></p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">winpodx</span>
+        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
+      <div class="links">
+        <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>
+        <a href="https://github.com/kernalix7/winpodx">GitHub</a>
+        <a href="https://github.com/kernalix7/winpodx/releases">Releases</a>
+        <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
+      </div>
+    </div>
+    <div class="legal">MIT licensed — Kim DaeHyun · Powered by
+      <a href="https://github.com/dockur/windows">dockur/windows</a> + <a href="https://www.freerdp.com/">FreeRDP</a>.
+      Not affiliated with Microsoft.</div>
+  </div>
+</footer>
+</body>
+</html>

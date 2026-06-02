@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT — winpodx.org/get-started. No trackers. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Get started — winpodx</title>
+  <meta name="description" content="Install winpodx: one-line curl, or native packages for openSUSE, Fedora, Debian/Ubuntu, RHEL, Arch, NixOS, and AppImage. Requirements + first-time setup.">
+  <link rel="icon" type="image/svg+xml" href="assets/winpodx-icon.svg">
+  <link rel="canonical" href="https://winpodx.org/get-started.html">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">winpodx</a>
+    <nav class="links">
+      <a href="features.html">Features</a>
+      <a href="get-started.html" class="active">Get started</a>
+      <a href="faq.html">FAQ</a>
+      <a class="gh" href="https://github.com/kernalix7/winpodx">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-hero wrap">
+    <span class="eyebrow">Get started</span>
+    <h1>Up and running in one line</h1>
+    <p>The curl installer works on every supported distro and runs setup for you. Or use your native package manager and run <code>winpodx setup</code> once.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>1 · Install</h2>
+    <p class="lead">The one-liner installs winpodx, runs setup, and waits for the first Windows boot (~5–10 min).</p>
+    <div class="install" style="margin-top:24px">
+      <div class="label">Any supported distro</div>
+      <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash">Copy</button><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</div>
+    </div>
+
+    <h2 style="margin-top:48px;font-size:22px">Or via a package manager</h2>
+    <div class="dist">
+      <div class="item"><h3>openSUSE (Tumbleweed / Leap / Slowroll)</h3>
+        <div class="code"><button class="copy" data-copy="sudo zypper addrepo https://download.opensuse.org/repositories/home:/Kernalix7/openSUSE_Tumbleweed/home:Kernalix7.repo
+sudo zypper install winpodx">Copy</button>sudo zypper addrepo …home:Kernalix7.repo
+sudo zypper install winpodx</div></div>
+      <div class="item"><h3>Fedora 42 / 43 / 44</h3>
+        <div class="code"><button class="copy" data-copy="sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/repositories/home:/Kernalix7/Fedora_43/home:Kernalix7.repo
+sudo dnf install winpodx">Copy</button>sudo dnf config-manager addrepo --from-repofile=…
+sudo dnf install winpodx</div></div>
+      <div class="item"><h3>Arch / Manjaro</h3>
+        <div class="code"><button class="copy" data-copy="yay -S winpodx">Copy</button><span class="prompt">$ </span>yay -S winpodx</div></div>
+      <div class="item"><h3>NixOS</h3>
+        <div class="code"><button class="copy" data-copy="nix run github:kernalix7/winpodx">Copy</button><span class="prompt">$ </span>nix run github:kernalix7/winpodx</div></div>
+      <div class="item"><h3>Debian / Ubuntu (.deb)</h3>
+        <div class="code"><button class="copy" data-copy="sudo apt install ./winpodx_<version>_all_debian13.deb">Copy</button><span class="prompt">$ </span>sudo apt install ./winpodx_&lt;version&gt;_all_debian13.deb</div></div>
+      <div class="item"><h3>AlmaLinux / Rocky / RHEL (.rpm)</h3>
+        <div class="code"><button class="copy" data-copy="sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm">Copy</button><span class="prompt">$ </span>sudo dnf install ./winpodx-&lt;version&gt;-0.noarch.el10.rpm</div></div>
+      <div class="item"><h3>AppImage (any distro)</h3>
+        <div class="code"><button class="copy" data-copy="chmod +x winpodx-*-x86_64.AppImage
+./winpodx-*-x86_64.AppImage setup">Copy</button>chmod +x winpodx-*-x86_64.AppImage
+./winpodx-*-x86_64.AppImage setup</div></div>
+      <div class="item"><h3>Uninstall</h3>
+        <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm">Copy</button>curl -fsSL …/uninstall.sh | bash -s -- --confirm</div></div>
+    </div>
+    <div class="note" style="border-left-color:var(--blue)">
+      <b>After a package / AppImage install</b>, run <code>winpodx setup</code> once to generate the
+      config + compose and confirm host deps — package installs ship the binary only, so they don't
+      kick off a 10-minute Windows download out of the blue. The curl one-liner does this for you.
+    </div>
+  </section>
+
+  <section class="alt"><div class="wrap">
+    <h2>2 · First-time setup</h2>
+    <p class="lead">Already used the curl one-liner? It ran setup — skip to launch.</p>
+    <div class="dist">
+      <div class="item"><h3>Auto (host-detected defaults)</h3>
+        <div class="code"><button class="copy" data-copy="winpodx setup">Copy</button><span class="prompt">$ </span>winpodx setup</div></div>
+      <div class="item"><h3>Interactive wizard</h3>
+        <div class="code"><button class="copy" data-copy="winpodx setup --customize">Copy</button><span class="prompt">$ </span>winpodx setup --customize</div></div>
+    </div>
+    <p class="lead" style="margin-top:18px;text-align:left;max-width:none">
+      Setup writes <code>~/.config/winpodx/winpodx.toml</code> + <code>compose.yaml</code>, registers the GUI launcher,
+      and confirms FreeRDP + Podman/Docker + KVM. The first app launch then provisions the pod and reaches a usable
+      RDP session in ~5–10 min.</p>
+    <div class="install" style="margin-top:8px">
+      <div class="label">Launch (first run ~5–10 min, then near-instant)</div>
+      <div class="code"><button class="copy" data-copy="winpodx app run desktop
+winpodx pod wait-ready --logs">Copy</button>winpodx app run desktop          <span style="color:var(--overlay0)"># first launch</span>
+winpodx pod wait-ready --logs    <span style="color:var(--overlay0)"># watch progress</span></div>
+    </div>
+  </div></section>
+
+  <section class="wrap">
+    <h2>3 · Requirements</h2>
+    <div class="feat" style="margin-top:24px">
+      <div class="block">
+        <h3>Hardware virtualization</h3>
+        <p>An x86_64 or aarch64 CPU with virtualization extensions (VT-x / AMD-V / EL2), and access to <code>/dev/kvm</code>. winpodx runs Windows in a KVM-backed container — without KVM the install completes but Windows never boots.</p>
+      </div>
+      <div class="block">
+        <h3>Memory &amp; disk</h3>
+        <p>8 GB+ RAM (12 GB+ recommended) and ~30 GB free disk for the Windows image.</p>
+      </div>
+      <div class="block">
+        <h3>Container runtime + FreeRDP</h3>
+        <p>A host container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> / <code>libvirt</code> also supported) and FreeRDP 3+. <code>winpodx setup-host</code> fixes kvm-group + <code>/etc/subuid</code> / <code>subgid</code> via one <code>pkexec</code> prompt; <code>winpodx doctor</code> surfaces anything still missing.</p>
+      </div>
+    </div>
+    <p class="lead" style="margin-top:26px">
+      <a class="btn primary" href="https://github.com/kernalix7/winpodx/blob/main/docs/INSTALL.md">Full install docs →</a>
+    </p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">winpodx</span>
+        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
+      <div class="links">
+        <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>
+        <a href="https://github.com/kernalix7/winpodx">GitHub</a>
+        <a href="https://github.com/kernalix7/winpodx/releases">Releases</a>
+        <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
+      </div>
+    </div>
+    <div class="legal">MIT licensed — Kim DaeHyun · Powered by
+      <a href="https://github.com/dockur/windows">dockur/windows</a> + <a href="https://www.freerdp.com/">FreeRDP</a>.
+      Not affiliated with Microsoft.</div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll("button.copy").forEach(function (b) {
+    b.addEventListener("click", function () {
+      navigator.clipboard.writeText(b.dataset.copy).then(function () {
+        var t = b.textContent; b.textContent = "Copied"; setTimeout(function () { b.textContent = t; }, 1500);
+      });
+    });
+  });
+</script>
+</body>
+</html>
