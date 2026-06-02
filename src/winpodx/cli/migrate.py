@@ -142,7 +142,7 @@ _VERSION_NOTES: dict[str, list[str]] = {
         "Fixed: `winpodx app refresh` on Windows (script transport rewritten "
         "from `podman cp C:/...` — which can't reach the Windows VM's virtual "
         "disk — to a stdin pipe into `powershell -Command -`).",
-        "Fixed: RDP unreachable after host suspend / long idle. winpodx now "
+        "Fixed: RDP unreachable after host suspend / long idle. WinPodX now "
         "auto-restarts TermService when VNC is alive but RDP isn't.",
     ],
     "0.1.8": [

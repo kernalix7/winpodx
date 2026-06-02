@@ -510,9 +510,9 @@ if command -v rpm-ostree >/dev/null 2>&1; then
     fi
     log "Adding OBS repo to /etc/yum.repos.d/..."
     sudo curl -sSL "$repo_url" -o /etc/yum.repos.d/home-Kernalix7-winpodx.repo
-    log "Layering winpodx via rpm-ostree install --apply-live (one transaction)..."
+    log "Layering WinPodX via rpm-ostree install --apply-live (one transaction)..."
     if sudo rpm-ostree install --apply-live --idempotent winpodx; then
-        log "winpodx layered into the booted deployment — no reboot required."
+        log "WinPodX layered into the booted deployment — no reboot required."
         log "Run: winpodx setup"
     else
         warn "Live apply unavailable on this deployment — staging the layer for next boot."

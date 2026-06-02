@@ -215,7 +215,7 @@ def plan_migration(cfg: Config, target: Path | None = None) -> MigrationPlan | s
     resolved_volume = resolve_named_volume(backend)
     if resolved_volume is None:
         return (
-            f"no winpodx storage volume found (tried {NAMED_VOLUME_PREFIXED!r} "
+            f"no WinPodX storage volume found (tried {NAMED_VOLUME_PREFIXED!r} "
             f"and {NAMED_VOLUME_BARE!r}); nothing to migrate"
         )
 

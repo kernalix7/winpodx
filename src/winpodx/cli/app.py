@@ -89,7 +89,7 @@ def _refresh_apps(as_json: bool, timeout: int) -> None:
     try:
         from winpodx.core.discovery import DiscoveryError, discover_apps, persist_discovered
     except ImportError:
-        msg = "ERROR: core discovery module not available (winpodx may need updating)"
+        msg = "ERROR: core discovery module not available (WinPodX may need updating)"
         print(msg, file=sys.stderr)
         sys.exit(1)
 

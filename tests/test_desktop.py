@@ -532,7 +532,7 @@ def test_install_desktop_entry_uses_app_description(tmp_path, monkeypatch):
     desktop_path = install_desktop_entry(app)
     raw = desktop_path.read_text(encoding="utf-8")
     assert "Comment=Browse the web with Microsoft Edge" in raw
-    assert "Comment=Windows application via winpodx" not in raw
+    assert "Comment=Windows application via WinPodX" not in raw
 
 
 def test_install_desktop_entry_falls_back_when_description_blank(tmp_path, monkeypatch):
@@ -547,7 +547,7 @@ def test_install_desktop_entry_falls_back_when_description_blank(tmp_path, monke
     )
     desktop_path = install_desktop_entry(app)
     raw = desktop_path.read_text(encoding="utf-8")
-    assert "Comment=Windows application via winpodx" in raw
+    assert "Comment=Windows application via WinPodX" in raw
 
 
 def test_install_desktop_entry_strips_newlines_in_description(tmp_path, monkeypatch):

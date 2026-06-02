@@ -170,7 +170,7 @@ def test_pod_config_win_version_pre_win10_warns_but_passes_through(caplog):
     with caplog.at_level(_logging.WARNING, logger="winpodx.core.config"):
         pod = PodConfig(win_version="xp")
     assert pod.win_version == "xp"
-    assert any("not in winpodx's known list" in r.message for r in caplog.records)
+    assert any("not in WinPodX's known list" in r.message for r in caplog.records)
 
 
 def test_pod_config_win_version_normalises_case_and_whitespace():
@@ -189,7 +189,7 @@ def test_pod_config_win_version_unknown_passes_through_with_warning(caplog):
     with caplog.at_level(_logging.WARNING, logger="winpodx.core.config"):
         pod = PodConfig(win_version="future-edition")
     assert pod.win_version == "future-edition"
-    assert any("not in winpodx's known list" in r.message for r in caplog.records)
+    assert any("not in WinPodX's known list" in r.message for r in caplog.records)
 
 
 def test_pod_config_tuning_profile_default_is_auto():
