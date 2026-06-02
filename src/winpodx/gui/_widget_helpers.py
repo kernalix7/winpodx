@@ -11,16 +11,37 @@ the main-window class along.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
-from winpodx.gui.theme import C, avatar_color
+from winpodx.gui.theme import FONT_BODY, FONT_CAPTION, RADIUS_M, C, avatar_color
+
+# Toast colors keyed by kind. Background is the accent at low alpha (set via
+# the stylesheet rgba), text is the accent itself for contrast on MANTLE.
+_TOAST_ACCENT = {
+    "info": C.BLUE,
+    "success": C.GREEN,
+    "error": C.RED,
+    "warn": C.PEACH,
+}
 
 
 def add_shadow(
@@ -121,3 +142,188 @@ def make_app_avatar(app: AppInfo, size: int, *, radius: int, font_size: int) -> 
         f" font-size: {font_size}px; font-weight: bold;"
     )
     return avatar
+
+
+def show_toast(
+    parent: QWidget,
+    message: str,
+    *,
+    kind: str = "info",
+    msecs: int = 3500,
+) -> None:
+    """Show a transient, non-blocking notification over ``parent``.
+
+    The toast is a frameless child label anchored to the bottom-centre of
+    ``parent`` that auto-dismisses after ``msecs``. Used for action feedback
+    (app launched, setting saved, op failed) so the user gets confirmation
+    without a modal. ``kind`` is one of info / success / warn / error.
+
+    No telemetry, no persistence -- purely a visual ack.
+    """
+    accent = _TOAST_ACCENT.get(kind, C.BLUE)
+    toast = QLabel(message, parent)
+    toast.setObjectName("winpodxToast")
+    toast.setWordWrap(True)
+    toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    toast.setStyleSheet(
+        f"QLabel#winpodxToast {{"
+        f" background: {C.SURFACE0}; color: {accent};"
+        f" border: 1px solid {accent}; border-radius: {RADIUS_M}px;"
+        f" font-size: {FONT_BODY}px; font-weight: 600; padding: 8px 16px; }}"
+    )
+    toast.adjustSize()
+    add_shadow(toast, blur=18, y=4, alpha=70)
+
+    def _reposition() -> None:
+        pw, ph = parent.width(), parent.height()
+        tw = min(toast.sizeHint().width(), pw - 48)
+        toast.setFixedWidth(tw)
+        toast.adjustSize()
+        toast.move((pw - toast.width()) // 2, ph - toast.height() - 56)
+
+    _reposition()
+    toast.show()
+    toast.raise_()
+    QTimer.singleShot(msecs, toast.deleteLater)
+
+
+class BusyDialog(QDialog):
+    """Modal "this is working" dialog for long-running operations.
+
+    Shows a message, an indeterminate progress bar, and an optional
+    "typically takes ~N" hint so the user knows the app isn't frozen. Pass
+    ``cancellable=True`` to add a Cancel button; connect to :attr:`cancelled`
+    (a plain callback list via :meth:`on_cancel`) to react. The caller runs
+    the actual work on a worker thread and calls :meth:`finish` (or just
+    ``accept()``/``close()``) when done.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None,
+        title: str,
+        message: str,
+        *,
+        eta_hint: str = "",
+        cancellable: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumWidth(380)
+        self._cancel_cbs: list[Callable[[], None]] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 16)
+        layout.setSpacing(12)
+
+        self._msg = QLabel(message)
+        self._msg.setWordWrap(True)
+        self._msg.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_BODY}px;")
+        layout.addWidget(self._msg)
+
+        bar = QProgressBar()
+        bar.setRange(0, 0)  # indeterminate
+        bar.setTextVisible(False)
+        bar.setFixedHeight(6)
+        layout.addWidget(bar)
+
+        if eta_hint:
+            hint = QLabel(eta_hint)
+            hint.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
+            layout.addWidget(hint)
+
+        if cancellable:
+            row = QHBoxLayout()
+            row.addStretch(1)
+            self._cancel_btn = QPushButton(tr("Cancel"))
+            self._cancel_btn.clicked.connect(self._on_cancel_clicked)
+            row.addWidget(self._cancel_btn)
+            layout.addLayout(row)
+
+    def set_message(self, message: str) -> None:
+        self._msg.setText(message)
+
+    def on_cancel(self, cb: Callable[[], None]) -> None:
+        self._cancel_cbs.append(cb)
+
+    def _on_cancel_clicked(self) -> None:
+        self._cancel_btn.setEnabled(False)
+        self._cancel_btn.setText(tr("Cancelling..."))
+        for cb in self._cancel_cbs:
+            cb()
+
+    def finish(self) -> None:
+        """Close the dialog (safe to call from the GUI thread on completion)."""
+        self.accept()
+
+
+def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
+    """An inline warning/danger banner for dangerous-action panels.
+
+    ``level`` is "warn" (peach) or "danger" (red). Renders a tinted box with
+    a coloured left border and an icon glyph -- use it above a destructive
+    control (disk wipe, PCI passthrough, container recreate) so the risk is
+    visible *before* the user acts, not buried in a modal body.
+    """
+    accent = C.RED if level == "danger" else C.PEACH
+    glyph = "⚠"  # warning sign
+    frame = QFrame()
+    frame.setObjectName("winpodxCallout")
+    frame.setStyleSheet(
+        f"QFrame#winpodxCallout {{"
+        f" background: {C.SURFACE0};"
+        f" border: 1px solid {accent};"
+        f" border-left: 3px solid {accent};"
+        f" border-radius: {RADIUS_M}px; }}"
+    )
+    row = QHBoxLayout(frame)
+    row.setContentsMargins(12, 10, 12, 10)
+    row.setSpacing(10)
+    icon = QLabel(glyph)
+    icon.setStyleSheet(f"color: {accent}; font-size: 15px; font-weight: bold;")
+    icon.setAlignment(Qt.AlignmentFlag.AlignTop)
+    row.addWidget(icon)
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: {FONT_CAPTION}px;")
+    row.addWidget(label, 1)
+    return frame
+
+
+def actionable_error(
+    parent: QWidget | None,
+    title: str,
+    message: str,
+    *,
+    actions: list[str] | None = None,
+    detail: str = "",
+) -> str:
+    """Show an error with actionable buttons; return the clicked button label.
+
+    ``actions`` is an ordered list of button labels (e.g.
+    ``["View logs", "Retry", "Close"]``); the FIRST is the default/accept
+    button and the LAST is the reject/escape button. Returns the label the
+    user clicked so the caller can branch (open the Logs page, retry the op,
+    or just dismiss). This replaces bare ``QMessageBox.critical`` calls that
+    leave the user with a dead-end "OK".
+    """
+    labels = actions or [tr("Close")]
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Critical)
+    box.setWindowTitle(title)
+    box.setText(message)
+    if detail:
+        box.setDetailedText(detail)
+    buttons: dict = {}
+    for i, label in enumerate(labels):
+        role = (
+            QMessageBox.ButtonRole.AcceptRole
+            if i == 0
+            else QMessageBox.ButtonRole.RejectRole
+            if i == len(labels) - 1
+            else QMessageBox.ButtonRole.ActionRole
+        )
+        buttons[box.addButton(label, role)] = label
+    box.exec()
+    return buttons.get(box.clickedButton(), labels[-1])
