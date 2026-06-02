@@ -24,6 +24,7 @@
   <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
   <symbol id="i-cursor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.5 18 2.5-7.5L21 11z"/></symbol>
   <symbol id="i-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
 </svg>
 
 
@@ -31,126 +32,127 @@
   <div class="wrap">
     <a class="brand" href="/" style="color:var(--text)"><img src="assets/winpodx-icon.svg" alt="">WinPodX</a>
     <nav class="links">
-      <a href="features.html" class="active">Features</a>
-      <a href="get-started.html">Get started</a>
-      <a href="faq.html">FAQ</a>
+      <a href="features.html" class="active" data-i18n="nav.features">Features</a>
+      <a href="get-started.html" data-i18n="nav.get_started">Get started</a>
+      <a href="faq.html" data-i18n="nav.faq">FAQ</a>
       <a class="gh" href="https://github.com/kernalix7/winpodx"><svg class="isvg" width="16" height="16" viewBox="0 0 24 24"><use href="#i-github"/></svg> GitHub</a>
+      <span class="lang-wrap"><svg class="isvg" width="15" height="15" viewBox="0 0 24 24"><use href="#i-globe"/></svg><select id="lang-select" aria-label="Language"></select></span>
     </nav>
   </div>
 </header>
 
 <main>
   <section class="page-hero wrap">
-    <span class="eyebrow">Features</span>
-    <h1>Windows apps, as native Linux citizens</h1>
-    <p>The full picture — from per-app RemoteApp windows to the bidirectional "Open with…" bridge, peripherals, multi-session RDP, and self-healing operations.</p>
+    <span class="eyebrow" data-i18n="feat.hero.eyebrow">Features</span>
+    <h1 data-i18n="feat.hero.h1">Windows apps, as native Linux citizens</h1>
+    <p data-i18n="feat.hero.sub">The full picture — from per-app RemoteApp windows to the bidirectional "Open with…" bridge, peripherals, multi-session RDP, and self-healing operations.</p>
   </section>
 
   <section class="wrap">
-    <h2>Seamless app windows</h2>
+    <h2 data-i18n="feat.seamless.title">Seamless app windows</h2>
     <div class="feat">
       <div class="block">
-        <h3>RemoteApp (RAIL), not a desktop</h3>
-        <p>Each Windows app renders as its own native Linux window — no full-screen Windows desktop. Drop into a full desktop only when you actually want one (<code>winpodx app run desktop</code>).</p>
+        <h3 data-i18n="feat.seamless.rail.title">RemoteApp (RAIL), not a desktop</h3>
+        <p data-i18n-html="feat.seamless.rail.body">Each Windows app renders as its own native Linux window — no full-screen Windows desktop. Drop into a full desktop only when you actually want one (<code>winpodx app run desktop</code>).</p>
       </div>
       <div class="block">
-        <h3>Real taskbar identity</h3>
-        <p>Per-app taskbar icons via <code>WM_CLASS</code> matching (<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>), so each window pins and alt-tabs like a first-class Linux app.</p>
+        <h3 data-i18n="feat.seamless.taskbar.title">Real taskbar identity</h3>
+        <p data-i18n-html="feat.seamless.taskbar.body">Per-app taskbar icons via <code>WM_CLASS</code> matching (<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>), so each window pins and alt-tabs like a first-class Linux app.</p>
       </div>
       <div class="block">
-        <h3>Bidirectional file associations</h3>
-        <p>Double-click a <code>.docx</code> in your file manager and Word opens. The reverse works too — see below.</p>
+        <h3 data-i18n="feat.seamless.assoc.title">Bidirectional file associations</h3>
+        <p data-i18n-html="feat.seamless.assoc.body">Double-click a <code>.docx</code> in your file manager and Word opens. The reverse works too — see below.</p>
       </div>
       <div class="block">
-        <h3>Multi-session RDP</h3>
-        <p>The bundled <a href="https://github.com/kernalix7/rdprrap">rdprrap</a> auto-enables up to 10 independent RDP sessions, so multiple apps run truly in parallel. RAIL prerequisites are set automatically during the unattended install.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="alt"><div class="wrap">
-    <h2>Reverse-open — Linux apps inside Windows</h2>
-    <div class="feat">
-      <div class="block">
-        <h3>In the Windows "Open with…" menu</h3>
-        <p>Your Linux apps appear in the Windows guest's right-click "Open with…" menu by default, with correct per-app icons in both the short menu and the long "Choose another app" dialog.</p>
-      </div>
-      <div class="block">
-        <h3>Round-trips to the host</h3>
-        <p>Pick a Linux app inside Windows and the file open round-trips back to the host's <code>xdg-open</code>. WinPodX auto-discovers host-side Linux apps and their MIME associations from freedesktop standards.</p>
-      </div>
-      <div class="block">
-        <h3>Manageable</h3>
-        <p>Tune the allow/deny lists via <code>winpodx host-open</code> or the GUI Settings panel.</p>
-      </div>
-    </div>
-  </div></section>
-
-  <section class="wrap">
-    <h2>Zero-config launch &amp; discovery</h2>
-    <div class="feat">
-      <div class="block">
-        <h3>First click provisions everything</h3>
-        <p>Config, container, and desktop entries are created on the first app launch — no manual VM setup.</p>
-      </div>
-      <div class="block">
-        <h3>Auto-discovery</h3>
-        <p>First boot scans the running Windows guest and registers every installed app with its real icon — Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop. Rescan any time with <code>winpodx app refresh</code> or the GUI Refresh button.</p>
-      </div>
-      <div class="block">
-        <h3>Multi-backend</h3>
-        <p>Podman (default), Docker, libvirt/KVM, or a manual RDP endpoint — pick at setup.</p>
+        <h3 data-i18n="feat.seamless.multi.title">Multi-session RDP</h3>
+        <p data-i18n-html="feat.seamless.multi.body">The bundled <a href="https://github.com/kernalix7/rdprrap">rdprrap</a> auto-enables up to 10 independent RDP sessions, so multiple apps run truly in parallel. RAIL prerequisites are set automatically during the unattended install.</p>
       </div>
     </div>
   </section>
 
   <section class="alt"><div class="wrap">
-    <h2>Peripherals &amp; sharing</h2>
+    <h2 data-i18n="feat.reverse.title">Reverse-open — Linux apps inside Windows</h2>
+    <div class="feat">
+      <div class="block">
+        <h3 data-i18n="feat.reverse.menu.title">In the Windows "Open with…" menu</h3>
+        <p data-i18n="feat.reverse.menu.body">Your Linux apps appear in the Windows guest's right-click "Open with…" menu by default, with correct per-app icons in both the short menu and the long "Choose another app" dialog.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.reverse.roundtrip.title">Round-trips to the host</h3>
+        <p data-i18n-html="feat.reverse.roundtrip.body">Pick a Linux app inside Windows and the file open round-trips back to the host's <code>xdg-open</code>. WinPodX auto-discovers host-side Linux apps and their MIME associations from freedesktop standards.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.reverse.manage.title">Manageable</h3>
+        <p data-i18n-html="feat.reverse.manage.body">Tune the allow/deny lists via <code>winpodx host-open</code> or the GUI Settings panel.</p>
+      </div>
+    </div>
+  </div></section>
+
+  <section class="wrap">
+    <h2 data-i18n="feat.zeroconf.title">Zero-config launch &amp; discovery</h2>
+    <div class="feat">
+      <div class="block">
+        <h3 data-i18n="feat.zeroconf.provision.title">First click provisions everything</h3>
+        <p data-i18n="feat.zeroconf.provision.body">Config, container, and desktop entries are created on the first app launch — no manual VM setup.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.zeroconf.discovery.title">Auto-discovery</h3>
+        <p data-i18n-html="feat.zeroconf.discovery.body">First boot scans the running Windows guest and registers every installed app with its real icon — Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop. Rescan any time with <code>winpodx app refresh</code> or the GUI Refresh button.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.zeroconf.backend.title">Multi-backend</h3>
+        <p data-i18n="feat.zeroconf.backend.body">Podman (default), Docker, libvirt/KVM, or a manual RDP endpoint — pick at setup.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt"><div class="wrap">
+    <h2 data-i18n="feat.peripherals.title">Peripherals &amp; sharing</h2>
     <div class="grid">
-      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-bolt"/></svg></span>On by default</h3><ul>
-        <li>Clipboard — bidirectional text + images</li>
-        <li>Sound — RDP audio streaming</li>
-        <li>Printers — Linux printers shared to Windows</li>
-        <li>Home directory — shared as <code>\\tsclient\home</code></li>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-bolt"/></svg></span><span data-i18n="feat.peripherals.default.title">On by default</span></h3><ul>
+        <li data-i18n="feat.peripherals.default.li1">Clipboard — bidirectional text + images</li>
+        <li data-i18n="feat.peripherals.default.li2">Sound — RDP audio streaming</li>
+        <li data-i18n="feat.peripherals.default.li3">Printers — Linux printers shared to Windows</li>
+        <li data-i18n-html="feat.peripherals.default.li4">Home directory — shared as <code>\\tsclient\home</code></li>
       </ul></div>
-      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-hdd"/></svg></span>Storage &amp; devices</h3><ul>
-        <li>USB drives auto-mapped to drive letters (E:, F:, …)</li>
-        <li>Drives plugged in mid-session resolve, subfolders work</li>
-        <li>Live USB device passthrough (host ↔ guest switcher)</li>
-        <li>Smart DPI scaling from GNOME / KDE / Sway / Hyprland / Cinnamon</li>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-hdd"/></svg></span><span data-i18n="feat.peripherals.storage.title">Storage &amp; devices</span></h3><ul>
+        <li data-i18n="feat.peripherals.storage.li1">USB drives auto-mapped to drive letters (E:, F:, …)</li>
+        <li data-i18n="feat.peripherals.storage.li2">Drives plugged in mid-session resolve, subfolders work</li>
+        <li data-i18n="feat.peripherals.storage.li3">Live USB device passthrough (host ↔ guest switcher)</li>
+        <li data-i18n="feat.peripherals.storage.li4">Smart DPI scaling from GNOME / KDE / Sway / Hyprland / Cinnamon</li>
       </ul></div>
     </div>
   </div></section>
 
   <section class="wrap">
-    <h2>Automation, resilience &amp; security</h2>
+    <h2 data-i18n="feat.automation.title">Automation, resilience &amp; security</h2>
     <div class="grid">
-      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-activity"/></svg></span>Keeps itself healthy</h3><ul>
-        <li>Auto suspend / resume — pauses when idle, resumes on launch</li>
-        <li>Optional pod auto-start on login</li>
-        <li>UNRESPONSIVE → recover: self-heals a stalled RDP guest</li>
-        <li>Windows disk auto-grows when C: fills, bounded by host space</li>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-activity"/></svg></span><span data-i18n="feat.automation.healthy.title">Keeps itself healthy</span></h3><ul>
+        <li data-i18n="feat.automation.healthy.li1">Auto suspend / resume — pauses when idle, resumes on launch</li>
+        <li data-i18n="feat.automation.healthy.li2">Optional pod auto-start on login</li>
+        <li data-i18n="feat.automation.healthy.li3">UNRESPONSIVE → recover: self-heals a stalled RDP guest</li>
+        <li data-i18n="feat.automation.healthy.li4">Windows disk auto-grows when C: fills, bounded by host space</li>
       </ul></div>
-      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-lock"/></svg></span>Secure &amp; private</h3><ul>
-        <li>Password auto-rotation — 20-char, 7-day cycle, atomic rollback</li>
-        <li>Windows debloat: telemetry, ads, Cortana off by default</li>
-        <li>FreeRDP <code>extra_flags</code> allowlist (regex-validated)</li>
-        <li>No WinPodX telemetry — ever</li>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-lock"/></svg></span><span data-i18n="feat.automation.secure.title">Secure &amp; private</span></h3><ul>
+        <li data-i18n="feat.automation.secure.li1">Password auto-rotation — 20-char, 7-day cycle, atomic rollback</li>
+        <li data-i18n="feat.automation.secure.li2">Windows debloat: telemetry, ads, Cortana off by default</li>
+        <li data-i18n-html="feat.automation.secure.li3">FreeRDP <code>extra_flags</code> allowlist (regex-validated)</li>
+        <li data-i18n="feat.automation.secure.li4">No WinPodX telemetry — ever</li>
       </ul></div>
-      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span>Operations</h3><ul>
-        <li><code>winpodx doctor</code> — deps / pod / RDP / agent / disk health</li>
-        <li><code>--json</code>, <code>--quick</code>, and <code>--fix</code> auto-remediation</li>
-        <li>Guest sync after a host upgrade; offline / air-gapped install</li>
-        <li>One-line uninstall (keeps VM data unless <code>--purge</code>)</li>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span data-i18n="feat.automation.ops.title">Operations</span></h3><ul>
+        <li data-i18n-html="feat.automation.ops.li1"><code>winpodx doctor</code> — deps / pod / RDP / agent / disk health</li>
+        <li data-i18n-html="feat.automation.ops.li2"><code>--json</code>, <code>--quick</code>, and <code>--fix</code> auto-remediation</li>
+        <li data-i18n="feat.automation.ops.li3">Guest sync after a host upgrade; offline / air-gapped install</li>
+        <li data-i18n-html="feat.automation.ops.li4">One-line uninstall (keeps VM data unless <code>--purge</code>)</li>
       </ul></div>
-      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-window"/></svg></span>Polish</h3><ul>
-        <li>Host-adaptive Windows-on-KVM tuning profile</li>
-        <li>Time sync after host sleep/wake</li>
-        <li>Multilingual UI (en / ko / zh / ja / de / fr / it)</li>
-        <li>Qt6 GUI: Apps / Settings / Tools / Terminal / Info + tray</li>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-window"/></svg></span><span data-i18n="feat.automation.polish.title">Polish</span></h3><ul>
+        <li data-i18n="feat.automation.polish.li1">Host-adaptive Windows-on-KVM tuning profile</li>
+        <li data-i18n="feat.automation.polish.li2">Time sync after host sleep/wake</li>
+        <li data-i18n="feat.automation.polish.li3">Multilingual UI (en / ko / zh / ja / de / fr / it)</li>
+        <li data-i18n="feat.automation.polish.li4">Qt6 GUI: Apps / Settings / Tools / Terminal / Info + tray</li>
       </ul></div>
     </div>
-    <p class="lead" style="margin-top:26px"><a href="https://github.com/kernalix7/winpodx/blob/main/docs/FEATURES.md">Deep dives in the docs →</a></p>
+    <p class="lead cta-lead"><a href="https://github.com/kernalix7/winpodx/blob/main/docs/FEATURES.md" data-i18n="feat.automation.docs_link">Deep dives in the docs →</a></p>
   </section>
 </main>
 
@@ -158,18 +160,20 @@
   <div class="wrap">
     <div class="cols">
       <div><span class="brand" style="font-size:16px;font-weight:700;color:var(--text)">WinPodX</span>
-        <div style="margin-top:6px">Windows apps, as native Linux citizens.</div></div>
+        <div class="footer-tagline" data-i18n="footer.tagline">Windows apps, as native Linux citizens.</div></div>
       <div class="links">
-        <a href="features.html">Features</a><a href="get-started.html">Get started</a><a href="faq.html">FAQ</a>
+        <a href="features.html" data-i18n="nav.features">Features</a><a href="get-started.html" data-i18n="nav.get_started">Get started</a><a href="faq.html" data-i18n="nav.faq">FAQ</a>
         <a href="https://github.com/kernalix7/winpodx">GitHub</a>
         <a href="https://github.com/kernalix7/winpodx/releases">Releases</a>
         <a href="https://github.com/sponsors/kernalix7">Sponsor</a>
       </div>
     </div>
-    <div class="legal">MIT licensed — Kim DaeHyun · Powered by
+    <div class="legal" data-i18n-html="footer.legal">MIT licensed — Kim DaeHyun · Powered by
       <a href="https://github.com/dockur/windows">dockur/windows</a> + <a href="https://www.freerdp.com/">FreeRDP</a>.
       Not affiliated with Microsoft.</div>
   </div>
 </footer>
+<script src="lang/translations.js"></script>
+<script src="i18n.js"></script>
 </body>
 </html>
