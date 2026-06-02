@@ -662,7 +662,7 @@
   "Time synced": "时间已同步",
   "Timeout waiting for RDP.": "等待 RDP 超时。",
   "Timezone": "时区",
-  "Tip: Tools → Live (app) tails the winpodx log in real time.": "提示：工具 → 实时（应用）可实时跟踪 winpodx 日志。",
+  "Tip: Tools → Live (app) tails the WinPodX log in real time.": "提示：工具 → 实时（应用）可实时跟踪 WinPodX 日志。",
   "To stop the HTTP server when finished:": "完成后停止 HTTP 服务器：",
   "Tools": "工具",
   "Tuning profile (auto/performance/safe/off/manual) [{default}]: ": "调优配置（auto/performance/safe/off/manual）[{default}]: ",

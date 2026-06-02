@@ -57,7 +57,7 @@ def _acquire_tray_lock() -> bool:
 def run_tray() -> None:
     """Launch the system tray icon application."""
     if not _acquire_tray_lock():
-        log.info("winpodx tray already running; exiting.")
+        log.info("WinPodX tray already running; exiting.")
         return
 
     try:

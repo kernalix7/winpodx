@@ -662,7 +662,7 @@
   "Time synced": "時刻を同期しました",
   "Timeout waiting for RDP.": "RDP の待機がタイムアウトしました。",
   "Timezone": "タイムゾーン",
-  "Tip: Tools → Live (app) tails the winpodx log in real time.": "ヒント: Tools → Live (app) は winpodx ログをリアルタイムで tail します。",
+  "Tip: Tools → Live (app) tails the WinPodX log in real time.": "ヒント: Tools → Live (app) は WinPodX ログをリアルタイムで tail します。",
   "To stop the HTTP server when finished:": "完了時に HTTP サーバーを停止するには:",
   "Tools": "ツール",
   "Tuning profile (auto/performance/safe/off/manual) [{default}]: ": "チューニングプロファイル (auto/performance/safe/off/manual) [{default}]: ",

@@ -121,7 +121,7 @@ Since v0.5.5 the tray spawns itself automatically from the GUI window and from e
 
 The tray context menu now starts with **Open Dashboard** (one-click to the main GUI window). **Quit** confirms via a dialog and on confirmation runs `stop_pod` + `pkill -f 'winpodx gui'` + `app.quit` so a stray click can't cycle the pod's ~30 s restart.
 
-To launch the tray at every login, open the GUI → Settings → tick **"Launch winpodx tray at login (system tray icon + idle-stall auto-recovery)"**. The toggle writes / removes `~/.config/autostart/winpodx-tray.desktop` via the XDG autostart spec; portable across KDE / GNOME / XFCE / Cinnamon. The file is the source of truth — you can also drop it by hand to opt out without launching the GUI. Toggle applies immediately; no Save Settings click needed.
+To launch the tray at every login, open the GUI → Settings → tick **"Launch WinPodX tray at login (system tray icon + idle-stall auto-recovery)"**. The toggle writes / removes `~/.config/autostart/winpodx-tray.desktop` via the XDG autostart spec; portable across KDE / GNOME / XFCE / Cinnamon. The file is the source of truth — you can also drop it by hand to opt out without launching the GUI. Toggle applies immediately; no Save Settings click needed.
 
 The tray watches the pod state every 30 s. On a `RUNNING → UNRESPONSIVE` transition (container alive long enough that an RDP-port miss can't be confused with a fresh boot) it fires a desktop notification and spawns a background worker that asks the agent to cycle Windows `TermService`. On recovery a "Pod recovered" notification fires; on failure a "needs manual restart" notification points at `winpodx pod restart`. While `install.sh` is running its `[3/4]` / `[4/4]` Sysprep + OEM-reboot phases, the marker file `~/.config/winpodx/.install_in_progress` suppresses the recovery path so genuine install-time RDP gaps don't fire spurious notifications.
 
@@ -130,7 +130,7 @@ The tray watches the pod state every 30 s. On a `RUNNING → UNRESPONSIVE` trans
 `winpodx doctor` runs every probe used by the GUI Health card and prints a one-line verdict for each:
 
 ```
-=== winpodx doctor ===
+=== WinPodX doctor ===
 
   [OK  ] pod_running        running (ip=127.0.0.1)  (58ms)
   [OK  ] rdp_port           127.0.0.1:3390 reachable  (0ms)

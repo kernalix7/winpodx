@@ -662,7 +662,7 @@
   "Time synced": "Zeit synchronisiert",
   "Timeout waiting for RDP.": "Zeitüberschreitung beim Warten auf RDP.",
   "Timezone": "Zeitzone",
-  "Tip: Tools → Live (app) tails the winpodx log in real time.": "Tipp: Tools → Live (App) verfolgt das winpodx-Log in Echtzeit.",
+  "Tip: Tools → Live (app) tails the WinPodX log in real time.": "Tipp: Tools → Live (App) verfolgt das WinPodX-Log in Echtzeit.",
   "To stop the HTTP server when finished:": "Um den HTTP-Server nach Abschluss zu stoppen:",
   "Tools": "Werkzeuge",
   "Tuning profile (auto/performance/safe/off/manual) [{default}]: ": "Tuning-Profil (auto/performance/safe/off/manual) [{default}]: ",
