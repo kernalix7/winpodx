@@ -62,7 +62,8 @@ def notify_pod_unresponsive(ip: str) -> None:
     is reported via ``notify_pod_recovered`` or
     ``notify_pod_needs_manual_restart``.
     """
-    send_notification("WinPodX",
+    send_notification(
+        "WinPodX",
         tr(
             "Windows pod at {ip} stopped responding to RDP. "
             "Attempting to restart the RDP service in the guest..."
@@ -73,7 +74,8 @@ def notify_pod_unresponsive(ip: str) -> None:
 
 def notify_pod_recovered() -> None:
     """Auto-recovery succeeded — TermService was cycled and RDP came back."""
-    send_notification("WinPodX",
+    send_notification(
+        "WinPodX",
         tr("Windows pod recovered (RDP service restarted in the guest). No action needed."),
         urgency="low",
     )
