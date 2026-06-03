@@ -812,5 +812,15 @@
   "▨  Hardware": "▨  硬件",
   "▶  Launch": "▶  启动",
   "◨  Performance Tuning": "◨  性能调优",
-  "🌐  Localization": "🌐  本地化"
+  "🌐  Localization": "🌐  本地化",
+  "RDP Sessions": "RDP 会话",
+  "No active RDP sessions.": "没有活动的 RDP 会话。",
+  "PID {pid}": "PID {pid}",
+  "Terminate": "终止",
+  "Terminated session: {name}": "已终止会话：{name}",
+  "Could not terminate {name} (already closed?)": "无法终止 {name}（已关闭？）",
+  "Failed to terminate {name}": "终止 {name} 失败",
+  "Terminate Session": "终止会话",
+  "(no active sessions)": "（无活动会话）",
+  "Terminate: {name}": "终止：{name}"
 }

@@ -812,5 +812,15 @@
   "▨  Hardware": "▨  Hardware",
   "▶  Launch": "▶  Starten",
   "◨  Performance Tuning": "◨  Leistungstuning",
-  "🌐  Localization": "🌐  Lokalisierung"
+  "🌐  Localization": "🌐  Lokalisierung",
+  "RDP Sessions": "RDP-Sitzungen",
+  "No active RDP sessions.": "Keine aktiven RDP-Sitzungen.",
+  "PID {pid}": "PID {pid}",
+  "Terminate": "Beenden",
+  "Terminated session: {name}": "Sitzung beendet: {name}",
+  "Could not terminate {name} (already closed?)": "{name} konnte nicht beendet werden (bereits geschlossen?)",
+  "Failed to terminate {name}": "{name} konnte nicht beendet werden",
+  "Terminate Session": "Sitzung beenden",
+  "(no active sessions)": "(keine aktiven Sitzungen)",
+  "Terminate: {name}": "Beenden: {name}"
 }

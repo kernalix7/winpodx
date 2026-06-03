@@ -812,5 +812,15 @@
   "▨  Hardware": "▨  하드웨어",
   "▶  Launch": "▶  실행",
   "◨  Performance Tuning": "◨  성능 튜닝",
-  "🌐  Localization": "🌐  지역화"
+  "🌐  Localization": "🌐  지역화",
+  "RDP Sessions": "RDP 세션",
+  "No active RDP sessions.": "활성 RDP 세션이 없습니다.",
+  "PID {pid}": "PID {pid}",
+  "Terminate": "종료",
+  "Terminated session: {name}": "세션 종료됨: {name}",
+  "Could not terminate {name} (already closed?)": "{name}을(를) 종료할 수 없음(이미 닫힘?)",
+  "Failed to terminate {name}": "{name} 종료 실패",
+  "Terminate Session": "세션 종료",
+  "(no active sessions)": "(활성 세션 없음)",
+  "Terminate: {name}": "종료: {name}"
 }

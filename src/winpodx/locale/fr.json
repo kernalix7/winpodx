@@ -812,5 +812,15 @@
   "▨  Hardware": "▨  Matériel",
   "▶  Launch": "▶  Lancer",
   "◨  Performance Tuning": "◨  Réglage des performances",
-  "🌐  Localization": "🌐  Localisation"
+  "🌐  Localization": "🌐  Localisation",
+  "RDP Sessions": "Sessions RDP",
+  "No active RDP sessions.": "Aucune session RDP active.",
+  "PID {pid}": "PID {pid}",
+  "Terminate": "Arrêter",
+  "Terminated session: {name}": "Session arrêtée : {name}",
+  "Could not terminate {name} (already closed?)": "Impossible d'arrêter {name} (déjà fermée ?)",
+  "Failed to terminate {name}": "Échec de l'arrêt de {name}",
+  "Terminate Session": "Arrêter la session",
+  "(no active sessions)": "(aucune session active)",
+  "Terminate: {name}": "Arrêter : {name}"
 }

@@ -812,5 +812,15 @@
   "▨  Hardware": "▨  ハードウェア",
   "▶  Launch": "▶  起動",
   "◨  Performance Tuning": "◨  パフォーマンスチューニング",
-  "🌐  Localization": "🌐  ローカライズ"
+  "🌐  Localization": "🌐  ローカライズ",
+  "RDP Sessions": "RDPセッション",
+  "No active RDP sessions.": "アクティブなRDPセッションはありません。",
+  "PID {pid}": "PID {pid}",
+  "Terminate": "終了",
+  "Terminated session: {name}": "セッションを終了: {name}",
+  "Could not terminate {name} (already closed?)": "{name} を終了できませんでした（すでに閉じていますか？）",
+  "Failed to terminate {name}": "{name} の終了に失敗しました",
+  "Terminate Session": "セッションを終了",
+  "(no active sessions)": "（アクティブなセッションなし）",
+  "Terminate: {name}": "終了: {name}"
 }
