@@ -603,3 +603,58 @@ def test_linux_to_unc_home_symlink_atomic(monkeypatch, tmp_path):
     # File passed through the symlinked home path, as `app run` would.
     result = linux_to_unc(str(home_link / "Desktop" / "temp.doc"))
     assert result == "\\\\tsclient\\home\\Desktop\\temp.doc"
+
+
+class TestResolveWmClass:
+    """resolve_wm_class() is the single source of truth shared by FreeRDP's
+    /wm-class and the .desktop StartupWMClass (taskbar window matching)."""
+
+    def test_exe_stem_default(self):
+        from winpodx.core.rdp import resolve_wm_class
+
+        assert resolve_wm_class("C:\\Program Files\\App\\notepad.exe") == "notepad"
+
+    def test_exe_hint_overrides_stem(self):
+        from winpodx.core.rdp import resolve_wm_class
+
+        assert resolve_wm_class("C:\\x\\app.exe", "MyApp") == "myapp"
+
+    def test_exe_unsafe_hint_falls_back_to_stem(self):
+        from winpodx.core.rdp import resolve_wm_class
+
+        # A hint with disallowed chars must not produce an unsafe token.
+        assert resolve_wm_class("C:\\x\\app.exe", "bad name!@#") == "app"
+
+    def test_uwp_uses_aumid_slug_not_exe_stem(self):
+        # Regression: a UWP AUMID's exe-stem is useless ("microsoft" from
+        # "Microsoft.WindowsCalculator_...!App") and never matched the
+        # StartupWMClass, so Calculator showed up unmatched in the taskbar.
+        from winpodx.core.rdp import _uwp_fallback_wm_class, resolve_wm_class
+
+        aumid = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
+        got = resolve_wm_class(None, None, aumid)
+        assert got == _uwp_fallback_wm_class(aumid)
+        assert got != "microsoft"
+        assert got.startswith("winpodx-uwp-")
+
+    def test_uwp_valid_hint_wins(self):
+        from winpodx.core.rdp import resolve_wm_class
+
+        aumid = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
+        assert resolve_wm_class(None, "calc", aumid) == "calc"
+
+    def test_desktop_startupwmclass_matches_wm_class(self):
+        # The .desktop StartupWMClass must equal what FreeRDP gets, for both a
+        # UWP app and a plain exe.
+        from winpodx.core.app import AppInfo
+        from winpodx.core.rdp import resolve_wm_class
+
+        uwp = AppInfo(
+            name="calc",
+            full_name="Calculator",
+            executable="Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+            launch_uri="Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        )
+        token = resolve_wm_class(uwp.executable, uwp.wm_class_hint or None, uwp.launch_uri or None)
+        assert token.startswith("winpodx-uwp-")
+        assert token != "microsoft"

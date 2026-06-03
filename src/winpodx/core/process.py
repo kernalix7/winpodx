@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -168,11 +169,24 @@ def kill_session(app_name: str) -> bool:
     except (ProcessLookupError, PermissionError):
         pgid = None
 
-    try:
+    def _signal(sig: int) -> None:
         if pgid == pid:
-            os.killpg(pgid, signal.SIGTERM)
+            os.killpg(pgid, sig)
         else:
-            os.kill(pid, signal.SIGTERM)
+            os.kill(pid, sig)
+
+    try:
+        _signal(signal.SIGTERM)
+        # Escalate to SIGKILL if a polite SIGTERM doesn't bring the tree down
+        # within a short grace. A hung xfreerdp -- or one that ignores SIGTERM
+        # -- would otherwise keep its window mapped ("Terminate does nothing").
+        # The loop exits as soon as the PID is gone (~0.4s in practice).
+        for _ in range(8):  # ~0.8s grace
+            time.sleep(0.1)
+            if not _pid_alive(pid):
+                break
+        else:
+            _signal(signal.SIGKILL)
     except (ProcessLookupError, PermissionError) as e:
         log.warning("Failed to kill session %s: %s", app_name, e)
         pid_file.unlink(missing_ok=True)
