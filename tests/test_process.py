@@ -117,29 +117,63 @@ class TestKillSession:
         assert kill_session("dead-app") is False
         assert not cproc.exists()
 
-    def test_signals_live_freerdp_and_removes(self, tmp_path, monkeypatch):
+    def test_signals_whole_group_when_leader(self, tmp_path, monkeypatch):
+        # Launched with start_new_session=True -> PGID == PID -> kill the whole
+        # process group so the nested flatpak/bwrap/xfreerdp tree all dies.
         monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
         monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
         monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
-        signalled = {}
+        monkeypatch.setattr("winpodx.core.process.os.getpgid", lambda pid: pid)  # leader
+        grp = {}
+        monkeypatch.setattr(
+            "winpodx.core.process.os.killpg",
+            lambda pgid, sig: grp.update(pgid=pgid, sig=sig),
+        )
+        called_kill = []
         monkeypatch.setattr(
             "winpodx.core.process.os.kill",
-            lambda pid, sig: signalled.update(pid=pid, sig=sig),
+            lambda pid, sig: called_kill.append(pid),
         )
         cproc = tmp_path / "app.cproc"
         cproc.write_text("4242")
         assert kill_session("app") is True
-        assert signalled["pid"] == 4242
+        assert grp["pgid"] == 4242  # whole group signalled
+        assert called_kill == []  # not the single-PID path
+        assert not cproc.exists()
+
+    def test_falls_back_to_single_pid_when_not_leader(self, tmp_path, monkeypatch):
+        # Session from an older winpodx (no start_new_session) -> PGID != PID ->
+        # signal only the PID, never an unrelated group.
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.os.getpgid", lambda pid: 999)  # not leader
+        killpg_calls = []
+        monkeypatch.setattr(
+            "winpodx.core.process.os.killpg",
+            lambda pgid, sig: killpg_calls.append(pgid),
+        )
+        kill_calls = []
+        monkeypatch.setattr(
+            "winpodx.core.process.os.kill",
+            lambda pid, sig: kill_calls.append(pid),
+        )
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("4242")
+        assert kill_session("app") is True
+        assert kill_calls == [4242]
+        assert killpg_calls == []  # never group-kill a group we don't lead
         assert not cproc.exists()
 
     def test_reused_pid_not_signalled(self, tmp_path, monkeypatch):
         # PID-reuse guard: a live PID that is NOT our FreeRDP client must never
-        # be SIGTERM'd (we'd kill an innocent process). Just drop the stale file.
+        # be signalled (we'd kill an innocent process). Just drop the stale file.
         monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
         monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
         monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: False)
         calls = []
         monkeypatch.setattr("winpodx.core.process.os.kill", lambda pid, sig: calls.append(pid))
+        monkeypatch.setattr("winpodx.core.process.os.killpg", lambda pgid, sig: calls.append(pgid))
         cproc = tmp_path / "app.cproc"
         cproc.write_text("4242")
         assert kill_session("app") is False

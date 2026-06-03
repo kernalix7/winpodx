@@ -155,8 +155,24 @@ def kill_session(app_name: str) -> bool:
         pid_file.unlink(missing_ok=True)
         return False
 
+    # The FreeRDP client is a process tree (Flatpak: `flatpak run` -> bwrap ->
+    # xfreerdp). A SIGTERM to just the tracked leader may not propagate through
+    # the nested sandbox, so the window stays open ("Terminate does nothing").
+    # Sessions are launched with start_new_session=True, so the leader's PID is
+    # its own PGID -- signal the whole group to bring the entire tree down. We
+    # only do this when PGID == PID (i.e. it really is a group leader we
+    # spawned); otherwise (e.g. a session from an older winpodx) fall back to a
+    # single-PID signal so we never nuke an unrelated group.
     try:
-        os.kill(pid, signal.SIGTERM)
+        pgid = os.getpgid(pid)
+    except (ProcessLookupError, PermissionError):
+        pgid = None
+
+    try:
+        if pgid == pid:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError) as e:
         log.warning("Failed to kill session %s: %s", app_name, e)
         pid_file.unlink(missing_ok=True)

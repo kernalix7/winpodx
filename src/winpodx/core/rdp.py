@@ -923,6 +923,14 @@ def launch_app(
 
     # stderr=PIPE would SIGPIPE-kill the detached client once the CLI
     # parent exits; log to a file so the session outlives us.
+    #
+    # start_new_session=True puts the client in its own process group (PGID ==
+    # this PID) and session. The FreeRDP client is actually a tree -- the
+    # Flatpak path is `flatpak run` -> bwrap -> xfreerdp -- and a SIGTERM to
+    # just the leader may not propagate through the nested sandbox to the real
+    # xfreerdp. Owning the group lets kill_session() signal the whole tree at
+    # once (os.killpg), so Terminate reliably ends the session. It also cleanly
+    # detaches the client from the CLI's session (it must outlive us).
     err_log = session.stderr_log.open("wb")
     try:
         proc = subprocess.Popen(
@@ -930,6 +938,7 @@ def launch_app(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=err_log,
+            start_new_session=True,
         )
         err_log.close()
 
