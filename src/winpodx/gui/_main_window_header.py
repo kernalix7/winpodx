@@ -2,7 +2,7 @@
 """Header-chrome builder mixin for ``WinpodxWindow``.
 
 Holds the methods that build the persistent top-of-window chrome:
-the top navigation bar (logo + tabs + pod chip + start/stop buttons),
+the top launcher bar (logo + pod chip + start/stop buttons + menu),
 the warning banner shown while the pod is not running, and the slim
 info bar (status text + backend + resource summary). Pulled out of
 ``main_window.py`` to keep that file focused on overall window
@@ -13,22 +13,24 @@ Host-class contract (only listed for readers; not enforced):
     apps: list[AppInfo]
     _switch_page(idx) -> None       — defined on the host class.
     _on_start_pod() / _on_stop_pod()  — defined on PodStatusMixin.
-    Widgets created here (nav_buttons, pod_dot, pod_label, agent_dot,
-    rdp_dot, btn_start, btn_stop, banner_icon, banner_text, banner_btn,
-    info_label, info_pod_dot, info_pod_addr) are accessed from sibling
-    mixins via the shared ``self`` instance.
+    Widgets created here (nav_buttons, nav_menu_actions, pod_dot,
+    pod_label, agent_dot, rdp_dot, btn_start, btn_stop, banner_icon,
+    banner_text, banner_btn, info_label, info_pod_dot, info_pod_addr)
+    are accessed from sibling mixins via the shared ``self`` instance.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -41,7 +43,6 @@ from winpodx.gui.theme import (
     POD_CHIP,
     POD_CTRL,
     STATUS_BANNER_WARN,
-    TAB_BTN,
     TOP_BAR,
     C,
 )
@@ -59,6 +60,28 @@ class HeaderMixin:
         layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(0)
 
+        logo_btn = QPushButton("WinPodX")
+        logo_btn.setObjectName("logoHomeButton")
+        logo_btn.setToolTip(tr("Home / Apps"))
+        logo_btn.clicked.connect(lambda: self._switch_page(0))
+        logo_btn.setStyleSheet(
+            f"""
+            QPushButton#logoHomeButton {{
+                background: transparent;
+                color: {C.TEXT};
+                border: none;
+                border-radius: 8px;
+                padding: 7px 10px;
+                font-size: 16px;
+                font-weight: 600;
+                letter-spacing: 0px;
+            }}
+            QPushButton#logoHomeButton:hover {{
+                background: {C.SURFACE0};
+            }}
+            """
+        )
+
         from winpodx.desktop.icons import bundled_data_path
 
         icon_path = bundled_data_path("winpodx-icon.svg")
@@ -69,47 +92,41 @@ class HeaderMixin:
             painter = QPainter(pixmap)
             renderer.render(painter)
             painter.end()
-            logo_icon = QLabel()
-            logo_icon.setPixmap(pixmap)
-            logo_icon.setStyleSheet("background: transparent;")
-            layout.addWidget(logo_icon)
-            layout.addSpacing(8)
+            logo_btn.setIcon(QIcon(pixmap))
+            logo_btn.setIconSize(QSize(28, 24))
 
-        logo_text = QLabel("WinPodX")
-        logo_text.setStyleSheet(
-            f"background: transparent; color: {C.TEXT};"
-            " font-size: 16px; font-weight: 600;"
-            " letter-spacing: 0px;"
-        )
-        layout.addWidget(logo_text)
-        layout.addSpacing(28)
-
-        tab_container = QWidget()
-        tab_container.setStyleSheet(TAB_BTN)
-        tabs = QHBoxLayout(tab_container)
-        tabs.setContentsMargins(0, 0, 0, 0)
-        tabs.setSpacing(0)
+        layout.addWidget(logo_btn)
 
         self.nav_buttons: list[QPushButton] = []
-        for label, idx in [
-            ("Apps", 0),
-            ("Settings", 1),
-            ("Tools", 2),
-            ("Terminal", 3),
-            ("Info", 4),
-            ("Devices", 5),
+        self.nav_menu_actions = []
+        nav_items = [
+            (tr("Home / Apps"), 0, "home"),
+            (tr("Settings"), 1, "gear"),
+            (tr("Tools"), 2, "clean"),
+            (tr("Terminal / Logs"), 3, "prompt"),
+            (tr("Info"), 4, "pending"),
+            (tr("Devices"), 5, "hardware"),
             # License page is appended last so the nav-position == page-index
             # invariant _switch_page relies on holds (see _main_window_nav).
-            ("License", 6),
-        ]:
-            btn = QPushButton(tr(label))
+            (tr("License"), 6, "diamond"),
+        ]
+
+        nav_menu = QMenu(self)
+        for row, (label, idx, icon_name) in enumerate(nav_items):
+            btn = QPushButton(label, self)
             btn.setCheckable(True)
             btn.clicked.connect(lambda _, i=idx: self._switch_page(i))
-            tabs.addWidget(btn)
             self.nav_buttons.append(btn)
 
+            action = nav_menu.addAction(load_icon(icon_name, C.SUBTEXT1, 16), label)
+            action.setCheckable(True)
+            action.triggered.connect(lambda _checked=False, i=idx: self._switch_page(i))
+            self.nav_menu_actions.append(action)
+            if row == 0:
+                nav_menu.addSeparator()
+
         self.nav_buttons[0].setChecked(True)
-        layout.addWidget(tab_container)
+        self.nav_menu_actions[0].setChecked(True)
         layout.addStretch()
 
         chip = QFrame()
@@ -173,6 +190,37 @@ class HeaderMixin:
 
         chip_l.addWidget(ctrl_w)
         layout.addWidget(chip)
+        layout.addSpacing(8)
+
+        nav_btn = QToolButton()
+        nav_btn.setObjectName("navMenuButton")
+        nav_btn.setIcon(load_icon("gear", C.SUBTEXT1, 18))
+        nav_btn.setIconSize(QSize(18, 18))
+        nav_btn.setToolTip(tr("Navigation"))
+        nav_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        nav_btn.setMenu(nav_menu)
+        nav_btn.setStyleSheet(
+            f"""
+            QToolButton#navMenuButton {{
+                background: transparent;
+                color: {C.SUBTEXT1};
+                border: none;
+                border-radius: 14px;
+                padding: 6px;
+                min-width: 30px;
+                min-height: 30px;
+            }}
+            QToolButton#navMenuButton:hover {{
+                background: {C.SURFACE0};
+                color: {C.TEXT};
+            }}
+            QToolButton#navMenuButton::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
+            """
+        )
+        layout.addWidget(nav_btn)
 
         return bar
 
