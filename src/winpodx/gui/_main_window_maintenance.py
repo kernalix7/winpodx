@@ -20,6 +20,7 @@ Host-class contract (only listed for readers; not enforced):
 
 from __future__ import annotations
 
+import logging
 import threading
 
 from PySide6.QtCore import Qt, QTimer
@@ -46,6 +47,8 @@ from winpodx.gui.theme import (
     C,
     accent_color,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _confirm_with_callout(
@@ -247,10 +250,120 @@ class MaintenanceMixin:
 
         self._refresh_update_status()
 
+        layout.addSpacing(20)
+
+        grp4 = QLabel(tr("RDP Sessions"))
+        grp4.setStyleSheet(
+            "background: transparent;"
+            f" color: {C.SUBTEXT0};"
+            " font-size: 11px;"
+            " font-weight: bold;"
+            " text-transform: uppercase;"
+        )
+        layout.addWidget(grp4)
+        layout.addSpacing(8)
+
+        # The tray's "Terminate Session" menu isn't always reachable --
+        # on some DEs (stock GNOME, occasional Wayland startup races) the
+        # tray icon never appears. Mirror that capability here so the
+        # dashboard is a reliable way to close a live RDP session (#450).
+        sessions_box_host = QWidget()
+        self._sessions_box = QVBoxLayout(sessions_box_host)
+        self._sessions_box.setContentsMargins(0, 0, 0, 0)
+        self._sessions_box.setSpacing(8)
+        layout.addWidget(sessions_box_host)
+        self._refresh_sessions_panel()
+
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
         return page
+
+    def _refresh_sessions_panel(self) -> None:
+        """Rebuild the Tools-page list of live RDP sessions (#450).
+
+        Called at page-build time and again whenever the user switches to
+        the Tools tab (see ``_switch_page``) and after a terminate, so the
+        list stays current without a background poll.
+        """
+        box = getattr(self, "_sessions_box", None)
+        if box is None:
+            return
+        while box.count():
+            item = box.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        try:
+            from winpodx.core.process import list_active_sessions
+
+            active = list_active_sessions()
+        except Exception as e:  # noqa: BLE001 -- never crash the Tools page
+            log.warning("sessions panel: enumeration failed: %s", e)
+            active = []
+        if not active:
+            empty = QLabel(tr("No active RDP sessions."))
+            empty.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
+            box.addWidget(empty)
+            return
+        for s in active:
+            box.addWidget(self._make_session_row(s.app_name, s.pid))
+
+    def _make_session_row(self, app_name: str, pid: int) -> QFrame:
+        """One live-session row: app name + PID + a Terminate button."""
+        row = QFrame()
+        row.setObjectName("actionRow")
+        row.setStyleSheet(ACTION_ROW)
+        row.setMinimumHeight(56)
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(16, 8, 16, 8)
+
+        icon = QLabel("▢")
+        icon.setFixedSize(36, 36)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet(
+            f"background: {accent_color(0)}; color: {C.TEXT}; border-radius: 8px; font-size: 16px;"
+        )
+        rl.addWidget(icon)
+
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        name = QLabel(app_name)
+        name.setStyleSheet(
+            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 600;"
+        )
+        col.addWidget(name)
+        meta = QLabel(tr("PID {pid}").format(pid=pid))
+        meta.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
+        col.addWidget(meta)
+        rl.addLayout(col, 1)
+
+        btn = QPushButton(tr("Terminate"))
+        btn.setStyleSheet(BTN_DANGER)
+        btn.setFixedWidth(110)
+        btn.clicked.connect(lambda _checked=False, n=app_name: self._on_terminate_session(n))
+        rl.addWidget(btn)
+        return row
+
+    def _on_terminate_session(self, app_name: str) -> None:
+        """SIGTERM a tracked RDP session (same path as ``winpodx app kill``)."""
+        from winpodx.core.process import kill_session
+
+        try:
+            ok = kill_session(app_name)
+        except Exception as e:  # noqa: BLE001 -- report, don't crash the page
+            log.warning("terminate %s failed: %s", app_name, e)
+            self.log_signal.emit(tr("Failed to terminate {name}").format(name=app_name), C.RED)
+            self._refresh_sessions_panel()
+            return
+        if ok:
+            self.log_signal.emit(tr("Terminated session: {name}").format(name=app_name), C.GREEN)
+        else:
+            self.log_signal.emit(
+                tr("Could not terminate {name} (already closed?)").format(name=app_name),
+                C.YELLOW,
+            )
+        self._refresh_sessions_panel()
 
     def _make_action_row(
         self,

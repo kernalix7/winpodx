@@ -610,6 +610,37 @@ def run_tray() -> None:
     tray.setContextMenu(menu)
     tray.show()
 
+    # Some DEs (KDE Plasma, GNOME + AppIndicator) register their
+    # StatusNotifier host a few seconds AFTER login -- and the autostart
+    # .desktop launches ``winpodx tray`` early, so the very first show()
+    # can land before any tray host exists. Qt does not retry on its own,
+    # so the icon silently never appears ("트레이가 안뜰 때가 있어").
+    # Re-show() on a bounded timer until a host shows up; genuinely
+    # tray-less sessions (e.g. stock GNOME) just exhaust the retries and
+    # fall back to the dashboard.
+    tray_retry = {"left": 30}  # ~60 s at a 2 s cadence
+
+    def _ensure_tray_visible() -> None:
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            tray.show()  # re-register with the now-present host
+            tray_retry_timer.stop()
+            log.info("system-tray host appeared; tray icon shown.")
+            return
+        tray_retry["left"] -= 1
+        if tray_retry["left"] <= 0:
+            tray_retry_timer.stop()
+            log.warning(
+                "no system-tray host after 60 s; this DE may lack a tray "
+                "(stock GNOME needs the AppIndicator extension). Use "
+                "`winpodx gui` for the dashboard instead."
+            )
+
+    tray_retry_timer = QTimer()
+    tray_retry_timer.timeout.connect(_ensure_tray_visible)
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        log.info("no system-tray host yet; will retry show() for up to 60 s.")
+        tray_retry_timer.start(2000)
+
     refresh_status()
 
     timer = QTimer()

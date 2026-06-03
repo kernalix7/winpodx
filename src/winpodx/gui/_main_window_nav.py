@@ -58,6 +58,12 @@ class NavigationMixin:
         else:
             self._stop_info_auto_refresh()
 
+        # Refresh the Tools-page live-session list whenever it's opened so
+        # the Terminate buttons reflect what's actually running (#450).
+        tools_index = 2
+        if index == tools_index and hasattr(self, "_refresh_sessions_panel"):
+            self._refresh_sessions_panel()
+
     def _install_shortcuts(self) -> None:
         """Wire keyboard navigation: Alt+1..N switch top-nav pages and
         Ctrl+F focuses the library search box.
