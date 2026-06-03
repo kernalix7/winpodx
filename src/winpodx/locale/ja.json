@@ -822,5 +822,14 @@
   "Failed to terminate {name}": "{name} の終了に失敗しました",
   "Terminate Session": "セッションを終了",
   "(no active sessions)": "（アクティブなセッションなし）",
-  "Terminate: {name}": "終了: {name}"
+  "Terminate: {name}": "終了: {name}",
+  "Home / Apps": "ホーム / アプリ",
+  "Apps": "アプリ",
+  "Terminal / Logs": "ターミナル / ログ",
+  "Navigation": "ナビゲーション",
+  "Pinned": "ピン留め",
+  "Recent": "最近",
+  "All apps": "すべてのアプリ",
+  "Pin": "ピン留め",
+  "Unpin": "ピン留め解除"
 }

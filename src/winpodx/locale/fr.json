@@ -822,5 +822,14 @@
   "Failed to terminate {name}": "Échec de l'arrêt de {name}",
   "Terminate Session": "Arrêter la session",
   "(no active sessions)": "(aucune session active)",
-  "Terminate: {name}": "Arrêter : {name}"
+  "Terminate: {name}": "Arrêter : {name}",
+  "Home / Apps": "Accueil / Apps",
+  "Apps": "Applications",
+  "Terminal / Logs": "Terminal / Journaux",
+  "Navigation": "Navigation",
+  "Pinned": "Épinglés",
+  "Recent": "Récents",
+  "All apps": "Toutes les apps",
+  "Pin": "Épingler",
+  "Unpin": "Détacher"
 }

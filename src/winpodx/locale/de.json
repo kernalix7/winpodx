@@ -822,5 +822,14 @@
   "Failed to terminate {name}": "{name} konnte nicht beendet werden",
   "Terminate Session": "Sitzung beenden",
   "(no active sessions)": "(keine aktiven Sitzungen)",
-  "Terminate: {name}": "Beenden: {name}"
+  "Terminate: {name}": "Beenden: {name}",
+  "Home / Apps": "Start / Apps",
+  "Apps": "Apps",
+  "Terminal / Logs": "Terminal / Protokolle",
+  "Navigation": "Navigation",
+  "Pinned": "Angeheftet",
+  "Recent": "Zuletzt",
+  "All apps": "Alle Apps",
+  "Pin": "Anheften",
+  "Unpin": "Lösen"
 }

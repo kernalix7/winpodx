@@ -822,5 +822,14 @@
   "Failed to terminate {name}": "{name} 종료 실패",
   "Terminate Session": "세션 종료",
   "(no active sessions)": "(활성 세션 없음)",
-  "Terminate: {name}": "종료: {name}"
+  "Terminate: {name}": "종료: {name}",
+  "Home / Apps": "홈 / 앱",
+  "Apps": "앱",
+  "Terminal / Logs": "터미널 / 로그",
+  "Navigation": "탐색",
+  "Pinned": "고정됨",
+  "Recent": "최근",
+  "All apps": "모든 앱",
+  "Pin": "고정",
+  "Unpin": "고정 해제"
 }
