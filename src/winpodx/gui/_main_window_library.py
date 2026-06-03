@@ -391,7 +391,7 @@ class LibraryPageMixin:
         card = QFrame()
         card.setObjectName("appCard")
         card.setStyleSheet(APP_CARD)
-        card.setMinimumHeight(190)
+        card.setMinimumHeight(210)
         card.setMinimumWidth(160)
         add_shadow(card)
 
@@ -437,15 +437,21 @@ class LibraryPageMixin:
         # "▶ Launch" button, a text Show/Hide toggle, and the same
         # confirmed delete. Edit stays a compact "⋯" to keep the narrow
         # card uncluttered.
-        bottom = QHBoxLayout()
-        bottom.setSpacing(6)
+        # Launch is the primary action and gets its own full-width row so
+        # the "▶  Launch" label is never clipped in a narrow 4-column card.
+        # The secondary actions (edit / hide / delete) sit on a compact row
+        # beneath it.
+        bottom = QVBoxLayout()
+        bottom.setSpacing(8)
 
         launch_btn = QPushButton(tr("▶  Launch"))
         launch_btn.setStyleSheet(BTN_ACCENT)
         launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
         launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
         bottom.addWidget(launch_btn)
-        bottom.addStretch()
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
 
         edit_btn = QPushButton("⋯")
         edit_btn.setFixedSize(28, 28)
@@ -466,7 +472,7 @@ class LibraryPageMixin:
             """
         )
         edit_btn.clicked.connect(lambda _, a=app: self._on_edit_app(a))
-        bottom.addWidget(edit_btn)
+        actions.addWidget(edit_btn)
 
         hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
         hide_btn.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
@@ -478,15 +484,17 @@ class LibraryPageMixin:
             f" color: {C.TEXT}; }}"
         )
         hide_btn.clicked.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
-        bottom.addWidget(hide_btn)
+        actions.addWidget(hide_btn)
+        actions.addStretch()
 
         del_btn = QPushButton("✕")
         del_btn.setFixedSize(28, 28)
         del_btn.setToolTip(tr("Delete"))
         del_btn.setStyleSheet(BTN_DANGER)
         del_btn.clicked.connect(lambda _, a=app: self._on_delete_app(a))
-        bottom.addWidget(del_btn)
+        actions.addWidget(del_btn)
 
+        bottom.addLayout(actions)
         vl.addLayout(bottom)
         return card
 

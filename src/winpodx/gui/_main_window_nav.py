@@ -58,11 +58,18 @@ class NavigationMixin:
         else:
             self._stop_info_auto_refresh()
 
-        # Refresh the Tools-page live-session list whenever it's opened so
-        # the Terminate buttons reflect what's actually running (#450).
+        # Live-refresh the Tools-page session list while it's the visible
+        # page so launching/closing an app shows up within ~2.5 s without
+        # leaving the tab (#450). Off-page the poll is stopped so we don't
+        # scan the runtime dir while the user is elsewhere.
         tools_index = 2
-        if index == tools_index and hasattr(self, "_refresh_sessions_panel"):
-            self._refresh_sessions_panel()
+        if index == tools_index:
+            if hasattr(self, "_refresh_sessions_panel"):
+                self._refresh_sessions_panel(force=True)
+            if hasattr(self, "_sessions_timer"):
+                self._sessions_timer.start()
+        elif hasattr(self, "_sessions_timer"):
+            self._sessions_timer.stop()
 
     def _install_shortcuts(self) -> None:
         """Wire keyboard navigation: Alt+1..N switch top-nav pages and

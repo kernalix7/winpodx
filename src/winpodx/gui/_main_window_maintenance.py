@@ -272,28 +272,36 @@ class MaintenanceMixin:
         self._sessions_box.setContentsMargins(0, 0, 0, 0)
         self._sessions_box.setSpacing(8)
         layout.addWidget(sessions_box_host)
-        self._refresh_sessions_panel()
+
+        # Live refresh: poll while the Tools page is visible so launching or
+        # closing a Windows app shows up within a couple of seconds without
+        # leaving the tab. list_active_sessions() is a cheap local scan. The
+        # timer is started/stopped in _switch_page; rebuilds are skipped when
+        # the session set is unchanged (see _refresh_sessions_panel) so the
+        # poll never flickers the rows. _sessions_sig caches the last set.
+        self._sessions_sig = None
+        self._sessions_timer = QTimer(self)
+        self._sessions_timer.setInterval(2500)
+        self._sessions_timer.timeout.connect(self._refresh_sessions_panel)
+        self._refresh_sessions_panel(force=True)
 
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
         return page
 
-    def _refresh_sessions_panel(self) -> None:
+    def _refresh_sessions_panel(self, force: bool = False) -> None:
         """Rebuild the Tools-page list of live RDP sessions (#450).
 
-        Called at page-build time and again whenever the user switches to
-        the Tools tab (see ``_switch_page``) and after a terminate, so the
-        list stays current without a background poll.
+        Called at page-build time, on every poll tick while the Tools tab
+        is visible (see ``_switch_page``), and after a terminate. The
+        rebuild is skipped when the live-session set is unchanged so the
+        poll doesn't flicker the rows; pass ``force=True`` to rebuild
+        regardless (first build / right after a terminate).
         """
         box = getattr(self, "_sessions_box", None)
         if box is None:
             return
-        while box.count():
-            item = box.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
         try:
             from winpodx.core.process import list_active_sessions
 
@@ -301,6 +309,16 @@ class MaintenanceMixin:
         except Exception as e:  # noqa: BLE001 -- never crash the Tools page
             log.warning("sessions panel: enumeration failed: %s", e)
             active = []
+        sig = tuple((s.app_name, s.pid) for s in active)
+        if not force and sig == getattr(self, "_sessions_sig", None):
+            return  # unchanged -> skip rebuild (no flicker during polling)
+        self._sessions_sig = sig
+
+        while box.count():
+            item = box.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
         if not active:
             empty = QLabel(tr("No active RDP sessions."))
             empty.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
@@ -354,7 +372,7 @@ class MaintenanceMixin:
         except Exception as e:  # noqa: BLE001 -- report, don't crash the page
             log.warning("terminate %s failed: %s", app_name, e)
             self.log_signal.emit(tr("Failed to terminate {name}").format(name=app_name), C.RED)
-            self._refresh_sessions_panel()
+            self._refresh_sessions_panel(force=True)
             return
         if ok:
             self.log_signal.emit(tr("Terminated session: {name}").format(name=app_name), C.GREEN)
@@ -363,7 +381,7 @@ class MaintenanceMixin:
                 tr("Could not terminate {name} (already closed?)").format(name=app_name),
                 C.YELLOW,
             )
-        self._refresh_sessions_panel()
+        self._refresh_sessions_panel(force=True)
 
     def _make_action_row(
         self,

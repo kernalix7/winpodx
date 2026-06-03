@@ -78,6 +78,11 @@ def run_tray() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("winpodx")
+    # Bind to the installed desktop entry so Wayland compositors (KDE,
+    # GNOME) resolve the app id -> correct icon + identity for the tray
+    # item. Without this, KDE may render the StatusNotifierItem with a
+    # generic/blank icon or quietly file it under the hidden overflow.
+    app.setDesktopFileName("winpodx")
     app.setQuitOnLastWindowClosed(False)
 
     # Resolve the bundled SVG so the system-tray icon actually shows up.
