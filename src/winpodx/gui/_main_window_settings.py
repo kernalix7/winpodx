@@ -42,6 +42,7 @@ from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow, make_page_header, make_warning_callout
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
+    BTN_DANGER,
     BTN_PRIMARY,
     CHECKBOX,
     COMBO,
@@ -601,6 +602,9 @@ class SettingsPageMixin:
                 "reverse-open panel failed to build; Settings page continues without it"
             )
 
+        layout.addWidget(self._build_windows_update_card())
+        self._refresh_update_status()
+
         # "Applies immediately" subsection. The controls below (autostart,
         # UI language; the reverse-open enable checkbox above behaves the
         # same) persist the moment you change them — unlike the form fields
@@ -823,6 +827,76 @@ class SettingsPageMixin:
         self.tuning_summary_label.setWordWrap(False)
         summary_layout.addWidget(self.tuning_summary_label)
         layout.addWidget(summary_frame)
+
+        return card
+
+    def _build_windows_update_card(self) -> QFrame:
+        """Build the Windows Update settings card."""
+        card = QFrame()
+        card.setObjectName("settingsSection")
+        card.setStyleSheet(
+            SETTINGS_SECTION
+            + f"QLabel {{ color: {C.TEXT}; font-size: {FONT_BODY}px; background: transparent; }}"
+        )
+        add_shadow(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+        layout.setSpacing(SPACE_XS)
+
+        header = QLabel(tr("Windows Update"))
+        header.setStyleSheet(
+            f"background: transparent; color: {C.BLUE}; "
+            f"font-size: {FONT_HEADER}px; font-weight: 600;"
+        )
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(SPACE_S)
+        header_icon = QLabel()
+        header_icon.setFixedSize(18, 18)
+        header_icon.setPixmap(load_icon("update-arrows", C.BLUE, 18).pixmap(18, 18))
+        header_icon.setStyleSheet("background: transparent;")
+        header_row.addWidget(header_icon)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        layout.addLayout(header_row)
+
+        self._update_status_label = QLabel(tr("Checking..."))
+        self._update_status_label.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
+        layout.addWidget(self._update_status_label)
+
+        accent_line = QFrame()
+        accent_line.setFixedHeight(1)
+        accent_line.setStyleSheet(f"background: {C.SURFACE1};")
+        layout.addWidget(accent_line)
+        layout.addSpacing(SPACE_M + 2)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.setContentsMargins(0, 0, 0, 0)
+        buttons_row.setSpacing(SPACE_S)
+
+        self._btn_enable_updates = QPushButton(tr("Enable"))
+        self._btn_enable_updates.setStyleSheet(BTN_PRIMARY)
+        self._btn_enable_updates.clicked.connect(self._on_enable_updates)
+        buttons_row.addWidget(self._btn_enable_updates)
+
+        self._btn_disable_updates = QPushButton(tr("Disable"))
+        self._btn_disable_updates.setStyleSheet(BTN_DANGER)
+        self._btn_disable_updates.clicked.connect(self._on_disable_updates)
+        buttons_row.addWidget(self._btn_disable_updates)
+
+        # Shown only when the status probe can't reach the guest (state
+        # unknown): the Enable / Disable buttons are meaningless until we
+        # know the current state, so we hide them and offer a re-probe.
+        self._btn_retry_updates = QPushButton(tr("Retry"))
+        self._btn_retry_updates.setStyleSheet(BTN_PRIMARY)
+        self._btn_retry_updates.clicked.connect(self._refresh_update_status)
+        self._btn_retry_updates.setVisible(False)
+        buttons_row.addWidget(self._btn_retry_updates)
+        buttons_row.addStretch()
+        layout.addLayout(buttons_row)
 
         return card
 
