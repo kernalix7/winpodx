@@ -85,6 +85,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import BusyDialog
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     BTN_SECONDARY,
@@ -98,6 +99,25 @@ from winpodx.gui.theme import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class _ChecklistIconLabel(QLabel):
+    """SVG checklist marker that keeps a lightweight state string for tests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._state_text = ""
+
+    def set_status_icon(self, state_text: str, icon_name: str, color: str, size: int = 16) -> None:
+        self._state_text = state_text
+        self.setPixmap(load_icon(icon_name, color, size).pixmap(size, size))
+
+    def clear_status_icon(self) -> None:
+        self._state_text = ""
+        self.clear()
+
+    def text(self) -> str:
+        return self._state_text
 
 
 # Per-phase poll cadence (seconds) -- short enough that the cancel
@@ -214,10 +234,20 @@ class BringUpProgressDialog(QDialog):
         layout.setSpacing(SPACE_M)
 
         # ----- header row (phase progress + label) -----------------------
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(SPACE_S)
+        self.header_icon = QLabel()
+        self.header_icon.setFixedSize(20, 20)
+        self.header_icon.setStyleSheet("background: transparent;")
+        self.header_icon.hide()
+        header_row.addWidget(self.header_icon)
+
         self.header = QLabel(tr("Starting..."))
         self.header.setStyleSheet(f"font-size: {FONT_SUBHEAD}px; font-weight: 600;")
         self.header.setWordWrap(True)
-        layout.addWidget(self.header)
+        header_row.addWidget(self.header, 1)
+        layout.addLayout(header_row)
 
         # Sub-detail: attempt counters / probe outcomes go here. Kept on
         # its own line so the header stays scannable.
@@ -234,16 +264,16 @@ class BringUpProgressDialog(QDialog):
         # ----- phase checklist ------------------------------------------
         self._mono_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
 
-        self._row_widgets: list[tuple[QLabel, QLabel, QLabel]] = []
+        self._row_widgets: list[tuple[_ChecklistIconLabel, QLabel, QLabel]] = []
         for idx, (_pid, label, eta_hint, _cancellable) in enumerate(_PHASE_DEFS):
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(SPACE_S)
 
-            glyph = QLabel("   ")
+            glyph = _ChecklistIconLabel()
             glyph.setFont(self._mono_font)
-            glyph.setFixedWidth(20)
+            glyph.setFixedSize(20, 20)
             glyph.setAlignment(Qt.AlignmentFlag.AlignTop)
 
             # Name + a static "usually ~N" hint stacked beneath it so a
@@ -432,6 +462,9 @@ class BringUpProgressDialog(QDialog):
             # plain-language "you can launch apps now" sub-line, and a
             # determinate full bar so the progress no longer reads as busy.
             self.header.setText(tr("✓ Ready"))
+            self.header.setText(self.header.text().removeprefix("✓ "))
+            self.header_icon.setPixmap(load_icon("check", C.GREEN, 20).pixmap(20, 20))
+            self.header_icon.show()
             self.header.setStyleSheet(
                 f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.GREEN};"
             )
@@ -439,6 +472,7 @@ class BringUpProgressDialog(QDialog):
             self.bar.setMaximum(1)
             self.bar.setValue(1)
         else:
+            self.header_icon.hide()
             self.header.setText(tr("Bring-up did not complete"))
             self.header.setStyleSheet(
                 f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.RED};"
@@ -489,17 +523,17 @@ class BringUpProgressDialog(QDialog):
             started = self._phase_started_at.get(idx)
             done = self._phase_done_at.get(idx)
             if done is not None and started is not None:
-                glyph.setText("✓  ")
+                glyph.set_status_icon("✓  ", "check", C.GREEN)
                 glyph.setStyleSheet(f"color: {C.GREEN};")
                 name.setStyleSheet("")
                 elapsed.setText(_format_mmss(done - started))
             elif started is not None:
-                glyph.setText(">  ")
+                glyph.set_status_icon(">  ", "play", C.BLUE)
                 glyph.setStyleSheet(f"color: {C.BLUE};")
                 name.setStyleSheet("font-weight: 500;")
                 elapsed.setText(_format_mmss(now - started))
             else:
-                glyph.setText("   ")
+                glyph.clear_status_icon()
                 glyph.setStyleSheet("")
                 name.setStyleSheet(f"color: {C.SUBTEXT0};")
                 elapsed.setText("")

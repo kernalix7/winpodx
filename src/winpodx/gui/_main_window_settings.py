@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow, make_page_header, make_warning_callout
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     CHECKBOX,
@@ -752,11 +753,22 @@ class SettingsPageMixin:
         layout.setSpacing(SPACE_XS)
 
         header = QLabel(tr("◨  Performance Tuning"))
+        header.setText(header.text().removeprefix("◨  "))
         header.setStyleSheet(
             f"background: transparent; color: {C.BLUE}; "
             f"font-size: {FONT_HEADER}px; font-weight: 600;"
         )
-        layout.addWidget(header)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(SPACE_S)
+        header_icon = QLabel()
+        header_icon.setFixedSize(18, 18)
+        header_icon.setPixmap(load_icon("performance", C.BLUE, 18).pixmap(18, 18))
+        header_icon.setStyleSheet("background: transparent;")
+        header_row.addWidget(header_icon)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        layout.addLayout(header_row)
 
         sub = QLabel(tr("QEMU + Windows-on-KVM knob preset"))
         sub.setStyleSheet(
@@ -814,6 +826,19 @@ class SettingsPageMixin:
 
         return card
 
+    @staticmethod
+    def _split_settings_title_icon(title: str) -> tuple[str | None, str]:
+        """Return the in-house icon name and display title for old glyph-prefixed labels."""
+        prefixes = {
+            "▣  ": "rdp",
+            "▨  ": "hardware",
+            "🌐  ": "globe",
+        }
+        for prefix, icon_name in prefixes.items():
+            if title.startswith(prefix):
+                return icon_name, title[len(prefix) :]
+        return None, title
+
     def _settings_card(
         self,
         title: str,
@@ -835,12 +860,26 @@ class SettingsPageMixin:
         layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
         layout.setSpacing(SPACE_XS)
 
-        header = QLabel(title)
+        header_icon_name, header_title = self._split_settings_title_icon(title)
+        header = QLabel(header_title)
         header.setStyleSheet(
             f"background: transparent; color: {C.BLUE}; "
             f"font-size: {FONT_HEADER}px; font-weight: 600;"
         )
-        layout.addWidget(header)
+        if header_icon_name is not None:
+            header_row = QHBoxLayout()
+            header_row.setContentsMargins(0, 0, 0, 0)
+            header_row.setSpacing(SPACE_S)
+            header_icon = QLabel()
+            header_icon.setFixedSize(18, 18)
+            header_icon.setPixmap(load_icon(header_icon_name, C.BLUE, 18).pixmap(18, 18))
+            header_icon.setStyleSheet("background: transparent;")
+            header_row.addWidget(header_icon)
+            header_row.addWidget(header)
+            header_row.addStretch()
+            layout.addLayout(header_row)
+        else:
+            layout.addWidget(header)
 
         sub = QLabel(subtitle)
         sub.setStyleSheet(

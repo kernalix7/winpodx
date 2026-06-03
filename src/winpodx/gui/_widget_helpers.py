@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     BTN_SECONDARY,
@@ -293,7 +294,6 @@ def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
     visible *before* the user acts, not buried in a modal body.
     """
     accent = C.RED if level == "danger" else C.PEACH
-    glyph = "⚠"  # warning sign
     frame = QFrame()
     frame.setObjectName("winpodxCallout")
     frame.setStyleSheet(
@@ -306,8 +306,10 @@ def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
     row = QHBoxLayout(frame)
     row.setContentsMargins(12, 10, 12, 10)
     row.setSpacing(10)
-    icon = QLabel(glyph)
-    icon.setStyleSheet(f"color: {accent}; font-size: 15px; font-weight: 600;")
+    icon = QLabel()
+    icon.setFixedSize(16, 16)
+    icon.setPixmap(load_icon("warning", accent, 16).pixmap(16, 16))
+    icon.setStyleSheet(f"color: {accent};")
     icon.setAlignment(Qt.AlignmentFlag.AlignTop)
     row.addWidget(icon)
     label = QLabel(text)

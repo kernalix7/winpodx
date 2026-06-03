@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     INFO_BAR,
@@ -118,10 +119,10 @@ class HeaderMixin:
         chip_l.setContentsMargins(12, 4, 8, 4)
         chip_l.setSpacing(8)
 
-        self.pod_dot = QLabel("●")
-        self.pod_dot.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: 10px;"
-        )
+        self.pod_dot = QLabel()
+        self.pod_dot.setFixedSize(10, 10)
+        self.pod_dot.setPixmap(load_icon("dot", C.SUBTEXT0, 10).pixmap(10, 10))
+        self.pod_dot.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0};")
         self.pod_dot.setToolTip(tr("Pod state"))
         chip_l.addWidget(self.pod_dot)
 
@@ -156,12 +157,16 @@ class HeaderMixin:
         ctrl_l.setContentsMargins(4, 0, 0, 0)
         ctrl_l.setSpacing(2)
 
-        self.btn_start = QPushButton("▶")
+        self.btn_start = QPushButton("")
+        self.btn_start.setIcon(load_icon("play", C.SUBTEXT0, 16))
+        self.btn_start.setIconSize(QSize(16, 16))
         self.btn_start.setToolTip(tr("Start Pod"))
         self.btn_start.clicked.connect(self._on_start_pod)
         ctrl_l.addWidget(self.btn_start)
 
-        self.btn_stop = QPushButton("■")
+        self.btn_stop = QPushButton("")
+        self.btn_stop.setIcon(load_icon("stop", C.SUBTEXT0, 16))
+        self.btn_stop.setIconSize(QSize(16, 16))
         self.btn_stop.setToolTip(tr("Stop Pod"))
         self.btn_stop.clicked.connect(self._on_stop_pod)
         ctrl_l.addWidget(self.btn_stop)
@@ -180,10 +185,10 @@ class HeaderMixin:
         layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(12)
 
-        self.banner_icon = QLabel("⚠")
-        self.banner_icon.setStyleSheet(
-            f"background: transparent; color: {C.YELLOW}; font-size: 14px;"
-        )
+        self.banner_icon = QLabel()
+        self.banner_icon.setFixedSize(16, 16)
+        self.banner_icon.setPixmap(load_icon("warning", C.YELLOW, 16).pixmap(16, 16))
+        self.banner_icon.setStyleSheet(f"background: transparent; color: {C.YELLOW};")
         layout.addWidget(self.banner_icon)
 
         self.banner_text = QLabel(tr("Pod is not running"))
@@ -225,10 +230,10 @@ class HeaderMixin:
         # only the tiny colour dot (a glanceable health indicator, not a
         # word) and show the pod IP/address instead — complementary info
         # the chip/banner don't surface. _on_pod_status fills it in.
-        self.info_pod_dot = QLabel("●")
-        self.info_pod_dot.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: 8px;"
-        )
+        self.info_pod_dot = QLabel()
+        self.info_pod_dot.setFixedSize(8, 8)
+        self.info_pod_dot.setPixmap(load_icon("dot", C.OVERLAY0, 8).pixmap(8, 8))
+        self.info_pod_dot.setStyleSheet(f"background: transparent; color: {C.OVERLAY0};")
         layout.addWidget(self.info_pod_dot)
 
         self.info_pod_addr = QLabel("")

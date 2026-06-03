@@ -157,7 +157,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     responsible for calling ``cfg.save()`` when the user clicks
     "Save Settings".
     """
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QSize, Qt
     from PySide6.QtWidgets import (
         QCheckBox,
         QFrame,
@@ -178,6 +178,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         _cmd_start_listener,
         _cmd_stop_listener,
     )
+    from winpodx.gui.icons import load_icon
     from winpodx.gui.theme import (
         BTN_GHOST,
         BTN_PRIMARY,
@@ -205,8 +206,19 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     layout.setSpacing(SPACE_S)
 
     title = QLabel(tr("▦  Reverse File Associations"))
+    title.setText(title.text().removeprefix("▦  "))
     title.setStyleSheet(f"color: {C.BLUE}; font-size: 15px; font-weight: 600;")
-    layout.addWidget(title)
+    title_row = QHBoxLayout()
+    title_row.setContentsMargins(0, 0, 0, 0)
+    title_row.setSpacing(SPACE_S)
+    title_icon = QLabel()
+    title_icon.setFixedSize(18, 18)
+    title_icon.setPixmap(load_icon("reverse-associations", C.BLUE, 18).pixmap(18, 18))
+    title_icon.setStyleSheet("background: transparent;")
+    title_row.addWidget(title_icon)
+    title_row.addWidget(title)
+    title_row.addStretch()
+    layout.addLayout(title_row)
 
     sub = QLabel(tr("Linux apps appear in the Windows guest's right-click ‘Open with…’ menu."))
     sub.setWordWrap(True)
@@ -266,6 +278,12 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     allow_btns.setSpacing(SPACE_S)
     btn_allow_add = QPushButton(tr("+ Add"))
     btn_allow_rm = QPushButton(tr("− Remove"))
+    btn_allow_add.setText(btn_allow_add.text().removeprefix("+ "))
+    btn_allow_add.setIcon(load_icon("plus", C.TEXT, 16))
+    btn_allow_add.setIconSize(QSize(16, 16))
+    btn_allow_rm.setText(btn_allow_rm.text().removeprefix("− "))
+    btn_allow_rm.setIcon(load_icon("minus", C.TEXT, 16))
+    btn_allow_rm.setIconSize(QSize(16, 16))
     btn_allow_add.setStyleSheet(BTN_SECONDARY)
     btn_allow_rm.setStyleSheet(BTN_GHOST)
     allow_btns.addWidget(btn_allow_add)
@@ -276,6 +294,12 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     deny_btns.setSpacing(SPACE_S)
     btn_deny_add = QPushButton(tr("+ Add"))
     btn_deny_rm = QPushButton(tr("− Remove"))
+    btn_deny_add.setText(btn_deny_add.text().removeprefix("+ "))
+    btn_deny_add.setIcon(load_icon("plus", C.TEXT, 16))
+    btn_deny_add.setIconSize(QSize(16, 16))
+    btn_deny_rm.setText(btn_deny_rm.text().removeprefix("− "))
+    btn_deny_rm.setIcon(load_icon("minus", C.TEXT, 16))
+    btn_deny_rm.setIconSize(QSize(16, 16))
     btn_deny_add.setStyleSheet(BTN_SECONDARY)
     btn_deny_rm.setStyleSheet(BTN_GHOST)
     deny_btns.addWidget(btn_deny_add)

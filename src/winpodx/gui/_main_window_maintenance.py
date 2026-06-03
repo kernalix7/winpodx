@@ -46,6 +46,7 @@ from winpodx.gui._widget_helpers import (
     make_section_label,
     make_warning_callout,
 )
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     ACTION_ROW,
     BTN_DANGER,
@@ -194,9 +195,10 @@ class MaintenanceMixin:
         rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
         rl.setSpacing(SPACE_L)
 
-        update_icon = QLabel("⇅")
+        update_icon = QLabel()
         update_icon.setFixedSize(38, 38)
         update_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        update_icon.setPixmap(load_icon("update-arrows", TOOL_ICON_FG, 18).pixmap(18, 18))
         update_icon.setStyleSheet(
             f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
             f" border: 1px solid {TOOL_ICON_BORDER}; border-radius: 14px;"
@@ -321,9 +323,10 @@ class MaintenanceMixin:
         rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
         rl.setSpacing(SPACE_L)
 
-        icon = QLabel("▢")
+        icon = QLabel()
         icon.setFixedSize(38, 38)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setPixmap(load_icon("session", TOOL_ICON_FG, 18).pixmap(18, 18))
         icon.setStyleSheet(
             f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
             f" border: 1px solid {TOOL_ICON_BORDER}; border-radius: 14px;"
@@ -391,9 +394,21 @@ class MaintenanceMixin:
         rl.setSpacing(SPACE_L)
 
         color = accent_color(color_idx)
-        icon_circle = QLabel(icon)
+        icon_circle = QLabel()
         icon_circle.setFixedSize(38, 38)
         icon_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_name = {
+            "⏸": "pause",
+            "▶": "play",
+            "▣": "desktop",
+            "✧": "clean",
+            "◷": "clock",
+            "◆": "diamond",
+            "⚙": "gear",
+            "⊕": "plus",
+            "↻": "refresh",
+        }.get(icon, icon)
+        icon_circle.setPixmap(load_icon(icon_name, TOOL_ICON_FG, 18).pixmap(18, 18))
         icon_circle.setStyleSheet(
             f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
             f" border: 1px solid {TOOL_ICON_BORDER}; border-left: 2px solid {rgba(color, 0.42)};"
@@ -414,8 +429,10 @@ class MaintenanceMixin:
         rl.addLayout(text_col)
         rl.addStretch()
 
-        arrow = QLabel("›")
-        arrow.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 20px;")
+        arrow = QLabel()
+        arrow.setFixedSize(16, 16)
+        arrow.setPixmap(load_icon("chevron-right", C.OVERLAY0, 16).pixmap(16, 16))
+        arrow.setStyleSheet(f"background: transparent; color: {C.OVERLAY0};")
         rl.addWidget(arrow)
 
         row.mousePressEvent = lambda ev, h=handler: h()

@@ -18,7 +18,7 @@ CLI never drift.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QDialog,
@@ -43,6 +43,7 @@ from winpodx.gui._widget_helpers import (
     make_warning_callout,
     show_toast,
 )
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     ACTION_ROW,
     BTN_GHOST,
@@ -232,10 +233,16 @@ class DevicesMixin:
 
         if assigned:
             btn = QPushButton(tr("← Detach"))
+            btn.setText(btn.text().removeprefix("← "))
+            btn.setIcon(load_icon("chevron-left", C.TEXT, 16))
+            btn.setIconSize(QSize(16, 16))
             btn.setStyleSheet(BTN_GHOST)
             btn.clicked.connect(lambda _=False, dev=host: self._on_detach(dev))
         else:
             btn = QPushButton(tr("Attach →"))
+            btn.setText(btn.text().removesuffix(" →"))
+            btn.setIcon(load_icon("chevron-right", C.CRUST, 16))
+            btn.setIconSize(QSize(16, 16))
             btn.setStyleSheet(BTN_PRIMARY)
             btn.clicked.connect(lambda _=False, dev=host: self._on_attach(dev))
         h.addWidget(btn)

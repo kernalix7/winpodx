@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import make_page_header
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
@@ -360,10 +361,10 @@ class LogsMixin:
         cmd_row = QHBoxLayout()
         cmd_row.setSpacing(SPACE_S)
 
-        prompt = QLabel("❯")
-        prompt.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 16px; font-weight: 500;"
-        )
+        prompt = QLabel()
+        prompt.setFixedSize(16, 16)
+        prompt.setPixmap(load_icon("prompt", C.BLUE, 16).pixmap(16, 16))
+        prompt.setStyleSheet(f"background: transparent; color: {C.BLUE};")
         cmd_row.addWidget(prompt)
 
         self.cmd_input = QLineEdit()

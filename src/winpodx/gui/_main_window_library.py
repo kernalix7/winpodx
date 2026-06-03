@@ -25,8 +25,7 @@ Host-class contract (only listed for readers; not enforced):
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -51,6 +50,7 @@ from winpodx.gui._widget_helpers import (
     make_page_header,
     make_source_badge,
 )
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     APP_CARD,
     APP_TILE,
@@ -123,14 +123,18 @@ class LibraryPageMixin:
         tgl.setContentsMargins(0, 0, 0, 0)
         tgl.setSpacing(2)
 
-        self.btn_grid = QPushButton("▦")
+        self.btn_grid = QPushButton("")
+        self.btn_grid.setIcon(load_icon("grid", C.OVERLAY0, 16))
+        self.btn_grid.setIconSize(QSize(16, 16))
         self.btn_grid.setCheckable(True)
         self.btn_grid.setChecked(True)
         self.btn_grid.setToolTip(tr("Grid view"))
         self.btn_grid.clicked.connect(lambda: self._set_view("grid"))
         tgl.addWidget(self.btn_grid)
 
-        self.btn_list = QPushButton("≡")
+        self.btn_list = QPushButton("")
+        self.btn_list.setIcon(load_icon("list", C.OVERLAY0, 16))
+        self.btn_list.setIconSize(QSize(16, 16))
         self.btn_list.setCheckable(True)
         self.btn_list.setToolTip(tr("List view"))
         self.btn_list.clicked.connect(lambda: self._set_view("list"))
@@ -138,7 +142,8 @@ class LibraryPageMixin:
         right_group.addWidget(toggle_wrap)
 
         self.refresh_btn = QPushButton(tr("Refresh Apps"))
-        self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
+        self.refresh_btn.setIcon(load_icon("refresh", C.TEXT, 16))
+        self.refresh_btn.setIconSize(QSize(16, 16))
         self.refresh_btn.setStyleSheet(BTN_GHOST)
         self.refresh_btn.setToolTip(tr("Scan the running pod for installed Windows apps"))
         self.refresh_btn.clicked.connect(self._on_refresh_apps)
@@ -438,12 +443,17 @@ class LibraryPageMixin:
         vl.addLayout(top_row)
 
         launch_btn = QPushButton(tr("▶  Launch"))
+        launch_btn.setText(launch_btn.text().removeprefix("▶  "))
+        launch_btn.setIcon(load_icon("play", C.CRUST, 16))
+        launch_btn.setIconSize(QSize(16, 16))
         launch_btn.setStyleSheet(BTN_ACCENT)
         launch_btn.setMinimumWidth(118)
         launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
         launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
 
-        more_btn = QPushButton("⋯")
+        more_btn = QPushButton("")
+        more_btn.setIcon(load_icon("overflow", C.OVERLAY0, 16))
+        more_btn.setIconSize(QSize(16, 16))
         more_btn.setFixedSize(30, 30)
         more_btn.setToolTip(tr("Edit"))
         more_btn.setStyleSheet(
@@ -540,6 +550,9 @@ class LibraryPageMixin:
         layout.addStretch()
 
         launch_btn = QPushButton(tr("▶  Launch"))
+        launch_btn.setText(launch_btn.text().removeprefix("▶  "))
+        launch_btn.setIcon(load_icon("play", C.CRUST, 16))
+        launch_btn.setIconSize(QSize(16, 16))
         launch_btn.setStyleSheet(BTN_ACCENT)
         launch_btn.setMinimumWidth(116)
         launch_btn.clicked.connect(lambda: self._launch_app(app))
@@ -558,7 +571,9 @@ class LibraryPageMixin:
         layout.addWidget(hide_btn)
         layout.addSpacing(6)
 
-        del_btn = QPushButton("✕")
+        del_btn = QPushButton("")
+        del_btn.setIcon(load_icon("close", C.PEACH, 16))
+        del_btn.setIconSize(QSize(16, 16))
         del_btn.setFixedSize(32, 32)
         del_btn.setStyleSheet(BTN_DANGER)
         del_btn.clicked.connect(lambda: self._on_delete_app(app))

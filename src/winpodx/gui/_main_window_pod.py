@@ -36,6 +36,7 @@ from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.core.pod import pod_status
 from winpodx.gui._widget_helpers import show_toast
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import C
 
 log = logging.getLogger(__name__)
@@ -276,14 +277,16 @@ class PodStatusMixin:
         ip_suffix = f" ({ip})" if ip and state == "running" else ""
         display = label + ip_suffix
 
-        self.pod_dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 10px;")
+        self.pod_dot.setPixmap(load_icon("dot", color, 10).pixmap(10, 10))
+        self.pod_dot.setStyleSheet(f"background: transparent; color: {color};")
         self.pod_label.setText(display)
         self.pod_label.setStyleSheet(f"background: transparent; color: {color}; font-size: 12px;")
 
         # Info bar no longer repeats the state word (chip + banner own it);
         # it shows the pod IP instead. Keep the colour dot as a glanceable
         # health cue.
-        self.info_pod_dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 8px;")
+        self.info_pod_dot.setPixmap(load_icon("dot", color, 8).pixmap(8, 8))
+        self.info_pod_dot.setStyleSheet(f"background: transparent; color: {color};")
         self.info_pod_addr.setText(ip if ip and state == "running" else "")
 
         self.btn_start.setEnabled(state == "stopped")
@@ -293,10 +296,15 @@ class PodStatusMixin:
 
     def _set_banner(self, icon: str, icon_color: str, text: str, *, restart: bool = False) -> None:
         """Paint the status banner row (icon + text + button label)."""
-        self.banner_icon.setText(icon)
-        self.banner_icon.setStyleSheet(
-            f"background: transparent; color: {icon_color}; font-size: 14px;"
-        )
+        icon_name = {
+            "⏸": "pause",
+            "⚠": "warning",
+            "▶": "play",
+            "✗": "error",
+            "…": "pending",
+        }.get(icon, icon)
+        self.banner_icon.setPixmap(load_icon(icon_name, icon_color, 16).pixmap(16, 16))
+        self.banner_icon.setStyleSheet(f"background: transparent; color: {icon_color};")
         self.banner_text.setText(text)
         # Same ensure_ready() action either way; only the label differs so a
         # running-but-degraded pod reads as a repair, not a cold start.
