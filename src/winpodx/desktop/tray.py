@@ -365,6 +365,50 @@ def run_tray() -> None:
 
     menu.addMenu(apps_menu)
 
+    # Terminate-session submenu (#450): lists the tracked .cproc RDP sessions;
+    # each entry SIGTERMs that session via core.process.kill_session — the same
+    # path as `winpodx app kill`. Rebuilt on open so it reflects live sessions.
+    sessions_menu = QMenu(tr("Terminate Session"))
+
+    def _make_session_kill(app_name: str):
+        def handler() -> None:
+            from winpodx.core.process import kill_session
+
+            def op() -> None:
+                if not kill_session(app_name):
+                    raise RuntimeError("session not found or already closed")
+
+            _run_in_thread(
+                op,
+                tr("Terminated session: {name}").format(name=app_name),
+                tr("Failed to terminate {name}").format(name=app_name),
+            )
+
+        return handler
+
+    def _rebuild_sessions_menu() -> None:
+        sessions_menu.clear()
+        try:
+            from winpodx.core.process import list_active_sessions
+
+            active = list_active_sessions()
+        except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
+            log.warning("sessions menu: enumeration failed: %s", e)
+            active = []
+        if not active:
+            empty = QAction(tr("(no active sessions)"))
+            empty.setEnabled(False)
+            sessions_menu.addAction(empty)
+            return
+        for s in active:
+            act = QAction(tr("Terminate: {name}").format(name=s.app_name))
+            act.triggered.connect(_make_session_kill(s.app_name))
+            sessions_menu.addAction(act)
+
+    sessions_menu.aboutToShow.connect(_rebuild_sessions_menu)
+    _rebuild_sessions_menu()
+    menu.addMenu(sessions_menu)
+
     menu.addSeparator()
 
     # USB device switcher (#300). A checkable entry per host USB device:
