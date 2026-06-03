@@ -1542,6 +1542,37 @@ INSTALLED_VER="$("$VENV_PY" -c 'import winpodx; print(winpodx.__version__)' 2>/d
 GUI_LABEL="yes"
 [ -n "$WINPODX_NO_GUI" ] && GUI_LABEL="no (--no-gui)"
 
+# Apply the update to an already-RUNNING WinPodX immediately. A long-lived tray
+# or GUI keeps the OLD code in memory, so on an upgrade the new code otherwise
+# only takes effect after the user manually restarts or re-logs in (this caused
+# repeated "the fix didn't work" confusion). Restart ONLY the winpodx APP
+# processes by targeting the 'tray' / 'gui' entrypoints precisely.
+#
+# NEVER use a bare `pkill -f winpodx`: that also matches conmon (the container
+# monitor for the 'winpodx-windows' pod) and would tear down the running
+# Windows VM + every live RDP session. The 'tray'/'gui' patterns below do not
+# match conmon, the QEMU process, or this installer's own provision/migrate run.
+# A fresh install has nothing running here, so this is a no-op.
+if command -v pgrep >/dev/null 2>&1; then
+    _wpx_was_tray=0
+    _wpx_was_gui=0
+    pgrep -f 'winpodx tray' >/dev/null 2>&1 && _wpx_was_tray=1
+    pgrep -f 'winpodx gui' >/dev/null 2>&1 && _wpx_was_gui=1
+    if [ "$_wpx_was_tray" = 1 ] || [ "$_wpx_was_gui" = 1 ]; then
+        log "Restarting WinPodX (tray/GUI) to apply the update (the pod keeps running)…"
+        pkill -f 'winpodx tray' 2>/dev/null || true
+        pkill -f 'winpodx gui' 2>/dev/null || true
+        sleep 1
+        # If the GUI was up, relaunch it (the GUI auto-spawns its own tray);
+        # otherwise just relaunch the tray. Avoids a double tray.
+        if [ "$_wpx_was_gui" = 1 ]; then
+            setsid "$SYMLINK" gui >/dev/null 2>&1 </dev/null &
+        elif [ "$_wpx_was_tray" = 1 ]; then
+            setsid "$SYMLINK" tray >/dev/null 2>&1 </dev/null &
+        fi
+    fi
+fi
+
 echo ""
 echo -e "${GREEN}  ┌─ WinPodX installed ──────────────────────────────────────${NC}"
 printf "  │  version   %s\n" "$INSTALLED_VER"
