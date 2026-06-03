@@ -261,6 +261,20 @@ def run_tray() -> None:
             active = []
         sessions_action.setText(tr("Sessions: {n}").format(n=len(active)))
 
+        # Re-assert the icon every tick. KDE/GNOME StatusNotifier hosts can
+        # restart (plasmashell reload, panel reconfigure, host crash) and Qt
+        # does NOT reliably re-register the item afterwards -> the icon
+        # vanishes and never comes back ("트레이가 자꾸 사라진다"). show() is a
+        # no-op when the item is already registered and RE-registers it when
+        # the host has come back, so re-asserting on every 30s tick keeps the
+        # icon alive across host restarts. The startup _ensure_tray_visible
+        # retry only covers the first appearance, not later host cycles.
+        try:
+            if QSystemTrayIcon.isSystemTrayAvailable():
+                tray.show()
+        except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
+            log.debug("tray re-assert failed: %s", e)
+
     def _run_in_thread(fn, success_msg: str, error_msg: str) -> None:
         """Run a pod operation in a background thread to avoid blocking UI."""
         import threading
@@ -766,10 +780,12 @@ def run_tray() -> None:
         ).start()
 
     def on_tray_activate(reason: int) -> None:
+        # Qt slot: any uncaught exception here aborts the event loop and kills
+        # the tray, so catch broadly (not just RuntimeError).
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             try:
                 launch_app(Config.load())
-            except RuntimeError as e:
+            except Exception as e:  # noqa: BLE001 -- never crash the tray
                 tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
 
     tray.activated.connect(on_tray_activate)
