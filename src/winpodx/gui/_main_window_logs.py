@@ -364,7 +364,7 @@ class LogsMixin:
 
         prompt = QLabel("❯")
         prompt.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 16px; font-weight: bold;"
+            f"background: transparent; color: {C.BLUE}; font-size: 16px; font-weight: 500;"
         )
         cmd_row.addWidget(prompt)
 

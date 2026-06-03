@@ -148,7 +148,7 @@ class InfoPageMixin:
 
         header = QLabel(tr(title))
         header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
+            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: 600;"
         )
         layout.addWidget(header)
 
@@ -192,7 +192,7 @@ class InfoPageMixin:
 
         overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
         verdict = QLabel(tr("Overall: {status}").format(status=overall.upper() or tr("UNKNOWN")))
-        verdict.setStyleSheet(f"color: {overall_color}; font-size: 13px; font-weight: bold;")
+        verdict.setStyleSheet(f"color: {overall_color}; font-size: 13px; font-weight: 500;")
         body.addWidget(verdict)
         body.addSpacing(4)
 
@@ -203,7 +203,7 @@ class InfoPageMixin:
             badge = QLabel(status.upper())
             badge.setFixedWidth(48)
             badge.setStyleSheet(
-                f"color: {color}; font-size: 11px; font-weight: bold; "
+                f"color: {color}; font-size: 11px; font-weight: 500; "
                 f"background: {rgba(color, 0.12)}; border: 1px solid {rgba(color, 0.35)}; "
                 "border-radius: 6px; padding: 2px 6px;"
             )

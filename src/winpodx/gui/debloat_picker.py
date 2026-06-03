@@ -117,7 +117,7 @@ class DebloatPickerDialog(QDialog):
 
         # --- Title + subtitle --------------------------------------------
         title = QLabel(tr("Debloat picker"))
-        title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {C.TEXT};")
+        title.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {C.TEXT};")
         outer.addWidget(title)
 
         subtitle = QLabel(
@@ -154,7 +154,7 @@ class DebloatPickerDialog(QDialog):
         preset_row = QHBoxLayout()
         preset_row.setSpacing(SPACE_L)
         preset_label = QLabel(tr("Preset:"))
-        preset_label.setStyleSheet(f"font-weight: 600; color: {C.SUBTEXT0};")
+        preset_label.setStyleSheet(f"font-weight: 500; color: {C.SUBTEXT0};")
         preset_row.addWidget(preset_label)
 
         self._preset_group = QButtonGroup(self)
@@ -210,7 +210,7 @@ class DebloatPickerDialog(QDialog):
             badge.setStyleSheet(
                 f"background: {_RISK_COLOR.get(item.risk, '#888')};"
                 f" color: {C.CRUST}; border-radius: 6px;"
-                " padding: 2px 4px; font-size: 11px; font-weight: bold;"
+                " padding: 2px 4px; font-size: 11px; font-weight: 500;"
             )
             row.addWidget(badge)
 

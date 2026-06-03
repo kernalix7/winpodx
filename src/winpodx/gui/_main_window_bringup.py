@@ -215,7 +215,7 @@ class BringUpProgressDialog(QDialog):
 
         # ----- header row (phase progress + label) -----------------------
         self.header = QLabel(tr("Starting..."))
-        self.header.setStyleSheet(f"font-size: {FONT_SUBHEAD}px; font-weight: bold;")
+        self.header.setStyleSheet(f"font-size: {FONT_SUBHEAD}px; font-weight: 600;")
         self.header.setWordWrap(True)
         layout.addWidget(self.header)
 
@@ -433,7 +433,7 @@ class BringUpProgressDialog(QDialog):
             # determinate full bar so the progress no longer reads as busy.
             self.header.setText(tr("✓ Ready"))
             self.header.setStyleSheet(
-                f"font-size: {FONT_SUBHEAD}px; font-weight: bold; color: {C.GREEN};"
+                f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.GREEN};"
             )
             self.sub_detail.setText(tr("Windows is ready — you can launch apps now."))
             self.bar.setMaximum(1)
@@ -441,7 +441,7 @@ class BringUpProgressDialog(QDialog):
         else:
             self.header.setText(tr("Bring-up did not complete"))
             self.header.setStyleSheet(
-                f"font-size: {FONT_SUBHEAD}px; font-weight: bold; color: {C.RED};"
+                f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.RED};"
             )
             self.sub_detail.setText(error_msg or tr("(no error message)"))
         self.cancel_btn.setText(tr("Close"))
@@ -496,7 +496,7 @@ class BringUpProgressDialog(QDialog):
             elif started is not None:
                 glyph.setText(">  ")
                 glyph.setStyleSheet(f"color: {C.BLUE};")
-                name.setStyleSheet("font-weight: bold;")
+                name.setStyleSheet("font-weight: 500;")
                 elapsed.setText(_format_mmss(now - started))
             else:
                 glyph.setText("   ")

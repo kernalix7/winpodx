@@ -216,7 +216,7 @@ class PodStatusMixin:
         else:
             agent_color = red
         self.agent_dot.setStyleSheet(
-            f"background: transparent; color: {agent_color}; font-size: 10px; font-weight: bold;"
+            f"background: transparent; color: {agent_color}; font-size: 10px; font-weight: 500;"
         )
         if agent_ok:
             tip = (
@@ -232,7 +232,7 @@ class PodStatusMixin:
 
         self.rdp_dot.setStyleSheet(
             f"background: transparent; color: {green if rdp_ok else red}; "
-            f"font-size: 10px; font-weight: bold;"
+            f"font-size: 10px; font-weight: 500;"
         )
         self.rdp_dot.setToolTip(
             tr("RDP port 3390 reachable")

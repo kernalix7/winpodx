@@ -64,6 +64,8 @@ from winpodx.gui.theme import (
     SPACE_L,
     SPACE_M,
     SPACE_S,
+    SPACE_XL,
+    SPACE_XXL,
     VIEW_TOGGLE,
     C,
     avatar_color,
@@ -81,11 +83,11 @@ class LibraryPageMixin:
     def _build_library_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(32, 24, 32, 20)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_L)
         layout.setSpacing(0)
 
         toolbar = QHBoxLayout()
-        toolbar.setSpacing(SPACE_M)
+        toolbar.setSpacing(SPACE_L)
 
         # Leading magnifier glyph so the box reads as a search field rather
         # than a bare input (Task 3). Kept as a sibling label — the shared
@@ -165,7 +167,7 @@ class LibraryPageMixin:
         toolbar.addWidget(add_btn)
 
         layout.addLayout(toolbar)
-        layout.addSpacing(SPACE_M)
+        layout.addSpacing(SPACE_L)
 
         self.refresh_progress = QProgressBar()
         self.refresh_progress.setRange(0, 0)  # indeterminate
@@ -179,11 +181,11 @@ class LibraryPageMixin:
         layout.addWidget(self.refresh_progress)
 
         self._category_row = QHBoxLayout()
-        self._category_row.setSpacing(6)
+        self._category_row.setSpacing(SPACE_S)
         self._category_btns: list[QPushButton] = []
         self._build_category_chips()
         layout.addLayout(self._category_row)
-        layout.addSpacing(SPACE_L)
+        layout.addSpacing(SPACE_XL)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -193,7 +195,7 @@ class LibraryPageMixin:
         self.app_list_container.setStyleSheet("background: transparent;")
         self.app_list_layout = QVBoxLayout(self.app_list_container)
         self.app_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.app_list_layout.setSpacing(0)
+        self.app_list_layout.setSpacing(SPACE_XL)
         self._refresh_hidden_button()
         self._populate_app_view(self._visible_apps())
 
@@ -344,9 +346,10 @@ class LibraryPageMixin:
     def _populate_grid(self, apps: list[AppInfo]) -> None:
         """Grid view - cards."""
         cols = 4
+        self.app_list_layout.setSpacing(SPACE_XL)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(SPACE_L)
-        grid.setVerticalSpacing(SPACE_L)
+        grid.setHorizontalSpacing(SPACE_XL)
+        grid.setVerticalSpacing(SPACE_XL)
         grid.setContentsMargins(0, 0, 0, 0)
         for col in range(cols):
             grid.setColumnStretch(col, 1)
@@ -369,7 +372,7 @@ class LibraryPageMixin:
 
     def _populate_list(self, apps: list[AppInfo]) -> None:
         """List view - horizontal tiles."""
-        self.app_list_layout.setSpacing(8)
+        self.app_list_layout.setSpacing(SPACE_M)
         for app in apps:
             self.app_list_layout.addWidget(self._make_app_tile(app))
         self.app_list_layout.addStretch()
@@ -379,13 +382,13 @@ class LibraryPageMixin:
         card = QFrame()
         card.setObjectName("appCard")
         card.setStyleSheet(APP_CARD)
-        card.setMinimumHeight(220)
-        card.setMinimumWidth(180)
-        add_shadow(card)
+        card.setMinimumHeight(238)
+        card.setMinimumWidth(188)
+        add_shadow(card, blur=12, y=2, alpha=28)
 
         vl = QVBoxLayout(card)
         vl.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
-        vl.setSpacing(0)
+        vl.setSpacing(SPACE_S)
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
@@ -400,11 +403,10 @@ class LibraryPageMixin:
             top_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
 
         vl.addLayout(top_row)
-        vl.addSpacing(SPACE_M)
 
         name_lbl = QLabel(app.full_name)
         name_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: bold;"
+            f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: 500;"
         )
         name_lbl.setWordWrap(False)
         name_lbl.setMaximumWidth(200)
@@ -430,13 +432,15 @@ class LibraryPageMixin:
         # The secondary actions (edit / hide / delete) sit on a compact row
         # beneath it.
         bottom = QVBoxLayout()
-        bottom.setSpacing(SPACE_S)
+        bottom.setSpacing(SPACE_M)
 
         launch_btn = QPushButton(tr("▶  Launch"))
         launch_btn.setStyleSheet(BTN_ACCENT)
+        launch_btn.setMinimumWidth(116)
+        launch_btn.setMaximumWidth(132)
         launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
         launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
-        bottom.addWidget(launch_btn)
+        bottom.addWidget(launch_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACE_S)
@@ -487,11 +491,11 @@ class LibraryPageMixin:
         tile = QFrame()
         tile.setObjectName("appTile")
         tile.setStyleSheet(APP_TILE)
-        tile.setMinimumHeight(72)
-        add_shadow(tile, blur=12, y=2, alpha=35)
+        tile.setMinimumHeight(86)
+        add_shadow(tile, blur=10, y=2, alpha=28)
 
         layout = QHBoxLayout(tile)
-        layout.setContentsMargins(0, 0, SPACE_L, 0)
+        layout.setContentsMargins(0, SPACE_S, SPACE_L, SPACE_S)
         layout.setSpacing(0)
 
         stripe = QFrame()
@@ -509,7 +513,7 @@ class LibraryPageMixin:
 
         name_lbl = QLabel(app.full_name)
         name_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: bold;"
+            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
         )
         name_row = QHBoxLayout()
         name_row.setContentsMargins(0, 0, 0, 0)
@@ -534,6 +538,7 @@ class LibraryPageMixin:
 
         launch_btn = QPushButton(tr("▶  Launch"))
         launch_btn.setStyleSheet(BTN_ACCENT)
+        launch_btn.setMinimumWidth(116)
         launch_btn.clicked.connect(lambda: self._launch_app(app))
         layout.addWidget(launch_btn)
         layout.addSpacing(8)

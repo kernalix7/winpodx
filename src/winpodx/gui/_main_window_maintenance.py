@@ -53,11 +53,16 @@ from winpodx.gui.theme import (
     BTN_SECONDARY,
     SCROLL_AREA,
     SPACE_L,
+    SPACE_M,
     SPACE_S,
     SPACE_XL,
     SPACE_XXL,
+    TOOL_ICON_BG,
+    TOOL_ICON_BORDER,
+    TOOL_ICON_FG,
     C,
     accent_color,
+    rgba,
 )
 
 log = logging.getLogger(__name__)
@@ -139,6 +144,8 @@ class MaintenanceMixin:
         ]
         for i, (icon, label, desc, handler) in enumerate(pod_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i))
+            if i < len(pod_tools) - 1:
+                layout.addSpacing(SPACE_M)
 
         layout.addSpacing(SPACE_XL)
 
@@ -173,6 +180,8 @@ class MaintenanceMixin:
         ]
         for i, (icon, label, desc, handler) in enumerate(sys_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
+            if i < len(sys_tools) - 1:
+                layout.addSpacing(SPACE_M)
 
         layout.addSpacing(SPACE_XL)
 
@@ -182,24 +191,26 @@ class MaintenanceMixin:
         update_row = QFrame()
         update_row.setObjectName("actionRow")
         update_row.setStyleSheet(ACTION_ROW)
-        update_row.setMinimumHeight(64)
+        update_row.setMinimumHeight(76)
         rl = QHBoxLayout(update_row)
         rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
         rl.setSpacing(SPACE_L)
 
         update_icon = QLabel("⇅")
-        update_icon.setFixedSize(36, 36)
+        update_icon.setFixedSize(38, 38)
         update_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         update_icon.setStyleSheet(
-            f"background: {accent_color(7)}; color: {C.TEXT}; border-radius: 8px; font-size: 16px;"
+            f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
+            f" border: 1px solid {TOOL_ICON_BORDER}; border-radius: 14px;"
+            f" font-size: 16px; font-weight: 500;"
         )
         rl.addWidget(update_icon)
 
         col = QVBoxLayout()
-        col.setSpacing(2)
+        col.setSpacing(4)
         lbl = QLabel(tr("Windows Update"))
         lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 600;"
+            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
         )
         col.addWidget(lbl)
         self._update_status_label = QLabel(tr("Checking..."))
@@ -247,7 +258,7 @@ class MaintenanceMixin:
         sessions_box_host = QWidget()
         self._sessions_box = QVBoxLayout(sessions_box_host)
         self._sessions_box.setContentsMargins(0, 0, 0, 0)
-        self._sessions_box.setSpacing(8)
+        self._sessions_box.setSpacing(SPACE_M)
         layout.addWidget(sessions_box_host)
 
         # Live refresh: poll while the Tools page is visible so launching or
@@ -307,16 +318,18 @@ class MaintenanceMixin:
         row = QFrame()
         row.setObjectName("actionRow")
         row.setStyleSheet(ACTION_ROW)
-        row.setMinimumHeight(56)
+        row.setMinimumHeight(68)
         rl = QHBoxLayout(row)
         rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
         rl.setSpacing(SPACE_L)
 
         icon = QLabel("▢")
-        icon.setFixedSize(36, 36)
+        icon.setFixedSize(38, 38)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
-            f"background: {accent_color(0)}; color: {C.TEXT}; border-radius: 8px; font-size: 16px;"
+            f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
+            f" border: 1px solid {TOOL_ICON_BORDER}; border-radius: 14px;"
+            f" font-size: 16px; font-weight: 500;"
         )
         rl.addWidget(icon)
 
@@ -324,7 +337,7 @@ class MaintenanceMixin:
         col.setSpacing(2)
         name = QLabel(app_name)
         name.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 600;"
+            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
         )
         col.addWidget(name)
         meta = QLabel(tr("PID {pid}").format(pid=pid))
@@ -371,28 +384,30 @@ class MaintenanceMixin:
         row = QFrame()
         row.setObjectName("actionRow")
         row.setStyleSheet(ACTION_ROW)
-        row.setMinimumHeight(64)
+        row.setMinimumHeight(76)
         row.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_shadow(row, blur=12, y=2, alpha=35)
+        add_shadow(row, blur=10, y=2, alpha=26)
 
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(SPACE_L, 0, SPACE_XL, 0)
+        rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_XL, SPACE_S)
         rl.setSpacing(SPACE_L)
 
         color = accent_color(color_idx)
         icon_circle = QLabel(icon)
-        icon_circle.setFixedSize(36, 36)
+        icon_circle.setFixedSize(38, 38)
         icon_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_circle.setStyleSheet(
-            f"background: {color}; color: {C.CRUST}; border-radius: 18px; font-size: 16px;"
+            f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
+            f" border: 1px solid {TOOL_ICON_BORDER}; border-left: 2px solid {rgba(color, 0.42)};"
+            f" border-radius: 14px; font-size: 16px; font-weight: 500;"
         )
         rl.addWidget(icon_circle)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(1)
+        text_col.setSpacing(4)
         title_lbl = QLabel(label)
         title_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: bold;"
+            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
         )
         text_col.addWidget(title_lbl)
         desc_lbl = QLabel(desc)

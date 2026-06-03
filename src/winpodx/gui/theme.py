@@ -15,8 +15,8 @@ class C:
     MAROON = "#da3633"
     PEACH = "#ffa657"
     YELLOW = "#d29922"
-    GREEN = "#3fb950"
-    TEAL = "#56d364"
+    GREEN = "#74b985"
+    TEAL = "#8ac994"
     SKY = "#79c0ff"
     SAPPHIRE = "#388bfd"
     BLUE = "#58a6ff"
@@ -57,12 +57,12 @@ def rgba(hex_color: str, alpha: float) -> str:
 # setContentsMargins.
 # --------------------------------------------------------------------------- #
 SPACE_XS = 4
-SPACE_S = 8
-SPACE_M = 12
-SPACE_L = 16
-SPACE_XL = 24
-SPACE_XXL = 32
-SPACE_XXXL = 40
+SPACE_S = 10
+SPACE_M = 14
+SPACE_L = 20
+SPACE_XL = 30
+SPACE_XXL = 40
+SPACE_XXXL = 52
 
 # Border radius scale. Match button / card / input visual weight.
 RADIUS_XS = 4  # inline chips, badges
@@ -83,9 +83,16 @@ FONT_DISPLAY = 24  # sparse page hero title
 
 CONTROL_HEIGHT = 36
 CONTROL_HEIGHT_L = 40
-CARD_BORDER = f"1px solid {C.SURFACE1}"
-CARD_BORDER_HOVER = f"1px solid {C.SURFACE2}"
+CARD_BORDER = f"1px solid {rgba(C.SURFACE2, 0.44)}"
+CARD_BORDER_HOVER = f"1px solid {rgba(C.BLUE, 0.42)}"
 FOCUS_RING = f"1px solid {C.BLUE}"
+ACCENT_GREEN = "#74b985"
+ACCENT_GREEN_HOVER = "#85c694"
+ACCENT_GREEN_PRESSED = "#669f73"
+TOOL_ACCENT = "#8aa4be"
+TOOL_ICON_BG = rgba(TOOL_ACCENT, 0.12)
+TOOL_ICON_BORDER = rgba(TOOL_ACCENT, 0.28)
+TOOL_ICON_FG = "#b8c8d7"
 
 
 _AVATAR_PALETTE = [
@@ -100,14 +107,7 @@ _AVATAR_PALETTE = [
 ]
 
 _ACCENT_PALETTE = [
-    C.BLUE,
-    C.MAUVE,
-    C.PEACH,
-    C.GREEN,
-    C.PINK,
-    C.TEAL,
-    C.SAPPHIRE,
-    C.LAVENDER,
+    TOOL_ACCENT,
 ]
 
 
@@ -117,7 +117,7 @@ def avatar_color(name: str) -> str:
 
 
 def accent_color(index: int) -> str:
-    """Rotating accent for tool icons."""
+    """Muted accent for tool icons."""
     return _ACCENT_PALETTE[index % len(_ACCENT_PALETTE)]
 
 
@@ -195,7 +195,7 @@ TAB_BTN = f"""
         color: {C.BLUE};
         border-bottom: 2px solid {C.BLUE};
         background: {rgba(C.BLUE, 0.10)};
-        font-weight: bold;
+        font-weight: 600;
     }}
 """
 
@@ -332,20 +332,19 @@ SEARCH_BAR = f"""
 # Buttons
 BTN_PRIMARY = f"""
     QPushButton {{
-        background: {C.BLUE};
+        background: {rgba(C.BLUE, 0.88)};
         color: {C.CRUST};
         font-size: 13px;
-        font-weight: bold;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+        font-weight: 500;
+        border: 1px solid {rgba(C.LAVENDER, 0.22)};
         border-radius: {RADIUS_M}px;
-        padding: 9px 20px;
+        padding: 8px 18px;
         min-height: 18px;
     }}
-    QPushButton:hover {{ background: {C.SAPPHIRE}; }}
+    QPushButton:hover {{ background: {C.BLUE}; }}
     QPushButton:pressed {{
         background: {C.SAPPHIRE};
-        border: 1px solid rgba(0, 0, 0, 0.2);
+        border: 1px solid {rgba(C.BLUE, 0.34)};
     }}
     QPushButton:disabled {{
         background: {C.SURFACE1};
@@ -356,34 +355,34 @@ BTN_PRIMARY = f"""
 
 BTN_SECONDARY = f"""
     QPushButton {{
-        background: {C.SURFACE0};
+        background: {rgba(C.SURFACE0, 0.72)};
         color: {C.TEXT};
         font-size: 13px;
-        border: 1px solid {C.SURFACE1};
+        font-weight: 400;
+        border: 1px solid {rgba(C.SURFACE2, 0.38)};
         border-radius: {RADIUS_M}px;
-        padding: 8px 16px;
+        padding: 8px 15px;
         min-height: 18px;
     }}
     QPushButton:hover {{
-        background: {C.SURFACE1};
+        background: {rgba(C.SURFACE1, 0.72)};
     }}
     QPushButton:pressed {{ background: {C.SURFACE2}; }}
 """
 
 BTN_ACCENT = f"""
     QPushButton {{
-        background: {C.GREEN};
+        background: {ACCENT_GREEN};
         color: {C.CRUST};
         font-size: 13px;
-        font-weight: bold;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+        font-weight: 500;
+        border: 1px solid {rgba(C.TEXT, 0.10)};
         border-radius: {RADIUS_M}px;
-        padding: 8px 18px;
-        min-height: 18px;
+        padding: 7px 16px;
+        min-height: 16px;
     }}
-    QPushButton:hover {{ background: {C.TEAL}; }}
-    QPushButton:pressed {{ background: {C.GREEN}; }}
+    QPushButton:hover {{ background: {ACCENT_GREEN_HOVER}; }}
+    QPushButton:pressed {{ background: {ACCENT_GREEN_PRESSED}; }}
     QPushButton:disabled {{
         background: {C.SURFACE1};
         color: {C.OVERLAY0};
@@ -396,6 +395,7 @@ BTN_DANGER = f"""
         background: transparent;
         color: {C.PEACH};
         font-size: 13px;
+        font-weight: 400;
         border: 1px solid {rgba(C.RED, 0.24)};
         border-radius: {RADIUS_M}px;
         padding: 7px 12px;
@@ -422,6 +422,7 @@ BTN_GHOST = f"""
         background: transparent;
         color: {C.SUBTEXT0};
         font-size: 12px;
+        font-weight: 400;
         border: none;
         border-radius: {RADIUS_S}px;
         padding: 7px 12px;
@@ -443,10 +444,11 @@ BTN_GHOST = f"""
 # Filter chip.
 FILTER_CHIP = f"""
     QPushButton {{
-        background: {C.SURFACE0};
+        background: {rgba(C.SURFACE0, 0.72)};
         color: {C.SUBTEXT0};
         font-size: 12px;
-        border: 1px solid {C.SURFACE1};
+        font-weight: 400;
+        border: 1px solid {rgba(C.SURFACE2, 0.36)};
         border-radius: 13px;
         padding: 5px 16px;
         min-height: 18px;
@@ -460,7 +462,7 @@ FILTER_CHIP = f"""
         color: {C.BLUE};
         border-color: {C.BLUE};
         background: {rgba(C.BLUE, 0.12)};
-        font-weight: bold;
+        font-weight: 500;
     }}
 """
 
@@ -489,52 +491,52 @@ VIEW_TOGGLE = f"""
 # App Card (grid view).
 APP_CARD = f"""
     QFrame#appCard {{
-        background: {C.SURFACE0};
-        border: 1px solid {C.SURFACE1};
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        background: {rgba(C.SURFACE0, 0.72)};
+        border: {CARD_BORDER};
+        border-top: 1px solid rgba(255, 255, 255, 0.045);
         border-radius: {RADIUS_XXL}px;
     }}
     QFrame#appCard:hover {{
-        background: {rgba(C.SURFACE1, 0.82)};
-        border-color: {C.BLUE};
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        background: {rgba(C.SURFACE1, 0.54)};
+        border: {CARD_BORDER_HOVER};
+        border-top: 1px solid rgba(255, 255, 255, 0.075);
     }}
 """
 
 # App Tile (list view).
 APP_TILE = f"""
     QFrame#appTile {{
-        background: {C.SURFACE0};
-        border: 1px solid {C.SURFACE1};
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        background: {rgba(C.SURFACE0, 0.70)};
+        border: {CARD_BORDER};
+        border-top: 1px solid rgba(255, 255, 255, 0.045);
         border-radius: {RADIUS_L}px;
     }}
     QFrame#appTile:hover {{
-        background: {rgba(C.SURFACE1, 0.82)};
-        border-color: {C.BLUE};
+        background: {rgba(C.SURFACE1, 0.52)};
+        border: {CARD_BORDER_HOVER};
     }}
 """
 
 # Tool Action Row (maintenance page).
 ACTION_ROW = f"""
     QFrame#actionRow {{
-        background: {C.SURFACE0};
-        border: 1px solid {C.SURFACE1};
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        background: {rgba(C.SURFACE0, 0.68)};
+        border: {CARD_BORDER};
+        border-top: 1px solid rgba(255, 255, 255, 0.04);
         border-radius: {RADIUS_XL}px;
     }}
     QFrame#actionRow:hover {{
-        background: {rgba(C.SURFACE1, 0.82)};
-        border-color: {C.SURFACE2};
+        background: {rgba(C.SURFACE1, 0.50)};
+        border-color: {rgba(C.SURFACE2, 0.64)};
     }}
 """
 
 # Settings Section
 SETTINGS_SECTION = f"""
     QFrame#settingsSection {{
-        background: {C.SURFACE0};
-        border: 1px solid {C.SURFACE1};
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        background: {rgba(C.SURFACE0, 0.70)};
+        border: {CARD_BORDER};
+        border-top: 1px solid rgba(255, 255, 255, 0.045);
         border-radius: {RADIUS_XXL}px;
     }}
 """
@@ -554,7 +556,7 @@ SECTION_LABEL = f"""
         background: transparent;
         color: {C.SUBTEXT0};
         font-size: {FONT_CAPTION}px;
-        font-weight: bold;
+        font-weight: 600;
         text-transform: uppercase;
     }}
 """
@@ -564,7 +566,7 @@ PAGE_TITLE = f"""
         background: transparent;
         color: {C.TEXT};
         font-size: {FONT_HERO}px;
-        font-weight: bold;
+        font-weight: 600;
     }}
 """
 
@@ -581,7 +583,7 @@ BADGE = f"""
         border-radius: {RADIUS_S}px;
         padding: 2px 7px;
         font-size: {FONT_CAPTION}px;
-        font-weight: bold;
+        font-weight: 500;
     }}
 """
 

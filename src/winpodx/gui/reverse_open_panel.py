@@ -205,7 +205,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     layout.setSpacing(SPACE_S)
 
     title = QLabel(tr("▦  Reverse File Associations"))
-    title.setStyleSheet(f"color: {C.BLUE}; font-size: 15px; font-weight: bold;")
+    title.setStyleSheet(f"color: {C.BLUE}; font-size: 15px; font-weight: 600;")
     layout.addWidget(title)
 
     sub = QLabel(tr("Linux apps appear in the Windows guest's right-click ‘Open with…’ menu."))
@@ -249,8 +249,8 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     lists_grid.setVerticalSpacing(SPACE_S)
     allow_label = QLabel(tr("Allowlist (empty = show all discovered apps)"))
     deny_label = QLabel(tr("Denylist (apps to hide)"))
-    allow_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: bold;")
-    deny_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: bold;")
+    allow_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: 500;")
+    deny_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: 500;")
     allow_list = QListWidget()
     deny_list = QListWidget()
     for slug in cfg.reverse_open.allowlist:

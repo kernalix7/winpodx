@@ -602,7 +602,7 @@ class SettingsPageMixin:
         applies_now_header = QLabel(tr("Applies immediately"))
         applies_now_header.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; "
-            f"font-size: {FONT_CAPTION}px; font-weight: bold;"
+            f"font-size: {FONT_CAPTION}px; font-weight: 500;"
         )
         layout.addWidget(applies_now_header)
         applies_now_caption = QLabel(
@@ -752,7 +752,7 @@ class SettingsPageMixin:
         header = QLabel(tr("◨  Performance Tuning"))
         header.setStyleSheet(
             f"background: transparent; color: {C.BLUE}; "
-            f"font-size: {FONT_HEADER}px; font-weight: bold;"
+            f"font-size: {FONT_HEADER}px; font-weight: 600;"
         )
         layout.addWidget(header)
 
@@ -785,7 +785,7 @@ class SettingsPageMixin:
         summary_header = QLabel(tr("Detection summary (this host)"))
         summary_header.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; "
-            f"font-size: {FONT_CAPTION}px; font-weight: bold;"
+            f"font-size: {FONT_CAPTION}px; font-weight: 500;"
         )
         layout.addWidget(summary_header)
 
@@ -836,7 +836,7 @@ class SettingsPageMixin:
         header = QLabel(title)
         header.setStyleSheet(
             f"background: transparent; color: {C.BLUE}; "
-            f"font-size: {FONT_HEADER}px; font-weight: bold;"
+            f"font-size: {FONT_HEADER}px; font-weight: 600;"
         )
         layout.addWidget(header)
 

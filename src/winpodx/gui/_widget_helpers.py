@@ -97,7 +97,7 @@ def make_source_badge(app: AppInfo) -> QLabel | None:
     badge.setStyleSheet(
         f"background: {bg}; color: {fg};"
         " border-radius: 7px;"
-        " font-size: 9px; font-weight: bold;"
+        " font-size: 9px; font-weight: 500;"
         " padding: 2px 7px;"
         " letter-spacing: 0px;"
     )
@@ -156,7 +156,7 @@ def make_app_avatar(app: AppInfo, size: int, *, radius: int, font_size: int) -> 
         f"background: {color};"
         f" color: {C.CRUST};"
         f" border-radius: {radius}px;"
-        f" font-size: {font_size}px; font-weight: bold;"
+        f" font-size: {font_size}px; font-weight: 600;"
     )
     return avatar
 
@@ -192,7 +192,7 @@ def show_toast(
         f"QLabel#winpodxToast {{"
         f" background: {C.SURFACE0}; color: {accent};"
         f" border: 1px solid {accent}; border-radius: {RADIUS_M}px;"
-        f" font-size: {FONT_BODY}px; font-weight: 600; padding: 8px 16px; }}"
+        f" font-size: {FONT_BODY}px; font-weight: 500; padding: 8px 16px; }}"
     )
     toast.adjustSize()
     add_shadow(toast, blur=18, y=4, alpha=70)
@@ -306,7 +306,7 @@ def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
     row.setContentsMargins(12, 10, 12, 10)
     row.setSpacing(10)
     icon = QLabel(glyph)
-    icon.setStyleSheet(f"color: {accent}; font-size: 15px; font-weight: bold;")
+    icon.setStyleSheet(f"color: {accent}; font-size: 15px; font-weight: 600;")
     icon.setAlignment(Qt.AlignmentFlag.AlignTop)
     row.addWidget(icon)
     label = QLabel(text)
@@ -364,8 +364,7 @@ def make_empty_panel(
     title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     title_lbl.setWordWrap(True)
     title_lbl.setStyleSheet(
-        f"background: transparent; color: {C.SUBTEXT1}; "
-        f"font-size: {FONT_BODY}px; font-weight: bold;"
+        f"background: transparent; color: {C.SUBTEXT1}; font-size: {FONT_BODY}px; font-weight: 500;"
     )
     layout.addWidget(title_lbl)
 

@@ -82,14 +82,14 @@ class AppProfileDialog(QDialog):
         self._avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._avatar.setStyleSheet(
             f"background: {color}; color: {C.CRUST};"
-            f" border-radius: 12px; font-size: 20px; font-weight: bold;"
+            f" border-radius: 12px; font-size: 20px; font-weight: 600;"
         )
         header_l.addWidget(self._avatar)
 
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title = QLabel(tr("Edit App Profile") if edit_mode else tr("New App Profile"))
-        title.setStyleSheet(f"color: {C.TEXT}; font-size: 18px; font-weight: bold;")
+        title.setStyleSheet(f"color: {C.TEXT}; font-size: 18px; font-weight: 600;")
         title_col.addWidget(title)
         sub = QLabel(tr("Define a Windows application for WinPodX"))
         sub.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 12px;")
@@ -227,7 +227,7 @@ class AppProfileDialog(QDialog):
         self._avatar.setText(letter)
         self._avatar.setStyleSheet(
             f"background: {color}; color: {C.CRUST};"
-            f" border-radius: 12px; font-size: 20px; font-weight: bold;"
+            f" border-radius: 12px; font-size: 20px; font-weight: 600;"
         )
 
     def _on_accept(self) -> None:

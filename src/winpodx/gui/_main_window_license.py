@@ -203,7 +203,7 @@ class LicensePageMixin:
         # --- Third-party acknowledgments -----------------------------------
         ack_header = QLabel(tr("Third-party components"))
         ack_header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
+            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: 600;"
         )
         layout.addWidget(ack_header)
 
@@ -231,7 +231,7 @@ class LicensePageMixin:
 
             heading = QLabel(f"{name}  ·  {license_}")
             heading.setStyleSheet(
-                f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: bold;"
+                f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: 500;"
             )
             row_layout.addWidget(heading)
 
