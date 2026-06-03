@@ -79,6 +79,31 @@ class TestListActiveSessions:
         assert len(sessions) == 0
         assert not cproc.exists()
 
+    def test_lists_live_freerdp(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        cproc = tmp_path / "Notepad.cproc"
+        cproc.write_text("4242")
+        sessions = list_active_sessions()
+        assert [(s.app_name, s.pid) for s in sessions] == [("Notepad", 4242)]
+        assert cproc.exists()
+
+    def test_keeps_live_but_unrecognized_cproc(self, tmp_path, monkeypatch):
+        # Regression: a live PID we fail to recognise as FreeRDP (a new sandbox
+        # wrapper, or an old reader meeting a newly-wrapped client) must NOT be
+        # listed -- but its .cproc must NOT be deleted either. A reader deleting
+        # a live session's tracking file was the root cause of sessions
+        # vanishing / Terminate finding nothing.
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: False)
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("4242")
+        sessions = list_active_sessions()
+        assert sessions == []
+        assert cproc.exists()  # NOT deleted -- live PID, just unrecognised
+
 
 class TestKillSession:
     def test_returns_false_no_pidfile(self, tmp_path, monkeypatch):
@@ -90,4 +115,33 @@ class TestKillSession:
         cproc = tmp_path / "dead-app.cproc"
         cproc.write_text("99999999")
         assert kill_session("dead-app") is False
+        assert not cproc.exists()
+
+    def test_signals_live_freerdp_and_removes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        signalled = {}
+        monkeypatch.setattr(
+            "winpodx.core.process.os.kill",
+            lambda pid, sig: signalled.update(pid=pid, sig=sig),
+        )
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("4242")
+        assert kill_session("app") is True
+        assert signalled["pid"] == 4242
+        assert not cproc.exists()
+
+    def test_reused_pid_not_signalled(self, tmp_path, monkeypatch):
+        # PID-reuse guard: a live PID that is NOT our FreeRDP client must never
+        # be SIGTERM'd (we'd kill an innocent process). Just drop the stale file.
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: False)
+        calls = []
+        monkeypatch.setattr("winpodx.core.process.os.kill", lambda pid, sig: calls.append(pid))
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("4242")
+        assert kill_session("app") is False
+        assert calls == []
         assert not cproc.exists()

@@ -77,6 +77,27 @@ def is_freerdp_pid(pid: int) -> bool:
     return _cmdline_is_freerdp(cmdline)
 
 
+def _pid_alive(pid: int) -> bool:
+    """True if a process with this PID currently exists (any identity).
+
+    Unlike :func:`is_freerdp_pid` this does NOT inspect the cmdline -- it is
+    the test for "is the tracked PID gone?". Keeping the two separate is
+    deliberate: a live PID we merely fail to *recognise* as FreeRDP (a new
+    sandbox wrapper, or version skew where an old reader meets a newly-wrapped
+    client) must never cause a live session's ``.cproc`` to be deleted. Only a
+    genuinely dead PID may be cleaned up.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by another uid (defensive; shouldn't happen)
+    except OSError:
+        return False
+    return True
+
+
 @dataclass
 class TrackedProcess:
     app_name: str
@@ -97,34 +118,49 @@ def list_active_sessions() -> list[TrackedProcess]:
     for f in rd.glob("*.cproc"):
         try:
             pid = int(f.read_text().strip())
-            proc = TrackedProcess(app_name=f.stem, pid=pid)
-            if proc.is_alive:
-                sessions.append(proc)
-            else:
-                f.unlink(missing_ok=True)
         except (ValueError, OSError):
-            f.unlink(missing_ok=True)
+            f.unlink(missing_ok=True)  # corrupt / unreadable -> drop
+            continue
+        proc = TrackedProcess(app_name=f.stem, pid=pid)
+        if proc.is_alive:
+            sessions.append(proc)  # live FreeRDP -> list it
+        elif not _pid_alive(pid):
+            f.unlink(missing_ok=True)  # genuinely dead -> clean up
+        # else: PID alive but not recognised as FreeRDP (PID reuse, or a
+        # wrapper this version doesn't know yet) -> keep the file, don't list.
+        # A reader must NEVER destroy a live session's tracking state; only a
+        # dead PID is cleaned up here.
     return sessions
 
 
 def kill_session(app_name: str) -> bool:
-    """Kill an active RDP session by app name."""
+    """Terminate an active RDP session by app name (SIGTERM the tracked PID)."""
     pid_file = runtime_dir() / f"{app_name}.cproc"
     if not pid_file.exists():
         return False
 
     try:
         pid = int(pid_file.read_text().strip())
-
-        # Verify it's actually a FreeRDP process before killing (PID reuse)
-        if not is_freerdp_pid(pid):
-            pid_file.unlink(missing_ok=True)
-            return False
-
-        os.kill(pid, signal.SIGTERM)
+    except (ValueError, OSError):
         pid_file.unlink(missing_ok=True)
-        return True
-    except (ValueError, ProcessLookupError, PermissionError) as e:
+        return False
+
+    if not _pid_alive(pid):
+        pid_file.unlink(missing_ok=True)  # already gone -> clean up
+        return False
+
+    # PID-reuse guard: if the live PID was recycled into something that is not
+    # our FreeRDP client, don't SIGTERM a stranger -- the real session is gone.
+    if not is_freerdp_pid(pid):
+        pid_file.unlink(missing_ok=True)
+        return False
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError) as e:
         log.warning("Failed to kill session %s: %s", app_name, e)
         pid_file.unlink(missing_ok=True)
         return False
+
+    pid_file.unlink(missing_ok=True)
+    return True
