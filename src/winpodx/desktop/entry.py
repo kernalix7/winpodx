@@ -42,10 +42,18 @@ def install_desktop_entry(app: AppInfo) -> Path:
 
     icon_name = _install_icon(app)
 
-    # wm_class must match /wm-class:{stem} in rdp.py
-    from pathlib import PureWindowsPath
+    # StartupWMClass must be byte-identical to the /wm-class token FreeRDP is
+    # given (rdp.py), or the WM can't match the RemoteApp window to this entry
+    # -- shared resolver handles UWP (AUMID slug) + wm_class_hint, not just the
+    # exe stem (a UWP exe stem like "microsoft" never matched, so Calculator &
+    # other UWP apps showed up unmatched in the taskbar).
+    from winpodx.core.rdp import resolve_wm_class
 
-    wm_class = PureWindowsPath(app.executable).stem.lower()
+    wm_class = resolve_wm_class(
+        app.executable,
+        getattr(app, "wm_class_hint", None) or None,
+        getattr(app, "launch_uri", None) or None,
+    )
 
     # Prefer the app's real description (from exe metadata / .lnk Comment /
     # UWP <Description>); fall back to the generic stamp when blank. Strip

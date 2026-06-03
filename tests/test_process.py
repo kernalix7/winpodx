@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import signal
 
 from winpodx.core.process import (
     TrackedProcess,
@@ -121,23 +122,24 @@ class TestKillSession:
         # Launched with start_new_session=True -> PGID == PID -> kill the whole
         # process group so the nested flatpak/bwrap/xfreerdp tree all dies.
         monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
-        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
         monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
         monkeypatch.setattr("winpodx.core.process.os.getpgid", lambda pid: pid)  # leader
-        grp = {}
+        monkeypatch.setattr("winpodx.core.process.time.sleep", lambda s: None)
+        # alive for the guard, then dead -> polite SIGTERM only, no SIGKILL
+        alive = iter([True, False, False])
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: next(alive, False))
+        grp = []
         monkeypatch.setattr(
-            "winpodx.core.process.os.killpg",
-            lambda pgid, sig: grp.update(pgid=pgid, sig=sig),
+            "winpodx.core.process.os.killpg", lambda pgid, sig: grp.append((pgid, sig))
         )
         called_kill = []
         monkeypatch.setattr(
-            "winpodx.core.process.os.kill",
-            lambda pid, sig: called_kill.append(pid),
+            "winpodx.core.process.os.kill", lambda pid, sig: called_kill.append(pid)
         )
         cproc = tmp_path / "app.cproc"
         cproc.write_text("4242")
         assert kill_session("app") is True
-        assert grp["pgid"] == 4242  # whole group signalled
+        assert grp == [(4242, signal.SIGTERM)]  # whole group, polite signal only
         assert called_kill == []  # not the single-PID path
         assert not cproc.exists()
 
@@ -145,24 +147,41 @@ class TestKillSession:
         # Session from an older winpodx (no start_new_session) -> PGID != PID ->
         # signal only the PID, never an unrelated group.
         monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
-        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
         monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
         monkeypatch.setattr("winpodx.core.process.os.getpgid", lambda pid: 999)  # not leader
+        monkeypatch.setattr("winpodx.core.process.time.sleep", lambda s: None)
+        alive = iter([True, False, False])
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: next(alive, False))
         killpg_calls = []
         monkeypatch.setattr(
-            "winpodx.core.process.os.killpg",
-            lambda pgid, sig: killpg_calls.append(pgid),
+            "winpodx.core.process.os.killpg", lambda pgid, sig: killpg_calls.append(pgid)
         )
         kill_calls = []
         monkeypatch.setattr(
-            "winpodx.core.process.os.kill",
-            lambda pid, sig: kill_calls.append(pid),
+            "winpodx.core.process.os.kill", lambda pid, sig: kill_calls.append((pid, sig))
         )
         cproc = tmp_path / "app.cproc"
         cproc.write_text("4242")
         assert kill_session("app") is True
-        assert kill_calls == [4242]
+        assert kill_calls == [(4242, signal.SIGTERM)]
         assert killpg_calls == []  # never group-kill a group we don't lead
+        assert not cproc.exists()
+
+    def test_escalates_to_sigkill_when_term_ignored(self, tmp_path, monkeypatch):
+        # xfreerdp ignores/hangs on SIGTERM -> escalate to SIGKILL so the window
+        # is forced down ("Terminate does nothing" / window lingers on exit).
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.os.getpgid", lambda pid: pid)
+        monkeypatch.setattr("winpodx.core.process.time.sleep", lambda s: None)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)  # never dies
+        sigs = []
+        monkeypatch.setattr("winpodx.core.process.os.killpg", lambda pgid, sig: sigs.append(sig))
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("4242")
+        assert kill_session("app") is True
+        assert signal.SIGTERM in sigs
+        assert signal.SIGKILL in sigs  # escalated
         assert not cproc.exists()
 
     def test_reused_pid_not_signalled(self, tmp_path, monkeypatch):

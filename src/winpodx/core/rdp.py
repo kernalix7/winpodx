@@ -70,6 +70,37 @@ def _uwp_fallback_wm_class(aumid: str) -> str:
     return candidate
 
 
+def resolve_wm_class(
+    app_executable: str | None,
+    wm_class_hint: str | None = None,
+    launch_uri: str | None = None,
+) -> str:
+    """The ``/wm-class`` token FreeRDP is given for this app.
+
+    SINGLE SOURCE OF TRUTH: the app's ``.desktop`` ``StartupWMClass`` must be
+    byte-identical to this, or the Linux WM can't line the RemoteApp window up
+    under the launcher icon and the app shows up as an unmatched window (no
+    taskbar grouping / icon). UWP apps (``launch_uri`` is an AUMID) have no real
+    exe path, so the exe-stem default yields a useless token (e.g. ``microsoft``
+    from ``Microsoft.WindowsCalculator_...!App``); they fall back to a slug of
+    the AUMID instead. Mirrors the resolution in ``build_rdp_command`` exactly.
+    """
+    from pathlib import PureWindowsPath
+
+    hint = (wm_class_hint or "").strip().lower()
+    if launch_uri:
+        aumid = launch_uri.strip()
+        if _is_valid_aumid(aumid):
+            if hint and _is_safe_wm_class(hint):
+                return hint
+            return _uwp_fallback_wm_class(aumid)
+    stem = PureWindowsPath(app_executable or "").stem.lower()
+    name_token = hint or stem
+    if not _is_safe_wm_class(name_token):
+        name_token = stem
+    return name_token
+
+
 @dataclass
 class RDPSession:
     app_name: str
@@ -452,9 +483,8 @@ def build_rdp_command(
         aumid = launch_uri.strip()
         if not _is_valid_aumid(aumid):
             raise RuntimeError(f"Invalid UWP AUMID: {aumid!r}")
-        wm_class = (wm_class_hint or "").strip().lower()
-        if not wm_class or not _is_safe_wm_class(wm_class):
-            wm_class = _uwp_fallback_wm_class(aumid)
+        # Single source of truth shared with the .desktop StartupWMClass.
+        wm_class = resolve_wm_class(app_executable, wm_class_hint, launch_uri)
         app_arg = (
             f"/app:program:wscript.exe,name:{wm_class},"
             f"cmd:C:\\Users\\Public\\winpodx\\launchers\\launch_uwp.vbs {aumid}"
@@ -463,12 +493,8 @@ def build_rdp_command(
         cmd.append(f"/wm-class:{wm_class}")
         cmd.append("+grab-keyboard")
     elif app_executable:
-        from pathlib import PureWindowsPath
-
-        stem = PureWindowsPath(app_executable).stem.lower()
-        name_token = (wm_class_hint or "").strip().lower() or stem
-        if not _is_safe_wm_class(name_token):
-            name_token = stem
+        # Single source of truth shared with the .desktop StartupWMClass.
+        name_token = resolve_wm_class(app_executable, wm_class_hint, launch_uri)
         # FreeRDP's RemoteApp syntax is incompatible between major
         # versions and we have to branch:
         #

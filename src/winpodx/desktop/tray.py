@@ -249,7 +249,16 @@ def run_tray() -> None:
             log.warning("Failed to get pod status: %s", e)
             status_action.setText(tr("Pod: error"))
 
-        active = list_active_sessions()
+        # Must not raise: refresh_status is a QTimer slot (30s tick) -- an
+        # uncaught exception propagates out of the Qt event loop and aborts
+        # app.exec(), so the tray icon appears at launch then silently vanishes
+        # on the first tick. list_active_sessions() globs + reads + os.kill()s
+        # and can raise OSError, so guard it (mirrors _rebuild_sessions_menu).
+        try:
+            active = list_active_sessions()
+        except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
+            log.warning("Failed to list active sessions: %s", e)
+            active = []
         sessions_action.setText(tr("Sessions: {n}").format(n=len(active)))
 
     def _run_in_thread(fn, success_msg: str, error_msg: str) -> None:
@@ -626,19 +635,25 @@ def run_tray() -> None:
     tray_retry = {"left": 30}  # ~60 s at a 2 s cadence
 
     def _ensure_tray_visible() -> None:
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            tray.show()  # re-register with the now-present host
+        # QTimer slot: must not raise, or the exception aborts the event loop
+        # and kills the tray we're trying to keep alive.
+        try:
+            if QSystemTrayIcon.isSystemTrayAvailable():
+                tray.show()  # re-register with the now-present host
+                tray_retry_timer.stop()
+                log.info("system-tray host appeared; tray icon shown.")
+                return
+            tray_retry["left"] -= 1
+            if tray_retry["left"] <= 0:
+                tray_retry_timer.stop()
+                log.warning(
+                    "no system-tray host after 60 s; this DE may lack a tray "
+                    "(stock GNOME needs the AppIndicator extension). Use "
+                    "`winpodx gui` for the dashboard instead."
+                )
+        except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
+            log.warning("tray visibility retry failed: %s", e)
             tray_retry_timer.stop()
-            log.info("system-tray host appeared; tray icon shown.")
-            return
-        tray_retry["left"] -= 1
-        if tray_retry["left"] <= 0:
-            tray_retry_timer.stop()
-            log.warning(
-                "no system-tray host after 60 s; this DE may lack a tray "
-                "(stock GNOME needs the AppIndicator extension). Use "
-                "`winpodx gui` for the dashboard instead."
-            )
 
     tray_retry_timer = QTimer()
     tray_retry_timer.timeout.connect(_ensure_tray_visible)
