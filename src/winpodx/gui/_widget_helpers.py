@@ -47,6 +47,7 @@ from winpodx.gui.theme import (
     SPACE_M,
     SPACE_S,
     SPACE_XL,
+    SPACE_XS,
     C,
     avatar_color,
 )
@@ -317,11 +318,11 @@ def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
 
 
 def make_page_heading(title: str, subtitle: str = "") -> QWidget:
-    """Build a consistent page title/subtitle block."""
+    """Build a title/subtitle block for use inside a page header."""
     holder = QWidget()
     layout = QVBoxLayout(holder)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(SPACE_S)
+    layout.setSpacing(SPACE_XS)
 
     title_lbl = QLabel(title)
     title_lbl.setStyleSheet(PAGE_TITLE)
@@ -334,6 +335,25 @@ def make_page_heading(title: str, subtitle: str = "") -> QWidget:
         layout.addWidget(subtitle_lbl)
 
     return holder
+
+
+def make_page_header(
+    title: str,
+    subtitle: str = "",
+    *,
+    actions_widget: QWidget | None = None,
+) -> QWidget:
+    """Build the shared page header with optional right-aligned actions."""
+    header = QWidget()
+    layout = QHBoxLayout(header)
+    layout.setContentsMargins(0, 16, 0, 0)
+    layout.setSpacing(16)
+
+    layout.addWidget(make_page_heading(title, subtitle), 1, Qt.AlignmentFlag.AlignTop)
+    if actions_widget is not None:
+        layout.addWidget(actions_widget, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+
+    return header
 
 
 def make_section_label(text: str) -> QLabel:

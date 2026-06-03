@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +48,7 @@ from winpodx.gui._widget_helpers import (
     add_shadow,
     make_app_avatar,
     make_empty_panel,
+    make_page_header,
     make_source_badge,
 )
 from winpodx.gui.theme import (
@@ -58,7 +60,6 @@ from winpodx.gui.theme import (
     BTN_PRIMARY,
     BTN_SECONDARY,
     FILTER_CHIP,
-    FONT_CAPTION,
     SCROLL_AREA,
     SEARCH_BAR,
     SPACE_L,
@@ -83,20 +84,18 @@ class LibraryPageMixin:
     def _build_library_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_L)
-        layout.setSpacing(0)
+        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_L)
+        layout.setSpacing(SPACE_M)
+
+        apps_title = self.nav_buttons[0].text() if hasattr(self, "nav_buttons") else "Apps"
+        layout.addWidget(make_page_header(apps_title))
 
         toolbar = QHBoxLayout()
-        toolbar.setSpacing(SPACE_L)
+        toolbar.setSpacing(16)
 
-        # Leading magnifier glyph so the box reads as a search field rather
-        # than a bare input (Task 3). Kept as a sibling label — the shared
-        # SEARCH_BAR stylesheet already pads room on the left.
-        search_icon = QLabel("\U0001f50d")  # magnifying glass
-        search_icon.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
-        )
-        toolbar.addWidget(search_icon)
+        left_group = QHBoxLayout()
+        left_group.setContentsMargins(0, 0, 0, 0)
+        left_group.setSpacing(8)
 
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText(tr("Search apps by name..."))
@@ -104,9 +103,7 @@ class LibraryPageMixin:
         self.search_box.setFixedWidth(340)
         self.search_box.setClearButtonEnabled(True)
         self.search_box.textChanged.connect(self._filter_apps)
-        toolbar.addWidget(self.search_box)
-
-        toolbar.addStretch()
+        left_group.addWidget(self.search_box)
 
         self.app_count_label = QLabel(
             tr("{shown} of {total} apps").format(shown=len(self.apps), total=len(self.apps))
@@ -114,8 +111,11 @@ class LibraryPageMixin:
         self.app_count_label.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;"
         )
-        toolbar.addWidget(self.app_count_label)
-        toolbar.addSpacing(4)
+        left_group.addWidget(self.app_count_label)
+
+        right_group = QHBoxLayout()
+        right_group.setContentsMargins(0, 0, 0, 0)
+        right_group.setSpacing(8)
 
         toggle_wrap = QWidget()
         toggle_wrap.setStyleSheet(VIEW_TOGGLE)
@@ -135,16 +135,14 @@ class LibraryPageMixin:
         self.btn_list.setToolTip(tr("List view"))
         self.btn_list.clicked.connect(lambda: self._set_view("list"))
         tgl.addWidget(self.btn_list)
-        toolbar.addWidget(toggle_wrap)
-        toolbar.addSpacing(SPACE_S)
+        right_group.addWidget(toggle_wrap)
 
         self.refresh_btn = QPushButton(tr("Refresh Apps"))
         self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
         self.refresh_btn.setStyleSheet(BTN_GHOST)
         self.refresh_btn.setToolTip(tr("Scan the running pod for installed Windows apps"))
         self.refresh_btn.clicked.connect(self._on_refresh_apps)
-        toolbar.addWidget(self.refresh_btn)
-        toolbar.addSpacing(SPACE_S)
+        right_group.addWidget(self.refresh_btn)
 
         # Hybrid filter UX — hidden apps (system shims auto-filtered by the
         # noise denylist, plus anything the user manually hid) collapse by
@@ -158,16 +156,17 @@ class LibraryPageMixin:
             tr("Show apps filtered by the noise denylist or manually hidden")
         )
         self.btn_show_hidden.clicked.connect(self._on_toggle_hidden)
-        toolbar.addWidget(self.btn_show_hidden)
-        toolbar.addSpacing(SPACE_S)
+        right_group.addWidget(self.btn_show_hidden)
 
         add_btn = QPushButton(tr("+  Add App"))
         add_btn.setStyleSheet(BTN_PRIMARY)
         add_btn.clicked.connect(self._on_add_app)
-        toolbar.addWidget(add_btn)
+        right_group.addWidget(add_btn)
+
+        toolbar.addLayout(left_group, 1)
+        toolbar.addLayout(right_group, 0)
 
         layout.addLayout(toolbar)
-        layout.addSpacing(SPACE_L)
 
         self.refresh_progress = QProgressBar()
         self.refresh_progress.setRange(0, 0)  # indeterminate
@@ -180,12 +179,13 @@ class LibraryPageMixin:
         )
         layout.addWidget(self.refresh_progress)
 
-        self._category_row = QHBoxLayout()
-        self._category_row.setSpacing(SPACE_S)
+        category_wrap = QWidget()
+        self._category_row = QHBoxLayout(category_wrap)
+        self._category_row.setContentsMargins(0, SPACE_S, 0, 0)
+        self._category_row.setSpacing(8)
         self._category_btns: list[QPushButton] = []
         self._build_category_chips()
-        layout.addLayout(self._category_row)
-        layout.addSpacing(SPACE_XL)
+        layout.addWidget(category_wrap)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -378,25 +378,58 @@ class LibraryPageMixin:
         self.app_list_layout.addStretch()
 
     def _make_app_card(self, app: AppInfo) -> QWidget:
-        """Grid card with large avatar, name, and launch."""
+        """Grid card with compact app identity, status, and launch footer."""
         card = QFrame()
         card.setObjectName("appCard")
         card.setStyleSheet(APP_CARD)
-        card.setMinimumHeight(238)
         card.setMinimumWidth(188)
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         add_shadow(card, blur=12, y=2, alpha=28)
 
         vl = QVBoxLayout(card)
         vl.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
-        vl.setSpacing(SPACE_S)
+        vl.setSpacing(SPACE_M)
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(0)
+        top_row.setSpacing(SPACE_M)
 
-        avatar = make_app_avatar(app, size=52, radius=14, font_size=22)
+        avatar = make_app_avatar(app, size=44, radius=12, font_size=19)
         top_row.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
-        top_row.addStretch()
+
+        identity = QVBoxLayout()
+        identity.setContentsMargins(0, 0, 0, 0)
+        identity.setSpacing(4)
+
+        name_lbl = QLabel(app.full_name)
+        name_lbl.setStyleSheet(
+            f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: 500;"
+        )
+        name_lbl.setWordWrap(False)
+        name_lbl.setMaximumWidth(156)
+        fm = name_lbl.fontMetrics()
+        elided = fm.elidedText(app.full_name, Qt.TextElideMode.ElideRight, 156)
+        name_lbl.setText(elided)
+        name_lbl.setToolTip(app.full_name)
+        identity.addWidget(name_lbl)
+
+        meta_parts = []
+        if app.categories:
+            meta_parts.append(", ".join(app.categories[:2]))
+        meta_parts.append(app.name)
+        if app.hidden:
+            meta_parts.append(tr("Hidden"))
+        meta_lbl = QLabel(" • ".join(meta_parts))
+        meta_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
+        meta_lbl.setWordWrap(False)
+        meta_lbl.setMaximumWidth(156)
+        meta_elided = meta_lbl.fontMetrics().elidedText(
+            meta_lbl.text(), Qt.TextElideMode.ElideRight, 156
+        )
+        meta_lbl.setText(meta_elided)
+        identity.addWidget(meta_lbl)
+
+        top_row.addLayout(identity, 1)
 
         badge = make_source_badge(app)
         if badge is not None:
@@ -404,84 +437,54 @@ class LibraryPageMixin:
 
         vl.addLayout(top_row)
 
-        name_lbl = QLabel(app.full_name)
-        name_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: 500;"
-        )
-        name_lbl.setWordWrap(False)
-        name_lbl.setMaximumWidth(200)
-        fm = name_lbl.fontMetrics()
-        elided = fm.elidedText(app.full_name, Qt.TextElideMode.ElideRight, 200)
-        name_lbl.setText(elided)
-        name_lbl.setToolTip(app.full_name)
-        vl.addWidget(name_lbl)
-
-        cat_text = app.categories[0] if app.categories else ""
-        if cat_text:
-            cat_lbl = QLabel(cat_text)
-            cat_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-            vl.addWidget(cat_lbl)
-        vl.addStretch()
-
-        # Unified affordances with the list view (Task 2): a labeled
-        # "▶ Launch" button, a text Show/Hide toggle, and the same
-        # confirmed delete. Edit stays a compact "⋯" to keep the narrow
-        # card uncluttered.
-        # Launch is the primary action and gets its own full-width row so
-        # the "▶  Launch" label is never clipped in a narrow 4-column card.
-        # The secondary actions (edit / hide / delete) sit on a compact row
-        # beneath it.
-        bottom = QVBoxLayout()
-        bottom.setSpacing(SPACE_M)
-
         launch_btn = QPushButton(tr("▶  Launch"))
         launch_btn.setStyleSheet(BTN_ACCENT)
-        launch_btn.setMinimumWidth(116)
-        launch_btn.setMaximumWidth(132)
+        launch_btn.setMinimumWidth(118)
         launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
         launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
-        bottom.addWidget(launch_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
-        actions = QHBoxLayout()
-        actions.setSpacing(SPACE_S)
-
-        edit_btn = QPushButton("⋯")
-        edit_btn.setFixedSize(28, 28)
-        edit_btn.setToolTip(tr("Edit"))
-        edit_btn.setStyleSheet(
+        more_btn = QPushButton("⋯")
+        more_btn.setFixedSize(30, 30)
+        more_btn.setToolTip(tr("Edit"))
+        more_btn.setStyleSheet(
             f"""
             QPushButton {{
                 background: transparent;
                 color: {C.OVERLAY0};
                 border: none;
-                border-radius: 14px;
+                border-radius: 15px;
                 font-size: 16px;
             }}
             QPushButton:hover {{
                 color: {C.TEXT};
                 background: {C.SURFACE1};
             }}
+            QPushButton::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
             """
         )
-        edit_btn.clicked.connect(lambda _, a=app: self._on_edit_app(a))
-        actions.addWidget(edit_btn)
 
-        hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
-        hide_btn.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
-        hide_btn.setStyleSheet(BTN_SECONDARY)
-        hide_btn.clicked.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
-        actions.addWidget(hide_btn)
-        actions.addStretch()
+        menu = QMenu(more_btn)
+        edit_action = menu.addAction(tr("Edit"))
+        edit_action.triggered.connect(lambda _, a=app: self._on_edit_app(a))
 
-        del_btn = QPushButton("✕")
-        del_btn.setFixedSize(28, 28)
-        del_btn.setToolTip(tr("Delete"))
-        del_btn.setStyleSheet(BTN_DANGER)
-        del_btn.clicked.connect(lambda _, a=app: self._on_delete_app(a))
-        actions.addWidget(del_btn)
+        hide_action = menu.addAction(tr("Show") if app.hidden else tr("Hide"))
+        hide_action.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
+        hide_action.triggered.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
 
-        bottom.addLayout(actions)
-        vl.addLayout(bottom)
+        delete_action = menu.addAction(tr("Delete"))
+        delete_action.triggered.connect(lambda _, a=app: self._on_delete_app(a))
+        more_btn.setMenu(menu)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(SPACE_S)
+        footer.addWidget(launch_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        footer.addStretch()
+        footer.addWidget(more_btn, 0, Qt.AlignmentFlag.AlignRight)
+        vl.addLayout(footer)
         return card
 
     def _make_app_tile(self, app: AppInfo) -> QWidget:

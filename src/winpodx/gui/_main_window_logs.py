@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import make_page_heading
+from winpodx.gui._widget_helpers import make_page_header
 from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
@@ -256,13 +256,13 @@ class LogsMixin:
     def _build_logs_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
         layout.setSpacing(SPACE_M)
 
-        header = QHBoxLayout()
-        header.setSpacing(SPACE_S)
-        header.addWidget(make_page_heading(tr("Terminal")))
-        header.addSpacing(SPACE_M)
+        actions = QWidget()
+        actions_l = QHBoxLayout(actions)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(SPACE_S)
 
         # Log level dropdown — changes both what gets written to
         # ``~/.config/winpodx/winpodx.log`` (which the "Live (app)"
@@ -273,7 +273,7 @@ class LogsMixin:
         # when triaging an "agent not ready" / "starting" stuck state).
         level_label = QLabel(tr("Log level:"))
         level_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;")
-        header.addWidget(level_label)
+        actions_l.addWidget(level_label)
         self.input_log_level = QComboBox()
         self.input_log_level.setStyleSheet(COMBO)
         self.input_log_level.setFixedWidth(140)
@@ -308,8 +308,7 @@ class LogsMixin:
             )
         )
         self.input_log_level.currentIndexChanged.connect(self._on_log_level_changed)
-        header.addWidget(self.input_log_level)
-        header.addStretch()
+        actions_l.addWidget(self.input_log_level)
 
         # Route container name through cfg so renamed pods still work.
         # v0.5.1: dropped the "Live (app)" / "Live (pod)" / "Stop tail"
@@ -349,10 +348,9 @@ class LogsMixin:
                 btn.clicked.connect(self._on_tail_app_log)
             else:
                 btn.clicked.connect(lambda _, c=cmd: self._run_log_cmd(c))
-            header.addWidget(btn)
+            actions_l.addWidget(btn)
 
-        layout.addLayout(header)
-        layout.addSpacing(SPACE_S)
+        layout.addWidget(make_page_header(tr("Terminal"), actions_widget=actions))
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)

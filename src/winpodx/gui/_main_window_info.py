@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_empty_panel, make_page_heading
+from winpodx.gui._widget_helpers import add_shadow, make_empty_panel, make_page_header
 from winpodx.gui.theme import (
     BTN_GHOST,
     SCROLL_AREA,
@@ -86,19 +86,14 @@ class InfoPageMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XXL)
+        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XXL)
         layout.setSpacing(SPACE_L)
-
-        header = QHBoxLayout()
-        header.addWidget(make_page_heading(tr("Info")))
-        header.addStretch()
 
         refresh_btn = QPushButton(tr("Refresh Info"))
         refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
         refresh_btn.setStyleSheet(BTN_GHOST)
         refresh_btn.clicked.connect(self._refresh_info)
-        header.addWidget(refresh_btn)
-        layout.addLayout(header)
+        layout.addWidget(make_page_header(tr("Info"), actions_widget=refresh_btn))
 
         # Containers for the 5 cards. Initial population goes through
         # _refresh_info which dispatches a worker thread; until that thread

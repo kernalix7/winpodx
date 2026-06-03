@@ -42,7 +42,7 @@ from winpodx.gui._widget_helpers import (
     BusyDialog,
     add_shadow,
     make_empty_panel,
-    make_page_heading,
+    make_page_header,
     make_section_label,
     make_warning_callout,
 )
@@ -126,12 +126,10 @@ class MaintenanceMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
         layout.setSpacing(0)
 
-        layout.addWidget(
-            make_page_heading(tr("Tools"), tr("System maintenance and pod management"))
-        )
+        layout.addWidget(make_page_header(tr("Tools"), tr("System maintenance and pod management")))
         layout.addSpacing(SPACE_XL)
 
         layout.addWidget(make_section_label(tr("Pod Management")))

@@ -154,8 +154,8 @@ class WinpodxWindow(
         self.pages.addWidget(self._build_maintenance_page())
         self.pages.addWidget(self._build_logs_page())
         self.pages.addWidget(self._build_info_page())
-        self.pages.addWidget(self._build_license_page())
         self.pages.addWidget(self._build_devices_page())
+        self.pages.addWidget(self._build_license_page())
         root.addWidget(self.pages)
 
         root.addWidget(self._build_info_bar())

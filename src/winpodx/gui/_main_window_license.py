@@ -29,14 +29,13 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_page_heading
+from winpodx.gui._widget_helpers import add_shadow, make_page_header
 from winpodx.gui.theme import (
     SCROLL_AREA,
     SETTINGS_SECTION,
     SPACE_L,
     SPACE_M,
     SPACE_S,
-    SPACE_XL,
     SPACE_XXL,
     TERMINAL,
     C,
@@ -176,12 +175,12 @@ class LicensePageMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XXL)
+        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XXL)
         layout.setSpacing(SPACE_M)
 
         # --- License title -------------------------------------------------
         layout.addWidget(
-            make_page_heading(
+            make_page_header(
                 tr("License"),
                 tr(
                     "WinPodX is MIT-licensed open source. See LICENSE in the source "

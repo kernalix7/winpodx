@@ -39,7 +39,7 @@ from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import (
     add_shadow,
     make_empty_panel,
-    make_page_heading,
+    make_page_header,
     make_warning_callout,
     show_toast,
 )
@@ -88,33 +88,36 @@ class DevicesMixin:
     def _build_devices_page(self) -> QWidget:
         page = QWidget()
         outer = QVBoxLayout(page)
-        outer.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        outer.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
         outer.setSpacing(SPACE_M)
 
-        outer.addWidget(
-            make_page_heading(
-                tr("Devices"),
-                tr(
-                    "Pass host USB / PCI devices through to the Windows guest. "
-                    "USB hot-plugs live; PCI needs a guest restart and confirmation."
-                ),
-            )
-        )
-
-        bar = QHBoxLayout()
-        bar.setSpacing(SPACE_M)
         refresh = QPushButton(tr("Refresh"))
         refresh.setStyleSheet(BTN_SECONDARY)
         refresh.clicked.connect(self._render_devices)
-        bar.addWidget(refresh)
         self._devices_status = QLabel("")
         self._devices_status.setStyleSheet(
             f"color: {C.SUBTEXT1}; font-size: 12px; "
             f"background: {C.SURFACE0}; border: 1px solid {C.SURFACE1}; "
             "border-radius: 8px; padding: 7px 10px;"
         )
-        bar.addWidget(self._devices_status, 1)
-        outer.addLayout(bar)
+
+        actions = QWidget()
+        actions_l = QHBoxLayout(actions)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(8)
+        actions_l.addWidget(self._devices_status)
+        actions_l.addWidget(refresh)
+
+        outer.addWidget(
+            make_page_header(
+                tr("Devices"),
+                tr(
+                    "Pass host USB / PCI devices through to the Windows guest. "
+                    "USB hot-plugs live; PCI needs a guest restart and confirmation."
+                ),
+                actions_widget=actions,
+            )
+        )
 
         columns = QHBoxLayout()
         columns.setSpacing(SPACE_L)

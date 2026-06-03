@@ -565,8 +565,8 @@ PAGE_TITLE = f"""
     QLabel {{
         background: transparent;
         color: {C.TEXT};
-        font-size: {FONT_HERO}px;
-        font-weight: 600;
+        font-size: 20pt;
+        font-weight: 700;
     }}
 """
 
@@ -574,7 +574,8 @@ PAGE_SUBTITLE = f"""
     QLabel {{
         background: transparent;
         color: {C.OVERLAY0};
-        font-size: {FONT_BODY}px;
+        font-size: 11pt;
+        font-weight: 400;
     }}
 """
 
