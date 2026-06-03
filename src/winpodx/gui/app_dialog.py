@@ -21,10 +21,14 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.i18n import tr
 from winpodx.gui.theme import (
-    BTN_GHOST,
     BTN_PRIMARY,
+    BTN_SECONDARY,
+    DIALOG,
     FONT_CAPTION,
     INPUT,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
     C,
     avatar_color,
 )
@@ -49,14 +53,17 @@ class AppProfileDialog(QDialog):
         super().__init__(parent)
         self.edit_mode = edit_mode
         self.setWindowTitle(tr("Edit App") if edit_mode else tr("Add App"))
-        # Taller than before to fit the per-field helper text + the inline
-        # validation message added in the GUI UX overhaul.
-        self.setFixedSize(580, 540)
-        self.setStyleSheet(f"""
-            QDialog {{ background: {C.MANTLE}; }}
+        # Minimum size keeps the default compact, while allowing translations
+        # and long helper text to breathe instead of clipping.
+        self.setMinimumSize(580, 540)
+        self.resize(600, 560)
+        self.setStyleSheet(
+            DIALOG
+            + f"""
             QLabel {{ color: {C.TEXT}; font-size: 13px; }}
             {INPUT}
-        """)
+        """
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -67,7 +74,7 @@ class AppProfileDialog(QDialog):
         header.setStyleSheet(f"background: {C.CRUST}; border-bottom: 3px solid {color};")
         header_l = QHBoxLayout(header)
         header_l.setContentsMargins(28, 20, 28, 20)
-        header_l.setSpacing(16)
+        header_l.setSpacing(SPACE_L)
 
         letter = (full_name or name or "?")[0].upper()
         self._avatar = QLabel(letter)
@@ -95,11 +102,11 @@ class AppProfileDialog(QDialog):
         body = QWidget()
         body_l = QVBoxLayout(body)
         body_l.setContentsMargins(28, 24, 28, 24)
-        body_l.setSpacing(8)
+        body_l.setSpacing(SPACE_S)
 
         form = QGridLayout()
-        form.setVerticalSpacing(10)
-        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(SPACE_M)
+        form.setHorizontalSpacing(SPACE_L)
 
         self.input_name = QLineEdit(name)
         self.input_name.setPlaceholderText(tr("e.g. photoshop"))
@@ -171,7 +178,7 @@ class AppProfileDialog(QDialog):
         btn_row.addStretch()
 
         cancel = QPushButton(tr("Cancel"))
-        cancel.setStyleSheet(BTN_GHOST)
+        cancel.setStyleSheet(BTN_SECONDARY)
         cancel.clicked.connect(self._on_cancel)
         btn_row.addWidget(cancel)
 

@@ -35,7 +35,19 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui.theme import BTN_GHOST, BTN_PRIMARY, COMBO, TERMINAL, C
+from winpodx.gui._widget_helpers import make_page_heading
+from winpodx.gui.theme import (
+    BTN_GHOST,
+    BTN_PRIMARY,
+    COMBO,
+    INPUT,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XL,
+    SPACE_XXL,
+    TERMINAL,
+    C,
+)
 
 log = logging.getLogger(__name__)
 
@@ -244,15 +256,13 @@ class LogsMixin:
     def _build_logs_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(32, 28, 32, 20)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        layout.setSpacing(SPACE_M)
 
         header = QHBoxLayout()
-        title = QLabel(tr("Terminal"))
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        header.addWidget(title)
-        header.addSpacing(16)
+        header.setSpacing(SPACE_S)
+        header.addWidget(make_page_heading(tr("Terminal")))
+        header.addSpacing(SPACE_M)
 
         # Log level dropdown — changes both what gets written to
         # ``~/.config/winpodx/winpodx.log`` (which the "Live (app)"
@@ -342,7 +352,7 @@ class LogsMixin:
             header.addWidget(btn)
 
         layout.addLayout(header)
-        layout.addSpacing(10)
+        layout.addSpacing(SPACE_S)
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
@@ -350,7 +360,7 @@ class LogsMixin:
         layout.addWidget(self.log_output)
 
         cmd_row = QHBoxLayout()
-        cmd_row.setSpacing(8)
+        cmd_row.setSpacing(SPACE_S)
 
         prompt = QLabel("❯")
         prompt.setStyleSheet(
@@ -364,7 +374,9 @@ class LogsMixin:
                 container=self.cfg.pod.container_name
             )
         )
-        self.cmd_input.setStyleSheet(f"""
+        self.cmd_input.setStyleSheet(
+            INPUT
+            + f"""
             QLineEdit {{
                 background: {C.CRUST}; color: {C.TEXT};
                 border: 1px solid {C.SURFACE0}; border-radius: 8px;
@@ -373,7 +385,8 @@ class LogsMixin:
                 font-size: 13px;
             }}
             QLineEdit:focus {{ border-color: {C.BLUE}; }}
-        """)
+        """
+        )
         self.cmd_input.returnPressed.connect(self._on_cmd_enter)
         cmd_row.addWidget(self.cmd_input)
 

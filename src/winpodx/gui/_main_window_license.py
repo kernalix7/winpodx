@@ -29,7 +29,18 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui.theme import SCROLL_AREA, TERMINAL, C
+from winpodx.gui._widget_helpers import add_shadow, make_page_heading
+from winpodx.gui.theme import (
+    SCROLL_AREA,
+    SETTINGS_SECTION,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XL,
+    SPACE_XXL,
+    TERMINAL,
+    C,
+)
 from winpodx.utils.paths import bundle_dir
 
 log = logging.getLogger(__name__)
@@ -165,25 +176,20 @@ class LicensePageMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 32)
-        layout.setSpacing(14)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XXL)
+        layout.setSpacing(SPACE_M)
 
         # --- License title -------------------------------------------------
-        title = QLabel(tr("License"))
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        layout.addWidget(title)
-
-        subtitle = QLabel(
-            tr(
-                "WinPodX is MIT-licensed open source. See LICENSE in the source "
-                "tree for the canonical text."
+        layout.addWidget(
+            make_page_heading(
+                tr("License"),
+                tr(
+                    "WinPodX is MIT-licensed open source. See LICENSE in the source "
+                    "tree for the canonical text."
+                ),
             )
         )
-        subtitle.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
-        subtitle.setWordWrap(True)
-        layout.addWidget(subtitle)
+        layout.addSpacing(SPACE_S)
 
         # --- MIT license text ----------------------------------------------
         license_text = self._read_license_text()
@@ -197,8 +203,7 @@ class LicensePageMixin:
         # --- Third-party acknowledgments -----------------------------------
         ack_header = QLabel(tr("Third-party components"))
         ack_header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE};"
-            " font-size: 15px; font-weight: bold; padding-top: 8px;"
+            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: bold;"
         )
         layout.addWidget(ack_header)
 
@@ -217,10 +222,12 @@ class LicensePageMixin:
 
         for name, license_, purpose, url in _THIRD_PARTY_ACK:
             row = QFrame()
-            row.setStyleSheet(f"background: {C.SURFACE0}; border-radius: 6px; padding: 8px;")
+            row.setObjectName("settingsSection")
+            row.setStyleSheet(SETTINGS_SECTION)
+            add_shadow(row, blur=10, y=1, alpha=28)
             row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(12, 8, 12, 8)
-            row_layout.setSpacing(2)
+            row_layout.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
+            row_layout.setSpacing(SPACE_S)
 
             heading = QLabel(f"{name}  ·  {license_}")
             heading.setStyleSheet(

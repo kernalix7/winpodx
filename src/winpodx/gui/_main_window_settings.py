@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -38,14 +39,14 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_warning_callout
+from winpodx.gui._widget_helpers import add_shadow, make_page_heading, make_warning_callout
 from winpodx.gui.theme import (
     BTN_PRIMARY,
+    CHECKBOX,
     COMBO,
     FONT_BODY,
     FONT_CAPTION,
     FONT_HEADER,
-    FONT_HERO,
     INPUT,
     RADIUS_S,
     SCROLL_AREA,
@@ -201,20 +202,11 @@ class SettingsPageMixin:
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        layout.setSpacing(SPACE_M)
 
-        title = QLabel(tr("Settings"))
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; "
-            f"font-size: {FONT_HERO}px; font-weight: bold;"
+        layout.addWidget(
+            make_page_heading(tr("Settings"), tr("Configure RDP and container settings"))
         )
-        layout.addWidget(title)
-
-        sub = QLabel(tr("Configure RDP and container settings"))
-        sub.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_BODY}px;"
-        )
-        layout.addWidget(sub)
-        layout.addSpacing(SPACE_S)
 
         cols = QHBoxLayout()
         cols.setSpacing(SPACE_L)
@@ -637,6 +629,7 @@ class SettingsPageMixin:
             tr("Start the Windows pod at login (launches the tray + boots the pod)")
         )
         self.checkbox_autostart_tray.setChecked(is_autostart_enabled())
+        self.checkbox_autostart_tray.setStyleSheet(CHECKBOX)
 
         def _on_autostart_toggled(checked: bool) -> None:
             # Apply immediately — no Save Settings click needed. Unified
@@ -670,6 +663,7 @@ class SettingsPageMixin:
         lang_row = QHBoxLayout()
         lang_row.addWidget(QLabel(tr("WinPodX UI language")))
         self.input_ui_language = QComboBox()
+        self.input_ui_language.setStyleSheet(COMBO)
         for code in _UI_LANGUAGES:
             self.input_ui_language.addItem(_LANG_LABELS.get(code, code), code)
         cur = self.cfg.ui.language if self.cfg.ui.language in _UI_LANGUAGES else "auto"
@@ -777,11 +771,12 @@ class SettingsPageMixin:
         form = QGridLayout()
         form.setVerticalSpacing(SPACE_S + 2)
         form.setHorizontalSpacing(SPACE_M)
+        form.setColumnMinimumWidth(0, 150)
         lbl = QLabel(tr("Profile"))
         lbl.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
         )
-        form.addWidget(lbl, 0, 0)
+        form.addWidget(lbl, 0, 0, alignment=Qt.AlignmentFlag.AlignRight)
         form.addWidget(profile_combo, 0, 1)
         layout.addLayout(form)
 
@@ -860,13 +855,14 @@ class SettingsPageMixin:
         form = QGridLayout()
         form.setVerticalSpacing(SPACE_S + 2)
         form.setHorizontalSpacing(SPACE_M)
+        form.setColumnMinimumWidth(0, 150)
 
         for row, (label, widget) in enumerate(fields):
             lbl = QLabel(label)
             lbl.setStyleSheet(
                 f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
             )
-            form.addWidget(lbl, row, 0)
+            form.addWidget(lbl, row, 0, alignment=Qt.AlignmentFlag.AlignRight)
             form.addWidget(widget, row, 1)
 
         layout.addLayout(form)

@@ -178,20 +178,39 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         _cmd_start_listener,
         _cmd_stop_listener,
     )
+    from winpodx.gui.theme import (
+        BTN_GHOST,
+        BTN_PRIMARY,
+        BTN_SECONDARY,
+        CHECKBOX,
+        LIST_WIDGET,
+        SETTINGS_SECTION,
+        SPACE_L,
+        SPACE_S,
+        SPACE_XL,
+        C,
+    )
 
     card = QFrame(parent)
     card.setObjectName("settingsSection")
     card.setFrameShape(QFrame.Shape.NoFrame)
+    card.setStyleSheet(
+        SETTINGS_SECTION
+        + CHECKBOX
+        + LIST_WIDGET
+        + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
+    )
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(16, 16, 16, 16)
-    layout.setSpacing(8)
+    layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+    layout.setSpacing(SPACE_S)
 
     title = QLabel(tr("▦  Reverse File Associations"))
-    title.setStyleSheet("font-size: 16px; font-weight: bold;")
+    title.setStyleSheet(f"color: {C.BLUE}; font-size: 15px; font-weight: bold;")
     layout.addWidget(title)
 
     sub = QLabel(tr("Linux apps appear in the Windows guest's right-click ‘Open with…’ menu."))
     sub.setWordWrap(True)
+    sub.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
     layout.addWidget(sub)
 
     enable_box = QCheckBox(tr("Enable reverse-open"))
@@ -200,6 +219,9 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
 
     status_label = QLabel("")
     status_label.setWordWrap(True)
+    status_label.setStyleSheet(
+        f"background: {C.MANTLE}; color: {C.SUBTEXT1}; border-radius: 8px; padding: 8px 10px;"
+    )
     layout.addWidget(status_label)
 
     # --- action buttons ------------------------------------------------------
@@ -208,6 +230,9 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     btn_start = QPushButton(tr("Start daemon"))
     btn_stop = QPushButton(tr("Stop daemon"))
     btn_status = QPushButton(tr("Refresh status"))
+    btn_refresh.setStyleSheet(BTN_PRIMARY)
+    for b in (btn_start, btn_stop, btn_status):
+        b.setStyleSheet(BTN_GHOST)
     for b in (btn_refresh, btn_start, btn_stop, btn_status):
         buttons_row.addWidget(b)
     buttons_row.addStretch()
@@ -216,11 +241,16 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     # --- allow / deny lists --------------------------------------------------
     lists_hint = QLabel(tr("Allowlist = only these apps are offered; Denylist = these are hidden."))
     lists_hint.setWordWrap(True)
+    lists_hint.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
     layout.addWidget(lists_hint)
 
     lists_grid = QGridLayout()
+    lists_grid.setHorizontalSpacing(SPACE_L)
+    lists_grid.setVerticalSpacing(SPACE_S)
     allow_label = QLabel(tr("Allowlist (empty = show all discovered apps)"))
     deny_label = QLabel(tr("Denylist (apps to hide)"))
+    allow_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: bold;")
+    deny_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: bold;")
     allow_list = QListWidget()
     deny_list = QListWidget()
     for slug in cfg.reverse_open.allowlist:
@@ -233,15 +263,21 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     lists_grid.addWidget(deny_list, 1, 1)
 
     allow_btns = QHBoxLayout()
+    allow_btns.setSpacing(SPACE_S)
     btn_allow_add = QPushButton(tr("+ Add"))
     btn_allow_rm = QPushButton(tr("− Remove"))
+    btn_allow_add.setStyleSheet(BTN_SECONDARY)
+    btn_allow_rm.setStyleSheet(BTN_GHOST)
     allow_btns.addWidget(btn_allow_add)
     allow_btns.addWidget(btn_allow_rm)
     allow_btns.addStretch()
 
     deny_btns = QHBoxLayout()
+    deny_btns.setSpacing(SPACE_S)
     btn_deny_add = QPushButton(tr("+ Add"))
     btn_deny_rm = QPushButton(tr("− Remove"))
+    btn_deny_add.setStyleSheet(BTN_SECONDARY)
+    btn_deny_rm.setStyleSheet(BTN_GHOST)
     deny_btns.addWidget(btn_deny_add)
     deny_btns.addWidget(btn_deny_rm)
     deny_btns.addStretch()

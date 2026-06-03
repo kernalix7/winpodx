@@ -36,8 +36,27 @@ from PySide6.QtWidgets import (
 from winpodx.core import devices as D
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import make_warning_callout, show_toast
-from winpodx.gui.theme import C
+from winpodx.gui._widget_helpers import (
+    add_shadow,
+    make_empty_panel,
+    make_page_heading,
+    make_warning_callout,
+    show_toast,
+)
+from winpodx.gui.theme import (
+    ACTION_ROW,
+    BTN_GHOST,
+    BTN_PRIMARY,
+    BTN_SECONDARY,
+    SCROLL_AREA,
+    SETTINGS_SECTION,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XL,
+    SPACE_XXL,
+    C,
+)
 
 
 class _LiveOpSignals(QObject):
@@ -69,34 +88,36 @@ class DevicesMixin:
     def _build_devices_page(self) -> QWidget:
         page = QWidget()
         outer = QVBoxLayout(page)
-        outer.setContentsMargins(24, 20, 24, 20)
-        outer.setSpacing(12)
+        outer.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        outer.setSpacing(SPACE_M)
 
-        title = QLabel(tr("Devices"))
-        title.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {C.TEXT};")
-        outer.addWidget(title)
-
-        subtitle = QLabel(
-            tr(
-                "Pass host USB / PCI devices through to the Windows guest. "
-                "USB hot-plugs live; PCI needs a guest restart and confirmation."
+        outer.addWidget(
+            make_page_heading(
+                tr("Devices"),
+                tr(
+                    "Pass host USB / PCI devices through to the Windows guest. "
+                    "USB hot-plugs live; PCI needs a guest restart and confirmation."
+                ),
             )
         )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px;")
-        outer.addWidget(subtitle)
 
         bar = QHBoxLayout()
+        bar.setSpacing(SPACE_M)
         refresh = QPushButton(tr("Refresh"))
+        refresh.setStyleSheet(BTN_SECONDARY)
         refresh.clicked.connect(self._render_devices)
         bar.addWidget(refresh)
         self._devices_status = QLabel("")
-        self._devices_status.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 12px;")
+        self._devices_status.setStyleSheet(
+            f"color: {C.SUBTEXT1}; font-size: 12px; "
+            f"background: {C.SURFACE0}; border: 1px solid {C.SURFACE1}; "
+            "border-radius: 8px; padding: 7px 10px;"
+        )
         bar.addWidget(self._devices_status, 1)
         outer.addLayout(bar)
 
         columns = QHBoxLayout()
-        columns.setSpacing(16)
+        columns.setSpacing(SPACE_L)
         self._dev_host_col, host_card = self._device_column(tr("Host devices"))
         self._dev_guest_col, guest_card = self._device_column(tr("Assigned to guest"))
         columns.addWidget(host_card, 1)
@@ -108,20 +129,24 @@ class DevicesMixin:
 
     def _device_column(self, heading: str) -> tuple[QVBoxLayout, QWidget]:
         card = QFrame()
-        card.setStyleSheet(f"QFrame {{ background: {C.SURFACE0}; border-radius: 12px; }}")
+        card.setObjectName("settingsSection")
+        card.setStyleSheet(SETTINGS_SECTION)
+        add_shadow(card, blur=14, y=2, alpha=35)
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
+        lay.setSpacing(SPACE_M)
         head = QLabel(heading)
-        head.setStyleSheet(f"font-weight: 600; color: {C.TEXT}; font-size: 14px;")
+        head.setStyleSheet(f"font-weight: 700; color: {C.BLUE}; font-size: 14px;")
         lay.addWidget(head)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet(SCROLL_AREA)
         inner = QWidget()
         col = QVBoxLayout(inner)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(8)
+        col.setSpacing(SPACE_S)
         col.addStretch(1)
         scroll.setWidget(inner)
         lay.addWidget(scroll, 1)
@@ -170,23 +195,22 @@ class DevicesMixin:
 
         self._devices_status.setText(tr("Guest running: ") + (tr("yes") if running else tr("no")))
 
-    def _empty_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; padding: 6px;")
-        return lbl
+    def _empty_label(self, text: str) -> QWidget:
+        return make_empty_panel(text)
 
     def _device_row(self, host: D.HostDevice, *, assigned: bool) -> QWidget:
         safety = D.classify_safety(host)
         row = QFrame()
-        row.setStyleSheet(f"QFrame {{ background: {C.SURFACE1}; border-radius: 8px; }}")
+        row.setObjectName("actionRow")
+        row.setStyleSheet(ACTION_ROW)
         h = QHBoxLayout(row)
-        h.setContentsMargins(10, 8, 10, 8)
-        h.setSpacing(8)
+        h.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_S)
+        h.setSpacing(SPACE_M)
 
         badge = QLabel(host.dtype.upper())
         badge_color = C.GREEN if safety.safe else C.RED
         badge.setStyleSheet(
-            f"background: {badge_color}; color: #0d1117; border-radius: 4px;"
+            f"background: {badge_color}; color: #0d1117; border-radius: 6px;"
             " padding: 1px 6px; font-size: 11px; font-weight: 700;"
         )
         badge.setAlignment(Qt.AlignCenter)
@@ -205,9 +229,11 @@ class DevicesMixin:
 
         if assigned:
             btn = QPushButton(tr("← Detach"))
+            btn.setStyleSheet(BTN_GHOST)
             btn.clicked.connect(lambda _=False, dev=host: self._on_detach(dev))
         else:
             btn = QPushButton(tr("Attach →"))
+            btn.setStyleSheet(BTN_PRIMARY)
             btn.clicked.connect(lambda _=False, dev=host: self._on_attach(dev))
         h.addWidget(btn)
         return row

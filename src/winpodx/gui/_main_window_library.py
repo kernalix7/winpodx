@@ -46,6 +46,7 @@ from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import (
     add_shadow,
     make_app_avatar,
+    make_empty_panel,
     make_source_badge,
 )
 from winpodx.gui.theme import (
@@ -55,10 +56,14 @@ from winpodx.gui.theme import (
     BTN_DANGER,
     BTN_GHOST,
     BTN_PRIMARY,
+    BTN_SECONDARY,
     FILTER_CHIP,
     FONT_CAPTION,
     SCROLL_AREA,
     SEARCH_BAR,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
     VIEW_TOGGLE,
     C,
     avatar_color,
@@ -80,7 +85,7 @@ class LibraryPageMixin:
         layout.setSpacing(0)
 
         toolbar = QHBoxLayout()
-        toolbar.setSpacing(12)
+        toolbar.setSpacing(SPACE_M)
 
         # Leading magnifier glyph so the box reads as a search field rather
         # than a bare input (Task 3). Kept as a sibling label — the shared
@@ -129,7 +134,7 @@ class LibraryPageMixin:
         self.btn_list.clicked.connect(lambda: self._set_view("list"))
         tgl.addWidget(self.btn_list)
         toolbar.addWidget(toggle_wrap)
-        toolbar.addSpacing(8)
+        toolbar.addSpacing(SPACE_S)
 
         self.refresh_btn = QPushButton(tr("Refresh Apps"))
         self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
@@ -137,7 +142,7 @@ class LibraryPageMixin:
         self.refresh_btn.setToolTip(tr("Scan the running pod for installed Windows apps"))
         self.refresh_btn.clicked.connect(self._on_refresh_apps)
         toolbar.addWidget(self.refresh_btn)
-        toolbar.addSpacing(6)
+        toolbar.addSpacing(SPACE_S)
 
         # Hybrid filter UX — hidden apps (system shims auto-filtered by the
         # noise denylist, plus anything the user manually hid) collapse by
@@ -152,7 +157,7 @@ class LibraryPageMixin:
         )
         self.btn_show_hidden.clicked.connect(self._on_toggle_hidden)
         toolbar.addWidget(self.btn_show_hidden)
-        toolbar.addSpacing(6)
+        toolbar.addSpacing(SPACE_S)
 
         add_btn = QPushButton(tr("+  Add App"))
         add_btn.setStyleSheet(BTN_PRIMARY)
@@ -160,7 +165,7 @@ class LibraryPageMixin:
         toolbar.addWidget(add_btn)
 
         layout.addLayout(toolbar)
-        layout.addSpacing(12)
+        layout.addSpacing(SPACE_M)
 
         self.refresh_progress = QProgressBar()
         self.refresh_progress.setRange(0, 0)  # indeterminate
@@ -178,7 +183,7 @@ class LibraryPageMixin:
         self._category_btns: list[QPushButton] = []
         self._build_category_chips()
         layout.addLayout(self._category_row)
-        layout.addSpacing(16)
+        layout.addSpacing(SPACE_L)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -327,41 +332,24 @@ class LibraryPageMixin:
             title = tr("No apps yet")
             body = tr("Add a Windows app profile to get started.")
 
-        panel = QWidget()
-        panel.setStyleSheet("background: transparent;")
-        col = QVBoxLayout(panel)
-        col.setContentsMargins(0, 60, 0, 60)
-        col.setSpacing(8)
-        col.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-
-        title_lbl = QLabel(title)
-        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_lbl.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: 15px; font-weight: bold;"
+        panel = make_empty_panel(
+            title,
+            body,
+            action_label=action_label,
+            action_cb=action_cb if callable(action_cb) else None,
         )
-        col.addWidget(title_lbl)
-
-        body_lbl = QLabel(body)
-        body_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        body_lbl.setWordWrap(True)
-        body_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
-        col.addWidget(body_lbl)
-
-        if action_label and callable(action_cb):
-            col.addSpacing(8)
-            btn = QPushButton(action_label)
-            btn.setStyleSheet(BTN_PRIMARY)
-            btn.clicked.connect(action_cb)
-            col.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
+        panel.setMinimumHeight(220)
         return panel
 
     def _populate_grid(self, apps: list[AppInfo]) -> None:
         """Grid view - cards."""
         cols = 4
         grid = QGridLayout()
-        grid.setSpacing(14)
+        grid.setHorizontalSpacing(SPACE_L)
+        grid.setVerticalSpacing(SPACE_L)
         grid.setContentsMargins(0, 0, 0, 0)
+        for col in range(cols):
+            grid.setColumnStretch(col, 1)
 
         for i, app in enumerate(apps):
             card = self._make_app_card(app)
@@ -391,12 +379,12 @@ class LibraryPageMixin:
         card = QFrame()
         card.setObjectName("appCard")
         card.setStyleSheet(APP_CARD)
-        card.setMinimumHeight(210)
-        card.setMinimumWidth(160)
+        card.setMinimumHeight(220)
+        card.setMinimumWidth(180)
         add_shadow(card)
 
         vl = QVBoxLayout(card)
-        vl.setContentsMargins(16, 18, 16, 14)
+        vl.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
         vl.setSpacing(0)
 
         top_row = QHBoxLayout()
@@ -412,7 +400,7 @@ class LibraryPageMixin:
             top_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
 
         vl.addLayout(top_row)
-        vl.addSpacing(12)
+        vl.addSpacing(SPACE_M)
 
         name_lbl = QLabel(app.full_name)
         name_lbl.setStyleSheet(
@@ -442,7 +430,7 @@ class LibraryPageMixin:
         # The secondary actions (edit / hide / delete) sit on a compact row
         # beneath it.
         bottom = QVBoxLayout()
-        bottom.setSpacing(8)
+        bottom.setSpacing(SPACE_S)
 
         launch_btn = QPushButton(tr("▶  Launch"))
         launch_btn.setStyleSheet(BTN_ACCENT)
@@ -451,7 +439,7 @@ class LibraryPageMixin:
         bottom.addWidget(launch_btn)
 
         actions = QHBoxLayout()
-        actions.setSpacing(6)
+        actions.setSpacing(SPACE_S)
 
         edit_btn = QPushButton("⋯")
         edit_btn.setFixedSize(28, 28)
@@ -476,13 +464,7 @@ class LibraryPageMixin:
 
         hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
         hide_btn.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
-        hide_btn.setStyleSheet(
-            f"QPushButton {{ background: {C.SURFACE1}; color: {C.SUBTEXT0};"
-            f" font-size: 12px; border-radius: 6px; padding: 6px 14px;"
-            f" border: none; }}"
-            f"QPushButton:hover {{ background: {C.SURFACE2};"
-            f" color: {C.TEXT}; }}"
-        )
+        hide_btn.setStyleSheet(BTN_SECONDARY)
         hide_btn.clicked.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
         actions.addWidget(hide_btn)
         actions.addStretch()
@@ -509,18 +491,18 @@ class LibraryPageMixin:
         add_shadow(tile, blur=12, y=2, alpha=35)
 
         layout = QHBoxLayout(tile)
-        layout.setContentsMargins(0, 0, 16, 0)
+        layout.setContentsMargins(0, 0, SPACE_L, 0)
         layout.setSpacing(0)
 
         stripe = QFrame()
         stripe.setFixedWidth(4)
         stripe.setStyleSheet(f"background: {color}; border-radius: 2px; margin: 8px 0 8px 8px;")
         layout.addWidget(stripe)
-        layout.addSpacing(14)
+        layout.addSpacing(SPACE_M)
 
         avatar = make_app_avatar(app, size=40, radius=10, font_size=16)
         layout.addWidget(avatar)
-        layout.addSpacing(14)
+        layout.addSpacing(SPACE_M)
 
         info = QVBoxLayout()
         info.setSpacing(2)
@@ -557,25 +539,13 @@ class LibraryPageMixin:
         layout.addSpacing(8)
 
         edit_btn = QPushButton(tr("Edit"))
-        edit_btn.setStyleSheet(
-            f"QPushButton {{ background: {C.SURFACE1}; color: {C.SUBTEXT0};"
-            f" font-size: 12px; border-radius: 6px; padding: 6px 14px;"
-            f" border: none; }}"
-            f"QPushButton:hover {{ background: {C.SURFACE2};"
-            f" color: {C.TEXT}; }}"
-        )
+        edit_btn.setStyleSheet(BTN_SECONDARY)
         edit_btn.clicked.connect(lambda: self._on_edit_app(app))
         layout.addWidget(edit_btn)
         layout.addSpacing(6)
 
         hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
-        hide_btn.setStyleSheet(
-            f"QPushButton {{ background: {C.SURFACE1}; color: {C.SUBTEXT0};"
-            f" font-size: 12px; border-radius: 6px; padding: 6px 14px;"
-            f" border: none; }}"
-            f"QPushButton:hover {{ background: {C.SURFACE2};"
-            f" color: {C.TEXT}; }}"
-        )
+        hide_btn.setStyleSheet(BTN_SECONDARY)
         hide_btn.clicked.connect(lambda: self._on_toggle_app_hidden(app))
         layout.addWidget(hide_btn)
         layout.addSpacing(6)

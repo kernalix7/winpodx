@@ -36,6 +36,15 @@ class C:
     CRUST = "#010409"
 
 
+def rgba(hex_color: str, alpha: float) -> str:
+    """Return a Qt stylesheet rgba() color from ``#rrggbb`` and 0..1 alpha."""
+    value = hex_color.lstrip("#")
+    r = int(value[0:2], 16)
+    g = int(value[2:4], 16)
+    b = int(value[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha:.2f})"
+
+
 # --------------------------------------------------------------------------- #
 # Design tokens.
 #
@@ -53,6 +62,7 @@ SPACE_M = 12
 SPACE_L = 16
 SPACE_XL = 24
 SPACE_XXL = 32
+SPACE_XXXL = 40
 
 # Border radius scale. Match button / card / input visual weight.
 RADIUS_XS = 4  # inline chips, badges
@@ -69,6 +79,13 @@ FONT_SUBHEAD = 14  # section labels, search bar
 FONT_HEADER = 15  # card headers
 FONT_TITLE = 18  # page titles
 FONT_HERO = 22  # main window title, top-of-page heroes
+FONT_DISPLAY = 24  # sparse page hero title
+
+CONTROL_HEIGHT = 36
+CONTROL_HEIGHT_L = 40
+CARD_BORDER = f"1px solid {C.SURFACE1}"
+CARD_BORDER_HOVER = f"1px solid {C.SURFACE2}"
+FOCUS_RING = f"1px solid {C.BLUE}"
 
 
 _AVATAR_PALETTE = [
@@ -105,9 +122,43 @@ def accent_color(index: int) -> str:
 
 
 # Global: applied to central widget, cascades to children.
-GLOBAL_STYLE = """
-    * { background: transparent; }
-    QLabel { background: transparent; }
+GLOBAL_STYLE = f"""
+    * {{ background: transparent; }}
+    QLabel {{ background: transparent; }}
+    QToolTip {{
+        background: {C.SURFACE0};
+        color: {C.TEXT};
+        border: 1px solid {C.SURFACE2};
+        border-radius: {RADIUS_S}px;
+        padding: 6px 8px;
+        font-size: {FONT_CAPTION}px;
+    }}
+    QMenu {{
+        background: {C.SURFACE0};
+        color: {C.TEXT};
+        border: 1px solid {C.SURFACE2};
+        border-radius: {RADIUS_M}px;
+        padding: 6px;
+    }}
+    QMenu::item {{
+        padding: 7px 18px;
+        border-radius: {RADIUS_S}px;
+    }}
+    QMenu::item:selected {{
+        background: {rgba(C.BLUE, 0.16)};
+        color: {C.BLUE};
+    }}
+    QProgressBar {{
+        background: {C.SURFACE0};
+        border: none;
+        border-radius: 3px;
+        min-height: 6px;
+        max-height: 6px;
+    }}
+    QProgressBar::chunk {{
+        background: {C.BLUE};
+        border-radius: 3px;
+    }}
 """
 
 # Top Navigation Bar
@@ -116,8 +167,8 @@ TOP_BAR = f"""
         background: {C.BASE};
         border-top: 1px solid rgba(255, 255, 255, 0.04);
         border-bottom: 1px solid {C.SURFACE1};
-        min-height: 52px;
-        max-height: 52px;
+        min-height: 56px;
+        max-height: 56px;
     }}
 """
 
@@ -127,19 +178,23 @@ TAB_BTN = f"""
         background: transparent;
         border: none;
         border-bottom: 2px solid transparent;
-        padding: 14px 18px;
+        padding: 15px 16px 14px 16px;
         font-size: 13px;
         font-weight: 500;
     }}
     QPushButton:hover {{
         color: {C.SUBTEXT1};
-        background: rgba(48, 54, 61, 0.4);
+        background: {rgba(C.SURFACE1, 0.42)};
         border-bottom: 2px solid {C.SURFACE2};
+    }}
+    QPushButton:focus {{
+        color: {C.TEXT};
+        background: {rgba(C.SURFACE1, 0.34)};
     }}
     QPushButton:checked {{
         color: {C.BLUE};
         border-bottom: 2px solid {C.BLUE};
-        background: rgba(88, 166, 255, 0.08);
+        background: {rgba(C.BLUE, 0.10)};
         font-weight: bold;
     }}
 """
@@ -149,8 +204,9 @@ POD_CHIP = f"""
         background: {C.SURFACE0};
         border: 1px solid {C.SURFACE1};
         border-top: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 14px;
-        max-height: 28px;
+        border-radius: 16px;
+        min-height: 30px;
+        max-height: 30px;
     }}
 """
 
@@ -159,16 +215,18 @@ POD_CTRL = f"""
         background: transparent;
         color: {C.SUBTEXT0};
         border: none;
-        border-radius: 4px;
+        border-radius: {RADIUS_S}px;
         padding: 4px 8px;
         font-size: 16px;
+        min-width: 26px;
+        max-height: 24px;
     }}
     QPushButton:hover {{
         color: {C.TEXT};
         background: {C.SURFACE1};
     }}
     QPushButton:disabled {{
-        color: {C.SURFACE1};
+        color: {C.SURFACE2};
     }}
 """
 
@@ -188,10 +246,16 @@ INPUT = f"""
         background: {C.MANTLE};
         color: {C.TEXT};
         border: 1px solid {C.SURFACE1};
-        border-radius: 8px;
-        padding: 10px 14px;
+        border-radius: {RADIUS_M}px;
+        padding: 9px 13px;
         font-size: 13px;
+        min-height: 18px;
         selection-background-color: {C.BLUE};
+        selection-color: {C.CRUST};
+    }}
+    QLineEdit:hover {{
+        border-color: {C.SURFACE2};
+        background: {C.BASE};
     }}
     QLineEdit:focus {{
         border-color: {C.BLUE};
@@ -209,16 +273,30 @@ COMBO = f"""
         background: {C.MANTLE};
         color: {C.TEXT};
         border: 1px solid {C.SURFACE1};
-        border-radius: 8px;
-        padding: 10px 14px;
+        border-radius: {RADIUS_M}px;
+        padding: 8px 30px 8px 13px;
         font-size: 13px;
+        min-height: 20px;
+    }}
+    QComboBox:hover {{
+        border-color: {C.SURFACE2};
+        background: {C.BASE};
     }}
     QComboBox:focus {{
         border-color: {C.BLUE};
     }}
     QComboBox::drop-down {{
         border: none;
-        padding-right: 10px;
+        width: 26px;
+    }}
+    QComboBox::down-arrow {{
+        image: none;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 5px solid {C.SUBTEXT0};
+        width: 0;
+        height: 0;
+        margin-right: 10px;
     }}
     QComboBox QAbstractItemView {{
         background: {C.SURFACE0};
@@ -237,9 +315,13 @@ SEARCH_BAR = f"""
         background: {C.SURFACE0};
         color: {C.TEXT};
         border: 2px solid transparent;
-        border-radius: 10px;
+        border-radius: {RADIUS_L}px;
         padding: 10px 16px 10px 14px;
         font-size: 14px;
+        min-height: 20px;
+    }}
+    QLineEdit:hover {{
+        border-color: {C.SURFACE1};
     }}
     QLineEdit:focus {{
         border-color: {C.BLUE};
@@ -256,8 +338,9 @@ BTN_PRIMARY = f"""
         font-weight: bold;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-bottom: 1px solid rgba(0, 0, 0, 0.2);
-        border-radius: 8px;
-        padding: 10px 24px;
+        border-radius: {RADIUS_M}px;
+        padding: 9px 20px;
+        min-height: 18px;
     }}
     QPushButton:hover {{ background: {C.SAPPHIRE}; }}
     QPushButton:pressed {{
@@ -277,8 +360,9 @@ BTN_SECONDARY = f"""
         color: {C.TEXT};
         font-size: 13px;
         border: 1px solid {C.SURFACE1};
-        border-radius: 8px;
-        padding: 9px 20px;
+        border-radius: {RADIUS_M}px;
+        padding: 8px 16px;
+        min-height: 18px;
     }}
     QPushButton:hover {{
         background: {C.SURFACE1};
@@ -294,25 +378,42 @@ BTN_ACCENT = f"""
         font-weight: bold;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-bottom: 1px solid rgba(0, 0, 0, 0.2);
-        border-radius: 8px;
+        border-radius: {RADIUS_M}px;
         padding: 8px 18px;
+        min-height: 18px;
     }}
     QPushButton:hover {{ background: {C.TEAL}; }}
+    QPushButton:pressed {{ background: {C.GREEN}; }}
+    QPushButton:disabled {{
+        background: {C.SURFACE1};
+        color: {C.OVERLAY0};
+        border: 1px solid transparent;
+    }}
 """
 
 BTN_DANGER = f"""
     QPushButton {{
         background: transparent;
-        color: {C.OVERLAY0};
+        color: {C.PEACH};
         font-size: 13px;
-        border: 1px solid {C.SURFACE0};
-        border-radius: 8px;
-        padding: 6px 12px;
+        border: 1px solid {rgba(C.RED, 0.24)};
+        border-radius: {RADIUS_M}px;
+        padding: 7px 12px;
+        min-height: 16px;
     }}
     QPushButton:hover {{
+        background: {rgba(C.RED, 0.18)};
+        color: {C.RED};
+        border-color: {C.RED};
+    }}
+    QPushButton:pressed {{
         background: {C.RED};
         color: {C.CRUST};
-        border-color: {C.RED};
+    }}
+    QPushButton:disabled {{
+        color: {C.OVERLAY0};
+        border-color: {C.SURFACE1};
+        background: transparent;
     }}
 """
 
@@ -322,8 +423,9 @@ BTN_GHOST = f"""
         color: {C.SUBTEXT0};
         font-size: 12px;
         border: none;
-        border-radius: 6px;
-        padding: 6px 12px;
+        border-radius: {RADIUS_S}px;
+        padding: 7px 12px;
+        min-height: 16px;
     }}
     QPushButton:hover {{
         color: {C.TEXT};
@@ -331,7 +433,10 @@ BTN_GHOST = f"""
     }}
     QPushButton:checked {{
         color: {C.BLUE};
-        background: {C.SURFACE0};
+        background: {rgba(C.BLUE, 0.12)};
+    }}
+    QPushButton:disabled {{
+        color: {C.SURFACE2};
     }}
 """
 
@@ -342,8 +447,9 @@ FILTER_CHIP = f"""
         color: {C.SUBTEXT0};
         font-size: 12px;
         border: 1px solid {C.SURFACE1};
-        border-radius: 12px;
+        border-radius: 13px;
         padding: 5px 16px;
+        min-height: 18px;
     }}
     QPushButton:hover {{
         color: {C.TEXT};
@@ -353,7 +459,7 @@ FILTER_CHIP = f"""
     QPushButton:checked {{
         color: {C.BLUE};
         border-color: {C.BLUE};
-        background: rgba(88, 166, 255, 0.12);
+        background: {rgba(C.BLUE, 0.12)};
         font-weight: bold;
     }}
 """
@@ -364,14 +470,15 @@ VIEW_TOGGLE = f"""
         background: {C.SURFACE0};
         color: {C.OVERLAY0};
         font-size: 14px;
-        border: none;
+        border: 1px solid transparent;
         border-radius: 6px;
         padding: 6px 10px;
         min-width: 32px;
     }}
     QPushButton:hover {{
         color: {C.TEXT};
-        background: {C.SURFACE1};
+        background: {rgba(C.BLUE, 0.14)};
+        border-color: {rgba(C.BLUE, 0.26)};
     }}
     QPushButton:checked {{
         color: {C.BLUE};
@@ -385,10 +492,10 @@ APP_CARD = f"""
         background: {C.SURFACE0};
         border: 1px solid {C.SURFACE1};
         border-top: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 12px;
+        border-radius: {RADIUS_XXL}px;
     }}
     QFrame#appCard:hover {{
-        background: rgba(48, 54, 61, 0.85);
+        background: {rgba(C.SURFACE1, 0.82)};
         border-color: {C.BLUE};
         border-top: 1px solid rgba(255, 255, 255, 0.1);
     }}
@@ -400,10 +507,10 @@ APP_TILE = f"""
         background: {C.SURFACE0};
         border: 1px solid {C.SURFACE1};
         border-top: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 10px;
+        border-radius: {RADIUS_L}px;
     }}
     QFrame#appTile:hover {{
-        background: rgba(48, 54, 61, 0.85);
+        background: {rgba(C.SURFACE1, 0.82)};
         border-color: {C.BLUE};
     }}
 """
@@ -414,10 +521,10 @@ ACTION_ROW = f"""
         background: {C.SURFACE0};
         border: 1px solid {C.SURFACE1};
         border-top: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 12px;
+        border-radius: {RADIUS_XL}px;
     }}
     QFrame#actionRow:hover {{
-        background: rgba(48, 54, 61, 0.85);
+        background: {rgba(C.SURFACE1, 0.82)};
         border-color: {C.SURFACE2};
     }}
 """
@@ -428,7 +535,116 @@ SETTINGS_SECTION = f"""
         background: {C.SURFACE0};
         border: 1px solid {C.SURFACE1};
         border-top: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 14px;
+        border-radius: {RADIUS_XXL}px;
+    }}
+"""
+
+SECTION_CARD = SETTINGS_SECTION
+
+EMPTY_STATE = f"""
+    QFrame#emptyState {{
+        background: {rgba(C.SURFACE0, 0.72)};
+        border: 1px dashed {C.SURFACE2};
+        border-radius: {RADIUS_XL}px;
+    }}
+"""
+
+SECTION_LABEL = f"""
+    QLabel {{
+        background: transparent;
+        color: {C.SUBTEXT0};
+        font-size: {FONT_CAPTION}px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }}
+"""
+
+PAGE_TITLE = f"""
+    QLabel {{
+        background: transparent;
+        color: {C.TEXT};
+        font-size: {FONT_HERO}px;
+        font-weight: bold;
+    }}
+"""
+
+PAGE_SUBTITLE = f"""
+    QLabel {{
+        background: transparent;
+        color: {C.OVERLAY0};
+        font-size: {FONT_BODY}px;
+    }}
+"""
+
+BADGE = f"""
+    QLabel {{
+        border-radius: {RADIUS_S}px;
+        padding: 2px 7px;
+        font-size: {FONT_CAPTION}px;
+        font-weight: bold;
+    }}
+"""
+
+CHECKBOX = f"""
+    QCheckBox {{
+        color: {C.SUBTEXT1};
+        font-size: {FONT_BODY}px;
+        spacing: 8px;
+    }}
+    QCheckBox::indicator {{
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        border: 1px solid {C.SURFACE2};
+        background: {C.MANTLE};
+    }}
+    QCheckBox::indicator:hover {{
+        border-color: {C.BLUE};
+    }}
+    QCheckBox::indicator:checked {{
+        background: {C.BLUE};
+        border-color: {C.BLUE};
+    }}
+    QCheckBox:disabled {{
+        color: {C.OVERLAY0};
+    }}
+"""
+
+RADIO = f"""
+    QRadioButton {{
+        color: {C.SUBTEXT1};
+        font-size: {FONT_BODY}px;
+        spacing: 8px;
+    }}
+    QRadioButton::indicator {{
+        width: 15px;
+        height: 15px;
+        border-radius: 8px;
+        border: 1px solid {C.SURFACE2};
+        background: {C.MANTLE};
+    }}
+    QRadioButton::indicator:checked {{
+        border: 4px solid {C.BLUE};
+        background: {C.CRUST};
+    }}
+"""
+
+LIST_WIDGET = f"""
+    QListWidget {{
+        background: {C.MANTLE};
+        color: {C.TEXT};
+        border: 1px solid {C.SURFACE1};
+        border-radius: {RADIUS_M}px;
+        padding: 6px;
+        outline: none;
+    }}
+    QListWidget::item {{
+        padding: 6px 8px;
+        border-radius: {RADIUS_S}px;
+    }}
+    QListWidget::item:selected {{
+        background: {rgba(C.BLUE, 0.18)};
+        color: {C.BLUE};
     }}
 """
 
@@ -440,14 +656,14 @@ SCROLL_AREA = f"""
     }}
     QScrollBar:vertical {{
         background: transparent;
-        width: 6px;
+        width: 8px;
         margin: 0;
-        border-radius: 3px;
+        border-radius: 4px;
     }}
     QScrollBar::handle:vertical {{
         background: {C.SURFACE1};
         min-height: 24px;
-        border-radius: 3px;
+        border-radius: 4px;
     }}
     QScrollBar::handle:vertical:hover {{
         background: {C.SURFACE2};
@@ -460,6 +676,24 @@ SCROLL_AREA = f"""
     QScrollBar::sub-page:vertical {{
         background: none;
     }}
+    QScrollBar:horizontal {{
+        background: transparent;
+        height: 8px;
+        margin: 0;
+        border-radius: 4px;
+    }}
+    QScrollBar::handle:horizontal {{
+        background: {C.SURFACE1};
+        min-width: 24px;
+        border-radius: 4px;
+    }}
+    QScrollBar::handle:horizontal:hover {{
+        background: {C.SURFACE2};
+    }}
+    QScrollBar::add-line:horizontal,
+    QScrollBar::sub-line:horizontal {{
+        width: 0;
+    }}
 """
 
 # Terminal Dock
@@ -471,9 +705,34 @@ TERMINAL = f"""
                      'Cascadia Code', monospace;
         font-size: 12px;
         border: 1px solid {C.SURFACE0};
-        border-radius: 10px;
+        border-radius: {RADIUS_L}px;
         padding: 14px;
         selection-background-color: {C.SURFACE1};
+    }}
+"""
+
+PLAIN_TEXT = f"""
+    QPlainTextEdit {{
+        background: {C.CRUST};
+        color: {C.SUBTEXT1};
+        font-family: 'JetBrains Mono', 'Fira Code',
+                     'Cascadia Code', monospace;
+        font-size: 12px;
+        border: 1px solid {C.SURFACE0};
+        border-radius: {RADIUS_L}px;
+        padding: 12px;
+        selection-background-color: {C.SURFACE1};
+    }}
+"""
+
+DIALOG = f"""
+    QDialog {{
+        background: {C.MANTLE};
+        color: {C.TEXT};
+    }}
+    QLabel {{
+        background: transparent;
+        color: {C.TEXT};
     }}
 """
 

@@ -32,7 +32,24 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
-from winpodx.gui.theme import FONT_BODY, FONT_CAPTION, RADIUS_M, C, avatar_color
+from winpodx.gui.theme import (
+    BTN_PRIMARY,
+    BTN_SECONDARY,
+    DIALOG,
+    EMPTY_STATE,
+    FONT_BODY,
+    FONT_CAPTION,
+    PAGE_SUBTITLE,
+    PAGE_TITLE,
+    RADIUS_M,
+    SECTION_LABEL,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XL,
+    C,
+    avatar_color,
+)
 
 # Toast colors keyed by kind. Background is the accent at low alpha (set via
 # the stylesheet rgba), text is the accent itself for contrast on MANTLE.
@@ -82,7 +99,7 @@ def make_source_badge(app: AppInfo) -> QLabel | None:
         " border-radius: 7px;"
         " font-size: 9px; font-weight: bold;"
         " padding: 2px 7px;"
-        " letter-spacing: 0.3px;"
+        " letter-spacing: 0px;"
     )
     return badge
 
@@ -217,6 +234,7 @@ class BusyDialog(QDialog):
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(380)
+        self.setStyleSheet(DIALOG)
         self._cancel_cbs: list[Callable[[], None]] = []
 
         layout = QVBoxLayout(self)
@@ -243,6 +261,7 @@ class BusyDialog(QDialog):
             row = QHBoxLayout()
             row.addStretch(1)
             self._cancel_btn = QPushButton(tr("Cancel"))
+            self._cancel_btn.setStyleSheet(BTN_SECONDARY)
             self._cancel_btn.clicked.connect(self._on_cancel_clicked)
             row.addWidget(self._cancel_btn)
             layout.addLayout(row)
@@ -294,6 +313,80 @@ def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
     label.setWordWrap(True)
     label.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: {FONT_CAPTION}px;")
     row.addWidget(label, 1)
+    return frame
+
+
+def make_page_heading(title: str, subtitle: str = "") -> QWidget:
+    """Build a consistent page title/subtitle block."""
+    holder = QWidget()
+    layout = QVBoxLayout(holder)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(SPACE_S)
+
+    title_lbl = QLabel(title)
+    title_lbl.setStyleSheet(PAGE_TITLE)
+    layout.addWidget(title_lbl)
+
+    if subtitle:
+        subtitle_lbl = QLabel(subtitle)
+        subtitle_lbl.setWordWrap(True)
+        subtitle_lbl.setStyleSheet(PAGE_SUBTITLE)
+        layout.addWidget(subtitle_lbl)
+
+    return holder
+
+
+def make_section_label(text: str) -> QLabel:
+    """Build the compact uppercase section label used on dense pages."""
+    label = QLabel(text)
+    label.setStyleSheet(SECTION_LABEL)
+    return label
+
+
+def make_empty_panel(
+    title: str,
+    body: str = "",
+    *,
+    action_label: str = "",
+    action_cb: Callable[[], None] | None = None,
+) -> QFrame:
+    """Build a deliberate empty/loading/error state panel."""
+    frame = QFrame()
+    frame.setObjectName("emptyState")
+    frame.setStyleSheet(EMPTY_STATE)
+
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+    layout.setSpacing(SPACE_S)
+    layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    title_lbl = QLabel(title)
+    title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    title_lbl.setWordWrap(True)
+    title_lbl.setStyleSheet(
+        f"background: transparent; color: {C.SUBTEXT1}; "
+        f"font-size: {FONT_BODY}px; font-weight: bold;"
+    )
+    layout.addWidget(title_lbl)
+
+    if body:
+        body_lbl = QLabel(body)
+        body_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body_lbl.setWordWrap(True)
+        body_lbl.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
+        layout.addWidget(body_lbl)
+
+    if action_label and action_cb is not None:
+        layout.addSpacing(SPACE_M)
+        btn = QPushButton(action_label)
+        btn.setStyleSheet(BTN_PRIMARY)
+        btn.clicked.connect(action_cb)
+        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    frame.setMinimumHeight(148)
+    layout.setContentsMargins(SPACE_XL, SPACE_L, SPACE_XL, SPACE_L)
     return frame
 
 

@@ -28,8 +28,19 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow
-from winpodx.gui.theme import BTN_GHOST, SCROLL_AREA, SETTINGS_SECTION, C
+from winpodx.gui._widget_helpers import add_shadow, make_empty_panel, make_page_heading
+from winpodx.gui.theme import (
+    BTN_GHOST,
+    SCROLL_AREA,
+    SETTINGS_SECTION,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XL,
+    SPACE_XXL,
+    C,
+    rgba,
+)
 from winpodx.gui.workers import InfoWorker
 
 
@@ -75,15 +86,11 @@ class InfoPageMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 32)
-        layout.setSpacing(16)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XXL)
+        layout.setSpacing(SPACE_L)
 
         header = QHBoxLayout()
-        title = QLabel(tr("Info"))
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
-        )
-        header.addWidget(title)
+        header.addWidget(make_page_heading(tr("Info")))
         header.addStretch()
 
         refresh_btn = QPushButton(tr("Refresh Info"))
@@ -136,8 +143,8 @@ class InfoPageMixin:
         add_shadow(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(6)
+        layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+        layout.setSpacing(SPACE_S)
 
         header = QLabel(tr(title))
         header.setStyleSheet(
@@ -149,19 +156,17 @@ class InfoPageMixin:
         accent.setFixedHeight(1)
         accent.setStyleSheet(f"background: {C.SURFACE1};")
         layout.addWidget(accent)
-        layout.addSpacing(8)
+        layout.addSpacing(SPACE_S)
 
         body = QVBoxLayout()
-        body.setSpacing(4)
+        body.setSpacing(SPACE_S)
         layout.addLayout(body)
 
         # Stash the body layout on the frame for later population.
         card.setProperty("info_body", body)
         self._info_card_bodies[title.lower()] = body
         # Initial placeholder
-        loading = QLabel(tr("Loading..."))
-        loading.setStyleSheet(f"color: {C.OVERLAY0};")
-        body.addWidget(loading)
+        body.addWidget(make_empty_panel(tr("Loading...")))
         return card
 
     def _render_health_card(self, probes: list[dict], overall: str) -> None:
@@ -182,9 +187,7 @@ class InfoPageMixin:
                 w.deleteLater()
 
         if not probes:
-            empty = QLabel(tr("No probes ran (health module unavailable)."))
-            empty.setStyleSheet(f"color: {C.OVERLAY0};")
-            body.addWidget(empty)
+            body.addWidget(make_empty_panel(tr("No probes ran (health module unavailable).")))
             return
 
         overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
@@ -200,7 +203,9 @@ class InfoPageMixin:
             badge = QLabel(status.upper())
             badge.setFixedWidth(48)
             badge.setStyleSheet(
-                f"color: {color}; font-size: 11px; font-weight: bold; background: transparent;"
+                f"color: {color}; font-size: 11px; font-weight: bold; "
+                f"background: {rgba(color, 0.12)}; border: 1px solid {rgba(color, 0.35)}; "
+                "border-radius: 6px; padding: 2px 6px;"
             )
             name = QLabel(p.get("name", ""))
             name.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
@@ -216,6 +221,9 @@ class InfoPageMixin:
             row.addWidget(duration, 0)
             holder = QWidget()
             holder.setLayout(row)
+            holder.setStyleSheet(
+                f"background: {rgba(C.MANTLE, 0.55)}; border-radius: 8px; padding: 2px;"
+            )
             body.addWidget(holder)
 
     def _set_info_card_rows(self, key: str, rows: list[tuple[str, str]]) -> None:
@@ -231,8 +239,10 @@ class InfoPageMixin:
                 w.deleteLater()
         for label, value in rows:
             row = QHBoxLayout()
+            row.setSpacing(SPACE_M)
             lbl = QLabel(label)
             lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px;")
+            lbl.setMinimumWidth(140)
             val = QLabel(value)
             val.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
             val.setWordWrap(True)

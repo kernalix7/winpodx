@@ -38,12 +38,24 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import BusyDialog, add_shadow, make_warning_callout
+from winpodx.gui._widget_helpers import (
+    BusyDialog,
+    add_shadow,
+    make_empty_panel,
+    make_page_heading,
+    make_section_label,
+    make_warning_callout,
+)
 from winpodx.gui.theme import (
     ACTION_ROW,
     BTN_DANGER,
     BTN_PRIMARY,
+    BTN_SECONDARY,
     SCROLL_AREA,
+    SPACE_L,
+    SPACE_S,
+    SPACE_XL,
+    SPACE_XXL,
     C,
     accent_color,
 )
@@ -83,6 +95,7 @@ def _confirm_with_callout(
     btn_row = QHBoxLayout()
     btn_row.addStretch(1)
     cancel = QPushButton(tr("Cancel"))
+    cancel.setStyleSheet(BTN_SECONDARY)
     cancel.clicked.connect(dlg.reject)
     btn_row.addWidget(cancel)
     proceed = QPushButton(tr("Proceed"))
@@ -108,29 +121,16 @@ class MaintenanceMixin:
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 24, 32, 20)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_XL)
+        layout.setSpacing(0)
 
-        title = QLabel(tr("Tools"))
-        title.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 22px; font-weight: bold;"
+        layout.addWidget(
+            make_page_heading(tr("Tools"), tr("System maintenance and pod management"))
         )
-        layout.addWidget(title)
+        layout.addSpacing(SPACE_XL)
 
-        sub = QLabel(tr("System maintenance and pod management"))
-        sub.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 13px;")
-        layout.addWidget(sub)
-        layout.addSpacing(20)
-
-        grp1 = QLabel(tr("Pod Management"))
-        grp1.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp1)
-        layout.addSpacing(8)
+        layout.addWidget(make_section_label(tr("Pod Management")))
+        layout.addSpacing(SPACE_S)
 
         pod_tools = [
             ("⏸", tr("Suspend Pod"), tr("Pause container (keeps memory)"), self._on_suspend),
@@ -140,18 +140,10 @@ class MaintenanceMixin:
         for i, (icon, label, desc, handler) in enumerate(pod_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i))
 
-        layout.addSpacing(20)
+        layout.addSpacing(SPACE_XL)
 
-        grp2 = QLabel(tr("System"))
-        grp2.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp2)
-        layout.addSpacing(8)
+        layout.addWidget(make_section_label(tr("System")))
+        layout.addSpacing(SPACE_S)
 
         sys_tools = [
             ("✧", tr("Clean Locks"), tr("Remove Office lock files"), self._on_cleanup),
@@ -182,25 +174,18 @@ class MaintenanceMixin:
         for i, (icon, label, desc, handler) in enumerate(sys_tools):
             layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
 
-        layout.addSpacing(20)
+        layout.addSpacing(SPACE_XL)
 
-        grp3 = QLabel(tr("Windows Update"))
-        grp3.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp3)
-        layout.addSpacing(8)
+        layout.addWidget(make_section_label(tr("Windows Update")))
+        layout.addSpacing(SPACE_S)
 
         update_row = QFrame()
         update_row.setObjectName("actionRow")
         update_row.setStyleSheet(ACTION_ROW)
         update_row.setMinimumHeight(64)
         rl = QHBoxLayout(update_row)
-        rl.setContentsMargins(16, 8, 16, 8)
+        rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
+        rl.setSpacing(SPACE_L)
 
         update_icon = QLabel("⇅")
         update_icon.setFixedSize(36, 36)
@@ -250,18 +235,10 @@ class MaintenanceMixin:
 
         self._refresh_update_status()
 
-        layout.addSpacing(20)
+        layout.addSpacing(SPACE_XL)
 
-        grp4 = QLabel(tr("RDP Sessions"))
-        grp4.setStyleSheet(
-            "background: transparent;"
-            f" color: {C.SUBTEXT0};"
-            " font-size: 11px;"
-            " font-weight: bold;"
-            " text-transform: uppercase;"
-        )
-        layout.addWidget(grp4)
-        layout.addSpacing(8)
+        layout.addWidget(make_section_label(tr("RDP Sessions")))
+        layout.addSpacing(SPACE_S)
 
         # The tray's "Terminate Session" menu isn't always reachable --
         # on some DEs (stock GNOME, occasional Wayland startup races) the
@@ -320,9 +297,7 @@ class MaintenanceMixin:
             if w is not None:
                 w.deleteLater()
         if not active:
-            empty = QLabel(tr("No active RDP sessions."))
-            empty.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
-            box.addWidget(empty)
+            box.addWidget(make_empty_panel(tr("No active RDP sessions.")))
             return
         for s in active:
             box.addWidget(self._make_session_row(s.app_name, s.pid))
@@ -334,7 +309,8 @@ class MaintenanceMixin:
         row.setStyleSheet(ACTION_ROW)
         row.setMinimumHeight(56)
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(16, 8, 16, 8)
+        rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
+        rl.setSpacing(SPACE_L)
 
         icon = QLabel("▢")
         icon.setFixedSize(36, 36)
@@ -400,8 +376,8 @@ class MaintenanceMixin:
         add_shadow(row, blur=12, y=2, alpha=35)
 
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(16, 0, 20, 0)
-        rl.setSpacing(16)
+        rl.setContentsMargins(SPACE_L, 0, SPACE_XL, 0)
+        rl.setSpacing(SPACE_L)
 
         color = accent_color(color_idx)
         icon_circle = QLabel(icon)

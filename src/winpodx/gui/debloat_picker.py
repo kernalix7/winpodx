@@ -28,17 +28,25 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.debloat import DebloatCatalog
 from winpodx.core.i18n import tr
+from winpodx.gui.theme import (
+    BTN_PRIMARY,
+    BTN_SECONDARY,
+    CHECKBOX,
+    DIALOG,
+    RADIO,
+    SCROLL_AREA,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    C,
+)
 
 # Color tokens for the risk badge. Pulled inline rather than imported
 # from ``winpodx.gui.theme`` so this module stays usable from tests /
 # standalone screenshots without the rest of the theme infrastructure
 # (the theme module pulls in palette globals + Qt-specific helpers
 # that aren't needed for a leaf dialog).
-_RISK_COLOR = {
-    "low": "#7FB069",  # muted green
-    "medium": "#E5C07B",  # amber
-    "high": "#E06C75",  # red
-}
+_RISK_COLOR = {"low": C.GREEN, "medium": C.PEACH, "high": C.RED}
 
 # Hover text for each risk badge, mirroring the legend.
 _RISK_TOOLTIP = {
@@ -101,14 +109,15 @@ class DebloatPickerDialog(QDialog):
         self.setWindowTitle(tr("Debloat picker"))
         self.setMinimumWidth(560)
         self.setModal(True)
+        self.setStyleSheet(DIALOG + CHECKBOX + RADIO + SCROLL_AREA)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 18, 20, 18)
-        outer.setSpacing(12)
+        outer.setSpacing(SPACE_M)
 
         # --- Title + subtitle --------------------------------------------
         title = QLabel(tr("Debloat picker"))
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {C.TEXT};")
         outer.addWidget(title)
 
         subtitle = QLabel(
@@ -120,7 +129,7 @@ class DebloatPickerDialog(QDialog):
             )
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #888; font-size: 12px;")
+        subtitle.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 12px;")
         outer.addWidget(subtitle)
 
         # Risk-scale legend so the per-item badges read clearly.
@@ -138,13 +147,14 @@ class DebloatPickerDialog(QDialog):
         )
         legend.setTextFormat(Qt.TextFormat.RichText)
         legend.setWordWrap(True)
-        legend.setStyleSheet("font-size: 11px;")
+        legend.setStyleSheet(f"font-size: 11px; color: {C.SUBTEXT0};")
         outer.addWidget(legend)
 
         # --- Preset radio group ------------------------------------------
         preset_row = QHBoxLayout()
+        preset_row.setSpacing(SPACE_L)
         preset_label = QLabel(tr("Preset:"))
-        preset_label.setStyleSheet("font-weight: 600;")
+        preset_label.setStyleSheet(f"font-weight: 600; color: {C.SUBTEXT0};")
         preset_row.addWidget(preset_label)
 
         self._preset_group = QButtonGroup(self)
@@ -172,7 +182,7 @@ class DebloatPickerDialog(QDialog):
         # refreshed by the preset/custom toggles.
         self._preset_desc = QLabel("")
         self._preset_desc.setWordWrap(True)
-        self._preset_desc.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._preset_desc.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 11px;")
         outer.addWidget(self._preset_desc)
 
         # --- Item list ---------------------------------------------------
@@ -181,12 +191,12 @@ class DebloatPickerDialog(QDialog):
         scroll.setFrameShape(QFrame.Shape.StyledPanel)
         content = QWidget()
         items_layout = QVBoxLayout(content)
-        items_layout.setContentsMargins(8, 8, 8, 8)
-        items_layout.setSpacing(6)
+        items_layout.setContentsMargins(SPACE_S, SPACE_S, SPACE_S, SPACE_S)
+        items_layout.setSpacing(SPACE_S)
 
         for item in catalog.items.values():
             row = QHBoxLayout()
-            row.setSpacing(8)
+            row.setSpacing(SPACE_S)
 
             box = QCheckBox()
             box.toggled.connect(self._on_item_toggled)
@@ -199,7 +209,7 @@ class DebloatPickerDialog(QDialog):
             badge.setToolTip(_RISK_TOOLTIP.get(item.risk, ""))
             badge.setStyleSheet(
                 f"background: {_RISK_COLOR.get(item.risk, '#888')};"
-                " color: white; border-radius: 4px;"
+                f" color: {C.CRUST}; border-radius: 6px;"
                 " padding: 2px 4px; font-size: 11px; font-weight: bold;"
             )
             row.addWidget(badge)
@@ -208,13 +218,13 @@ class DebloatPickerDialog(QDialog):
             # Full purpose on hover so every item is explainable even when the
             # short label can't carry it.
             label.setToolTip(item.description)
-            label.setStyleSheet("font-size: 13px;")
+            label.setStyleSheet(f"font-size: 13px; color: {C.TEXT};")
             row.addWidget(label, 1)
 
             one_way = QLabel(tr("(one-way)")) if not item.is_reversible else QLabel("")
             if not item.is_reversible:
                 one_way.setToolTip(tr("Cannot be undone — this item has no reverse script."))
-            one_way.setStyleSheet("color: #888; font-size: 11px;")
+            one_way.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
             row.addWidget(one_way)
 
             items_layout.addLayout(row)
@@ -225,11 +235,14 @@ class DebloatPickerDialog(QDialog):
 
         # --- Footer (count + buttons) ------------------------------------
         self._count_label = QLabel("")
+        self._count_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px;")
         outer.addWidget(self._count_label)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Apply
         )
+        buttons.button(QDialogButtonBox.StandardButton.Apply).setStyleSheet(BTN_PRIMARY)
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setStyleSheet(BTN_SECONDARY)
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)

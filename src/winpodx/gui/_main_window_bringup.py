@@ -85,7 +85,17 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import BusyDialog
-from winpodx.gui.theme import FONT_CAPTION, FONT_SUBHEAD, C
+from winpodx.gui.theme import (
+    BTN_PRIMARY,
+    BTN_SECONDARY,
+    DIALOG,
+    FONT_CAPTION,
+    FONT_SUBHEAD,
+    PLAIN_TEXT,
+    SPACE_M,
+    SPACE_S,
+    C,
+)
 
 log = logging.getLogger(__name__)
 
@@ -175,6 +185,7 @@ class BringUpProgressDialog(QDialog):
         self.setWindowTitle(tr("Setting up Windows"))
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setMinimumWidth(560)
+        self.setStyleSheet(DIALOG + PLAIN_TEXT)
         self._on_cancel = on_cancel
         self._cfg = cfg
 
@@ -200,7 +211,7 @@ class BringUpProgressDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(10)
+        layout.setSpacing(SPACE_M)
 
         # ----- header row (phase progress + label) -----------------------
         self.header = QLabel(tr("Starting..."))
@@ -228,7 +239,7 @@ class BringUpProgressDialog(QDialog):
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(8)
+            row_layout.setSpacing(SPACE_S)
 
             glyph = QLabel("   ")
             glyph.setFont(self._mono_font)
@@ -269,7 +280,10 @@ class BringUpProgressDialog(QDialog):
         self.pod_log_toggle.setChecked(False)
         self.pod_log_toggle.setArrowType(Qt.ArrowType.RightArrow)
         self.pod_log_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.pod_log_toggle.setStyleSheet("QToolButton { border: none; padding: 4px 0; }")
+        self.pod_log_toggle.setStyleSheet(
+            f"QToolButton {{ color: {C.SUBTEXT1}; border: none; padding: 6px 0; }}"
+            f"QToolButton:hover {{ color: {C.TEXT}; }}"
+        )
         self.pod_log_toggle.toggled.connect(self._on_pod_log_toggled)
         layout.addWidget(self.pod_log_toggle)
 
@@ -297,6 +311,7 @@ class BringUpProgressDialog(QDialog):
         footer_layout.addWidget(self.elapsed_label, stretch=1)
 
         self.cancel_btn = QPushButton(tr("Cancel"))
+        self.cancel_btn.setStyleSheet(BTN_SECONDARY)
         self.cancel_btn.clicked.connect(self._handle_cancel)
         footer_layout.addWidget(self.cancel_btn)
 
@@ -336,6 +351,7 @@ class BringUpProgressDialog(QDialog):
         # its label so the user knows the request registered.
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setText(tr("Cancelling..."))
+        self.cancel_btn.setStyleSheet(BTN_SECONDARY)
         try:
             self._on_cancel()
         except Exception:  # noqa: BLE001
@@ -429,6 +445,7 @@ class BringUpProgressDialog(QDialog):
             )
             self.sub_detail.setText(error_msg or tr("(no error message)"))
         self.cancel_btn.setText(tr("Close"))
+        self.cancel_btn.setStyleSheet(BTN_PRIMARY)
         self.cancel_btn.setEnabled(True)
         self.cancel_btn.setToolTip("")
         try:

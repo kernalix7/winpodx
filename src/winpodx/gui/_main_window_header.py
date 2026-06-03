@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.i18n import tr
 from winpodx.gui.theme import (
+    BTN_PRIMARY,
     INFO_BAR,
     POD_CHIP,
     POD_CTRL,
@@ -54,7 +55,7 @@ class HeaderMixin:
         bar.setStyleSheet(TOP_BAR)
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(0)
 
         from winpodx.desktop.icons import bundled_data_path
@@ -77,10 +78,10 @@ class HeaderMixin:
         logo_text.setStyleSheet(
             f"background: transparent; color: {C.TEXT};"
             " font-size: 16px; font-weight: bold;"
-            " letter-spacing: 1px;"
+            " letter-spacing: 0px;"
         )
         layout.addWidget(logo_text)
-        layout.addSpacing(32)
+        layout.addSpacing(28)
 
         tab_container = QWidget()
         tab_container.setStyleSheet(TAB_BTN)
@@ -114,8 +115,8 @@ class HeaderMixin:
         chip.setObjectName("podChip")
         chip.setStyleSheet(POD_CHIP)
         chip_l = QHBoxLayout(chip)
-        chip_l.setContentsMargins(12, 4, 6, 4)
-        chip_l.setSpacing(6)
+        chip_l.setContentsMargins(12, 4, 8, 4)
+        chip_l.setSpacing(8)
 
         self.pod_dot = QLabel("●")
         self.pod_dot.setStyleSheet(
@@ -176,7 +177,7 @@ class HeaderMixin:
         banner.setStyleSheet(STATUS_BANNER_WARN)
 
         layout = QHBoxLayout(banner)
-        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(12)
 
         self.banner_icon = QLabel("⚠")
@@ -196,12 +197,7 @@ class HeaderMixin:
         # relabel it "Restart" (recovery) vs the default "Start Now". The
         # action is the same ensure_ready() path either way.
         self.banner_btn = QPushButton(tr("Start Now"))
-        self.banner_btn.setStyleSheet(
-            f"QPushButton {{ background: {C.BLUE}; color: {C.CRUST};"
-            f" border: none; border-radius: 6px;"
-            f" padding: 4px 14px; font-size: 12px; font-weight: bold; }}"
-            f"QPushButton:hover {{ background: {C.LAVENDER}; }}"
-        )
+        self.banner_btn.setStyleSheet(BTN_PRIMARY)
         self.banner_btn.clicked.connect(self._on_start_pod)
         layout.addWidget(self.banner_btn)
 
@@ -214,8 +210,8 @@ class HeaderMixin:
         bar.setStyleSheet(INFO_BAR)
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(20, 0, 20, 0)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 0, 24, 0)
+        layout.setSpacing(14)
 
         self.info_label = QLabel(tr("{n} apps available").format(n=len(self.apps)))
         self.info_label.setStyleSheet(
@@ -278,7 +274,7 @@ class HeaderMixin:
         bar.setFixedHeight(38)
 
         layout = QVBoxLayout(bar)
-        layout.setContentsMargins(20, 4, 20, 4)
+        layout.setContentsMargins(24, 4, 24, 4)
         layout.setSpacing(0)
 
         # Two lines stacked: most-recent on top, previous below it
