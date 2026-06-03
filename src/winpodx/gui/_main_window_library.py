@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Library-page mixin for ``WinpodxWindow``.
 
-Holds the methods that build and drive the Apps tab: the toolbar
-(search / view toggle / refresh / hidden / add), the category chip row,
-the grid / list view populators, individual card/tile builders, and
-the visibility / filter / hidden-toggle state. Pulled out of
+Holds the methods that build and drive the Home launcher: the search
+bar, pinned/recent rows, category chip row, the grid / list view
+populators, individual card/tile builders, and the visibility /
+filter / hidden-toggle state. Pulled out of
 ``main_window.py`` to keep that file focused on overall window
 orchestration.
 
@@ -43,11 +43,13 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
+from winpodx.gui import launcher_state
 from winpodx.gui._widget_helpers import (
     add_shadow,
     make_app_avatar,
     make_empty_panel,
     make_page_header,
+    make_section_label,
     make_source_badge,
 )
 from winpodx.gui.icons import load_icon
@@ -87,8 +89,7 @@ class LibraryPageMixin:
         layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_L)
         layout.setSpacing(SPACE_M)
 
-        apps_title = self.nav_buttons[0].text() if hasattr(self, "nav_buttons") else "Apps"
-        layout.addWidget(make_page_header(apps_title))
+        layout.addWidget(make_page_header(tr("Apps")))
 
         toolbar = QHBoxLayout()
         toolbar.setSpacing(16)
@@ -100,7 +101,12 @@ class LibraryPageMixin:
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText(tr("Search apps by name..."))
         self.search_box.setStyleSheet(SEARCH_BAR)
-        self.search_box.setFixedWidth(340)
+        self.search_box.setMinimumWidth(360)
+        self.search_box.setMaximumWidth(620)
+        self.search_box.addAction(
+            load_icon("search", C.OVERLAY0, 16),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
         self.search_box.setClearButtonEnabled(True)
         self.search_box.textChanged.connect(self._filter_apps)
         left_group.addWidget(self.search_box)
@@ -184,29 +190,64 @@ class LibraryPageMixin:
         )
         layout.addWidget(self.refresh_progress)
 
-        category_wrap = QWidget()
-        self._category_row = QHBoxLayout(category_wrap)
-        self._category_row.setContentsMargins(0, SPACE_S, 0, 0)
-        self._category_row.setSpacing(8)
-        self._category_btns: list[QPushButton] = []
-        self._build_category_chips()
-        layout.addWidget(category_wrap)
-
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(SCROLL_AREA)
 
         self.app_list_container = QWidget()
         self.app_list_container.setStyleSheet("background: transparent;")
-        self.app_list_layout = QVBoxLayout(self.app_list_container)
+        launcher_layout = QVBoxLayout(self.app_list_container)
+        launcher_layout.setContentsMargins(0, 0, 0, 0)
+        launcher_layout.setSpacing(SPACE_XL)
+
+        self._pinned_section, self._pinned_row = self._make_launcher_section(tr("Pinned"))
+        launcher_layout.addWidget(self._pinned_section)
+
+        self._recent_section, self._recent_row = self._make_launcher_section(tr("Recent"))
+        launcher_layout.addWidget(self._recent_section)
+
+        all_apps_header = QWidget()
+        all_apps_layout = QVBoxLayout(all_apps_header)
+        all_apps_layout.setContentsMargins(0, 0, 0, 0)
+        all_apps_layout.setSpacing(SPACE_M)
+        all_apps_layout.addWidget(make_section_label(tr("All apps")))
+
+        category_wrap = QWidget()
+        self._category_row = QHBoxLayout(category_wrap)
+        self._category_row.setContentsMargins(0, 0, 0, 0)
+        self._category_row.setSpacing(8)
+        self._category_btns: list[QPushButton] = []
+        self._build_category_chips()
+        all_apps_layout.addWidget(category_wrap)
+        launcher_layout.addWidget(all_apps_header)
+
+        self.app_list_layout = QVBoxLayout()
         self.app_list_layout.setContentsMargins(0, 0, 0, 0)
         self.app_list_layout.setSpacing(SPACE_XL)
+        launcher_layout.addLayout(self.app_list_layout)
         self._refresh_hidden_button()
-        self._populate_app_view(self._visible_apps())
+        self._refresh_launcher_home()
 
         scroll.setWidget(self.app_list_container)
         layout.addWidget(scroll)
         return page
+
+    def _make_launcher_section(self, title: str) -> tuple[QWidget, QHBoxLayout]:
+        section = QWidget()
+        section.setStyleSheet("background: transparent;")
+        outer = QVBoxLayout(section)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(SPACE_M)
+        outer.addWidget(make_section_label(title))
+
+        row_wrap = QWidget()
+        row_wrap.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(row_wrap)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SPACE_M)
+        outer.addWidget(row_wrap)
+        section.setVisible(False)
+        return section, row
 
     def _build_category_chips(self) -> None:
         """Build category filter chips from available apps.
@@ -256,6 +297,48 @@ class LibraryPageMixin:
 
         self._category_row.addStretch()
 
+    def _clear_layout(self, layout: QHBoxLayout | QVBoxLayout | QGridLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
+
+    def _apps_by_names(self, names: list[str], candidates: list[AppInfo]) -> list[AppInfo]:
+        by_name = {app.name: app for app in candidates}
+        return [by_name[name] for name in names if name in by_name]
+
+    def _populate_launcher_row(
+        self,
+        section: QWidget,
+        row: QHBoxLayout,
+        apps: list[AppInfo],
+    ) -> None:
+        self._clear_layout(row)
+        section.setVisible(bool(apps))
+        if not apps:
+            return
+        for app in apps:
+            row.addWidget(self._make_app_card(app))
+        row.addStretch()
+
+    def _refresh_launcher_sections(self, filtered: list[AppInfo]) -> None:
+        pinned = self._apps_by_names(launcher_state.get_pinned(), filtered)
+        recent = self._apps_by_names(launcher_state.get_recent(), filtered)
+        self._populate_launcher_row(self._pinned_section, self._pinned_row, pinned)
+        self._populate_launcher_row(self._recent_section, self._recent_row, recent)
+
+    def _refresh_launcher_home(self) -> None:
+        self._filter_apps(self.search_box.text())
+
+    def _on_toggle_pin_app(self, app: AppInfo) -> None:
+        if launcher_state.is_pinned(app.name):
+            launcher_state.unpin(app.name)
+        else:
+            launcher_state.pin(app.name)
+        self._refresh_launcher_home()
+
     def _set_category(self, category: str) -> None:
         self._active_category = category
         more_btn = getattr(self, "_category_more_btn", None)
@@ -277,15 +360,7 @@ class LibraryPageMixin:
 
     def _populate_app_view(self, apps: list[AppInfo]) -> None:
         """Populate apps in grid or list layout."""
-        while self.app_list_layout.count():
-            item = self.app_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                while item.layout().count():
-                    sub = item.layout().takeAt(0)
-                    if sub.widget():
-                        sub.widget().deleteLater()
+        self._clear_layout(self.app_list_layout)
 
         if not apps:
             self.app_list_layout.addWidget(self._make_empty_state())
@@ -477,6 +552,12 @@ class LibraryPageMixin:
         )
 
         menu = QMenu(more_btn)
+        pin_action = menu.addAction(
+            tr("Unpin") if launcher_state.is_pinned(app.name) else tr("Pin")
+        )
+        pin_action.setIcon(load_icon("pin", C.SUBTEXT1, 16))
+        pin_action.triggered.connect(lambda _, a=app: self._on_toggle_pin_app(a))
+
         edit_action = menu.addAction(tr("Edit"))
         edit_action.triggered.connect(lambda _, a=app: self._on_edit_app(a))
 
@@ -618,6 +699,7 @@ class LibraryPageMixin:
         filtered = [a for a in base if q in a.full_name.lower() or q in a.name.lower()]
         if self._active_category:
             filtered = [a for a in filtered if self._active_category in a.categories]
+        self._refresh_launcher_sections(filtered)
         self._populate_app_view(filtered)
         # "X of Y" so the toolbar count reconciles with the info bar's total
         # after a search/filter (Task 5).

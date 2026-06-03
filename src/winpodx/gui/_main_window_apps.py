@@ -108,9 +108,9 @@ class AppCrudMixin:
     def _reload_apps(self) -> None:
         self.apps = list_available_apps()
         self._refresh_hidden_button()
-        visible = self._visible_apps()
-        self._populate_app_view(visible)
         self.search_box.clear()
+        self._refresh_launcher_home()
+        visible = self._visible_apps()
         # "X of Y" mirrors the library toolbar format (Task 5); no search is
         # active right after a reload, so shown == total.
         self.app_count_label.setText(

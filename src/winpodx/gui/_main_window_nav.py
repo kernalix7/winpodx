@@ -2,7 +2,7 @@
 """Navigation + first-launch mixin for ``WinpodxWindow``.
 
 Holds page-switch behaviour (start/stop the app-log tail and the
-Info-page auto-refresh based on which tab is showing) and the
+Info-page auto-refresh based on which page is showing) and the
 first-run quick-start wizard (resume pending install steps + show
 the one-shot Welcome dialog).
 
@@ -40,6 +40,8 @@ class NavigationMixin:
         self.pages.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
+        for i, action in enumerate(getattr(self, "nav_menu_actions", [])):
+            action.setChecked(i == index)
         # v0.5.1: tail processes are now always-on (started at
         # WinpodxWindow.__init__) and feed both the Terminal full
         # history AND the always-visible bottom log bar. We no
@@ -72,7 +74,7 @@ class NavigationMixin:
             self._sessions_timer.stop()
 
     def _install_shortcuts(self) -> None:
-        """Wire keyboard navigation: Alt+1..N switch top-nav pages and
+        """Wire keyboard navigation: Alt+1..N switch launcher pages and
         Ctrl+F focuses the library search box.
 
         Idempotent — guarded so the once-on-startup caller (or any future
@@ -89,7 +91,7 @@ class NavigationMixin:
         search_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self)
 
         def _focus_search() -> None:
-            # Search lives on the library page; jump there first so the box
+            # Search lives on Home; jump there first so the box
             # is visible, then focus + select-all for an immediate retype.
             self._switch_page(0)
             self.search_box.setFocus(Qt.FocusReason.ShortcutFocusReason)

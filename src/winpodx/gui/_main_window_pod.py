@@ -35,6 +35,7 @@ from winpodx.core.app import AppInfo
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.core.pod import pod_status
+from winpodx.gui import launcher_state
 from winpodx.gui._widget_helpers import show_toast
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import C
@@ -94,6 +95,7 @@ class PodStatusMixin:
                 rc = session.process.returncode
                 # 0 = normal exit, 128+signal = killed by signal.
                 if rc == 0 or rc > 128:
+                    launcher_state.record_recent(app.name)
                     self.app_launched.emit(app.full_name)
                 else:
                     time.sleep(0.2)  # let reaper drain stderr
@@ -103,6 +105,7 @@ class PodStatusMixin:
                         msg += f"\n{stderr}"
                     self.app_launch_failed.emit(msg)
             else:
+                launcher_state.record_recent(app.name)
                 self.app_launched.emit(app.full_name)
 
         threading.Thread(target=_do, daemon=True).start()
@@ -370,6 +373,8 @@ class PodStatusMixin:
     @Slot(str)
     def _on_app_launched(self, name: str) -> None:
         self.info_label.setText(tr("{name} launched").format(name=name))
+        if hasattr(self, "_refresh_launcher_home"):
+            self._refresh_launcher_home()
         show_toast(self, tr("{name} launched").format(name=name), kind="success")
 
     @Slot(str)

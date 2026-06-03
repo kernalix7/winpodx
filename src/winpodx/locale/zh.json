@@ -822,5 +822,14 @@
   "Failed to terminate {name}": "终止 {name} 失败",
   "Terminate Session": "终止会话",
   "(no active sessions)": "（无活动会话）",
-  "Terminate: {name}": "终止：{name}"
+  "Terminate: {name}": "终止：{name}",
+  "Home / Apps": "主页 / 应用",
+  "Apps": "应用",
+  "Terminal / Logs": "终端 / 日志",
+  "Navigation": "导航",
+  "Pinned": "已固定",
+  "Recent": "最近",
+  "All apps": "所有应用",
+  "Pin": "固定",
+  "Unpin": "取消固定"
 }

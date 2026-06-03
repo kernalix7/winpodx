@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""winpodx main GUI: top-nav app launcher and pod manager."""
+"""winpodx main GUI: launcher home and pod manager."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class WinpodxWindow(
     SettingsPageMixin,
     QMainWindow,
 ):
-    """Main window with horizontal top navigation bar."""
+    """Main window with launcher home and overflow-menu navigation."""
 
     # Thread-safe signals
     pod_status_updated = Signal(str, str)
