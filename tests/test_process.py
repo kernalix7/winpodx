@@ -20,6 +20,21 @@ class TestCmdlineIsFreerdp:
     def test_argv0_flatpak_freerdp(self):
         assert _cmdline_is_freerdp(b"flatpak\0run\0com.freerdp.FreeRDP\0/v:host\0")
 
+    def test_argv0_bwrap_wrapped_xfreerdp(self):
+        # `flatpak run com.freerdp.FreeRDP` re-execs (same PID) into
+        # `bwrap ... -- xfreerdp ...`; the wrapped client must still count or
+        # list_active_sessions() unlinks a live session's .cproc.
+        assert _cmdline_is_freerdp(
+            b"/usr/bin/bwrap\0--args\0072\0--\0xfreerdp\0/v:127.0.0.1:3390\0"
+        )
+
+    def test_argv0_bwrap_wrapped_flatpak_appid(self):
+        assert _cmdline_is_freerdp(b"bwrap\0--\0com.freerdp.FreeRDP\0/v:host\0")
+
+    def test_bwrap_without_freerdp_rejected(self):
+        # A bwrap sandbox around something else must not be adopted.
+        assert not _cmdline_is_freerdp(b"/usr/bin/bwrap\0--\0sleep\0900\0")
+
     def test_freerdp_only_in_later_argv_rejected(self):
         # Regression: "freerdp" in a later arg must not match.
         assert not _cmdline_is_freerdp(

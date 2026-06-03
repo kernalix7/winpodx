@@ -44,6 +44,18 @@ def _cmdline_is_freerdp(cmdline: bytes) -> bool:
     if prog == b"flatpak":
         tail = [a.lower() for a in argv[1:] if a]
         return b"com.freerdp.freerdp" in tail
+    if prog in (b"bwrap", b"bubblewrap"):
+        # `flatpak run com.freerdp.FreeRDP` re-execs (same PID) into
+        # `bwrap ... -- xfreerdp ...`, so the tracked PID's argv[0] becomes
+        # bwrap. Recognise a freerdp client basename (or the Flatpak app id)
+        # among bwrap's args so session tracking survives the sandbox --
+        # otherwise list_active_sessions() unlinks a live session's .cproc
+        # and the tray / GUI report no active sessions while apps are running.
+        for a in argv[1:]:
+            base = a.rsplit(b"/", 1)[-1].lower()
+            if base in _FREERDP_ARGV0 or base == b"com.freerdp.freerdp":
+                return True
+        return False
     return False
 
 
