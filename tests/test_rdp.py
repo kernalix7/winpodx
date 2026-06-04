@@ -360,6 +360,34 @@ class TestBuildRdpCommand:
         )
         assert "/app-cmd:shell:Desktop" in cmd
 
+    def test_file_path_with_space_is_quoted_freerdp3(self, cfg, monkeypatch, tmp_path):
+        """#473: a file path containing a space must reach the guest quoted,
+        or the RAIL command line splits and the app gets 'path not found'."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
+        monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
+        f = tmp_path / "BRMP Rawa" / "01 KK.xlsx"
+        f.parent.mkdir(parents=True)
+        f.touch()
+        cmd, _ = build_rdp_command(cfg, app_executable="excel.exe", file_path=str(f))
+        assert any(',cmd:"\\\\tsclient\\home\\BRMP Rawa\\01 KK.xlsx"' in c for c in cmd)
+
+    def test_file_path_with_space_is_quoted_freerdp2(self, cfg, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 2)
+        monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
+        f = tmp_path / "BRMP Rawa" / "01 KK.xlsx"
+        f.parent.mkdir(parents=True)
+        f.touch()
+        cmd, _ = build_rdp_command(cfg, app_executable="excel.exe", file_path=str(f))
+        assert '/app-cmd:"\\\\tsclient\\home\\BRMP Rawa\\01 KK.xlsx"' in cmd
+
     def test_dpi_flag_when_set(self, cfg, monkeypatch):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",

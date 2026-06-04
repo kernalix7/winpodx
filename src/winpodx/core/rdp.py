@@ -531,7 +531,10 @@ def build_rdp_command(
                     unc_path = linux_to_unc(file_path)
                 except ValueError as e:
                     raise RuntimeError(f"Cannot open file: {e}") from e
-                app_arg += f",cmd:{unc_path}"
+                # Quote the UNC path: the guest splits the RAIL command line on
+                # spaces, so a path with spaces ("BRMP Rawa/...xlsx") would
+                # reach the app as several args -> "path not found" (#473).
+                app_arg += f',cmd:"{unc_path}"'
             elif default_args:
                 sanitized = default_args.replace(",", " ")
                 app_arg += f",cmd:{sanitized}"
@@ -546,7 +549,9 @@ def build_rdp_command(
                     unc_path = linux_to_unc(file_path)
                 except ValueError as e:
                     raise RuntimeError(f"Cannot open file: {e}") from e
-                cmd.append(f"/app-cmd:{unc_path}")
+                # Quote the UNC path so a space in it isn't split into separate
+                # args by the guest when it parses the RAIL command line (#473).
+                cmd.append(f'/app-cmd:"{unc_path}"')
             elif default_args:
                 cmd.append(f"/app-cmd:{default_args}")
         cmd.append(f"/wm-class:{name_token}")
