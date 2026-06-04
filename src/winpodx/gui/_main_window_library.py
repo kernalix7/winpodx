@@ -36,7 +36,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -48,13 +47,11 @@ from winpodx.gui._widget_helpers import (
     add_shadow,
     make_app_avatar,
     make_empty_panel,
-    make_page_header,
     make_section_label,
     make_source_badge,
 )
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
-    APP_CARD,
     APP_TILE,
     BTN_ACCENT,
     BTN_DANGER,
@@ -80,36 +77,89 @@ from winpodx.gui.theme import (
 _MAX_CATEGORY_CHIPS = 8
 
 
+class _AppTile(QFrame):
+    """Windows-Start-style launcher tile: icon above name, the whole tile is
+    clickable (left-click launches), right-click opens the context menu. No
+    border / badge / launch button / overflow on the face -- minimal, like the
+    Start-menu app grid.
+    """
+
+    def __init__(self, app: AppInfo, *, on_launch, on_menu) -> None:
+        super().__init__()
+        self._app = app
+        self._on_launch = on_launch
+        self._on_menu = on_menu
+        self.setObjectName("appTileBtn")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(app.full_name)
+        self.setStyleSheet(
+            "QFrame#appTileBtn { background: transparent; border: none;"
+            " border-radius: 10px; }"
+            f"QFrame#appTileBtn:hover {{ background: {C.SURFACE1}; }}"
+        )
+        v = QVBoxLayout(self)
+        v.setContentsMargins(SPACE_S, SPACE_M, SPACE_S, SPACE_M)
+        v.setSpacing(SPACE_S)
+        v.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+
+        avatar = make_app_avatar(app, size=48, radius=12, font_size=20)
+        v.addWidget(avatar, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        name = QLabel(app.full_name)
+        name.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        name.setWordWrap(True)
+        name.setFixedWidth(104)
+        name.setStyleSheet(f"background: transparent; color: {C.TEXT}; font-size: 12px;")
+        v.addWidget(name, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(
+            lambda pos: self._on_menu(self._app, self.mapToGlobal(pos))
+        )
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._on_launch(self._app)
+        super().mousePressEvent(event)
+
+
 class LibraryPageMixin:
     """Builds the Apps page + drives grid/list view + filter state."""
 
     def _build_library_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_L)
-        layout.setSpacing(SPACE_M)
+        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_L)
+        layout.setSpacing(SPACE_L)
 
-        layout.addWidget(make_page_header(tr("Apps")))
+        # Launcher hero: a large, prominent search is the focal point (Start-menu
+        # style) -- no redundant page title. Centered + capped width so it reads
+        # as the primary action rather than a form field.
+        hero = QHBoxLayout()
+        hero.addStretch(1)
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText(tr("Search apps by name..."))
+        self.search_box.setStyleSheet(SEARCH_BAR)
+        self.search_box.setMinimumHeight(46)
+        self.search_box.setMinimumWidth(420)
+        self.search_box.setMaximumWidth(720)
+        self.search_box.addAction(
+            load_icon("search", C.SUBTEXT0, 18),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.textChanged.connect(self._filter_apps)
+        hero.addWidget(self.search_box, 3)
+        hero.addStretch(1)
+        layout.addLayout(hero)
 
+        # Secondary action row -- small + quiet, sits under the hero search.
         toolbar = QHBoxLayout()
         toolbar.setSpacing(16)
 
         left_group = QHBoxLayout()
         left_group.setContentsMargins(0, 0, 0, 0)
         left_group.setSpacing(8)
-
-        self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText(tr("Search apps by name..."))
-        self.search_box.setStyleSheet(SEARCH_BAR)
-        self.search_box.setMinimumWidth(360)
-        self.search_box.setMaximumWidth(620)
-        self.search_box.addAction(
-            load_icon("search", C.OVERLAY0, 16),
-            QLineEdit.ActionPosition.LeadingPosition,
-        )
-        self.search_box.setClearButtonEnabled(True)
-        self.search_box.textChanged.connect(self._filter_apps)
-        left_group.addWidget(self.search_box)
 
         self.app_count_label = QLabel(
             tr("{shown} of {total} apps").format(shown=len(self.apps), total=len(self.apps))
@@ -424,12 +474,12 @@ class LibraryPageMixin:
         return panel
 
     def _populate_grid(self, apps: list[AppInfo]) -> None:
-        """Grid view - cards."""
-        cols = 4
-        self.app_list_layout.setSpacing(SPACE_XL)
+        """Grid view - Start-menu-style icon tiles (dense)."""
+        cols = 6
+        self.app_list_layout.setSpacing(SPACE_L)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(SPACE_XL)
-        grid.setVerticalSpacing(SPACE_XL)
+        grid.setHorizontalSpacing(SPACE_S)
+        grid.setVerticalSpacing(SPACE_S)
         grid.setContentsMargins(0, 0, 0, 0)
         for col in range(cols):
             grid.setColumnStretch(col, 1)
@@ -458,125 +508,28 @@ class LibraryPageMixin:
         self.app_list_layout.addStretch()
 
     def _make_app_card(self, app: AppInfo) -> QWidget:
-        """Grid card with compact app identity, status, and launch footer."""
-        card = QFrame()
-        card.setObjectName("appCard")
-        card.setStyleSheet(APP_CARD)
-        card.setMinimumWidth(188)
-        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        add_shadow(card, blur=12, y=2, alpha=28)
+        """A Start-menu-style launcher tile (icon + name, click to launch)."""
+        return _AppTile(app, on_launch=self._launch_app, on_menu=self._show_app_menu)
 
-        vl = QVBoxLayout(card)
-        vl.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
-        vl.setSpacing(SPACE_M)
-
-        top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(SPACE_M)
-
-        avatar = make_app_avatar(app, size=44, radius=12, font_size=19)
-        top_row.addWidget(avatar, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        identity = QVBoxLayout()
-        identity.setContentsMargins(0, 0, 0, 0)
-        identity.setSpacing(4)
-
-        name_lbl = QLabel(app.full_name)
-        name_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: 500;"
-        )
-        name_lbl.setWordWrap(False)
-        name_lbl.setMaximumWidth(156)
-        fm = name_lbl.fontMetrics()
-        elided = fm.elidedText(app.full_name, Qt.TextElideMode.ElideRight, 156)
-        name_lbl.setText(elided)
-        name_lbl.setToolTip(app.full_name)
-        identity.addWidget(name_lbl)
-
-        meta_parts = []
-        if app.categories:
-            meta_parts.append(", ".join(app.categories[:2]))
-        meta_parts.append(app.name)
-        if app.hidden:
-            meta_parts.append(tr("Hidden"))
-        meta_lbl = QLabel(" • ".join(meta_parts))
-        meta_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-        meta_lbl.setWordWrap(False)
-        meta_lbl.setMaximumWidth(156)
-        meta_elided = meta_lbl.fontMetrics().elidedText(
-            meta_lbl.text(), Qt.TextElideMode.ElideRight, 156
-        )
-        meta_lbl.setText(meta_elided)
-        identity.addWidget(meta_lbl)
-
-        top_row.addLayout(identity, 1)
-
-        badge = make_source_badge(app)
-        if badge is not None:
-            top_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
-
-        vl.addLayout(top_row)
-
-        launch_btn = QPushButton(tr("▶  Launch"))
-        launch_btn.setText(launch_btn.text().removeprefix("▶  "))
-        launch_btn.setIcon(load_icon("play", C.CRUST, 16))
-        launch_btn.setIconSize(QSize(16, 16))
-        launch_btn.setStyleSheet(BTN_ACCENT)
-        launch_btn.setMinimumWidth(118)
-        launch_btn.setToolTip(tr("Launch {app}").format(app=app.full_name))
-        launch_btn.clicked.connect(lambda _, a=app: self._launch_app(a))
-
-        more_btn = QPushButton("")
-        more_btn.setIcon(load_icon("overflow", C.OVERLAY0, 16))
-        more_btn.setIconSize(QSize(16, 16))
-        more_btn.setFixedSize(30, 30)
-        more_btn.setToolTip(tr("Edit"))
-        more_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: transparent;
-                color: {C.OVERLAY0};
-                border: none;
-                border-radius: 15px;
-                font-size: 16px;
-            }}
-            QPushButton:hover {{
-                color: {C.TEXT};
-                background: {C.SURFACE1};
-            }}
-            QPushButton::menu-indicator {{
-                image: none;
-                width: 0px;
-            }}
-            """
-        )
-
-        menu = QMenu(more_btn)
+    def _show_app_menu(self, app: AppInfo, global_pos) -> None:
+        """Right-click context menu for a launcher tile: Pin / Edit / Hide /
+        Delete. Launch is the left-click (the whole tile)."""
+        menu = QMenu(self)
         pin_action = menu.addAction(
             tr("Unpin") if launcher_state.is_pinned(app.name) else tr("Pin")
         )
         pin_action.setIcon(load_icon("pin", C.SUBTEXT1, 16))
-        pin_action.triggered.connect(lambda _, a=app: self._on_toggle_pin_app(a))
+        pin_action.triggered.connect(lambda _=False, a=app: self._on_toggle_pin_app(a))
 
         edit_action = menu.addAction(tr("Edit"))
-        edit_action.triggered.connect(lambda _, a=app: self._on_edit_app(a))
+        edit_action.triggered.connect(lambda _=False, a=app: self._on_edit_app(a))
 
         hide_action = menu.addAction(tr("Show") if app.hidden else tr("Hide"))
-        hide_action.setToolTip(tr("Show in menu") if app.hidden else tr("Hide from menu"))
-        hide_action.triggered.connect(lambda _, a=app: self._on_toggle_app_hidden(a))
+        hide_action.triggered.connect(lambda _=False, a=app: self._on_toggle_app_hidden(a))
 
         delete_action = menu.addAction(tr("Delete"))
-        delete_action.triggered.connect(lambda _, a=app: self._on_delete_app(a))
-        more_btn.setMenu(menu)
-
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        footer.setSpacing(SPACE_S)
-        footer.addWidget(launch_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        footer.addStretch()
-        footer.addWidget(more_btn, 0, Qt.AlignmentFlag.AlignRight)
-        vl.addLayout(footer)
-        return card
+        delete_action.triggered.connect(lambda _=False, a=app: self._on_delete_app(a))
+        menu.exec(global_pos)
 
     def _make_app_tile(self, app: AppInfo) -> QWidget:
         """Horizontal app tile with colored accent stripe."""
