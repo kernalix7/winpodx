@@ -47,6 +47,7 @@ Per-slug icons render in both the short Open With menu and the long "Choose anot
 - Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
 - File associations: double-click `.docx` in your Linux file manager → Word opens
 - Multi-session RDP: bundled rdprrap auto-enables up to 10 independent sessions
+- Terminate any running session from the GUI Dashboard (Running-sessions strip) or the system-tray menu
 - RAIL prerequisites (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) set automatically during unattended install
 - Multi-monitor RAIL on by default (`cfg.rdp.multimon = "span"`): a remote-app window keeps working input when dragged onto a second monitor
 - UWP/Store apps now appear in the Linux taskbar like any other app

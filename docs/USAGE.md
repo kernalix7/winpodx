@@ -113,7 +113,7 @@ Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460
 
 | Page | What it does |
 |------|--------------|
-| **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, and a reverse-open toggle |
+| **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, a "Running sessions" strip that lists live RDP app sessions with a per-session terminate button, and a reverse-open toggle |
 | **All apps** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
 | **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB hot-plugs live; PCI needs a guest restart with a safety confirmation) |
 | **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
@@ -121,7 +121,7 @@ Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460
 | **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
 | **Info** | Live **Health** card (pod / RDP / agent / OEM / disk / password age / app count) + System / Display / Dependencies / Pod / Config snapshot |
 
-The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), a USB device switcher (#300, attach / detach host USB devices to the guest), maintenance submenu (Clean Locks / Sync Time / Suspend), and an optional idle-monitor thread.
+The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), a USB device switcher (#300, attach / detach host USB devices to the guest), maintenance submenu (Clean Locks / Sync Time / Suspend), a running-sessions submenu that can terminate live RDP app sessions, and an optional idle-monitor thread.
 
 ### Tray auto-spawn + UNRESPONSIVE recovery (v0.5.5)
 
@@ -256,7 +256,7 @@ These are standard Windows-on-KVM tweaks that need operator action on the Linux 
 
 * **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. WinPodX detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
 * **CPU pinning.** WinPodX flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; WinPodX will not modify host scheduling.
-* **VFIO GPU passthrough.** Out of scope for the RDP-based WinPodX architecture. (Non-GPU USB / PCI device passthrough *is* supported — see "Host device passthrough" below.) If you need bare-metal GPU performance, run your own libvirt domain and point WinPodX at it via the `manual` backend.
+* **VFIO GPU passthrough.** Out of scope for the RDP-based WinPodX architecture. (Non-GPU USB / PCI device passthrough *is* supported — see "Host device passthrough" below.) If you need bare-metal GPU performance, run your own GPU-passthrough Windows VM (for example with libvirt / virt-manager) and point WinPodX at its RDP endpoint using the `manual` backend.
 
 ## Configuration
 

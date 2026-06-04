@@ -47,6 +47,7 @@ winpodx host-open disable       # 기능 전체 끄기
 - `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<stem>` + `StartupWMClass`)
 - 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
 - 멀티세션 RDP: bundled rdprrap 이 최대 10개 독립 세션 자동 활성화
+- 실행 중인 세션을 GUI Dashboard (Running-sessions 스트립) 또는 시스템 트레이 메뉴에서 종료
 - RAIL 전제조건 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) 이 unattended 설치 중 자동 설정
 - 멀티모니터 RAIL 기본 활성 (`cfg.rdp.multimon = "span"`): 리모트 앱 윈도를 두 번째 모니터로 드래그해도 입력이 계속 동작
 - UWP/Store 앱도 다른 앱처럼 Linux taskbar 에 등장

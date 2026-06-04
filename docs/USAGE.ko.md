@@ -113,7 +113,7 @@ winpodx config import             # 기존 winapps.conf import
 
 | 페이지 | 동작 |
 |------|------|
-| **Dashboard** | 홈 화면 — 라이브 Pod / RAM / CPU ring 게이지 + 디스크 사용량, 자동 회복 상태 카드, pinned / recent 워크스페이스 타일, reverse-open 토글 |
+| **Dashboard** | 홈 화면 — 라이브 Pod / RAM / CPU ring 게이지 + 디스크 사용량, 자동 회복 상태 카드, pinned / recent 워크스페이스 타일, 라이브 RDP 앱 세션을 세션별 종료 버튼과 함께 나열하는 "Running sessions" 스트립, reverse-open 토글 |
 | **All apps** | 설치된 앱 프로필의 grid / list view (구 "Apps"), 검색 + 카테고리 필터, 앱별 실행 (3초 cooldown), Add / Edit / Delete 앱 프로필 다이얼로그 |
 | **Devices** | USB / PCI 장치 패스스루용 2열 호스트 ↔ 게스트 mover (#286) — 왼쪽에서 호스트 장치 선택, 오른쪽에서 Windows 게스트에 attach (USB 는 live hot-plug; PCI 는 안전 확인과 함께 게스트 재시작 필요) |
 | **Settings** | RDP (user / IP / port / scale / DPI / 비밀번호 회전 / 멀티모니터), Container (backend / CPU / RAM / idle timeout), 그리고 reverse-open 패널 (enable 토글, allowlist + denylist, 라이브 daemon 상태, refresh / start / stop 버튼) 한 화면에 |
@@ -121,7 +121,7 @@ winpodx config import             # 기존 winapps.conf import
 | **Terminal** | 명령 allowlist 제한된 embedded 셸 (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) + 퀵 버튼 (Status / Logs / Inspect / RDP Test / Clear) |
 | **Info** | 라이브 **Health** 카드 (pod / RDP / agent / OEM / disk / 비밀번호 age / 앱 수) + System / Display / Dependencies / Pod / Config 스냅샷 |
 
-시스템 트레이 (`winpodx tray`) 는 가벼운 대안 — pod 컨트롤, 앱 런처 서브메뉴 (상위 20 + Full Desktop), USB 장치 스위처 (#300, 호스트 USB 장치를 게스트에 attach / detach), 유지보수 서브메뉴 (Clean Locks / Sync Time / Suspend), 선택적 idle-monitor 스레드.
+시스템 트레이 (`winpodx tray`) 는 가벼운 대안 — pod 컨트롤, 앱 런처 서브메뉴 (상위 20 + Full Desktop), USB 장치 스위처 (#300, 호스트 USB 장치를 게스트에 attach / detach), 유지보수 서브메뉴 (Clean Locks / Sync Time / Suspend), 라이브 RDP 앱 세션을 종료할 수 있는 running-sessions 서브메뉴, 선택적 idle-monitor 스레드.
 
 ### Tray 자동 spawn + UNRESPONSIVE 자동 회복 (v0.5.5)
 
@@ -256,7 +256,7 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
 
 * **Transparent hugepages / explicit hugepages.** `sysctl vm.nr_hugepages` 설정 (또는 `madvise` THP 사용) 으로 QEMU 프로세스 메모리 hugepage backing. WinPodX 가 `/proc/meminfo` 의 `HugePages_Total > 0` 감지 시 auto-apply, 미예약 시 skip.
 * **CPU pinning.** WinPodX 가 현재 idle CPU + RAM 이 VM 할당량의 2배 이상일 때 호스트를 `dedicated` 로 flag. QEMU 스레드를 특정 코어에 `taskset` 또는 systemd `CPUAffinity=` 으로 pin 하는 건 운영자 책임; WinPodX 는 호스트 스케줄링 수정 안 함.
-* **VFIO GPU passthrough.** RDP 기반 WinPodX 아키텍처에 scope 밖. (GPU 가 아닌 USB / PCI 장치 패스스루는 지원됨 — 아래 "호스트 장치 패스스루" 참고.) 베어메탈 GPU 성능 필요 시 직접 libvirt 도메인을 띄우고 `manual` 백엔드로 WinPodX 를 연결.
+* **VFIO GPU passthrough.** RDP 기반 WinPodX 아키텍처에 scope 밖. (GPU 가 아닌 USB / PCI 장치 패스스루는 지원됨 — 아래 "호스트 장치 패스스루" 참고.) 베어메탈 GPU 성능 필요 시 직접 GPU 패스스루 Windows VM (예: libvirt / virt-manager) 을 띄우고 `manual` 백엔드로 그 RDP 엔드포인트에 WinPodX 를 연결.
 
 ## 설정
 
