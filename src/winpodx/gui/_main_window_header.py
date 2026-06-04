@@ -86,14 +86,26 @@ class HeaderMixin:
 
         icon_path = bundled_data_path("winpodx-icon.svg")
         if icon_path is not None:
+            from PySide6.QtCore import QRectF
+
             renderer = QSvgRenderer(str(icon_path))
-            pixmap = QPixmap(QSize(28, 24))
+            size = 24
+            pixmap = QPixmap(size, size)
             pixmap.fill(Qt.GlobalColor.transparent)
             painter = QPainter(pixmap)
-            renderer.render(painter)
+            # Preserve the icon's aspect ratio inside a square box -- rendering
+            # a square logo into a 28x24 pixmap stretched it horizontally
+            # ("the logo looks squished"). Fit + center instead.
+            ds = renderer.defaultSize()
+            if ds.width() > 0 and ds.height() > 0:
+                scale = min(size / ds.width(), size / ds.height())
+                w, h = ds.width() * scale, ds.height() * scale
+                renderer.render(painter, QRectF((size - w) / 2, (size - h) / 2, w, h))
+            else:
+                renderer.render(painter)
             painter.end()
             logo_btn.setIcon(QIcon(pixmap))
-            logo_btn.setIconSize(QSize(28, 24))
+            logo_btn.setIconSize(QSize(size, size))
 
         layout.addWidget(logo_btn)
 
