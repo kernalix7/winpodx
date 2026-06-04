@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 
 from winpodx.core.config import Config
@@ -146,15 +148,16 @@ def _resolve_container_name(cli: str, base: str, env: dict) -> str | None:
     return names[0] if names else None
 
 
-def _live_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None]:
+def _podman_stats_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None]:
     """Probe live CPU%/RAM via ``<cli> stats --no-stream --format json``.
 
     Resolves the real (possibly compose-prefixed) container name first, runs
     under ``host_env`` so an AppImage build uses the host's podman + libs (not
     the bundled ones), and times out fast. Returns ``(cpu_pct, ram_used_gb,
     ram_pct)``; any field ``None`` when the probe fails or can't be parsed.
-    Never raises. (Rootless cgroup v2 can leave CPU% unavailable — that's a
-    podman limitation, surfaced as ``None`` rather than an error.)
+    Never raises. (Rootless cgroup v2 routinely leaves CPU%/MEM as ``--`` here —
+    that's a podman limitation; :func:`_live_cpu_ram` then falls back to reading
+    the cgroup directly.)
     """
     cli = _stats_cli(cfg)
     if cli is None:
@@ -209,6 +212,144 @@ def _live_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None
         used_bytes = _parse_mem_bytes(used_token)
         if used_bytes is not None:
             ram_used_gb = used_bytes / _BYTES_IN_GB
+
+    return cpu_pct, ram_used_gb, ram_pct
+
+
+# CPU% needs two reads of the cgroup's cumulative CPU time; cache the last one.
+# Single-threaded per snapshot (the dashboard ticks one at a time), so a plain
+# dict is enough — no lock.
+_CPU_SAMPLE: dict[str, float | None] = {"mono": None, "usage_usec": None}
+
+
+def _live_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None]:
+    """Live CPU%/RAM for the pod, with a cgroup-direct fallback.
+
+    Tries ``<cli> stats`` first (cheap, works on most setups). Rootless podman
+    very often reports CPU% (and sometimes MEM) as ``--`` there, so any field it
+    leaves ``None`` is back-filled from the container's cgroup v2 files —
+    ``memory.current`` for RAM and ``cpu.stat``'s ``usage_usec`` delta for CPU%.
+    Returns ``(cpu_pct, ram_used_gb, ram_pct)``; never raises.
+    """
+    cpu_pct, ram_used_gb, ram_pct = _podman_stats_cpu_ram(cfg)
+    if cpu_pct is not None and ram_pct is not None:
+        return cpu_pct, ram_used_gb, ram_pct
+
+    c_cpu, c_used, c_pct = _cgroup_cpu_ram(cfg)
+    if cpu_pct is None:
+        cpu_pct = c_cpu
+    if ram_pct is None:
+        ram_pct = c_pct
+        if ram_used_gb is None:
+            ram_used_gb = c_used
+    return cpu_pct, ram_used_gb, ram_pct
+
+
+def _container_pid(cli: str, cfg: Config, env: dict) -> int | None:
+    """Host-side init PID of the pod container, or ``None``. Never raises."""
+    base = cfg.pod.container_name
+    container = _resolve_container_name(cli, base, env) or base
+    try:
+        result = subprocess.run(
+            [cli, "inspect", "--format", "{{.State.Pid}}", container],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+            env=env,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        log.debug("container pid probe failed: %s", e)
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        pid = int(result.stdout.strip())
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _cgroup_dir_for_pid(pid: int) -> str | None:
+    """Resolve a PID's cgroup v2 directory under ``/sys/fs/cgroup``.
+
+    Reads the unified (``0::``) line of ``/proc/<pid>/cgroup``. Returns ``None``
+    on cgroup v1, an unreadable proc entry, or a path that doesn't exist.
+    """
+    try:
+        with open(f"/proc/{pid}/cgroup", encoding="ascii") as fh:
+            rel = None
+            for line in fh:
+                if line.startswith("0::"):
+                    rel = line.rstrip("\n").split("::", 1)[1]
+                    break
+    except OSError as e:
+        log.debug("read /proc/%s/cgroup failed: %s", pid, e)
+        return None
+    if not rel:
+        return None  # cgroup v1 (no unified hierarchy)
+    cgdir = "/sys/fs/cgroup" + rel
+    return cgdir if os.path.isdir(cgdir) else None
+
+
+def _cgroup_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None]:
+    """Read live CPU%/RAM straight from the container's cgroup v2 files.
+
+    The rootless-reliable fallback for when ``podman stats`` blanks CPU/MEM.
+    RAM comes from ``memory.current`` (one read); CPU% from the delta of
+    ``cpu.stat``'s cumulative ``usage_usec`` between calls (so the *first* call
+    after start yields CPU ``None`` — there's no prior sample to diff against).
+    Returns ``(cpu_pct, ram_used_gb, ram_pct)``; any field ``None`` on failure.
+    Never raises.
+    """
+    cli = _stats_cli(cfg)
+    if cli is None:
+        return None, None, None
+
+    from winpodx.backend._hostenv import host_env
+
+    env = host_env()
+    pid = _container_pid(cli, cfg, env)
+    if pid is None:
+        return None, None, None
+    cgdir = _cgroup_dir_for_pid(pid)
+    if cgdir is None:
+        return None, None, None
+
+    ram_used_gb: float | None = None
+    ram_pct: float | None = None
+    try:
+        with open(f"{cgdir}/memory.current", encoding="ascii") as fh:
+            mem_bytes = int(fh.read().strip())
+        ram_used_gb = mem_bytes / _BYTES_IN_GB
+        cap_bytes = int(cfg.pod.ram_gb) * _BYTES_IN_GB
+        if cap_bytes > 0:
+            ram_pct = max(0.0, min(100.0, mem_bytes / cap_bytes * 100.0))
+    except (OSError, ValueError) as e:
+        log.debug("cgroup memory.current read failed: %s", e)
+
+    cpu_pct: float | None = None
+    try:
+        usage_usec: int | None = None
+        with open(f"{cgdir}/cpu.stat", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("usage_usec"):
+                    usage_usec = int(line.split()[1])
+                    break
+        now = time.monotonic()
+        prev_mono = _CPU_SAMPLE["mono"]
+        prev_usage = _CPU_SAMPLE["usage_usec"]
+        if usage_usec is not None and prev_usage is not None and prev_mono is not None:
+            dt = now - prev_mono
+            if dt > 0:
+                cores = max(1, int(cfg.pod.cpu_cores))
+                busy_sec = (usage_usec - prev_usage) / 1_000_000.0
+                cpu_pct = max(0.0, min(100.0, busy_sec / dt / cores * 100.0))
+        if usage_usec is not None:
+            _CPU_SAMPLE["mono"] = now
+            _CPU_SAMPLE["usage_usec"] = usage_usec
+    except (OSError, ValueError) as e:
+        log.debug("cgroup cpu.stat read failed: %s", e)
 
     return cpu_pct, ram_used_gb, ram_pct
 

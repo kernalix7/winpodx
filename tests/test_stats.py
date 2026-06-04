@@ -217,3 +217,79 @@ def test_parse_cpu_pct_variants() -> None:
     assert stats._parse_cpu_pct(None) is None
     assert stats._parse_cpu_pct("") is None
     assert stats._parse_cpu_pct("nope") is None
+
+
+def _write_cgroup(tmp_path, *, mem_bytes: int, usage_usec: int) -> str:
+    (tmp_path / "memory.current").write_text(f"{mem_bytes}\n")
+    (tmp_path / "cpu.stat").write_text(f"usage_usec {usage_usec}\nuser_usec 0\nsystem_usec 0\n")
+    return str(tmp_path)
+
+
+def test_cgroup_cpu_ram_reads_memory_and_cpu_delta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    # Two reads of cumulative usage_usec, dt apart, give CPU%. RAM is one read.
+    cfg = _running_cfg()  # cpu_cores=4, ram_gb=16
+    cgdir = _write_cgroup(tmp_path, mem_bytes=4 * GIB, usage_usec=1_000_000)
+
+    monkeypatch.setattr(stats, "_CPU_SAMPLE", {"mono": None, "usage_usec": None})
+    monkeypatch.setattr(stats, "_stats_cli", lambda _cfg: "podman")
+    monkeypatch.setattr(stats, "_container_pid", lambda *_a, **_k: 4321)
+    monkeypatch.setattr(stats, "_cgroup_dir_for_pid", lambda _pid: cgdir)
+    monos = iter([100.0, 102.0])
+    monkeypatch.setattr(stats.time, "monotonic", lambda: next(monos))
+
+    # First call: RAM resolves, CPU has no prior sample to diff -> None.
+    cpu0, used0, pct0 = stats._cgroup_cpu_ram(cfg)
+    assert cpu0 is None
+    assert used0 == pytest.approx(4.0)
+    assert pct0 == pytest.approx(25.0)  # 4 / 16 GiB
+
+    # Second call: usage jumps 4.0 CPU-seconds over a 2.0s window across 4 cores
+    # -> 4 / 2 / 4 * 100 = 50%.
+    _write_cgroup(tmp_path, mem_bytes=4 * GIB, usage_usec=5_000_000)
+    cpu1, _used1, _pct1 = stats._cgroup_cpu_ram(cfg)
+    assert cpu1 == pytest.approx(50.0)
+
+
+def test_live_cpu_ram_falls_back_to_cgroup_when_stats_blank(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    # Rootless podman often emits CPUPerc/MemPerc as "--"; the cgroup fills them.
+    cfg = _running_cfg()
+    cgdir = _write_cgroup(tmp_path, mem_bytes=8 * GIB, usage_usec=2_000_000)
+
+    def fake_run(cmd, **_kwargs):
+        if "ps" in cmd:
+            return _FakeProc(returncode=0, stdout="winpodx-windows\n")
+        return _FakeProc(
+            returncode=0,
+            stdout=json.dumps([{"CPUPerc": "--", "MemUsage": "-- / --", "MemPerc": "--"}]),
+        )
+
+    monkeypatch.setattr(stats.subprocess, "run", fake_run)
+    monkeypatch.setattr(stats, "_CPU_SAMPLE", {"mono": 100.0, "usage_usec": 0})
+    monkeypatch.setattr(stats, "_container_pid", lambda *_a, **_k: 4321)
+    monkeypatch.setattr(stats, "_cgroup_dir_for_pid", lambda _pid: cgdir)
+    monkeypatch.setattr(stats.time, "monotonic", lambda: 101.0)
+
+    cpu, used, pct = stats._live_cpu_ram(cfg)
+    # usage 2.0 CPU-s over 1.0s / 4 cores = 50%; RAM 8/16 GiB = 50%.
+    assert cpu == pytest.approx(50.0)
+    assert pct == pytest.approx(50.0)
+    assert used == pytest.approx(8.0)
+
+
+def test_cgroup_dir_for_pid_v1_returns_none(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    # A cgroup v1 host has no unified "0::" line -> the reader bows out (None).
+    proc_cgroup = tmp_path / "cgroup"
+    proc_cgroup.write_text("12:devices:/foo\n11:memory:/foo\n")
+    real_open = open
+
+    def fake_open(path, *args, **kwargs):
+        if isinstance(path, str) and path.startswith("/proc/"):
+            return real_open(proc_cgroup, *args, **kwargs)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert stats._cgroup_dir_for_pid(4321) is None
