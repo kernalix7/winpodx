@@ -21,6 +21,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -129,8 +130,12 @@ class DevicesMixin:
             )
         )
 
-        columns = QHBoxLayout()
+        # Host / guest columns side by side when wide; stacked vertically when
+        # the page is too narrow (the device rows + Attach buttons clipped off
+        # the right edge otherwise). Direction is toggled by _reflow_devices.
+        columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         columns.setSpacing(SPACE_L)
+        self._devices_cols = columns
         self._dev_host_col, host_card = self._device_column(tr("Host devices"))
         self._dev_guest_col, guest_card = self._device_column(tr("Assigned to guest"))
         columns.addWidget(host_card, 1)
@@ -138,7 +143,20 @@ class DevicesMixin:
         outer.addLayout(columns, 1)
 
         self._render_devices()
+        self._reflow_devices()
         return page
+
+    def _reflow_devices(self) -> None:
+        """Stack the Host / Guest device columns when the page is too narrow
+        for them side by side; restore the row when there's room. Called from
+        the window resizeEvent so it tracks live resizing. Idempotent."""
+        cols = getattr(self, "_devices_cols", None)
+        if cols is None:
+            return
+        avail = self.pages.width() if hasattr(self, "pages") else self.width()
+        want = QBoxLayout.Direction.TopToBottom if avail < 900 else QBoxLayout.Direction.LeftToRight
+        if cols.direction() != want:
+            cols.setDirection(want)
 
     def _device_column(self, heading: str) -> tuple[QVBoxLayout, QWidget]:
         card = QFrame()

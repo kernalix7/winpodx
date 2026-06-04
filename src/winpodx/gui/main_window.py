@@ -220,10 +220,12 @@ class WinpodxWindow(
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt signature
         super().resizeEvent(event)
-        # Keep responsive page layouts (e.g. the Settings two-column form)
-        # in step with the live window width as the user drags it.
+        # Keep responsive page layouts (the Settings + Devices two-column
+        # forms) in step with the live window width as the user drags it.
         if hasattr(self, "_reflow_settings"):
             self._reflow_settings()
+        if hasattr(self, "_reflow_devices"):
+            self._reflow_devices()
 
 
 def run_gui() -> None:
