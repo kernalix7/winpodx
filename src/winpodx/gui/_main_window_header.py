@@ -28,9 +28,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -40,10 +38,16 @@ from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     INFO_BAR,
+    NAV_ITEM,
     POD_CHIP,
     POD_CTRL,
+    SIDEBAR,
+    SPACE_L,
+    SPACE_M,
+    SPACE_S,
+    SPACE_XS,
     STATUS_BANNER_WARN,
-    TOP_BAR,
+    TOP_STRIP,
     C,
 )
 
@@ -51,18 +55,19 @@ from winpodx.gui.theme import (
 class HeaderMixin:
     """Builds the top bar, status banner, and info bar."""
 
-    def _build_top_bar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("topBar")
-        bar.setStyleSheet(TOP_BAR)
+    def _build_sidebar(self) -> QWidget:
+        bar = QFrame()
+        bar.setObjectName("sideBar")
+        bar.setFixedWidth(220)
+        bar.setStyleSheet(SIDEBAR)
 
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(24, 0, 24, 0)
-        layout.setSpacing(0)
+        layout = QVBoxLayout(bar)
+        layout.setContentsMargins(SPACE_S, SPACE_L, SPACE_S, SPACE_L)
+        layout.setSpacing(SPACE_XS)
 
         logo_btn = QPushButton("WinPodX")
         logo_btn.setObjectName("logoHomeButton")
-        logo_btn.setToolTip(tr("Home / Apps"))
+        logo_btn.setToolTip(tr("Dashboard"))
         logo_btn.clicked.connect(lambda: self._switch_page(0))
         logo_btn.setStyleSheet(
             f"""
@@ -108,36 +113,49 @@ class HeaderMixin:
             logo_btn.setIconSize(QSize(size, size))
 
         layout.addWidget(logo_btn)
+        layout.addSpacing(SPACE_M)
 
+        # Vertical nav: one checkable row per page, active row highlighted.
+        # The buttons ARE laid out here (unlike the old hidden overflow menu),
+        # so there is no un-parented QPushButton to ghost at (0,0).
         self.nav_buttons: list[QPushButton] = []
-        self.nav_menu_actions = []
+        self.nav_menu_actions = []  # back-compat; the sidebar drives nav now
         nav_items = [
-            (tr("Home / Apps"), 0, "home"),
-            (tr("Settings"), 1, "gear"),
-            (tr("Tools"), 2, "clean"),
-            (tr("Terminal / Logs"), 3, "prompt"),
-            (tr("Info"), 4, "pending"),
-            (tr("Devices"), 5, "hardware"),
-            # License page is appended last so the nav-position == page-index
-            # invariant _switch_page relies on holds (see _main_window_nav).
-            (tr("License"), 6, "diamond"),
+            (tr("Dashboard"), 0, "home"),
+            (tr("All apps"), 1, "grid"),
+            (tr("Settings"), 2, "gear"),
+            (tr("Tools"), 3, "clean"),
+            (tr("Terminal / Logs"), 4, "prompt"),
+            (tr("Info"), 5, "pending"),
+            (tr("Devices"), 6, "hardware"),
+            # License last so the nav-position == page-index invariant holds.
+            (tr("License"), 7, "diamond"),
         ]
+        for label, idx, icon_name in nav_items:
+            btn = QPushButton(label)
+            btn.setObjectName("navItem")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setIcon(load_icon(icon_name, C.SUBTEXT1, 18))
+            btn.setIconSize(QSize(18, 18))
+            btn.setStyleSheet(NAV_ITEM)
+            btn.clicked.connect(lambda _checked=False, i=idx: self._switch_page(i))
+            self.nav_buttons.append(btn)
+            layout.addWidget(btn)
 
-        # Navigation lives entirely in the gear overflow menu now. We do NOT
-        # create per-page QPushButtons: the old top tab bar is gone, and an
-        # un-laid-out QPushButton(parent=self) renders as a stray box at (0,0)
-        # over the logo (the "License" ghost bug). nav_buttons stays empty for
-        # back-compat; _switch_page / shortcuts drive off nav_menu_actions.
-        nav_menu = QMenu(self)
-        for row, (label, idx, icon_name) in enumerate(nav_items):
-            action = nav_menu.addAction(load_icon(icon_name, C.SUBTEXT1, 16), label)
-            action.setCheckable(True)
-            action.triggered.connect(lambda _checked=False, i=idx: self._switch_page(i))
-            self.nav_menu_actions.append(action)
-            if row == 0:
-                nav_menu.addSeparator()
+        self.nav_buttons[0].setChecked(True)
+        layout.addStretch()
+        return bar
 
-        self.nav_menu_actions[0].setChecked(True)
+    def _build_top_strip(self) -> QWidget:
+        """Slim strip above the pages: right-aligned pod chip + start/stop."""
+        bar = QWidget()
+        bar.setObjectName("topStrip")
+        bar.setStyleSheet(TOP_STRIP)
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(SPACE_L, 0, SPACE_L, 0)
+        layout.setSpacing(SPACE_S)
         layout.addStretch()
 
         chip = QFrame()
@@ -201,37 +219,6 @@ class HeaderMixin:
 
         chip_l.addWidget(ctrl_w)
         layout.addWidget(chip)
-        layout.addSpacing(8)
-
-        nav_btn = QToolButton()
-        nav_btn.setObjectName("navMenuButton")
-        nav_btn.setIcon(load_icon("gear", C.SUBTEXT1, 18))
-        nav_btn.setIconSize(QSize(18, 18))
-        nav_btn.setToolTip(tr("Navigation"))
-        nav_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        nav_btn.setMenu(nav_menu)
-        nav_btn.setStyleSheet(
-            f"""
-            QToolButton#navMenuButton {{
-                background: transparent;
-                color: {C.SUBTEXT1};
-                border: none;
-                border-radius: 14px;
-                padding: 6px;
-                min-width: 30px;
-                min-height: 30px;
-            }}
-            QToolButton#navMenuButton:hover {{
-                background: {C.SURFACE0};
-                color: {C.TEXT};
-            }}
-            QToolButton#navMenuButton::menu-indicator {{
-                image: none;
-                width: 0px;
-            }}
-            """
-        )
-        layout.addWidget(nav_btn)
 
         return bar
 

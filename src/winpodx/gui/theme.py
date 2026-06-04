@@ -748,3 +748,44 @@ INFO_BAR = f"""
         max-height: 32px;
     }}
 """
+
+# Left navigation sidebar (vertical nav, Start-menu style).
+SIDEBAR = f"""
+    QFrame#sideBar {{
+        background: {C.BASE};
+        border-right: 1px solid {C.SURFACE1};
+    }}
+"""
+
+# Sidebar nav item: icon + left-aligned label; active row gets a blue wash.
+NAV_ITEM = f"""
+    QPushButton#navItem {{
+        background: transparent;
+        color: {C.SUBTEXT0};
+        border: none;
+        border-radius: {RADIUS_M}px;
+        padding: 9px 12px;
+        text-align: left;
+        font-size: {FONT_BODY}px;
+        font-weight: 500;
+    }}
+    QPushButton#navItem:hover {{
+        background: {rgba(C.SURFACE1, 0.55)};
+        color: {C.TEXT};
+    }}
+    QPushButton#navItem:checked {{
+        background: {rgba(C.BLUE, 0.14)};
+        color: {C.BLUE};
+        font-weight: 600;
+    }}
+"""
+
+# Slim top strip above the pages (right-aligned pod chip + controls).
+TOP_STRIP = f"""
+    QWidget#topStrip {{
+        background: {C.BASE};
+        border-bottom: 1px solid {C.SURFACE1};
+        min-height: 52px;
+        max-height: 52px;
+    }}
+"""

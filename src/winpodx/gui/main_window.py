@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QMainWindow,
     QStackedWidget,
     QVBoxLayout,
@@ -20,6 +21,7 @@ from winpodx.core.app import list_available_apps
 from winpodx.core.config import Config
 from winpodx.gui._main_window_apps import AppCrudMixin
 from winpodx.gui._main_window_bringup import BringUpMixin
+from winpodx.gui._main_window_dashboard import DashboardMixin
 from winpodx.gui._main_window_devices import DevicesMixin
 from winpodx.gui._main_window_header import HeaderMixin
 from winpodx.gui._main_window_info import InfoPageMixin
@@ -42,6 +44,7 @@ log = logging.getLogger(__name__)
 class WinpodxWindow(
     AppCrudMixin,
     BringUpMixin,
+    DashboardMixin,
     DevicesMixin,
     HeaderMixin,
     InfoPageMixin,
@@ -62,6 +65,9 @@ class WinpodxWindow(
     app_launched = Signal(str)
     app_launch_failed = Signal(str)
     log_signal = Signal(str, str)
+    # Dashboard resource snapshot, emitted from the off-thread probe and
+    # painted onto the gauges on the GUI thread (see DashboardMixin).
+    dashboard_updated = Signal(object)
     # v0.5.1 bring-up signals (see _main_window_bringup.py).
     # ``bringup_phase`` is (phase_label, sub_detail); the dialog renders
     # both rows. ``bringup_done`` is (success, error_msg). ``bringup_started``
@@ -113,6 +119,7 @@ class WinpodxWindow(
         self.app_launched.connect(self._on_app_launched)
         self.app_launch_failed.connect(self._on_app_launch_failed)
         self.log_signal.connect(self._log_append)
+        self.dashboard_updated.connect(self._apply_snapshot)
         # Fan-out: the same log_signal also feeds the always-visible
         # 2-line bottom log bar (the QLabel pair built by
         # HeaderMixin._build_log_bar). This way every line that flows
@@ -139,30 +146,39 @@ class WinpodxWindow(
         central.setObjectName("centralRoot")
         central.setStyleSheet(f"QWidget#centralRoot {{ background: {C.MANTLE}; }}\n" + GLOBAL_STYLE)
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        # Horizontal shell: left nav sidebar | content column (slim top strip
+        # + stacked pages). Mirrors the Start-menu-style mockup.
+        root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+        root.addWidget(self._build_sidebar())
 
-        root.addWidget(self._build_top_bar())
+        content = QWidget()
+        content_col = QVBoxLayout(content)
+        content_col.setContentsMargins(0, 0, 0, 0)
+        content_col.setSpacing(0)
+        content_col.addWidget(self._build_top_strip())
 
         # Clean launcher chrome: the old full-width status banner and the
-        # bottom info/log bars are NOT mounted -- the top-bar pod chip carries
+        # bottom info/log bars are NOT mounted -- the top-strip pod chip carries
         # pod state + start/stop, and logs live on the Terminal page. The
         # widgets are still built (kept referenced) so their updater methods
         # (_apply_status_banner / _update_log_bar / pod-status info labels)
-        # stay valid no-ops on hidden, unmounted widgets.
+        # stay valid no-ops on hidden, unmounted widgets. They are parented to
+        # ``central`` and hidden so they never float as top-level windows or
+        # flash a (0,0) ghost (same orphan-widget class as the License ghost).
         self.status_banner = self._build_status_banner()
         self._hidden_info_bar = self._build_info_bar()
         self._hidden_log_bar = self._build_log_bar()
-        # Parent the unmounted widgets to ``central`` and hide them so they
-        # never float as top-level windows or flash a (0,0) ghost at startup
-        # before the first pod-status update lands (same orphan-widget class
-        # as the old License ghost). A hidden, non-layout child never paints.
         for _unmounted in (self.status_banner, self._hidden_info_bar, self._hidden_log_bar):
             _unmounted.setParent(central)
             _unmounted.hide()
 
+        # Page order == nav order (the _switch_page nav-index == page-index
+        # invariant). Dashboard is the home (index 0); the app launcher moves
+        # to "All apps" (index 1). License stays last.
         self.pages = QStackedWidget()
+        self.pages.addWidget(self._build_dashboard_page())
         self.pages.addWidget(self._build_library_page())
         self.pages.addWidget(self._build_settings_page())
         self.pages.addWidget(self._build_maintenance_page())
@@ -170,11 +186,20 @@ class WinpodxWindow(
         self.pages.addWidget(self._build_info_page())
         self.pages.addWidget(self._build_devices_page())
         self.pages.addWidget(self._build_license_page())
-        root.addWidget(self.pages, 1)
+        content_col.addWidget(self.pages, 1)
+
+        root.addWidget(content, 1)
 
 
 def run_gui() -> None:
     """Launch the winpodx GUI application."""
+    # Fractional display scaling (common on KDE / GNOME Wayland at 125% / 150%)
+    # must pass through untouched -- rounding it to an integer factor makes
+    # fixed-size widgets and the custom-painted gauges mismatch the rest of the
+    # UI ("text breaks, scale breaks"). Must be set before the QApplication.
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     app.setApplicationName("winpodx")
     app.setStyle("Fusion")

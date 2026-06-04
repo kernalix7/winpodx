@@ -277,8 +277,10 @@ class PodStatusMixin:
         # User-visible label: "checking" is a transient probe, not a stuck
         # state — read it as "probing…" so it doesn't look frozen.
         label = tr("probing…") if state == "checking" else state
-        ip_suffix = f" ({ip})" if ip and state == "running" else ""
-        display = label + ip_suffix
+        # Keep the chip compact: a long "running (127.0.0.1)" clipped the
+        # fixed-height chip at narrower window widths. The IP lives on the
+        # Settings + Info pages, so the chip shows just the state word.
+        display = label
 
         self.pod_dot.setPixmap(load_icon("dot", color, 10).pixmap(10, 10))
         self.pod_dot.setStyleSheet(f"background: transparent; color: {color};")

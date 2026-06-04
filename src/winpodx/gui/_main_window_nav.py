@@ -38,12 +38,26 @@ class NavigationMixin:
 
     def _switch_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
-        for i, action in enumerate(getattr(self, "nav_menu_actions", [])):
-            action.setChecked(i == index)
+        for i, btn in enumerate(getattr(self, "nav_buttons", [])):
+            btn.setChecked(i == index)
 
-        # Refresh the Home launcher's "Running" live-session strip whenever Home
-        # is opened so it reflects what's actually running.
-        if index == 0 and hasattr(self, "_refresh_running_strip"):
+        # Dashboard (page 0): drive the live resource gauges only while it's
+        # the visible page -- start the 5 s poll on entry, stop it on exit so
+        # we never run podman stats / disk probes in the background.
+        dashboard_index = 0
+        if index == dashboard_index:
+            if hasattr(self, "_populate_workspace"):
+                self._populate_workspace()
+            if hasattr(self, "_refresh_dashboard"):
+                self._refresh_dashboard()
+            if hasattr(self, "_dashboard_timer"):
+                self._dashboard_timer.start()
+        elif hasattr(self, "_dashboard_timer"):
+            self._dashboard_timer.stop()
+
+        # All apps (page 1): refresh the launcher's "Running" live-session strip
+        # whenever it is opened so it reflects what's actually running.
+        if index == 1 and hasattr(self, "_refresh_running_strip"):
             self._refresh_running_strip()
         # v0.5.1: tail processes are now always-on (started at
         # WinpodxWindow.__init__) and feed both the Terminal full
@@ -57,7 +71,7 @@ class NavigationMixin:
         # the cadence at 30s (cheap on a healthy install — ~2s for the
         # full sweep, dominated by guest_exec + guest_summary). Off-page,
         # the timer is paused so we don't poll the guest while idle.
-        info_index = 4
+        info_index = 5
         if index == info_index:
             self._start_info_auto_refresh()
         else:
@@ -67,7 +81,7 @@ class NavigationMixin:
         # page so launching/closing an app shows up within ~2.5 s without
         # leaving the tab (#450). Off-page the poll is stopped so we don't
         # scan the runtime dir while the user is elsewhere.
-        tools_index = 2
+        tools_index = 3
         if index == tools_index:
             if hasattr(self, "_refresh_sessions_panel"):
                 self._refresh_sessions_panel(force=True)
@@ -87,16 +101,16 @@ class NavigationMixin:
             return
         self._shortcuts_installed = True
 
-        for i in range(len(getattr(self, "nav_menu_actions", []))):
+        for i in range(len(getattr(self, "nav_buttons", []))):
             sc = QShortcut(QKeySequence(f"Alt+{i + 1}"), self)
             sc.activated.connect(lambda idx=i: self._switch_page(idx))
 
         search_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self)
 
         def _focus_search() -> None:
-            # Search lives on Home; jump there first so the box
-            # is visible, then focus + select-all for an immediate retype.
-            self._switch_page(0)
+            # Search lives on the "All apps" page (index 1); jump there first
+            # so the box is visible, then focus + select-all for a retype.
+            self._switch_page(1)
             self.search_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
             self.search_box.selectAll()
 
@@ -281,6 +295,6 @@ class NavigationMixin:
         clicked = box.clickedButton()
 
         if clicked is settings_btn:
-            self._switch_page(1)  # Settings page (nav index == page index)
+            self._switch_page(2)  # Settings page (nav index == page index)
         elif clicked is refresh_btn:
             self._on_refresh_apps()
