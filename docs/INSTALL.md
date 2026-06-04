@@ -210,6 +210,14 @@ paru -S winpodx
 
 The PKGBUILD lives at [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD); each tag push (`v*.*.*`) auto-stamps the version + tarball sha256 and pushes to `aur.archlinux.org/winpodx.git`.
 
+**Development build — track `main` (`winpodx-git`).** To run the latest unreleased code instead of the tagged release:
+
+```bash
+yay -S winpodx-git
+```
+
+`winpodx-git` builds from the `main` branch (the version is derived from git, so each rebuild pulls the newest commit — use `yay -Syu --devel` to auto-update). It `provides`/`conflicts` `winpodx`, so install one or the other, not both. Recipe + maintainer notes: [`packaging/aur-git/`](../packaging/aur-git/).
+
 ## AppImage (Thin bundle: Python + Qt + FreeRDP + winpodx; host container runtime required)
 
 A distro-agnostic AppImage of WinPodX ships as a release asset on every tagged release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~150 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. AppImage shrinks ~150 MB → ~50 MB.

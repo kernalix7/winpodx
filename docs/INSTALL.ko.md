@@ -211,6 +211,14 @@ paru -S winpodx
 
 PKGBUILD 는 [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) 에 있고, 태그 푸시 (`v*.*.*`) 마다 버전 + tarball sha256 자동 stamp 후 `aur.archlinux.org/winpodx.git` 로 푸시.
 
+**개발 빌드 — `main` 추적 (`winpodx-git`).** 릴리즈 대신 최신 미공개 코드를 돌리려면:
+
+```bash
+yay -S winpodx-git
+```
+
+`winpodx-git` 은 `main` 브랜치에서 빌드 (버전은 git 에서 자동 도출 — 리빌드할 때마다 최신 커밋을 가져옴, `yay -Syu --devel` 로 자동 업데이트). `winpodx` 를 `provides`/`conflicts` 하므로 둘 중 하나만 설치. 레시피 + 메인테이너 노트: [`packaging/aur-git/`](../packaging/aur-git/).
+
 ## AppImage (Thin 번들: Python + Qt + FreeRDP + WinPodX; 호스트 컨테이너 런타임 필요)
 
 distro 무관 WinPodX AppImage 가 태그 release 마다 asset 으로 ship 됨. **0.6.0 에서 Thin AppImage 로 재설계 (item A).** 0.6.0 이전엔 ~150 MB fat 번들이 컨테이너 stack 전부 (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive lib) 를 AppImage 의 `PATH` / `LD_LIBRARY_PATH` 에 실음. 이미 podman 이 있는 distro 에선 호스트 stack 을 가려서 망가뜨림 — Ubuntu 26.04 의 `it seems that you do not have podman installed` (#357), Fedora Bluefin 의 aardvark-dns 가 던지는 `OPENSSL_3.4.0 not found` (#363) 등. 0.6.0 은 컨테이너 stack 전체를 AppImage 에서 제거해 **근본 원인을 제거**. 현 번들은 안전하게 묶을 수 있는 것만 — Python 3, WinPodX, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — 표준 `PATH` 해석으로 호스트 컨테이너 런타임 사용. 크기 ~150 MB → ~50 MB.
