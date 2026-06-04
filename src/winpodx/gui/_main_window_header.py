@@ -111,13 +111,13 @@ class HeaderMixin:
             (tr("License"), 6, "diamond"),
         ]
 
+        # Navigation lives entirely in the gear overflow menu now. We do NOT
+        # create per-page QPushButtons: the old top tab bar is gone, and an
+        # un-laid-out QPushButton(parent=self) renders as a stray box at (0,0)
+        # over the logo (the "License" ghost bug). nav_buttons stays empty for
+        # back-compat; _switch_page / shortcuts drive off nav_menu_actions.
         nav_menu = QMenu(self)
         for row, (label, idx, icon_name) in enumerate(nav_items):
-            btn = QPushButton(label, self)
-            btn.setCheckable(True)
-            btn.clicked.connect(lambda _, i=idx: self._switch_page(i))
-            self.nav_buttons.append(btn)
-
             action = nav_menu.addAction(load_icon(icon_name, C.SUBTEXT1, 16), label)
             action.setCheckable(True)
             action.triggered.connect(lambda _checked=False, i=idx: self._switch_page(i))
@@ -125,7 +125,6 @@ class HeaderMixin:
             if row == 0:
                 nav_menu.addSeparator()
 
-        self.nav_buttons[0].setChecked(True)
         self.nav_menu_actions[0].setChecked(True)
         layout.addStretch()
 
