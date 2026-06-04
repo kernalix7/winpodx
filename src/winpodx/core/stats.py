@@ -23,6 +23,7 @@ import json
 import logging
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 
 from winpodx.core.config import Config
@@ -120,24 +121,58 @@ def _stats_cli(cfg: Config) -> str | None:
     return None
 
 
+def _resolve_container_name(cli: str, base: str, env: dict) -> str | None:
+    """Return the actual running container name for ``base``.
+
+    podman-compose can override the explicit ``container_name`` with the
+    project-prefixed form (``winpodx_<base>_1``), so a bare ``stats <base>``
+    misses it. ``ps --filter name=`` substring-matches, so it finds the real
+    name. Fast + best-effort; None if nothing matches or the probe fails.
+    """
+    try:
+        result = subprocess.run(
+            [cli, "ps", "--filter", f"name={base}", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+            env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    names = [n for n in result.stdout.split() if n]
+    return names[0] if names else None
+
+
 def _live_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None]:
     """Probe live CPU%/RAM via ``<cli> stats --no-stream --format json``.
 
-    Returns ``(cpu_pct, ram_used_gb, ram_pct)``, with any field ``None``
-    when the probe fails or the value can't be parsed. Never raises.
+    Resolves the real (possibly compose-prefixed) container name first, runs
+    under ``host_env`` so an AppImage build uses the host's podman + libs (not
+    the bundled ones), and times out fast. Returns ``(cpu_pct, ram_used_gb,
+    ram_pct)``; any field ``None`` when the probe fails or can't be parsed.
+    Never raises. (Rootless cgroup v2 can leave CPU% unavailable — that's a
+    podman limitation, surfaced as ``None`` rather than an error.)
     """
     cli = _stats_cli(cfg)
     if cli is None:
         return None, None, None
 
-    container = cfg.pod.container_name
+    from winpodx.backend._hostenv import host_env
+
+    env = host_env()
+    base = cfg.pod.container_name
+    container = _resolve_container_name(cli, base, env) or base
     try:
         result = subprocess.run(
             [cli, "stats", "--no-stream", "--format", "json", container],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=5,
             check=False,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError) as e:
         log.debug("stats probe (%s) failed to run: %s", cli, e)
@@ -187,7 +222,10 @@ def _guest_disk(cfg: Config) -> tuple[float | None, float | None, float | None]:
     try:
         from winpodx.core.disk import get_guest_disk_usage
 
-        usage = get_guest_disk_usage(cfg)
+        # Short timeout: this spawns PowerShell in the guest, so a non-
+        # interactive guest (login screen) must fail fast, not hang the
+        # dashboard for the 30 s default.
+        usage = get_guest_disk_usage(cfg, timeout=6)
     except Exception as e:  # noqa: BLE001 -- never let a probe break the snapshot
         log.debug("guest disk probe failed: %s", e)
         return None, None, None
@@ -232,15 +270,25 @@ def _pod_state(cfg: Config) -> str:
     return "unknown"
 
 
-def pod_resource_snapshot(cfg: Config) -> ResourceSnapshot:
+def pod_resource_snapshot(
+    cfg: Config,
+    *,
+    pod_state: str | None = None,
+    with_disk: bool = True,
+) -> ResourceSnapshot:
     """Build a best-effort :class:`ResourceSnapshot` for the dashboard.
 
     Always returns a snapshot -- never raises. Configured caps come from
-    ``cfg.pod``; live CPU/RAM and guest disk are probed only when the pod
-    is running (and the backend has a container to query), with every
-    external call wrapped so a failure leaves that field ``None``.
+    ``cfg.pod``. Live CPU/RAM and guest disk are probed only when the pod is
+    running, and they run **concurrently** with a hard time cap so a slow
+    guest (e.g. sitting at the login screen) can't stall the dashboard.
+
+    ``pod_state`` lets the caller pass the already-known state (the GUI keeps
+    it fresh on its own timer) so we skip a redundant, slow re-probe.
+    ``with_disk=False`` skips the expensive guest probe entirely (the caller
+    polls disk on a slower cadence and caches it).
     """
-    pod_state = _pod_state(cfg)
+    state = pod_state if pod_state is not None else _pod_state(cfg)
 
     try:
         cpu_cores = int(cfg.pod.cpu_cores)
@@ -258,12 +306,35 @@ def pod_resource_snapshot(cfg: Config) -> ResourceSnapshot:
     disk_used_gb: float | None = None
     disk_pct: float | None = None
 
-    if pod_state == "running":
-        cpu_pct, ram_used_gb, ram_pct = _live_cpu_ram(cfg)
-        disk_total_gb, disk_used_gb, disk_pct = _guest_disk(cfg)
+    if state == "running":
+        box: dict[str, tuple] = {}
+
+        def _cr() -> None:
+            try:
+                box["cr"] = _live_cpu_ram(cfg)
+            except Exception:  # noqa: BLE001 -- best-effort probe
+                box["cr"] = (None, None, None)
+
+        def _dk() -> None:
+            try:
+                box["dk"] = _guest_disk(cfg) if with_disk else (None, None, None)
+            except Exception:  # noqa: BLE001 -- best-effort probe
+                box["dk"] = (None, None, None)
+
+        workers = [
+            threading.Thread(target=_cr, daemon=True),
+            threading.Thread(target=_dk, daemon=True),
+        ]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join(timeout=8)  # hard cap regardless of any single probe hanging
+
+        cpu_pct, ram_used_gb, ram_pct = box.get("cr", (None, None, None))
+        disk_total_gb, disk_used_gb, disk_pct = box.get("dk", (None, None, None))
 
     return ResourceSnapshot(
-        pod_state=pod_state,
+        pod_state=state,
         cpu_cores=cpu_cores,
         cpu_pct=cpu_pct,
         ram_gb=ram_gb,

@@ -313,16 +313,22 @@ class DashboardMixin:
     def _refresh_dashboard(self) -> None:
         """Probe pod resources off-thread; results land via ``dashboard_updated``.
 
-        Guarded so an in-flight probe (``podman stats`` can take a second or
-        two) isn't stacked by the 5 s timer. Never raises.
+        Reuses the GUI's already-tracked ``self._pod_state`` (no redundant, slow
+        pod re-probe) and only runs the expensive guest disk probe every ~6th
+        tick (~30 s) — disk changes slowly and the guest /exec round-trip is the
+        slow part, so hammering it every 5 s made the whole dashboard lag.
+        Guarded so an in-flight probe isn't stacked by the timer. Never raises.
         """
         if getattr(self, "_dashboard_refreshing", False):
             return
         self._dashboard_refreshing = True
+        self._dashboard_tick = getattr(self, "_dashboard_tick", 0) + 1
+        with_disk = self._dashboard_tick % 6 == 1  # ~every 30 s at the 5 s cadence
+        pod_state = getattr(self, "_pod_state", None)
 
         def _work() -> None:
             try:
-                snap = pod_resource_snapshot(self.cfg)
+                snap = pod_resource_snapshot(self.cfg, pod_state=pod_state, with_disk=with_disk)
             except Exception as e:  # noqa: BLE001 -- snapshot is best-effort
                 log.debug("dashboard snapshot failed: %s", e)
                 snap = None
@@ -355,8 +361,15 @@ class DashboardMixin:
             self._gauge_ram.set_value(snap.ram_pct, f"{snap.ram_pct:.0f}%")
 
         if snap.disk_pct is None or snap.disk_total_gb is None:
-            self._bar_disk.set_value(None, tr("n/a"))
+            # Disk is probed on a slower cadence; keep showing the last value
+            # between probes instead of blanking back to "n/a".
+            cached = getattr(self, "_last_disk", None)
+            if cached is not None:
+                self._bar_disk.set_value(cached[2], f"{cached[1]:.0f} / {cached[0]:.0f} GB")
+            else:
+                self._bar_disk.set_value(None, tr("n/a"))
         else:
+            self._last_disk = (snap.disk_total_gb, snap.disk_used_gb, snap.disk_pct)
             self._bar_disk.set_value(
                 snap.disk_pct,
                 f"{snap.disk_used_gb:.0f} / {snap.disk_total_gb:.0f} GB",

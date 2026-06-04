@@ -55,6 +55,9 @@ def test_snapshot_parses_live_cpu_ram_disk(monkeypatch: pytest.MonkeyPatch) -> N
 
     def fake_run(cmd, **_kwargs):
         assert cmd[0] == "podman"
+        if "ps" in cmd:
+            # Container-name resolution (compose may prefix the name).
+            return _FakeProc(returncode=0, stdout="winpodx-windows\n")
         assert "stats" in cmd
         assert "winpodx-windows" in cmd
         return _FakeProc(returncode=0, stdout=stats_json)
@@ -91,6 +94,8 @@ def test_snapshot_handles_docker_single_object(monkeypatch: pytest.MonkeyPatch) 
 
     def fake_run(cmd, **_kwargs):
         assert cmd[0] == "docker"
+        if "ps" in cmd:
+            return _FakeProc(returncode=0, stdout="winpodx-windows\n")
         return _FakeProc(returncode=0, stdout=stats_json)
 
     monkeypatch.setattr(stats.subprocess, "run", fake_run)
