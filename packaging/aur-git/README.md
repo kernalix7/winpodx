@@ -26,10 +26,15 @@ against fresh `main`, so the version tracks the newest commit automatically.
 
 ## Publishing to AUR (maintainer steps)
 
-Requires an AUR account with your SSH public key registered
-(https://aur.archlinux.org/account → My Account → SSH Public Key).
+One-time account + SSH-key setup is identical to the stable package — see
+[`packaging/aur/README.md`](../aur/README.md) (generate `~/.ssh/aur_winpodx`,
+upload the `.pub` to your AUR profile). **The same key works for every package**
+on your AUR account, so reuse the existing `aur_winpodx` key.
 
 ```bash
+# Point git at the AUR key (same line the stable winpodx publish uses).
+export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur_winpodx -o IdentitiesOnly=yes"
+
 # 1. Clone the (empty) AUR repo — created on first push.
 git clone ssh://aur@aur.archlinux.org/winpodx-git.git
 cd winpodx-git
