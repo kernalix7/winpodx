@@ -531,10 +531,13 @@ def build_rdp_command(
                     unc_path = linux_to_unc(file_path)
                 except ValueError as e:
                     raise RuntimeError(f"Cannot open file: {e}") from e
-                # Quote the UNC path: the guest splits the RAIL command line on
-                # spaces, so a path with spaces ("BRMP Rawa/...xlsx") would
-                # reach the app as several args -> "path not found" (#473).
-                app_arg += f',cmd:"{unc_path}"'
+                # Quote the UNC path so the guest doesn't split it on spaces
+                # ("BRMP Rawa/...xlsx" -> several args -> "path not found", #473).
+                # Also strip commas: FreeRDP 3 splits the /app: value into
+                # sub-keys on commas BEFORE the quotes apply, so a comma in the
+                # filename would inject a spurious sub-key (security review).
+                safe_unc = unc_path.replace(",", " ")
+                app_arg += f',cmd:"{safe_unc}"'
             elif default_args:
                 sanitized = default_args.replace(",", " ")
                 app_arg += f",cmd:{sanitized}"
