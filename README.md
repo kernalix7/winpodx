@@ -51,7 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 ---
 
 > ### Status: Beta
-> WinPodX is in active development (**v0.6.0**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions; v0.5.8 fixed the two big fresh-install dead-ends (#269 urlacl ownership and #287 OEM copy never running `install.bat`). **v0.6.0 is a consolidation + UX release.** The post-create chain (wait-ready → apply-fixes → discovery → reverse-open) collapses into a single **`winpodx provision`** that is now the only path used by `install.sh`, `winpodx setup`, `winpodx migrate`, and the GUI bring-up; `install.sh`'s ~140 lines of provisioning drop to ~5. The AppImage is **Thin** (~50 MB) — only FreeRDP + Python + Qt + winpodx — and uses the host's `podman` / `docker` / `libvirt`, fixing the bundled-stack crashes #357 and #363 (the old fat AppImage shadowed the host stack). The CLI command surface is reorganised — **`winpodx guest`** owns guest-side operations (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** owns install / disk operations (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** absorbs `info` and `check` and gains `--json` / `--quick` / `--fix` (idempotent auto-remediation for dead agent, stale locks, missing desktop entries, and OEM-version drift). All old `pod <x>` subcommand spellings still work through 0.6.x with a deprecation notice and will be removed in 0.7.0. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> WinPodX is in active development (**v0.6.0**). Reverse-open (v0.5.0) — Linux apps in the Windows "Open with…" menu — is default-on with per-app icons that round-trip to the host's `xdg-open`. v0.5.5 added a host-adaptive Windows-on-KVM tuning profile plus automatic `UNRESPONSIVE → recover` for stalled RDP sessions; v0.5.8 fixed the two big fresh-install dead-ends (#269 urlacl ownership and #287 OEM copy never running `install.bat`). **v0.6.0 is a consolidation + UX release.** The post-create chain (wait-ready → apply-fixes → discovery → reverse-open) collapses into a single **`winpodx provision`** that is now the only path used by `install.sh`, `winpodx setup`, `winpodx migrate`, and the GUI bring-up; `install.sh`'s ~140 lines of provisioning drop to ~5. The AppImage is **Thin** (~50 MB) — only FreeRDP + Python + Qt + winpodx — and uses the host's `podman` / `docker`, fixing the bundled-stack crashes #357 and #363 (the old fat AppImage shadowed the host stack). The CLI command surface is reorganised — **`winpodx guest`** owns guest-side operations (`apply-fixes`, `sync`, `sync-password`, `multi-session`, `recover-oem`), **`winpodx install`** owns install / disk operations (`status`, `resume`, `grow-disk`, `disk-usage`), **`winpodx doctor`** absorbs `info` and `check` and gains `--json` / `--quick` / `--fix` (idempotent auto-remediation for dead agent, stale locks, missing desktop entries, and OEM-version drift). All old `pod <x>` subcommand spellings still work through 0.6.x with a deprecation notice and will be removed in 0.7.0. First install still takes ~5–10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated, both directions. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
@@ -108,7 +108,7 @@ chmod +x winpodx-*-x86_64.AppImage
 
 > **After a package-manager / AppImage install:** run `winpodx setup` once to generate `~/.config/winpodx/winpodx.toml` + compose.yaml. The curl one-liner does this for you (and waits ~5–10 min for the Windows first boot); package installs ship the binary only so `apt install` / `dnf install` / `yay -S` / first AppImage launch don't trigger a 10-minute Windows ISO download out of the blue. After setup, just launching an app (`winpodx app run desktop`) auto-provisions the pod the first time.
 >
-> The Thin AppImage (0.6.0) bundles Python + Qt + winpodx + FreeRDP only — the container runtime lives on the host (`podman` ≥ 4 recommended, `docker` / `libvirt` also supported) so the AppImage no longer fights a host stack you already have (#357, #363). Pre-0.6.0 fat AppImages bundled the whole podman stack and shadowed the host's. Host-side requirements left: a container runtime via your package manager, `/dev/kvm`, `kvm` group membership, and `/etc/subuid` / `/etc/subgid` for rootless Podman. `winpodx setup-host` fixes the kvm / subuid bits via a single `pkexec` prompt; `winpodx doctor` surfaces anything still missing.
+> The Thin AppImage (0.6.0) bundles Python + Qt + winpodx + FreeRDP only — the container runtime lives on the host (`podman` ≥ 4 recommended, `docker` also supported) so the AppImage no longer fights a host stack you already have (#357, #363). Pre-0.6.0 fat AppImages bundled the whole podman stack and shadowed the host's. Host-side requirements left: a container runtime via your package manager, `/dev/kvm`, `kvm` group membership, and `/etc/subuid` / `/etc/subgid` for rootless Podman. `winpodx setup-host` fixes the kvm / subuid bits via a single `pkexec` prompt; `winpodx doctor` surfaces anything still missing.
 
 See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, and uninstall.
 
@@ -170,6 +170,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
 - Bidirectional file associations: double-click `.docx` in your file manager → Word opens
 - Multi-session RDP: bundled [rdprrap](https://github.com/kernalix7/rdprrap) auto-enables up to 10 independent sessions
+- Multi-monitor RAIL (0.6.0): a remote-app window keeps working input when dragged onto a second monitor — on by default (`cfg.rdp.multimon`, default `span`)
 - RAIL prerequisites set automatically during unattended install
 
 </td></tr>
@@ -179,7 +180,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - First app click auto-provisions everything: config, container, desktop entries
 - Auto-discovery on first boot scans the running Windows guest and registers every installed app with its real icon (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop)
 - Manual rescan any time via `winpodx app refresh` or the GUI Refresh button
-- Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
+- Multi-backend: Podman (default), Docker, manual RDP (the libvirt backend was dropped in 0.6.0 — stay on ≤0.5.x or use the manual backend for your own libvirt domain)
 
 </td><td width="50%">
 
@@ -189,7 +190,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - **Printer**: Linux printers shared to Windows — on by default
 - **Home directory**: shared as `\\tsclient\home`
 - **USB drives**: auto-mapped to drive letters (E:, F:, …) via FileSystemWatcher; subfolders work for drives plugged in after session start; the USB desktop shortcut (`\\tsclient\media`) always resolves, opening an empty folder when nothing is mounted instead of erroring
-- **USB device passthrough**: opt-in via `extra_flags` (`/usb:auto`)
+- **Host USB / PCI device passthrough** (0.6.0): pass real host devices into the Windows guest — `winpodx device list / attach <id> / detach <id>`, a GUI "Devices" tab (two-column host↔guest mover), and a system-tray USB switcher. USB hot-plugs live (`cfg.pod.usb_live`, default on); PCI is boot-added and needs a guest restart plus a `--force` / dialog confirmation
 
 </td></tr>
 <tr><td width="50%">
@@ -214,7 +215,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - Offline / air-gapped install (`--source` + `--image-tar`)
 - One-line uninstall (keeps Windows VM data unless `--purge`)
 - Health checks via `winpodx doctor` (deps / pod / RDP / agent / disk / round-trip / password age; `--json` for machine-readable, `--quick` for cheap subset, `--fix` for idempotent auto-remediation of common findings)
-- Qt6 GUI: Apps / Settings / Tools / Terminal / Info pages — plus a lighter system tray
+- Redesigned Qt6 GUI (0.6.0): a left Start-menu-style navigation sidebar + a new **Dashboard** home with live Pod / RAM / CPU ring gauges, disk usage, an auto-recovery status card, pinned/recent workspace tiles, and a reverse-open toggle; the app launcher is now the "All apps" page, alongside Devices / Settings / Tools / Terminal / Info — plus a lighter system tray. In-house SVG icon set, responsive reflow, and a hero search that doubles as a command bar
 - Stdlib-leaning Python (no pip-deps on 3.11+; one `tomli` fallback on 3.9 / 3.10)
 
 </td></tr>

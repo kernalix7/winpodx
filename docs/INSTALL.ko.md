@@ -215,7 +215,7 @@ distro 무관 WinPodX AppImage 가 태그 release 마다 asset 으로 ship 됨. 
 
 호스트 측 요구사항:
 
-- distro 패키지 매니저로 설치한 컨테이너 런타임: **`podman ≥ 4` 권장**, `docker` 또는 `libvirt` 도 지원. 없으면 위 RPM / DEB / AUR / `install.sh` 한 줄 설치 활용.
+- distro 패키지 매니저로 설치한 컨테이너 런타임: **`podman ≥ 4` 권장**, `docker` 도 지원 (manual 백엔드는 기존 RDP 호스트를 사용). 없으면 위 RPM / DEB / AUR / `install.sh` 한 줄 설치 활용.
 - 호스트 커널이 `/dev/kvm` 노출 (BIOS 에서 VT-x / AMD-V 활성화 시 대부분 distro 기본 동작).
 - 현재 사용자가 `kvm` 그룹 멤버 (rootless Podman 용 `/etc/subuid` + `/etc/subgid` 엔트리 존재 — 최근 distro 는 사전 구성; `cat /etc/subuid` 로 확인).
 
@@ -271,7 +271,7 @@ nix profile install github:kernalix7/winpodx
 inputs.winpodx.url = "github:kernalix7/winpodx";
 ```
 
-wrapper 가 FreeRDP, podman / podman-compose, iproute2, libnotify 를 bundle 해서 기본 Podman 백엔드는 바로 동작. Docker 와 libvirt 백엔드는 해당 도구가 호스트에 설치되어 있어야 함.
+wrapper 가 FreeRDP, podman / podman-compose, iproute2, libnotify 를 bundle 해서 기본 Podman 백엔드는 바로 동작. Docker 백엔드는 Docker 가 호스트에 설치되어 있어야 함; manual 백엔드는 직접 제공하는 RDP 호스트에 연결.
 
 ## 소스에서
 

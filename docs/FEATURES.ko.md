@@ -48,6 +48,8 @@ winpodx host-open disable       # 기능 전체 끄기
 - 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
 - 멀티세션 RDP: bundled rdprrap 이 최대 10개 독립 세션 자동 활성화
 - RAIL 전제조건 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) 이 unattended 설치 중 자동 설정
+- 멀티모니터 RAIL 기본 활성 (`cfg.rdp.multimon = "span"`): 리모트 앱 윈도를 두 번째 모니터로 드래그해도 입력이 계속 동작
+- UWP/Store 앱도 다른 앱처럼 Linux taskbar 에 등장
 
 ## 제로 설정 실행
 
@@ -65,6 +67,16 @@ winpodx host-open disable       # 기능 전체 끄기
 - `winpodx language <code>` (예: `winpodx language ja`) 또는 GUI 언어 드롭다운으로 언제든 전환
 - config `[ui] language` 에 저장
 
+## Start-menu GUI & 대시보드
+
+데스크톱 GUI 는 Start-menu 스타일 레이아웃으로 구성: 왼쪽 세로 내비게이션 사이드바 (페이지당 한 행) + 처음 진입하는 **Dashboard** 홈.
+
+- **Dashboard** 는 실시간 Pod / RAM / CPU 링 게이지와 디스크 사용량, 자동 복구 상태 카드, 고정/최근 워크스페이스 타일, reverse-open 토글을 보여줌.
+- 앱 런처는 이제 **All apps** 페이지.
+- **Devices** 페이지는 USB / PCI 패스스루용 두 컬럼 host ↔ guest 디바이스 mover 를 제공.
+- 통합 디자인 시스템 + 자체 SVG 아이콘 셋 (더 이상 유니코드 글리프 아이콘 아님), 좁거나 분수 배율 윈도에서 reflow 하는 반응형 레이아웃, fit-to-screen 사이징.
+- 상단의 hero 검색이 커맨드 바 역할도 겸함.
+
 ## 주변기기 & 공유
 
 | 기능 | 동작 방식 | 기본값 |
@@ -75,6 +87,7 @@ winpodx host-open disable       # 기능 전체 끄기
 | **홈 디렉토리** | `\\tsclient\home` 으로 공유 (`+home-drive`) | 활성 |
 | **USB 드라이브** | media 폴더가 `\\tsclient\media` 로 공유 (`/drive:media`); 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능. 마운트된 미디어가 없어도 게스트 측 USB 바로가기가 항상 정상 동작 | 활성 |
 | **USB 디바이스 패스스루** | 네이티브 USB 리디렉션 (`/usb:auto`) — FreeRDP urbdrc 플러그인 필요 | **Opt-in** (`extra_flags` 에 추가) |
+| **호스트 USB / PCI 패스스루** | 호스트 USB 또는 PCI 디바이스를 Windows 게스트로 직접 매핑 (`winpodx device list / attach <id> / detach <id>`, GUI Devices 탭, 트레이 USB 스위처). USB 는 라이브 핫플러그; PCI 는 부팅 시 추가되어 게스트 재시작 + 안전 확인 필요 | USB 라이브 (`cfg.pod.usb_live`, 기본 켜짐) |
 | **USB 드라이브 매핑** | Windows 측 스크립트가 FileSystemWatcher 로 USB 서브폴더를 드라이브 레터 (E:, F:, ...) 로 자동 매핑 | 활성 |
 | **Reverse 파일 열기** | Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 등장; 선택 시 호스트 `xdg-open` 으로 round-trip | 활성 |
 
@@ -96,6 +109,20 @@ media_monitor.ps1 감지 → net use E: \\tsclient\media\USBNAME
 Windows Explorer 에 E: 드라이브 표시
 ```
 
+### 호스트 USB / PCI 디바이스 패스스루
+
+공유 폴더가 아니라 실제 호스트 주변기기를 Windows 게스트 안으로 통째로 매핑:
+
+```bash
+winpodx device list            # 호스트 디바이스 + 현재 게스트 연결 상태
+winpodx device attach <id>     # USB 또는 PCI 디바이스를 게스트에 연결
+winpodx device detach <id>     # 다시 분리
+```
+
+- **USB** 는 라이브 핫플러그 (`cfg.pod.usb_live`, 기본 켜짐) — 게스트 재시작 없이 연결/분리.
+- **PCI** 는 부팅 시 추가: 적용하려면 게스트 재시작이 필요하고 안전 확인을 요청 (CLI 는 `--force`, GUI 는 다이얼로그).
+- **GUI Devices 탭** 은 두 컬럼 host ↔ guest mover 를 제공하고, **시스템 트레이 USB 스위처** 로 전체 윈도를 열지 않고도 USB 디바이스를 넣고 뺄 수 있음.
+
 **GPU 가속:** 아직 미지원. dockur/windows 가 QEMU/KVM 위에서 소프트웨어 그래픽으로 실행 — DirectX 무거운 게임과 3D 앱은 CPU 바운드. VFIO 통한 GPU 패스스루는 가능하지만 패키징 안 됨. ([COMPARISON.md](COMPARISON.ko.md) → WinPodX vs Wine 참조 — GPU 필요하면 Wine + DXVK 가 맞는 도구.)
 
 ## 자동화 & 보안
@@ -103,7 +130,7 @@ Windows Explorer 에 E: 드라이브 표시
 - 자동 suspend / resume: idle 시 컨테이너 pause, 다음 실행 시 resume
 - 비밀번호 자동 회전: 20자 암호학적 비밀번호, 7일 주기 + rollback
 - 스마트 DPI 스케일링: GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb 에서 자동 감지
-- 멀티 백엔드: Podman (기본), Docker, libvirt/KVM, manual RDP
+- 멀티 백엔드: Podman (기본), Docker, manual RDP
 - Windows 빌드를 11 25H2 에 pin (`TargetReleaseVersionInfo=25H2`, 365일 feature-update 지연)
 - Windows debloat: 텔레메트리, 광고, Cortana, 검색 인덱싱, 서비스 (DiagTrack / dmwappushservice / WSearch / SysMain) 비활성화
 - 고성능 전원 플랜 + hibernation off + tzutil UTC + Cloudflare DNS

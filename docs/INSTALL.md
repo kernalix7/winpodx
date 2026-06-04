@@ -214,7 +214,7 @@ A distro-agnostic AppImage of WinPodX ships as a release asset on every tagged r
 
 Host-side requirements:
 
-- A container runtime installed via your distro's package manager: **`podman ≥ 4` recommended**, `docker` or `libvirt` also supported. Use the same `install.sh` (RPM / DEB / AUR) one-liner installs above if you don't have one yet.
+- A container runtime installed via your distro's package manager: **`podman ≥ 4` recommended**, `docker` also supported (the manual backend uses an existing RDP host instead). Use the same `install.sh` (RPM / DEB / AUR) one-liner installs above if you don't have one yet.
 - `/dev/kvm` exposed by the host kernel (most distros do this by default once VT-x / AMD-V is enabled in BIOS).
 - The current user belongs to the `kvm` group (and `/etc/subuid` + `/etc/subgid` entries exist for rootless Podman — usually preconfigured on modern distros; check with `cat /etc/subuid`).
 
@@ -271,7 +271,7 @@ nix profile install github:kernalix7/winpodx
 inputs.winpodx.url = "github:kernalix7/winpodx";
 ```
 
-The wrapper bundles FreeRDP, podman / podman-compose, iproute2 and libnotify, so the default Podman backend works out of the box. The Docker and libvirt backends still require the respective tools to be present on the host.
+The wrapper bundles FreeRDP, podman / podman-compose, iproute2 and libnotify, so the default Podman backend works out of the box. The Docker backend still requires Docker to be present on the host; the manual backend connects to an RDP host you provide.
 
 ## From source
 

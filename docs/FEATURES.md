@@ -48,6 +48,8 @@ Per-slug icons render in both the short Open With menu and the long "Choose anot
 - File associations: double-click `.docx` in your Linux file manager → Word opens
 - Multi-session RDP: bundled rdprrap auto-enables up to 10 independent sessions
 - RAIL prerequisites (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) set automatically during unattended install
+- Multi-monitor RAIL on by default (`cfg.rdp.multimon = "span"`): a remote-app window keeps working input when dragged onto a second monitor
+- UWP/Store apps now appear in the Linux taskbar like any other app
 
 ## Zero-config launch
 
@@ -65,6 +67,16 @@ The tray, GUI, and CLI are fully translated into 7 languages: English, Korean (�
 - Switch any time with `winpodx language <code>` (e.g. `winpodx language ja`) or the GUI language dropdown
 - Persisted in config under `[ui] language`
 
+## Start-menu GUI & Dashboard
+
+The desktop GUI is built around a Start-menu-style layout: a left vertical navigation sidebar (one row per page) with a **Dashboard** home you land on first.
+
+- **Dashboard** shows live Pod / RAM / CPU ring gauges plus disk usage, an auto-recovery status card, pinned and recent workspace tiles, and a reverse-open toggle.
+- The app launcher is now the **All apps** page.
+- A **Devices** page provides the two-column host ↔ guest device mover for USB / PCI passthrough.
+- A unified design system with an in-house SVG icon set (no more unicode-glyph icons), responsive layouts that reflow on narrow or fractionally-scaled windows, and fit-to-screen sizing.
+- A hero search at the top doubles as a command bar.
+
 ## Peripherals & Sharing
 
 | Feature | How it works | Default |
@@ -75,6 +87,7 @@ The tray, GUI, and CLI are fully translated into 7 languages: English, Korean (�
 | **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
 | **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders. The guest-side USB shortcut always resolves even when no media is mounted | Enabled |
 | **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
+| **Host USB / PCI passthrough** | Map a host USB or PCI device straight into the Windows guest (`winpodx device list / attach <id> / detach <id>`, GUI Devices tab, tray USB switcher). USB hot-plugs live; PCI is boot-added and needs a guest restart + safety confirmation | USB live (`cfg.pod.usb_live`, default on) |
 | **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
 | **Reverse file open** | Linux apps appear in the Windows guest's right-click "Open with…" menu; selecting one round-trips the file open to host `xdg-open` | Enabled |
 
@@ -96,6 +109,20 @@ media_monitor.ps1 detects → net use E: \\tsclient\media\USBNAME
 Windows Explorer shows E: drive
 ```
 
+### Host USB / PCI device passthrough
+
+Map a real host peripheral all the way into the Windows guest, not just a shared folder:
+
+```bash
+winpodx device list            # host devices + current guest attachment state
+winpodx device attach <id>     # attach a USB or PCI device to the guest
+winpodx device detach <id>     # detach it again
+```
+
+- **USB** hot-plugs live (`cfg.pod.usb_live`, default on) — attach/detach without restarting the guest.
+- **PCI** is boot-added: it needs a guest restart to take effect and asks for a safety confirmation (`--force` on the CLI, or the dialog in the GUI).
+- A **GUI Devices tab** gives you a two-column host ↔ guest mover, and the **system-tray USB switcher** lets you flip a USB device in or out without opening the full window.
+
 **GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [COMPARISON.md](COMPARISON.md) → WinPodX vs Wine — Wine + DXVK is the right tool when you need GPU.)
 
 ## Automation & Security
@@ -103,7 +130,7 @@ Windows Explorer shows E: drive
 - Auto suspend / resume: container pauses when idle, resumes on next launch
 - Password auto-rotation: 20-char cryptographic password, 7-day cycle with rollback
 - Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
-- Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
+- Multi-backend: Podman (default), Docker, manual RDP
 - Windows build pinned to 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365-day feature-update defer)
 - Windows debloat: disable telemetry, ads, Cortana, search indexing, services (DiagTrack / dmwappushservice / WSearch / SysMain)
 - High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS

@@ -45,7 +45,7 @@ The pod's command channel is a bearer-authed HTTP agent listening on `127.0.0.1:
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
-| Hypervisor | QEMU / KVM (inside the dockur container) |
+| Hypervisor | QEMU / KVM (inside the dockur container; host USB / PCI device passthrough is wired at this layer) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, embedded per-slug icon via vendored rcedit) |
 | i18n | `winpodx.core.i18n` (English-source-as-key, flat JSON catalogs per language) |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
@@ -86,6 +86,7 @@ winpodx/
 - **Auto resume.** `provisioner` → `daemon.ensure_pod_awake()` → `podman unpause` → wait for RDP.
 - **Password rotation.** `ensure_ready()` → check `password_max_age` → generate new password → save config + compose → recreate container → rollback on failure.
 - **Reverse-open (guest → host).** Windows Explorer "Open with..." → per-slug `winpodx-<slug>.exe` shim → atomic JSON write to `\\tsclient\home\.local\share\winpodx\reverse-open\incoming\<uuid>.json` → host listener picks it up → `safe_open_unc` TOCTOU-safe path resolution → `xdg-open` invocation on the host.
+- **Device passthrough (host → guest).** `winpodx device list / attach <id> / detach <id>` (also a GUI "Devices" page and a tray USB switcher) → device wired through to the guest at the QEMU (dockur) layer. USB hot-plugs live (`cfg.pod.usb_live`, default on); PCI is boot-added and needs a guest restart plus a safety confirmation (`--force` / dialog).
 
 ## Guest sync subsystem
 

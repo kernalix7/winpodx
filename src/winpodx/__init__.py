@@ -11,7 +11,7 @@ from importlib.metadata import version as _pkg_version
 # build artefact carries. A source checkout that hasn't been pip-installed
 # (e.g. `python -m winpodx` directly from the repo) falls back to a clearly
 # non-release placeholder so callers don't paper over an undeclared dev run.
-# See docs/design/ROADMAP-0.6.0.md item F.
+# See the design ROADMAP (item F) for the version single-source rationale.
 try:
     __version__ = _pkg_version("winpodx")
 except PackageNotFoundError:

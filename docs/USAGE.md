@@ -56,6 +56,12 @@ winpodx install grow-disk --extend-only   # Just extend C: into existing unalloc
 winpodx power --suspend           # Pause container (free CPU, keep memory)
 winpodx power --resume            # Resume paused container
 
+# Host device passthrough (USB / PCI → Windows guest, #286)
+winpodx device list               # List host USB / PCI devices + their attach state
+winpodx device attach <id>        # Attach a host device to the guest (USB hot-plugs live; PCI is boot-added)
+winpodx device detach <id>        # Detach a device from the guest
+winpodx device attach <id> --force   # Skip the guest-restart safety confirmation for a PCI device
+
 # Security
 winpodx rotate-password           # Rotate Windows RDP password (host config + Windows-side guest account)
 
@@ -94,7 +100,7 @@ winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off 
 winpodx language                  # Show the current UI language
 winpodx language ko               # Set UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale)
 # `winpodx info` and `winpodx check` are deprecated aliases of `winpodx doctor` (work through 0.6.x with a notice; removed in 0.7.0).
-winpodx gui                       # Launch Qt6 main window (Apps / Settings / Tools / Terminal)
+winpodx gui                       # Launch Qt6 main window (Dashboard / All apps / Devices / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config
 winpodx config set rdp.scale 140  # Change a config value
@@ -103,17 +109,19 @@ winpodx config import             # Import existing winapps.conf
 
 ## GUI
 
-Launch with `winpodx gui`. The Qt6 main window has five pages:
+Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460-#471): a left vertical navigation sidebar with one row per page, a hero search bar that doubles as a command bar, an in-house SVG icon set, and responsive layouts that reflow on narrow / fractionally-scaled windows and fit themselves to the screen. The pages:
 
 | Page | What it does |
 |------|--------------|
-| **Apps** | Grid / list view of installed app profiles, search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
-| **Settings** | RDP (user / IP / port / scale / DPI / password rotation), Container (backend / CPU / RAM / idle timeout), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
+| **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, and a reverse-open toggle |
+| **All apps** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
+| **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB hot-plugs live; PCI needs a guest restart with a safety confirmation) |
+| **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
 | **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, and a one-click Windows Update **enable / disable** toggle |
-| **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `virsh`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
+| **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
 | **Info** | Live **Health** card (pod / RDP / agent / OEM / disk / password age / app count) + System / Display / Dependencies / Pod / Config snapshot |
 
-The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), maintenance submenu (Clean Locks / Sync Time / Suspend), and an optional idle-monitor thread.
+The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), a USB device switcher (#300, attach / detach host USB devices to the guest), maintenance submenu (Clean Locks / Sync Time / Suspend), and an optional idle-monitor thread.
 
 ### Tray auto-spawn + UNRESPONSIVE recovery (v0.5.5)
 
@@ -124,6 +132,28 @@ The tray context menu now starts with **Open Dashboard** (one-click to the main 
 To launch the tray at every login, open the GUI → Settings → tick **"Launch WinPodX tray at login (system tray icon + idle-stall auto-recovery)"**. The toggle writes / removes `~/.config/autostart/winpodx-tray.desktop` via the XDG autostart spec; portable across KDE / GNOME / XFCE / Cinnamon. The file is the source of truth — you can also drop it by hand to opt out without launching the GUI. Toggle applies immediately; no Save Settings click needed.
 
 The tray watches the pod state every 30 s. On a `RUNNING → UNRESPONSIVE` transition (container alive long enough that an RDP-port miss can't be confused with a fresh boot) it fires a desktop notification and spawns a background worker that asks the agent to cycle Windows `TermService`. On recovery a "Pod recovered" notification fires; on failure a "needs manual restart" notification points at `winpodx pod restart`. While `install.sh` is running its `[3/4]` / `[4/4]` Sysprep + OEM-reboot phases, the marker file `~/.config/winpodx/.install_in_progress` suppresses the recovery path so genuine install-time RDP gaps don't fire spurious notifications.
+
+## Host device passthrough
+
+Pass a host USB or (non-GPU) PCI device through to the Windows guest (#286). Three surfaces drive the same backend:
+
+* **CLI** — `winpodx device list` shows each host device + its attach state; `winpodx device attach <id>` / `winpodx device detach <id>` move one in or out.
+* **GUI Devices page** — a two-column host ↔ guest mover (pick on the left, attach on the right).
+* **System tray** — a USB switcher submenu (#300) for one-click attach / detach of host USB devices.
+
+USB devices hot-plug live (`cfg.pod.usb_live`, default on) — no restart needed. A PCI device is boot-added and only becomes visible after a guest restart, so the attach is guarded by a safety confirmation; pass `--force` on the CLI (or confirm the dialog in the GUI) to proceed.
+
+## Multi-monitor
+
+Multi-monitor RAIL is on by default (`cfg.rdp.multimon`, default `"span"`): a remote-app window keeps working input when you drag it onto a second monitor. Values:
+
+| `cfg.rdp.multimon` | Effect |
+|---|---|
+| `span` (default) | Span the RDP session across all monitors so a remote-app window stays interactive on any of them |
+| `multimon` | Use FreeRDP's discrete `/multimon` mode (per-monitor geometry) |
+| `off` | Single-monitor only |
+
+Change it with `winpodx config set rdp.multimon off` or via the GUI Settings page.
 
 ## Health checks
 
@@ -226,7 +256,7 @@ These are standard Windows-on-KVM tweaks that need operator action on the Linux 
 
 * **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. WinPodX detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
 * **CPU pinning.** WinPodX flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; WinPodX will not modify host scheduling.
-* **VFIO GPU passthrough.** Out of scope for the RDP-based WinPodX architecture. Use a libvirt setup directly if you need bare-metal GPU performance.
+* **VFIO GPU passthrough.** Out of scope for the RDP-based WinPodX architecture. (Non-GPU USB / PCI device passthrough *is* supported — see "Host device passthrough" below.) If you need bare-metal GPU performance, run your own libvirt domain and point WinPodX at it via the `manual` backend.
 
 ## Configuration
 
@@ -242,6 +272,7 @@ ip = "127.0.0.1"
 port = 3390
 scale = 100                  # Auto-detected from your DE
 dpi = 0                      # Windows DPI % (0 = auto)
+multimon = "span"            # Multi-monitor RAIL: span | multimon | off
 extra_flags = ""             # Additional FreeRDP flags (allowlisted)
 
 [pod]
@@ -254,6 +285,7 @@ auto_start = false                               # Opt-in login auto-start: tray
 idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
+usb_live = true                                  # Hot-plug attached USB devices into the running guest (no restart) — see `winpodx device`
 disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `install grow-disk`)
 disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
 disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)

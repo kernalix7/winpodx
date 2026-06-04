@@ -45,7 +45,7 @@ Pod 의 명령 채널은 게스트 안에서 `127.0.0.1:8765` 에 listen 하는 
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64 인코딩 `/exec` payload) |
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
-| 하이퍼바이저 | QEMU / KVM (dockur 컨테이너 내부) |
+| 하이퍼바이저 | QEMU / KVM (dockur 컨테이너 내부; 호스트 USB / PCI 장치 패스스루가 이 레이어에 연결됨) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, vendored rcedit 로 슬러그별 아이콘 embed) |
 | i18n | `winpodx.core.i18n` (영어 원문을 key 로, 언어별 flat JSON 카탈로그) |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
@@ -86,6 +86,7 @@ winpodx/
 - **자동 resume.** `provisioner` → `daemon.ensure_pod_awake()` → `podman unpause` → RDP 대기.
 - **비밀번호 회전.** `ensure_ready()` → `password_max_age` 확인 → 새 비밀번호 생성 → config + compose 저장 → 컨테이너 재생성 → 실패 시 rollback.
 - **Reverse-open (guest → host).** Windows Explorer "Open with..." → 슬러그별 `winpodx-<slug>.exe` shim → `\\tsclient\home\.local\share\winpodx\reverse-open\incoming\<uuid>.json` 에 atomic JSON 쓰기 → host listener 가 픽업 → `safe_open_unc` TOCTOU-safe 경로 해소 → 호스트에서 `xdg-open` 호출.
+- **장치 패스스루 (host → guest).** `winpodx device list / attach <id> / detach <id>` (GUI "Devices" 페이지 + 트레이 USB 스위처도 제공) → QEMU (dockur) 레이어에서 장치를 게스트로 연결. USB 는 live hot-plug (`cfg.pod.usb_live`, 기본 on); PCI 는 boot-add 방식이라 게스트 재시작과 안전 확인 (`--force` / 다이얼로그) 필요.
 
 ## Guest sync 서브시스템
 

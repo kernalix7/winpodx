@@ -1,3 +1,14 @@
+winpodx (0.6.0) unstable; urgency=medium
+
+  * Consolidation + UX release. Host USB / PCI device passthrough (CLI +
+    GUI + tray), Start-menu GUI with a resource Dashboard, multi-monitor
+    RAIL (window keeps working on a second monitor), and a website at
+    winpodx.org. The libvirt backend was dropped (breaking) -- the dockur
+    QEMU/KVM-in-a-container backend now covers passthrough too. See the
+    CHANGELOG / GitHub release notes for the full list (#286, #300, #460+).
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Thu, 04 Jun 2026 12:00:00 +0000
+
 winpodx (0.5.9) unstable; urgency=medium
 
   * feat: selectable, fully translated UI in 7 languages

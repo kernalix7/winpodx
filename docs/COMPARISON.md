@@ -22,6 +22,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | Sound default | No | No | Yes (FreeRDP) | Yes (FreeRDP) |
 | Printer redirection default | No | No | Not documented | Yes (FreeRDP) |
 | USB drive auto-mapping | No | No | Smartcard passthrough | **Drive subfolders → drive letters via FileSystemWatcher** |
+| Host USB / PCI device passthrough | No | No | Smartcard only | **Yes (`device list / attach / detach`, GUI Devices page, tray USB switcher; USB live hot-plug, PCI boot-added)** |
 | Discovery (auto-scan installed apps) | No | No | Yes | **Yes (Registry + Start Menu + UWP + choco/scoop)** |
 | Multi-session RDP | No | No | Not documented | **Yes (bundled rdprrap, up to 10)** |
 | Reverse file open (guest → host xdg-open) | No | No | No | **Yes (Linux apps in Windows "Open with…" menu)** |
