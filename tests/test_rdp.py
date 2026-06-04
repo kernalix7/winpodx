@@ -658,3 +658,47 @@ class TestResolveWmClass:
         token = resolve_wm_class(uwp.executable, uwp.wm_class_hint or None, uwp.launch_uri or None)
         assert token.startswith("winpodx-uwp-")
         assert token != "microsoft"
+
+
+class _FakeRun:
+    def __init__(self, stdout: str = "") -> None:
+        self.stdout = stdout
+        self.returncode = 0
+
+
+def test_relist_uwp_taskbar_clears_skip_states(monkeypatch):
+    import time
+
+    import winpodx.core.rdp as rdp
+
+    monkeypatch.setattr(rdp.shutil, "which", lambda _name: "/usr/bin/wmctrl")
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    lx = (
+        "0x0140003f  0 RAIL.winpodx-uwp-foo-bar  host Calculator\n"
+        "0x02000010  0 RAIL.other-app  host Notepad\n"
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kw):
+        calls.append(cmd)
+        return _FakeRun(lx if cmd[1] == "-lx" else "")
+
+    monkeypatch.setattr(rdp.subprocess, "run", fake_run)
+    rdp._relist_uwp_taskbar("winpodx-uwp-foo-bar")
+
+    removes = [c for c in calls if c[-1] == "remove,skip_taskbar,skip_pager"]
+    assert removes, "expected a wmctrl remove for the matching RAIL window"
+    # Only the matching window id is re-listed, never the unrelated RAIL app.
+    assert all("0x0140003f" in c for c in removes)
+    assert not any("0x02000010" in c for c in removes)
+
+
+def test_relist_uwp_taskbar_noop_without_wmctrl(monkeypatch):
+    import winpodx.core.rdp as rdp
+
+    monkeypatch.setattr(rdp.shutil, "which", lambda _name: None)
+    calls: list = []
+    monkeypatch.setattr(rdp.subprocess, "run", lambda *a, **k: calls.append(a))
+    rdp._relist_uwp_taskbar("winpodx-uwp-foo-bar")
+    assert calls == []

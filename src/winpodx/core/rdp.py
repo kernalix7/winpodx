@@ -851,6 +851,55 @@ def _wait_session_interactive(cfg: Config, *, timeout: int = 20) -> bool:
     return False
 
 
+def _relist_uwp_taskbar(wm_class: str) -> None:
+    """Best-effort: clear FreeRDP's SKIP_TASKBAR/SKIP_PAGER on a UWP RAIL window
+    so it shows in the Linux taskbar.
+
+    A UWP app's visible frame is owned by ``ApplicationFrameHost.exe`` and
+    arrives over RAIL as a ``WS_POPUP`` / dialog window, so FreeRDP's
+    ``xf_SetWindowStyle()`` calls ``xf_SetWindowUnlisted()`` and stamps the X11
+    window ``_NET_WM_STATE_SKIP_TASKBAR`` + ``_NET_WM_STATE_SKIP_PAGER`` (the
+    same path behind the long-standing Webex Teams "not in taskbar" bug). The
+    window is otherwise fine: ``/wm-class`` is session-wide so its ``res_class``
+    already matches the launcher's ``StartupWMClass`` -- it's just hidden from
+    the panel. We re-list it via ``wmctrl``.
+
+    FreeRDP can re-stamp the state right after the window first maps (a single
+    ``remove`` often doesn't stick -- it takes effect on the second pass), so we
+    retry over a short window. X11 / XWayland only; a clean no-op when wmctrl is
+    absent, no window matches, or the WM ignores the request. Never raises.
+    """
+    import time
+
+    wmctrl = shutil.which("wmctrl")
+    if not wmctrl:
+        log.debug("wmctrl not found; cannot re-list UWP window %r in the taskbar", wm_class)
+        return
+
+    # wmctrl -lx column 3 is "<res_name>.<res_class>"; FreeRDP RAIL windows use
+    # res_name "RAIL" and res_class == the /wm-class token (our app_name slug).
+    target = f"RAIL.{wm_class}"
+    for _ in range(12):  # ~10s at 0.8s cadence -- covers late map + re-stamp
+        try:
+            out = subprocess.run(
+                [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return
+        for line in out.splitlines():
+            parts = line.split(None, 4)  # id, desktop, wm_class, host, title
+            if len(parts) >= 3 and parts[2] == target:
+                try:
+                    subprocess.run(
+                        [wmctrl, "-i", "-r", parts[0], "-b", "remove,skip_taskbar,skip_pager"],
+                        timeout=4,
+                        check=False,
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    return
+        time.sleep(0.8)
+
+
 def launch_app(
     cfg: Config,
     app_executable: str | None = None,
@@ -989,6 +1038,16 @@ def launch_app(
         daemon=True,
     )
     t.start()
+
+    # UWP frames come over RAIL marked SKIP_TASKBAR/SKIP_PAGER (owned by
+    # ApplicationFrameHost, surfaced as a popup/dialog) -- re-list them so they
+    # show in the Linux taskbar. app_name == the /wm-class token for UWP.
+    if launch_uri is not None:
+        threading.Thread(
+            target=_relist_uwp_taskbar,
+            args=(session.app_name,),
+            daemon=True,
+        ).start()
 
     _raise_if_exited_immediately(session)
 
