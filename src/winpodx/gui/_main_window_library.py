@@ -399,10 +399,16 @@ class LibraryPageMixin:
     def _make_running_chip(self, app_name: str) -> QWidget:
         chip = QFrame()
         chip.setObjectName("runChip")
+        chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        chip.setToolTip(tr("Focus window"))
         chip.setStyleSheet(
             f"QFrame#runChip {{ background: {C.SURFACE0}; border: 1px solid {C.SURFACE2};"
             " border-radius: 16px; }"
+            f"QFrame#runChip:hover {{ border-color: {C.GREEN}; }}"
         )
+        # Left-click the chip body -> raise/focus that app's window (the kill
+        # button consumes its own clicks, so it won't trigger a focus).
+        chip.mousePressEvent = lambda _e, n=app_name: self._focus_session(n)
         h = QHBoxLayout(chip)
         h.setContentsMargins(SPACE_M, SPACE_S, SPACE_S, SPACE_S)
         h.setSpacing(SPACE_S)
@@ -449,6 +455,28 @@ class LibraryPageMixin:
         except Exception:  # noqa: BLE001 -- best-effort; refresh either way
             pass
         self._refresh_running_strip()
+
+    def _focus_session(self, app_name: str) -> None:
+        """Best-effort raise/focus of the app's window on the Linux desktop.
+
+        FreeRDP RemoteApp windows are X11 (XWayland), so wmctrl / xdotool can
+        activate them by WM_CLASS (== the session's wm-class token). Degrades
+        quietly when neither tool is present.
+        """
+        import shutil
+        import subprocess
+
+        try:
+            if shutil.which("wmctrl"):
+                subprocess.run(["wmctrl", "-x", "-a", app_name], timeout=3, check=False)
+            elif shutil.which("xdotool"):
+                subprocess.run(
+                    ["xdotool", "search", "--class", app_name, "windowactivate"],
+                    timeout=3,
+                    check=False,
+                )
+        except Exception:  # noqa: BLE001 -- best-effort, never break the UI
+            pass
 
     def _on_toggle_pin_app(self, app: AppInfo) -> None:
         if launcher_state.is_pinned(app.name):
