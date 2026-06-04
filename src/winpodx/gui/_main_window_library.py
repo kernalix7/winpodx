@@ -249,6 +249,22 @@ class LibraryPageMixin:
         launcher_layout.setContentsMargins(0, 0, 0, 0)
         launcher_layout.setSpacing(SPACE_XL)
 
+        # Command results -- the hero doubles as a command bar: typing a query
+        # that matches an action (open a page, suspend/resume the pod, ...)
+        # surfaces it here as a clickable row. Hidden when nothing matches.
+        self._commands_section = QWidget()
+        self._commands_section.setStyleSheet("background: transparent;")
+        cmd_outer = QVBoxLayout(self._commands_section)
+        cmd_outer.setContentsMargins(0, 0, 0, 0)
+        cmd_outer.setSpacing(SPACE_M)
+        cmd_outer.addWidget(make_section_label(tr("Commands")))
+        self._commands_layout = QVBoxLayout()
+        self._commands_layout.setContentsMargins(0, 0, 0, 0)
+        self._commands_layout.setSpacing(SPACE_S)
+        cmd_outer.addLayout(self._commands_layout)
+        self._commands_section.setVisible(False)
+        launcher_layout.addWidget(self._commands_section)
+
         # "Running" live-session strip -- winpodx knows what's actually running
         # (RDP session tracking), so surface it at the very top: a chip per live
         # session with a one-click terminate. Hidden when nothing is running.
@@ -477,6 +493,59 @@ class LibraryPageMixin:
                 )
         except Exception:  # noqa: BLE001 -- best-effort, never break the UI
             pass
+
+    def _command_specs(self):
+        """Quick actions the hero command bar can run (label, icon, handler).
+        Reuses existing tr() labels + handlers from sibling mixins."""
+        return [
+            (tr("Settings"), "gear", lambda: self._switch_page(1)),
+            (tr("Tools"), "clean", lambda: self._switch_page(2)),
+            (tr("Terminal / Logs"), "prompt", lambda: self._switch_page(3)),
+            (tr("Info"), "pending", lambda: self._switch_page(4)),
+            (tr("Devices"), "hardware", lambda: self._switch_page(5)),
+            (tr("License"), "diamond", lambda: self._switch_page(6)),
+            (tr("Suspend Pod"), "pause", self._on_suspend),
+            (tr("Resume Pod"), "play", self._on_resume),
+            (tr("Full Desktop"), "desktop", self._on_open_desktop),
+            (tr("Refresh Apps"), "refresh", self._on_refresh_apps),
+        ]
+
+    def _make_command_row(self, label: str, icon: str, handler) -> QWidget:
+        row = QFrame()
+        row.setObjectName("cmdRow")
+        row.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.setStyleSheet(
+            f"QFrame#cmdRow {{ background: {C.SURFACE0}; border: 1px solid {C.SURFACE2};"
+            " border-radius: 10px; }"
+            f"QFrame#cmdRow:hover {{ border-color: {C.BLUE}; }}"
+        )
+        h = QHBoxLayout(row)
+        h.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_S)
+        h.setSpacing(SPACE_M)
+        ic = QLabel()
+        ic.setPixmap(load_icon(icon, C.SUBTEXT1, 16).pixmap(16, 16))
+        ic.setStyleSheet("background: transparent;")
+        h.addWidget(ic)
+        lbl = QLabel(label)
+        lbl.setStyleSheet(f"background: transparent; color: {C.TEXT}; font-size: 13px;")
+        h.addWidget(lbl)
+        h.addStretch()
+        row.mousePressEvent = lambda _e, fn=handler: fn()
+        return row
+
+    def _refresh_commands(self, q: str) -> None:
+        """Show command rows matching the query (the hero acts as a command bar)."""
+        if not hasattr(self, "_commands_layout"):
+            return
+        self._clear_layout(self._commands_layout)
+        matches = []
+        if q:
+            for label, icon, handler in self._command_specs():
+                if q in label.lower():
+                    matches.append((label, icon, handler))
+        self._commands_section.setVisible(bool(matches))
+        for label, icon, handler in matches[:5]:
+            self._commands_layout.addWidget(self._make_command_row(label, icon, handler))
 
     def _on_toggle_pin_app(self, app: AppInfo) -> None:
         if launcher_state.is_pinned(app.name):
@@ -744,6 +813,7 @@ class LibraryPageMixin:
 
     def _filter_apps(self, text: str) -> None:
         q = text.lower()
+        self._refresh_commands(q)
         base = self._visible_apps()
         filtered = [a for a in base if q in a.full_name.lower() or q in a.name.lower()]
         if self._active_category:

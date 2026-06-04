@@ -837,5 +837,6 @@
   "Windows guest": "Windows ゲスト",
   "WinPodX preferences": "WinPodX 設定",
   "License text": "ライセンス本文",
-  "A live snapshot of your system, display, dependencies, and pod.": "システム・ディスプレイ・依存関係・Pod のライブスナップショット。"
+  "A live snapshot of your system, display, dependencies, and pod.": "システム・ディスプレイ・依存関係・Pod のライブスナップショット。",
+  "Commands": "コマンド"
 }

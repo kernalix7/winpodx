@@ -837,5 +837,6 @@
   "Windows guest": "Windows 客户机",
   "WinPodX preferences": "WinPodX 偏好设置",
   "License text": "许可证文本",
-  "A live snapshot of your system, display, dependencies, and pod.": "系统、显示、依赖项和 Pod 的实时快照。"
+  "A live snapshot of your system, display, dependencies, and pod.": "系统、显示、依赖项和 Pod 的实时快照。",
+  "Commands": "命令"
 }

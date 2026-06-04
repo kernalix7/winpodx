@@ -837,5 +837,6 @@
   "Windows guest": "Invité Windows",
   "WinPodX preferences": "Préférences WinPodX",
   "License text": "Texte de licence",
-  "A live snapshot of your system, display, dependencies, and pod.": "Un aperçu en direct de votre système, affichage, dépendances et pod."
+  "A live snapshot of your system, display, dependencies, and pod.": "Un aperçu en direct de votre système, affichage, dépendances et pod.",
+  "Commands": "Commandes"
 }
