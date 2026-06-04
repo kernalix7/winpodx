@@ -145,8 +145,15 @@ class WinpodxWindow(
 
         root.addWidget(self._build_top_bar())
 
+        # Clean launcher chrome: the old full-width status banner and the
+        # bottom info/log bars are NOT mounted -- the top-bar pod chip carries
+        # pod state + start/stop, and logs live on the Terminal page. The
+        # widgets are still built (kept referenced) so their updater methods
+        # (_apply_status_banner / _update_log_bar / pod-status info labels)
+        # stay valid no-ops on hidden, unmounted widgets.
         self.status_banner = self._build_status_banner()
-        root.addWidget(self.status_banner)
+        self._hidden_info_bar = self._build_info_bar()
+        self._hidden_log_bar = self._build_log_bar()
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_library_page())
@@ -156,14 +163,7 @@ class WinpodxWindow(
         self.pages.addWidget(self._build_info_page())
         self.pages.addWidget(self._build_devices_page())
         self.pages.addWidget(self._build_license_page())
-        root.addWidget(self.pages)
-
-        root.addWidget(self._build_info_bar())
-        # Always-visible log ticker below info_bar. Shows the latest
-        # two ``log_signal`` lines (winpodx logger + pod tail when
-        # ``cfg.logging.level == "RAW"``) regardless of which page
-        # the user is on.
-        root.addWidget(self._build_log_bar())
+        root.addWidget(self.pages, 1)
 
 
 def run_gui() -> None:

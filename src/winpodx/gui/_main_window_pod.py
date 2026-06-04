@@ -322,6 +322,14 @@ class PodStatusMixin:
         visible in a distinct "degraded" form so the user understands why
         launches might stall — with a Restart affordance.
         """
+        # Clean launcher chrome: the status banner is no longer mounted in the
+        # window (the top-bar pod chip carries pod state + start/stop). Keep the
+        # unmounted widget hidden so it never pops as a stray window. The rest
+        # of this method is retained for if the banner is ever re-mounted.
+        if getattr(self, "status_banner", None) is not None:
+            self.status_banner.setVisible(False)
+        return
+
         state = self._pod_state
         if state == "running":
             rdp_ok = getattr(self, "_last_rdp_ok", True)
