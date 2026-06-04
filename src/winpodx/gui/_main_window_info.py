@@ -15,8 +15,7 @@ Host-class contract (only listed for readers; not enforced):
 
 from __future__ import annotations
 
-from PySide6.QtCore import QThread, QTimer, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,15 +28,21 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import add_shadow, make_empty_panel, make_page_header
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_GHOST,
+    FONT_HEADER,
     SCROLL_AREA,
     SETTINGS_SECTION,
     SPACE_L,
     SPACE_M,
     SPACE_S,
     SPACE_XL,
+    SPACE_XS,
     SPACE_XXL,
+    TOOL_ICON_BG,
+    TOOL_ICON_BORDER,
+    TOOL_ICON_FG,
     C,
     rgba,
 )
@@ -59,11 +64,25 @@ class InfoPageMixin:
         "kvm": "enable KVM (load the kvm module; add yourself to the 'kvm' group)",
     }
 
+    # Status colors drawn from the shared GitHub-Dark palette so the badges
+    # sit calm against the rest of the app rather than reading as loud
+    # saturated fills.
     _HEALTH_BADGE_COLORS: dict[str, str] = {
-        "ok": "#a6e3a1",  # Catppuccin GREEN
-        "warn": "#f9e2af",  # YELLOW
-        "fail": "#f38ba8",  # RED
-        "skip": "#9399b2",  # SUBTEXT0
+        "ok": C.GREEN,
+        "warn": C.YELLOW,
+        "fail": C.RED,
+        "skip": C.OVERLAY1,
+    }
+
+    # One restrained SVG glyph per section, rendered in a soft tinted chip in
+    # the card header — replaces the old bare blue text headers.
+    _INFO_CARD_ICONS: dict[str, str] = {
+        "health": "check",
+        "system": "hardware",
+        "display": "desktop",
+        "dependencies": "diamond",
+        "pod": "rdp",
+        "config": "gear",
     }
 
     def _build_info_page(self) -> QWidget:
@@ -90,10 +109,16 @@ class InfoPageMixin:
         layout.setSpacing(SPACE_L)
 
         refresh_btn = QPushButton(tr("Refresh Info"))
-        refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
+        refresh_btn.setIcon(load_icon("refresh", C.SUBTEXT0, 16))
         refresh_btn.setStyleSheet(BTN_GHOST)
         refresh_btn.clicked.connect(self._refresh_info)
-        layout.addWidget(make_page_header(tr("Info"), actions_widget=refresh_btn))
+        layout.addWidget(
+            make_page_header(
+                tr("Info"),
+                tr("A live snapshot of your system, display, dependencies, and pod."),
+                actions_widget=refresh_btn,
+            )
+        )
 
         # Containers for the 5 cards. Initial population goes through
         # _refresh_info which dispatches a worker thread; until that thread
@@ -111,7 +136,7 @@ class InfoPageMixin:
             ("pod", "Pod"),
             ("config", "Config"),
         ]:
-            card = self._info_card(label)
+            card = self._info_card(label, key)
             self._info_cards[key] = card
             layout.addWidget(card)
 
@@ -127,31 +152,48 @@ class InfoPageMixin:
         QTimer.singleShot(0, self._refresh_info)
         return page
 
-    def _info_card(self, title: str) -> QFrame:
-        """Card scaffold with a title bar + an empty body layout we mutate later."""
+    def _info_card(self, title: str, key: str = "") -> QFrame:
+        """Card scaffold with an icon-chip title + an empty body we mutate later."""
         card = QFrame()
-        card.setObjectName("infoSection")
+        card.setObjectName("settingsSection")
         card.setStyleSheet(
             SETTINGS_SECTION
             + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
         )
-        add_shadow(card)
+        add_shadow(card, blur=14, y=2, alpha=35)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
-        layout.setSpacing(SPACE_S)
+        layout.setContentsMargins(SPACE_XL, SPACE_L, SPACE_XL, SPACE_XL)
+        layout.setSpacing(SPACE_M)
 
-        header = QLabel(tr(title))
-        header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: 600;"
+        # Header: a soft tinted icon chip + a semibold section title. Keeping
+        # the weight restrained (semibold, neutral text colour) reads calmer
+        # than the old loud-blue header it replaces.
+        header = QHBoxLayout()
+        header.setSpacing(SPACE_S)
+
+        chip = QLabel()
+        chip.setFixedSize(30, 30)
+        chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_name = self._INFO_CARD_ICONS.get(key or title.lower(), "diamond")
+        chip.setPixmap(load_icon(icon_name, TOOL_ICON_FG, 16).pixmap(16, 16))
+        chip.setStyleSheet(
+            f"background: {TOOL_ICON_BG}; border: 1px solid {TOOL_ICON_BORDER}; border-radius: 9px;"
         )
-        layout.addWidget(header)
+        header.addWidget(chip, 0)
+
+        title_lbl = QLabel(tr(title))
+        title_lbl.setStyleSheet(
+            f"background: transparent; color: {C.TEXT};"
+            f" font-size: {FONT_HEADER}px; font-weight: 600;"
+        )
+        header.addWidget(title_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(header)
 
         accent = QFrame()
         accent.setFixedHeight(1)
-        accent.setStyleSheet(f"background: {C.SURFACE1};")
+        accent.setStyleSheet(f"background: {rgba(C.SURFACE2, 0.40)};")
         layout.addWidget(accent)
-        layout.addSpacing(SPACE_S)
 
         body = QVBoxLayout()
         body.setSpacing(SPACE_S)
@@ -185,21 +227,35 @@ class InfoPageMixin:
             body.addWidget(make_empty_panel(tr("No probes ran (health module unavailable).")))
             return
 
+        # Overall verdict line: a small status dot + a calm summary, rather
+        # than a single loud coloured sentence.
         overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
+        verdict_row = QHBoxLayout()
+        verdict_row.setSpacing(SPACE_S)
+        dot = QLabel()
+        dot.setFixedSize(8, 8)
+        dot.setStyleSheet(f"background: {overall_color}; border-radius: 4px;")
+        verdict_row.addWidget(dot, 0, Qt.AlignmentFlag.AlignVCenter)
         verdict = QLabel(tr("Overall: {status}").format(status=overall.upper() or tr("UNKNOWN")))
-        verdict.setStyleSheet(f"color: {overall_color}; font-size: 13px; font-weight: 500;")
-        body.addWidget(verdict)
-        body.addSpacing(4)
+        verdict.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 13px; font-weight: 500;")
+        verdict_row.addWidget(verdict, 1, Qt.AlignmentFlag.AlignVCenter)
+        verdict_holder = QWidget()
+        verdict_holder.setLayout(verdict_row)
+        body.addWidget(verdict_holder)
+        body.addSpacing(SPACE_XS)
 
         for p in probes:
             status = p.get("status", "")
             color = self._HEALTH_BADGE_COLORS.get(status, C.SUBTEXT0)
             row = QHBoxLayout()
+            row.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
+            row.setSpacing(SPACE_M)
             badge = QLabel(status.upper())
             badge.setFixedWidth(48)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(
                 f"color: {color}; font-size: 11px; font-weight: 500; "
-                f"background: {rgba(color, 0.12)}; border: 1px solid {rgba(color, 0.35)}; "
+                f"background: {rgba(color, 0.10)}; border: 1px solid {rgba(color, 0.28)}; "
                 "border-radius: 6px; padding: 2px 6px;"
             )
             name = QLabel(p.get("name", ""))
@@ -213,12 +269,10 @@ class InfoPageMixin:
             row.addWidget(badge, 0)
             row.addWidget(name, 0)
             row.addWidget(detail, 1)
-            row.addWidget(duration, 0)
+            row.addWidget(duration, 0, Qt.AlignmentFlag.AlignVCenter)
             holder = QWidget()
             holder.setLayout(row)
-            holder.setStyleSheet(
-                f"background: {rgba(C.MANTLE, 0.55)}; border-radius: 8px; padding: 2px;"
-            )
+            holder.setStyleSheet(f"background: {rgba(C.MANTLE, 0.45)}; border-radius: 8px;")
             body.addWidget(holder)
 
     def _set_info_card_rows(self, key: str, rows: list[tuple[str, str]]) -> None:
@@ -234,6 +288,7 @@ class InfoPageMixin:
                 w.deleteLater()
         for label, value in rows:
             row = QHBoxLayout()
+            row.setContentsMargins(0, SPACE_XS, 0, SPACE_XS)
             row.setSpacing(SPACE_M)
             lbl = QLabel(label)
             lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px;")
@@ -241,9 +296,9 @@ class InfoPageMixin:
             val = QLabel(value)
             val.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
             val.setWordWrap(True)
-            row.addWidget(lbl, 0)
+            row.addWidget(lbl, 0, Qt.AlignmentFlag.AlignTop)
             row.addStretch()
-            row.addWidget(val, 1)
+            row.addWidget(val, 1, Qt.AlignmentFlag.AlignTop)
             holder = QWidget()
             holder.setLayout(row)
             body.addWidget(holder)

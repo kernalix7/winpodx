@@ -53,6 +53,7 @@ from winpodx.gui.theme import (
     BTN_PRIMARY,
     BTN_SECONDARY,
     SCROLL_AREA,
+    SETTINGS_SECTION,
     SPACE_L,
     SPACE_M,
     SPACE_S,
@@ -128,47 +129,42 @@ class MaintenanceMixin:
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
-        layout.setSpacing(0)
+        layout.setSpacing(SPACE_L)
 
         layout.addWidget(make_page_header(tr("Tools"), tr("System maintenance and pod management")))
-        layout.addSpacing(SPACE_XL)
 
-        layout.addWidget(make_section_label(tr("Pod Management")))
-        layout.addSpacing(SPACE_S)
-
+        # Each tool group lives in its own card so the page reads as a few
+        # calm, contained sections rather than a long flat list of rows.
         pod_tools = [
-            ("⏸", tr("Suspend Pod"), tr("Pause container (keeps memory)"), self._on_suspend),
-            ("▶", tr("Resume Pod"), tr("Unpause a suspended container"), self._on_resume),
-            ("▣", tr("Full Desktop"), tr("Launch full Windows desktop"), self._on_open_desktop),
+            ("pause", tr("Suspend Pod"), tr("Pause container (keeps memory)"), self._on_suspend),
+            ("play", tr("Resume Pod"), tr("Unpause a suspended container"), self._on_resume),
+            (
+                "desktop",
+                tr("Full Desktop"),
+                tr("Launch full Windows desktop"),
+                self._on_open_desktop,
+            ),
         ]
-        for i, (icon, label, desc, handler) in enumerate(pod_tools):
-            layout.addWidget(self._make_action_row(icon, label, desc, handler, i))
-            if i < len(pod_tools) - 1:
-                layout.addSpacing(SPACE_M)
-
-        layout.addSpacing(SPACE_XL)
-
-        layout.addWidget(make_section_label(tr("System")))
-        layout.addSpacing(SPACE_S)
+        layout.addWidget(self._make_tool_card(tr("Pod Management"), pod_tools, base_idx=0))
 
         sys_tools = [
-            ("✧", tr("Clean Locks"), tr("Remove Office lock files"), self._on_cleanup),
-            ("◷", tr("Sync Time"), tr("Force Windows clock sync"), self._on_timesync),
-            ("◆", tr("Debloat"), tr("Disable telemetry & ads"), self._on_debloat),
+            ("clean", tr("Clean Locks"), tr("Remove Office lock files"), self._on_cleanup),
+            ("clock", tr("Sync Time"), tr("Force Windows clock sync"), self._on_timesync),
+            ("diamond", tr("Debloat"), tr("Disable telemetry & ads"), self._on_debloat),
             (
-                "⚙",
+                "gear",
                 tr("Apply Windows Fixes"),
                 tr("Re-apply network + remote-desktop service fixes to the guest (safe to repeat)"),
                 self._on_apply_fixes,
             ),
             (
-                "⊕",
+                "plus",
                 tr("Grow Disk"),
                 tr("Add space to the Windows disk and extend C: to fill it"),
                 self._on_grow_disk,
             ),
             (
-                "↻",
+                "refresh",
                 tr("Sync Guest"),
                 tr(
                     "Push WinPodX's updated guest files into the running Windows "
@@ -177,25 +173,27 @@ class MaintenanceMixin:
                 self._on_sync_guest,
             ),
         ]
-        for i, (icon, label, desc, handler) in enumerate(sys_tools):
-            layout.addWidget(self._make_action_row(icon, label, desc, handler, i + 3))
-            if i < len(sys_tools) - 1:
-                layout.addSpacing(SPACE_M)
-
-        layout.addSpacing(SPACE_XL)
-
-        layout.addWidget(make_section_label(tr("RDP Sessions")))
-        layout.addSpacing(SPACE_S)
+        layout.addWidget(self._make_tool_card(tr("System"), sys_tools, base_idx=3))
 
         # The tray's "Terminate Session" menu isn't always reachable --
         # on some DEs (stock GNOME, occasional Wayland startup races) the
         # tray icon never appears. Mirror that capability here so the
         # dashboard is a reliable way to close a live RDP session (#450).
+        sessions_card = QFrame()
+        sessions_card.setObjectName("settingsSection")
+        sessions_card.setStyleSheet(SETTINGS_SECTION)
+        add_shadow(sessions_card)
+        sessions_layout = QVBoxLayout(sessions_card)
+        sessions_layout.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
+        sessions_layout.setSpacing(SPACE_M)
+        sessions_layout.addWidget(make_section_label(tr("RDP Sessions")))
+
         sessions_box_host = QWidget()
         self._sessions_box = QVBoxLayout(sessions_box_host)
         self._sessions_box.setContentsMargins(0, 0, 0, 0)
         self._sessions_box.setSpacing(SPACE_M)
-        layout.addWidget(sessions_box_host)
+        sessions_layout.addWidget(sessions_box_host)
+        layout.addWidget(sessions_card)
 
         # Live refresh: poll while the Tools page is visible so launching or
         # closing a Windows app shows up within a couple of seconds without
@@ -213,6 +211,33 @@ class MaintenanceMixin:
         scroll.setWidget(content)
         outer.addWidget(scroll)
         return page
+
+    def _make_tool_card(
+        self,
+        section: str,
+        tools: list,
+        *,
+        base_idx: int,
+    ) -> QFrame:
+        """Wrap a labelled group of tool action rows in a shared section card.
+
+        Mirrors the Settings-page card pattern (rounded ``settingsSection``
+        frame, generous padding, even gaps) so the Tools page reads as a few
+        calm cards instead of a flat list of floating rows.
+        """
+        card = QFrame()
+        card.setObjectName("settingsSection")
+        card.setStyleSheet(SETTINGS_SECTION)
+        add_shadow(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
+        layout.setSpacing(SPACE_M)
+        layout.addWidget(make_section_label(section))
+
+        for i, (icon, label, desc, handler) in enumerate(tools):
+            layout.addWidget(self._make_action_row(icon, label, desc, handler, base_idx + i))
+        return card
 
     def _refresh_sessions_panel(self, force: bool = False) -> None:
         """Rebuild the Tools-page list of live RDP sessions (#450).
@@ -266,7 +291,6 @@ class MaintenanceMixin:
         icon.setStyleSheet(
             f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
             f" border: 1px solid {TOOL_ICON_BORDER}; border-radius: 14px;"
-            f" font-size: 16px; font-weight: 500;"
         )
         rl.addWidget(icon)
 
@@ -333,6 +357,9 @@ class MaintenanceMixin:
         icon_circle = QLabel()
         icon_circle.setFixedSize(38, 38)
         icon_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # ``icon`` is an SVG icon name from the bundled set (load_icon recolors
+        # it to the calm tool accent); a single legacy glyph map is kept as a
+        # fallback so older callers passing a unicode glyph still resolve.
         icon_name = {
             "⏸": "pause",
             "▶": "play",
@@ -348,7 +375,7 @@ class MaintenanceMixin:
         icon_circle.setStyleSheet(
             f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
             f" border: 1px solid {TOOL_ICON_BORDER}; border-left: 2px solid {rgba(color, 0.42)};"
-            f" border-radius: 14px; font-size: 16px; font-weight: 500;"
+            f" border-radius: 14px;"
         )
         rl.addWidget(icon_circle)
 

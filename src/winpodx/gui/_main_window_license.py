@@ -21,6 +21,7 @@ import logging
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QLabel,
     QScrollArea,
     QTextEdit,
@@ -29,16 +30,25 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_page_header
+from winpodx.gui._widget_helpers import add_shadow, make_page_header, make_section_label
+from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
+    FONT_BODY,
+    FONT_CAPTION,
+    FONT_HEADER,
+    RADIUS_XS,
     SCROLL_AREA,
     SETTINGS_SECTION,
     SPACE_L,
     SPACE_M,
     SPACE_S,
+    SPACE_XS,
     SPACE_XXL,
     TERMINAL,
+    TOOL_ACCENT,
+    TOOL_ICON_FG,
     C,
+    rgba,
 )
 from winpodx.utils.paths import bundle_dir
 
@@ -167,6 +177,7 @@ class LicensePageMixin:
         page = QWidget()
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -176,9 +187,9 @@ class LicensePageMixin:
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XXL)
-        layout.setSpacing(SPACE_M)
+        layout.setSpacing(SPACE_L)
 
-        # --- License title -------------------------------------------------
+        # --- Page header ---------------------------------------------------
         layout.addWidget(
             make_page_header(
                 tr("License"),
@@ -188,23 +199,13 @@ class LicensePageMixin:
                 ),
             )
         )
-        layout.addSpacing(SPACE_S)
 
         # --- MIT license text ----------------------------------------------
-        license_text = self._read_license_text()
-        license_view = QTextEdit()
-        license_view.setReadOnly(True)
-        license_view.setStyleSheet(TERMINAL)
-        license_view.setPlainText(license_text)
-        license_view.setFixedHeight(260)
-        layout.addWidget(license_view)
+        layout.addWidget(make_section_label(tr("License text")))
+        layout.addWidget(self._build_license_section())
 
         # --- Third-party acknowledgments -----------------------------------
-        ack_header = QLabel(tr("Third-party components"))
-        ack_header.setStyleSheet(
-            f"background: transparent; color: {C.BLUE}; font-size: 15px; font-weight: 600;"
-        )
-        layout.addWidget(ack_header)
+        layout.addWidget(make_section_label(tr("Third-party components")))
 
         ack_intro = QLabel(
             tr(
@@ -215,46 +216,104 @@ class LicensePageMixin:
                 "source tree)."
             )
         )
-        ack_intro.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
+        ack_intro.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;"
+        )
         ack_intro.setWordWrap(True)
         layout.addWidget(ack_intro)
 
-        for name, license_, purpose, url in _THIRD_PARTY_ACK:
-            row = QFrame()
-            row.setObjectName("settingsSection")
-            row.setStyleSheet(SETTINGS_SECTION)
-            add_shadow(row, blur=10, y=1, alpha=28)
-            row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
-            row_layout.setSpacing(SPACE_S)
-
-            heading = QLabel(f"{name}  ·  {license_}")
-            heading.setStyleSheet(
-                f"background: transparent; color: {C.TEXT}; font-size: 13px; font-weight: 500;"
-            )
-            row_layout.addWidget(heading)
-
-            detail = QLabel(tr(purpose))
-            detail.setStyleSheet(f"background: transparent; color: {C.SUBTEXT1}; font-size: 12px;")
-            detail.setWordWrap(True)
-            row_layout.addWidget(detail)
-
-            # Upstream source link. Rendered as selectable text (not an
-            # auto-opening hyperlink) so winpodx never initiates a network
-            # call — the user copies the URL to find the source + its
-            # license themselves.
-            link = QLabel(url)
-            link.setStyleSheet(f"background: transparent; color: {C.BLUE}; font-size: 11px;")
-            link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            link.setWordWrap(True)
-            row_layout.addWidget(link)
-
-            layout.addWidget(row)
+        for entry in _THIRD_PARTY_ACK:
+            layout.addWidget(self._build_ack_card(*entry))
 
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
         return page
+
+    def _build_license_section(self) -> QFrame:
+        """Card wrapping the read-only MIT license text in the terminal panel."""
+        card = QFrame()
+        card.setObjectName("settingsSection")
+        card.setStyleSheet(SETTINGS_SECTION)
+        add_shadow(card, blur=12, y=2, alpha=26)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
+        card_layout.setSpacing(0)
+
+        license_view = QTextEdit()
+        license_view.setReadOnly(True)
+        license_view.setStyleSheet(TERMINAL)
+        license_view.setPlainText(self._read_license_text())
+        license_view.setFixedHeight(260)
+        card_layout.addWidget(license_view)
+        return card
+
+    def _build_ack_card(self, name: str, license_: str, purpose: str, url: str) -> QFrame:
+        """Build one third-party acknowledgment card (name + license + link)."""
+        row = QFrame()
+        row.setObjectName("settingsSection")
+        row.setStyleSheet(SETTINGS_SECTION)
+        add_shadow(row, blur=10, y=1, alpha=28)
+        row_layout = QVBoxLayout(row)
+        row_layout.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
+        row_layout.setSpacing(SPACE_S)
+
+        # Header line: project name (medium) + a calm license chip.
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(SPACE_S)
+
+        heading = QLabel(name)
+        heading.setStyleSheet(
+            f"background: transparent; color: {C.TEXT};"
+            f" font-size: {FONT_HEADER}px; font-weight: 500;"
+        )
+        header_row.addWidget(heading, 0)
+
+        chip = QLabel(license_)
+        chip.setStyleSheet(
+            f"background: {rgba(TOOL_ACCENT, 0.12)}; color: {TOOL_ICON_FG};"
+            f" border: 1px solid {rgba(TOOL_ACCENT, 0.26)};"
+            f" border-radius: {RADIUS_XS}px; padding: 1px 7px;"
+            f" font-size: {FONT_CAPTION}px; font-weight: 400;"
+        )
+        header_row.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        header_row.addStretch(1)
+        row_layout.addLayout(header_row)
+
+        detail = QLabel(tr(purpose))
+        detail.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT1}; font-size: {FONT_BODY}px;"
+        )
+        detail.setWordWrap(True)
+        row_layout.addWidget(detail)
+
+        # Upstream source link. Rendered as selectable text (not an
+        # auto-opening hyperlink) so winpodx never initiates a network
+        # call — the user copies the URL to find the source + its
+        # license themselves. The globe glyph reads as "external source"
+        # without the loud saturated link-blue.
+        link_row = QHBoxLayout()
+        link_row.setContentsMargins(0, SPACE_XS, 0, 0)
+        link_row.setSpacing(SPACE_S)
+
+        globe = QLabel()
+        globe.setFixedSize(14, 14)
+        globe.setPixmap(load_icon("globe", TOOL_ICON_FG, 14).pixmap(14, 14))
+        globe.setStyleSheet("background: transparent;")
+        globe.setAlignment(Qt.AlignmentFlag.AlignTop)
+        link_row.addWidget(globe, 0, Qt.AlignmentFlag.AlignTop)
+
+        link = QLabel(url)
+        link.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;"
+        )
+        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        link.setWordWrap(True)
+        link_row.addWidget(link, 1)
+        row_layout.addLayout(link_row)
+        return row
 
     def _read_license_text(self) -> str:
         """Return the project LICENSE contents, or a stub on failure.

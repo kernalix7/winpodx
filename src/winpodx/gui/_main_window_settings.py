@@ -39,7 +39,12 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_page_header, make_warning_callout
+from winpodx.gui._widget_helpers import (
+    add_shadow,
+    make_page_header,
+    make_section_label,
+    make_warning_callout,
+)
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_DANGER,
@@ -533,9 +538,15 @@ class SettingsPageMixin:
             ),
             level="warn",
         )
+
+        layout.addSpacing(SPACE_S)
+        layout.addWidget(make_section_label(tr("Connection & resources")))
         layout.addWidget(recreate_callout)
 
         layout.addLayout(cols)
+
+        layout.addSpacing(SPACE_M)
+        layout.addWidget(make_section_label(tr("Windows guest")))
 
         # Language / Region / Keyboard are first-install-only env knobs:
         # applying a change destroys the Windows disk and reinstalls.
@@ -608,24 +619,17 @@ class SettingsPageMixin:
         # "Applies immediately" subsection. The controls below (autostart,
         # UI language; the reverse-open enable checkbox above behaves the
         # same) persist the moment you change them — unlike the form fields
-        # above, which only commit when you click "Save Settings". The
-        # header makes that split explicit so the Save button's scope isn't
-        # ambiguous.
+        # above, which only commit when you click "Save Settings". Grouping
+        # them inside their own card (rather than floating loose on the page)
+        # makes the Save button's scope unambiguous and keeps the visual
+        # rhythm consistent with the form cards above.
         layout.addSpacing(SPACE_M)
-        applies_now_header = QLabel(tr("Applies immediately"))
-        applies_now_header.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; "
-            f"font-size: {FONT_CAPTION}px; font-weight: 500;"
+        layout.addWidget(make_section_label(tr("WinPodX preferences")))
+        applies_card, applies_layout = self._settings_card_shell(
+            "gear",
+            tr("Applies immediately"),
+            tr("These take effect right away — no need to click Save Settings."),
         )
-        layout.addWidget(applies_now_header)
-        applies_now_caption = QLabel(
-            tr("These take effect right away — no need to click Save Settings.")
-        )
-        applies_now_caption.setWordWrap(True)
-        applies_now_caption.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
-        )
-        layout.addWidget(applies_now_caption)
 
         # Autostart-at-login toggle. File existence under
         # ``~/.config/autostart/winpodx-tray.desktop`` is the source of
@@ -654,7 +658,8 @@ class SettingsPageMixin:
                 logging.getLogger(__name__).warning("Could not toggle autostart: %s", e)
 
         self.checkbox_autostart_tray.toggled.connect(_on_autostart_toggled)
-        layout.addWidget(self.checkbox_autostart_tray)
+        applies_layout.addWidget(self.checkbox_autostart_tray)
+        applies_layout.addSpacing(SPACE_M)
 
         # winpodx UI language (the tray / GUI / CLI text itself -- distinct
         # from the *guest* install language above). Default 'auto' follows
@@ -674,7 +679,12 @@ class SettingsPageMixin:
             "it": "Italiano",
         }
         lang_row = QHBoxLayout()
-        lang_row.addWidget(QLabel(tr("WinPodX UI language")))
+        lang_row.setSpacing(SPACE_M)
+        lang_label = QLabel(tr("WinPodX UI language"))
+        lang_label.setStyleSheet(
+            f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
+        )
+        lang_row.addWidget(lang_label)
         self.input_ui_language = QComboBox()
         self.input_ui_language.setStyleSheet(COMBO)
         for code in _UI_LANGUAGES:
@@ -700,8 +710,14 @@ class SettingsPageMixin:
 
         self.input_ui_language.currentIndexChanged.connect(_on_ui_language_changed)
         lang_row.addWidget(self.input_ui_language, 1)
-        layout.addLayout(lang_row)
-        layout.addWidget(QLabel(tr("Restart WinPodX (tray / GUI) to apply the language change.")))
+        applies_layout.addLayout(lang_row)
+        ui_lang_note = QLabel(tr("Restart WinPodX (tray / GUI) to apply the language change."))
+        ui_lang_note.setWordWrap(True)
+        ui_lang_note.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+        )
+        applies_layout.addWidget(ui_lang_note)
+        layout.addWidget(applies_card)
 
         # Budget warning — only visible when max_sessions over-subscribes ram_gb.
         # Live-updates as the user types in either field.
@@ -717,7 +733,7 @@ class SettingsPageMixin:
         self.input_max_sessions.textChanged.connect(self._update_budget_warning)
         self._update_budget_warning()
 
-        layout.addSpacing(SPACE_L)
+        layout.addSpacing(SPACE_S)
 
         save_caption = QLabel(
             tr("Persists the form fields above. The ‘Applies immediately’ controls save on change.")
@@ -732,6 +748,64 @@ class SettingsPageMixin:
         scroll.setWidget(content)
         outer.addWidget(scroll)
         return page
+
+    def _settings_card_shell(
+        self,
+        icon_name: str,
+        title: str,
+        subtitle: str,
+    ) -> tuple[QFrame, QVBoxLayout]:
+        """Build the shared card shell (icon header + subtitle + divider).
+
+        Returns the framed card and its content layout so callers can append
+        free-form body widgets below the divider — the same visual shell as
+        :meth:`_settings_card` but without the fixed two-column form grid.
+        """
+        card = QFrame()
+        card.setObjectName("settingsSection")
+        card.setStyleSheet(
+            SETTINGS_SECTION
+            + f"QLabel {{ color: {C.TEXT}; font-size: {FONT_BODY}px; background: transparent; }}"
+            + INPUT
+            + COMBO
+        )
+        add_shadow(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+        layout.setSpacing(SPACE_XS)
+
+        header = QLabel(title)
+        header.setStyleSheet(
+            f"background: transparent; color: {C.BLUE}; "
+            f"font-size: {FONT_HEADER}px; font-weight: 600;"
+        )
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(SPACE_S)
+        header_icon = QLabel()
+        header_icon.setFixedSize(18, 18)
+        header_icon.setPixmap(load_icon(icon_name, C.BLUE, 18).pixmap(18, 18))
+        header_icon.setStyleSheet("background: transparent;")
+        header_row.addWidget(header_icon)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        layout.addLayout(header_row)
+
+        if subtitle:
+            sub = QLabel(subtitle)
+            sub.setStyleSheet(
+                f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
+            )
+            layout.addWidget(sub)
+
+        accent_line = QFrame()
+        accent_line.setFixedHeight(1)
+        accent_line.setStyleSheet(f"background: {C.SURFACE1};")
+        layout.addWidget(accent_line)
+        layout.addSpacing(SPACE_M)
+
+        return card, layout
 
     def _build_tuning_card(self, profile_combo: QComboBox, summary_text: str) -> QFrame:
         """Build the Performance Tuning settings card (#245, PR A).

@@ -40,6 +40,11 @@ class NavigationMixin:
         self.pages.setCurrentIndex(index)
         for i, action in enumerate(getattr(self, "nav_menu_actions", [])):
             action.setChecked(i == index)
+
+        # Refresh the Home launcher's "Running" live-session strip whenever Home
+        # is opened so it reflects what's actually running.
+        if index == 0 and hasattr(self, "_refresh_running_strip"):
+            self._refresh_running_strip()
         # v0.5.1: tail processes are now always-on (started at
         # WinpodxWindow.__init__) and feed both the Terminal full
         # history AND the always-visible bottom log bar. We no

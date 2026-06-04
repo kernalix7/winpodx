@@ -49,6 +49,11 @@ from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
     BTN_SECONDARY,
+    FONT_BODY,
+    FONT_CAPTION,
+    FONT_HEADER,
+    RADIUS_M,
+    RADIUS_S,
     SCROLL_AREA,
     SETTINGS_SECTION,
     SPACE_L,
@@ -57,6 +62,7 @@ from winpodx.gui.theme import (
     SPACE_XL,
     SPACE_XXL,
     C,
+    rgba,
 )
 
 
@@ -94,18 +100,21 @@ class DevicesMixin:
 
         refresh = QPushButton(tr("Refresh"))
         refresh.setStyleSheet(BTN_SECONDARY)
+        refresh.setIcon(load_icon("refresh", C.SUBTEXT1, 16))
+        refresh.setIconSize(QSize(16, 16))
         refresh.clicked.connect(self._render_devices)
         self._devices_status = QLabel("")
         self._devices_status.setStyleSheet(
-            f"color: {C.SUBTEXT1}; font-size: 12px; "
-            f"background: {C.SURFACE0}; border: 1px solid {C.SURFACE1}; "
-            "border-radius: 8px; padding: 7px 10px;"
+            f"color: {C.SUBTEXT1}; font-size: {FONT_CAPTION}px; font-weight: 500;"
+            f" background: {rgba(C.SURFACE0, 0.72)};"
+            f" border: 1px solid {rgba(C.SURFACE2, 0.38)};"
+            f" border-radius: {RADIUS_M}px; padding: 7px 12px;"
         )
 
         actions = QWidget()
         actions_l = QHBoxLayout(actions)
         actions_l.setContentsMargins(0, 0, 0, 0)
-        actions_l.setSpacing(8)
+        actions_l.setSpacing(SPACE_S)
         actions_l.addWidget(self._devices_status)
         actions_l.addWidget(refresh)
 
@@ -139,9 +148,20 @@ class DevicesMixin:
         lay = QVBoxLayout(card)
         lay.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
         lay.setSpacing(SPACE_M)
+
+        head_row = QWidget()
+        head_l = QHBoxLayout(head_row)
+        head_l.setContentsMargins(0, 0, 0, 0)
+        head_l.setSpacing(SPACE_S)
+        head_icon = QLabel()
+        head_icon.setFixedSize(16, 16)
+        head_icon.setPixmap(load_icon("hardware", C.SUBTEXT0, 16).pixmap(16, 16))
+        head_l.addWidget(head_icon)
         head = QLabel(heading)
-        head.setStyleSheet(f"font-weight: 700; color: {C.BLUE}; font-size: 14px;")
-        lay.addWidget(head)
+        head.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_HEADER}px; font-weight: 600;")
+        head_l.addWidget(head)
+        head_l.addStretch(1)
+        lay.addWidget(head_row)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -208,28 +228,41 @@ class DevicesMixin:
         row.setObjectName("actionRow")
         row.setStyleSheet(ACTION_ROW)
         h = QHBoxLayout(row)
-        h.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_S)
+        h.setContentsMargins(SPACE_M, SPACE_M, SPACE_M, SPACE_M)
         h.setSpacing(SPACE_M)
 
         badge = QLabel(host.dtype.upper())
-        badge_color = C.GREEN if safety.safe else C.RED
+        badge_color = C.GREEN if safety.safe else C.PEACH
         badge.setStyleSheet(
-            f"background: {badge_color}; color: #0d1117; border-radius: 6px;"
-            " padding: 1px 6px; font-size: 11px; font-weight: 700;"
+            f"background: {rgba(badge_color, 0.16)}; color: {badge_color};"
+            f" border: 1px solid {rgba(badge_color, 0.30)};"
+            f" border-radius: {RADIUS_S}px; padding: 2px 8px;"
+            f" font-size: {FONT_CAPTION}px; font-weight: 600;"
         )
         badge.setAlignment(Qt.AlignCenter)
-        h.addWidget(badge)
+        h.addWidget(badge, 0, Qt.AlignTop)
 
         full_label = host.label or tr("(unknown)")
         text = QLabel()
-        text.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
-        # Elide the (often long) device label with a real "…" rather than a
-        # hard slice, and expose the full text on hover so nothing is lost.
+        # Device id reads as the primary line; the (often long) label sits
+        # below as calmer secondary text.
+        did_lbl = QLabel(host.did)
+        did_lbl.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_BODY}px; font-weight: 500;")
+        # Elide the label with a real "…" rather than a hard slice, and expose
+        # the full text on hover so nothing is lost.
         metrics = QFontMetrics(text.font())
         elided = metrics.elidedText(full_label, Qt.TextElideMode.ElideRight, 240)
-        text.setText(f"{host.did}\n{elided}")
-        text.setToolTip(f"{host.did}\n{full_label}")
-        h.addWidget(text, 1)
+        label_lbl = QLabel(elided)
+        label_lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
+
+        text_host = QWidget()
+        text_l = QVBoxLayout(text_host)
+        text_l.setContentsMargins(0, 0, 0, 0)
+        text_l.setSpacing(2)
+        text_l.addWidget(did_lbl)
+        text_l.addWidget(label_lbl)
+        text_host.setToolTip(f"{host.did}\n{full_label}")
+        h.addWidget(text_host, 1)
 
         if assigned:
             btn = QPushButton(tr("← Detach"))
@@ -332,14 +365,16 @@ class DevicesMixin:
         dlg.setModal(True)
         dlg.setMinimumWidth(460)
         lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(20, 18, 20, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
+        lay.setSpacing(SPACE_M)
 
         lay.addWidget(make_warning_callout(plain, level="danger"))
 
         reasons = QLabel(tr("Why this is flagged:\n") + "\n".join(f"• {r}" for r in safety.reasons))
         reasons.setWordWrap(True)
-        reasons.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 12px; background: transparent;")
+        reasons.setStyleSheet(
+            f"color: {C.SUBTEXT1}; font-size: {FONT_BODY}px; background: transparent;"
+        )
         lay.addWidget(reasons)
 
         buttons = QDialogButtonBox(

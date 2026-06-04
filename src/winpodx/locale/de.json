@@ -831,5 +831,11 @@
   "Recent": "Zuletzt",
   "All apps": "Alle Apps",
   "Pin": "Anheften",
-  "Unpin": "Lösen"
+  "Unpin": "Lösen",
+  "Running": "Aktiv",
+  "Connection & resources": "Verbindung & Ressourcen",
+  "Windows guest": "Windows-Gast",
+  "WinPodX preferences": "WinPodX-Einstellungen",
+  "License text": "Lizenztext",
+  "A live snapshot of your system, display, dependencies, and pod.": "Eine Live-Übersicht über System, Anzeige, Abhängigkeiten und Pod."
 }

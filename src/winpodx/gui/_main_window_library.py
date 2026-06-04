@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
+from winpodx.core.process import kill_session, list_active_sessions
 from winpodx.gui import launcher_state
 from winpodx.gui._widget_helpers import (
     add_shadow,
@@ -248,6 +249,12 @@ class LibraryPageMixin:
         launcher_layout.setContentsMargins(0, 0, 0, 0)
         launcher_layout.setSpacing(SPACE_XL)
 
+        # "Running" live-session strip -- winpodx knows what's actually running
+        # (RDP session tracking), so surface it at the very top: a chip per live
+        # session with a one-click terminate. Hidden when nothing is running.
+        self._running_section, self._running_row = self._make_launcher_section(tr("Running"))
+        launcher_layout.addWidget(self._running_section)
+
         self._pinned_section, self._pinned_row = self._make_launcher_section(tr("Pinned"))
         launcher_layout.addWidget(self._pinned_section)
 
@@ -378,7 +385,70 @@ class LibraryPageMixin:
         self._populate_launcher_row(self._recent_section, self._recent_row, recent)
 
     def _refresh_launcher_home(self) -> None:
+        self._refresh_running_strip()
         self._filter_apps(self.search_box.text())
+
+    def _running_display_name(self, stem: str) -> str:
+        """Best-effort friendly name for a tracked session stem."""
+        for a in self.apps:
+            if a.name == stem:
+                return a.full_name
+        cleaned = stem.removeprefix("winpodx-uwp-").split("_")[0].replace("-", " ").strip()
+        return cleaned.title() if cleaned else stem
+
+    def _make_running_chip(self, app_name: str) -> QWidget:
+        chip = QFrame()
+        chip.setObjectName("runChip")
+        chip.setStyleSheet(
+            f"QFrame#runChip {{ background: {C.SURFACE0}; border: 1px solid {C.SURFACE2};"
+            " border-radius: 16px; }"
+        )
+        h = QHBoxLayout(chip)
+        h.setContentsMargins(SPACE_M, SPACE_S, SPACE_S, SPACE_S)
+        h.setSpacing(SPACE_S)
+
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {C.GREEN}; font-size: 9px; background: transparent;")
+        h.addWidget(dot)
+
+        name = QLabel(self._running_display_name(app_name))
+        name.setStyleSheet(f"color: {C.TEXT}; font-size: 12px; background: transparent;")
+        h.addWidget(name)
+
+        kill_btn = QPushButton("")
+        kill_btn.setIcon(load_icon("close", C.OVERLAY0, 14))
+        kill_btn.setIconSize(QSize(14, 14))
+        kill_btn.setFixedSize(22, 22)
+        kill_btn.setToolTip(tr("Terminate"))
+        kill_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 11px; }"
+            f"QPushButton:hover {{ background: {C.SURFACE2}; }}"
+        )
+        kill_btn.clicked.connect(lambda _=False, n=app_name: self._terminate_session(n))
+        h.addWidget(kill_btn)
+        return chip
+
+    def _refresh_running_strip(self) -> None:
+        """Rebuild the 'Running' strip from the live RDP sessions."""
+        if not hasattr(self, "_running_row"):
+            return
+        self._clear_layout(self._running_row)
+        try:
+            sessions = list_active_sessions()
+        except Exception:  # noqa: BLE001 -- never break the home on enumeration
+            sessions = []
+        self._running_section.setVisible(bool(sessions))
+        for s in sessions:
+            self._running_row.addWidget(self._make_running_chip(s.app_name))
+        if sessions:
+            self._running_row.addStretch()
+
+    def _terminate_session(self, app_name: str) -> None:
+        try:
+            kill_session(app_name)
+        except Exception:  # noqa: BLE001 -- best-effort; refresh either way
+            pass
+        self._refresh_running_strip()
 
     def _on_toggle_pin_app(self, app: AppInfo) -> None:
         if launcher_state.is_pinned(app.name):

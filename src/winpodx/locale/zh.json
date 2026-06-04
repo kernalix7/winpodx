@@ -831,5 +831,11 @@
   "Recent": "最近",
   "All apps": "所有应用",
   "Pin": "固定",
-  "Unpin": "取消固定"
+  "Unpin": "取消固定",
+  "Running": "运行中",
+  "Connection & resources": "连接和资源",
+  "Windows guest": "Windows 客户机",
+  "WinPodX preferences": "WinPodX 偏好设置",
+  "License text": "许可证文本",
+  "A live snapshot of your system, display, dependencies, and pod.": "系统、显示、依赖项和 Pod 的实时快照。"
 }

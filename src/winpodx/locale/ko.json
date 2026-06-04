@@ -831,5 +831,11 @@
   "Recent": "최근",
   "All apps": "모든 앱",
   "Pin": "고정",
-  "Unpin": "고정 해제"
+  "Unpin": "고정 해제",
+  "Running": "실행 중",
+  "Connection & resources": "연결 및 리소스",
+  "Windows guest": "Windows 게스트",
+  "WinPodX preferences": "WinPodX 환경설정",
+  "License text": "라이선스 전문",
+  "A live snapshot of your system, display, dependencies, and pod.": "시스템·디스플레이·의존성·Pod의 실시간 스냅샷."
 }
