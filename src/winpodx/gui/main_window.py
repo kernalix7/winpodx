@@ -154,6 +154,13 @@ class WinpodxWindow(
         self.status_banner = self._build_status_banner()
         self._hidden_info_bar = self._build_info_bar()
         self._hidden_log_bar = self._build_log_bar()
+        # Parent the unmounted widgets to ``central`` and hide them so they
+        # never float as top-level windows or flash a (0,0) ghost at startup
+        # before the first pod-status update lands (same orphan-widget class
+        # as the old License ghost). A hidden, non-layout child never paints.
+        for _unmounted in (self.status_banner, self._hidden_info_bar, self._hidden_log_bar):
+            _unmounted.setParent(central)
+            _unmounted.hide()
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_library_page())
