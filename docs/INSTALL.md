@@ -195,7 +195,7 @@ EPEL is required on el9 for `python3-tomli`. Download the matching `.rpm` from t
 
 ```bash
 sudo dnf install epel-release                            # el9 only
-sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm    # or .el10.rpm
+sudo dnf install ./winpodx-<version>-0.noarch.el9.rpm    # or .el10.rpm
 ```
 
 ### Arch Linux / Manjaro

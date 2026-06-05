@@ -58,7 +58,7 @@ class PodStatusMixin:
         QTimer.singleShot(3000, lambda n=app.name: self._recently_launched.discard(n))
 
         self.info_label.setText(tr("Launching {app}...").format(app=app.full_name))
-        show_toast(self, tr("Launching {app}…").format(app=app.full_name), kind="info")
+        show_toast(self, tr("Launching {app}...").format(app=app.full_name), kind="info")
 
         def _do() -> None:
             # Lock guards ensure_ready + launch_app only; dropped before the wait.
@@ -370,7 +370,7 @@ class PodStatusMixin:
             self._set_banner(
                 "⚠",
                 C.PEACH,
-                tr("Pod is alive but RDP is unresponsive — auto-recovering, or click Restart"),
+                tr("Pod is alive but RDP is unresponsive — auto-recovering, or click Restart Pod"),
                 restart=True,
             )
         elif state == "error":

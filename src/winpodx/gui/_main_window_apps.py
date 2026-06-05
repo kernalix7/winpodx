@@ -30,10 +30,11 @@ from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import actionable_error, show_toast
 from winpodx.gui.workers import DiscoveryWorker
 
-# QStackedWidget index of the Logs page (see main_window._build_ui page
-# order: library/settings/maintenance/logs/...). Used by the refresh
-# failure dialog's "View logs" action.
-_LOGS_PAGE_INDEX = 3
+# QStackedWidget index of the Terminal / Logs page. Page order (main_window):
+# 0 Dashboard, 1 All apps, 2 Settings, 3 Tools, 4 Terminal/Logs, 5 Info,
+# 6 Devices, 7 License. Used by the refresh-failure dialog's "View logs" action
+# (was 3, which is the Tools page).
+_LOGS_PAGE_INDEX = 4
 
 
 class AppCrudMixin:
@@ -210,7 +211,7 @@ class AppCrudMixin:
         it rather than juggling button objects.
         """
         if kind == "pod_not_running":
-            start_label = tr("Start pod")
+            start_label = tr("Start Pod")
             choice = actionable_error(
                 self,
                 tr("Pod Not Running"),

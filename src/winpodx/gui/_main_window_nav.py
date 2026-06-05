@@ -274,7 +274,7 @@ class NavigationMixin:
             lines.append("")
             lines.append(tr("Pending setup steps detected — running them in the background."))
         lines.append("")
-        lines.append(tr("Tip: Tools → Live (app) tails the WinPodX log in real time."))
+        lines.append(tr("Tip: the Terminal / Logs page shows a live tail of the WinPodX log."))
 
         marker = Path(self.cfg.path()).parent / ".welcomed"
         try:
@@ -288,7 +288,7 @@ class NavigationMixin:
         # Real next-actions so a first-timer has somewhere obvious to go,
         # wired to the existing page-switch + refresh handlers.
         settings_btn = box.addButton(tr("Open Settings"), QMessageBox.ButtonRole.ActionRole)
-        refresh_btn = box.addButton(tr("Refresh apps"), QMessageBox.ButtonRole.ActionRole)
+        refresh_btn = box.addButton(tr("Refresh Apps"), QMessageBox.ButtonRole.ActionRole)
         close_btn = box.addButton(tr("Close"), QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(close_btn)
         box.exec()

@@ -198,7 +198,7 @@ cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전
    winpodx pod start
    winpodx rotate-password
    ```
-2. **그렇지 않으면** `winpodx pod purge` + 재설치가 유일한 길. Windows 안의 모든 상태 (설치된 앱, 문서, 설정) 손실. 재설치 후 첫 단계로 `winpodx setup` 한 번 돌리고, 이후 비밀번호 변경은 절대 `setup` 으로 하지 말고 `rotate-password` 만 사용하세요.
+2. **그렇지 않으면** `winpodx uninstall --purge` + 재설치가 유일한 길. Windows 안의 모든 상태 (설치된 앱, 문서, 설정) 손실. 재설치 후 첫 단계로 `winpodx setup` 한 번 돌리고, 이후 비밀번호 변경은 절대 `setup` 으로 하지 말고 `rotate-password` 만 사용하세요.
 
 ## 성능 튜닝 프로파일
 

@@ -17,9 +17,9 @@ case "$1" in
         cat <<'EOF'
 
 [WinPodX] Package installed. Next step:
-  - Open WinPodX from your application menu (GUI) OR
-  - Run 'winpodx' in a terminal
-First-run prompt will offer auto setup / customize wizard / skip.
+  - Open WinPodX from your application menu (GUI), OR
+  - Run 'winpodx gui' in a terminal
+The GUI's first-run modal offers auto setup / customize wizard / skip.
 
 For the curl-like all-in-one experience, run:
   winpodx setup

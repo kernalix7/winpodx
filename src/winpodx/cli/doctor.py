@@ -248,8 +248,9 @@ def _check_kvm() -> Finding:
             "or your user lacks the kvm group."
         ),
         suggestion=(
-            "Check BIOS VT-x/AMD-V, run `modprobe kvm_intel` or "
-            "`modprobe kvm_amd`, ensure your user is in the kvm group."
+            "Run `winpodx setup-host --apply` (fixes the kvm group + module "
+            "load via one pkexec prompt); if /dev/kvm is still absent, enable "
+            "VT-x / AMD-V (SVM) in your BIOS/UEFI."
         ),
     )
 

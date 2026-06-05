@@ -259,7 +259,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     lists_grid = QGridLayout()
     lists_grid.setHorizontalSpacing(SPACE_L)
     lists_grid.setVerticalSpacing(SPACE_S)
-    allow_label = QLabel(tr("Allowlist (empty = show all discovered apps)"))
+    allow_label = QLabel(tr("Allowlist (empty = all discovered)"))
     deny_label = QLabel(tr("Denylist (apps to hide)"))
     allow_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: 500;")
     deny_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: 500;")

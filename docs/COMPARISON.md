@@ -27,7 +27,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | Multi-session RDP | No | No | Not documented | **Yes (bundled rdprrap, up to 10)** |
 | Reverse file open (guest → host xdg-open) | No | No | No | **Yes (Linux apps in Windows "Open with…" menu)** |
 | Windows disk auto-grow | No | No | No | **Yes (idle, bounded by host free space)** |
-| Guest sync (in-place update, no reinstall) | No | No | No | **Yes (auto on pod start + `sync-guest`)** |
+| Guest sync (in-place update, no reinstall) | No | No | No | **Yes (auto on pod start + `guest sync`)** |
 | Multilingual UI | English only | English only | English only | **Yes (7 languages, locale auto-detect)** |
 | Offline / air-gapped install | No | No | No | **Yes (`--source` + `--image-tar`)** |
 | License | MIT | AGPL-3.0 | MIT | MIT |

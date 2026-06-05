@@ -198,7 +198,7 @@ If you ran `winpodx setup` on an older release and can no longer log in:
    winpodx pod start
    winpodx rotate-password
    ```
-2. **Otherwise**, the only path is `winpodx pod purge` + reinstall, which loses any in-Windows state (installed apps, documents, settings). Make a fresh `winpodx setup` your first step after reinstall, then never touch the password through `setup` again — use `rotate-password`.
+2. **Otherwise**, the only path is `winpodx uninstall --purge` + reinstall, which loses any in-Windows state (installed apps, documents, settings). Make a fresh `winpodx setup` your first step after reinstall, then never touch the password through `setup` again — use `rotate-password`.
 
 ## Performance tuning profile
 

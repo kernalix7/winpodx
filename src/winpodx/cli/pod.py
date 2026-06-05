@@ -282,7 +282,7 @@ def _apply_fixes() -> None:
         print(
             tr(
                 "\n{fail_count} of {total} apply(s) failed. "
-                "Check `winpodx info` and try again, or recreate the container."
+                "Check `winpodx doctor` and try again, or recreate the container."
             ).format(fail_count=len(failures), total=len(results))
         )
         sys.exit(3)
@@ -1673,7 +1673,7 @@ def _recover_oem() -> None:
     print()
     print(tr("After the post-install reboot, on this host:"))
     print("  winpodx pod wait-ready")
-    print("  winpodx check")
+    print("  winpodx doctor")
     print()
     print(tr("To stop the HTTP server when finished:"))
     print(f"  {cmd} exec {container} pkill -f 'http.server 8766'")
@@ -1843,4 +1843,4 @@ def _sync_guest(*, force: bool) -> None:
     if any(v.startswith("failed") for v in results.values()):
         print(tr("\nSome steps failed -- re-run `winpodx pod sync-guest` once the guest is up."))
         sys.exit(1)
-    print(tr("\nGuest synced. The agent restarts in ~5s; run `winpodx check` to confirm."))
+    print(tr("\nGuest synced. The agent restarts in ~5s; run `winpodx doctor` to confirm."))

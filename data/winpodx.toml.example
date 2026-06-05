@@ -1,31 +1,65 @@
+# Example winpodx.toml — the on-disk config (usually at
+# ~/.config/winpodx/winpodx.toml). winpodx writes + manages this file itself;
+# this is a reference for hand-editing. Unknown keys are ignored, and any key
+# you omit falls back to the built-in default shown here.
+
+schema_version = 2
+
 [rdp]
-user = "User"
-# password is auto-generated; leave empty for random
-password = ""
-password_updated = ""
-password_max_age = 7  # days, 0 = disable auto-rotation
-askpass = ""          # Command to retrieve password
+user = ""                 # Windows account user name ("" = the dockur default)
+password = ""             # auto-generated; leave empty for a random password
+password_updated = ""     # ISO timestamp of the last rotation (managed)
+password_max_age = 7      # days; 0 = disable auto-rotation
+askpass = ""              # command to retrieve the password instead of storing it
 domain = ""
-ip = "127.0.0.1"
+ip = "127.0.0.1"          # RDP host (the manual backend points this at the VM)
 port = 3390
-scale = 100           # 100, 140, or 180 (auto-detected from DE)
-dpi = 0               # 0 = auto, 100-300 = explicit Windows DPI %
-extra_flags = ""
+scale = 100               # 100 / 140 / 180 — RemoteApp scale (auto-detected from the DE)
+dpi = 0                   # 0 = let Windows decide; 100–300 = explicit Windows DPI %
+extra_flags = ""          # extra xfreerdp flags (validated against an allowlist)
+freerdp_source = "auto"   # auto | native | flatpak
+multimon = "span"         # span | off | multimon — multi-monitor RAIL strategy
 
 [pod]
-backend = "podman"    # podman | docker | libvirt | manual
-vm_name = "RDPWindows"
-win_version = "11"    # 11 | 10 | ltsc10 | tiny11 | tiny10
+backend = "podman"        # podman | docker | manual  (libvirt was dropped in 0.6.0)
+vm_name = "RDPWindows"    # dockur VM name
+container_name = "winpodx-windows"
+win_version = "11"        # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016
 cpu_cores = 4
-ram_gb = 4
+ram_gb = 6                # GiB given to the Windows VM
 vnc_port = 8007
-auto_start = true     # Auto-start pod when launching an app
-idle_timeout = 0      # Seconds before auto-suspend (0 = disabled)
-# Windows language/region/keyboard settings
-# Default: English (US)
-# For Spanish: language = "Spanish", region = "es-ES", keyboard = "es-ES"
-# For French: language = "French", region = "fr-FR", keyboard = "fr-FR"
-# For German: language = "German", region = "de-DE", keyboard = "de-DE"
-language = "English"  # Display language
-region = "en-001"     # Regional format (date, currency, etc.)
-keyboard = "en-US"    # Keyboard layout
+auto_start = false        # opt-in: auto-start the pod when launching an app
+idle_timeout = 0          # seconds before auto-suspend (0 = disabled)
+boot_timeout = 300        # seconds to wait for first boot before giving up
+disk_size = "64G"         # Windows virtual disk ceiling
+disk_autogrow = true      # grow the disk automatically when it fills up
+disk_autogrow_threshold_pct = 80
+disk_autogrow_target_free_pct = 30
+disk_autogrow_increment = "32G"
+disk_max_size = ""        # cap for auto-grow ("" = host free space minus a reserve)
+guest_autosync = true     # push refreshed guest scripts on pod start after a host upgrade
+max_sessions = 25         # concurrent RemoteApp sessions the guest is tuned for
+storage_path = ""         # host dir backing the VM disk ("" = the podman/docker volume)
+language = "English"      # Windows display language (e.g. "Spanish" / "French" / "German")
+region = "en-001"         # regional format (date / currency); e.g. "es-ES", "fr-FR"
+keyboard = "en-US"        # keyboard layout; e.g. "es-ES", "fr-FR", "de-DE"
+timezone = ""             # "" = follow the host timezone
+tuning_profile = "auto"   # auto | low | mid | high — host-adaptive Windows-on-KVM tuning
+usb_live = true           # bind the host USB bus so `device attach` hot-plugs live
+# devices = []            # passthrough device ids (managed by `winpodx device`)
+
+[reverse_open]
+enabled = true            # surface Linux apps in the Windows "Open with…" menu
+allowlist = []            # [] = offer every discovered host app
+denylist = ["foot", "kitty", "konsole", "gnome-terminal", "alacritty"]
+deny_dangerous = true     # never reverse-open shells / risky launchers
+
+[install]
+auto_resume = true        # resume a deferred install step on the next launch
+# (the remaining [install] keys are agent / watchdog tuning, managed automatically)
+
+[logging]
+level = "INFO"            # DEBUG | INFO | WARNING | ERROR | RAW
+
+[ui]
+language = "auto"         # winpodx UI language: auto | en | ko | zh | ja | de | fr | it

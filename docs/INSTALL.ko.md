@@ -196,7 +196,7 @@ el9 는 `python3-tomli` 위해 EPEL 필요. [최신 release](https://github.com/
 
 ```bash
 sudo dnf install epel-release                            # el9 만
-sudo dnf install ./winpodx-<version>-1.noarch.el9.rpm    # 또는 .el10.rpm
+sudo dnf install ./winpodx-<version>-0.noarch.el9.rpm    # 또는 .el10.rpm
 ```
 
 ### Arch Linux / Manjaro
