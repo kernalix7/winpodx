@@ -165,6 +165,7 @@ def cli(argv: list[str] | None = None) -> None:
     pod_sub.add_parser(
         "apply-fixes",
         help=(
+            "[deprecated → guest apply-fixes] "
             "Apply Windows-side runtime fixes (RDP timeouts, NIC power-save, "
             "TermService recovery, MaxSessions) to the existing pod. "
             "Idempotent — safe to run any time."
@@ -173,6 +174,7 @@ def cli(argv: list[str] | None = None) -> None:
     sync_p = pod_sub.add_parser(
         "sync-password",
         help=(
+            "[deprecated → guest sync-password] "
             "Re-sync the Windows guest's account password to the value in "
             "WinPodX config. Use when password rotation has drifted (cfg "
             "and Windows disagree). Prompts for the last-known-working "
@@ -187,6 +189,7 @@ def cli(argv: list[str] | None = None) -> None:
     multi_p = pod_sub.add_parser(
         "multi-session",
         help=(
+            "[deprecated → guest multi-session] "
             "Toggle the bundled rdprrap multi-session RDP patch. "
             "{on|off|status} — enables/disables independent RemoteApp "
             "sessions. Requires rdprrap-conf to be present in the guest "
@@ -237,6 +240,7 @@ def cli(argv: list[str] | None = None) -> None:
     pod_sub.add_parser(
         "recover-oem",
         help=(
+            "[deprecated → guest recover-oem] "
             "Re-stage C:\\OEM in the Windows guest when dockur's automatic "
             "first-boot OEM copy failed (#287). Tars /oem inside the "
             "container, starts an HTTP server, and prints the noVNC "
@@ -248,6 +252,7 @@ def cli(argv: list[str] | None = None) -> None:
     grow_p = pod_sub.add_parser(
         "grow-disk",
         help=(
+            "[deprecated → install grow-disk] "
             "Grow the Windows virtual disk and extend C: to fill it (#318). "
             "Bumps disk_size (capped at disk_max_size), recreates the "
             "container so dockur grows the image, then extends C:. Windows "
@@ -287,12 +292,16 @@ def cli(argv: list[str] | None = None) -> None:
 
     pod_sub.add_parser(
         "disk-usage",
-        help="Show the Windows C: drive size / free / used%% and auto-grow status (#318).",
+        help=(
+            "[deprecated → install disk-usage] "
+            "Show the Windows C: drive size / free / used%% and auto-grow status (#318)."
+        ),
     )
 
     sync_p = pod_sub.add_parser(
         "sync-guest",
         help=(
+            "[deprecated → guest sync] "
             "Push refreshed guest artifacts (agent.ps1, urlacl, rdprrap/shim, "
             "registry fixes) into the running guest after a host upgrade, "
             "instead of a wipe-reinstall. Runs automatically on pod start when "
@@ -451,7 +460,7 @@ def cli(argv: list[str] | None = None) -> None:
     # --- other commands ---
     sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")
     sub.add_parser("tray", help="Launch system tray icon")
-    sub.add_parser("info", help="Show system information")
+    sub.add_parser("info", help="[deprecated → doctor] Show system information")
     autostart_p = sub.add_parser(
         "autostart",
         help=(
@@ -484,7 +493,7 @@ def cli(argv: list[str] | None = None) -> None:
     )
     check_p = sub.add_parser(
         "check",
-        help="Run all health probes (pod, RDP, agent, password age, disk, …)",
+        help="[deprecated → doctor] Run all health probes (pod, RDP, agent, password age, disk, …)",
     )
     check_p.add_argument(
         "--json",

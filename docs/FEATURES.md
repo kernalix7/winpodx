@@ -170,7 +170,7 @@ For each result it extracts the icon directly from the binary (or the package's 
 
 ```bash
 winpodx app refresh        # CLI
-# or click "Refresh Apps" on the GUI Apps page
+# or click "Refresh Apps" on the GUI All apps page
 ```
 
 ### Adding a custom app profile manually

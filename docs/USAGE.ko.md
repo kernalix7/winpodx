@@ -117,7 +117,7 @@ winpodx config import             # 기존 winapps.conf import
 | **All apps** | 설치된 앱 프로필의 grid / list view (구 "Apps"), 검색 + 카테고리 필터, 앱별 실행 (3초 cooldown), Add / Edit / Delete 앱 프로필 다이얼로그 |
 | **Devices** | USB / PCI 장치 패스스루용 2열 호스트 ↔ 게스트 mover (#286) — 왼쪽에서 호스트 장치 선택, 오른쪽에서 Windows 게스트에 attach (USB 는 live hot-plug; PCI 는 안전 확인과 함께 게스트 재시작 필요) |
 | **Settings** | RDP (user / IP / port / scale / DPI / 비밀번호 회전 / 멀티모니터), Container (backend / CPU / RAM / idle timeout), 그리고 reverse-open 패널 (enable 토글, allowlist + denylist, 라이브 daemon 상태, refresh / start / stop 버튼) 한 화면에 |
-| **Tools** | Suspend / Resume / Full Desktop 버튼, Clean Locks / Sync Time / Debloat, 그리고 원클릭 Windows Update **활성/비활성** 토글 |
+| **Tools** | Suspend / Resume / Full Desktop 버튼, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, 그리고 원클릭 Windows Update **활성/비활성** 토글 |
 | **Terminal** | 명령 allowlist 제한된 embedded 셸 (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) + 퀵 버튼 (Status / Logs / Inspect / RDP Test / Clear) |
 | **Info** | 라이브 **Health** 카드 (pod / RDP / agent / OEM / disk / 비밀번호 age / 앱 수) + System / Display / Dependencies / Pod / Config 스냅샷 |
 

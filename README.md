@@ -20,14 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
   <img src="docs/images/demo.png" alt="WinPodX in action — Windows apps as native Linux windows on KDE" width="720">
 </a>
 
-<sub>Windows About / Performance Monitor / PowerShell each in their own Linux window, alongside the WinPodX Apps grid.</sub>
+<sub>Windows About / Task Manager / PowerShell each in their own Linux window, alongside the WinPodX Dashboard (live Pod / RAM / CPU gauges, workspace tiles).</sub>
 
 [![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#status-beta)
 [![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
 
 [![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![tests](https://img.shields.io/badge/tests-1240%2B-2EA44F?style=flat-square)](#testing)
+[![tests](https://img.shields.io/badge/tests-1800%2B-2EA44F?style=flat-square)](#testing)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
 [![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
@@ -255,7 +255,7 @@ Each tag push (`v*.*.*`) publishes to all channels automatically — see [packag
 ```bash
 # From repo root (no install needed)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/    # 1240+ tests
+python3 -m pytest tests/    # 1800+ tests
 ruff check src/ tests/      # Lint
 ruff format --check src/ tests/
 ```

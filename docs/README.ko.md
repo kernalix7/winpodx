@@ -20,14 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
   <img src="images/demo.png" alt="WinPodX 실행 모습 — KDE 데스크톱 위에서 Windows 앱이 각각 네이티브 Linux 창으로" width="720">
 </a>
 
-<sub>Windows 정보 / 작업 관리자 / PowerShell 이 각각 Linux 창으로, WinPodX Apps 그리드와 나란히.</sub>
+<sub>Windows 정보 / 작업 관리자 / PowerShell 이 각각 Linux 창으로, WinPodX Dashboard (라이브 Pod / RAM / CPU 게이지, 워크스페이스 타일) 와 나란히.</sub>
 
 [![Beta](https://img.shields.io/badge/status-beta-orange?style=for-the-badge)](#상태-베타)
 [![Latest](https://img.shields.io/github/v/release/kernalix7/winpodx?include_prereleases&style=for-the-badge&label=latest&color=2962FF)](https://github.com/kernalix7/winpodx/releases)
 
 [![license](https://img.shields.io/github/license/kernalix7/winpodx?style=flat-square&color=blue)](../LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![tests](https://img.shields.io/badge/tests-1240%2B-2EA44F?style=flat-square)](#테스트)
+[![tests](https://img.shields.io/badge/tests-1800%2B-2EA44F?style=flat-square)](#테스트)
 [![CI](https://img.shields.io/github/actions/workflow/status/kernalix7/winpodx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/kernalix7/winpodx/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/kernalix7/winpodx?style=flat-square&color=FFD93D&logo=github&logoColor=white)](https://github.com/kernalix7/winpodx/stargazers)
 [![downloads](https://img.shields.io/github/downloads/kernalix7/winpodx/total?style=flat-square&color=2EA44F)](https://github.com/kernalix7/winpodx/releases)
@@ -255,7 +255,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 ```bash
 # 리포 루트에서 (설치 불필요)
 export PYTHONPATH="$PWD/src"
-python3 -m pytest tests/    # 1240+ 테스트
+python3 -m pytest tests/    # 1800+ 테스트
 ruff check src/ tests/      # 린트
 ruff format --check src/ tests/
 ```

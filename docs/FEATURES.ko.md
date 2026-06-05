@@ -170,7 +170,7 @@ v0.1.9 부터 WinPodX 는 **큐레이트된 프로필 리스트 없음**. Window
 
 ```bash
 winpodx app refresh        # CLI
-# 또는 GUI Apps 페이지의 "Refresh Apps" 클릭
+# 또는 GUI All apps 페이지의 "Refresh Apps" 클릭
 ```
 
 ### 사용자 정의 앱 프로필 수동 추가

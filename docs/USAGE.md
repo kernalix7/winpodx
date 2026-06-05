@@ -117,7 +117,7 @@ Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460
 | **All apps** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
 | **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB hot-plugs live; PCI needs a guest restart with a safety confirmation) |
 | **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
-| **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, and a one-click Windows Update **enable / disable** toggle |
+| **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, and a one-click Windows Update **enable / disable** toggle |
 | **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
 | **Info** | Live **Health** card (pod / RDP / agent / OEM / disk / password age / app count) + System / Display / Dependencies / Pod / Config snapshot |
 
