@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QBoxLayout,
     QCheckBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QScrollArea,
@@ -143,8 +144,9 @@ class DashboardMixin:
         return page
 
     def _reflow_dashboard(self) -> None:
-        """Stack the resource + auto-recovery cards vertically when the page is
-        too narrow for the 2:1 row (the three gauges cramp otherwise). Driven
+        """Reflow the dashboard to the current width. Stacks the resource +
+        auto-recovery cards vertically when too narrow for the 2:1 row, and
+        re-wraps the workspace tile grid when the column count changes. Driven
         by the window resizeEvent; idempotent."""
         row1 = getattr(self, "_dashboard_row1", None)
         pages = getattr(self, "pages", None)
@@ -157,6 +159,12 @@ class DashboardMixin:
         )
         if row1.direction() != want:
             row1.setDirection(want)
+
+        # Re-wrap the workspace tiles when the available width changes the
+        # column count (only rebuilds when it actually changes — cheap on resize).
+        cur = getattr(self, "_workspace_cols_cur", None)
+        if cur is not None and self._workspace_cols() != cur:
+            self._populate_workspace()
 
     # -- card scaffolding ------------------------------------------------- #
 
@@ -239,13 +247,25 @@ class DashboardMixin:
 
     def _build_workspace_card(self) -> QFrame:
         card, lay = self._dash_card(tr("Workspace"), "grid")
-        self._workspace_row = QHBoxLayout()
-        self._workspace_row.setSpacing(SPACE_M)
-        self._workspace_row.setContentsMargins(0, 0, 0, 0)
+        # Tiles flow into a width-derived grid (rebuilt by _populate_workspace,
+        # re-flowed on resize) so they wrap onto more rows instead of forcing a
+        # horizontal scrollbar / clipping on narrow or fractionally-scaled
+        # windows.
+        self._workspace_holder = QVBoxLayout()
+        self._workspace_holder.setSpacing(SPACE_M)
+        self._workspace_holder.setContentsMargins(0, 0, 0, 0)
         holder = QWidget()
-        holder.setLayout(self._workspace_row)
+        holder.setLayout(self._workspace_holder)
         lay.addWidget(holder)
         return card
+
+    def _workspace_cols(self) -> int:
+        """Tile column count derived from the page width so the workspace wraps
+        instead of scrolling horizontally on narrow / scaled windows."""
+        pages = getattr(self, "pages", None)
+        width = pages.width() if pages is not None else 1100
+        content = max(320, width - 120)  # page + card horizontal margins
+        return max(3, min(8, content // 132))  # ~132px per tile
 
     def _workspace_apps(self) -> list[AppInfo]:
         """Pinned apps first, then recent, de-duplicated, capped at 8."""
@@ -260,29 +280,53 @@ class DashboardMixin:
         return ordered[:8]
 
     def _populate_workspace(self) -> None:
-        """(Re)build the workspace tile row from current pin/recent state."""
-        row = getattr(self, "_workspace_row", None)
-        if row is None:
+        """(Re)build the workspace tile grid from current pin/recent state."""
+        holder = getattr(self, "_workspace_holder", None)
+        if holder is None:
             return
-        while row.count():
-            item = row.takeAt(0)
+        while holder.count():
+            item = holder.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.deleteLater()
 
         apps = self._workspace_apps()
         if not apps:
-            row.addWidget(
+            holder.addWidget(
                 make_empty_panel(
                     tr("No pinned or recent apps yet"),
                     tr("Launch an app or pin one from All apps to see it here."),
-                ),
-                1,
+                )
             )
+            self._workspace_cols_cur = self._workspace_cols()
             return
-        for app in apps:
-            row.addWidget(_AppTile(app, on_launch=self._launch_app, on_menu=self._show_app_menu))
-        row.addStretch(1)
+
+        cols = self._workspace_cols()
+        self._workspace_cols_cur = cols
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(SPACE_M)
+        grid.setVerticalSpacing(SPACE_M)
+        grid.setContentsMargins(0, 0, 0, 0)
+        for c in range(cols):
+            grid.setColumnStretch(c, 1)
+        for i, app in enumerate(apps):
+            grid.addWidget(
+                _AppTile(app, on_launch=self._launch_app, on_menu=self._show_app_menu),
+                i // cols,
+                i % cols,
+            )
+        # Pad the final row so tiles keep their natural size + left alignment
+        # instead of stretching to fill an underfull last row.
+        remainder = len(apps) % cols
+        if remainder:
+            for j in range(remainder, cols):
+                spacer = QWidget()
+                spacer.setStyleSheet("background: transparent;")
+                grid.addWidget(spacer, len(apps) // cols, j)
+
+        grid_widget = QWidget()
+        grid_widget.setLayout(grid)
+        holder.addWidget(grid_widget)
 
     # -- reverse-open ----------------------------------------------------- #
 
