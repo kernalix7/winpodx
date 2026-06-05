@@ -293,7 +293,7 @@ def _check_config_state() -> Finding:
             "winpodx binary present but config missing",
             detail=f"binary: {binary_path}; expected config: {config_path}",
             suggestion=(
-                "Run `winpodx setup` (or just `winpodx` -- first-run prompt will offer setup)."
+                "Run `winpodx setup` (or `winpodx gui` for the graphical first-run prompt)."
             ),
         )
     if config_path.exists() and not binary_path:

@@ -1010,7 +1010,7 @@ else
     log "  Will install: nothing — all required system packages already present"
 fi
 if [ "${WINPODX_MANUAL:-0}" = "1" ] || [ "$WINPODX_BACKEND" = "manual" ]; then
-    log "  Windows VM:  NOT provisioned (manual mode); run 'winpodx' later to finish"
+    log "  Windows VM:  NOT provisioned (manual mode); run 'winpodx setup' later to finish"
 else
     log "  Windows VM:  setup -> first-boot (~7.5GB ISO on a fresh install)"
     log "               -> apply-fixes -> discovery -> reverse-open"
@@ -1328,7 +1328,7 @@ fi
 # `winpodx` invocation (CLI Y/C/n or GUI modal -- #255 PR 1).
 if [ "${WINPODX_MANUAL:-0}" = "1" ]; then
     log "Manual mode (--manual / WINPODX_MANUAL=1 / --backend manual) — skipping setup + Windows provisioning."
-    log "  Run 'winpodx' (CLI or GUI) to finish setup. Prompt will offer auto, customize, or skip."
+    log "  Run 'winpodx setup' to finish setup (or 'winpodx gui' for the graphical first-run with auto / customize / skip)."
 else
     log "Running winpodx setup..."
     # 0.6.0 item B: --create-only is gone. setup writes config + creates the
@@ -1583,7 +1583,7 @@ echo -e "${GREEN}  └───────────────────�
 echo ""
 echo "  Next steps:"
 if [ -z "$WINPODX_NO_GUI" ]; then
-    echo "    winpodx                    # open the GUI — system tray + app manager"
+    echo "    winpodx gui                # open the GUI — system tray + app manager"
 fi
 echo "    winpodx app run desktop    # the full Windows desktop"
 echo "    winpodx app refresh        # rescan the apps installed in Windows"
