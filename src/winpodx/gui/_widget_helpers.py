@@ -19,6 +19,7 @@ from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QBoxLayout,
     QComboBox,
     QDialog,
     QFrame,
@@ -78,6 +79,30 @@ class _WheelGuard(QObject):
 # One shared, app-lifetime guard instance (installed as an event filter on many
 # widgets). Kept module-global so it isn't garbage-collected while filtering.
 _WHEEL_GUARD = _WheelGuard()
+
+
+def columns_want_stack(cols: QBoxLayout, available_width: int) -> bool:
+    """Decide whether a row of equal-stretch column cards should stack.
+
+    Dynamic (no magic breakpoint): each card in an equal-stretch row gets
+    ``available_width / count``, so the row only fits side by side when that
+    share is at least the widest card's *preferred* width (``sizeHint`` —
+    content-driven, so e.g. the device column's id + elided name + Attach
+    button). Below that the cards would squeeze under their content and clip,
+    so the caller flips the layout to a single stacked column. Returns ``False``
+    for fewer than two cards. Never raises.
+    """
+    widest = 0
+    count = 0
+    for i in range(cols.count()):
+        w = cols.itemAt(i).widget()
+        if w is not None:
+            widest = max(widest, w.sizeHint().width())
+            count += 1
+    if count < 2:
+        return False
+    needed = count * widest + cols.spacing() * (count - 1)
+    return available_width < needed
 
 
 def guard_wheel_scroll(root: QWidget) -> None:

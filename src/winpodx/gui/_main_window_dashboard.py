@@ -41,6 +41,7 @@ from winpodx.gui._main_window_library import _AppTile
 from winpodx.gui._ring_gauge import RingGauge, StatBar
 from winpodx.gui._widget_helpers import (
     add_shadow,
+    columns_want_stack,
     make_empty_panel,
     make_page_header,
 )
@@ -155,7 +156,7 @@ class DashboardMixin:
             return
         want = (
             QBoxLayout.Direction.TopToBottom
-            if pages.width() < 960
+            if columns_want_stack(row1, pages.width())
             else QBoxLayout.Direction.LeftToRight
         )
         if row1.direction() != want:

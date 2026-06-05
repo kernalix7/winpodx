@@ -39,6 +39,7 @@ from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import (
     add_shadow,
+    columns_want_stack,
     make_empty_panel,
     make_page_header,
     make_warning_callout,
@@ -154,12 +155,12 @@ class DevicesMixin:
         pages = getattr(self, "pages", None)
         if cols is None or pages is None:
             return
-        # Width the cards get is the stacked-pages width (window minus sidebar).
-        # Each column (device id + elided name + Attach/Detach button) needs
-        # ~460px, so two side by side need ~960; stack below that.
+        # Stack when the two columns can't both get their preferred (content)
+        # width side by side -- measured from the cards' sizeHints, so it adapts
+        # to the device row content + display scale instead of a fixed breakpoint.
         want = (
             QBoxLayout.Direction.TopToBottom
-            if pages.width() < 960
+            if columns_want_stack(cols, pages.width())
             else QBoxLayout.Direction.LeftToRight
         )
         if cols.direction() != want:

@@ -42,6 +42,7 @@ from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import (
     add_shadow,
+    columns_want_stack,
     guard_wheel_scroll,
     make_page_header,
     make_section_label,
@@ -771,13 +772,12 @@ class SettingsPageMixin:
         pages = getattr(self, "pages", None)
         if cols is None or pages is None:
             return
-        # Width the cards actually get is the stacked-pages width (window minus
-        # the fixed sidebar). The two cards (forms + combo rows) need ~960px to
-        # sit side by side without clipping on a fractionally-scaled display, so
-        # stack below that.
+        # Stack when the two cards can't both get their preferred (content)
+        # width side by side -- measured from their sizeHints, so it adapts to
+        # the form content + display scale instead of a fixed breakpoint.
         want = (
             QBoxLayout.Direction.TopToBottom
-            if pages.width() < 960
+            if columns_want_stack(cols, pages.width())
             else QBoxLayout.Direction.LeftToRight
         )
         if cols.direction() != want:
