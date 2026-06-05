@@ -373,7 +373,9 @@ class DashboardMixin:
             return
         self._dashboard_refreshing = True
         self._dashboard_tick = getattr(self, "_dashboard_tick", 0) + 1
-        with_disk = self._dashboard_tick % 6 == 1  # ~every 30 s at the 5 s cadence
+        # Guest RAM + disk share one agent round-trip; refresh ~every 10 s (was
+        # 30 s) so RAM in particular tracks more closely. CPU stays every tick.
+        with_disk = self._dashboard_tick % 2 == 1
         pod_state = getattr(self, "_pod_state", None)
 
         def _work() -> None:
