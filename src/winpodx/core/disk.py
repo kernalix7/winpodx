@@ -278,6 +278,76 @@ def get_guest_disk_usage(
     return DiskUsage(total_bytes=total, free_bytes=free)
 
 
+@dataclass
+class GuestResources:
+    """Guest-internal disk + physical RAM, fetched in one agent call."""
+
+    disk: DiskUsage | None
+    ram_used_bytes: int | None
+    ram_total_bytes: int | None
+
+
+# PowerShell: C: volume + physical RAM as one JSON blob. Win32_OperatingSystem
+# reports memory in KiB, so x1024 -> bytes. RAM is read from *inside* Windows
+# on purpose: for the dockur (QEMU) backend the host sees ~all the guest RAM
+# resident (qemu maps it), so host cgroup / RSS reads sit near 100% and are
+# meaningless -- only the guest's own counter reflects actual usage.
+_RESOURCES_PS = (
+    "$v = Get-Volume -DriveLetter C -ErrorAction Stop; "
+    "$os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop; "
+    "[Console]::Out.Write((ConvertTo-Json -Compress @{ "
+    "total = [int64]$v.Size; free = [int64]$v.SizeRemaining; "
+    "ramTotal = [int64]$os.TotalVisibleMemorySize * 1024; "
+    "ramFree = [int64]$os.FreePhysicalMemory * 1024 }))"
+)
+
+
+def get_guest_resources(cfg: Config, *, timeout: int = 6) -> GuestResources | None:
+    """Guest C: usage + physical RAM in a single agent ``/exec`` call.
+
+    Agent-only by design: this is the GUI dashboard's passive poll, so it must
+    never fall back to a FreeRDP RemoteApp PowerShell (which flashes a visible
+    window in the guest every run). Returns ``None`` when the agent isn't
+    reachable (e.g. guest at the login screen) or the output can't be parsed --
+    callers treat ``None`` as "skip this round". Never raises.
+    """
+    try:
+        from winpodx.core.transport import dispatch
+
+        transport = dispatch(cfg)
+    except Exception as e:  # noqa: BLE001 -- agent optional; degrade to None
+        log.debug("guest-resources dispatch failed: %s", e)
+        return None
+    if transport is None or getattr(transport, "name", None) != "agent":
+        return None
+    try:
+        res = transport.exec(_RESOURCES_PS, timeout=timeout, description="resources")
+    except Exception as e:  # noqa: BLE001 -- never flash / never raise here
+        log.debug("guest-resources probe failed: %s", e)
+        return None
+    if res.rc != 0:
+        log.debug("guest-resources probe rc=%s", res.rc)
+        return None
+    try:
+        data = json.loads(res.stdout.strip())
+        total = int(data["total"])
+        free = int(data["free"])
+        ram_total = int(data["ramTotal"])
+        ram_free = int(data["ramFree"])
+    except (ValueError, KeyError, TypeError) as e:
+        log.debug("guest-resources unparseable %r: %s", res.stdout, e)
+        return None
+
+    disk = DiskUsage(total_bytes=total, free_bytes=free) if total > 0 else None
+    if ram_total > 0:
+        ram_used = max(0, ram_total - ram_free)
+        ram_total_out: int | None = ram_total
+    else:
+        ram_used = None
+        ram_total_out = None
+    return GuestResources(disk=disk, ram_used_bytes=ram_used, ram_total_bytes=ram_total_out)
+
+
 def extend_guest_system_volume(cfg: Config, *, timeout: int = 120) -> bool:
     """Extend C: to fill the (now larger) virtual disk. Returns True on
     success or when already at max; False when the guest call fails."""

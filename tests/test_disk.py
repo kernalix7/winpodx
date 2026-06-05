@@ -17,11 +17,69 @@ from winpodx.core.disk import (
     compute_grow_target,
     effective_max_bytes,
     format_size,
+    get_guest_resources,
     maybe_autogrow,
     parse_size,
 )
 
 GIB = 1024**3
+
+
+class _AgentResult:
+    def __init__(self, rc: int, stdout: str) -> None:
+        self.rc = rc
+        self.stdout = stdout
+
+
+class _AgentTransport:
+    name = "agent"
+
+    def __init__(self, result: _AgentResult) -> None:
+        self._result = result
+
+    def exec(self, _payload, *, timeout=None, description=None):
+        return self._result
+
+
+def test_get_guest_resources_parses_disk_and_ram(monkeypatch) -> None:
+    import json
+
+    payload = json.dumps(
+        {
+            "total": 64 * GIB,
+            "free": 16 * GIB,
+            "ramTotal": 16 * GIB,
+            "ramFree": 4 * GIB,
+        }
+    )
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch",
+        lambda _cfg: _AgentTransport(_AgentResult(0, payload)),
+    )
+
+    gr = get_guest_resources(Config())
+    assert gr is not None
+    assert gr.disk is not None
+    assert gr.disk.total_bytes == 64 * GIB
+    assert gr.disk.used_bytes == 48 * GIB
+    assert gr.ram_total_bytes == 16 * GIB
+    assert gr.ram_used_bytes == 12 * GIB  # 16 GiB total - 4 GiB free
+
+
+def test_get_guest_resources_none_when_transport_not_agent(monkeypatch) -> None:
+    class _FreeRDP:
+        name = "freerdp"
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda _cfg: _FreeRDP())
+    assert get_guest_resources(Config()) is None
+
+
+def test_get_guest_resources_none_on_bad_rc(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch",
+        lambda _cfg: _AgentTransport(_AgentResult(1, "")),
+    )
+    assert get_guest_resources(Config()) is None
 
 
 def test_parse_size_units() -> None:

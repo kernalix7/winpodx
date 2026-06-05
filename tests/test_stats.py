@@ -15,7 +15,6 @@ import pytest
 
 from winpodx.core import stats
 from winpodx.core.config import Config
-from winpodx.core.disk import DiskUsage
 
 GIB = 1024**3
 
@@ -40,36 +39,14 @@ def _patch_state(monkeypatch: pytest.MonkeyPatch, state: str) -> None:
     monkeypatch.setattr(stats, "_pod_state", lambda _cfg: state)
 
 
-def test_snapshot_parses_live_cpu_ram_disk(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_snapshot_parses_cpu_ram_disk(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CPU is host-side; disk + guest RAM share one agent round-trip.
     _patch_state(monkeypatch, "running")
-
-    stats_json = json.dumps(
-        [
-            {
-                "CPUPerc": "37.50%",
-                "MemUsage": "4.2GiB / 16GiB",
-                "MemPerc": "26.25%",
-            }
-        ]
-    )
-
-    def fake_run(cmd, **_kwargs):
-        assert cmd[0] == "podman"
-        if "ps" in cmd:
-            # Container-name resolution (compose may prefix the name).
-            return _FakeProc(returncode=0, stdout="winpodx-windows\n")
-        assert "stats" in cmd
-        assert "winpodx-windows" in cmd
-        return _FakeProc(returncode=0, stdout=stats_json)
-
-    monkeypatch.setattr(stats.subprocess, "run", fake_run)
-    # Disk is read through the late import inside _guest_disk; patch that path.
-    import winpodx.core.disk as disk_mod
-
+    monkeypatch.setattr(stats, "_host_cpu_pct", lambda _cfg: 37.5)
     monkeypatch.setattr(
-        disk_mod,
-        "get_guest_disk_usage",
-        lambda _cfg, **_kw: DiskUsage(total_bytes=64 * GIB, free_bytes=16 * GIB),
+        stats,
+        "_guest_resources",
+        lambda _cfg: ((64.0, 48.0, 75.0), (4.2, 26.25)),
     )
 
     snap = stats.pod_resource_snapshot(_running_cfg())
@@ -79,14 +56,14 @@ def test_snapshot_parses_live_cpu_ram_disk(monkeypatch: pytest.MonkeyPatch) -> N
     assert snap.ram_gb == 16
     assert snap.cpu_pct == pytest.approx(37.5)
     assert snap.ram_pct == pytest.approx(26.25)
-    assert snap.ram_used_gb == pytest.approx(4.2, abs=0.05)
+    assert snap.ram_used_gb == pytest.approx(4.2)
     assert snap.disk_total_gb == pytest.approx(64.0)
     assert snap.disk_used_gb == pytest.approx(48.0)
     assert snap.disk_pct == pytest.approx(75.0)
 
 
-def test_snapshot_handles_docker_single_object(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_state(monkeypatch, "running")
+def test_podman_stats_parses_docker_single_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The host stats fallback still parses a docker single-object response.
     cfg = _running_cfg()
     cfg.pod.backend = "docker"
 
@@ -99,34 +76,17 @@ def test_snapshot_handles_docker_single_object(monkeypatch: pytest.MonkeyPatch) 
         return _FakeProc(returncode=0, stdout=stats_json)
 
     monkeypatch.setattr(stats.subprocess, "run", fake_run)
-    import winpodx.core.disk as disk_mod
 
-    monkeypatch.setattr(disk_mod, "get_guest_disk_usage", lambda _cfg, **_kw: None)
-
-    snap = stats.pod_resource_snapshot(cfg)
-
-    assert snap.cpu_pct == pytest.approx(5.0)
-    assert snap.ram_pct == pytest.approx(6.25)
-    assert snap.ram_used_gb == pytest.approx(0.5, abs=0.01)
-    # Disk probe returned None -> all disk fields None.
-    assert snap.disk_total_gb is None
-    assert snap.disk_used_gb is None
-    assert snap.disk_pct is None
+    cpu, ram_used_gb, ram_pct = stats._podman_stats_cpu_ram(cfg)
+    assert cpu == pytest.approx(5.0)
+    assert ram_pct == pytest.approx(6.25)
+    assert ram_used_gb == pytest.approx(0.5, abs=0.01)
 
 
-def test_snapshot_all_none_when_commands_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_snapshot_all_none_when_probes_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_state(monkeypatch, "running")
-
-    def boom_run(cmd, **_kwargs):
-        raise FileNotFoundError("podman: command not found")
-
-    def boom_disk(_cfg, **_kw):
-        raise RuntimeError("guest unreachable")
-
-    monkeypatch.setattr(stats.subprocess, "run", boom_run)
-    import winpodx.core.disk as disk_mod
-
-    monkeypatch.setattr(disk_mod, "get_guest_disk_usage", boom_disk)
+    monkeypatch.setattr(stats, "_host_cpu_pct", lambda _cfg: None)
+    monkeypatch.setattr(stats, "_guest_resources", lambda _cfg: ((None, None, None), (None, None)))
 
     snap = stats.pod_resource_snapshot(_running_cfg())
 
@@ -142,35 +102,31 @@ def test_snapshot_all_none_when_commands_fail(monkeypatch: pytest.MonkeyPatch) -
     assert snap.disk_pct is None
 
 
-def test_snapshot_nonzero_rc_yields_none(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_snapshot_skips_guest_probe_when_with_disk_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CPU updates every tick; the guest agent round-trip is skipped off-cadence.
     _patch_state(monkeypatch, "running")
+    monkeypatch.setattr(stats, "_host_cpu_pct", lambda _cfg: 12.0)
 
-    monkeypatch.setattr(
-        stats.subprocess,
-        "run",
-        lambda cmd, **_kw: _FakeProc(returncode=125, stdout="", stderr="no such container"),
-    )
-    import winpodx.core.disk as disk_mod
+    def fail_if_called(*_a, **_k):
+        raise AssertionError("guest probe must be skipped when with_disk=False")
 
-    monkeypatch.setattr(disk_mod, "get_guest_disk_usage", lambda _cfg, **_kw: None)
+    monkeypatch.setattr(stats, "_guest_resources", fail_if_called)
 
-    snap = stats.pod_resource_snapshot(_running_cfg())
+    snap = stats.pod_resource_snapshot(_running_cfg(), with_disk=False)
 
-    assert snap.cpu_pct is None
-    assert snap.ram_used_gb is None
-    assert snap.ram_pct is None
+    assert snap.cpu_pct == pytest.approx(12.0)
+    assert snap.ram_pct is None  # caller caches the last guest value
+    assert snap.disk_pct is None
 
 
 def test_snapshot_skips_live_when_not_running(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_state(monkeypatch, "stopped")
 
     def fail_if_called(*_a, **_k):
-        raise AssertionError("stats must not be probed when pod is not running")
+        raise AssertionError("probes must not run when the pod is not running")
 
-    monkeypatch.setattr(stats.subprocess, "run", fail_if_called)
-    import winpodx.core.disk as disk_mod
-
-    monkeypatch.setattr(disk_mod, "get_guest_disk_usage", fail_if_called)
+    monkeypatch.setattr(stats, "_host_cpu_pct", fail_if_called)
+    monkeypatch.setattr(stats, "_guest_resources", fail_if_called)
 
     snap = stats.pod_resource_snapshot(_running_cfg())
 
@@ -180,26 +136,6 @@ def test_snapshot_skips_live_when_not_running(monkeypatch: pytest.MonkeyPatch) -
     assert snap.cpu_pct is None
     assert snap.ram_pct is None
     assert snap.disk_pct is None
-
-
-def test_manual_backend_has_no_live_stats(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_state(monkeypatch, "running")
-    cfg = _running_cfg()
-    cfg.pod.backend = "manual"
-
-    def fail_if_called(*_a, **_k):
-        raise AssertionError("manual backend has no container to probe")
-
-    monkeypatch.setattr(stats.subprocess, "run", fail_if_called)
-    import winpodx.core.disk as disk_mod
-
-    monkeypatch.setattr(disk_mod, "get_guest_disk_usage", lambda _cfg, **_kw: None)
-
-    snap = stats.pod_resource_snapshot(cfg)
-
-    assert snap.cpu_pct is None
-    assert snap.ram_used_gb is None
-    assert snap.ram_pct is None
 
 
 def test_parse_mem_bytes_units() -> None:
@@ -252,32 +188,23 @@ def test_cgroup_cpu_ram_reads_memory_and_cpu_delta(
     assert cpu1 == pytest.approx(50.0)
 
 
-def test_live_cpu_ram_falls_back_to_cgroup_when_stats_blank(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    # Rootless podman often emits CPUPerc/MemPerc as "--"; the cgroup fills them.
+def test_host_cpu_pct_prefers_cgroup(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    # _host_cpu_pct reads the cgroup cpu.stat delta directly (instant), so it
+    # never needs the slow podman stats call when the cgroup CPU is available.
     cfg = _running_cfg()
     cgdir = _write_cgroup(tmp_path, mem_bytes=8 * GIB, usage_usec=2_000_000)
 
-    def fake_run(cmd, **_kwargs):
-        if "ps" in cmd:
-            return _FakeProc(returncode=0, stdout="winpodx-windows\n")
-        return _FakeProc(
-            returncode=0,
-            stdout=json.dumps([{"CPUPerc": "--", "MemUsage": "-- / --", "MemPerc": "--"}]),
-        )
+    def boom_run(*_a, **_k):
+        raise AssertionError("podman stats must not run when the cgroup has CPU")
 
-    monkeypatch.setattr(stats.subprocess, "run", fake_run)
+    monkeypatch.setattr(stats.subprocess, "run", boom_run)
     monkeypatch.setattr(stats, "_CPU_SAMPLE", {"mono": 100.0, "usage_usec": 0})
     monkeypatch.setattr(stats, "_container_pid", lambda *_a, **_k: 4321)
     monkeypatch.setattr(stats, "_cgroup_dir_for_pid", lambda _pid: cgdir)
     monkeypatch.setattr(stats.time, "monotonic", lambda: 101.0)
 
-    cpu, used, pct = stats._live_cpu_ram(cfg)
-    # usage 2.0 CPU-s over 1.0s / 4 cores = 50%; RAM 8/16 GiB = 50%.
-    assert cpu == pytest.approx(50.0)
-    assert pct == pytest.approx(50.0)
-    assert used == pytest.approx(8.0)
+    # usage 2.0 CPU-s over 1.0s / 4 cores = 50%.
+    assert stats._host_cpu_pct(cfg) == pytest.approx(50.0)
 
 
 def test_cgroup_dir_for_pid_v1_returns_none(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

@@ -156,8 +156,8 @@ def _podman_stats_cpu_ram(cfg: Config) -> tuple[float | None, float | None, floa
     the bundled ones), and times out fast. Returns ``(cpu_pct, ram_used_gb,
     ram_pct)``; any field ``None`` when the probe fails or can't be parsed.
     Never raises. (Rootless cgroup v2 routinely leaves CPU%/MEM as ``--`` here —
-    that's a podman limitation; :func:`_live_cpu_ram` then falls back to reading
-    the cgroup directly.)
+    that's a podman limitation; :func:`_host_cpu_pct` prefers the direct cgroup
+    read and only falls back here.)
     """
     cli = _stats_cli(cfg)
     if cli is None:
@@ -220,29 +220,6 @@ def _podman_stats_cpu_ram(cfg: Config) -> tuple[float | None, float | None, floa
 # Single-threaded per snapshot (the dashboard ticks one at a time), so a plain
 # dict is enough — no lock.
 _CPU_SAMPLE: dict[str, float | None] = {"mono": None, "usage_usec": None}
-
-
-def _live_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | None]:
-    """Live CPU%/RAM for the pod, with a cgroup-direct fallback.
-
-    Tries ``<cli> stats`` first (cheap, works on most setups). Rootless podman
-    very often reports CPU% (and sometimes MEM) as ``--`` there, so any field it
-    leaves ``None`` is back-filled from the container's cgroup v2 files —
-    ``memory.current`` for RAM and ``cpu.stat``'s ``usage_usec`` delta for CPU%.
-    Returns ``(cpu_pct, ram_used_gb, ram_pct)``; never raises.
-    """
-    cpu_pct, ram_used_gb, ram_pct = _podman_stats_cpu_ram(cfg)
-    if cpu_pct is not None and ram_pct is not None:
-        return cpu_pct, ram_used_gb, ram_pct
-
-    c_cpu, c_used, c_pct = _cgroup_cpu_ram(cfg)
-    if cpu_pct is None:
-        cpu_pct = c_cpu
-    if ram_pct is None:
-        ram_pct = c_pct
-        if ram_used_gb is None:
-            ram_used_gb = c_used
-    return cpu_pct, ram_used_gb, ram_pct
 
 
 def _container_pid(cli: str, cfg: Config, env: dict) -> int | None:
@@ -392,37 +369,68 @@ def _cgroup_cpu_ram(cfg: Config) -> tuple[float | None, float | None, float | No
     return cpu_pct, ram_used_gb, ram_pct
 
 
-def _guest_disk(cfg: Config) -> tuple[float | None, float | None, float | None]:
-    """Probe Windows guest C: usage. Returns ``(total_gb, used_gb, pct)``.
+def _host_cpu_pct(cfg: Config) -> float | None:
+    """Host-measured CPU% for the pod container (the QEMU process for dockur).
 
-    Reuses :func:`winpodx.core.disk.get_guest_disk_usage`; any failure
-    yields all-``None``. Never raises.
+    Reads the cgroup ``cpu.stat`` delta first -- an instant local file read, so
+    the dashboard doesn't pay the ~seconds ``podman stats`` sampling cost on
+    every tick -- and only falls back to ``podman stats`` when the cgroup CPU
+    isn't available. RAM is deliberately *not* read here: for a VM the host sees
+    ~all the guest RAM resident (~100%), so RAM comes from the guest agent
+    instead (:func:`_guest_resources`). Never raises.
+
+    Note: the cgroup CPU needs two samples to produce a delta, so the very first
+    tick returns the ``podman stats`` value (or ``None``); subsequent ticks use
+    the instant cgroup read.
     """
-    try:
-        from winpodx.core.disk import get_guest_disk_usage
+    cpu, _ram_used, _ram_pct = _cgroup_cpu_ram(cfg)
+    if cpu is not None:
+        return cpu
+    cpu_stats, _u, _p = _podman_stats_cpu_ram(cfg)
+    return cpu_stats
 
-        # agent_only: a passive dashboard poll must NOT fall back to a FreeRDP
-        # RemoteApp PowerShell (it flashes a visible window in the guest every
-        # run). If the agent isn't reachable (e.g. guest at the login screen),
-        # this returns None and the disk bar just shows its cached/"n/a" value.
-        # Short timeout so it fails fast rather than hanging the dashboard.
-        usage = get_guest_disk_usage(cfg, timeout=6, agent_only=True)
+
+def _guest_resources(
+    cfg: Config,
+) -> tuple[tuple[float | None, float | None, float | None], tuple[float | None, float | None]]:
+    """Guest C: disk + physical RAM in one agent call.
+
+    Returns ``((disk_total_gb, disk_used_gb, disk_pct), (ram_used_gb, ram_pct))``;
+    each field ``None`` on failure. RAM is the guest's *own* counter (Windows
+    physical RAM in use), which is the only meaningful figure for a VM -- the
+    host-side cgroup/RSS reads sit near 100%. Agent-only (never flashes a
+    FreeRDP window); short timeout so it fails fast. Never raises.
+    """
+    none_disk = (None, None, None)
+    none_ram: tuple[float | None, float | None] = (None, None)
+    try:
+        from winpodx.core.disk import get_guest_resources
+
+        gr = get_guest_resources(cfg, timeout=6)
     except Exception as e:  # noqa: BLE001 -- never let a probe break the snapshot
-        log.debug("guest disk probe failed: %s", e)
-        return None, None, None
+        log.debug("guest resources probe failed: %s", e)
+        return none_disk, none_ram
+    if gr is None:
+        return none_disk, none_ram
 
-    if usage is None:
-        return None, None, None
+    disk = none_disk
+    if gr.disk is not None:
+        try:
+            disk = (
+                gr.disk.total_bytes / _BYTES_IN_GB,
+                gr.disk.used_bytes / _BYTES_IN_GB,
+                gr.disk.used_pct,
+            )
+        except (AttributeError, TypeError, ZeroDivisionError) as e:
+            log.debug("guest disk math failed: %s", e)
 
-    try:
-        total_gb = usage.total_bytes / _BYTES_IN_GB
-        used_gb = usage.used_bytes / _BYTES_IN_GB
-        pct = usage.used_pct
-    except (AttributeError, TypeError, ZeroDivisionError) as e:
-        log.debug("guest disk usage math failed: %s", e)
-        return None, None, None
+    ram = none_ram
+    if gr.ram_used_bytes is not None and gr.ram_total_bytes:
+        used_gb = gr.ram_used_bytes / _BYTES_IN_GB
+        pct = max(0.0, min(100.0, gr.ram_used_bytes / gr.ram_total_bytes * 100.0))
+        ram = (used_gb, pct)
 
-    return total_gb, used_gb, pct
+    return disk, ram
 
 
 def _pod_state(cfg: Config) -> str:
@@ -460,14 +468,16 @@ def pod_resource_snapshot(
     """Build a best-effort :class:`ResourceSnapshot` for the dashboard.
 
     Always returns a snapshot -- never raises. Configured caps come from
-    ``cfg.pod``. Live CPU/RAM and guest disk are probed only when the pod is
-    running, and they run **concurrently** with a hard time cap so a slow
-    guest (e.g. sitting at the login screen) can't stall the dashboard.
+    ``cfg.pod``. When the pod is running, two probes run **concurrently** under
+    a hard time cap so a slow guest can't stall the dashboard: host CPU% (fast,
+    every tick) and the guest disk+RAM agent call. RAM comes from *inside*
+    Windows (the host sees ~100% for a VM), so it shares the guest round-trip
+    with disk.
 
     ``pod_state`` lets the caller pass the already-known state (the GUI keeps
     it fresh on its own timer) so we skip a redundant, slow re-probe.
-    ``with_disk=False`` skips the expensive guest probe entirely (the caller
-    polls disk on a slower cadence and caches it).
+    ``with_disk=False`` skips the guest agent call entirely (the caller polls
+    disk+RAM on a slower cadence and caches them); CPU still updates every tick.
     """
     state = pod_state if pod_state is not None else _pod_state(cfg)
 
@@ -488,31 +498,36 @@ def pod_resource_snapshot(
     disk_pct: float | None = None
 
     if state == "running":
-        box: dict[str, tuple] = {}
+        box: dict[str, object] = {}
 
-        def _cr() -> None:
+        def _cpu() -> None:
             try:
-                box["cr"] = _live_cpu_ram(cfg)
+                box["cpu"] = _host_cpu_pct(cfg)
             except Exception:  # noqa: BLE001 -- best-effort probe
-                box["cr"] = (None, None, None)
+                box["cpu"] = None
 
-        def _dk() -> None:
+        def _guest() -> None:
+            # Disk + guest RAM share one agent round-trip; only on the slow
+            # cadence (with_disk). CPU stays host-side + fast every tick.
             try:
-                box["dk"] = _guest_disk(cfg) if with_disk else (None, None, None)
+                box["guest"] = _guest_resources(cfg) if with_disk else None
             except Exception:  # noqa: BLE001 -- best-effort probe
-                box["dk"] = (None, None, None)
+                box["guest"] = None
 
         workers = [
-            threading.Thread(target=_cr, daemon=True),
-            threading.Thread(target=_dk, daemon=True),
+            threading.Thread(target=_cpu, daemon=True),
+            threading.Thread(target=_guest, daemon=True),
         ]
         for w in workers:
             w.start()
         for w in workers:
             w.join(timeout=8)  # hard cap regardless of any single probe hanging
 
-        cpu_pct, ram_used_gb, ram_pct = box.get("cr", (None, None, None))
-        disk_total_gb, disk_used_gb, disk_pct = box.get("dk", (None, None, None))
+        cpu_val = box.get("cpu")
+        cpu_pct = cpu_val if isinstance(cpu_val, (int, float)) else None
+        guest = box.get("guest")
+        if guest is not None:
+            (disk_total_gb, disk_used_gb, disk_pct), (ram_used_gb, ram_pct) = guest
 
     return ResourceSnapshot(
         pod_state=state,
