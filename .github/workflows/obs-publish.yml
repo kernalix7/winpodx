@@ -1,13 +1,38 @@
 name: OBS Publish
 
+# OBS builds RPMs asynchronously on shared openSUSE infrastructure
+# (~30-60 min per rebuild). Trying to trigger the rebuild AND download the
+# freshly-built RPMs in the same tag-push run was structurally broken: the
+# download ran minutes after the trigger, long before OBS had published the
+# new version, so every release push failed with "No RPMs were downloaded".
+#
+# This workflow is split to match OBS's async reality:
+#   * `trigger` (tag push / dispatch) — fire the OBS rebuild, then exit
+#     green. It never tries to download, so a release push can't go red here.
+#   * `attach` (hourly schedule / dispatch) — once OBS has published the
+#     RPMs for the latest release's version, download them and attach them to
+#     the existing GitHub Release. It is a no-op (green) when the RPMs aren't
+#     built yet (retries next hour) or are already attached (no churn).
+#
+# Single-writer rule: this workflow NEVER creates the GitHub Release or edits
+# its title/notes — release.yml (REL- marker tag) is the sole creator and the
+# only writer of the release body. `attach` only uploads assets to a release
+# that already exists, so it can't cause the "edited N times" / placeholder-
+# notes churn the old per-workflow `gh release create --notes …` stubs did.
+
 on:
   push:
     tags:
       - "v*.*.*"
+  schedule:
+    # Hourly sweep: attach OBS RPMs to the latest release once OBS finishes
+    # building them. A no-op the rest of the time (already attached / not
+    # built yet), so it never edits a release it has nothing new for.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach RPMs to (e.g. v0.1.0)"
+        description: "Release tag to trigger / attach RPMs to (e.g. v0.6.0)"
         required: true
       force:
         description: "Force OBS runservice even if Tumbleweed RPM exists (use when source bumped without version change)"
@@ -27,7 +52,11 @@ permissions:
   contents: write
 
 jobs:
-  publish:
+  # Fire the OBS rebuild and exit. Runs on tag push and manual dispatch only.
+  # Never downloads — so a release push is always green here; the RPMs land
+  # asynchronously via the `attach` job once OBS finishes the server-side build.
+  trigger:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -58,12 +87,6 @@ jobs:
         # byte-identical to what's already on the server. Probe a representative
         # shipping repo (Tumbleweed) for a winpodx-<version>-*.rpm filename in
         # the public download index; if found, OBS has the build cached.
-        #
-        # Works uniformly for both push (fresh tag — probe fails, we trigger)
-        # and workflow_dispatch (re-run on already-built tag — probe succeeds,
-        # we skip). If a fresh rebuild is genuinely needed (corrupted OBS
-        # cache), delete the noarch RPM via the OBS web UI then re-run the
-        # workflow, or push a new tag.
         id: probe
         run: |
           version="${{ steps.tag.outputs.version }}"
@@ -94,44 +117,71 @@ jobs:
           curl -sS -f -X POST \
             -H "Authorization: Token $OBS_TOKEN" \
             "$OBS_API/trigger/runservice?project=$OBS_PROJECT&package=$OBS_PACKAGE"
+          echo "OBS rebuild triggered for v${{ steps.tag.outputs.version }}. RPMs will be attached by the hourly 'attach' job once OBS finishes (~30-60 min)."
 
-      - name: Wait for OBS shipping repos to finish
-        # Exit as soon as the repos we actually ship are in a terminal-OK
-        # state. Niche-arch noise (RISCV, Factory PowerPC, Slowroll aarch64)
-        # stuck on `blocked`/`broken` indefinitely is ignored — we don't ship
-        # those. Shipping repos: Tumbleweed, Leap 15.6, Leap 16.0, Slowroll,
-        # Fedora 42 / 43 / 44. Reduces the wait from "wait for every (repo,
-        # arch) combination in the project" to "wait for the seven we ship."
+  # Download OBS-built RPMs once they're published and attach them to the
+  # existing GitHub Release. Runs hourly (sweeps the latest release) and on
+  # manual dispatch (targets inputs.tag). Never creates or edits the release.
+  attach:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install curl + jq
+        run: sudo apt-get update && sudo apt-get install -y curl jq
+
+      - name: Resolve target tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          deadline=$(( $(date +%s) + 60 * 60 ))
-          sleep 15
-          while :; do
-            now=$(date +%s)
-            if [ "$now" -ge "$deadline" ]; then
-              echo "Timed out waiting for OBS shipping repos" >&2
-              curl -sS "$OBS_PUBLIC_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true
-              exit 1
-            fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            # schedule: sweep the most recent published release.
+            tag=$(gh release list --repo "${{ github.repository }}" --limit 1 \
+                    --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+          fi
+          if [ -z "$tag" ]; then
+            echo "No target tag (no releases yet?) — nothing to attach."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="${tag#v}"
+          version="${version%%-RTM*}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
-            xml=$(curl -sS -f "$OBS_PUBLIC_API/build/$OBS_PROJECT/_result?package=$OBS_PACKAGE" || true)
-            if [ -z "$xml" ]; then
-              sleep 15
-              continue
-            fi
-
-            set +e
-            report=$(echo "$xml" | python3 scripts/ci/obs_check_shipping.py)
-            rc=$?
-            set -e
-            echo "$report"
-            case $rc in
-              0) echo "All shipping repos ready — proceeding to download."; break ;;
-              1) echo "Failure in one or more shipping repos." >&2; exit 1 ;;
-              *) sleep 30; continue ;;
-            esac
-          done
+      - name: Skip if release already has OBS RPMs attached
+        id: gate
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          # release.yml owns creation — only attach to a release that exists.
+          if ! gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $tag does not exist yet (release.yml owns creation) — nothing to attach."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Tumbleweed is always built and is the canary for "OBS RPMs already
+          # attached". If its asset is present, the sweep already ran for this
+          # release — exit green without re-uploading (no edit churn).
+          assets=$(gh release view "$tag" --repo "${{ github.repository }}" \
+                     --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+          if echo "$assets" | grep -q "openSUSE_Tumbleweed\.rpm$"; then
+            echo "OBS RPMs already attached to $tag — no-op."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Discover repos and download RPMs
+        id: download
+        if: steps.gate.outputs.skip == 'false'
         run: |
           mkdir -p dist-rpms
           version="${{ steps.tag.outputs.version }}"
@@ -177,9 +227,7 @@ jobs:
               # stale older RPM still in the OBS publish index (Tumbleweed /
               # Slowroll rolling-release repos are slow to garbage-collect)
               # doesn't get downloaded and re-uploaded as a v${version}
-              # release asset. The release-asset rename further down would
-              # otherwise produce e.g. winpodx-0.5.4-...openSUSE_Tumbleweed.rpm
-              # alongside the real 0.5.5 RPMs, which already happened on v0.5.5.
+              # release asset.
               rpms=$(echo "$listing" | grep -oE "winpodx-${version}-[^\"]+\.rpm" | sort -u)
               for f in $rpms; do
                 case "$f" in
@@ -194,32 +242,23 @@ jobs:
 
           ls -la dist-rpms/
           if ! ls dist-rpms/*.rpm >/dev/null 2>&1; then
-            echo "No RPMs were downloaded" >&2
-            exit 1
+            echo "::notice::OBS hasn't published RPMs for v${version} yet — they build asynchronously (~30-60 min). The hourly sweep will retry; or re-run this workflow once the build finishes."
+            echo "have_rpms=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_rpms=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Publish workflows and release.yml run in parallel on tag push. If this job
-      # finishes before release.yml creates the GitHub Release, `gh release upload`
-      # fails with "release not found". Create a minimal release here if it doesn't
-      # exist yet; release.yml's softprops/action-gh-release will populate title,
-      # notes, and sdist/wheel when it completes.
-      - name: Ensure release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="${{ steps.tag.outputs.tag }}"
-          gh release view "$tag" >/dev/null 2>&1 \
-            || gh release create "$tag" \
-                 --title "$tag" \
-                 --notes "Release artifacts — see CHANGELOG.md for details."
-
       - name: Attach RPMs to GitHub release
+        if: steps.download.outputs.have_rpms == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ steps.tag.outputs.tag }}" dist-rpms/*.rpm --clobber
+          gh release upload "${{ steps.tag.outputs.tag }}" dist-rpms/*.rpm --clobber \
+            --repo "${{ github.repository }}"
+          echo "Attached OBS RPMs to ${{ steps.tag.outputs.tag }}."
 
       - uses: actions/upload-artifact@v4
+        if: steps.download.outputs.have_rpms == 'true'
         with:
           name: rpms-${{ steps.tag.outputs.version }}
           path: dist-rpms/

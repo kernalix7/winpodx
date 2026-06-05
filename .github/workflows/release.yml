@@ -179,7 +179,15 @@ jobs:
           tag_name: v${{ steps.version.outputs.value }}
           name: v${{ steps.version.outputs.value }}
           prerelease: ${{ steps.prerelease.outputs.value }}
+          # The hand-written CHANGELOG section is the body; generate_release_notes
+          # appends GitHub's auto "## What's Changed / New Contributors / Full
+          # Changelog" block underneath it, so the release page credits every PR
+          # author (avatars + @handles) — the CHANGELOG itself only cites PR
+          # numbers. This is the SOLE writer of the release body: the packaging
+          # workflows (.deb / RPM / OBS / AppImage) only attach assets, never
+          # touch the notes, so the release isn't edited/rewritten repeatedly.
           body: ${{ steps.changelog.outputs.notes }}
+          generate_release_notes: true
           files: |
             dist/*.tar.gz
             dist/*.whl

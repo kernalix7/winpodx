@@ -217,11 +217,39 @@ jobs:
           path: ${{ steps.locate.outputs.appimage_path }}
           if-no-files-found: error
 
-      - name: Attach to GitHub Release (tag push only)
+      # Single-writer rule: release.yml (REL- marker tag) is the SOLE creator
+      # of the GitHub Release and the only writer of its title/notes. This
+      # workflow only attaches the AppImage to an already-created release —
+      # it never creates or edits the notes. (softprops/action-gh-release
+      # would create-or-update the release even with only `files:` set, which
+      # contributed to the "edited N times" churn; `gh release upload` to an
+      # existing release does not.) Wait up to 12 min for release.yml — which
+      # runs the full test suite first — to create the release; skip
+      # gracefully if it never appears (the AppImage stays a build artifact).
+      - name: Wait for release (release.yml owns creation)
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ steps.locate.outputs.appimage_path }}
-          # Don't create the release if it doesn't already exist --
-          # release.yml (REL- marker tag) owns release creation.
-          fail_on_unmatched_files: true
+        id: wait
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          for _ in $(seq 1 48); do
+            if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "Release $tag exists — attaching AppImage."
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Release $tag not created yet (release.yml owns creation) — waiting…"
+            sleep 15
+          done
+          echo "::warning::Release $tag never appeared (REL-$tag marker tag not pushed?). Skipping AppImage upload; it remains as a build artifact."
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      - name: Attach AppImage to GitHub Release (tag push only)
+        if: github.event_name == 'push' && steps.wait.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            "${{ steps.locate.outputs.appimage_path }}" --clobber \
+            --repo "${{ github.repository }}"
