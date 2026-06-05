@@ -42,6 +42,7 @@ from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import (
     add_shadow,
+    guard_wheel_scroll,
     make_page_header,
     make_section_label,
     make_warning_callout,
@@ -205,6 +206,7 @@ class SettingsPageMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(SCROLL_AREA)
 
         content = QWidget()
@@ -752,6 +754,9 @@ class SettingsPageMixin:
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        # Combo boxes / spin boxes ignore hover-wheel unless focused, so
+        # scrolling the page can't accidentally change a value.
+        guard_wheel_scroll(page)
         self._reflow_settings()
         return page
 

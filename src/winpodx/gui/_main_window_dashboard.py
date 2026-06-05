@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QBoxLayout,
     QCheckBox,
@@ -100,6 +100,7 @@ class DashboardMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet(SCROLL_AREA)
 
@@ -264,8 +265,8 @@ class DashboardMixin:
         instead of scrolling horizontally on narrow / scaled windows."""
         pages = getattr(self, "pages", None)
         width = pages.width() if pages is not None else 1100
-        content = max(320, width - 120)  # page + card horizontal margins
-        return max(3, min(8, content // 132))  # ~132px per tile
+        content = max(300, width - 130)  # page + card margins + scrollbar
+        return max(3, min(8, content // 140))  # ~140px per tile (tile + spacing)
 
     def _workspace_apps(self) -> list[AppInfo]:
         """Pinned apps first, then recent, de-duplicated, capped at 8."""

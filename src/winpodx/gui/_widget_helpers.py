@@ -14,10 +14,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QComboBox,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +55,45 @@ from winpodx.gui.theme import (
     C,
     avatar_color,
 )
+
+
+class _WheelGuard(QObject):
+    """Swallow mouse-wheel events on combo / spin / slider widgets unless they
+    have keyboard focus, so scrolling *past* a control on a page doesn't change
+    its value by accident. The wheel is re-sent to the parent so the page still
+    scrolls. Focus the control (click / tab) to scroll its value as usual.
+    """
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
+            parent = obj.parentWidget() if hasattr(obj, "parentWidget") else None
+            if parent is not None:
+                from PySide6.QtWidgets import QApplication
+
+                QApplication.sendEvent(parent, event)
+            return True  # consume on the control itself
+        return False
+
+
+# One shared, app-lifetime guard instance (installed as an event filter on many
+# widgets). Kept module-global so it isn't garbage-collected while filtering.
+_WHEEL_GUARD = _WheelGuard()
+
+
+def guard_wheel_scroll(root: QWidget) -> None:
+    """Make every combo box / spin box / slider under ``root`` ignore
+    hover-wheel unless focused (prevents accidental value changes while
+    scrolling the page). Idempotent + safe to call after a page is built.
+    """
+    targets: list[QWidget] = (
+        [root] if isinstance(root, (QComboBox, QAbstractSpinBox, QSlider)) else []
+    )
+    for cls in (QComboBox, QAbstractSpinBox, QSlider):
+        targets.extend(root.findChildren(cls))
+    for w in targets:
+        w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        w.installEventFilter(_WHEEL_GUARD)
+
 
 # Toast colors keyed by kind. Background is the accent at low alpha (set via
 # the stylesheet rgba), text is the accent itself for contrast on MANTLE.

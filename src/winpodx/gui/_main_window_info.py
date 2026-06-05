@@ -100,6 +100,7 @@ class InfoPageMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(SCROLL_AREA)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 

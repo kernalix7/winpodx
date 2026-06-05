@@ -188,6 +188,7 @@ class DevicesMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet(SCROLL_AREA)
         inner = QWidget()
