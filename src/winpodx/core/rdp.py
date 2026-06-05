@@ -443,7 +443,24 @@ def build_rdp_command(
     if app_executable or launch_uri:
         _multimon = getattr(cfg.rdp, "multimon", "span")
         if _multimon == "span":
-            cmd.append("/span")
+            # Prefer an explicit /size:WxH desktop covering the host monitor
+            # bounding box (read from xrandr) over the literal /span flag.
+            # /span makes FreeRDP enumerate + validate that the host monitors
+            # tile into one contiguous region; mixed fractional scales leave
+            # them non-tileable (1 px gap, mismatched heights) and FreeRDP
+            # refuses at pre_connect, so the app never opens. An explicit /size
+            # is the same one-wide-rectangle result without the tiling check,
+            # and the coordinate space matches what xfreerdp paints into so a
+            # RAIL window still lands on either monitor. Single monitor / no
+            # xrandr -> extent is None -> the plain /span (a no-op on one
+            # monitor) is used.
+            from winpodx.display.layout import detect_x_screen_extent
+
+            extent = detect_x_screen_extent()
+            if extent is not None:
+                cmd.append(f"/size:{extent[0]}x{extent[1]}")
+            else:
+                cmd.append("/span")
         elif _multimon == "multimon":
             cmd.append("/multimon")
 
@@ -1070,31 +1087,34 @@ def launch_app(
 
     early = _early_exit_stderr(session)
 
-    # Multi-monitor span rejected at pre_connect. When two host monitors run at
-    # different fractional scales, the compositor's sub-pixel rounding leaves
-    # their logical rectangles non-tileable (a 1 px gap/overlap at the boundary,
-    # mismatched heights, per-monitor scale reported as 0), and FreeRDP's
-    # /span | /multimon path refuses a layout that doesn't tile into one
-    # contiguous region -- so the RemoteApp dies before opening.
-    #
-    # Retry once without /span | /multimon. If the host's overall X-screen
-    # bounding box is known (xrandr), hand FreeRDP an explicit single
-    # /size:WxH desktop covering BOTH monitors -- that skips the per-monitor
-    # tiling check while still letting a RAIL window live on either monitor
-    # (the coordinate space matches what xfreerdp paints into). If the extent
-    # can't be read (single monitor / no xrandr), fall back to the plain
-    # single-monitor desktop.
+    # Backstop for a multi-monitor desktop FreeRDP still rejects at pre_connect.
+    # build_rdp_command already prefers an explicit /size:WxH (host bounding box)
+    # over /span for a RAIL launch, which avoids the per-monitor tiling check
+    # that mixed fractional scales (1 px gap, mismatched heights) make FreeRDP
+    # refuse. If that /size *still* fails -- or the literal /span | /multimon
+    # path was used and failed -- retry once:
+    #   * a failing /span | /multimon  -> drop it and try an explicit /size
+    #     spanning both monitors (the same fix, reached reactively);
+    #   * a failing /size              -> drop it and fall back to a plain
+    #     single-monitor desktop (primary only).
+    had_size = any(flag.startswith("/size:") for flag in cmd)
     if (
         early is not None
         and _MULTIMON_PRECONNECT_RE.search(early)
-        and any(flag in ("/span", "/multimon") for flag in cmd)
+        and (had_size or any(flag in ("/span", "/multimon") for flag in cmd))
     ):
         from winpodx.display.layout import detect_x_screen_extent
 
         session.pid_file.unlink(missing_ok=True)
-        cmd = [flag for flag in cmd if flag not in ("/span", "/multimon")]
-        extent = detect_x_screen_extent()
-        if extent is not None and not any(f.startswith("/size:") for f in cmd):
+        cmd = [
+            flag
+            for flag in cmd
+            if flag not in ("/span", "/multimon") and not flag.startswith("/size:")
+        ]
+        # Only try /size if we haven't already (a failed /size means it doesn't
+        # help -- go single-monitor instead, avoiding a retry loop).
+        extent = None if had_size else detect_x_screen_extent()
+        if extent is not None:
             width, height = extent
             cmd.append(f"/size:{width}x{height}")
             log.warning(
@@ -1106,10 +1126,9 @@ def launch_app(
             )
         else:
             log.warning(
-                "FreeRDP pre_connect rejected the multi-monitor span (host "
-                "monitor layout -- likely mixed DPI / fractional scaling); "
-                "retrying single-monitor. Set cfg.rdp.multimon='off' to skip "
-                "the span."
+                "FreeRDP pre_connect rejected the multi-monitor desktop; "
+                "retrying single-monitor (primary only). Set "
+                "cfg.rdp.multimon='off' to skip the span attempt."
             )
         log.info("Relaunching RDP: %s", " ".join(cmd))
         session = _spawn_detached(RDPSession(app_name=app_name), cmd)

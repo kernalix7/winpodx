@@ -418,17 +418,33 @@ class TestBuildRdpCommand:
         assert any(c.startswith("/app:") for c in cmd)
         assert "/dynamic-resolution" not in cmd
 
-    def test_span_added_to_app_launch_by_default(self, cfg, monkeypatch):
-        # multimon defaults to "span": a RAIL app launch sizes the session
-        # desktop to the host monitor bounding box so a window dragged to a
-        # second monitor keeps input mapping (clicks would otherwise miss).
+    def test_span_added_to_app_launch_single_monitor(self, cfg, monkeypatch):
+        # multimon defaults to "span". On a single monitor (no readable extent)
+        # the literal /span is used (a no-op on one monitor).
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
+        monkeypatch.setattr("winpodx.display.layout.detect_x_screen_extent", lambda: None)
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
         assert "/span" in cmd
         assert "/multimon" not in cmd
+        assert not any(c.startswith("/size:") for c in cmd)
+
+    def test_size_used_for_multimon_app_launch(self, cfg, monkeypatch):
+        # multimon "span" + a known multi-monitor bounding box -> an explicit
+        # /size:WxH desktop instead of /span (skips the per-monitor tiling check
+        # that mixed fractional scales make FreeRDP reject at pre_connect).
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr(
+            "winpodx.display.layout.detect_x_screen_extent", lambda: (5334, 1600)
+        )
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        assert "/size:5334x1600" in cmd
+        assert "/span" not in cmd
 
     def test_span_not_in_full_desktop_launch(self, cfg, monkeypatch):
         # The full-desktop path keeps /dynamic-resolution and must not span.
