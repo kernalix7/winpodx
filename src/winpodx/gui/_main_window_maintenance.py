@@ -124,6 +124,7 @@ class MaintenanceMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(SCROLL_AREA)
 
         content = QWidget()

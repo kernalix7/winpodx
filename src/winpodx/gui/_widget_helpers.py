@@ -14,10 +14,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QBoxLayout,
+    QComboBox,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -26,6 +29,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +57,111 @@ from winpodx.gui.theme import (
     C,
     avatar_color,
 )
+
+
+class _WheelGuard(QObject):
+    """Swallow mouse-wheel events on combo / spin / slider widgets unless they
+    have keyboard focus, so scrolling *past* a control on a page doesn't change
+    its value by accident. The wheel is re-sent to the parent so the page still
+    scrolls. Focus the control (click / tab) to scroll its value as usual.
+    """
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
+            parent = obj.parentWidget() if hasattr(obj, "parentWidget") else None
+            if parent is not None:
+                from PySide6.QtWidgets import QApplication
+
+                QApplication.sendEvent(parent, event)
+            return True  # consume on the control itself
+        return False
+
+
+# One shared, app-lifetime guard instance (installed as an event filter on many
+# widgets). Kept module-global so it isn't garbage-collected while filtering.
+_WHEEL_GUARD = _WheelGuard()
+
+
+class ElidingLabel(QLabel):
+    """A single-line label that elides ("…") its text to whatever width it's
+    given. It *prefers* a capped width (so a row of these still reports a sane
+    sizeHint — used by ``columns_want_stack`` to decide when to stack columns)
+    but can shrink to 0 (``minimumSizeHint``), so when a column does get narrow
+    the text elides instead of pushing a sibling (e.g. an Attach button) off the
+    edge. The full text stays available as a tooltip.
+    """
+
+    _PREF_CAP = 300  # preferred width ceiling (px) — keeps the card sizeHint sane
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = text
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+        self.set_full_text(text)
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text or ""
+        if self._full:
+            self.setToolTip(self._full)
+        self.updateGeometry()
+        self._apply_elide()
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        fm = self.fontMetrics()
+        return QSize(min(fm.horizontalAdvance(self._full) + 2, self._PREF_CAP), fm.height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(0, self.fontMetrics().height())
+
+    def _apply_elide(self) -> None:
+        fm = self.fontMetrics()
+        avail = max(0, self.width())
+        super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, avail))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt signature
+        super().resizeEvent(event)
+        self._apply_elide()
+
+
+def columns_want_stack(cols: QBoxLayout, available_width: int) -> bool:
+    """Decide whether a row of equal-stretch column cards should stack.
+
+    Dynamic (no magic breakpoint): each card in an equal-stretch row gets
+    ``available_width / count``, so the row only fits side by side when that
+    share is at least the widest card's *preferred* width (``sizeHint`` —
+    content-driven, so e.g. the device column's id + elided name + Attach
+    button). Below that the cards would squeeze under their content and clip,
+    so the caller flips the layout to a single stacked column. Returns ``False``
+    for fewer than two cards. Never raises.
+    """
+    widest = 0
+    count = 0
+    for i in range(cols.count()):
+        w = cols.itemAt(i).widget()
+        if w is not None:
+            widest = max(widest, w.sizeHint().width())
+            count += 1
+    if count < 2:
+        return False
+    needed = count * widest + cols.spacing() * (count - 1)
+    return available_width < needed
+
+
+def guard_wheel_scroll(root: QWidget) -> None:
+    """Make every combo box / spin box / slider under ``root`` ignore
+    hover-wheel unless focused (prevents accidental value changes while
+    scrolling the page). Idempotent + safe to call after a page is built.
+    """
+    targets: list[QWidget] = (
+        [root] if isinstance(root, (QComboBox, QAbstractSpinBox, QSlider)) else []
+    )
+    for cls in (QComboBox, QAbstractSpinBox, QSlider):
+        targets.extend(root.findChildren(cls))
+    for w in targets:
+        w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        w.installEventFilter(_WHEEL_GUARD)
+
 
 # Toast colors keyed by kind. Background is the accent at low alpha (set via
 # the stylesheet rgba), text is the accent itself for contrast on MANTLE.

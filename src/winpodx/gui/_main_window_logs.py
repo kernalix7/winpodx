@@ -356,6 +356,15 @@ class LogsMixin:
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.log_output.setStyleSheet(TERMINAL)
+        # Readable floor derived from the font: keep room for ~40 monospace
+        # columns (one character cell each) so a narrow window scrolls the
+        # terminal rather than crushing its text. This propagates up to the
+        # window's own minimum size, so the window can't shrink past it.
+        cell = self.log_output.fontMetrics().horizontalAdvance("0") or 8
+        self.log_output.setMinimumWidth(cell * 40)
+        # Long log lines scroll horizontally inside the terminal instead of
+        # wrapping into a crushed block.
+        self.log_output.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         layout.addWidget(self.log_output)
 
         cmd_row = QHBoxLayout()

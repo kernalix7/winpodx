@@ -80,9 +80,10 @@ class WinpodxWindow(
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("WinPodX")
-        # Lower minimum so the window can fit small / fractionally-scaled
-        # laptop screens once the 200px sidebar is accounted for.
-        self.setMinimumSize(920, 560)
+        # No hardcoded minimum: the window minimum is derived entirely from the
+        # page content (the widgets' own minimum boxes) by _sync_scroll_minimums()
+        # — called after the UI is built and on every resize — so the window can't
+        # be dragged narrower than what the buttons / terminal / forms need.
         # Preferred opening size, clamped to the screen by _fit_to_screen()
         # after the UI is built (a fixed 1100px window ran off the right edge
         # on smaller displays, clipping the Save button + Hardware column).
@@ -208,6 +209,10 @@ class WinpodxWindow(
         if screen is not None:
             avail = screen.availableGeometry()
             if avail.width() > 0 and avail.height() > 0:
+                # Drive the minimum width from the page content (the widgets'
+                # own minimum "boxes"), not a magic number, so the window can't
+                # shrink past where buttons / the terminal / forms would clip.
+                self._sync_scroll_minimums()
                 w = max(self.minimumWidth(), min(pref_w, avail.width() - 60))
                 h = max(self.minimumHeight(), min(pref_h, avail.height() - 80))
                 self.resize(w, h)
@@ -230,6 +235,27 @@ class WinpodxWindow(
             self._reflow_dashboard()
         if hasattr(self, "_reflow_library"):
             self._reflow_library()
+        self._sync_scroll_minimums()
+
+    def _sync_scroll_minimums(self) -> None:
+        """Let the content's own minimum size drive the window minimum.
+
+        Page bodies live in ``QScrollArea``s, which by default report a tiny
+        minimum (they exist to shrink + scroll), so the window could otherwise
+        shrink *below* the point where the buttons / monospace terminal / form
+        rows actually fit and clip them. Pin each scroll area's minimum width to
+        its content's ``minimumSizeHint`` (the widgets' real "boxes") so the
+        window can't be dragged narrower than the widest visible page needs.
+        Runs after the reflows, so a two-column page that has stacked to one
+        column reports its smaller single-column minimum. Never raises.
+        """
+        from PySide6.QtWidgets import QScrollArea
+
+        for area in self.findChildren(QScrollArea):
+            inner = area.widget()
+            if inner is not None:
+                # +18 leaves room for the vertical scrollbar.
+                area.setMinimumWidth(inner.minimumSizeHint().width() + 18)
 
 
 def run_gui() -> None:

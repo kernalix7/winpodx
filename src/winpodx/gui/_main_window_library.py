@@ -241,6 +241,7 @@ class LibraryPageMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(SCROLL_AREA)
 
         self.app_list_container = QWidget()
@@ -390,7 +391,12 @@ class LibraryPageMixin:
         section.setVisible(bool(apps))
         if not apps:
             return
-        for app in apps:
+        # Cap the shelf to the number of tiles that actually fit the current
+        # width so the Pinned / Recent rows never force the page wider than the
+        # viewport (which clipped the All-apps grid on narrow / scaled windows).
+        # Everything is still reachable in the grid below.
+        visible = apps[: self._grid_cols()]
+        for app in visible:
             row.addWidget(self._make_app_card(app))
         row.addStretch()
 
@@ -645,8 +651,11 @@ class LibraryPageMixin:
         tiles never force a horizontal scrollbar on narrow / scaled windows."""
         pages = getattr(self, "pages", None)
         width = pages.width() if pages is not None else 1100
-        content = max(320, width - 80)  # page horizontal margins
-        return max(3, min(6, content // 128))  # ~128px per tile
+        # Reserve for the page margins + the (now always-on) vertical scrollbar,
+        # and budget ~140px per tile (≈120px tile + spacing) so the rightmost
+        # column can't overflow and clip.
+        content = max(300, width - 112)
+        return max(3, min(6, content // 140))
 
     def _populate_grid(self, apps: list[AppInfo]) -> None:
         """Grid view - Start-menu-style icon tiles (dense)."""

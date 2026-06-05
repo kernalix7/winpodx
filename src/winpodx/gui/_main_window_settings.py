@@ -42,6 +42,8 @@ from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui._widget_helpers import (
     add_shadow,
+    columns_want_stack,
+    guard_wheel_scroll,
     make_page_header,
     make_section_label,
     make_warning_callout,
@@ -205,6 +207,7 @@ class SettingsPageMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(SCROLL_AREA)
 
         content = QWidget()
@@ -752,6 +755,9 @@ class SettingsPageMixin:
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        # Combo boxes / spin boxes ignore hover-wheel unless focused, so
+        # scrolling the page can't accidentally change a value.
+        guard_wheel_scroll(page)
         self._reflow_settings()
         return page
 
@@ -766,11 +772,12 @@ class SettingsPageMixin:
         pages = getattr(self, "pages", None)
         if cols is None or pages is None:
             return
-        # Width the cards actually get is the stacked-pages width (window
-        # minus the fixed sidebar). Below ~840px the two cards clip, so stack.
+        # Stack when the two cards can't both get their preferred (content)
+        # width side by side -- measured from their sizeHints, so it adapts to
+        # the form content + display scale instead of a fixed breakpoint.
         want = (
             QBoxLayout.Direction.TopToBottom
-            if pages.width() < 840
+            if columns_want_stack(cols, pages.width())
             else QBoxLayout.Direction.LeftToRight
         )
         if cols.direction() != want:
@@ -890,7 +897,10 @@ class SettingsPageMixin:
         form = QGridLayout()
         form.setVerticalSpacing(SPACE_S + 2)
         form.setHorizontalSpacing(SPACE_M)
-        form.setColumnMinimumWidth(0, 150)
+        form.setColumnMinimumWidth(0, 110)
+        # The input column takes the slack so it (and the card) shrink with the
+        # window instead of forcing a fixed minimum that clips on narrow pages.
+        form.setColumnStretch(1, 1)
         lbl = QLabel(tr("Profile"))
         lbl.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_BODY}px;"
@@ -925,7 +935,7 @@ class SettingsPageMixin:
             f"'Cascadia Code', 'Fira Code', monospace; "
             f"font-size: {FONT_CAPTION}px; color: {C.SUBTEXT1};"
         )
-        self.tuning_summary_label.setWordWrap(False)
+        self.tuning_summary_label.setWordWrap(True)
         summary_layout.addWidget(self.tuning_summary_label)
         layout.addWidget(summary_frame)
 
@@ -1071,7 +1081,10 @@ class SettingsPageMixin:
         form = QGridLayout()
         form.setVerticalSpacing(SPACE_S + 2)
         form.setHorizontalSpacing(SPACE_M)
-        form.setColumnMinimumWidth(0, 150)
+        form.setColumnMinimumWidth(0, 110)
+        # The input column takes the slack so it (and the card) shrink with the
+        # window instead of forcing a fixed minimum that clips on narrow pages.
+        form.setColumnStretch(1, 1)
 
         for row, (label, widget) in enumerate(fields):
             lbl = QLabel(label)

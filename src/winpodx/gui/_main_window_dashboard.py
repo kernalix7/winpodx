@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QBoxLayout,
     QCheckBox,
@@ -41,6 +41,7 @@ from winpodx.gui._main_window_library import _AppTile
 from winpodx.gui._ring_gauge import RingGauge, StatBar
 from winpodx.gui._widget_helpers import (
     add_shadow,
+    columns_want_stack,
     make_empty_panel,
     make_page_header,
 )
@@ -100,6 +101,7 @@ class DashboardMixin:
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet(SCROLL_AREA)
 
@@ -154,7 +156,7 @@ class DashboardMixin:
             return
         want = (
             QBoxLayout.Direction.TopToBottom
-            if pages.width() < 900
+            if columns_want_stack(row1, pages.width())
             else QBoxLayout.Direction.LeftToRight
         )
         if row1.direction() != want:
@@ -264,8 +266,8 @@ class DashboardMixin:
         instead of scrolling horizontally on narrow / scaled windows."""
         pages = getattr(self, "pages", None)
         width = pages.width() if pages is not None else 1100
-        content = max(320, width - 120)  # page + card horizontal margins
-        return max(3, min(8, content // 132))  # ~132px per tile
+        content = max(300, width - 130)  # page + card margins + scrollbar
+        return max(3, min(8, content // 140))  # ~140px per tile (tile + spacing)
 
     def _workspace_apps(self) -> list[AppInfo]:
         """Pinned apps first, then recent, de-duplicated, capped at 8."""
@@ -371,7 +373,9 @@ class DashboardMixin:
             return
         self._dashboard_refreshing = True
         self._dashboard_tick = getattr(self, "_dashboard_tick", 0) + 1
-        with_disk = self._dashboard_tick % 6 == 1  # ~every 30 s at the 5 s cadence
+        # Guest RAM + disk share one agent round-trip; refresh ~every 10 s (was
+        # 30 s) so RAM in particular tracks more closely. CPU stays every tick.
+        with_disk = self._dashboard_tick % 2 == 1
         pod_state = getattr(self, "_pod_state", None)
 
         def _work() -> None:

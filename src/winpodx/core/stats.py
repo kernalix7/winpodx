@@ -406,7 +406,7 @@ def _guest_resources(
     try:
         from winpodx.core.disk import get_guest_resources
 
-        gr = get_guest_resources(cfg, timeout=6)
+        gr = get_guest_resources(cfg, timeout=4)
     except Exception as e:  # noqa: BLE001 -- never let a probe break the snapshot
         log.debug("guest resources probe failed: %s", e)
         return none_disk, none_ram
