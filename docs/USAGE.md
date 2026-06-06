@@ -149,8 +149,8 @@ Some software refuses to run under a detected hypervisor — most notably Nvidia
 
 ```bash
 winpodx config set pod.disguise_hypervisor true    # enable
-winpodx pod recreate --keep-iso                    # regenerate the compose to apply
-winpodx config set pod.disguise_hypervisor false   # disable
+winpodx pod recreate                               # regenerate compose + recreate the container (keeps your Windows disk)
+winpodx config set pod.disguise_hypervisor false   # disable (then `winpodx pod recreate` again)
 ```
 
 When on, the guest's `-cpu` line clears the CPUID hypervisor-present bit (leaf 1, ECX bit 31 — the primary code-43 / launch-gate trigger), drops the `KVMKVMKVM` signature + KVM paravirt leaves, and reports the host CPU's vendor string at leaf `0x40000000`. Hyper-V performance enlightenments stay on (Windows keys those off a different leaf), so there is no measurable perf cost. The setting is tri-state: absent = legacy (signatures exposed); existing installs are left untouched on upgrade.

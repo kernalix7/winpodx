@@ -149,8 +149,8 @@ USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필
 
 ```bash
 winpodx config set pod.disguise_hypervisor true    # 활성화
-winpodx pod recreate --keep-iso                    # compose 재생성으로 적용
-winpodx config set pod.disguise_hypervisor false   # 비활성화
+winpodx pod recreate                               # compose 재생성 + 컨테이너만 재생성 (Windows 디스크 유지)
+winpodx config set pod.disguise_hypervisor false   # 비활성화 (후 `winpodx pod recreate` 다시)
 ```
 
 켜면 게스트 `-cpu` 라인이 CPUID 하이퍼바이저-존재 비트(leaf 1, ECX 31 — code-43/런치게이트의 주 트리거)를 지우고, `KVMKVMKVM` 시그니처 + KVM 파라버트 leaf 를 제거하며, leaf `0x40000000` 에 호스트 CPU 벤더 문자열을 보고합니다. Hyper-V 성능 enlightenment 는 유지(Windows 가 다른 leaf 로 감지)되어 성능 손실 없음. tri-state: 키 없음 = 레거시(시그니처 노출), 업그레이드 시 기존 설치는 건드리지 않음.
