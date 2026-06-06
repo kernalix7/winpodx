@@ -153,6 +153,59 @@ def test_compose_disguise_explicit_false_opts_out(monkeypatch):
     assert "kvm=off" not in content
 
 
+def test_compose_disguise_smbios_mirrors_host_dmi(monkeypatch):
+    """T1 (#246): the host's real, shell-safe DMI fields land in `-smbios`."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    # Synthetic fixture values (not any real machine's DMI).
+    dmi = {
+        "sys_vendor": "ACME",
+        "product_name": "MDL-9000",
+        "board_vendor": "ACME",
+        "board_name": "BRD-42",
+        "bios_vendor": "ACME",
+        "bios_date": "01/01/2020",
+        "chassis_vendor": "ACME",
+    }
+    monkeypatch.setattr(_compose_module, "_host_dmi_field", lambda n: dmi.get(n))
+    cfg = _cfg()
+    cfg.pod.disguise_hypervisor = None  # default ON
+    content = _build_compose_content(cfg)
+    assert "type=1,manufacturer=ACME,product=MDL-9000" in content
+    assert "type=0,vendor=ACME,date=01/01/2020" in content
+    assert "type=3,manufacturer=ACME" in content
+
+
+def test_compose_disguise_smbios_skips_unsafe_dmi(monkeypatch):
+    """Fields with spaces / unsafe chars are dropped, not mangled into ARGUMENTS."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    # Only product_name is unsafe (space); the vendor is safe. Emulate the
+    # real _host_dmi_field safety filter (drop values with unsafe chars).
+    dmi = {"sys_vendor": "ACME", "product_name": "Generic Model 9000"}
+
+    def fake(n):
+        v = dmi.get(n)
+        return v if (v and all(c.isalnum() or c in "._/+-" for c in v)) else None
+
+    monkeypatch.setattr(_compose_module, "_host_dmi_field", fake)
+    cfg = _cfg()
+    cfg.pod.disguise_hypervisor = True
+    content = _build_compose_content(cfg)
+    assert "manufacturer=ACME" in content  # safe vendor kept
+    assert "Generic Model 9000" not in content  # spaced product dropped
+
+
+def test_compose_disguise_off_emits_no_smbios(monkeypatch):
+    """disguise off (explicit) → no host-DMI `-smbios` override."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_compose_module, "_host_dmi_field", lambda n: "ACME")
+    cfg = _cfg()  # _cfg() sets disguise_hypervisor = False
+    content = _build_compose_content(cfg)
+    assert "-smbios" not in content
+
+
 def test_compose_cpu_flags_invtsc_auto_profile_appends_when_supported(monkeypatch):
     """``tuning_profile = "auto"`` + invtsc-capable host appends
     ``+invtsc`` to CPU_FLAGS (#215). hv-* enlightenments are NOT

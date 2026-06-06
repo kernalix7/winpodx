@@ -265,7 +265,79 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     if pci:
         extra_args += qemu_device_args(pci)
 
+    # Bare-metal disguise (#246, T1): mirror the host's real SMBIOS/DMI into
+    # the guest so Win32_ComputerSystem / the SMBIOS tables report a genuine
+    # bare-metal identity instead of QEMU / SeaBIOS. x86 only (dockur owns the
+    # aarch64 firmware).
+    if cfg.pod.disguise_active and platform.machine() != "aarch64":
+        extra_args += _disguise_smbios_args()
+
     return " ".join(extra_args)
+
+
+def _host_dmi_field(name: str) -> str | None:
+    """Read one ``/sys/class/dmi/id/<name>`` field if it is safe to embed.
+
+    Returns ``None`` when the field is unreadable (e.g. inside a container with
+    no DMI) or when its value contains a character that would break dockur's
+    space-split ``ARGUMENTS`` env or the comma-delimited ``-smbios`` arg — a
+    space, comma, ``=`` or quote. A product string with spaces (e.g. a
+    marketing name like ``Some Laptop 9000``) is skipped rather than mangled;
+    the space-free vendor / model codes are what carry the disguise. Serial /
+    UUID / asset-tag fields are never read (root-only, and reading them would
+    leak the host serial and perturb the digital-licence hash).
+    """
+    try:
+        val = (Path("/sys/class/dmi/id") / name).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not val or not all(c.isalnum() or c in "._/+-" for c in val):
+        return None
+    return val
+
+
+def _disguise_smbios_args() -> list[str]:
+    """`-smbios` args mirroring the host's real (shell-safe) DMI fields (#246).
+
+    Overrides QEMU's default SMBIOS (which leaks ``QEMU`` / ``SeaBIOS``) with
+    the host's actual vendor + model strings, so the guest presents the real
+    machine's identity. Best-effort: any field that's unreadable or has unsafe
+    characters is omitted, and an empty result (no DMI on this host) leaves
+    QEMU's defaults untouched.
+    """
+    sys_vendor = _host_dmi_field("sys_vendor")
+    product = _host_dmi_field("product_name")
+    board_vendor = _host_dmi_field("board_vendor")
+    board = _host_dmi_field("board_name")
+    bios_vendor = _host_dmi_field("bios_vendor")
+    bios_date = _host_dmi_field("bios_date")
+    chassis_vendor = _host_dmi_field("chassis_vendor")
+
+    args: list[str] = []
+    t0 = []
+    if bios_vendor:
+        t0.append(f"vendor={bios_vendor}")
+    if bios_date:
+        t0.append(f"date={bios_date}")
+    if t0:
+        args += ["-smbios", "type=0," + ",".join(t0)]
+    t1 = []
+    if sys_vendor:
+        t1.append(f"manufacturer={sys_vendor}")
+    if product:
+        t1.append(f"product={product}")
+    if t1:
+        args += ["-smbios", "type=1," + ",".join(t1)]
+    t2 = []
+    if board_vendor:
+        t2.append(f"manufacturer={board_vendor}")
+    if board:
+        t2.append(f"product={board}")
+    if t2:
+        args += ["-smbios", "type=2," + ",".join(t2)]
+    if chassis_vendor:
+        args += ["-smbios", f"type=3,manufacturer={chassis_vendor}"]
+    return args
 
 
 def _yaml_escape(val: str) -> str:
