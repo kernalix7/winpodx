@@ -226,3 +226,57 @@ def _distro_id() -> str:
     except OSError:
         pass
     return ""
+
+
+def _distro_id_like() -> str:
+    """Read ``ID_LIKE=`` from ``/etc/os-release`` (space-separated). ``""`` on miss."""
+    try:
+        with open("/etc/os-release", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("ID_LIKE="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return ""
+
+
+def _pyside6_pkg_command() -> str:
+    """The distro package-manager command that installs PySide6 (Qt6).
+
+    Falls back to a PEP 668-safe suggestion (pipx / venv) for an unrecognised
+    distro -- never a bare ``pip install``, which fails with
+    ``externally-managed-environment`` on modern Debian/Ubuntu/Fedora (#502).
+    """
+    family = f"{_distro_id()} {_distro_id_like()}".lower()
+    if any(d in family for d in ("debian", "ubuntu", "mint", "pop", "raspbian")):
+        return (
+            "sudo apt install python3-pyside6.qtwidgets python3-pyside6.qtsvg"
+            "   # Ubuntu: enable the 'universe' repo first"
+        )
+    if any(d in family for d in ("fedora", "rhel", "centos", "almalinux", "rocky", "nobara")):
+        return "sudo dnf install python3-pyside6"
+    if any(d in family for d in ("arch", "manjaro", "endeavouros", "cachyos")):
+        return "sudo pacman -S pyside6"
+    if any(d in family for d in ("opensuse", "suse", "sles")):
+        return "sudo zypper install python3-PySide6"
+    return "pipx install PySide6   # or install into a venv (avoids the PEP 668 error)"
+
+
+def pyside6_install_hint() -> str:
+    """Actionable, distro-aware message for the GUI's missing-PySide6 case.
+
+    The old hint (``pip install PySide6``) fails on PEP 668 externally-managed
+    Pythons and never named the actual package (#502). Give the correct distro
+    package command, the pip path for source installs, and the AppImage /
+    install.sh, which bundle the GUI outright.
+    """
+    from winpodx.core.i18n import tr  # lazy import: avoid an import cycle
+
+    return "\n".join(
+        [
+            tr("PySide6 (Qt6) is required to launch the GUI. Install it one of these ways:"),
+            f"  - Distro package:  {_pyside6_pkg_command()}",
+            "  - If you installed winpodx with pip:  pip install 'winpodx[gui]'",
+            "  - " + tr("Or use the AppImage or the install.sh installer — both bundle the GUI."),
+        ]
+    )

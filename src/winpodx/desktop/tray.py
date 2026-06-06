@@ -65,7 +65,9 @@ def run_tray() -> None:
         from PySide6.QtGui import QAction
         from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
     except ImportError:
-        print("PySide6 required. Install with: pip install winpodx[gui]")
+        from winpodx.utils.install_source import pyside6_install_hint
+
+        print(pyside6_install_hint())
         sys.exit(1)
 
     from winpodx.core import devices as D

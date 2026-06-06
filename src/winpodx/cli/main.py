@@ -952,7 +952,9 @@ def _dispatch(args: argparse.Namespace) -> None:
 
             run_gui()
         except ImportError:
-            print(tr("PySide6 required. Install with your package manager or: pip install PySide6"))
+            from winpodx.utils.install_source import pyside6_install_hint
+
+            print(pyside6_install_hint())
     elif cmd == "tray":
         from winpodx.desktop.tray import run_tray
 
