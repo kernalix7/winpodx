@@ -200,12 +200,19 @@ class WinpodxWindow(
     def _fit_to_screen(self) -> None:
         """Open at the preferred size, but never larger than the screen.
 
-        Clamps the window to the available screen area and centers it so the
-        right-hand content (Save button, Hardware column) can't fall off the
-        edge on smaller or fractionally-scaled displays.
+        Clamps the window to the available area of the *primary* screen so it
+        can't open bigger than the display on small or fractionally-scaled
+        setups. Placement (which monitor, where) is left to the window manager
+        / compositor on purpose: forcing a position here parked the window on
+        the leftmost monitor instead of the user's designated primary on
+        multi-monitor setups (#498), and a client ``move()`` is a no-op on
+        Wayland anyway. Clamping against the primary screen — not whatever
+        screen the not-yet-shown window happens to be associated with (usually
+        the leftmost) — also stops the window being squeezed to a narrow
+        portrait monitor's width.
         """
         pref_w, pref_h = getattr(self, "_preferred_size", (1100, 720))
-        screen = self.screen() or QApplication.primaryScreen()
+        screen = QApplication.primaryScreen() or self.screen()
         if screen is not None:
             avail = screen.availableGeometry()
             if avail.width() > 0 and avail.height() > 0:
@@ -216,10 +223,6 @@ class WinpodxWindow(
                 w = max(self.minimumWidth(), min(pref_w, avail.width() - 60))
                 h = max(self.minimumHeight(), min(pref_h, avail.height() - 80))
                 self.resize(w, h)
-                self.move(
-                    avail.x() + (avail.width() - w) // 2,
-                    avail.y() + (avail.height() - h) // 2,
-                )
                 return
         self.resize(pref_w, pref_h)
 
