@@ -1,4 +1,7 @@
 {
+  "Bare-metal compatibility": "裸机兼容模式",
+  "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "隐藏 KVM/QEMU 虚拟机管理程序，使 GPU 直通（Nvidia 代码 43）和拒绝在虚拟机中运行的应用可用。这不是反作弊绕过。",
+  "Present the guest as a bare-metal PC (hide the hypervisor)": "将客户机呈现为裸机 PC（隐藏虚拟机管理程序）",
   "\n  Could not start pod: {error}": "\n  无法启动 pod：{error}",
   "\n  Discovery failed: {error}": "\n  发现失败：{error}",
   "\n  Discovery unavailable in this build. Skipping.": "\n  此版本不支持应用发现。已跳过。",

@@ -386,19 +386,28 @@ class PodConfig:
     # a plain ``/dev/bus/usb`` bind avoids that. Set False to keep the USB bus
     # out of the container (smaller surface; USB then only via the drive share).
     usb_live: bool = True
-    # Bare-metal compatibility mode (#246), tri-state. Hides KVM/QEMU
-    # signatures from the guest so software that refuses to run under a
-    # detected hypervisor works — primarily Nvidia GPU-passthrough "code 43"
-    # and apps with launch-gate VM checks. Phase 1 clears the CPUID
-    # hypervisor bit + vendor leaf + KVM paravirt leaves and sets a
-    # real-vendor NIC MAC OUI (see core/pod/compose.py). NOT for defeating
-    # kernel-mode anti-cheat (it can't, and bypassing online-game anti-cheat
-    # violates the game's ToS).
+    # Bare-metal compatibility mode (#246), tri-state, DEFAULT ON. Hides the
+    # KVM/QEMU hypervisor signature from the guest so software that refuses to
+    # run under a detected hypervisor works — primarily Nvidia GPU-passthrough
+    # "code 43" and apps with launch-gate VM checks. Clears the CPUID
+    # hypervisor-present bit + the KVM signature/paravirt leaves (see
+    # core/pod/compose.py). NOT for defeating kernel-mode anti-cheat (it can't,
+    # and bypassing online-game anti-cheat violates the game's ToS).
     #
-    #   None  — key absent: legacy, signatures exposed (existing installs).
-    #   True  — disguise on.
-    #   False — disguise off (explicit; suppresses the migration notice).
+    #   None  — key absent: use the default (ON). `disguise_active` resolves it.
+    #   True  — explicitly on.
+    #   False — explicitly off (opt out).
     disguise_hypervisor: bool | None = None
+
+    @property
+    def disguise_active(self) -> bool:
+        """Resolve the tri-state ``disguise_hypervisor`` to on/off (#246).
+
+        Default ON: ``None`` (absent) and ``True`` enable the disguise; only an
+        explicit ``False`` opts out. Used by the compose generator and the GUI
+        toggle so both read the same rule.
+        """
+        return self.disguise_hypervisor is not False
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:

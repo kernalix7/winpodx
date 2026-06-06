@@ -1,4 +1,7 @@
 {
+  "Bare-metal compatibility": "베어메탈 호환",
+  "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "KVM/QEMU 하이퍼바이저를 숨겨 GPU 패스스루(Nvidia 코드 43)와 VM 실행을 거부하는 앱이 동작하게 합니다. 안티치트 우회가 아닙니다.",
+  "Present the guest as a bare-metal PC (hide the hypervisor)": "게스트를 베어메탈 PC로 표시 (하이퍼바이저 숨김)",
   "\n  Could not start pod: {error}": "\n  pod을 시작할 수 없습니다: {error}",
   "\n  Discovery failed: {error}": "\n  탐색에 실패했습니다: {error}",
   "\n  Discovery unavailable in this build. Skipping.": "\n  이 빌드에서는 탐색을 사용할 수 없습니다. 건너뜁니다.",

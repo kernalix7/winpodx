@@ -47,7 +47,7 @@ timezone = ""             # "" = follow the host timezone
 tuning_profile = "auto"   # auto | low | mid | high — host-adaptive Windows-on-KVM tuning
 usb_live = true           # bind the host USB bus so `device attach` hot-plugs live
 # devices = []            # passthrough device ids (managed by `winpodx device`)
-# disguise_hypervisor = true   # bare-metal mode: hide the KVM/QEMU hypervisor (Nvidia code-43 / VM-hostile apps); NOT an anti-cheat bypass (#246)
+# disguise_hypervisor = false  # bare-metal mode (hide KVM/QEMU hypervisor) is ON by default; set false to opt out — Nvidia code-43 / VM-hostile apps; not an anti-cheat bypass (#246)
 
 [reverse_open]
 enabled = true            # surface Linux apps in the Windows "Open with…" menu

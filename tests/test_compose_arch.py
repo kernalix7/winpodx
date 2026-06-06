@@ -36,6 +36,10 @@ def _cfg() -> Config:
     # detection (#215). Turn off the auto tuner so the CPU_FLAGS reflects
     # only the architecture branch under test.
     cfg.pod.tuning_profile = "off"
+    # Likewise isolate from the default-ON hypervisor disguise (#246) — the
+    # arch/tuning tests assert an exact CPU_FLAGS string. The disguise tests
+    # below set it explicitly.
+    cfg.pod.disguise_hypervisor = False
     return cfg
 
 
@@ -99,49 +103,54 @@ def test_compose_cpu_flags_invtsc_off_profile_does_not_append(monkeypatch):
     assert 'CPU_FLAGS: "arch_capabilities=off"' in content
 
 
-# --- Bare-metal compatibility / hypervisor disguise (#246, Phase 1) ------
+# --- Bare-metal compatibility / hypervisor disguise (#246, default ON) ---
+
+_DISGUISE_FLAGS = (
+    "-hypervisor",
+    "kvm=off",
+    "-kvm-pv-eoi",
+    "-kvm-pv-unhalt",
+    "-kvm-pv-tlb-flush",
+    "-kvm-asyncpf",
+)
 
 
-def test_compose_disguise_off_by_default(monkeypatch):
-    """disguise_hypervisor=None (legacy/absent) emits no disguise flags."""
+def test_compose_disguise_on_by_default(monkeypatch):
+    """disguise_hypervisor=None (absent) defaults ON — emits the disguise flags."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     cfg = _cfg()
-    assert cfg.pod.disguise_hypervisor is None
+    cfg.pod.disguise_hypervisor = None  # the real default (absent key)
+    assert cfg.pod.disguise_active is True
     content = _build_compose_content(cfg)
-    assert "-hypervisor" not in content
-    assert "kvm=off" not in content
+    for flag in _DISGUISE_FLAGS:
+        assert flag in content, f"disguise flag {flag!r} missing (default ON)"
+    # hv-vendor-id was deliberately dropped (collides with dockur hv flags).
+    assert "hv-vendor-id" not in content
 
 
-def test_compose_disguise_on_emits_signature_flags(monkeypatch):
-    """disguise_hypervisor=True clears the hypervisor bit + KVM signature."""
+def test_compose_disguise_explicit_true(monkeypatch):
+    """disguise_hypervisor=True emits the same flags as the default."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(_compose_module, "_host_cpu_vendor", lambda: "GenuineIntel")
     cfg = _cfg()
     cfg.pod.disguise_hypervisor = True
     content = _build_compose_content(cfg)
-    for flag in (
-        "-hypervisor",
-        "kvm=off",
-        "-kvm-pv-eoi",
-        "-kvm-pv-unhalt",
-        "-kvm-pv-tlb-flush",
-        "-kvm-asyncpf",
-        "hv-vendor-id=GenuineIntel",
-    ):
+    for flag in _DISGUISE_FLAGS:
         assert flag in content, f"disguise flag {flag!r} missing from compose"
+    assert "hv-vendor-id" not in content
 
 
-def test_compose_disguise_explicit_false_emits_nothing(monkeypatch):
-    """disguise_hypervisor=False (explicit off) emits no disguise flags."""
+def test_compose_disguise_explicit_false_opts_out(monkeypatch):
+    """disguise_hypervisor=False (explicit opt-out) emits no disguise flags."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     cfg = _cfg()
     cfg.pod.disguise_hypervisor = False
+    assert cfg.pod.disguise_active is False
     content = _build_compose_content(cfg)
     assert "-hypervisor" not in content
-    assert "+invtsc" not in content
+    assert "kvm=off" not in content
 
 
 def test_compose_cpu_flags_invtsc_auto_profile_appends_when_supported(monkeypatch):

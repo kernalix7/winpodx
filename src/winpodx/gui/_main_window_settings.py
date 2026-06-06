@@ -605,6 +605,29 @@ class SettingsPageMixin:
         tuning_card = self._build_tuning_card(self.input_tuning_profile, tuning_summary)
         layout.addWidget(tuning_card)
 
+        # Bare-metal compatibility (#246) — hide the KVM/QEMU hypervisor so GPU
+        # passthrough (Nvidia code 43) and apps that refuse to run in a VM work.
+        # Default ON. Save-Settings-scoped: it changes the QEMU `-cpu` line, so a
+        # pod recreate applies it (handled in _save_settings, like the tuning
+        # profile). The checkbox reads/writes the tri-state via disguise_active.
+        from PySide6.QtWidgets import QCheckBox as _QCheckBox
+
+        disguise_card, disguise_layout = self._settings_card_shell(
+            "hardware",
+            tr("Bare-metal compatibility"),
+            tr(
+                "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and "
+                "apps that refuse to run in a VM work. Not an anti-cheat bypass."
+            ),
+        )
+        self.checkbox_disguise = _QCheckBox(
+            tr("Present the guest as a bare-metal PC (hide the hypervisor)")
+        )
+        self.checkbox_disguise.setChecked(self.cfg.pod.disguise_active)
+        self.checkbox_disguise.setStyleSheet(CHECKBOX)
+        disguise_layout.addWidget(self.checkbox_disguise)
+        layout.addWidget(disguise_card)
+
         # Reverse-open (#48) — Linux apps in the Windows guest's right-
         # click "Open with…" menu. The panel is self-contained — its
         # button handlers call into the host_open CLI handlers
@@ -1207,6 +1230,9 @@ class SettingsPageMixin:
         new_keyboard = self.input_keyboard.currentData() or ""
         new_timezone = self.input_timezone.currentData() or ""
         new_tuning_profile = self.input_tuning_profile.currentData() or "auto"
+        # Bare-metal disguise (#246) — the 2-state checkbox collapses the
+        # tri-state to an explicit bool on save (checked = on, unchecked = off).
+        new_disguise = bool(self.checkbox_disguise.isChecked())
 
         old_cfg = Config.load()
         # ``needs_container`` is true when any first-boot env knob is
@@ -1229,6 +1255,10 @@ class SettingsPageMixin:
             # the new -cpu sub-options (+vmx/+svm, hv-*, +invtsc) and
             # -device args (virtio-rng-pci).
             or new_tuning_profile != old_cfg.pod.tuning_profile
+            # #246: the hypervisor disguise toggles `-cpu` sub-flags
+            # (-hypervisor / kvm=off / -kvm-pv-*) in CPU_FLAGS, so a container
+            # recreate is required to pick up the change.
+            or new_disguise != old_cfg.pod.disguise_active
         )
         needs_wipe = (
             new_win_version != old_cfg.pod.win_version
@@ -1257,6 +1287,7 @@ class SettingsPageMixin:
         self.cfg.pod.keyboard = new_keyboard
         self.cfg.pod.timezone = new_timezone
         self.cfg.pod.tuning_profile = new_tuning_profile
+        self.cfg.pod.disguise_hypervisor = new_disguise
         # Let __post_init__ clamp max_sessions to [1, 50] before save.
         self.cfg.pod.__post_init__()
         self.cfg.save()

@@ -145,15 +145,17 @@ USB devices hot-plug live (`cfg.pod.usb_live`, default on) — no restart needed
 
 ## Bare-metal compatibility mode (hide the hypervisor)
 
-Some software refuses to run under a detected hypervisor — most notably Nvidia's consumer GPU drivers (they fault with **code 43** when they see KVM, the common GPU-passthrough blocker) and apps with launch-gate VM checks. `cfg.pod.disguise_hypervisor` (#246) hides the KVM/QEMU signature from the guest so it presents as a physical PC.
+Some software refuses to run under a detected hypervisor — most notably Nvidia's consumer GPU drivers (they fault with **code 43** when they see KVM, the common GPU-passthrough blocker) and apps with launch-gate VM checks. `cfg.pod.disguise_hypervisor` (#246) hides the KVM/QEMU signature from the guest so it presents as a physical PC. **It is on by default.**
 
 ```bash
-winpodx config set pod.disguise_hypervisor true    # enable
+winpodx config set pod.disguise_hypervisor false   # opt out
 winpodx pod recreate                               # regenerate compose + recreate the container (keeps your Windows disk)
-winpodx config set pod.disguise_hypervisor false   # disable (then `winpodx pod recreate` again)
+winpodx config set pod.disguise_hypervisor true    # turn it back on
 ```
 
-When on, the guest's `-cpu` line clears the CPUID hypervisor-present bit (leaf 1, ECX bit 31 — the primary code-43 / launch-gate trigger), drops the `KVMKVMKVM` signature + KVM paravirt leaves, and reports the host CPU's vendor string at leaf `0x40000000`. Hyper-V performance enlightenments stay on (Windows keys those off a different leaf), so there is no measurable perf cost. The setting is tri-state: absent = legacy (signatures exposed); existing installs are left untouched on upgrade.
+You can also toggle it in the GUI: **Settings → Bare-metal compatibility**. Either way it takes effect after a `winpodx pod recreate` (it edits the QEMU `-cpu` line; recreate keeps your Windows disk).
+
+When on, the guest's `-cpu` line clears the CPUID hypervisor-present bit (leaf 1, ECX bit 31 — the primary code-43 / launch-gate trigger) and drops the `KVMKVMKVM` signature + KVM paravirt leaves. Hyper-V performance enlightenments stay on (Windows keys those off a different leaf), so there is no measurable perf cost. The setting is tri-state — `false` opts out; absent or `true` is on.
 
 > **This is not an anti-cheat bypass.** It is signature-level only and does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard). Bypassing anti-cheat in online games violates their terms of service and risks a ban — winpodx does not support that use.
 
@@ -300,7 +302,7 @@ idle_timeout = 0                                 # Seconds before auto-suspend (
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
 usb_live = true                                  # Hot-plug attached USB devices into the running guest (no restart) — see `winpodx device`
-# disguise_hypervisor = true                     # Bare-metal mode: hide the KVM/QEMU hypervisor (Nvidia code-43 / VM-hostile apps); NOT an anti-cheat bypass (#246)
+# disguise_hypervisor = false                    # Bare-metal mode (hide KVM/QEMU hypervisor) is ON by default; set false to opt out — Nvidia code-43 / VM-hostile apps; not an anti-cheat bypass (#246)
 disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `install grow-disk`)
 disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
 disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)

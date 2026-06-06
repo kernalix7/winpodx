@@ -1,4 +1,7 @@
 {
+  "Bare-metal compatibility": "Compatibilité bare-metal",
+  "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "Masque l'hyperviseur KVM/QEMU pour que le passthrough GPU (code 43 Nvidia) et les applis qui refusent de tourner dans une VM fonctionnent. Pas un contournement d'anti-triche.",
+  "Present the guest as a bare-metal PC (hide the hypervisor)": "Présenter l'invité comme un PC bare-metal (masquer l'hyperviseur)",
   "\n  Could not start pod: {error}": "\n  Impossible de démarrer le pod : {error}",
   "\n  Discovery failed: {error}": "\n  Échec de la découverte : {error}",
   "\n  Discovery unavailable in this build. Skipping.": "\n  Découverte indisponible dans cette version. Ignorée.",
