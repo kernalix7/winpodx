@@ -157,7 +157,54 @@ def _cpu_flags_for_host(cfg: Config | None = None) -> str:
     if profile.apply_invtsc:
         sub_flags.append("+invtsc")
 
+    # Bare-metal compatibility mode (#246, Phase 1): hide the KVM/QEMU
+    # hypervisor signature from the guest so software that refuses to run
+    # under a detected hypervisor works (Nvidia GPU-passthrough "code 43",
+    # launch-gate VM checks). Independent of the tuning profile.
+    if cfg.pod.disguise_hypervisor:
+        sub_flags.extend(_disguise_cpu_flags())
+
     return ",".join(sub_flags)
+
+
+def _host_cpu_vendor() -> str:
+    """Host CPU vendor string for ``hv-vendor-id`` (GenuineIntel / AuthenticAMD)."""
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("vendor_id"):
+                    vendor = line.split(":", 1)[1].strip()
+                    if vendor:
+                        return vendor
+    except OSError:
+        pass
+    return "GenuineIntel"
+
+
+def _disguise_cpu_flags() -> list[str]:
+    """``-cpu`` sub-flags that hide the KVM/QEMU hypervisor from the guest (#246).
+
+    * ``-hypervisor`` — clear CPUID leaf-1 ECX bit 31 (the "hypervisor present"
+      bit): the primary trigger for Nvidia code 43 and launch-gate VM checks.
+    * ``kvm=off`` — drop the ``KVMKVMKVM`` signature + KVM paravirt CPUID leaves.
+    * ``-kvm-pv-*`` — explicitly mask the individual KVM paravirt features.
+    * ``hv-vendor-id=<host vendor>`` — present the host CPU's vendor string at
+      leaf ``0x40000000`` so a guest that still reads it sees a plausible value.
+
+    Hyper-V enlightenments (dockur ``HV=Y``) stay on: modern Windows keys those
+    off the ``0x40000001 = "Hv#1"`` interface leaf, not the vendor string, so
+    the perf flags survive the disguise. Does NOT defeat kernel-mode anti-cheat
+    (out of scope, #246) — this is signature-level only.
+    """
+    return [
+        "-hypervisor",
+        "kvm=off",
+        "-kvm-pv-eoi",
+        "-kvm-pv-unhalt",
+        "-kvm-pv-tlb-flush",
+        "-kvm-asyncpf",
+        f"hv-vendor-id={_host_cpu_vendor()}",
+    ]
 
 
 def _vmx_env_for_host(cfg: Config | None = None) -> str:

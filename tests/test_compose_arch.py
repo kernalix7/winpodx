@@ -97,6 +97,50 @@ def test_compose_cpu_flags_invtsc_off_profile_does_not_append(monkeypatch):
     cfg.pod.tuning_profile = "off"
     content = _build_compose_content(cfg)
     assert 'CPU_FLAGS: "arch_capabilities=off"' in content
+
+
+# --- Bare-metal compatibility / hypervisor disguise (#246, Phase 1) ------
+
+
+def test_compose_disguise_off_by_default(monkeypatch):
+    """disguise_hypervisor=None (legacy/absent) emits no disguise flags."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    cfg = _cfg()
+    assert cfg.pod.disguise_hypervisor is None
+    content = _build_compose_content(cfg)
+    assert "-hypervisor" not in content
+    assert "kvm=off" not in content
+
+
+def test_compose_disguise_on_emits_signature_flags(monkeypatch):
+    """disguise_hypervisor=True clears the hypervisor bit + KVM signature."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_compose_module, "_host_cpu_vendor", lambda: "GenuineIntel")
+    cfg = _cfg()
+    cfg.pod.disguise_hypervisor = True
+    content = _build_compose_content(cfg)
+    for flag in (
+        "-hypervisor",
+        "kvm=off",
+        "-kvm-pv-eoi",
+        "-kvm-pv-unhalt",
+        "-kvm-pv-tlb-flush",
+        "-kvm-asyncpf",
+        "hv-vendor-id=GenuineIntel",
+    ):
+        assert flag in content, f"disguise flag {flag!r} missing from compose"
+
+
+def test_compose_disguise_explicit_false_emits_nothing(monkeypatch):
+    """disguise_hypervisor=False (explicit off) emits no disguise flags."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    cfg = _cfg()
+    cfg.pod.disguise_hypervisor = False
+    content = _build_compose_content(cfg)
+    assert "-hypervisor" not in content
     assert "+invtsc" not in content
 
 

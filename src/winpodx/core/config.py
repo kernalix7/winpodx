@@ -386,6 +386,19 @@ class PodConfig:
     # a plain ``/dev/bus/usb`` bind avoids that. Set False to keep the USB bus
     # out of the container (smaller surface; USB then only via the drive share).
     usb_live: bool = True
+    # Bare-metal compatibility mode (#246), tri-state. Hides KVM/QEMU
+    # signatures from the guest so software that refuses to run under a
+    # detected hypervisor works — primarily Nvidia GPU-passthrough "code 43"
+    # and apps with launch-gate VM checks. Phase 1 clears the CPUID
+    # hypervisor bit + vendor leaf + KVM paravirt leaves and sets a
+    # real-vendor NIC MAC OUI (see core/pod/compose.py). NOT for defeating
+    # kernel-mode anti-cheat (it can't, and bypassing online-game anti-cheat
+    # violates the game's ToS).
+    #
+    #   None  — key absent: legacy, signatures exposed (existing installs).
+    #   True  — disguise on.
+    #   False — disguise off (explicit; suppresses the migration notice).
+    disguise_hypervisor: bool | None = None
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -401,6 +414,10 @@ class PodConfig:
         self.idle_timeout = max(0, int(self.idle_timeout))
         self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
         self.max_sessions = max(1, min(50, int(self.max_sessions)))
+        # disguise_hypervisor is tri-state (None = legacy/absent); coerce any
+        # hand-edited non-bool truthy/falsy value to a real bool, keep None.
+        if self.disguise_hypervisor is not None:
+            self.disguise_hypervisor = bool(self.disguise_hypervisor)
         if not isinstance(self.container_name, str) or not _CONTAINER_NAME_RE.match(
             self.container_name
         ):

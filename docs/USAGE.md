@@ -143,6 +143,20 @@ Pass a host USB or (non-GPU) PCI device through to the Windows guest (#286). Thr
 
 USB devices hot-plug live (`cfg.pod.usb_live`, default on) — no restart needed. A PCI device is boot-added and only becomes visible after a guest restart, so the attach is guarded by a safety confirmation; pass `--force` on the CLI (or confirm the dialog in the GUI) to proceed.
 
+## Bare-metal compatibility mode (hide the hypervisor)
+
+Some software refuses to run under a detected hypervisor — most notably Nvidia's consumer GPU drivers (they fault with **code 43** when they see KVM, the common GPU-passthrough blocker) and apps with launch-gate VM checks. `cfg.pod.disguise_hypervisor` (#246) hides the KVM/QEMU signature from the guest so it presents as a physical PC.
+
+```bash
+winpodx config set pod.disguise_hypervisor true    # enable
+winpodx pod recreate --keep-iso                    # regenerate the compose to apply
+winpodx config set pod.disguise_hypervisor false   # disable
+```
+
+When on, the guest's `-cpu` line clears the CPUID hypervisor-present bit (leaf 1, ECX bit 31 — the primary code-43 / launch-gate trigger), drops the `KVMKVMKVM` signature + KVM paravirt leaves, and reports the host CPU's vendor string at leaf `0x40000000`. Hyper-V performance enlightenments stay on (Windows keys those off a different leaf), so there is no measurable perf cost. The setting is tri-state: absent = legacy (signatures exposed); existing installs are left untouched on upgrade.
+
+> **This is not an anti-cheat bypass.** It is signature-level only and does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard). Bypassing anti-cheat in online games violates their terms of service and risks a ban — winpodx does not support that use.
+
 ## Multi-monitor
 
 Multi-monitor RAIL is on by default (`cfg.rdp.multimon`, default `"span"`): a remote-app window keeps working input when you drag it onto a second monitor. Values:
@@ -286,6 +300,7 @@ idle_timeout = 0                                 # Seconds before auto-suspend (
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
 usb_live = true                                  # Hot-plug attached USB devices into the running guest (no restart) — see `winpodx device`
+# disguise_hypervisor = true                     # Bare-metal mode: hide the KVM/QEMU hypervisor (Nvidia code-43 / VM-hostile apps); NOT an anti-cheat bypass (#246)
 disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `install grow-disk`)
 disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
 disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)
