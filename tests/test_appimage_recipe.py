@@ -160,3 +160,57 @@ def test_forbidden_tokens_are_known():
         "slirp4netns",
         "fuse-overlayfs",
     }
+
+
+# --- Qt6 slimming guard -------------------------------------------------
+# packaging/appimage/slim-pyside6.sh strips the Qt6 modules winpodx never
+# imports from the bundled PySide6 (QtWebEngine etc. -- the bulk of the
+# AppImage). If it ever drops a module the GUI actually uses, the AppImage
+# build would produce a binary that crashes on launch. Cross-check the
+# script's DROP_MODULES against the modules src/winpodx actually imports.
+
+SLIM_SCRIPT = REPO_ROOT / "packaging" / "appimage" / "slim-pyside6.sh"
+SRC_DIR = REPO_ROOT / "src" / "winpodx"
+
+
+def _used_qt_modules() -> set[str]:
+    """Qt module suffixes imported anywhere in src (e.g. {'Core','Widgets'})."""
+    used: set[str] = set()
+    pat = re.compile(r"from\s+PySide6\.Qt(\w+)\s+import|import\s+PySide6\.Qt(\w+)")
+    for py in SRC_DIR.rglob("*.py"):
+        for m in pat.finditer(py.read_text(encoding="utf-8")):
+            used.add(m.group(1) or m.group(2))
+    return used
+
+
+def _drop_modules() -> set[str]:
+    """Qt module suffixes listed in slim-pyside6.sh's DROP_MODULES array."""
+    text = _read(SLIM_SCRIPT)
+    m = re.search(r"DROP_MODULES=\((?P<body>.*?)\)", text, re.DOTALL)
+    assert m is not None, "DROP_MODULES=( ... ) not found in slim-pyside6.sh"
+    return _tokens(m.group("body"))
+
+
+def test_slim_does_not_drop_a_qt_module_winpodx_uses():
+    used = _used_qt_modules()
+    # Sanity: the five modules we expect winpodx to use are present.
+    assert {"Core", "Gui", "Widgets", "Svg", "DBus"} <= used, (
+        f"unexpected Qt import set in src/winpodx: {sorted(used)} -- update the "
+        "slim guard if the GUI legitimately gained/lost a Qt module."
+    )
+    clobbered = sorted(used & _drop_modules())
+    assert not clobbered, (
+        "slim-pyside6.sh DROP_MODULES would remove Qt module(s) winpodx imports: "
+        f"{clobbered}. The AppImage GUI would crash on launch. Remove them from "
+        "DROP_MODULES in packaging/appimage/slim-pyside6.sh."
+    )
+
+
+def test_slim_actually_drops_the_heavy_unused_modules():
+    """Guard the win: the giant unused modules must stay on the droplist."""
+    drop = _drop_modules()
+    for heavy in ("WebEngineCore", "Quick", "Qml", "Multimedia", "Pdf", "Charts"):
+        assert heavy in drop, (
+            f"slim-pyside6.sh no longer drops {heavy!r} -- the AppImage will "
+            "bloat back up. It's unused by winpodx; keep it on DROP_MODULES."
+        )

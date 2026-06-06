@@ -63,6 +63,31 @@ ls -lh winpodx-*-x86_64.AppImage 2>/dev/null || {
     exit 1
 }
 
+# Slim the bundled Qt6 to match the CI release artefact: PySide6 wheels
+# ship the whole Qt6 stack (QtWebEngine etc.), but winpodx links only
+# QtCore/QtGui/QtWidgets/QtSvg/QtDBus. Extract -> prune -> repack. Best-
+# effort locally: if appimagetool isn't on PATH, the slimmed AppDir is left
+# in squashfs-root/ and CI still slims the release build.
+APP="$(ls -t winpodx-*-x86_64.AppImage | head -n1)"
+echo "[appimage] Slimming bundled Qt6 in ${APP} ..."
+rm -rf squashfs-root
+"./${APP}" --appimage-extract >/dev/null
+PYSIDE_DIR="$(find squashfs-root -type d -name PySide6 -path '*site-packages*' | head -n1)"
+if [ -n "${PYSIDE_DIR}" ]; then
+    bash "${HERE}/slim-pyside6.sh" "${PYSIDE_DIR}"
+    if command -v appimagetool >/dev/null 2>&1; then
+        ARCH=x86_64 appimagetool squashfs-root "${APP}" >/dev/null 2>&1
+        chmod +x "${APP}"
+        rm -rf squashfs-root
+        echo "[appimage] Re-packed slim ${APP}: $(du -h "${APP}" | cut -f1)"
+    else
+        echo "[appimage] appimagetool not on PATH -- slimmed AppDir left in squashfs-root/; install appimagetool to repack locally (CI repacks the release build)." >&2
+    fi
+else
+    echo "[appimage] PySide6 dir not found in extracted AppImage -- skipping slim." >&2
+    rm -rf squashfs-root
+fi
+
 # Restore the recipe to its committed shape so the next git status is clean.
 printf 'winpodx[gui,reverse-open]\n' > "${REQ}"
 echo "[appimage] Done."

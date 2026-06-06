@@ -125,6 +125,18 @@ jobs:
               -exec cp {} AppDir/usr/share/doc/winpodx/third-party/python-LICENSE.txt \; 2>/dev/null || true
           du -sh AppDir
 
+      - name: Slim PySide6 — drop unused Qt6 modules
+        # PySide6 wheels bundle the entire Qt6 stack (QtWebEngine ~100 MB+,
+        # QtQuick/QtQml, Qt3D, QtCharts, QtMultimedia + FFmpeg, QtPdf, …).
+        # winpodx links only QtCore/QtGui/QtWidgets/QtSvg/QtDBus, so the rest
+        # is dead weight — this was the real reason the "Thin" AppImage was
+        # still ~270 MB (dropping the podman stack only saved ~20 MB). The
+        # prune removes ~500 MB uncompressed (the bulk of the AppImage).
+        run: |
+          bash packaging/appimage/slim-pyside6.sh \
+            AppDir/opt/python/lib/python3.11/site-packages/PySide6
+          du -sh AppDir
+
       - name: Bundle FreeRDP via Fedora 41
         # Thin-bundle stage: pulls only the FreeRDP 3 client binaries +
         # libwinpr out of a Fedora 41 container and traverses ldd to bring
