@@ -84,6 +84,12 @@ class AppCrudMixin:
 
         delete_app_profile(app.name)
         remove_desktop_entry(app.name)
+        # A discovered profile would be re-created by the next discovery sweep;
+        # record a tombstone so a deleted auto-discovered app stays gone (#514).
+        if getattr(app, "source", "user") == "discovered":
+            from winpodx.core.app import suppress_app_slug
+
+            suppress_app_slug(app.name)
         self._reload_apps()
         self.info_label.setText(tr("Removed: {name}").format(name=app.full_name))
 

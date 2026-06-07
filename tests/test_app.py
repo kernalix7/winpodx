@@ -160,3 +160,60 @@ def test_cli_app_hide_dispatch(monkeypatch):
     app_cli.handle_app(argparse.Namespace(app_command="hide", name="myapp"))
     app_cli.handle_app(argparse.Namespace(app_command="show", name="myapp"))
     assert calls == [("myapp", True), ("myapp", False)]
+
+
+# --- #514: deleting a discovered profile (delete worked only on user/) -------
+
+
+def test_suppress_slug_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import (
+        suppress_app_slug,
+        suppressed_app_slugs,
+        unsuppress_app_slug,
+    )
+
+    assert suppressed_app_slugs() == set()
+    suppress_app_slug("notepad")
+    suppress_app_slug("notepad")  # idempotent
+    suppress_app_slug("calc")
+    assert suppressed_app_slugs() == {"notepad", "calc"}
+    # path-traversal / junk slugs are ignored
+    suppress_app_slug("../evil")
+    assert "../evil" not in suppressed_app_slugs()
+    unsuppress_app_slug("notepad")
+    assert suppressed_app_slugs() == {"calc"}
+
+
+def test_delete_app_profile_removes_discovered(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import data_dir
+    from winpodx.gui.app_dialog import delete_app_profile
+
+    disc = data_dir() / "discovered" / "ghostapp"
+    disc.mkdir(parents=True)
+    (disc / "app.toml").write_text('name = "ghostapp"\n', encoding="utf-8")
+
+    assert delete_app_profile("ghostapp") is True  # found in discovered/
+    assert not disc.exists()
+
+
+def test_persist_discovered_skips_suppressed(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core import discovery as disc_mod
+    from winpodx.core.app import suppress_app_slug
+
+    root = tmp_path / "discovered"  # passed explicitly via target_dir
+    suppress_app_slug("junkapp")
+
+    apps = [
+        disc_mod.DiscoveredApp(name="realapp", full_name="Real App", executable="C:\\r.exe"),
+        disc_mod.DiscoveredApp(name="junkapp", full_name="Junk", executable="C:\\j.exe"),
+    ]
+    disc_mod.persist_discovered(apps, target_dir=root)
+
+    assert (root / "realapp" / "app.toml").exists()
+    assert not (root / "junkapp").exists()  # suppressed → not re-created

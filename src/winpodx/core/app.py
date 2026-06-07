@@ -67,6 +67,60 @@ def discovered_apps_dir() -> Path:
     return data_dir() / "discovered"
 
 
+def _suppressed_file() -> Path:
+    """Tombstone list of discovered slugs the user deleted (#514).
+
+    Deleting a discovered profile only removes its directory — the next
+    discovery sweep would re-create it. Recording the slug here lets
+    ``persist_discovered`` skip it so a deleted auto-discovered app (the
+    "garbage" entries) stays gone across rescans.
+    """
+    return data_dir() / "discovered_suppressed.txt"
+
+
+def suppressed_app_slugs() -> set[str]:
+    """Slugs the user has deleted from discovery (skipped on rediscovery)."""
+    try:
+        text = _suppressed_file().read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {
+        ln.strip() for ln in text.splitlines() if ln.strip() and _SAFE_NAME_RE.match(ln.strip())
+    }
+
+
+def suppress_app_slug(slug: str) -> None:
+    """Add *slug* to the discovery suppress list (idempotent)."""
+    if not _SAFE_NAME_RE.match(slug):
+        return
+    current = suppressed_app_slugs()
+    if slug in current:
+        return
+    current.add(slug)
+    path = _suppressed_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(sorted(current)) + "\n", encoding="utf-8")
+    except OSError as e:  # noqa: BLE001
+        log.warning("could not record suppressed app %r: %s", slug, e)
+
+
+def unsuppress_app_slug(slug: str) -> None:
+    """Remove *slug* from the suppress list so discovery can re-add it."""
+    current = suppressed_app_slugs()
+    if slug not in current:
+        return
+    current.discard(slug)
+    path = _suppressed_file()
+    try:
+        if current:
+            path.write_text("\n".join(sorted(current)) + "\n", encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:  # noqa: BLE001
+        pass
+
+
 _VALID_APP_SOURCES = frozenset({"discovered", "user"})
 
 

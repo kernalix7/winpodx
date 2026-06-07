@@ -337,18 +337,27 @@ def save_app_profile(data: dict) -> Path:
 
 
 def delete_app_profile(name: str) -> bool:
-    """Delete an app profile directory."""
+    """Delete an app profile directory (user OR discovered) (#514).
+
+    Profiles live in two places: user-authored under ``apps/`` and
+    auto-discovered under ``discovered/``. The old version only looked in
+    ``apps/``, so deleting a discovered app silently did nothing. Remove the
+    directory from whichever root holds it (path-traversal guarded per root).
+    """
     import shutil
 
     if not _validate_app_name(name):
         return False
 
-    app_dir = data_dir() / "apps" / name
-    apps_root = data_dir() / "apps"
-    if not app_dir.resolve().is_relative_to(apps_root.resolve()):
-        return False
-
-    if app_dir.exists():
-        shutil.rmtree(app_dir)
-        return True
-    return False
+    deleted = False
+    for root in (data_dir() / "apps", data_dir() / "discovered"):
+        app_dir = root / name
+        try:
+            if not app_dir.resolve().is_relative_to(root.resolve()):
+                continue
+        except OSError:
+            continue
+        if app_dir.exists():
+            shutil.rmtree(app_dir, ignore_errors=True)
+            deleted = True
+    return deleted

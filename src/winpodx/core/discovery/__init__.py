@@ -1063,12 +1063,18 @@ def persist_discovered(
         apps = _merge_essentials(apps)
 
     written: list[Path] = []
+    from winpodx.core.app import suppressed_app_slugs
+
+    suppressed = suppressed_app_slugs()  # user-deleted discovered apps (#514)
+
     seen: set[str] = set()
     for app in apps:
         if app.name in seen:
             continue
         if not _SAFE_NAME_RE.match(app.name):
             continue
+        if app.name in suppressed:
+            continue  # deleted from discovery — don't resurrect it
         seen.add(app.name)
 
         app_dir = root / app.name
