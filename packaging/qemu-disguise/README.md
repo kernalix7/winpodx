@@ -63,7 +63,7 @@ QEMU won't run in the image). To override the baked strings:
 podman build -t winpodx-windows-disguise \
   --build-arg DOCKUR_IMAGE=docker.io/dockurr/windows:latest \
   --build-arg QEMU_VERSION=10.0.8 \
-  --build-arg ACPI_OEM6=LENOVO --build-arg DISK_MODEL='Samsung SSD 990' \
+  --build-arg ACPI_OEM6=ACME --build-arg DISK_MODEL='ACME SSD 1TB' \
   -f packaging/qemu-disguise/Dockerfile packaging/qemu-disguise
 ```
 

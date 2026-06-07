@@ -18,8 +18,10 @@ def test_build_image_uses_host_values_and_sets_config(monkeypatch, tmp_path):
     (recipe / "Dockerfile").write_text("x", encoding="utf-8")
 
     monkeypatch.setattr(d, "_recipe_dir", lambda: recipe)
-    monkeypatch.setattr(d, "_host_dmi", lambda n: "LENOVO" if n == "sys_vendor" else "")
-    monkeypatch.setattr(d, "_host_disk_model", lambda: "Samsung SSD 990")
+    # Synthetic host values (NOT any real machine's) — proves the command passes
+    # whatever the host reports, without baking a real vendor into the repo.
+    monkeypatch.setattr(d, "_host_dmi", lambda n: "ACME" if n == "sys_vendor" else "")
+    monkeypatch.setattr(d, "_host_disk_model", lambda: "ACME SSD 1TB")
     monkeypatch.setattr(d, "_qemu_version", lambda backend, image: "10.0.8")
 
     captured: dict = {}
@@ -31,8 +33,8 @@ def test_build_image_uses_host_values_and_sets_config(monkeypatch, tmp_path):
 
     joined = " ".join(captured["cmd"])
     assert "build" in captured["cmd"]
-    assert "ACPI_OEM6=LENOVO" in joined  # host vendor, not a fixed ASUS
-    assert "DISK_MODEL=Samsung SSD 990" in joined  # host disk, not a fixed model
+    assert "ACPI_OEM6=ACME" in joined  # host vendor, not a fixed ASUS
+    assert "DISK_MODEL=ACME SSD 1TB" in joined  # host disk, not a fixed model
     assert "QEMU_VERSION=10.0.8" in joined
     assert Config.load().pod.disguise_image == "winpodx-windows-disguise"
 
