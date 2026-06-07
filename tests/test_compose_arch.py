@@ -186,9 +186,9 @@ def test_compose_disguise_max_uses_emulated_devices(monkeypatch):
         assert flag in content
     assert 'HV: "N"' in content  # the max-only Hyper-V opt-out
     assert 'DISK_TYPE: "sata"' in content  # emulated AHCI disk (no viostor/vioscsi)
+    assert 'ADAPTER: "e1000"' in content  # emulated NIC (no netkvm)
+    assert 'MTU: "1500"' in content  # required so dockur omits host_mtu (e1000 rejects it)
     assert 'VGA: "std"' in content  # std VGA (no Red Hat QXL/virtio-gpu)
-    # NIC stays virtio: dockur's host_mtu= breaks e1000 (QEMU aborts at boot).
-    assert 'ADAPTER: ""' in content
     assert "virtio-rng-pci" not in content  # the rng would re-add VEN_1AF4
 
 
@@ -212,6 +212,7 @@ def test_compose_disguise_balanced_keeps_virtio_devices(monkeypatch):
     content = _build_compose_content(cfg)
     assert 'DISK_TYPE: ""' in content
     assert 'ADAPTER: ""' in content
+    assert 'MTU: ""' in content
     assert 'VGA: ""' in content
 
 

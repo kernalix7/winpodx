@@ -151,7 +151,7 @@ USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필
 |------|------|------|
 | `off` | 숨김 없음 — 정직한 VM | 최고(호환성도) |
 | `balanced` (기본) | CPUID 하이퍼바이저 비트 + KVM 시그니처 제거, 호스트 SMBIOS/DMI 미러링, 합성 센서 디스크립터, 물리 PC 같은 디스크 크기 광고 | 손실 없음 |
-| `max` | `balanced` + **에뮬레이트 가상 하드웨어** — 디스크 → SATA(AHCI), GPU → std VGA, virtio-rng 제거 — 그리고 `HV=N`. virtio 디스크(`vioscsi`/`viostor`)와 QXL(`VEN_1B36`) 시그니처 제거. (NIC는 virtio 유지: dockur가 어댑터에 `host_mtu=`를 붙이는데 virtio-net만 지원 → e1000은 QEMU 부팅 시 abort. 그래서 `netkvm`/NIC `VEN_1AF4`는 남음.) **wipe+재설치 필요**(부팅 디스크 컨트롤러가 바뀌어 기존 설치 부팅 불가) → max 전환 시 강력 확인 후 Windows 처음부터 재설치. | **대폭 느려짐** — 에뮬레이트 디스크는 virtio보다 throughput 훨씬 낮음, Hyper-V enlightenment도 꺼짐 |
+| `max` | `balanced` + **에뮬레이트 가상 하드웨어** — 디스크 → SATA(AHCI), 네트워크 → e1000(`MTU=1500`), GPU → std VGA, virtio-rng 제거 — 그리고 `HV=N`. virtio(`VEN_1AF4`)/QXL(`VEN_1B36`) PCI ID와 `vioscsi`/`viostor`/`netkvm` 드라이버 제거. (`MTU=1500`은 dockur가 e1000이 거부하는 `host_mtu=`를 안 붙이게 하려고 필수.) **wipe+재설치 필요**(부팅 디스크 컨트롤러가 바뀌어 기존 설치 부팅 불가) → max 전환 시 강력 확인 후 Windows 처음부터 재설치. | **대폭 느려짐** — 에뮬레이트 디스크+NIC는 virtio보다 throughput 훨씬 낮음, Hyper-V enlightenment도 꺼짐 |
 
 ```bash
 winpodx config set pod.disguise_level off        # 정직한 VM
