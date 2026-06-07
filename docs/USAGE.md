@@ -151,7 +151,7 @@ Some software refuses to run under a detected hypervisor — most notably Nvidia
 |-------|--------------|-------------|
 | `off` | No disguise — an honest VM. | Best (and most compatible) |
 | `balanced` (default) | Clears the CPUID hypervisor bit + KVM signature, mirrors the host's SMBIOS/DMI, adds synthetic sensor descriptors, and advertises a bare-metal-looking disk size. | No measurable cost |
-| `max` | Everything in `balanced` **plus** disabling the Hyper-V enlightenments (`HV=N`) so the al-khaser / Pafish Hyper-V checks pass. | Noticeably slower (loses the Windows-on-KVM timer/scheduler tuning) |
+| `max` | Everything in `balanced` **plus** dropping the Hyper-V CPUID enlightenments (`HV=N`) to shrink the VM's CPUID surface. (Note: al-khaser's Hyper-V *driver/object* checks key off the VM-generation-id device + guest integration drivers, which `HV=N` alone doesn't remove on an already-installed guest — those clear only on a fresh `max` install.) | Noticeably slower (loses the Windows-on-KVM timer/scheduler tuning) |
 
 ```bash
 winpodx config set pod.disguise_level off        # honest VM

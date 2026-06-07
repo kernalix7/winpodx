@@ -585,16 +585,26 @@ def _disguise_disk_size(cfg: Config) -> str:
     size when the disguise is active and the host can safely back it (#246).
 
     al-khaser / Pafish flag a disk under ~128 GB as a VM tell. The dockur disk
-    is sparse, so a larger *ceiling* costs ~0 host space up front — but we still
-    gate on host headroom (via ``disk.effective_max_bytes``, which keeps the
-    10 GiB / 10 % reserve) so a runaway guest can never fill the host disk. When
-    the host can't reach the threshold, the size is left as-is and a warning is
-    logged (best-effort — the disk-size check then stays a VM tell).
+    is **sparse**, so a larger *ceiling* costs ~0 host space up front — it only
+    consumes what Windows actually writes. So the gate just needs to guarantee
+    that even a fully-written guest can't overfill the host: require the target
+    size free, plus a flat 10 GiB floor. (We deliberately do NOT reuse
+    ``disk.effective_max_bytes`` here — its reserve is 10 % of the *total*
+    filesystem, sized for repeated auto-grows; on a multi-TB host that demanded
+    hundreds of GB free just to advertise a 128 GB sparse ceiling, so a host
+    with plenty free was wrongly skipped.) Respects an explicit ``disk_max_size``
+    cap. When the host can't back it, the size is left as-is + a warning logged.
     """
     cur = cfg.pod.disk_size
     if not cfg.pod.disguise_active:
         return cur
-    from winpodx.core.disk import DiskError, effective_max_bytes, format_size, parse_size
+    from winpodx.core.disk import (
+        _HOST_RESERVE_FLOOR,
+        DiskError,
+        _host_free_and_total,
+        format_size,
+        parse_size,
+    )
 
     target = 128 * (1024**3)  # 128 GiB clears the al-khaser / Pafish thresholds
     try:
@@ -603,16 +613,30 @@ def _disguise_disk_size(cfg: Config) -> str:
         return cur
     if cur_b >= target:
         return cur  # already real-looking — never shrink the user's disk
-    cap = effective_max_bytes(cfg, cur_b)  # None = host-trusted / unbounded
-    want = target if cap is None else min(target, cap)
+
+    want = target
+    if cfg.pod.disk_max_size:  # honour an explicit user cap
+        try:
+            want = min(target, parse_size(cfg.pod.disk_max_size))
+        except DiskError:
+            want = target
     if want <= cur_b:
-        logging.getLogger(__name__).warning(
-            "disguise: not enough host free space to enlarge the %s disk to a "
-            "bare-metal-looking size; the disk-size VM check will not pass. Free "
-            "up host space or raise cfg.pod.disk_size to hide it.",
-            cur,
-        )
-        return cur
+        return cur  # user cap below the threshold — nothing to do
+
+    ht = _host_free_and_total(cfg)
+    if ht is not None:
+        free, _total = ht
+        if free - _HOST_RESERVE_FLOOR < want:
+            logging.getLogger(__name__).warning(
+                "disguise: host has %.0f GiB free, need ~%.0f GiB to safely "
+                "advertise a bare-metal disk; leaving %s (disk-size VM check "
+                "stays). Free up host space or raise cfg.pod.disk_size to hide it.",
+                free / (1024**3),
+                (want + _HOST_RESERVE_FLOOR) / (1024**3),
+                cur,
+            )
+            return cur
+    # ht is None → named-volume / unknown root → host-trusted, bump.
     try:
         return format_size(want)
     except DiskError:

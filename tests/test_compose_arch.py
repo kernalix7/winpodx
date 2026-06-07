@@ -188,19 +188,44 @@ def test_compose_disguise_max_disables_hyperv(monkeypatch):
 
 
 def test_compose_disguise_disk_not_bumped_when_host_small(monkeypatch):
-    """A host with no headroom leaves the disk as-is (warn, no bump) — #246."""
+    """A host without room for the target leaves the disk as-is (warn) — #246."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     import winpodx.core.disk as _disk
 
-    # effective_max_bytes == current bytes → no headroom → must not bump.
-    monkeypatch.setattr(_disk, "effective_max_bytes", lambda cfg, cur: cur)
+    # 50 GiB free − 10 GiB floor = 40 GiB < 128 GiB target → must not bump.
+    monkeypatch.setattr(
+        _disk, "_host_free_and_total", lambda cfg: (50 * 1024**3, 100 * 1024**3)
+    )
     cfg = _cfg()
     cfg.pod.disguise_level = "balanced"
     cfg.pod.disk_size = "64G"
-    cfg.pod.storage_path = "/some/path"  # non-empty → effective_max_bytes consulted
+    cfg.pod.storage_path = "/some/path"  # non-empty → host free space consulted
     content = _build_compose_content(cfg)
     assert 'DISK_SIZE: "64G"' in content  # left as-is, not enlarged
+
+
+def test_compose_disguise_disk_bumped_when_host_has_room(monkeypatch):
+    """Plenty of host free space → disk advertised at 128G (sparse) — #246.
+
+    Regression: the old gate reused effective_max_bytes (reserve = 10 % of the
+    *total* filesystem), so a multi-TB host with hundreds of GB free was still
+    skipped. The flat-floor gate bumps whenever the target fits.
+    """
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    import winpodx.core.disk as _disk
+
+    # 300 GiB free on a 4 TB disk → must bump despite the 10 %-of-total being huge.
+    monkeypatch.setattr(
+        _disk, "_host_free_and_total", lambda cfg: (300 * 1024**3, 4000 * 1024**3)
+    )
+    cfg = _cfg()
+    cfg.pod.disguise_level = "balanced"
+    cfg.pod.disk_size = "64G"
+    cfg.pod.storage_path = "/some/path"
+    content = _build_compose_content(cfg)
+    assert 'DISK_SIZE: "128G"' in content
 
 
 def test_compose_disguise_off_opts_out(monkeypatch):

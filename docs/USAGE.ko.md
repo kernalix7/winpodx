@@ -151,7 +151,7 @@ USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필
 |------|------|------|
 | `off` | 숨김 없음 — 정직한 VM | 최고(호환성도) |
 | `balanced` (기본) | CPUID 하이퍼바이저 비트 + KVM 시그니처 제거, 호스트 SMBIOS/DMI 미러링, 합성 센서 디스크립터, 물리 PC 같은 디스크 크기 광고 | 손실 없음 |
-| `max` | `balanced` + Hyper-V enlightenment 비활성(`HV=N`)으로 al-khaser/Pafish Hyper-V 체크 통과 | 눈에 띄게 느려짐(Windows-on-KVM 타이머/스케줄러 튜닝 손실) |
+| `max` | `balanced` + Hyper-V CPUID enlightenment 비활성(`HV=N`)으로 CPUID 표면 축소. (참고: al-khaser의 Hyper-V *드라이버/오브젝트* 체크는 vmgenid 디바이스 + 게스트 통합 드라이버를 보는데, 기존 설치된 게스트에선 `HV=N`만으로 안 지워짐 — 새 `max` 설치에서만 정리됨) | 눈에 띄게 느려짐(Windows-on-KVM 타이머/스케줄러 튜닝 손실) |
 
 ```bash
 winpodx config set pod.disguise_level off        # 정직한 VM
