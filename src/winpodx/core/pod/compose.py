@@ -311,6 +311,7 @@ def _disguise_smbios_args() -> list[str]:
     board_vendor = _host_dmi_field("board_vendor")
     board = _host_dmi_field("board_name")
     bios_vendor = _host_dmi_field("bios_vendor")
+    bios_version = _host_dmi_field("bios_version")
     bios_date = _host_dmi_field("bios_date")
     chassis_vendor = _host_dmi_field("chassis_vendor")
 
@@ -318,6 +319,8 @@ def _disguise_smbios_args() -> list[str]:
     t0 = []
     if bios_vendor:
         t0.append(f"vendor={bios_vendor}")
+    if bios_version:
+        t0.append(f"version={bios_version}")
     if bios_date:
         t0.append(f"date={bios_date}")
     if t0:

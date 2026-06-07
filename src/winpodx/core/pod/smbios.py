@@ -9,9 +9,12 @@ corresponding ``Win32_*`` / ``CIM_*`` WMI classes, not live readings, so static
 descriptor structures with nominal/unknown values are enough to satisfy them.
 
 This module builds a small binary SMBIOS structure table (types 26 / 28 / 27 /
-7 / 9 / 8) with **synthetic** values — no host serials or live sensor data are
-read, so nothing machine-identifying is produced. The blob is written to the
-OEM dir (mounted into the container) and passed to QEMU via ``-smbios file=``.
+7 / 9 / 8 / 16 / 17 / 11) with **synthetic** values — no host serials or live
+sensor data are read, so nothing machine-identifying is produced. The blob is
+written to the OEM dir (mounted into the container) and passed to QEMU via
+``-smbios file=``. Types 16 / 17 add the physical-memory-array / memory-device
+descriptors (``Win32_PhysicalMemory`` existence); type 11 adds a benign OEM
+string so a raw SMBIOS string scan finds no ``QEMU`` / ``winpodx`` marker.
 
 Format: each structure is ``type(1) length(1) handle(2 LE) <formatted> <strings>``
 where the string-set is the referenced 1-indexed null-terminated strings
@@ -29,6 +32,9 @@ _H_COOL = 0x1B00
 _H_CACHE = 0x0700
 _H_SLOT = 0x0900
 _H_PORT = 0x0800
+_H_MEMARRAY = 0x1000
+_H_MEMDEV = 0x1100
+_H_OEMSTR = 0x0B00
 
 _UNKNOWN_W = 0x8000  # SMBIOS "unknown" sentinel for WORD probe values
 
@@ -112,6 +118,53 @@ def build_disguise_smbios_blob() -> bytes:
     # Type 8 — Port Connector
     port = bytes([1, 0xFF, 2, 0xFF, 0xFF])  # int-ref, int-type, ext-ref, ext-type, port-type
     parts.append(_structure(8, _H_PORT, port, ["J1", "USB"]))
+
+    # Type 16 — Physical Memory Array (parent of the memory devices). Satisfies
+    # the Win32_PhysicalMemoryArray existence check; QEMU's default SMBIOS omits
+    # it, which al-khaser flags as a VM tell.
+    mem_array = (
+        bytes([0x03, 0x03, 0x03])  # location: system board, use: system memory, ecc: none
+        + _dw(0x04000000)  # maximum capacity = 64 GB (in KB)
+        + _w(0xFFFE)  # memory error info handle: not provided
+        + _w(1)  # number of memory devices
+    )
+    parts.append(_structure(16, _H_MEMARRAY, mem_array, []))
+
+    # Type 17 — Memory Device (one synthetic DIMM under the array). Satisfies the
+    # Win32_PhysicalMemory / CIM_PhysicalMemory existence checks. All strings are
+    # synthetic (no host serial / part is read); the serial is a static
+    # placeholder, never a real module serial.
+    mem_dev = (
+        _w(_H_MEMARRAY)  # physical memory array handle
+        + _w(0xFFFE)  # memory error info handle: not provided
+        + _w(0x0040)  # total width: 64 bits
+        + _w(0x0040)  # data width: 64 bits
+        + _w(0x4000)  # size: 16384 MB (16 GB)
+        + bytes([0x09])  # form factor: DIMM
+        + bytes([0x00])  # device set: none
+        + bytes([1])  # device locator (string 1)
+        + bytes([2])  # bank locator (string 2)
+        + bytes([0x1A])  # memory type: DDR4
+        + _w(0x0080)  # type detail: synchronous
+        + _w(0x0C80)  # speed: 3200 MT/s
+        + bytes([3])  # manufacturer (string 3)
+        + bytes([4])  # serial number (string 4)
+        + bytes([5])  # asset tag (string 5)
+        + bytes([6])  # part number (string 6)
+    )
+    parts.append(
+        _structure(
+            17,
+            _H_MEMDEV,
+            mem_dev,
+            ["DIMM 0", "BANK 0", "Generic", "00000000", "Not Specified", "Generic Module"],
+        )
+    )
+
+    # Type 11 — OEM Strings. Real boards expose a type-11 structure; QEMU often
+    # omits it. A single benign "Default string" (what most retail boards ship)
+    # avoids leaking "QEMU" / "winpodx" into a raw SMBIOS string scan.
+    parts.append(_structure(11, _H_OEMSTR, bytes([1]), ["Default string"]))
 
     blob = b"".join(parts)
     validate_blob(blob)  # raise on any encoding slip before it reaches QEMU
