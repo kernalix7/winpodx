@@ -41,6 +41,10 @@ tmp-igbkp/
 # Never commit — carries a per-install secret.
 config/oem/agent_token.txt
 
+# Synthetic SMBIOS disguise blob, generated into the OEM bind mount at
+# compose time (#246). Runtime artefact — never commit.
+config/oem/winpodx-smbios.bin
+
 # Coverage / test artefacts.
 .coverage
 htmlcov/

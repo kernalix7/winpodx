@@ -884,3 +884,59 @@ class TestMaybeAutoMigrateStorage:
         assert "FAIL" in out
         assert "rsync interrupted" in out
         assert "winpodx setup --migrate-storage" in out
+
+
+# --- _ensure_canonical_image_pin: recreate on compose change ---
+
+
+def _pin_cfg():
+    from winpodx.core.config import DOCKUR_IMAGE_PIN
+
+    cfg = MagicMock()
+    cfg.pod.backend = "podman"
+    cfg.pod.image = DOCKUR_IMAGE_PIN  # already pinned → isolate the compose-diff path
+    return cfg
+
+
+def test_canonical_pin_recreates_when_compose_changed_and_running(tmp_path):
+    from winpodx.cli.migrate import _ensure_canonical_image_pin
+    from winpodx.core.pod import PodState
+
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("OLD", encoding="utf-8")
+    with (
+        patch("winpodx.core.config.Config.load", return_value=_pin_cfg()),
+        patch("winpodx.utils.paths.config_dir", return_value=tmp_path),
+        patch(
+            "winpodx.core.compose.generate_compose",
+            side_effect=lambda c: compose.write_text("NEW", encoding="utf-8"),
+        ),
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.RUNNING)),
+        patch("winpodx.core.pod.stop_pod") as stop,
+        patch("winpodx.core.pod.start_pod") as start,
+    ):
+        _ensure_canonical_image_pin(non_interactive=True)
+    stop.assert_called_once()
+    start.assert_called_once()
+
+
+def test_canonical_pin_no_recreate_when_compose_unchanged(tmp_path):
+    from winpodx.cli.migrate import _ensure_canonical_image_pin
+    from winpodx.core.pod import PodState
+
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("SAME", encoding="utf-8")
+    with (
+        patch("winpodx.core.config.Config.load", return_value=_pin_cfg()),
+        patch("winpodx.utils.paths.config_dir", return_value=tmp_path),
+        patch(
+            "winpodx.core.compose.generate_compose",
+            side_effect=lambda c: compose.write_text("SAME", encoding="utf-8"),
+        ),
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.RUNNING)),
+        patch("winpodx.core.pod.stop_pod") as stop,
+        patch("winpodx.core.pod.start_pod") as start,
+    ):
+        _ensure_canonical_image_pin(non_interactive=True)
+    stop.assert_not_called()
+    start.assert_not_called()

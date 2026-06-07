@@ -181,6 +181,7 @@ def test_compose_disguise_smbios_mirrors_host_dmi(monkeypatch):
         "board_vendor": "ACME",
         "board_name": "BRD-42",
         "bios_vendor": "ACME",
+        "bios_version": "BIOS-1.0",
         "bios_date": "01/01/2020",
         "chassis_vendor": "ACME",
     }
@@ -189,7 +190,7 @@ def test_compose_disguise_smbios_mirrors_host_dmi(monkeypatch):
     cfg.pod.disguise_hypervisor = None  # default ON
     content = _build_compose_content(cfg)
     assert "type=1,manufacturer=ACME,product=MDL-9000" in content
-    assert "type=0,vendor=ACME,date=01/01/2020" in content
+    assert "type=0,vendor=ACME,version=BIOS-1.0,date=01/01/2020" in content
     assert "type=3,manufacturer=ACME" in content
 
 
