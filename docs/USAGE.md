@@ -145,17 +145,26 @@ USB devices hot-plug live (`cfg.pod.usb_live`, default on) — no restart needed
 
 ## Bare-metal compatibility mode (hide the hypervisor)
 
-Some software refuses to run under a detected hypervisor — most notably Nvidia's consumer GPU drivers (they fault with **code 43** when they see KVM, the common GPU-passthrough blocker) and apps with launch-gate VM checks. `cfg.pod.disguise_hypervisor` (#246) hides the KVM/QEMU signature from the guest so it presents as a physical PC. **It is on by default.**
+Some software refuses to run under a detected hypervisor — most notably Nvidia's consumer GPU drivers (they fault with **code 43** when they see KVM, the common GPU-passthrough blocker) and apps with launch-gate VM checks. `cfg.pod.disguise_level` (#246) hides the KVM/QEMU signature from the guest so it presents as a physical PC. It has **three levels, default `balanced`**:
+
+| Level | What it does | Performance |
+|-------|--------------|-------------|
+| `off` | No disguise — an honest VM. | Best (and most compatible) |
+| `balanced` (default) | Clears the CPUID hypervisor bit + KVM signature, mirrors the host's SMBIOS/DMI, adds synthetic sensor descriptors, and advertises a bare-metal-looking disk size. | No measurable cost |
+| `max` | Everything in `balanced` **plus** disabling the Hyper-V enlightenments (`HV=N`) so the al-khaser / Pafish Hyper-V checks pass. | Noticeably slower (loses the Windows-on-KVM timer/scheduler tuning) |
 
 ```bash
-winpodx config set pod.disguise_hypervisor false   # opt out
-winpodx pod recreate                               # regenerate compose + recreate the container (keeps your Windows disk)
-winpodx config set pod.disguise_hypervisor true    # turn it back on
+winpodx config set pod.disguise_level off        # honest VM
+winpodx config set pod.disguise_level balanced   # default — free hiding
+winpodx config set pod.disguise_level max        # maximum hiding, slower
+winpodx pod recreate                             # regenerate compose + recreate the container (keeps your Windows disk)
 ```
 
-You can also toggle it in the GUI: **Settings → Bare-metal compatibility**. Either way it takes effect after a `winpodx pod recreate` (it edits the QEMU `-cpu` line; recreate keeps your Windows disk).
+You can also pick the level in the GUI: **Settings → Bare-metal compatibility**. Either way it takes effect after a `winpodx pod recreate` (it edits the QEMU `-cpu` line, the `HV` env, and the disk size; recreate keeps your Windows disk).
 
-When on, the guest's `-cpu` line clears the CPUID hypervisor-present bit (leaf 1, ECX bit 31 — the primary code-43 / launch-gate trigger) and drops the `KVMKVMKVM` signature + KVM paravirt leaves. Hyper-V performance enlightenments stay on (Windows keys those off a different leaf), so there is no measurable perf cost. The setting is tri-state — `false` opts out; absent or `true` is on.
+**Not an anti-cheat bypass.** This is signature-level VM hiding for casual detectors and VM-hostile apps (code 43, DRM/launch gates). It does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard) — those anchor on hardware attestation (TPM + Secure Boot) and VM-exit timing the guest can't spoof — and bypassing online-game anti-cheat violates the game's ToS.
+
+The disk bump is gated: the dockur disk is sparse, so a larger advertised size costs ~0 host space up front, but winpodx only raises it when the host has enough free space (keeping a 10 GiB / 10 % reserve). On a small host it leaves the disk as-is and logs a warning. The pre-0.6.x `disguise_hypervisor = false` key still works — it maps to `off`.
 
 > **This is not an anti-cheat bypass.** It is signature-level only and does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard). Bypassing anti-cheat in online games violates their terms of service and risks a ban — winpodx does not support that use.
 
@@ -302,7 +311,7 @@ idle_timeout = 0                                 # Seconds before auto-suspend (
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
 image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
 usb_live = true                                  # Hot-plug attached USB devices into the running guest (no restart) — see `winpodx device`
-# disguise_hypervisor = false                    # Bare-metal mode (hide KVM/QEMU hypervisor) is ON by default; set false to opt out — Nvidia code-43 / VM-hostile apps; not an anti-cheat bypass (#246)
+# disguise_level = "balanced"                    # Bare-metal mode: off | balanced (default, free hiding) | max (Hyper-V off, slower) — Nvidia code-43 / VM-hostile apps; not an anti-cheat bypass (#246)
 disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `install grow-disk`)
 disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
 disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)

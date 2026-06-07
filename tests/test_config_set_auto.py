@@ -69,3 +69,53 @@ class TestSetAuto:
             _set("pod.timezone", value=None, auto=False)
         assert exc.value.code == 1
         assert "Either pass a positional value or --auto" in capsys.readouterr().out
+
+
+class TestApplyComposeChange:
+    """`config set` of a compose-affecting key auto-applies it (#246)."""
+
+    def _seed(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.save()
+
+    def _stub_pod(self, monkeypatch, *, running: bool):
+        import winpodx.core.compose as _compose
+        import winpodx.core.pod as _pod
+
+        monkeypatch.setattr(_compose, "generate_compose", lambda c: None)
+        state = _pod.PodState.RUNNING if running else _pod.PodState.STOPPED
+        monkeypatch.setattr(_pod, "pod_status", lambda c: type("S", (), {"state": state})())
+        calls = {"stop": 0, "start": 0}
+        monkeypatch.setattr(
+            _pod, "stop_pod", lambda c: calls.__setitem__("stop", calls["stop"] + 1)
+        )
+        monkeypatch.setattr(
+            _pod, "start_pod", lambda c: calls.__setitem__("start", calls["start"] + 1)
+        )
+        return calls
+
+    def test_disguise_level_recreates_when_running(self, tmp_path, monkeypatch, capsys):
+        self._seed(tmp_path, monkeypatch)
+        calls = self._stub_pod(monkeypatch, running=True)
+        _set("pod.disguise_level", value="max", auto=False)
+        out = capsys.readouterr().out
+        assert "Set pod.disguise_level = max" in out
+        assert calls == {"stop": 1, "start": 1}  # recreated now
+        assert Config.load().pod.disguise_level == "max"
+
+    def test_disguise_level_defers_when_stopped(self, tmp_path, monkeypatch, capsys):
+        self._seed(tmp_path, monkeypatch)
+        calls = self._stub_pod(monkeypatch, running=False)
+        _set("pod.disguise_level", value="off", auto=False)
+        out = capsys.readouterr().out
+        assert "applies on the next" in out
+        assert calls == {"stop": 0, "start": 0}  # not running → no recreate
+        assert Config.load().pod.disguise_level == "off"
+
+    def test_non_compose_key_does_not_recreate(self, tmp_path, monkeypatch, capsys):
+        self._seed(tmp_path, monkeypatch)
+        calls = self._stub_pod(monkeypatch, running=True)
+        _set("pod.auto_start", value="true", auto=False)
+        assert calls == {"stop": 0, "start": 0}  # not a compose key

@@ -145,17 +145,26 @@ USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필
 
 ## bare-metal 호환 모드 (하이퍼바이저 숨김)
 
-일부 소프트웨어는 하이퍼바이저가 감지되면 실행을 거부합니다 — 대표적으로 Nvidia 소비자 GPU 드라이버(KVM 감지 시 **code 43**, GPU 패스스루의 흔한 차단 원인)와 런치게이트 VM 체크가 있는 앱들. `cfg.pod.disguise_hypervisor` (#246) 가 KVM/QEMU 시그니처를 게스트에서 숨겨 물리 PC 처럼 보이게 합니다. **기본 활성화(on)** 입니다.
+일부 소프트웨어는 하이퍼바이저가 감지되면 실행을 거부합니다 — 대표적으로 Nvidia 소비자 GPU 드라이버(KVM 감지 시 **code 43**, GPU 패스스루의 흔한 차단 원인)와 런치게이트 VM 체크가 있는 앱들. `cfg.pod.disguise_level` (#246) 이 KVM/QEMU 시그니처를 게스트에서 숨겨 물리 PC 처럼 보이게 합니다. **3단계, 기본값 `balanced`**:
+
+| 레벨 | 동작 | 성능 |
+|------|------|------|
+| `off` | 숨김 없음 — 정직한 VM | 최고(호환성도) |
+| `balanced` (기본) | CPUID 하이퍼바이저 비트 + KVM 시그니처 제거, 호스트 SMBIOS/DMI 미러링, 합성 센서 디스크립터, 물리 PC 같은 디스크 크기 광고 | 손실 없음 |
+| `max` | `balanced` + Hyper-V enlightenment 비활성(`HV=N`)으로 al-khaser/Pafish Hyper-V 체크 통과 | 눈에 띄게 느려짐(Windows-on-KVM 타이머/스케줄러 튜닝 손실) |
 
 ```bash
-winpodx config set pod.disguise_hypervisor false   # 끄기 (opt out)
-winpodx pod recreate                               # compose 재생성 + 컨테이너만 재생성 (Windows 디스크 유지)
-winpodx config set pod.disguise_hypervisor true    # 다시 켜기
+winpodx config set pod.disguise_level off        # 정직한 VM
+winpodx config set pod.disguise_level balanced   # 기본 — 무손실 숨김
+winpodx config set pod.disguise_level max        # 최대 숨김, 느려짐
+winpodx pod recreate                             # compose 재생성 + 컨테이너만 재생성 (Windows 디스크 유지)
 ```
 
-GUI에서도 토글 가능: **Settings → Bare-metal compatibility**. 어느 쪽이든 `winpodx pod recreate` 후 적용됨 (QEMU `-cpu` 라인을 바꾸므로; recreate는 Windows 디스크 유지).
+GUI에서도 선택 가능: **Settings → Bare-metal compatibility**. 어느 쪽이든 `winpodx pod recreate` 후 적용됨 (QEMU `-cpu` 라인 + `HV` env + 디스크 크기를 바꾸므로; recreate는 Windows 디스크 유지).
 
-켜면 게스트 `-cpu` 라인이 CPUID 하이퍼바이저-존재 비트(leaf 1, ECX 31 — code-43/런치게이트의 주 트리거)를 지우고 `KVMKVMKVM` 시그니처 + KVM 파라버트 leaf 를 제거합니다. Hyper-V 성능 enlightenment 는 유지(Windows 가 다른 leaf 로 감지)되어 성능 손실 없음. tri-state: `false` = 끔, 키 없음 또는 `true` = 켬.
+**안티치트 우회 아님.** 캐주얼 탐지기와 VM 거부 앱(code 43, DRM/런치게이트)용 시그니처 레벨 숨김입니다. 커널 안티치트(EAC/BattlEye/Vanguard)는 **못 피합니다** — 하드웨어 attestation(TPM + Secure Boot)과 게스트가 위조 못 하는 VM-exit 타이밍에 의존하며, 온라인 게임 안티치트 우회는 게임 ToS 위반입니다.
+
+디스크 확대는 게이트됨: dockur 디스크는 sparse 라 광고 크기를 키워도 호스트 공간을 즉시 먹지 않지만, 호스트 여유 공간이 충분할 때만(10 GiB / 10 % 예약 유지) 올립니다. 작은 호스트에선 그대로 두고 경고만 출력. 구버전 `disguise_hypervisor = false` 키도 계속 작동 — `off` 로 매핑됩니다.
 
 > **안티치트 우회가 아닙니다.** 시그니처 레벨만이며 커널모드 안티치트(EAC / BattlEye / Vanguard)는 못 뚫습니다. 온라인 게임 안티치트 우회는 ToS 위반이고 밴 위험 — winpodx 는 그 용도를 지원하지 않습니다.
 
@@ -302,7 +311,7 @@ idle_timeout = 0                                 # 자동 suspend 까지 초 (0 
 boot_timeout = 300                               # 첫 부팅 unattended 설치 대기 초
 image = "docker.io/dockurr/windows:latest"       # 컨테이너 이미지 (에어갭 미러용 override)
 usb_live = true                                  # attach 된 USB 장치를 실행 중 게스트에 hot-plug (재시작 없이) — `winpodx device` 참고
-# disguise_hypervisor = false                    # bare-metal 모드(KVM/QEMU 하이퍼바이저 숨김) 기본 ON; 끄려면 false — Nvidia code-43 / VM 거부 앱; 안티치트 우회 아님 (#246)
+# disguise_level = "balanced"                    # bare-metal 모드: off | balanced(기본, 무손실 숨김) | max(Hyper-V 끔, 느려짐) — Nvidia code-43 / VM 거부 앱; 안티치트 우회 아님 (#246)
 disk_size = "64G"                                # dockur 에 전달하는 가상 디스크 크기 (`install grow-disk` 로 확장)
 disk_autogrow = true                             # C: 가 임계 넘으면 자동 확장 (idle 일 때만)
 disk_autogrow_threshold_pct = 80                 # 자동 확장 트리거 사용% (50-99)

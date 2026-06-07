@@ -607,11 +607,9 @@ class SettingsPageMixin:
 
         # Bare-metal compatibility (#246) — hide the KVM/QEMU hypervisor so GPU
         # passthrough (Nvidia code 43) and apps that refuse to run in a VM work.
-        # Default ON. Save-Settings-scoped: it changes the QEMU `-cpu` line, so a
-        # pod recreate applies it (handled in _save_settings, like the tuning
-        # profile). The checkbox reads/writes the tri-state via disguise_active.
-        from PySide6.QtWidgets import QCheckBox as _QCheckBox
-
+        # 3 levels (off / balanced / max), default balanced. Save-Settings-scoped:
+        # it changes the QEMU `-cpu` line / HV env / disk size, so a pod recreate
+        # applies it (handled in _save_settings, like the tuning profile).
         disguise_card, disguise_layout = self._settings_card_shell(
             "hardware",
             tr("Bare-metal compatibility"),
@@ -620,12 +618,18 @@ class SettingsPageMixin:
                 "apps that refuse to run in a VM work. Not an anti-cheat bypass."
             ),
         )
-        self.checkbox_disguise = _QCheckBox(
-            tr("Present the guest as a bare-metal PC (hide the hypervisor)")
-        )
-        self.checkbox_disguise.setChecked(self.cfg.pod.disguise_active)
-        self.checkbox_disguise.setStyleSheet(CHECKBOX)
-        disguise_layout.addWidget(self.checkbox_disguise)
+        self.input_disguise_level = QComboBox()
+        for label, value in (
+            (tr("Standard VM — no hiding (best performance)"), "off"),
+            (tr("Balanced — hide the hypervisor, no performance cost (recommended)"), "balanced"),
+            (tr("Hardened — maximum hiding, slower (Hyper-V off)"), "max"),
+        ):
+            self.input_disguise_level.addItem(label, value)
+        _dl_idx = self.input_disguise_level.findData(self.cfg.pod.disguise_level)
+        if _dl_idx >= 0:
+            self.input_disguise_level.setCurrentIndex(_dl_idx)
+        self.input_disguise_level.setStyleSheet(COMBO)
+        disguise_layout.addWidget(self.input_disguise_level)
         layout.addWidget(disguise_card)
 
         # Reverse-open (#48) — Linux apps in the Windows guest's right-
@@ -1230,9 +1234,8 @@ class SettingsPageMixin:
         new_keyboard = self.input_keyboard.currentData() or ""
         new_timezone = self.input_timezone.currentData() or ""
         new_tuning_profile = self.input_tuning_profile.currentData() or "auto"
-        # Bare-metal disguise (#246) — the 2-state checkbox collapses the
-        # tri-state to an explicit bool on save (checked = on, unchecked = off).
-        new_disguise = bool(self.checkbox_disguise.isChecked())
+        # Bare-metal disguise (#246) — 3-level selector (off / balanced / max).
+        new_disguise_level = self.input_disguise_level.currentData() or "balanced"
 
         old_cfg = Config.load()
         # ``needs_container`` is true when any first-boot env knob is
@@ -1255,10 +1258,10 @@ class SettingsPageMixin:
             # the new -cpu sub-options (+vmx/+svm, hv-*, +invtsc) and
             # -device args (virtio-rng-pci).
             or new_tuning_profile != old_cfg.pod.tuning_profile
-            # #246: the hypervisor disguise toggles `-cpu` sub-flags
-            # (-hypervisor / kvm=off / -kvm-pv-*) in CPU_FLAGS, so a container
-            # recreate is required to pick up the change.
-            or new_disguise != old_cfg.pod.disguise_active
+            # #246: the disguise level changes CPU_FLAGS (-hypervisor / kvm=off),
+            # the SMBIOS args, the HV env, and the disk size in compose.yaml, so
+            # a container recreate is required to pick up the change.
+            or new_disguise_level != old_cfg.pod.disguise_level
         )
         needs_wipe = (
             new_win_version != old_cfg.pod.win_version
@@ -1287,7 +1290,7 @@ class SettingsPageMixin:
         self.cfg.pod.keyboard = new_keyboard
         self.cfg.pod.timezone = new_timezone
         self.cfg.pod.tuning_profile = new_tuning_profile
-        self.cfg.pod.disguise_hypervisor = new_disguise
+        self.cfg.pod.disguise_level = new_disguise_level
         # Let __post_init__ clamp max_sessions to [1, 50] before save.
         self.cfg.pod.__post_init__()
         self.cfg.save()

@@ -1,7 +1,6 @@
 {
   "Bare-metal compatibility": "Bare-Metal-Kompatibilität",
   "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "Versteckt den KVM/QEMU-Hypervisor, damit GPU-Passthrough (Nvidia-Code 43) und Apps funktionieren, die in einer VM nicht laufen. Kein Anti-Cheat-Bypass.",
-  "Present the guest as a bare-metal PC (hide the hypervisor)": "Den Gast als Bare-Metal-PC darstellen (Hypervisor verstecken)",
   "\n  Could not start pod: {error}": "\n  Pod konnte nicht gestartet werden: {error}",
   "\n  Discovery failed: {error}": "\n  Erkennung fehlgeschlagen: {error}",
   "\n  Discovery unavailable in this build. Skipping.": "\n  Erkennung in diesem Build nicht verfügbar. Wird übersprungen.",
@@ -873,5 +872,13 @@
   "Distro package:": "Distributionspaket:",
   "(Your distro may not package PySide6 for apt — use the AppImage above.)": "(Ihre Distribution stellt PySide6 möglicherweise nicht für apt bereit – verwenden Sie das AppImage oben.)",
   "Setting up Windows (first run)…": "Windows wird eingerichtet (erster Start)…",
-  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "Windows wird heruntergeladen und installiert — das kann 20–40 Minuten dauern. Den Fortschritt können Sie unter http://127.0.0.1:8006 verfolgen"
+  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "Windows wird heruntergeladen und installiert — das kann 20–40 Minuten dauern. Den Fortschritt können Sie unter http://127.0.0.1:8006 verfolgen",
+  "Standard VM — no hiding (best performance)": "Standard-VM — keine Tarnung (beste Leistung)",
+  "Balanced — hide the hypervisor, no performance cost (recommended)": "Ausgewogen — Hypervisor verbergen, ohne Leistungseinbußen (empfohlen)",
+  "Hardened — maximum hiding, slower (Hyper-V off)": "Gehärtet — maximale Tarnung, langsamer (Hyper-V aus)",
+  "Saved — applies on the next 'winpodx pod start'.": "Gespeichert — wird beim nächsten 'winpodx pod start' angewendet.",
+  "Applying to the running container (recreate ~30s, storage preserved)...": "Wird auf den laufenden Container angewendet (Recreate ~30s, Speicher bleibt erhalten)...",
+  "  warning: could not regenerate compose ({error})": "  Warnung: compose konnte nicht neu erzeugt werden ({error})",
+  "  recreate failed ({error}); run 'winpodx pod recreate' to apply.": "  Recreate fehlgeschlagen ({error}); führen Sie 'winpodx pod recreate' aus, um anzuwenden.",
+  "Note: the Windows edition only changes on a fresh install — run 'winpodx pod recreate --wipe-storage' to apply (this wipes the guest).": "Hinweis: Die Windows-Edition ändert sich nur bei einer Neuinstallation — führen Sie 'winpodx pod recreate --wipe-storage' aus (löscht den Gast)."
 }

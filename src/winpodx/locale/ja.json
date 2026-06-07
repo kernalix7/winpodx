@@ -1,7 +1,6 @@
 {
   "Bare-metal compatibility": "ベアメタル互換モード",
   "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "KVM/QEMU ハイパーバイザーを隠して、GPU パススルー（Nvidia コード43）や VM での実行を拒否するアプリを動作させます。アンチチート回避ではありません。",
-  "Present the guest as a bare-metal PC (hide the hypervisor)": "ゲストをベアメタル PC として見せる（ハイパーバイザーを隠す）",
   "\n  Could not start pod: {error}": "\n  pod を起動できませんでした: {error}",
   "\n  Discovery failed: {error}": "\n  検出に失敗しました: {error}",
   "\n  Discovery unavailable in this build. Skipping.": "\n  このビルドでは検出を利用できません。スキップします。",
@@ -873,5 +872,13 @@
   "Distro package:": "ディストリのパッケージ:",
   "(Your distro may not package PySide6 for apt — use the AppImage above.)": "(お使いのディストリでは apt 用の PySide6 が提供されていない場合があります — 上記の AppImage を使用してください。)",
   "Setting up Windows (first run)…": "Windows をセットアップ中 (初回)…",
-  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "Windows をダウンロードしてインストールしています — 20〜40分ほどかかる場合があります。http://127.0.0.1:8006 で進行状況を確認できます"
+  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "Windows をダウンロードしてインストールしています — 20〜40分ほどかかる場合があります。http://127.0.0.1:8006 で進行状況を確認できます",
+  "Standard VM — no hiding (best performance)": "標準 VM — 隠蔽なし (最高性能)",
+  "Balanced — hide the hypervisor, no performance cost (recommended)": "バランス — ハイパーバイザーを隠蔽、性能低下なし (推奨)",
+  "Hardened — maximum hiding, slower (Hyper-V off)": "強化 — 最大限の隠蔽、低速 (Hyper-V オフ)",
+  "Saved — applies on the next 'winpodx pod start'.": "保存しました — 次回の 'winpodx pod start' で適用されます。",
+  "Applying to the running container (recreate ~30s, storage preserved)...": "実行中のコンテナに適用しています (recreate 約30秒、ストレージは保持)...",
+  "  warning: could not regenerate compose ({error})": "  警告: compose の再生成に失敗しました ({error})",
+  "  recreate failed ({error}); run 'winpodx pod recreate' to apply.": "  recreate に失敗しました ({error})。適用するには 'winpodx pod recreate' を実行してください。",
+  "Note: the Windows edition only changes on a fresh install — run 'winpodx pod recreate --wipe-storage' to apply (this wipes the guest).": "注意: Windows エディションは新規インストール時のみ変更されます — 適用するには 'winpodx pod recreate --wipe-storage' を実行してください (ゲストは消去されます)。"
 }

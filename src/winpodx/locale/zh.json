@@ -1,7 +1,6 @@
 {
   "Bare-metal compatibility": "裸机兼容模式",
   "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "隐藏 KVM/QEMU 虚拟机管理程序，使 GPU 直通（Nvidia 代码 43）和拒绝在虚拟机中运行的应用可用。这不是反作弊绕过。",
-  "Present the guest as a bare-metal PC (hide the hypervisor)": "将客户机呈现为裸机 PC（隐藏虚拟机管理程序）",
   "\n  Could not start pod: {error}": "\n  无法启动 pod：{error}",
   "\n  Discovery failed: {error}": "\n  发现失败：{error}",
   "\n  Discovery unavailable in this build. Skipping.": "\n  此版本不支持应用发现。已跳过。",
@@ -873,5 +872,13 @@
   "Distro package:": "发行版软件包：",
   "(Your distro may not package PySide6 for apt — use the AppImage above.)": "（你的发行版可能没有为 apt 提供 PySide6 —— 请使用上面的 AppImage。）",
   "Setting up Windows (first run)…": "正在设置 Windows（首次运行）…",
-  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "正在下载并安装 Windows —— 这可能需要 20–40 分钟。你可以在 http://127.0.0.1:8006 查看进度"
+  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "正在下载并安装 Windows —— 这可能需要 20–40 分钟。你可以在 http://127.0.0.1:8006 查看进度",
+  "Standard VM — no hiding (best performance)": "标准 VM — 不隐藏（性能最佳）",
+  "Balanced — hide the hypervisor, no performance cost (recommended)": "均衡 — 隐藏虚拟机监控程序，无性能损失（推荐）",
+  "Hardened — maximum hiding, slower (Hyper-V off)": "强化 — 最大程度隐藏，较慢（关闭 Hyper-V）",
+  "Saved — applies on the next 'winpodx pod start'.": "已保存 —— 将在下次 'winpodx pod start' 时应用。",
+  "Applying to the running container (recreate ~30s, storage preserved)...": "正在应用到运行中的容器（recreate 约 30 秒，存储保留）...",
+  "  warning: could not regenerate compose ({error})": "  警告：无法重新生成 compose（{error}）",
+  "  recreate failed ({error}); run 'winpodx pod recreate' to apply.": "  recreate 失败（{error}）；运行 'winpodx pod recreate' 以应用。",
+  "Note: the Windows edition only changes on a fresh install — run 'winpodx pod recreate --wipe-storage' to apply (this wipes the guest).": "注意：Windows 版本仅在全新安装时更改 —— 运行 'winpodx pod recreate --wipe-storage' 以应用（这会清除来宾系统）。"
 }

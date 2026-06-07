@@ -5,8 +5,64 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import Any
 
 from winpodx.core.i18n import tr
+
+# pod.* keys baked into compose.yaml that a plain recreate (container rm+create,
+# Windows disk preserved) is enough to apply — we do it automatically.
+_RECREATE_ON_CHANGE = frozenset(
+    {
+        "disguise_level",
+        "tuning_profile",
+        "cpu_cores",
+        "ram_gb",
+        "disk_size",
+        "vnc_port",
+        "image",
+    }
+)
+# Keys that only take effect on a *fresh* Windows install (first-boot unattend),
+# so a plain recreate won't reach the guest — needs --wipe-storage. We never
+# auto-wipe (destructive); just point the user at it.
+_WIPE_ON_CHANGE = frozenset({"win_version"})
+
+
+def _apply_compose_change(cfg: Any) -> None:
+    """Regenerate compose for *cfg* and apply it to the pod right away (#246).
+
+    Mirrors the GUI's Save behaviour and the migrate auto-recreate: regenerate
+    compose.yaml, and if the pod is running, recreate it now (stop+start;
+    container rm+create, Windows storage volume preserved, ~30s). If it's
+    stopped, the regenerated compose lands on the next ``pod start``. Best-effort
+    — never raises, so a failed apply can't lose the saved config value.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+    try:
+        from winpodx.core.compose import generate_compose
+
+        generate_compose(cfg)
+    except Exception as e:  # noqa: BLE001
+        print(tr("  warning: could not regenerate compose ({error})").format(error=e))
+        return
+    try:
+        from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
+
+        running = pod_status(cfg).state == PodState.RUNNING
+    except Exception:  # noqa: BLE001
+        running = False
+    if not running:
+        print(tr("Saved — applies on the next 'winpodx pod start'."))
+        return
+    print(tr("Applying to the running container (recreate ~30s, storage preserved)..."))
+    try:
+        stop_pod(cfg)
+        start_pod(cfg)
+    except Exception as e:  # noqa: BLE001
+        print(
+            tr("  recreate failed ({error}); run 'winpodx pod recreate' to apply.").format(error=e)
+        )
 
 
 def handle_config(args: argparse.Namespace) -> None:
@@ -114,6 +170,18 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
         warning = check_session_budget(cfg)
         if warning:
             print(tr("WARNING: {warning}").format(warning=warning), file=sys.stderr)
+
+    # Apply compose-affecting changes immediately (no manual recreate needed),
+    # matching the GUI's Save behaviour.
+    if not auto and section == "pod" and field in _RECREATE_ON_CHANGE:
+        _apply_compose_change(cfg)
+    elif not auto and section == "pod" and field in _WIPE_ON_CHANGE:
+        print(
+            tr(
+                "Note: the Windows edition only changes on a fresh install — run "
+                "'winpodx pod recreate --wipe-storage' to apply (this wipes the guest)."
+            )
+        )
 
 
 def _resolve_auto_value(section: str, field: str) -> str | None:
