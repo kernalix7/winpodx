@@ -670,10 +670,16 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
 
     # Always regenerate compose.yaml on upgrade — NOT just when the image pin
     # changed. compose-template features that land in a release without a pin
-    # bump (e.g. the live-USB QMP/cgroup infra, #286) must reach an existing
-    # guest too. generate_compose is idempotent + atomic; the next `pod start`
-    # recreates the container only when the rendered compose actually differs
-    # (storage volume preserved — no ISO redownload, no Sysprep, ~30 s).
+    # bump (e.g. the live-USB infra #286, or the bare-metal disguise #246's
+    # CPU_FLAGS / -smbios) must reach an existing guest too. Snapshot the old
+    # rendering first so we can tell whether anything actually changed.
+    from winpodx.utils.paths import config_dir
+
+    compose_path = config_dir() / "compose.yaml"
+    try:
+        old_compose = compose_path.read_text(encoding="utf-8") if compose_path.exists() else ""
+    except OSError:
+        old_compose = ""
     try:
         from winpodx.core.compose import generate_compose
 
@@ -681,14 +687,40 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"  warning: compose.yaml regenerate failed ({e})")
         return
+    try:
+        new_compose = compose_path.read_text(encoding="utf-8") if compose_path.exists() else ""
+    except OSError:
+        new_compose = ""
 
-    if pin_changed:
+    if new_compose == old_compose:
+        return  # nothing changed — no recreate, no noise
+
+    # compose.yaml changed (image pin and/or a compose-template feature). A
+    # running container keeps its OLD QEMU command line until it is recreated,
+    # so deferring to "next pod start" would leave a default-on change (e.g.
+    # the #246 disguise) silently inactive until the user happened to restart.
+    # Apply it now when the pod is up; otherwise it lands on the next start.
+    # The storage volume is preserved — no ISO redownload, no Sysprep, ~30 s.
+    from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
+
+    try:
+        running = pod_status(cfg).state == PodState.RUNNING
+    except Exception:  # noqa: BLE001
+        running = False
+    if running:
         print(
-            "  cfg.pod.image + compose.yaml updated.\n"
-            "  Next `winpodx pod start` will recreate the container so the new\n"
-            "  image pin takes effect (~30 s, storage volume preserved — no ISO\n"
-            "  redownload, no Sysprep). Future dockur :latest pushes won't\n"
-            "  trigger automatic recreates."
+            "  compose.yaml changed — recreating the container to apply it now\n"
+            "  (~30 s, storage volume preserved — no ISO redownload, no Sysprep)..."
+        )
+        try:
+            stop_pod(cfg)
+            start_pod(cfg)
+        except Exception as e:  # noqa: BLE001 — never let this abort migrate
+            print(f"  warning: recreate failed ({e}); applies on next `winpodx pod start`.")
+    else:
+        print(
+            "  compose.yaml updated — applies on the next `winpodx pod start`\n"
+            "  (~30 s, storage volume preserved — no ISO redownload, no Sysprep)."
         )
 
 
