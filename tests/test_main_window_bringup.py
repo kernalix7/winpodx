@@ -62,6 +62,16 @@ class Harness(BringUpMixin):
 # ----- shared helpers ----------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _stub_dockur_progress(monkeypatch):
+    """Keep phase 1 hermetic: never shell out to ``podman logs`` against a real
+    container (a live winpodx-windows would leak its log state into the test).
+    Tests that exercise the boot-error path override this per-test."""
+    from winpodx.gui._main_window_bringup import BringUpMixin
+
+    monkeypatch.setattr(BringUpMixin, "_dockur_progress", lambda self: (None, None, False))
+
+
 def _make_cfg() -> Config:
     cfg = Config()
     # Keep budgets short so the test exits fast on negative paths.
@@ -645,6 +655,28 @@ def test_phase4_retries_transient_channel_error(monkeypatch: pytest.MonkeyPatch)
 
     assert calls["n"] == 3  # 2 transient retries + 1 success
     assert harness.bringup_done.emissions == [(True, "")]
+
+
+def test_phase1_fails_fast_on_qemu_boot_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A boot-looping QEMU device error (e.g. dockur's host_mtu on e1000) should
+    # fail the bring-up fast with the real reason, not wait out the budget.
+    from winpodx.gui._main_window_bringup import BringUpMixin
+
+    cfg = _make_cfg()
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: PodStatus(state=PodState.STOPPED, ip=""),
+    )
+    err = "qemu-system-x86_64: -device e1000,...: Property 'e1000.host_mtu' not found"
+    monkeypatch.setattr(BringUpMixin, "_dockur_progress", lambda self: (err, None, False))
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up()
+    _wait_for_done(harness, timeout=8.0)
+
+    ok, msg = harness.bringup_done.emissions[0]
+    assert ok is False
+    assert "QEMU" in msg and "host_mtu" in msg
 
 
 def test_phase4_does_not_retry_real_script_failure(monkeypatch: pytest.MonkeyPatch) -> None:
