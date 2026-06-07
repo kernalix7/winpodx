@@ -1015,10 +1015,7 @@ class BringUpMixin:
                 apps = discovery_mod.scan(self.cfg)
                 break
             except Exception as exc:  # noqa: BLE001
-                fatal = (
-                    not _is_transient_discovery_error(exc)
-                    or attempt == _DISCOVERY_MAX_ATTEMPTS
-                )
+                fatal = not _is_transient_discovery_error(exc) or attempt == _DISCOVERY_MAX_ATTEMPTS
                 if fatal:
                     self._emit_done(False, f"discovery.scan raised: {exc}")
                     return False
