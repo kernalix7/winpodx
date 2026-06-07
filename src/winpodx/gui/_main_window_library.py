@@ -607,16 +607,32 @@ class LibraryPageMixin:
         """
         query = self.search_box.text().strip()
         category = self._active_category
-        pod_running = getattr(self, "_pod_state", "checking") == "running"
+        pod_state = getattr(self, "_pod_state", "checking")
+        pod_running = pod_state == "running"
+        cfg = getattr(self, "cfg", None)
+        initialized = bool(cfg and getattr(cfg.pod, "initialized", False))
+        # First-ever install: setup hasn't completed yet, but the pod is coming
+        # up (dockur downloads + installs Windows inside the running container,
+        # so the state is "starting" or even "running" for the whole ~20-40 min
+        # install). Without this the grid showed "Windows isn't running" + a
+        # Start button the entire time, reading as broken (#502 reporter).
+        installing = (not initialized) and pod_state in ("starting", "running")
         any_apps = bool(self.apps)
         all_hidden = any_apps and all(a.hidden for a in self.apps)
 
         action_label = ""
         action_cb = None
 
+        # (a0) First-time setup is in progress — show progress, no Start button.
+        if not any_apps and installing:
+            title = tr("Setting up Windows (first run)…")
+            body = tr(
+                "Downloading and installing Windows — this can take 20–40 minutes. "
+                "You can watch progress at http://127.0.0.1:8006"
+            )
         # (a) Nothing discovered yet AND Windows isn't up — the most likely
         # cause of an empty library on a fresh/stopped install.
-        if not any_apps and not pod_running:
+        elif not any_apps and not pod_running:
             title = tr("Windows isn't running")
             body = tr("Start it to scan for your installed apps.")
             action_label = tr("Start Windows")

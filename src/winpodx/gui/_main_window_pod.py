@@ -266,6 +266,15 @@ class PodStatusMixin:
             QTimer.singleShot(2000, self._on_refresh_apps)
 
         self._pod_state = state
+        # While the library is empty, repaint its empty-state so a first-run
+        # install reads as "Setting up Windows…" the moment the pod starts
+        # coming up, instead of a stale "Windows isn't running" (#502).
+        if not getattr(self, "apps", None) and hasattr(self, "_filter_apps"):
+            search = getattr(self, "search_box", None)
+            try:
+                self._filter_apps(search.text() if search is not None else "")
+            except Exception:  # noqa: BLE001 — cosmetic refresh, never break status
+                pass
         colors = {
             "running": C.GREEN,
             "stopped": C.RED,

@@ -240,43 +240,100 @@ def _distro_id_like() -> str:
     return ""
 
 
-def _pyside6_pkg_command() -> str:
-    """The distro package-manager command that installs PySide6 (Qt6).
+def _apt_has_candidate(pkg: str) -> bool:
+    """True when ``apt-cache policy <pkg>`` reports an installable candidate.
 
-    Falls back to a PEP 668-safe suggestion (pipx / venv) for an unrecognised
-    distro -- never a bare ``pip install``, which fails with
+    Guards against suggesting a package that doesn't exist in the user's apt
+    archive -- e.g. ``python3-pyside6.qtwidgets`` has *no installation
+    candidate* on Ubuntu 24.04 LTS (PySide6 only entered the archive in later
+    releases), the exact failure reported in #502.
+    """
+    try:
+        out = subprocess.run(
+            ["apt-cache", "policy", pkg],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Candidate:"):
+            cand = stripped.split(":", 1)[1].strip()
+            return bool(cand) and cand != "(none)"
+    return False
+
+
+def _apt_pyside6_command() -> str | None:
+    """An ``apt install`` line using only PySide6 package names that actually
+    have a candidate on this system, or ``None`` when apt packages none of
+    them (the Ubuntu 24.04 LTS case -- there the AppImage is the only path).
+
+    Package naming varies across releases, so probe in preference order: the
+    split Qt-module packages (Debian / Ubuntu >= 24.10), then a metapackage.
+    """
+    if not shutil.which("apt-cache"):
+        return None
+    split = ["python3-pyside6.qtwidgets", "python3-pyside6.qtsvg"]
+    if all(_apt_has_candidate(p) for p in split):
+        return "sudo apt install " + " ".join(split)
+    for meta in ("python3-pyside6", "python3-qtpy-pyside6"):
+        if _apt_has_candidate(meta):
+            return f"sudo apt install {meta}"
+    return None
+
+
+def _pyside6_pkg_command() -> str | None:
+    """The distro package-manager command that installs PySide6 (Qt6), or
+    ``None`` when no distro package is available (caller falls back to the
+    AppImage). Never a bare ``pip install`` -- that fails with
     ``externally-managed-environment`` on modern Debian/Ubuntu/Fedora (#502).
+
+    Debian/Ubuntu is probed at runtime (``apt-cache``) because the package
+    name + availability differ per release; the other families ship a stable
+    package name so they stay static.
     """
     family = f"{_distro_id()} {_distro_id_like()}".lower()
     if any(d in family for d in ("debian", "ubuntu", "mint", "pop", "raspbian")):
-        return (
-            "sudo apt install python3-pyside6.qtwidgets python3-pyside6.qtsvg"
-            "   # Ubuntu: enable the 'universe' repo first"
-        )
+        return _apt_pyside6_command()
     if any(d in family for d in ("fedora", "rhel", "centos", "almalinux", "rocky", "nobara")):
         return "sudo dnf install python3-pyside6"
     if any(d in family for d in ("arch", "manjaro", "endeavouros", "cachyos")):
         return "sudo pacman -S pyside6"
     if any(d in family for d in ("opensuse", "suse", "sles")):
         return "sudo zypper install python3-PySide6"
-    return "pipx install PySide6   # or install into a venv (avoids the PEP 668 error)"
+    return None
 
 
 def pyside6_install_hint() -> str:
     """Actionable, distro-aware message for the GUI's missing-PySide6 case.
 
     The old hint (``pip install PySide6``) fails on PEP 668 externally-managed
-    Pythons and never named the actual package (#502). Give the correct distro
-    package command, the pip path for source installs, and the AppImage /
-    install.sh, which bundle the GUI outright.
+    Pythons, and #502's reporter then found the apt package we named doesn't
+    even exist on Ubuntu 24.04 LTS. So lead with the AppImage (works on every
+    distro, no Python setup), then install.sh / pip, and only show a distro
+    package command when one is actually available (see _pyside6_pkg_command).
     """
     from winpodx.core.i18n import tr  # lazy import: avoid an import cycle
 
-    return "\n".join(
-        [
-            tr("PySide6 (Qt6) is required to launch the GUI. Install it one of these ways:"),
-            f"  - Distro package:  {_pyside6_pkg_command()}",
-            "  - If you installed winpodx with pip:  pip install 'winpodx[gui]'",
-            "  - " + tr("Or use the AppImage or the install.sh installer — both bundle the GUI."),
-        ]
-    )
+    lines = [
+        tr("PySide6 (Qt6) is required to launch the GUI. Easiest path: use the AppImage."),
+        "  - "
+        + tr(
+            "AppImage (bundles the GUI, no Python setup): download "
+            "winpodx-x86_64.AppImage from the Releases page, then run "
+            "`chmod +x winpodx-x86_64.AppImage && ./winpodx-x86_64.AppImage gui`."
+        ),
+        "  - "
+        + tr("install.sh installer: sets up a private venv with the GUI (no PEP 668 issue)."),
+        "  - " + tr("If you installed winpodx with pip:") + "  pip install 'winpodx[gui]'",
+    ]
+    pkg = _pyside6_pkg_command()
+    if pkg:
+        lines.append("  - " + tr("Distro package:") + f"  {pkg}")
+    else:
+        lines.append(
+            "  - " + tr("(Your distro may not package PySide6 for apt — use the AppImage above.)")
+        )
+    return "\n".join(lines)

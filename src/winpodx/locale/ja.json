@@ -540,8 +540,6 @@
   "Pulling {tag}...": "{tag} を pull しています...",
   "Push host updates (agent, fixes, rdprrap) into the guest -- no reinstall": "ホストの更新 (エージェント、修正、rdprrap) をゲストにプッシュ -- 再インストール不要",
   "Push this host's updated guest files (agent, urlacl, rdprrap, registry fixes) into the running Windows guest? The agent restarts briefly at the end. Windows data is untouched.\n\nProceed?": "このホストの更新されたゲストファイル (エージェント、urlacl、rdprrap、レジストリ修正) を実行中の Windows ゲストにプッシュしますか? 最後にエージェントが短時間再起動します。Windows データには手を加えません。\n\n続行しますか?",
-  "PySide6 (Qt6) is required to launch the GUI. Install it one of these ways:": "GUI の起動には PySide6 (Qt6) が必要です。次のいずれかの方法でインストールしてください:",
-  "Or use the AppImage or the install.sh installer — both bundle the GUI.": "または AppImage か install.sh インストーラーを使用してください — どちらも GUI を同梱しています。",
   "QEMU + Windows-on-KVM knob preset": "QEMU + Windows-on-KVM の項目プリセット",
   "Querying multi-session status...": "マルチセッションの状態を照会しています...",
   "Queuing multi-session activation (detached)...": "マルチセッションのアクティベーションをキューに追加しています (デタッチ)...",
@@ -867,5 +865,13 @@
   "Checking pod health…": "ポッドの状態を確認中…",
   "Pod is stopped": "ポッドは停止しています",
   "Status unknown": "状態不明",
-  "Devices": "デバイス"
+  "Devices": "デバイス",
+  "PySide6 (Qt6) is required to launch the GUI. Easiest path: use the AppImage.": "GUI の起動には PySide6 (Qt6) が必要です。最も簡単な方法: AppImage を使用してください。",
+  "AppImage (bundles the GUI, no Python setup): download winpodx-x86_64.AppImage from the Releases page, then run `chmod +x winpodx-x86_64.AppImage && ./winpodx-x86_64.AppImage gui`.": "AppImage (GUI 同梱、Python の設定不要): Releases ページから winpodx-x86_64.AppImage をダウンロードし、`chmod +x winpodx-x86_64.AppImage && ./winpodx-x86_64.AppImage gui` を実行してください。",
+  "install.sh installer: sets up a private venv with the GUI (no PEP 668 issue).": "install.sh インストーラー: GUI を含む専用の venv をセットアップします (PEP 668 の問題なし)。",
+  "If you installed winpodx with pip:": "winpodx を pip でインストールした場合:",
+  "Distro package:": "ディストリのパッケージ:",
+  "(Your distro may not package PySide6 for apt — use the AppImage above.)": "(お使いのディストリでは apt 用の PySide6 が提供されていない場合があります — 上記の AppImage を使用してください。)",
+  "Setting up Windows (first run)…": "Windows をセットアップ中 (初回)…",
+  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "Windows をダウンロードしてインストールしています — 20〜40分ほどかかる場合があります。http://127.0.0.1:8006 で進行状況を確認できます"
 }
