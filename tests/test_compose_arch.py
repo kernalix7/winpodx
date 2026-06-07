@@ -192,6 +192,27 @@ def test_compose_disguise_max_uses_emulated_devices(monkeypatch):
     assert "virtio-rng-pci" not in content  # the rng would re-add VEN_1AF4
 
 
+def test_compose_disguise_image_used_only_at_max(monkeypatch):
+    """cfg.pod.disguise_image overrides the image only at level=max (#246)."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+
+    cfg = _cfg()
+    cfg.pod.image = "docker.io/dockurr/windows:pinned"
+    cfg.pod.disguise_image = "winpodx-windows-disguise"
+
+    # balanced → ignore disguise_image, use the pinned image.
+    cfg.pod.disguise_level = "balanced"
+    content = _build_compose_content(cfg)
+    assert "image: docker.io/dockurr/windows:pinned" in content
+    assert "winpodx-windows-disguise" not in content
+
+    # max → use the custom patched image.
+    cfg.pod.disguise_level = "max"
+    content = _build_compose_content(cfg)
+    assert "image: winpodx-windows-disguise" in content
+
+
 def test_disguise_changes_devices_only_at_max_boundary():
     """Only crossing the max boundary changes virtual hardware (needs a wipe)."""
     from winpodx.core.config import disguise_changes_devices

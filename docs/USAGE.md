@@ -164,6 +164,8 @@ winpodx pod recreate --wipe-storage              # WIPES Windows, reinstalls on 
 
 You can also pick the level in the GUI: **Settings → Bare-metal compatibility**. Either way it takes effect after a `winpodx pod recreate` (it edits the QEMU `-cpu` line, the `HV` env, and the disk size; recreate keeps your Windows disk).
 
+**Advanced — patched-QEMU image (`cfg.pod.disguise_image`):** a couple of VM markers live in QEMU's compiled-in strings (ACPI OEM `BOCHS`, disk model `QEMU HARDDISK`) that command-line args can't reach. `packaging/qemu-disguise/` builds a custom dockur image with those strings patched out; set `disguise_image` to it and it's used at `max`. winpodx ships only the patch recipe (no patched binary). PCI vendor IDs are deliberately left alone (spoofing them breaks dockur's virtio-serial). See that directory's README.
+
 **Not an anti-cheat bypass.** This is signature-level VM hiding for casual detectors and VM-hostile apps (code 43, DRM/launch gates). It does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard) — those anchor on hardware attestation (TPM + Secure Boot) and VM-exit timing the guest can't spoof — and bypassing online-game anti-cheat violates the game's ToS.
 
 The disk bump is gated: the dockur disk is sparse, so a larger advertised size costs ~0 host space up front, but winpodx only raises it when the host has enough free space (keeping a 10 GiB / 10 % reserve). On a small host it leaves the disk as-is and logs a warning. The pre-0.6.x `disguise_hypervisor = false` key still works — it maps to `off`.

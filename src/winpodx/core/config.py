@@ -405,6 +405,14 @@ class PodConfig:
     # into ``disguise_level`` by __post_init__; new saves write disguise_level.
     disguise_hypervisor: bool | None = None
 
+    # Optional custom dockur image with an anti-detection-patched QEMU (#246,
+    # opt-in/advanced). When set AND disguise_level == "max", the compose uses
+    # this image instead of the pinned one, so the patched QEMU's ACPI OEM +
+    # disk-model strings replace the QEMU/BOCHS markers. Built by the user from
+    # packaging/qemu-disguise/ (winpodx never ships a patched binary). Empty =
+    # use the normal pinned image. NOT an anti-cheat bypass.
+    disguise_image: str = ""
+
     _DISGUISE_LEVELS = ("off", "balanced", "max")
 
     @property
@@ -855,6 +863,7 @@ class Config:
                 "devices": list(self.pod.devices),
                 "usb_live": self.pod.usb_live,
                 "disguise_level": self.pod.disguise_level,
+                "disguise_image": self.pod.disguise_image,
             },
             "reverse_open": {
                 "enabled": self.reverse_open.enabled,

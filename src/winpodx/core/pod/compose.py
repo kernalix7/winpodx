@@ -661,6 +661,15 @@ def _build_compose_content(cfg: Config) -> str:
     # the file actually landed (fail-safe — a missing file would abort boot).
     oem_dir = _find_oem_dir()
     qemu_args = _qemu_arguments_for_host(cfg)
+
+    # Anti-detection-patched QEMU image (#246, opt-in): at the max level, if the
+    # user built + configured a custom image (packaging/qemu-disguise/), use it
+    # instead of the pinned one. Its QEMU has the ACPI OEM ("BOCHS"->real) and
+    # disk-model ("QEMU HARDDISK"->real) strings patched out — the bits winpodx
+    # can't reach via QEMU args. Only honoured at max + on a real image string.
+    image = cfg.pod.image
+    if cfg.pod.disguise_max and cfg.pod.disguise_image.strip():
+        image = cfg.pod.disguise_image.strip()
     if cfg.pod.disguise_active and platform.machine() != "aarch64":
         blob_path = _write_disguise_smbios_blob(oem_dir)
         if blob_path:
@@ -700,7 +709,7 @@ def _build_compose_content(cfg: Config) -> str:
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
         container_name=_yaml_escape(cfg.pod.container_name),
-        image=_yaml_escape(cfg.pod.image),
+        image=_yaml_escape(image),
         disk_size=_yaml_escape(_disguise_disk_size(cfg)),
         disk_type=disk_type,
         adapter=adapter,

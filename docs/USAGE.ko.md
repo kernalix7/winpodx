@@ -163,6 +163,8 @@ winpodx pod recreate --wipe-storage              # Windows 초기화 후 새 하
 
 GUI에서도 선택 가능: **Settings → Bare-metal compatibility**. 어느 쪽이든 `winpodx pod recreate` 후 적용됨 (QEMU `-cpu` 라인 + `HV` env + 디스크 크기를 바꾸므로; recreate는 Windows 디스크 유지).
 
+**고급 — 패치된 QEMU 이미지 (`cfg.pod.disguise_image`):** 일부 VM 마커(ACPI OEM `BOCHS`, 디스크 모델 `QEMU HARDDISK`)는 QEMU에 컴파일된 문자열이라 커맨드라인 인자로 못 바꿉니다. `packaging/qemu-disguise/`가 그 문자열을 패치한 커스텀 dockur 이미지를 빌드하며, `disguise_image`에 지정하면 `max`에서 사용됩니다. winpodx는 패치 레시피만 배포(패치된 바이너리 없음). PCI 벤더 ID는 일부러 안 건드림(스푸핑하면 dockur virtio-serial이 깨짐). 그 디렉터리 README 참고.
+
 **안티치트 우회 아님.** 캐주얼 탐지기와 VM 거부 앱(code 43, DRM/런치게이트)용 시그니처 레벨 숨김입니다. 커널 안티치트(EAC/BattlEye/Vanguard)는 **못 피합니다** — 하드웨어 attestation(TPM + Secure Boot)과 게스트가 위조 못 하는 VM-exit 타이밍에 의존하며, 온라인 게임 안티치트 우회는 게임 ToS 위반입니다.
 
 디스크 확대는 게이트됨: dockur 디스크는 sparse 라 광고 크기를 키워도 호스트 공간을 즉시 먹지 않지만, 호스트 여유 공간이 충분할 때만(10 GiB / 10 % 예약 유지) 올립니다. 작은 호스트에선 그대로 두고 경고만 출력. 구버전 `disguise_hypervisor = false` 키도 계속 작동 — `off` 로 매핑됩니다.
