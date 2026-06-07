@@ -151,13 +151,15 @@ Some software refuses to run under a detected hypervisor — most notably Nvidia
 |-------|--------------|-------------|
 | `off` | No disguise — an honest VM. | Best (and most compatible) |
 | `balanced` (default) | Clears the CPUID hypervisor bit + KVM signature, mirrors the host's SMBIOS/DMI, adds synthetic sensor descriptors, and advertises a bare-metal-looking disk size. | No measurable cost |
-| `max` | Everything in `balanced` **plus** dropping the Hyper-V CPUID enlightenments (`HV=N`) to shrink the VM's CPUID surface. (Note: al-khaser's Hyper-V *driver/object* checks key off the VM-generation-id device + guest integration drivers, which `HV=N` alone doesn't remove on an already-installed guest — those clear only on a fresh `max` install.) | Noticeably slower (loses the Windows-on-KVM timer/scheduler tuning) |
+| `max` | Everything in `balanced` **plus** emulated virtual hardware — disk → SATA (AHCI), network → e1000, GPU → std VGA, no virtio-rng — and `HV=N`. This removes the virtio (`VEN_1AF4`) / QXL (`VEN_1B36`) PCI IDs and the `vioscsi`/`viostor`/`netkvm` drivers that give a KVM guest away. **Requires a wipe + reinstall** (changing the boot-disk controller makes the existing install unbootable), so switching into/out of `max` prompts a strong confirmation and reinstalls Windows from scratch. | **Significantly slower** — emulated disk + NIC have much lower throughput than virtio, and Hyper-V enlightenments are off |
 
 ```bash
 winpodx config set pod.disguise_level off        # honest VM
-winpodx config set pod.disguise_level balanced   # default — free hiding
-winpodx config set pod.disguise_level max        # maximum hiding, slower
-winpodx pod recreate                             # regenerate compose + recreate the container (keeps your Windows disk)
+winpodx config set pod.disguise_level balanced   # default — free hiding, applied automatically
+winpodx config set pod.disguise_level max        # maximum hiding (emulated HW, slower)
+# off <-> balanced apply automatically. Switching into/out of `max` changes the
+# virtual hardware, so it needs a destructive reinstall — apply it with:
+winpodx pod recreate --wipe-storage              # WIPES Windows, reinstalls on the new hardware
 ```
 
 You can also pick the level in the GUI: **Settings → Bare-metal compatibility**. Either way it takes effect after a `winpodx pod recreate` (it edits the QEMU `-cpu` line, the `HV` env, and the disk size; recreate keeps your Windows disk).

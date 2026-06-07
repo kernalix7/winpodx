@@ -97,13 +97,14 @@ class TestApplyComposeChange:
         return calls
 
     def test_disguise_level_recreates_when_running(self, tmp_path, monkeypatch, capsys):
+        # balanced -> off keeps virtio (device-safe) → plain recreate applies it.
         self._seed(tmp_path, monkeypatch)
         calls = self._stub_pod(monkeypatch, running=True)
-        _set("pod.disguise_level", value="max", auto=False)
+        _set("pod.disguise_level", value="off", auto=False)
         out = capsys.readouterr().out
-        assert "Set pod.disguise_level = max" in out
+        assert "Set pod.disguise_level = off" in out
         assert calls == {"stop": 1, "start": 1}  # recreated now
-        assert Config.load().pod.disguise_level == "max"
+        assert Config.load().pod.disguise_level == "off"
 
     def test_disguise_level_defers_when_stopped(self, tmp_path, monkeypatch, capsys):
         self._seed(tmp_path, monkeypatch)
@@ -113,6 +114,19 @@ class TestApplyComposeChange:
         assert "applies on the next" in out
         assert calls == {"stop": 0, "start": 0}  # not running → no recreate
         assert Config.load().pod.disguise_level == "off"
+
+    def test_disguise_level_max_warns_and_skips_recreate(self, tmp_path, monkeypatch, capsys):
+        # balanced -> max swaps virtio for emulated devices: a plain recreate
+        # would brick the install, so config set must NOT auto-apply — it warns
+        # and points at --wipe-storage instead.
+        self._seed(tmp_path, monkeypatch)
+        calls = self._stub_pod(monkeypatch, running=True)
+        _set("pod.disguise_level", value="max", auto=False)
+        out = capsys.readouterr().out
+        assert "Set pod.disguise_level = max" in out
+        assert "--wipe-storage" in out
+        assert calls == {"stop": 0, "start": 0}  # NOT recreated (would brick)
+        assert Config.load().pod.disguise_level == "max"  # value still persisted
 
     def test_non_compose_key_does_not_recreate(self, tmp_path, monkeypatch, capsys):
         self._seed(tmp_path, monkeypatch)

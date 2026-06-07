@@ -151,13 +151,14 @@ USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필
 |------|------|------|
 | `off` | 숨김 없음 — 정직한 VM | 최고(호환성도) |
 | `balanced` (기본) | CPUID 하이퍼바이저 비트 + KVM 시그니처 제거, 호스트 SMBIOS/DMI 미러링, 합성 센서 디스크립터, 물리 PC 같은 디스크 크기 광고 | 손실 없음 |
-| `max` | `balanced` + Hyper-V CPUID enlightenment 비활성(`HV=N`)으로 CPUID 표면 축소. (참고: al-khaser의 Hyper-V *드라이버/오브젝트* 체크는 vmgenid 디바이스 + 게스트 통합 드라이버를 보는데, 기존 설치된 게스트에선 `HV=N`만으로 안 지워짐 — 새 `max` 설치에서만 정리됨) | 눈에 띄게 느려짐(Windows-on-KVM 타이머/스케줄러 튜닝 손실) |
+| `max` | `balanced` + **에뮬레이트 가상 하드웨어** — 디스크 → SATA(AHCI), 네트워크 → e1000, GPU → std VGA, virtio-rng 제거 — 그리고 `HV=N`. virtio(`VEN_1AF4`)/QXL(`VEN_1B36`) PCI ID와 `vioscsi`/`viostor`/`netkvm` 드라이버를 없앰. **wipe+재설치 필요**(부팅 디스크 컨트롤러가 바뀌어 기존 설치 부팅 불가) → max 전환 시 강력 확인 후 Windows 처음부터 재설치. | **대폭 느려짐** — 에뮬레이트 디스크+NIC는 virtio보다 throughput 훨씬 낮음, Hyper-V enlightenment도 꺼짐 |
 
 ```bash
 winpodx config set pod.disguise_level off        # 정직한 VM
-winpodx config set pod.disguise_level balanced   # 기본 — 무손실 숨김
-winpodx config set pod.disguise_level max        # 최대 숨김, 느려짐
-winpodx pod recreate                             # compose 재생성 + 컨테이너만 재생성 (Windows 디스크 유지)
+winpodx config set pod.disguise_level balanced   # 기본 — 무손실 숨김, 자동 적용
+winpodx config set pod.disguise_level max        # 최대 숨김 (에뮬레이트 HW, 느려짐)
+# off <-> balanced 는 자동 적용됨. max 전환은 가상 하드웨어가 바뀌어 파괴적 재설치 필요:
+winpodx pod recreate --wipe-storage              # Windows 초기화 후 새 하드웨어로 재설치
 ```
 
 GUI에서도 선택 가능: **Settings → Bare-metal compatibility**. 어느 쪽이든 `winpodx pod recreate` 후 적용됨 (QEMU `-cpu` 라인 + `HV` env + 디스크 크기를 바꾸므로; recreate는 Windows 디스크 유지).

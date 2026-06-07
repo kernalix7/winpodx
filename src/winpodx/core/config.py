@@ -1115,6 +1115,18 @@ def estimate_session_memory(max_sessions: int) -> float:
     return 2.0 + (max_sessions * 0.1)
 
 
+def disguise_changes_devices(old_level: str | None, new_level: str | None) -> bool:
+    """True when switching disguise levels changes the guest's virtual hardware.
+
+    Only the ``max`` level swaps the virtio devices for emulated ones (sata /
+    e1000 / std VGA). Switching into or out of ``max`` therefore changes the
+    boot-disk controller, which makes the *already-installed* Windows unbootable
+    (0x7B) — so a wipe + reinstall is required, not a plain recreate. off <->
+    balanced keeps virtio, so it needs no wipe. #246.
+    """
+    return (old_level == "max") != (new_level == "max")
+
+
 def check_session_budget(cfg: Config) -> str | None:
     """Return a human-readable warning when max_sessions over-runs ram_gb, else None.
 

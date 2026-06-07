@@ -54,6 +54,7 @@ name: "winpodx"
       RAM_SIZE: "{ram}G"
       CPU_CORES: "{cpu}"
       DISK_SIZE: "{disk_size}"
+      DISK_TYPE: "{disk_type}"
       USERNAME: "{user}"
       PASSWORD: "{password}"
       HOME: "{home}"
@@ -62,6 +63,8 @@ name: "winpodx"
       KEYBOARD: "{keyboard}"
       TZ: "{timezone}"
       NETWORK: "user"
+      ADAPTER: "{adapter}"
+      VGA: "{vga}"
       CPU_FLAGS: "{cpu_flags}"
       VMX: "{vmx}"
       HV: "{hv}"
@@ -243,7 +246,9 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
 
         cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
         profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
-        if profile.apply_virtio_rng:
+        # Skip the virtio-rng device at the max disguise level — it's a virtio
+        # (VEN_1AF4) PCI device, which would re-add the very ID max is removing.
+        if profile.apply_virtio_rng and not cfg.pod.disguise_max:
             extra_args.extend(
                 [
                     "-device",
@@ -671,12 +676,23 @@ def _build_compose_content(cfg: Config) -> str:
     # Pafish Hyper-V checks pass, at a real Windows-on-KVM performance cost.
     hv = "N" if cfg.pod.disguise_max else "Y"
 
+    # Device model (#246, max level): swap the Red Hat / virtio devices for
+    # emulated ones so the guest carries no virtio (VEN_1AF4) / QXL (VEN_1B36)
+    # PCI IDs or vioscsi/viostor/netkvm drivers. Empty string = dockur's virtio
+    # defaults (`${VAR:=default}` treats "" as unset). Changing the disk type on
+    # an existing guest is unbootable (boot controller change), so the GUI/CLI
+    # gate a switch into/out of max behind a wipe-storage reinstall.
+    disk_type, adapter, vga = ("sata", "e1000", "std") if cfg.pod.disguise_max else ("", "", "")
+
     return template.format(
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
         container_name=_yaml_escape(cfg.pod.container_name),
         image=_yaml_escape(cfg.pod.image),
         disk_size=_yaml_escape(_disguise_disk_size(cfg)),
+        disk_type=disk_type,
+        adapter=adapter,
+        vga=vga,
         hv=hv,
         user=_yaml_escape(cfg.rdp.user),
         password=_yaml_escape(password),

@@ -175,8 +175,8 @@ def test_compose_disguise_balanced(monkeypatch):
     assert 'HV: "Y"' in content
 
 
-def test_compose_disguise_max_disables_hyperv(monkeypatch):
-    """level=max emits the disguise flags AND drops Hyper-V (HV=N)."""
+def test_compose_disguise_max_uses_emulated_devices(monkeypatch):
+    """level=max drops Hyper-V (HV=N) AND swaps virtio for emulated devices."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     cfg = _cfg()
@@ -185,6 +185,33 @@ def test_compose_disguise_max_disables_hyperv(monkeypatch):
     for flag in _DISGUISE_FLAGS:
         assert flag in content
     assert 'HV: "N"' in content  # the max-only Hyper-V opt-out
+    assert 'DISK_TYPE: "sata"' in content  # emulated AHCI disk (no viostor/vioscsi)
+    assert 'ADAPTER: "e1000"' in content  # emulated NIC (no netkvm)
+    assert 'VGA: "std"' in content  # std VGA (no Red Hat QXL/virtio-gpu)
+    assert "virtio-rng-pci" not in content  # the rng would re-add VEN_1AF4
+
+
+def test_disguise_changes_devices_only_at_max_boundary():
+    """Only crossing the max boundary changes virtual hardware (needs a wipe)."""
+    from winpodx.core.config import disguise_changes_devices
+
+    assert disguise_changes_devices("balanced", "max") is True
+    assert disguise_changes_devices("max", "off") is True
+    assert disguise_changes_devices("off", "balanced") is False
+    assert disguise_changes_devices("balanced", "balanced") is False
+    assert disguise_changes_devices("max", "max") is False
+
+
+def test_compose_disguise_balanced_keeps_virtio_devices(monkeypatch):
+    """balanced leaves the device knobs at dockur's virtio defaults (empty)."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    cfg = _cfg()
+    cfg.pod.disguise_level = "balanced"
+    content = _build_compose_content(cfg)
+    assert 'DISK_TYPE: ""' in content
+    assert 'ADAPTER: ""' in content
+    assert 'VGA: ""' in content
 
 
 def test_compose_disguise_disk_not_bumped_when_host_small(monkeypatch):
@@ -194,9 +221,7 @@ def test_compose_disguise_disk_not_bumped_when_host_small(monkeypatch):
     import winpodx.core.disk as _disk
 
     # 50 GiB free − 10 GiB floor = 40 GiB < 128 GiB target → must not bump.
-    monkeypatch.setattr(
-        _disk, "_host_free_and_total", lambda cfg: (50 * 1024**3, 100 * 1024**3)
-    )
+    monkeypatch.setattr(_disk, "_host_free_and_total", lambda cfg: (50 * 1024**3, 100 * 1024**3))
     cfg = _cfg()
     cfg.pod.disguise_level = "balanced"
     cfg.pod.disk_size = "64G"
@@ -217,9 +242,7 @@ def test_compose_disguise_disk_bumped_when_host_has_room(monkeypatch):
     import winpodx.core.disk as _disk
 
     # 300 GiB free on a 4 TB disk → must bump despite the 10 %-of-total being huge.
-    monkeypatch.setattr(
-        _disk, "_host_free_and_total", lambda cfg: (300 * 1024**3, 4000 * 1024**3)
-    )
+    monkeypatch.setattr(_disk, "_host_free_and_total", lambda cfg: (300 * 1024**3, 4000 * 1024**3))
     cfg = _cfg()
     cfg.pod.disguise_level = "balanced"
     cfg.pod.disk_size = "64G"

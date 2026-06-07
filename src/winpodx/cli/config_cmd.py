@@ -174,7 +174,24 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
     # Apply compose-affecting changes immediately (no manual recreate needed),
     # matching the GUI's Save behaviour.
     if not auto and section == "pod" and field in _RECREATE_ON_CHANGE:
-        _apply_compose_change(cfg)
+        from winpodx.core.config import disguise_changes_devices
+
+        if field == "disguise_level" and disguise_changes_devices(current, coerced):
+            # Device-changing switch (#246): a plain recreate would regenerate
+            # compose for hardware the installed guest can't boot (0x7B). Do NOT
+            # auto-apply — require an explicit wipe + reinstall.
+            print(
+                tr(
+                    "WARNING: '{level}' switches the guest to emulated hardware "
+                    "(disk -> SATA, network -> e1000, GPU -> std). The existing "
+                    "Windows install CANNOT boot on it, so applying this DESTROYS "
+                    "the Windows disk and reinstalls from scratch. Run 'winpodx pod "
+                    "recreate --wipe-storage' to apply -- this PERMANENTLY DELETES "
+                    "all apps and data in the VM."
+                ).format(level=coerced)
+            )
+        else:
+            _apply_compose_change(cfg)
     elif not auto and section == "pod" and field in _WIPE_ON_CHANGE:
         print(
             tr(

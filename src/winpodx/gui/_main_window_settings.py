@@ -1263,11 +1263,20 @@ class SettingsPageMixin:
             # a container recreate is required to pick up the change.
             or new_disguise_level != old_cfg.pod.disguise_level
         )
+        # #246: the "max" disguise level swaps virtio devices for emulated ones
+        # (sata/e1000/std VGA). The boot-disk controller change makes the existing
+        # install unbootable, so a switch into/out of max needs a wipe+reinstall.
+        from winpodx.core.config import disguise_changes_devices
+
+        disguise_device_wipe = disguise_changes_devices(
+            old_cfg.pod.disguise_level, new_disguise_level
+        )
         needs_wipe = (
             new_win_version != old_cfg.pod.win_version
             or new_language != old_cfg.pod.language
             or new_region != old_cfg.pod.region
             or new_keyboard != old_cfg.pod.keyboard
+            or disguise_device_wipe
         )
         if needs_wipe:
             needs_container = True
@@ -1296,7 +1305,22 @@ class SettingsPageMixin:
         self.cfg.save()
 
         if needs_container and self.cfg.pod.backend in ("podman", "docker"):
-            if needs_wipe:
+            if disguise_device_wipe:
+                prompt = tr(
+                    "⚠️  WIPE WARNING — read carefully.\n\n"
+                    "Switching the bare-metal level to/from 'Hardened (max)' "
+                    "changes the guest's virtual hardware (disk → SATA, network "
+                    "→ e1000, GPU → std) to emulated devices.\n\n"
+                    "The EXISTING Windows install CANNOT boot on the new "
+                    "hardware, so this will DESTROY the Windows disk and "
+                    "reinstall from scratch.\n\n"
+                    "ALL apps, files, and settings inside the Windows VM will be "
+                    "PERMANENTLY DELETED.\n\n"
+                    "Reinstall takes ~5-10 minutes (ISO download + Sysprep). "
+                    "There is no undo.\n\n"
+                    "Wipe Windows and reinstall now?"
+                )
+            elif needs_wipe:
                 prompt = tr(
                     "Windows edition or installation locale (language / "
                     "region / keyboard) changed.\n\n"
@@ -1313,11 +1337,21 @@ class SettingsPageMixin:
                     "Container must be recreated to apply (Windows disk "
                     "preserved).\n\nRestart now?"
                 )
-            reply = QMessageBox.question(
-                self,
-                tr("Restart Container"),
-                prompt,
-            )
+            if needs_wipe:
+                # Destructive — default to No so a stray Enter can't wipe Windows.
+                reply = QMessageBox.question(
+                    self,
+                    tr("Reinstall Windows"),
+                    prompt,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+            else:
+                reply = QMessageBox.question(
+                    self,
+                    tr("Restart Container"),
+                    prompt,
+                )
             if reply == QMessageBox.StandardButton.Yes:
                 self.info_label.setText(
                     tr("Wiping Windows disk + recreating...")
@@ -1368,6 +1402,24 @@ class SettingsPageMixin:
                         self.app_launch_failed.emit(tr("Bring-up kickoff failed: {e}").format(e=e))
 
                 threading.Thread(target=_recreate, daemon=True).start()
+                return
+
+            # Declined. A device-changing disguise switch must NOT be left
+            # persisted — the next pod start would regenerate compose with the
+            # new (emulated) hardware and the installed guest couldn't boot.
+            # Revert just the level; other saved settings stand.
+            if disguise_device_wipe:
+                self.cfg.pod.disguise_level = old_cfg.pod.disguise_level
+                self.cfg.pod.__post_init__()
+                self.cfg.save()
+                self.input_disguise_level.setCurrentIndex(
+                    max(0, self.input_disguise_level.findData(old_cfg.pod.disguise_level))
+                )
+                self.info_label.setText(
+                    tr("Bare-metal level change cancelled (kept {level})").format(
+                        level=old_cfg.pod.disguise_level
+                    )
+                )
                 return
 
         self.info_label.setText(tr("Settings saved"))
