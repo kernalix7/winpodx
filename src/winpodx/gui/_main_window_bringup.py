@@ -926,17 +926,16 @@ class BringUpMixin:
     def _phase1_wait_pod_ready(self) -> bool:
         from winpodx.core.pod import PodState, check_rdp_port, pod_status
 
-        base = self.cfg.install.wait_ready_stage2_secs
-        # A fresh install (ISO download + Sysprep) runs well past the normal
-        # pod-ready window; allow up to the stage-3 fresh-install budget while
-        # dockur is actively installing so the dialog doesn't time out mid-setup.
-        fresh = max(self.cfg.install.wait_ready_stage3_secs, base)
-        self._emit_phase("phase_1_pod", f"Up to {base}s budget")
+        # No fixed timeout — a fresh install (ISO download + Sysprep) takes
+        # however long it takes, and during Windows Setup the dockur console
+        # goes quiet, so any timer would false-fail a working install. Mirror
+        # install.sh / the provisioner: wait as long as the pod is ALIVE, fail
+        # fast only when QEMU can't boot (a rejected -device boot-loops) or the
+        # container has actually exited; the user can Cancel at any time.
+        self._emit_phase("phase_1_pod", "Waiting for the pod...")
 
-        import time
-
-        started = time.monotonic()
         err_streak = 0
+        stopped_streak = 0
         while True:
             if self._is_cancelled():
                 return self._emit_cancelled()
@@ -945,10 +944,9 @@ class BringUpMixin:
             except Exception:  # noqa: BLE001
                 state = None
 
-            qemu_error, progress, installing = self._dockur_progress()
+            qemu_error, progress, _installing = self._dockur_progress()
 
-            # Fail fast on a boot-looping QEMU error (e.g. a rejected -device) —
-            # don't wait out the whole budget for a container that can't start.
+            # Fail fast on a boot-looping QEMU error (e.g. a rejected -device).
             if qemu_error:
                 err_streak += 1
                 if err_streak >= 3:
@@ -966,24 +964,28 @@ class BringUpMixin:
                     self._emit_phase("phase_1_pod", "Remote Desktop is up")
                     return True
 
+            # The container exited (died, not just still booting) — fail with
+            # the dockur reason instead of spinning forever.
+            if state in (PodState.STOPPED, PodState.ERROR):
+                stopped_streak += 1
+                if stopped_streak >= 3:
+                    why = qemu_error or progress or "see `podman logs`"
+                    self._emit_done(False, f"Pod stopped before it was ready — {why}")
+                    return False
+            else:
+                stopped_streak = 0
+
             # Surface what the pod is actually DOING (dockur install progress),
-            # not the internal poll counter — that's the user-meaningful state.
+            # not an internal poll counter — that's the user-meaningful state.
             if progress:
                 detail = progress
             elif state == PodState.RUNNING:
-                detail = "Windows is starting — waiting for Remote Desktop..."
+                detail = "Windows is installing — waiting for Remote Desktop..."
             elif state is not None:
                 detail = f"Pod {state.value}..."
             else:
                 detail = "Checking pod..."
             self._emit_phase("phase_1_pod", detail)
-
-            # Generous budget while a fresh install is in flight; the normal
-            # pod-ready budget otherwise.
-            deadline = fresh if installing else base
-            if time.monotonic() - started >= deadline:
-                self._emit_done(False, f"Pod not ready within {int(deadline)}s ({detail})")
-                return False
 
             self._sleep_cancellable(_POLL_CADENCE_SECS)
 

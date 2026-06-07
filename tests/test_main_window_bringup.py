@@ -718,6 +718,29 @@ def test_phase1_fails_fast_on_qemu_boot_error(monkeypatch: pytest.MonkeyPatch) -
     assert "QEMU" in msg and "host_mtu" in msg
 
 
+def test_phase1_fails_when_container_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No fixed timeout, but a container that has actually EXITED (not just still
+    # booting) must fail fast rather than spin forever.
+    from winpodx.gui._main_window_bringup import BringUpMixin
+
+    cfg = _make_cfg()
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: PodStatus(state=PodState.STOPPED, ip=""),
+    )
+    monkeypatch.setattr(
+        BringUpMixin, "_dockur_progress", lambda self: (None, "Shutdown completed!", False)
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up()
+    _wait_for_done(harness, timeout=8.0)
+
+    ok, msg = harness.bringup_done.emissions[0]
+    assert ok is False
+    assert "stopped" in msg.lower()
+
+
 def test_phase4_does_not_retry_real_script_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     from winpodx.core.discovery import DiscoveryError
 
