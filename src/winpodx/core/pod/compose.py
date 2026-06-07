@@ -678,11 +678,17 @@ def _build_compose_content(cfg: Config) -> str:
 
     # Device model (#246, max level): swap the Red Hat / virtio devices for
     # emulated ones so the guest carries no virtio (VEN_1AF4) / QXL (VEN_1B36)
-    # PCI IDs or vioscsi/viostor/netkvm drivers. Empty string = dockur's virtio
-    # defaults (`${VAR:=default}` treats "" as unset). Changing the disk type on
-    # an existing guest is unbootable (boot controller change), so the GUI/CLI
-    # gate a switch into/out of max behind a wipe-storage reinstall.
-    disk_type, adapter, vga = ("sata", "e1000", "std") if cfg.pod.disguise_max else ("", "", "")
+    # PCI IDs or vioscsi/viostor drivers. Empty string = dockur's virtio defaults
+    # (`${VAR:=default}` treats "" as unset). Changing the disk type on an
+    # existing guest is unbootable (boot controller change), so the GUI/CLI gate
+    # a switch into/out of max behind a wipe-storage reinstall.
+    #
+    # NETWORK adapter is deliberately left at dockur's virtio-net-pci: dockur
+    # appends ``host_mtu=`` to the NIC device unconditionally, which only
+    # virtio-net supports — ``ADAPTER=e1000`` makes QEMU abort at boot
+    # ("Property 'e1000.host_mtu' not found"). So the NIC stays virtio (netkvm /
+    # VEN_1AF4 remain); disk + GPU still go emulated.
+    disk_type, adapter, vga = ("sata", "", "std") if cfg.pod.disguise_max else ("", "", "")
 
     return template.format(
         ram=cfg.pod.ram_gb,
