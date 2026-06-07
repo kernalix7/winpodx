@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import secrets
@@ -553,11 +554,44 @@ def _security_opt_block(cfg: Config) -> str:
     return "    security_opt:\n      - label=disable\n"
 
 
+def _write_disguise_smbios_blob(oem_dir: str) -> str | None:
+    """Write the synthetic SMBIOS sensor blob into the OEM dir (#246, T1.5).
+
+    Returns the in-container path for ``-smbios file=`` (``/oem/...``) on
+    success, or ``None`` on ANY failure — so a write/encode error never leaves
+    a dangling ``-smbios file=`` arg that would abort QEMU boot. The blob holds
+    only synthetic descriptor structures (no host serials / live readings); it
+    rides the existing ``/oem`` mount.
+    """
+    try:
+        from winpodx.core.pod.smbios import build_disguise_smbios_blob
+
+        blob = build_disguise_smbios_blob()
+        (Path(oem_dir) / "winpodx-smbios.bin").write_bytes(blob)
+        return "/oem/winpodx-smbios.bin"
+    except Exception:  # noqa: BLE001 — disguise must never break compose / boot
+        logging.getLogger(__name__).exception(
+            "disguise: failed to write SMBIOS blob; continuing without it"
+        )
+        return None
+
+
 def _build_compose_content(cfg: Config) -> str:
     """Build and return compose YAML content string for *cfg*."""
     password = cfg.rdp.password or generate_password()
     template = _build_compose_template(cfg.pod.backend)
     top_volumes, storage_mount = _render_storage_blocks(cfg)
+
+    # Bare-metal disguise (#246, T1.5): add the synthetic SMBIOS sensor blob
+    # (voltage/temp/fan/cache/slot/port descriptors) via `-smbios file=`. The
+    # blob write + the arg are kept together here so the arg is only added when
+    # the file actually landed (fail-safe — a missing file would abort boot).
+    oem_dir = _find_oem_dir()
+    qemu_args = _qemu_arguments_for_host(cfg)
+    if cfg.pod.disguise_active and platform.machine() != "aarch64":
+        blob_path = _write_disguise_smbios_blob(oem_dir)
+        if blob_path:
+            qemu_args = f"{qemu_args} -smbios file={blob_path}".strip()
     # All string fields that land inside a YAML double-quoted scalar
     # MUST pass through _yaml_escape — otherwise a hand-edited TOML
     # value (or a --win-version flag argument) containing ``"``, ``\n``,
@@ -581,12 +615,12 @@ def _build_compose_content(cfg: Config) -> str:
         timezone=_yaml_escape(_resolve_timezone_for_compose(cfg)),
         rdp_port=cfg.rdp.port,
         vnc_port=cfg.pod.vnc_port,
-        oem_dir=_find_oem_dir(),
+        oem_dir=oem_dir,
         top_volumes=top_volumes,
         storage_mount=storage_mount,
         cpu_flags=_cpu_flags_for_host(cfg),
         vmx=_vmx_env_for_host(cfg),
-        qemu_arguments=_qemu_arguments_for_host(cfg),
+        qemu_arguments=qemu_args,
         agent_port=AGENT_PORT,
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),

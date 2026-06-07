@@ -18,10 +18,27 @@ The remaining x86 vs aarch64 split is in ``CPU_FLAGS``:
 
 from __future__ import annotations
 
+import pytest
+
 import winpodx.core.config as _config_module
 import winpodx.core.pod.compose as _compose_module
 from winpodx.core.config import Config
 from winpodx.core.pod.compose import _build_compose_content
+
+
+@pytest.fixture(autouse=True)
+def _stub_smbios_blob_write(monkeypatch):
+    """Keep these tests hermetic: don't write a real SMBIOS blob to the OEM dir.
+
+    The disguise (#246, T1.5) writes a synthetic SMBIOS blob during compose
+    generation; stub the writer so the `-smbios file=` arg is still added but no
+    file I/O happens. tests/test_smbios.py covers the real encode + write path.
+    """
+    monkeypatch.setattr(
+        _compose_module,
+        "_write_disguise_smbios_blob",
+        lambda oem_dir: "/oem/winpodx-smbios.bin",
+    )
 
 
 def _cfg() -> Config:
