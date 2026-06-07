@@ -936,12 +936,10 @@ class BringUpMixin:
         import time
 
         started = time.monotonic()
-        attempt = 0
         err_streak = 0
         while True:
             if self._is_cancelled():
                 return self._emit_cancelled()
-            attempt += 1
             try:
                 state = pod_status(self.cfg).state
             except Exception:  # noqa: BLE001
@@ -965,12 +963,20 @@ class BringUpMixin:
                 except Exception:  # noqa: BLE001
                     rdp_ok = False
                 if rdp_ok:
-                    self._emit_phase("phase_1_pod", f"Attempt {attempt} - RDP ready")
+                    self._emit_phase("phase_1_pod", "Remote Desktop is up")
                     return True
 
-            state_name = state.value if state is not None else "unknown"
-            detail = progress or f"pod state: {state_name}"
-            self._emit_phase("phase_1_pod", f"Attempt {attempt} - {detail}")
+            # Surface what the pod is actually DOING (dockur install progress),
+            # not the internal poll counter — that's the user-meaningful state.
+            if progress:
+                detail = progress
+            elif state == PodState.RUNNING:
+                detail = "Windows is starting — waiting for Remote Desktop..."
+            elif state is not None:
+                detail = f"Pod {state.value}..."
+            else:
+                detail = "Checking pod..."
+            self._emit_phase("phase_1_pod", detail)
 
             # Generous budget while a fresh install is in flight; the normal
             # pod-ready budget otherwise.

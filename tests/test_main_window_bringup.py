@@ -410,17 +410,16 @@ def test_polling_phases_emit_attempt_counters(
     harness._run_full_bring_up()
     _wait_for_done(harness, timeout=10.0)
 
-    # Find phase_1_pod emissions that include "Attempt N -" prefix.
-    phase1_attempts = [
-        detail
-        for pid, detail in harness.bringup_phase.emissions
-        if pid == "phase_1_pod" and detail.startswith("Attempt ")
+    # phase_1_pod surfaces the pod's own state/progress (not an internal poll
+    # counter) — e.g. "Pod starting..." while the container comes up.
+    phase1_details = [
+        detail for pid, detail in harness.bringup_phase.emissions if pid == "phase_1_pod"
     ]
-    assert phase1_attempts, (
-        "phase_1_pod never emitted an Attempt-counter sub_detail; "
-        f"all emissions: {harness.bringup_phase.emissions}"
-    )
-    # At least one phase_2_agent attempt detail too.
+    assert any(
+        ("starting" in d.lower() or "windows" in d.lower() or "pod " in d.lower())
+        for d in phase1_details
+    ), f"phase_1_pod never emitted a pod-progress detail; all: {harness.bringup_phase.emissions}"
+    # phase_2_agent still streams its Attempt-counter detail.
     phase2_attempts = [
         detail
         for pid, detail in harness.bringup_phase.emissions
