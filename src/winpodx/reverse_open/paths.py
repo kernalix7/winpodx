@@ -419,7 +419,14 @@ def safe_open_unc(
     # caught by the readlink validation below: the kernel's
     # /proc/self/fd/N readlink returns the *real* path to the inode,
     # and if that path isn't under the share root we reject.
-    fd = os.open(str(candidate), _O_PATH | os.O_NOFOLLOW)
+    try:
+        fd = os.open(str(candidate), _O_PATH | os.O_NOFOLLOW)
+    except OSError as exc:
+        # The file is gone / unreadable / a symlink (ELOOP). Surface it as a
+        # ReversePathError so the listener drops the request instead of letting
+        # a raw FileNotFoundError escape _handle_request and re-loop forever on
+        # the same stale entry (#425: continuous 'process_pending raised').
+        raise ReversePathError(f"cannot open {candidate}: {exc}") from exc
 
     try:
         # With ``O_PATH | O_NOFOLLOW``, the kernel opens the symlink

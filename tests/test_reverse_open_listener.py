@@ -274,6 +274,32 @@ def test_process_pending_spawns_on_happy_path(
     assert not (inc / f"{uid}.json").exists()
 
 
+def test_process_pending_drops_request_for_missing_target(
+    tmp_path: Path, home_under_tmp: Path, spawn_capture: tuple
+) -> None:
+    # #425: a request whose target file is gone must be DROPPED, not re-looped
+    # forever. safe_open_unc raises ReversePathError on the missing file, the
+    # listener catches it and unlinks the request. A second sweep finds nothing.
+    captured, spawn = spawn_capture
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    missing = home_under_tmp / "gone.txt"  # deliberately NOT created
+    uid = _write_request(inc, _valid_request(missing))
+
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={"home": home_under_tmp})
+    apps_db = _apps_db_with("kate", ["/usr/bin/kate", "%f"])
+    listener = Listener(cfg, apps_db, _seen(tmp_path), spawn=spawn)
+
+    listener.process_pending()
+    assert not (inc / f"{uid}.json").exists()  # dropped on the first sweep
+    listener.process_pending()  # nothing left → no re-loop
+
+    stats = listener.stats_snapshot()
+    assert stats.rejected_path == 1
+    assert stats.accepted == 0
+    assert captured == []
+
+
 def test_process_pending_rejects_replay(
     tmp_path: Path, home_under_tmp: Path, spawn_capture: tuple
 ) -> None:

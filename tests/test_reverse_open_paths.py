@@ -304,17 +304,17 @@ def test_safe_open_unc_yields_safefile_with_proc_path(tmp_path):
 def test_safe_open_unc_nonexistent_raises_oserror(tmp_path):
     """Opening a path that doesn't exist surfaces OSError.
 
-    The listener catches and logs INFO "target file does not exist"
-    instead of WARNING -- distinct from a translation failure, which
-    is a security event.
+    A missing target raises ``ReversePathError`` (not a raw
+    ``FileNotFoundError``) so the listener's ``except ReversePathError`` drops
+    the request instead of letting the error escape ``_handle_request`` and
+    re-loop on the stale entry forever (#425).
     """
     share_roots = {"home": tmp_path}
     before = _fd_count()
-    with pytest.raises(OSError):
+    with pytest.raises(ReversePathError):
         with safe_open_unc(r"\\tsclient\home\does_not_exist", share_roots):
             pass
-    # OSError on os.open() means the FD was never allocated, so the
-    # count is unchanged.
+    # The open failed, so the FD was never allocated -- count is unchanged.
     assert _fd_count() == before
 
 

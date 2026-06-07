@@ -302,6 +302,15 @@ class Listener:
             log.warning("listener: path rejected for %s: %s", path.name, exc)
             _safe_unlink(path)
             return
+        except Exception as exc:  # noqa: BLE001
+            # Belt-and-braces: ANY unexpected dispatch error must still drop the
+            # request file. Otherwise process_pending re-reads it every loop and
+            # the listener spins forever on one bad entry (#425), starving real
+            # reverse-open requests and wedging the refresh dialog.
+            self._stats.spawn_errors += 1
+            log.warning("listener: dispatch failed for %s: %s", path.name, exc)
+            _safe_unlink(path)
+            return
 
         # Only record the UUID after the spawn actually fired -- a
         # spawn-error path above leaves the UUID unrecorded so the
