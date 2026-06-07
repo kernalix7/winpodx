@@ -540,8 +540,6 @@
   "Pulling {tag}...": "{tag} wird abgerufen...",
   "Push host updates (agent, fixes, rdprrap) into the guest -- no reinstall": "Host-Updates (Agent, Korrekturen, rdprrap) in den Gast übertragen -- keine Neuinstallation",
   "Push this host's updated guest files (agent, urlacl, rdprrap, registry fixes) into the running Windows guest? The agent restarts briefly at the end. Windows data is untouched.\n\nProceed?": "Die aktualisierten Gast-Dateien dieses Hosts (Agent, urlacl, rdprrap, Registry-Korrekturen) in den laufenden Windows-Gast übertragen? Der Agent startet am Ende kurz neu. Windows-Daten bleiben unangetastet.\n\nFortfahren?",
-  "PySide6 (Qt6) is required to launch the GUI. Install it one of these ways:": "PySide6 (Qt6) wird zum Starten der GUI benötigt. Installieren Sie es auf eine dieser Arten:",
-  "Or use the AppImage or the install.sh installer — both bundle the GUI.": "Oder verwenden Sie das AppImage oder den install.sh-Installer — beide enthalten die GUI.",
   "QEMU + Windows-on-KVM knob preset": "QEMU + Windows-on-KVM-Optionsvoreinstellung",
   "Querying multi-session status...": "Multi-Session-Status wird abgefragt...",
   "Queuing multi-session activation (detached)...": "Multi-Session-Aktivierung wird in Warteschlange gestellt (abgekoppelt)...",
@@ -867,5 +865,13 @@
   "Checking pod health…": "Pod-Zustand wird geprüft…",
   "Pod is stopped": "Pod ist gestoppt",
   "Status unknown": "Status unbekannt",
-  "Devices": "Geräte"
+  "Devices": "Geräte",
+  "PySide6 (Qt6) is required to launch the GUI. Easiest path: use the AppImage.": "PySide6 (Qt6) wird zum Starten der GUI benötigt. Einfachster Weg: Verwenden Sie das AppImage.",
+  "AppImage (bundles the GUI, no Python setup): download winpodx-x86_64.AppImage from the Releases page, then run `chmod +x winpodx-x86_64.AppImage && ./winpodx-x86_64.AppImage gui`.": "AppImage (enthält die GUI, keine Python-Einrichtung): Laden Sie winpodx-x86_64.AppImage von der Releases-Seite herunter und führen Sie `chmod +x winpodx-x86_64.AppImage && ./winpodx-x86_64.AppImage gui` aus.",
+  "install.sh installer: sets up a private venv with the GUI (no PEP 668 issue).": "install.sh-Installer: richtet eine private venv mit der GUI ein (kein PEP-668-Problem).",
+  "If you installed winpodx with pip:": "Wenn Sie winpodx mit pip installiert haben:",
+  "Distro package:": "Distributionspaket:",
+  "(Your distro may not package PySide6 for apt — use the AppImage above.)": "(Ihre Distribution stellt PySide6 möglicherweise nicht für apt bereit – verwenden Sie das AppImage oben.)",
+  "Setting up Windows (first run)…": "Windows wird eingerichtet (erster Start)…",
+  "Downloading and installing Windows — this can take 20–40 minutes. You can watch progress at http://127.0.0.1:8006": "Windows wird heruntergeladen und installiert — das kann 20–40 Minuten dauern. Den Fortschritt können Sie unter http://127.0.0.1:8006 verfolgen"
 }
