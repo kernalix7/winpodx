@@ -64,6 +64,7 @@ name: "winpodx"
       TZ: "{timezone}"
       NETWORK: "user"
       ADAPTER: "{adapter}"
+      MTU: "{mtu}"
       VGA: "{vga}"
       CPU_FLAGS: "{cpu_flags}"
       VMX: "{vmx}"
@@ -678,17 +679,22 @@ def _build_compose_content(cfg: Config) -> str:
 
     # Device model (#246, max level): swap the Red Hat / virtio devices for
     # emulated ones so the guest carries no virtio (VEN_1AF4) / QXL (VEN_1B36)
-    # PCI IDs or vioscsi/viostor drivers. Empty string = dockur's virtio defaults
-    # (`${VAR:=default}` treats "" as unset). Changing the disk type on an
-    # existing guest is unbootable (boot controller change), so the GUI/CLI gate
-    # a switch into/out of max behind a wipe-storage reinstall.
+    # PCI IDs or vioscsi/viostor/netkvm drivers. Empty string = dockur's virtio
+    # defaults (`${VAR:=default}` treats "" as unset). Changing the disk type on
+    # an existing guest is unbootable (boot controller change), so the GUI/CLI
+    # gate a switch into/out of max behind a wipe-storage reinstall.
     #
-    # NETWORK adapter is deliberately left at dockur's virtio-net-pci: dockur
-    # appends ``host_mtu=`` to the NIC device unconditionally, which only
-    # virtio-net supports — ``ADAPTER=e1000`` makes QEMU abort at boot
-    # ("Property 'e1000.host_mtu' not found"). So the NIC stays virtio (netkvm /
-    # VEN_1AF4 remain); disk + GPU still go emulated.
-    disk_type, adapter, vga = ("sata", "", "std") if cfg.pod.disguise_max else ("", "", "")
+    # MTU=1500 is REQUIRED with the emulated e1000 NIC: dockur appends
+    # ``host_mtu=$MTU`` to the device when MTU is neither 0 nor 1500 (it
+    # auto-detects the host's 65520 for user-mode net), but ``host_mtu`` is a
+    # virtio-net-only property, so an e1000 with it aborts QEMU at boot
+    # ("Property 'e1000.host_mtu' not found"). Pinning MTU=1500 makes dockur emit
+    # a plain ``-device e1000`` (no host_mtu). Empty MTU for off/balanced keeps
+    # dockur's virtio auto-MTU.
+    if cfg.pod.disguise_max:
+        disk_type, adapter, vga, mtu = "sata", "e1000", "std", "1500"
+    else:
+        disk_type, adapter, vga, mtu = "", "", "", ""
 
     return template.format(
         ram=cfg.pod.ram_gb,
@@ -698,6 +704,7 @@ def _build_compose_content(cfg: Config) -> str:
         disk_size=_yaml_escape(_disguise_disk_size(cfg)),
         disk_type=disk_type,
         adapter=adapter,
+        mtu=mtu,
         vga=vga,
         hv=hv,
         user=_yaml_escape(cfg.rdp.user),
