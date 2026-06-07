@@ -876,10 +876,11 @@ class BringUpMixin:
         import re
         import subprocess
 
-        if self._cfg is None:
+        cfg = getattr(self, "cfg", None)
+        if cfg is None:
             return None, None, False
-        backend = getattr(self._cfg.pod, "backend", "podman")
-        container = getattr(self._cfg.pod, "container_name", "winpodx-windows")
+        backend = getattr(cfg.pod, "backend", "podman")
+        container = getattr(cfg.pod, "container_name", "winpodx-windows")
         try:
             r = subprocess.run(
                 [backend, "logs", "--tail", "50", container],

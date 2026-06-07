@@ -37,6 +37,10 @@ from winpodx.core.config import Config  # noqa: E402
 from winpodx.core.pod import PodState, PodStatus  # noqa: E402
 from winpodx.gui._main_window_bringup import BringUpMixin  # noqa: E402
 
+# Capture the real _dockur_progress before the autouse fixture stubs it, so the
+# tests below can exercise the actual implementation (attribute access + parse).
+_REAL_DOCKUR_PROGRESS = BringUpMixin._dockur_progress
+
 
 class FakeSignal:
     """Minimal stand-in for a Qt Signal that records emits."""
@@ -655,6 +659,42 @@ def test_phase4_retries_transient_channel_error(monkeypatch: pytest.MonkeyPatch)
 
     assert calls["n"] == 3  # 2 transient retries + 1 success
     assert harness.bringup_done.emissions == [(True, "")]
+
+
+class _FakeRun:
+    def __init__(self, stdout: str = "", stderr: str = "") -> None:
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_dockur_progress_reads_cfg_and_parses(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression: _dockur_progress must use self.cfg (not self._cfg) — the latter
+    # raised AttributeError and crashed the whole bring-up.
+    harness = Harness(_make_cfg())
+    log = "❯ Downloading Windows 11...\n50000K ........ 50% 84.0M 60s\n"
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: _FakeRun(stdout=log))
+    err, progress, installing = _REAL_DOCKUR_PROGRESS(harness)
+    assert err is None
+    assert installing is True
+    assert progress and "50%" in progress
+
+
+def test_dockur_progress_flags_qemu_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = Harness(_make_cfg())
+    log = "❯ ERROR: qemu-system-x86_64: -device e1000,...: Property 'e1000.host_mtu' not found\n"
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: _FakeRun(stdout=log))
+    err, _progress, _installing = _REAL_DOCKUR_PROGRESS(harness)
+    assert err and "host_mtu" in err
+
+
+def test_dockur_progress_survives_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = Harness(_make_cfg())
+
+    def _boom(*_a, **_k):
+        raise OSError("podman not found")
+
+    monkeypatch.setattr("subprocess.run", _boom)
+    assert _REAL_DOCKUR_PROGRESS(harness) == (None, None, False)
 
 
 def test_phase1_fails_fast_on_qemu_boot_error(monkeypatch: pytest.MonkeyPatch) -> None:
