@@ -860,58 +860,123 @@ class BringUpMixin:
 
     # ----- phase 1: wait pod ready ---------------------------------------
 
+    def _dockur_progress(self) -> tuple[str | None, str | None, bool]:
+        """Peek at the dockur container log: ``(qemu_error, progress, installing)``.
+
+        * ``qemu_error`` — the latest fatal ``ERROR: qemu-system-...`` line if the
+          container is failing to boot (e.g. a rejected ``-device``), else None.
+          With dockur's ``restart: unless-stopped`` a bad QEMU arg boot-loops, so
+          this lets phase 1 fail fast with the real reason instead of waiting out
+          the whole budget.
+        * ``progress`` — a short human line (latest ``❯`` status, or
+          ``Downloading Windows NN%`` from the wget dot-rows) for the dialog.
+        * ``installing`` — True when dockur is actively downloading/installing, so
+          phase 1 can extend its budget past the normal pod-ready window.
+        """
+        import re
+        import subprocess
+
+        if self._cfg is None:
+            return None, None, False
+        backend = getattr(self._cfg.pod, "backend", "podman")
+        container = getattr(self._cfg.pod, "container_name", "winpodx-windows")
+        try:
+            r = subprocess.run(
+                [backend, "logs", "--tail", "50", container],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None, None, False
+        raw = (r.stdout or "") + (r.stderr or "")
+        raw = re.sub(r"\x1b\[[0-9;]*m", "", raw).replace("\r", "\n")
+        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        if not lines:
+            return None, None, False
+
+        qemu_error = None
+        for ln in reversed(lines):
+            if "ERROR: qemu-system" in ln:
+                qemu_error = ln.split("ERROR:", 1)[1].strip()
+                break
+
+        _MARKERS = ("Downloading", "Extracting", "Building", "Booting", "Install")
+        installing = any(any(m in ln for m in _MARKERS) for ln in lines[-12:])
+
+        progress = None
+        pct = None
+        for ln in reversed(lines):  # latest wget dot-row percentage
+            m = re.search(r"\b(\d{1,3})%", ln)
+            if m and ("K " in ln or "M " in ln or "%" in ln) and ln[:1].isdigit():
+                pct = m.group(1)
+                break
+        status = None
+        for ln in reversed(lines):  # latest dockur ❯ status line
+            if ln.startswith("❯") or any(ln.startswith(m) for m in _MARKERS):
+                status = ln.lstrip("❯ ").strip()
+                break
+        if pct is not None and (status is None or "Download" in (status or "")):
+            progress = f"Downloading Windows: {pct}%"
+        elif status:
+            progress = status[:80]
+        return qemu_error, progress, installing
+
     def _phase1_wait_pod_ready(self) -> bool:
         from winpodx.core.pod import PodState, check_rdp_port, pod_status
 
-        deadline = self.cfg.install.wait_ready_stage2_secs
-        self._emit_phase("phase_1_pod", f"Up to {deadline}s budget")
+        base = self.cfg.install.wait_ready_stage2_secs
+        # A fresh install (ISO download + Sysprep) runs well past the normal
+        # pod-ready window; allow up to the stage-3 fresh-install budget while
+        # dockur is actively installing so the dialog doesn't time out mid-setup.
+        fresh = max(self.cfg.install.wait_ready_stage3_secs, base)
+        self._emit_phase("phase_1_pod", f"Up to {base}s budget")
 
         import time
 
         started = time.monotonic()
         attempt = 0
+        err_streak = 0
         while True:
             if self._is_cancelled():
                 return self._emit_cancelled()
-            elapsed = time.monotonic() - started
-            if elapsed >= deadline:
-                self._emit_done(
-                    False,
-                    f"Pod did not become RUNNING within {deadline}s",
-                )
-                return False
-
             attempt += 1
             try:
-                status = pod_status(self.cfg)
-                state = status.state
-            except Exception as e:  # noqa: BLE001
+                state = pod_status(self.cfg).state
+            except Exception:  # noqa: BLE001
                 state = None
-                self._emit_phase(
-                    "phase_1_pod",
-                    f"Attempt {attempt} - pod_status probe failed: {e}",
-                )
+
+            qemu_error, progress, installing = self._dockur_progress()
+
+            # Fail fast on a boot-looping QEMU error (e.g. a rejected -device) —
+            # don't wait out the whole budget for a container that can't start.
+            if qemu_error:
+                err_streak += 1
+                if err_streak >= 3:
+                    self._emit_done(False, f"Pod failed to boot — QEMU: {qemu_error}")
+                    return False
+            else:
+                err_streak = 0
+
             if state == PodState.RUNNING:
                 try:
                     rdp_ok = check_rdp_port(self.cfg.rdp.ip, self.cfg.rdp.port, timeout=3.0)
                 except Exception:  # noqa: BLE001
                     rdp_ok = False
                 if rdp_ok:
-                    self._emit_phase(
-                        "phase_1_pod",
-                        f"Attempt {attempt} - RDP port {self.cfg.rdp.port}: ready",
-                    )
+                    self._emit_phase("phase_1_pod", f"Attempt {attempt} - RDP ready")
                     return True
-                self._emit_phase(
-                    "phase_1_pod",
-                    f"Attempt {attempt} - RDP port {self.cfg.rdp.port}: probing...",
-                )
-            else:
-                state_name = state.value if state is not None else "unknown"
-                self._emit_phase(
-                    "phase_1_pod",
-                    f"Attempt {attempt} - pod state: {state_name}",
-                )
+
+            state_name = state.value if state is not None else "unknown"
+            detail = progress or f"pod state: {state_name}"
+            self._emit_phase("phase_1_pod", f"Attempt {attempt} - {detail}")
+
+            # Generous budget while a fresh install is in flight; the normal
+            # pod-ready budget otherwise.
+            deadline = fresh if installing else base
+            if time.monotonic() - started >= deadline:
+                self._emit_done(False, f"Pod not ready within {int(deadline)}s ({detail})")
+                return False
 
             self._sleep_cancellable(_POLL_CADENCE_SECS)
 
