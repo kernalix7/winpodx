@@ -22,34 +22,45 @@
 #   winpodx config set pod.disguise_image winpodx-windows-disguise
 #   winpodx pod recreate --wipe-storage     # device + firmware change → reinstall
 #
-# NOTE: matching the build environment (Alpine version, configure flags, shared
+# NOTE: matching the build environment (Debian release, configure flags, shared
 # libs) to the dockur base is the fiddly part — iterate until the patched
-# binary runs in the final image. This recipe targets dockur's Alpine base.
+# binary runs in the final image. dockur's base is Debian (glibc), so the build
+# stage is Debian too; an Alpine/musl QEMU would not run in the image.
 
 ARG DOCKUR_IMAGE=docker.io/dockurr/windows:latest
 ARG QEMU_VERSION=10.0.8
 
-# --- stage 1: build patched QEMU in the same Alpine base dockur uses ---
+# --- stage 1: build patched QEMU in Debian (dockur's base is Debian/glibc, so
+# the build MUST be glibc too — an Alpine/musl binary won't run in the image) ---
 FROM ${DOCKUR_IMAGE} AS base
 
-FROM alpine:3.21 AS build
+FROM debian:trixie-slim AS build
 ARG QEMU_VERSION
-RUN apk add --no-cache \
-        build-base ninja meson python3 bash pkgconf glib-dev pixman-dev \
-        zlib-dev curl tar xz linux-headers bzip2-dev \
-        libslirp-dev libusb-dev usbredir-dev spice-dev \
-        libcap-ng-dev attr-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential ninja-build meson python3 pkg-config flex bison \
+        libglib2.0-dev libpixman-1-dev zlib1g-dev libslirp-dev \
+        libusb-1.0-0-dev libusbredirparser-dev libspice-server-dev \
+        libcap-ng-dev libattr1-dev curl xz-utils ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 RUN curl -fsSL "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz" -o qemu.tar.xz \
     && tar xf qemu.tar.xz && mv "qemu-${QEMU_VERSION}" qemu
 COPY patch-strings.sh /build/patch-strings.sh
-RUN bash /build/patch-strings.sh /build/qemu
+# Host-derived identity strings (passed by `winpodx disguise build-image`);
+# patch-strings.sh falls back to generic-real defaults when unset.
+ARG ACPI_OEM6=""
+ARG ACPI_OEM8=""
+ARG DISK_MODEL=""
+ARG DVD_MODEL=""
+RUN ACPI_OEM6="${ACPI_OEM6}" ACPI_OEM8="${ACPI_OEM8}" \
+    DISK_MODEL="${DISK_MODEL}" DVD_MODEL="${DVD_MODEL}" \
+    bash /build/patch-strings.sh /build/qemu
 WORKDIR /build/qemu
-# Build only the x86_64 system target. Add/trim --enable flags to match what
-# your dockur image's QEMU was built with (check its `qemu-system-x86_64
-# --version` / configure summary) so the binary links cleanly in stage 2.
+# Build only the x86_64 system target. The --enable set mirrors what dockur's
+# Debian QEMU package links (slirp networking + usb-redir + spice) so the
+# patched binary is a drop-in replacement in stage 2.
 RUN ./configure --target-list=x86_64-softmmu --prefix=/usr \
-        --enable-slirp --enable-usb-redir --disable-docs --disable-gtk \
+        --enable-slirp --enable-usb-redir --enable-spice --disable-docs \
     && make -j"$(nproc)" \
     && strip build/qemu-system-x86_64
 

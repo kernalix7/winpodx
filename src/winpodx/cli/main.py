@@ -314,6 +314,14 @@ def cli(argv: list[str] | None = None) -> None:
         help="Re-sync even when the guest version stamp already matches the host.",
     )
 
+    # --- disguise (advanced: patched-QEMU image, #246) ---
+    disg_parser = sub.add_parser("disguise", help="Bare-metal disguise (advanced)")
+    disg_sub = disg_parser.add_subparsers(dest="disguise_command")
+    disg_sub.add_parser(
+        "build-image",
+        help="Build the patched-QEMU dockur image (host ACPI OEM + disk model) and use it at max",
+    )
+
     # --- config ---
     cfg_parser = sub.add_parser("config", help="Manage configuration")
     cfg_sub = cfg_parser.add_subparsers(dest="config_command")
@@ -930,6 +938,10 @@ def _dispatch(args: argparse.Namespace) -> None:
         from winpodx.cli.pod import handle_pod
 
         handle_pod(args)
+    elif cmd == "disguise":
+        from winpodx.cli.disguise import handle_disguise
+
+        handle_disguise(args)
     elif cmd == "config":
         from winpodx.cli.config_cmd import handle_config
 

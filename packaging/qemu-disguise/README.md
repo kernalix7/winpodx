@@ -30,35 +30,45 @@ you opt in.
   there's no GPL-binary redistribution and nothing for AV to flag in winpodx's
   own packages.
 
-## Build
+## Build (one command)
 
 ```bash
-# 1. find the QEMU version inside your pinned dockur image
-podman run --rm --entrypoint qemu-system-x86_64 \
-  docker.io/dockurr/windows:latest --version
-
-# 2. build the patched image (match QEMU_VERSION to step 1)
-podman build -t winpodx-windows-disguise \
-  --build-arg DOCKUR_IMAGE=docker.io/dockurr/windows:latest \
-  --build-arg QEMU_VERSION=10.0.8 \
-  -f packaging/qemu-disguise/Dockerfile packaging/qemu-disguise
+winpodx disguise build-image
 ```
 
-Matching the build flags to your dockur image is the fiddly part — if
-`qemu-system-x86_64 --version` fails in stage 2, adjust the `./configure`
-`--enable-*` flags to match what the image's QEMU was built with, and rebuild.
+This detects the QEMU version inside your pinned dockur image, reads your
+**host's real ACPI OEM (vendor) + disk model** (world-readable `/sys` —
+no root, nothing committed), builds the patched image locally, and points
+`cfg.pod.disguise_image` at it. The compile takes ~20–40 minutes. The image
+lives only in your local podman/docker store; git/winpodx never see a patched
+binary.
 
-## Use
+Then enable it:
 
 ```bash
 winpodx config set pod.disguise_level max
-winpodx config set pod.disguise_image winpodx-windows-disguise
 winpodx pod recreate --wipe-storage   # device + firmware change → reinstall
 ```
 
-`disguise_image` is only honoured at `disguise_level = max`. Leave it empty to
-use the normal pinned image. Re-build the image whenever you bump the dockur
-pin (the QEMU version changes).
+`disguise_image` is only honoured at `disguise_level = max`. Re-run
+`winpodx disguise build-image` whenever you bump the dockur pin (the QEMU
+version changes).
+
+### Manual build (if you want to tweak flags)
+
+The build stage is **Debian** (dockur's base is Debian/glibc — an Alpine/musl
+QEMU won't run in the image). To override the baked strings:
+
+```bash
+podman build -t winpodx-windows-disguise \
+  --build-arg DOCKUR_IMAGE=docker.io/dockurr/windows:latest \
+  --build-arg QEMU_VERSION=10.0.8 \
+  --build-arg ACPI_OEM6=LENOVO --build-arg DISK_MODEL='Samsung SSD 990' \
+  -f packaging/qemu-disguise/Dockerfile packaging/qemu-disguise
+```
+
+If `qemu-system-x86_64 --version` fails in stage 2, adjust the `./configure`
+`--enable-*` flags to match the image's QEMU build, and rebuild.
 
 ## The patch
 
