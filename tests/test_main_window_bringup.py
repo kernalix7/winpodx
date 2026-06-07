@@ -579,3 +579,98 @@ def test_dialog_done_freezes_active_phase_elapsed() -> None:
             assert elapsed_label.text(), f"row {i} elapsed empty"
     finally:
         dlg.reject()
+
+
+# ----- phase 4 discovery retry (transient agent-channel hiccup) -----------
+
+
+def _pass_phases_123(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub phases 1-3 so a test can focus on phase 4 (discovery)."""
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: PodStatus(state=PodState.RUNNING, ip="127.0.0.1"),
+    )
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda _ip, _port, timeout=3.0: True)
+
+    class _FakeClient:
+        def __init__(self, _cfg: Config) -> None:
+            pass
+
+        def health(self) -> dict:
+            return {"ok": True}
+
+        def auth_ready(self) -> tuple[bool, str]:
+            return True, ""
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.apply_windows_runtime_fixes",
+        lambda _cfg: {
+            "max_sessions": "ok",
+            "rdp_timeouts": "ok",
+            "oem_runtime_fixes": "ok",
+            "vbs_launchers": "ok",
+            "multi_session": "ok",
+        },
+    )
+
+
+def test_phase4_retries_transient_channel_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core.discovery import DiscoveryError
+
+    cfg = _make_cfg()
+    cfg.reverse_open.enabled = True
+    _pass_phases_123(monkeypatch)
+    monkeypatch.setattr("winpodx.gui._main_window_bringup._DISCOVERY_RETRY_SECS", 0.01)
+
+    calls = {"n": 0}
+
+    def _flaky(_cfg: Config) -> list[str]:
+        calls["n"] += 1
+        if calls["n"] < 3:  # the agent /health flickered mid-scan twice
+            raise DiscoveryError(
+                "Discovery channel failure: /exec socket error: "
+                "Remote end closed connection without response",
+                kind="pod_not_running",
+            )
+        return ["app1"]
+
+    monkeypatch.setattr("winpodx.core.discovery.scan", _flaky)
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", lambda _a: ["/tmp/app1.toml"])
+    monkeypatch.setattr("winpodx.cli.host_open._cmd_refresh", lambda _args: 0)
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up()
+    _wait_for_done(harness, timeout=5.0)
+
+    assert calls["n"] == 3  # 2 transient retries + 1 success
+    assert harness.bringup_done.emissions == [(True, "")]
+
+
+def test_phase4_does_not_retry_real_script_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core.discovery import DiscoveryError
+
+    cfg = _make_cfg()
+    _pass_phases_123(monkeypatch)
+    monkeypatch.setattr("winpodx.gui._main_window_bringup._DISCOVERY_RETRY_SECS", 0.01)
+
+    calls = {"n": 0}
+
+    def _failing(_cfg: Config) -> list[str]:
+        calls["n"] += 1
+        raise DiscoveryError("Discovery script failed (rc=1): boom", kind="script_failed")
+
+    monkeypatch.setattr("winpodx.core.discovery.scan", _failing)
+    monkeypatch.setattr(
+        "winpodx.cli.host_open._cmd_refresh",
+        lambda _args: pytest.fail("phase 5 must not run when discovery fails"),
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up()
+    _wait_for_done(harness, timeout=5.0)
+
+    assert calls["n"] == 1  # genuine script failure → no retry
+    success, msg = harness.bringup_done.emissions[0]
+    assert success is False
+    assert "Discovery script failed" in msg

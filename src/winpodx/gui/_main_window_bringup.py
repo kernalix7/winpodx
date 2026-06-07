@@ -125,6 +125,23 @@ class _ChecklistIconLabel(QLabel):
 # transport during the long-tail Sysprep wait.
 _POLL_CADENCE_SECS = 2.0
 
+# Discovery (phase 4) retry: on a fresh install the agent's /health can flicker
+# (TermService / rdprrap reactivation restarts it), so the discovery /exec POST
+# can land on a momentarily-closed socket ("Remote end closed connection without
+# response"). That's transient — retry a few times before failing the bring-up,
+# matching the agent_keepalive + apply-burst transient retries.
+_DISCOVERY_MAX_ATTEMPTS = 3
+_DISCOVERY_RETRY_SECS = 4.0
+
+
+def _is_transient_discovery_error(exc: Exception) -> bool:
+    """True when a discovery failure is a transient channel hiccup worth a retry.
+
+    Only a genuine guest-side script failure (the script ran and exited non-zero)
+    is non-transient — every channel / socket / agent-flicker error is retried.
+    """
+    return "Discovery script failed (rc=" not in str(exc)
+
 
 # Stable phase identifiers + their display label / ETA hint / cancellable
 # flag. The phase ID is the wire contract between BringUpMixin and
@@ -990,11 +1007,30 @@ class BringUpMixin:
             return self._emit_cancelled()
 
         self._emit_phase("phase_4_discovery", "Scanning guest Start Menu + AppX...")
-        try:
-            apps = discovery_mod.scan(self.cfg)
-        except Exception as exc:  # noqa: BLE001
-            self._emit_done(False, f"discovery.scan raised: {exc}")
-            return False
+        apps = None
+        for attempt in range(1, _DISCOVERY_MAX_ATTEMPTS + 1):
+            if self._is_cancelled():
+                return self._emit_cancelled()
+            try:
+                apps = discovery_mod.scan(self.cfg)
+                break
+            except Exception as exc:  # noqa: BLE001
+                fatal = (
+                    not _is_transient_discovery_error(exc)
+                    or attempt == _DISCOVERY_MAX_ATTEMPTS
+                )
+                if fatal:
+                    self._emit_done(False, f"discovery.scan raised: {exc}")
+                    return False
+                # Transient agent-channel hiccup (e.g. /health flickered mid-scan)
+                # — wait for the agent to re-settle and try again.
+                self._emit_phase(
+                    "phase_4_discovery",
+                    f"Attempt {attempt} - agent channel closed mid-scan; retrying...",
+                )
+                self._sleep_cancellable(_DISCOVERY_RETRY_SECS)
+        if apps is None:  # cancelled inside the loop
+            return self._emit_cancelled()
 
         try:
             persisted = discovery_mod.persist_discovered(apps)
