@@ -9,8 +9,8 @@ corresponding ``Win32_*`` / ``CIM_*`` WMI classes, not live readings, so static
 descriptor structures with nominal/unknown values are enough to satisfy them.
 
 This module builds a small binary SMBIOS structure table (types 26 / 28 / 27 /
-7 / 9 / 8 / 16 / 17 / 11) with **synthetic** values — no host serials or live
-sensor data are read, so nothing machine-identifying is produced. The blob is
+7 / 9 / 8 / 16 / 17 / 6 / 11) with **synthetic** values — no host serials or
+live sensor data are read, so nothing machine-identifying is produced. The blob is
 written to the OEM dir (mounted into the container) and passed to QEMU via
 ``-smbios file=``. Types 16 / 17 add the physical-memory-array / memory-device
 descriptors (``Win32_PhysicalMemory`` existence); type 11 adds a benign OEM
@@ -34,6 +34,7 @@ _H_SLOT = 0x0900
 _H_PORT = 0x0800
 _H_MEMARRAY = 0x1000
 _H_MEMDEV = 0x1100
+_H_MEMMOD = 0x0600
 _H_OEMSTR = 0x0B00
 
 _UNKNOWN_W = 0x8000  # SMBIOS "unknown" sentinel for WORD probe values
@@ -160,6 +161,20 @@ def build_disguise_smbios_blob() -> bytes:
             ["DIMM 0", "BANK 0", "Generic", "00000000", "Not Specified", "Generic Module"],
         )
     )
+
+    # Type 6 — Memory Module Information (obsolete, pre-type-17). Best-effort
+    # for the Win32_MemoryDevice WMI existence check, which type 17 alone does
+    # not populate. Synthetic single module, 16 GB, socket "A0".
+    mem_mod = (
+        bytes([1])  # socket designation (string 1)
+        + bytes([0xFF])  # bank connections: none
+        + bytes([0x00])  # current speed: unknown
+        + _w(0x0080)  # current memory type: bit7 (DIMM)
+        + bytes([0x0E])  # installed size: 2^14 MB = 16 GB (bit7=0 single bank)
+        + bytes([0x0E])  # enabled size: 16 GB
+        + bytes([0x00])  # error status: none
+    )
+    parts.append(_structure(6, _H_MEMMOD, mem_mod, ["A0"]))
 
     # Type 11 — OEM Strings. Real boards expose a type-11 structure; QEMU often
     # omits it. A single benign "Default string" (what most retail boards ship)

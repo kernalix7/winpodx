@@ -64,6 +64,7 @@ name: "winpodx"
       NETWORK: "user"
       CPU_FLAGS: "{cpu_flags}"
       VMX: "{vmx}"
+      HV: "{hv}"
       ARGUMENTS: "{qemu_arguments}"
       USER_PORTS: "{agent_port}"
     volumes:
@@ -579,6 +580,45 @@ def _write_disguise_smbios_blob(oem_dir: str) -> str | None:
         return None
 
 
+def _disguise_disk_size(cfg: Config) -> str:
+    """Effective ``DISK_SIZE`` for the compose, bumped to a bare-metal-looking
+    size when the disguise is active and the host can safely back it (#246).
+
+    al-khaser / Pafish flag a disk under ~128 GB as a VM tell. The dockur disk
+    is sparse, so a larger *ceiling* costs ~0 host space up front — but we still
+    gate on host headroom (via ``disk.effective_max_bytes``, which keeps the
+    10 GiB / 10 % reserve) so a runaway guest can never fill the host disk. When
+    the host can't reach the threshold, the size is left as-is and a warning is
+    logged (best-effort — the disk-size check then stays a VM tell).
+    """
+    cur = cfg.pod.disk_size
+    if not cfg.pod.disguise_active:
+        return cur
+    from winpodx.core.disk import DiskError, effective_max_bytes, format_size, parse_size
+
+    target = 128 * (1024**3)  # 128 GiB clears the al-khaser / Pafish thresholds
+    try:
+        cur_b = parse_size(cur)
+    except DiskError:
+        return cur
+    if cur_b >= target:
+        return cur  # already real-looking — never shrink the user's disk
+    cap = effective_max_bytes(cfg, cur_b)  # None = host-trusted / unbounded
+    want = target if cap is None else min(target, cap)
+    if want <= cur_b:
+        logging.getLogger(__name__).warning(
+            "disguise: not enough host free space to enlarge the %s disk to a "
+            "bare-metal-looking size; the disk-size VM check will not pass. Free "
+            "up host space or raise cfg.pod.disk_size to hide it.",
+            cur,
+        )
+        return cur
+    try:
+        return format_size(want)
+    except DiskError:
+        return cur
+
+
 def _build_compose_content(cfg: Config) -> str:
     """Build and return compose YAML content string for *cfg*."""
     password = cfg.rdp.password or generate_password()
@@ -602,12 +642,18 @@ def _build_compose_content(cfg: Config) -> str:
     # arbitrary env keys into the dockur service. Defense in depth:
     # PodConfig.__post_init__ also rejects these characters, but the
     # escape here is the last line of defence on the YAML boundary.
+    # Hyper-V enlightenments: dockur's default is HV=Y (the #215/#281 perf
+    # tuning). The "max" disguise level drops them (HV=N) so the al-khaser /
+    # Pafish Hyper-V checks pass, at a real Windows-on-KVM performance cost.
+    hv = "N" if cfg.pod.disguise_max else "Y"
+
     return template.format(
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
         container_name=_yaml_escape(cfg.pod.container_name),
         image=_yaml_escape(cfg.pod.image),
-        disk_size=_yaml_escape(cfg.pod.disk_size),
+        disk_size=_yaml_escape(_disguise_disk_size(cfg)),
+        hv=hv,
         user=_yaml_escape(cfg.rdp.user),
         password=_yaml_escape(password),
         home=str(Path.home()),

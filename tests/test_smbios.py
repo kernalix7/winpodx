@@ -29,9 +29,9 @@ def test_blob_builds_and_validates():
 def test_blob_contains_sensor_descriptor_types():
     # The types al-khaser checks for existence: voltage(26), temperature(28),
     # cooling(27), cache(7), slot(9), port connector(8), physical memory
-    # array(16), memory device(17), OEM strings(11).
+    # array(16), memory device(17), memory module(6), OEM strings(11).
     types = _walk_types(build_disguise_smbios_blob())
-    for t in (26, 28, 27, 7, 9, 8, 16, 17, 11):
+    for t in (26, 28, 27, 7, 9, 8, 16, 17, 6, 11):
         assert t in types, f"missing SMBIOS type {t}"
 
 

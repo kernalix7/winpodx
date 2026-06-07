@@ -55,8 +55,8 @@ def _cfg() -> Config:
     cfg.pod.tuning_profile = "off"
     # Likewise isolate from the default-ON hypervisor disguise (#246) — the
     # arch/tuning tests assert an exact CPU_FLAGS string. The disguise tests
-    # below set it explicitly.
-    cfg.pod.disguise_hypervisor = False
+    # below set the level explicitly.
+    cfg.pod.disguise_level = "off"
     return cfg
 
 
@@ -133,41 +133,87 @@ _DISGUISE_FLAGS = (
 
 
 def test_compose_disguise_on_by_default(monkeypatch):
-    """disguise_hypervisor=None (absent) defaults ON — emits the disguise flags."""
+    """disguise_level=None (absent) resolves to balanced — emits the flags."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     cfg = _cfg()
-    cfg.pod.disguise_hypervisor = None  # the real default (absent key)
+    cfg.pod.disguise_level = None  # the real default (absent key)
+    cfg.pod.__post_init__()  # re-resolve: None -> "balanced"
+    cfg.pod.storage_path = ""  # named-volume mode → host-trusted disk bump
+    assert cfg.pod.disguise_level == "balanced"
     assert cfg.pod.disguise_active is True
     content = _build_compose_content(cfg)
     for flag in _DISGUISE_FLAGS:
         assert flag in content, f"disguise flag {flag!r} missing (default ON)"
     # hv-vendor-id was deliberately dropped (collides with dockur hv flags).
     assert "hv-vendor-id" not in content
+    # balanced keeps Hyper-V on (perf); the disk is bumped to a real size.
+    assert 'HV: "Y"' in content
+    assert 'DISK_SIZE: "128G"' in content
 
 
-def test_compose_disguise_explicit_true(monkeypatch):
-    """disguise_hypervisor=True emits the same flags as the default."""
+def test_compose_disguise_legacy_bool_false_maps_to_off(monkeypatch):
+    """A pre-tier config (disguise_hypervisor=False) migrates to level off."""
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    cfg = _cfg()
+    cfg.pod.disguise_level = None
+    cfg.pod.disguise_hypervisor = False
+    cfg.pod.__post_init__()
+    assert cfg.pod.disguise_level == "off"
+
+
+def test_compose_disguise_balanced(monkeypatch):
+    """level=balanced emits the disguise flags, keeps HV=Y."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     cfg = _cfg()
-    cfg.pod.disguise_hypervisor = True
+    cfg.pod.disguise_level = "balanced"
     content = _build_compose_content(cfg)
     for flag in _DISGUISE_FLAGS:
         assert flag in content, f"disguise flag {flag!r} missing from compose"
     assert "hv-vendor-id" not in content
+    assert 'HV: "Y"' in content
 
 
-def test_compose_disguise_explicit_false_opts_out(monkeypatch):
-    """disguise_hypervisor=False (explicit opt-out) emits no disguise flags."""
+def test_compose_disguise_max_disables_hyperv(monkeypatch):
+    """level=max emits the disguise flags AND drops Hyper-V (HV=N)."""
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     cfg = _cfg()
-    cfg.pod.disguise_hypervisor = False
+    cfg.pod.disguise_level = "max"
+    content = _build_compose_content(cfg)
+    for flag in _DISGUISE_FLAGS:
+        assert flag in content
+    assert 'HV: "N"' in content  # the max-only Hyper-V opt-out
+
+
+def test_compose_disguise_disk_not_bumped_when_host_small(monkeypatch):
+    """A host with no headroom leaves the disk as-is (warn, no bump) — #246."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    import winpodx.core.disk as _disk
+
+    # effective_max_bytes == current bytes → no headroom → must not bump.
+    monkeypatch.setattr(_disk, "effective_max_bytes", lambda cfg, cur: cur)
+    cfg = _cfg()
+    cfg.pod.disguise_level = "balanced"
+    cfg.pod.disk_size = "64G"
+    cfg.pod.storage_path = "/some/path"  # non-empty → effective_max_bytes consulted
+    content = _build_compose_content(cfg)
+    assert 'DISK_SIZE: "64G"' in content  # left as-is, not enlarged
+
+
+def test_compose_disguise_off_opts_out(monkeypatch):
+    """level=off emits no disguise flags, keeps HV=Y and the user's disk."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    cfg = _cfg()  # _cfg() sets disguise_level = "off"
     assert cfg.pod.disguise_active is False
     content = _build_compose_content(cfg)
     assert "-hypervisor" not in content
     assert "kvm=off" not in content
+    assert 'HV: "Y"' in content
+    assert 'DISK_SIZE: "64G"' in content  # off never bumps the disk
 
 
 def test_compose_disguise_smbios_mirrors_host_dmi(monkeypatch):
@@ -187,7 +233,7 @@ def test_compose_disguise_smbios_mirrors_host_dmi(monkeypatch):
     }
     monkeypatch.setattr(_compose_module, "_host_dmi_field", lambda n: dmi.get(n))
     cfg = _cfg()
-    cfg.pod.disguise_hypervisor = None  # default ON
+    cfg.pod.disguise_level = "balanced"
     content = _build_compose_content(cfg)
     assert "type=1,manufacturer=ACME,product=MDL-9000" in content
     assert "type=0,vendor=ACME,version=BIOS-1.0,date=01/01/2020" in content
@@ -208,7 +254,7 @@ def test_compose_disguise_smbios_skips_unsafe_dmi(monkeypatch):
 
     monkeypatch.setattr(_compose_module, "_host_dmi_field", fake)
     cfg = _cfg()
-    cfg.pod.disguise_hypervisor = True
+    cfg.pod.disguise_level = "balanced"
     content = _build_compose_content(cfg)
     assert "manufacturer=ACME" in content  # safe vendor kept
     assert "Generic Model 9000" not in content  # spaced product dropped
@@ -219,7 +265,7 @@ def test_compose_disguise_off_emits_no_smbios(monkeypatch):
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(_compose_module, "_host_dmi_field", lambda n: "ACME")
-    cfg = _cfg()  # _cfg() sets disguise_hypervisor = False
+    cfg = _cfg()  # _cfg() sets disguise_level = "off"
     content = _build_compose_content(cfg)
     assert "-smbios" not in content
 

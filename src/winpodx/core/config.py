@@ -386,28 +386,36 @@ class PodConfig:
     # a plain ``/dev/bus/usb`` bind avoids that. Set False to keep the USB bus
     # out of the container (smaller surface; USB then only via the drive share).
     usb_live: bool = True
-    # Bare-metal compatibility mode (#246), tri-state, DEFAULT ON. Hides the
-    # KVM/QEMU hypervisor signature from the guest so software that refuses to
-    # run under a detected hypervisor works — primarily Nvidia GPU-passthrough
-    # "code 43" and apps with launch-gate VM checks. Clears the CPUID
-    # hypervisor-present bit + the KVM signature/paravirt leaves (see
-    # core/pod/compose.py). NOT for defeating kernel-mode anti-cheat (it can't,
-    # and bypassing online-game anti-cheat violates the game's ToS).
+    # Bare-metal compatibility mode (#246), 3 levels, DEFAULT "balanced". Hides
+    # the KVM/QEMU hypervisor from the guest so software that refuses to run
+    # under a detected hypervisor works — Nvidia GPU-passthrough "code 43",
+    # launch-gate VM checks, VM-hostile DRM. NOT for defeating kernel-mode
+    # anti-cheat (it can't, and bypassing online-game anti-cheat violates ToS).
     #
-    #   None  — key absent: use the default (ON). `disguise_active` resolves it.
-    #   True  — explicitly on.
-    #   False — explicitly off (opt out).
+    #   "off"      — no disguise (honest VM). Best performance + compatibility.
+    #   "balanced" — zero-perf-cost hiding: CPU flags + SMBIOS host mirror +
+    #                synthetic sensor blob + a real-looking disk size. DEFAULT.
+    #   "max"      — balanced + Hyper-V enlightenments off (HV=N) so the
+    #                al-khaser/Pafish Hyper-V checks pass, at a real perf cost.
+    #
+    # ``disguise_level`` is None when absent so __post_init__ can migrate the
+    # pre-0.6.x ``disguise_hypervisor`` bool (False -> off, True/None -> balanced).
+    disguise_level: str | None = None
+    # Legacy (pre-tier) toggle; kept only so an old config still maps. Coerced
+    # into ``disguise_level`` by __post_init__; new saves write disguise_level.
     disguise_hypervisor: bool | None = None
+
+    _DISGUISE_LEVELS = ("off", "balanced", "max")
 
     @property
     def disguise_active(self) -> bool:
-        """Resolve the tri-state ``disguise_hypervisor`` to on/off (#246).
+        """True when any disguise is on (balanced or max). #246."""
+        return self.disguise_level != "off"
 
-        Default ON: ``None`` (absent) and ``True`` enable the disguise; only an
-        explicit ``False`` opts out. Used by the compose generator and the GUI
-        toggle so both read the same rule.
-        """
-        return self.disguise_hypervisor is not False
+    @property
+    def disguise_max(self) -> bool:
+        """True only at the maximum-hide level (adds perf-costing knobs). #246."""
+        return self.disguise_level == "max"
 
     def __post_init__(self) -> None:
         if self.backend not in _VALID_BACKENDS:
@@ -423,10 +431,15 @@ class PodConfig:
         self.idle_timeout = max(0, int(self.idle_timeout))
         self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
         self.max_sessions = max(1, min(50, int(self.max_sessions)))
-        # disguise_hypervisor is tri-state (None = legacy/absent); coerce any
-        # hand-edited non-bool truthy/falsy value to a real bool, keep None.
-        if self.disguise_hypervisor is not None:
-            self.disguise_hypervisor = bool(self.disguise_hypervisor)
+        # Resolve disguise_level (#246, tiered). Prefer an explicit level; else
+        # migrate the legacy `disguise_hypervisor` bool (False->off,
+        # True/None->balanced); default "balanced". Keep the legacy bool mirrored
+        # so an older winpodx reading this config still behaves.
+        lvl = str(self.disguise_level).strip().lower() if self.disguise_level else ""
+        if lvl not in self._DISGUISE_LEVELS:
+            lvl = "off" if self.disguise_hypervisor is False else "balanced"
+        self.disguise_level = lvl
+        self.disguise_hypervisor = lvl != "off"
         if not isinstance(self.container_name, str) or not _CONTAINER_NAME_RE.match(
             self.container_name
         ):
@@ -841,6 +854,7 @@ class Config:
                 "initialized": self.pod.initialized,
                 "devices": list(self.pod.devices),
                 "usb_live": self.pod.usb_live,
+                "disguise_level": self.pod.disguise_level,
             },
             "reverse_open": {
                 "enabled": self.reverse_open.enabled,
