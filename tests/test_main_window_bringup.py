@@ -1029,3 +1029,48 @@ def test_no_build_disguise_when_flag_false(monkeypatch: pytest.MonkeyPatch) -> N
     _wait_for_done(harness)
 
     assert harness.bringup_done.emissions == [(True, "")]
+
+
+# ----- dialog: pre-phase rows (build / recreate) render + route -----------
+
+
+def test_dialog_renders_and_routes_prephase_rows() -> None:
+    """Build + recreate get their own checklist rows when active, and phase
+    emissions route to the right row (not buried in 'Pod ready')."""
+    _ensure_qapp()
+    from winpodx.gui._main_window_bringup import (
+        _PHASE_BUILD,
+        _PHASE_DEFS,
+        _PHASE_RECREATE,
+        BringUpProgressDialog,
+    )
+
+    phases = (_PHASE_BUILD, _PHASE_RECREATE, *_PHASE_DEFS)
+    dlg = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None, phases=phases)
+    try:
+        assert len(dlg._row_widgets) == 7  # build + recreate + 5 standard
+
+        dlg.on_phase("phase_build_disguise", "compiling")
+        assert dlg._active_phase_idx == 0  # build is row 0
+
+        dlg.on_phase("phase_0_recreate", "recreating")
+        assert dlg._active_phase_idx == 1  # recreate is row 1
+
+        dlg.on_phase("phase_1_pod", "waiting")
+        assert dlg._active_phase_idx == 2  # standard chain shifts down
+    finally:
+        dlg.deleteLater()
+
+
+def test_dialog_default_phases_unchanged() -> None:
+    """A plain bring-up (no pre-phases) still renders the standard 5 rows."""
+    _ensure_qapp()
+    from winpodx.gui._main_window_bringup import BringUpProgressDialog
+
+    dlg = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
+    try:
+        assert len(dlg._row_widgets) == 5
+        dlg.on_phase("phase_1_pod", "waiting")
+        assert dlg._active_phase_idx == 0  # pod is row 0 when no pre-phases
+    finally:
+        dlg.deleteLater()

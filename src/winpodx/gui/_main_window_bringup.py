@@ -180,14 +180,32 @@ _PHASE_DEFS: tuple[tuple[str, str, str, bool], ...] = (
     ("phase_5_refresh", "Reverse-open refresh", "usually ~1-2 min", False),
 )
 
+# Optional PRE-phases, prepended to the dialog's checklist only on the runs that
+# perform them, so the build / recreate steps show as their own rows instead of
+# being buried in the "Pod ready" row's sub-detail (which read as a stuck
+# "attempt" loop). The dialog renders a per-run subset; ``_ALL_PHASE_DEFS`` is
+# the union used for slug -> label / cancellable resolution.
+_PHASE_BUILD = (
+    "phase_build_disguise",
+    "Build patched image",
+    "Hardened mode, one-time, ~20-40 min",
+    True,
+)
+_PHASE_RECREATE = ("phase_0_recreate", "Recreate container", "usually ~1-2 min", False)
+_ALL_PHASE_DEFS: tuple[tuple[str, str, str, bool], ...] = (
+    _PHASE_BUILD,
+    _PHASE_RECREATE,
+    *_PHASE_DEFS,
+)
+
 
 def _phase_index(phase_id: str) -> int:
-    """Return the 0-based index of ``phase_id`` in ``_PHASE_DEFS``.
+    """0-based index of ``phase_id`` in ``_ALL_PHASE_DEFS`` (-1 if unknown).
 
-    Returns -1 if the ID is unknown -- callers fall back to leaving
-    the checklist untouched rather than crashing on a typo.
+    Used for slug -> label / cancellable lookups (those are per-phase, not
+    per-row). Row routing in the dialog uses its own per-run index instead.
     """
-    for idx, entry in enumerate(_PHASE_DEFS):
+    for idx, entry in enumerate(_ALL_PHASE_DEFS):
         if entry[0] == phase_id:
             return idx
     return -1
@@ -197,7 +215,7 @@ def _phase_label(phase_id: str) -> str:
     idx = _phase_index(phase_id)
     if idx < 0:
         return phase_id
-    return _PHASE_DEFS[idx][1]
+    return _ALL_PHASE_DEFS[idx][1]
 
 
 def _phase_eta_hint(phase_id: str) -> str:
@@ -205,7 +223,7 @@ def _phase_eta_hint(phase_id: str) -> str:
     idx = _phase_index(phase_id)
     if idx < 0:
         return ""
-    return _PHASE_DEFS[idx][2]
+    return _ALL_PHASE_DEFS[idx][2]
 
 
 def _phase_cancellable(phase_id: str) -> bool:
@@ -213,7 +231,7 @@ def _phase_cancellable(phase_id: str) -> bool:
     idx = _phase_index(phase_id)
     if idx < 0:
         return False
-    return _PHASE_DEFS[idx][3]
+    return _ALL_PHASE_DEFS[idx][3]
 
 
 def _format_mmss(secs: float) -> str:
@@ -229,7 +247,7 @@ class BringUpProgressDialog(QDialog):
     the host window's two new signals; the host owns the worker.
     """
 
-    def __init__(self, parent, *, on_cancel, cfg=None) -> None:
+    def __init__(self, parent, *, on_cancel, cfg=None, phases=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("Setting up Windows"))
         self.setWindowModality(Qt.WindowModality.WindowModal)
@@ -237,6 +255,10 @@ class BringUpProgressDialog(QDialog):
         self.setStyleSheet(DIALOG + PLAIN_TEXT)
         self._on_cancel = on_cancel
         self._cfg = cfg
+        # The ordered phase rows to render for THIS run. Defaults to the
+        # standard 5; a recreate / hardened-build run prepends those pre-phases
+        # so they appear as their own checklist rows.
+        self._phase_defs: tuple[tuple[str, str, str, bool], ...] = tuple(phases or _PHASE_DEFS)
 
         # State for the checklist + elapsed math. ``_phase_started_at``
         # is monotonic-seconds keyed by phase index; ``_phase_done_at``
@@ -294,7 +316,7 @@ class BringUpProgressDialog(QDialog):
         self._mono_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
 
         self._row_widgets: list[tuple[_ChecklistIconLabel, QLabel, QLabel]] = []
-        for idx, (_pid, label, eta_hint, _cancellable) in enumerate(_PHASE_DEFS):
+        for idx, (_pid, label, eta_hint, _cancellable) in enumerate(self._phase_defs):
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
@@ -418,6 +440,13 @@ class BringUpProgressDialog(QDialog):
 
     # ----- slots wired by BringUpMixin._wire_progress_dialog -------------
 
+    def _row_index(self, phase_id: str) -> int:
+        """Row index of ``phase_id`` within THIS run's checklist (-1 if absent)."""
+        for i, entry in enumerate(self._phase_defs):
+            if entry[0] == phase_id:
+                return i
+        return -1
+
     def on_phase(self, phase_id: str, sub_detail: str) -> None:
         """Receive a phase emission and update header + checklist.
 
@@ -426,14 +455,14 @@ class BringUpProgressDialog(QDialog):
         ``_phase_index`` lookup unchanged (-1 = unknown, ignored for
         checklist routing but still surfaced in the header).
         """
-        idx = _phase_index(phase_id)
+        idx = self._row_index(phase_id)
         label = _phase_label(phase_id)
 
         # Header: "Phase N / 5 . Label"
         if idx >= 0:
             self.header.setText(
                 tr("Phase {n} / {total}  -  {label}").format(
-                    n=idx + 1, total=len(_PHASE_DEFS), label=tr(label)
+                    n=idx + 1, total=len(self._phase_defs), label=tr(label)
                 )
             )
         else:
@@ -477,7 +506,7 @@ class BringUpProgressDialog(QDialog):
         # Tick all started rows that haven't been closed yet so the
         # final frame shows a clean checklist.
         if success:
-            for idx in range(len(_PHASE_DEFS)):
+            for idx in range(len(self._phase_defs)):
                 if idx in self._phase_started_at and idx not in self._phase_done_at:
                     self._phase_done_at[idx] = now
         else:
@@ -757,8 +786,17 @@ class BringUpMixin:
         Connected to ``bringup_started`` so the worker thread can ask
         for the dialog without touching Qt widgets directly.
         """
+        # Render the pre-phase rows (build / recreate) only on the runs that
+        # actually do them, so each shows as its own checklist step.
+        phases = list(_PHASE_DEFS)
+        if getattr(self, "_bringup_recreate", False):
+            phases = [_PHASE_RECREATE, *phases]
+        if getattr(self, "_bringup_build_disguise", False):
+            phases = [_PHASE_BUILD, *phases]
         try:
-            dlg = BringUpProgressDialog(self, on_cancel=self._cancel_bringup, cfg=self.cfg)
+            dlg = BringUpProgressDialog(
+                self, on_cancel=self._cancel_bringup, cfg=self.cfg, phases=tuple(phases)
+            )
         except Exception:  # noqa: BLE001
             log.exception("BringUpProgressDialog construction failed")
             return
@@ -903,8 +941,8 @@ class BringUpMixin:
         local image isn't built yet -- so picking "Hardened" delivers the full
         disguise (ACPI OEM + disk-model patched to the host's values) without a
         separate manual ``winpodx disguise build-image`` step. ~20-40 min QEMU
-        compile, streamed under the "Pod ready" row. The build is LOCAL only:
-        no patched binary is distributed, host values stay in the local image.
+        compile, shown as its own "Build patched image" checklist row. The build
+        is LOCAL only: no patched binary is distributed, host values stay local.
 
         NON-FATAL: a build failure falls back to hardened WITHOUT the patched
         image (the emulated SATA/e1000/std devices still apply), so the chain
@@ -915,13 +953,13 @@ class BringUpMixin:
         from winpodx.cli.disguise import build_disguise_image
 
         self._emit_phase(
-            "phase_1_pod",
-            "Hardened mode: building patched-QEMU image (one-time, ~20-40 min)...",
+            "phase_build_disguise",
+            "Building patched-QEMU image (one-time, ~20-40 min)...",
         )
 
         def _on_line(line: str) -> None:
             if line.strip():
-                self._emit_phase("phase_1_pod", f"build: {line[-80:]}")
+                self._emit_phase("phase_build_disguise", f"build: {line[-80:]}")
 
         try:
             ok = build_disguise_image(self.cfg, on_line=_on_line, should_cancel=self._is_cancelled)
@@ -934,7 +972,7 @@ class BringUpMixin:
         if not ok:
             # Fall back to hardened-without-patched-image rather than aborting.
             self._emit_phase(
-                "phase_1_pod",
+                "phase_build_disguise",
                 "patched-QEMU build failed -- continuing hardened without it",
             )
         return True
@@ -948,9 +986,8 @@ class BringUpMixin:
         Runs on the worker thread so the (already-open) dialog shows the
         recreate as live progress, instead of the user staring at a frozen
         window while a slow ``podman recreate`` ran inline before the dialog
-        even appeared. Emits under the ``phase_1_pod`` row -- recreate is
-        pod-lifecycle, and reusing that slug keeps the 5-row checklist intact
-        (no renumbering). Returns False + emits ``bringup_done`` on failure.
+        even appeared. Shown as its own "Recreate container" checklist row.
+        Returns False + emits ``bringup_done`` on failure.
         """
         if self._is_cancelled():
             return self._emit_cancelled()
@@ -964,13 +1001,13 @@ class BringUpMixin:
                 # Stop before wipe -- can't remove a volume still attached to a
                 # running container, and bind-mount contents under a live
                 # container risk EBUSY on rmtree.
-                self._emit_phase("phase_1_pod", "Stopping container + wiping Windows disk...")
+                self._emit_phase("phase_0_recreate", "Stopping container + wiping Windows disk...")
                 stop_pod(self.cfg)
                 _wipe_pod_storage(self.cfg)
-            self._emit_phase("phase_1_pod", "Regenerating compose...")
+            self._emit_phase("phase_0_recreate", "Regenerating compose...")
             _generate_compose(self.cfg)
             self._emit_phase(
-                "phase_1_pod",
+                "phase_0_recreate",
                 "Recreating container (Windows reinstalling)..."
                 if wipe
                 else "Recreating container...",
