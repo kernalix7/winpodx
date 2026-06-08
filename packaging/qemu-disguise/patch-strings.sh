@@ -60,6 +60,21 @@ HV_ID="$(printf '%s' "$ACPI_OEM6" | tr -d ' ' | cut -c1-8)"
 sed -i "s/build_append_padded_str(tbl, \"QEMU\", 8/build_append_padded_str(tbl, \"${HV_ID}\", 8/" \
     hw/acpi/aml-build.c
 
+# --- ACPI device _HID strings (QEMU* -> host vendor prefix) ---
+# fw_cfg ("QEMU0002"), pvpanic ("QEMU0001") and vmgenid ("QEMUVGID") declare
+# _HIDs that land verbatim in the DSDT; al-khaser's ACPI-table scan flags the
+# "QEMU" prefix. The vmgenid _HID is also what Windows binds
+# \Device\VmGenerationCounter to (a VM/Hyper-V tell), so renaming it drops that
+# device too. Windows has no driver for fw_cfg / pvpanic, so renaming their
+# _HIDs is cosmetic. Use a 4-char vendor prefix derived from the host (valid
+# ACPI ID form: leading letter), falling back to a neutral non-VM default.
+HID4="$(printf '%s' "$ACPI_OEM6" | tr -cd 'A-Za-z0-9' | tr 'a-z' 'A-Z' | cut -c1-4)"
+case "$HID4" in [A-Z]???) : ;; *) HID4="ACPI" ;; esac
+sed -i "s/aml_string(\"QEMU0002\")/aml_string(\"${HID4}0002\")/" \
+    hw/nvram/fw_cfg-acpi.c hw/i386/fw_cfg.c
+sed -i "s/aml_string(\"QEMU0001\")/aml_string(\"${HID4}0001\")/" hw/misc/pvpanic-isa.c
+sed -i "s/aml_string(\"QEMUVGID\")/aml_string(\"${HID4}VGID\")/" hw/acpi/vmgenid.c
+
 # --- Disk / optical model strings ---
 # ATA (ide-hd, used by DISK_TYPE=sata) + SCSI defaults report "QEMU HARDDISK"
 # / "QEMU DVD-ROM"; al-khaser scans Disk\Enum + IDE/SCSI for "QEMU".
@@ -67,4 +82,4 @@ sed -i "s/\"QEMU HARDDISK\"/\"${DISK_MODEL}\"/g" hw/ide/core.c hw/scsi/scsi-disk
 sed -i "s/\"QEMU DVD-ROM\"/\"${DVD_MODEL}\"/g" hw/ide/core.c hw/ide/atapi.c
 sed -i "s/\"QEMU CD-ROM\"/\"${DVD_MODEL}\"/g" hw/scsi/scsi-disk.c
 
-echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + disk model)."
+echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + _HIDs + disk model)."
