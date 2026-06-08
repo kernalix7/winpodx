@@ -781,6 +781,16 @@ def run_tray() -> None:
             daemon=True,
         ).start()
 
+    # Periodic checksum-gated icon refresh (runs regardless of idle timeout):
+    # picks up a Windows app update's new icon without a manual Refresh.
+    from winpodx.core.daemon import run_icon_refresh_monitor
+
+    threading.Thread(
+        target=run_icon_refresh_monitor,
+        args=(cfg, idle_stop),
+        daemon=True,
+    ).start()
+
     def on_tray_activate(reason: int) -> None:
         # Qt slot: any uncaught exception here aborts the event loop and kills
         # the tray, so catch broadly (not just RuntimeError).

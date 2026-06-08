@@ -55,6 +55,10 @@ class AppInfo:
     # missed it, persist_discovered() synthesizes a stub so essentials
     # always appear. Users can still hide them.
     essential: bool = False
+    # SHA256 of the guest exe (discovery). The periodic icon-refresh compares
+    # this to re-extract only apps whose exe changed (an app update). "" for
+    # UWP / user entries.
+    exe_hash: str = ""
 
 
 def user_apps_dir() -> Path:
@@ -175,6 +179,7 @@ def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
         description=data.get("description", "") or "",
         hidden=bool(data.get("hidden", False)),
         essential=bool(data.get("essential", False)),
+        exe_hash=str(data.get("exe_hash", "") or ""),
     )
 
 

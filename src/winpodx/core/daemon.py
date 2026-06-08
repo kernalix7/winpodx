@@ -266,3 +266,78 @@ def run_idle_monitor(
                 idle_since = None  # Reset after suspend
 
         stop_event.wait(30)  # Check every 30 seconds, interruptible
+
+
+# App icons change rarely (only when a Windows app is updated), and a full
+# discovery sweep is non-trivial guest work, so check on a slow cadence.
+_ICON_REFRESH_INTERVAL_SECS = 6 * 3600  # 6 hours
+# Initial pass shortly after start to catch updates from a prior session.
+_ICON_REFRESH_FIRST_DELAY_SECS = 300  # 5 min
+
+
+def run_icon_refresh_monitor(
+    cfg: Config,
+    stop_event: threading.Event | None = None,
+) -> None:
+    """Periodically re-discover so an updated app's icon refreshes by itself.
+
+    A Windows app update can change its icon; winpodx only re-extracted icons on
+    a manual "Refresh Apps". This loop runs discovery on a slow cadence (every
+    6 h, plus once ~5 min after start). The checksum gate in
+    ``persist_discovered`` makes apps whose exe is unchanged a no-op, so an
+    idle sweep only rewrites apps that actually changed. Gated each cycle on the
+    pod being up + reachable; never wakes a paused/stopped pod. Runs on its own
+    thread; never raises out (a failure just retries next cycle).
+    """
+    if stop_event is None:
+        stop_event = threading.Event()
+    log.info("Icon-refresh monitor started (every %dh)", _ICON_REFRESH_INTERVAL_SECS // 3600)
+    next_run = time.monotonic() + _ICON_REFRESH_FIRST_DELAY_SECS
+    while not stop_event.is_set():
+        if time.monotonic() >= next_run:
+            next_run = time.monotonic() + _ICON_REFRESH_INTERVAL_SECS
+            try:
+                _icon_refresh_once(cfg)
+            except Exception as e:  # noqa: BLE001 -- never kill the monitor
+                log.debug("icon-refresh pass failed (will retry): %s", e)
+        stop_event.wait(60)  # interruptible; coarse enough for a 6 h cadence
+
+
+def _icon_refresh_once(cfg: Config) -> None:
+    """One checksum-gated discovery sweep. Skips when the pod isn't running."""
+    from winpodx.core.pod import PodState, pod_status
+
+    if is_pod_paused(cfg):
+        return
+    try:
+        if pod_status(cfg).state != PodState.RUNNING:
+            return
+    except Exception:  # noqa: BLE001 -- pod probe flaky -> skip this cycle
+        return
+
+    from winpodx.core import discovery
+
+    # discover_apps raises if the guest agent is unreachable -> caller retries.
+    apps = discovery.discover_apps(cfg)
+    written = discovery.persist_discovered(apps)  # checksum gate -> changed only
+    if not written:
+        return
+
+    # Re-sync the Linux desktop entries so any refreshed icon flows through, then
+    # rebuild the icon cache once. install_desktop_entry is idempotent, so the
+    # unchanged entries are cheap re-writes.
+    from winpodx.core.app import list_available_apps
+    from winpodx.desktop.entry import install_desktop_entry
+    from winpodx.desktop.icons import refresh_icon_cache
+
+    for info in list_available_apps():
+        if getattr(info, "hidden", False):
+            continue
+        try:
+            install_desktop_entry(info)
+        except Exception:  # noqa: BLE001 -- best-effort per app
+            log.debug("icon-refresh: install_desktop_entry failed for %s", info.name)
+    try:
+        refresh_icon_cache()
+    except Exception:  # noqa: BLE001 -- cache refresh is best-effort
+        log.debug("icon-refresh: icon cache refresh failed")
