@@ -217,3 +217,89 @@ def test_persist_discovered_skips_suppressed(monkeypatch, tmp_path):
 
     assert (root / "realapp" / "app.toml").exists()
     assert not (root / "junkapp").exists()  # suppressed → not re-created
+
+
+# -- icon preservation across edits (#530) --------------------------------
+
+
+def test_user_override_inherits_discovered_icon(monkeypatch, tmp_path):
+    """A user override with no icon file inherits the discovered profile's icon
+    (so editing name/MIME doesn't reset it to the fallback letter glyph) (#530)."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import data_dir, list_available_apps
+
+    disc = data_dir() / "discovered" / "word"
+    disc.mkdir(parents=True)
+    (disc / "app.toml").write_text(
+        'name = "word"\nfull_name = "Word"\nexecutable = "C:\\\\w.exe"\n', encoding="utf-8"
+    )
+    (disc / "icon.svg").write_text("<svg/>", encoding="utf-8")
+
+    user = data_dir() / "apps" / "word"
+    user.mkdir(parents=True)
+    (user / "app.toml").write_text(
+        'name = "word"\nfull_name = "Word (edited)"\nexecutable = "C:\\\\w.exe"\n', encoding="utf-8"
+    )  # NO icon file in the override
+
+    apps = list_available_apps()
+    assert len(apps) == 1
+    assert apps[0].full_name == "Word (edited)"  # user metadata wins
+    assert apps[0].icon_path == str(disc / "icon.svg")  # inherited the discovered icon
+
+
+def test_user_override_keeps_its_own_icon(monkeypatch, tmp_path):
+    """An override that DOES carry its own icon keeps it (no inherit)."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import data_dir, list_available_apps
+
+    disc = data_dir() / "discovered" / "word"
+    disc.mkdir(parents=True)
+    (disc / "app.toml").write_text(
+        'name = "word"\nfull_name = "Word"\nexecutable = "C:\\\\w.exe"\n', encoding="utf-8"
+    )
+    (disc / "icon.svg").write_text("<svg/>", encoding="utf-8")
+    user = data_dir() / "apps" / "word"
+    user.mkdir(parents=True)
+    (user / "app.toml").write_text(
+        'name = "word"\nfull_name = "Word"\nexecutable = "C:\\\\w.exe"\n', encoding="utf-8"
+    )
+    (user / "icon.png").write_text("png", encoding="utf-8")
+
+    apps = list_available_apps()
+    assert apps[0].icon_path == str(user / "icon.png")  # its own icon, not the discovered one
+
+
+def test_preserve_app_icon_copies_on_rename(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import data_dir
+    from winpodx.gui.app_dialog import preserve_app_icon
+
+    old = data_dir() / "apps" / "oldname"
+    old.mkdir(parents=True)
+    (old / "icon.svg").write_text("<svg/>", encoding="utf-8")
+    (data_dir() / "apps" / "newname").mkdir(parents=True)  # save_app_profile made this
+
+    preserve_app_icon(str(old / "icon.svg"), "newname")
+    assert (data_dir() / "apps" / "newname" / "icon.svg").exists()  # carried across the rename
+
+
+def test_preserve_app_icon_skips_when_discovered_twin(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import data_dir
+    from winpodx.gui.app_dialog import preserve_app_icon
+
+    disc = data_dir() / "discovered" / "word"
+    disc.mkdir(parents=True)
+    (disc / "icon.svg").write_text("<svg/>", encoding="utf-8")
+    (data_dir() / "apps" / "word").mkdir(parents=True)
+
+    preserve_app_icon(str(disc / "icon.svg"), "word")
+    # NOT copied -- the loader inherits the (fresh) discovered icon instead of
+    # freezing a stale copy that a guest-side app update couldn't refresh.
+    assert not (data_dir() / "apps" / "word" / "icon.svg").exists()

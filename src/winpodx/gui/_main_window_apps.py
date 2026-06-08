@@ -51,7 +51,7 @@ class AppCrudMixin:
             self.info_label.setText(tr("Added: {name}").format(name=data["full_name"]))
 
     def _on_edit_app(self, app: AppInfo) -> None:
-        from winpodx.gui.app_dialog import AppProfileDialog, save_app_profile
+        from winpodx.gui.app_dialog import AppProfileDialog, preserve_app_icon, save_app_profile
 
         dlg = AppProfileDialog(
             self,
@@ -65,6 +65,10 @@ class AppCrudMixin:
         if dlg.exec():
             data = dlg.get_result()
             save_app_profile(data)
+            # Keep the existing icon across the edit (rename / MIME change /
+            # discovered->user override) so it doesn't reset to the generic
+            # letter glyph (#530).
+            preserve_app_icon(app.icon_path, str(data["name"]))
             self._reload_apps()
             self.info_label.setText(tr("Updated: {name}").format(name=data["full_name"]))
 
