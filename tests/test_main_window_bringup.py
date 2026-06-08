@@ -768,3 +768,203 @@ def test_phase4_does_not_retry_real_script_failure(monkeypatch: pytest.MonkeyPat
     success, msg = harness.bringup_done.emissions[0]
     assert success is False
     assert "Discovery script failed" in msg
+
+
+# ----- phase 0: settings-driven recreate (#525) --------------------------
+
+
+def _mock_happy_chain(monkeypatch: pytest.MonkeyPatch, cfg: Config) -> None:
+    """Mock phases 1-5 so they all succeed, leaving the test free to focus on
+    the recreate phase 0 + agent-kick behavior."""
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: PodStatus(state=PodState.RUNNING, ip="127.0.0.1"),
+    )
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda _ip, _port, timeout=3.0: True)
+
+    class FakeClient:
+        def __init__(self, _cfg: Config) -> None:
+            pass
+
+        def health(self) -> dict:
+            return {"ok": True}
+
+        def auth_ready(self) -> tuple[bool, str]:
+            return True, ""
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", FakeClient)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.apply_windows_runtime_fixes",
+        lambda _cfg: {"max_sessions": "ok", "multi_session": "ok"},
+    )
+    monkeypatch.setattr("winpodx.core.discovery.scan", lambda _cfg: ["app1"])
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", lambda _apps: ["/tmp/a.toml"])
+    monkeypatch.setattr("winpodx.cli.host_open._cmd_refresh", lambda _args: 0)
+    cfg.reverse_open.enabled = True
+
+
+def test_recreate_runs_phase0_no_wipe_before_pod(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    calls: list[str] = []
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", lambda _cfg: calls.append("stop"))
+    monkeypatch.setattr("winpodx.cli.pod._wipe_pod_storage", lambda _cfg: calls.append("wipe"))
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._generate_compose", lambda _cfg: calls.append("compose")
+    )
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._recreate_container", lambda _cfg: calls.append("recreate")
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up(recreate=True, wipe_storage=False)
+    _wait_for_done(harness)
+
+    assert harness.bringup_done.emissions == [(True, "")]
+    # No-wipe recreate: regenerate compose + recreate, NO stop/wipe.
+    assert calls == ["compose", "recreate"]
+    # Dialog kick fired before any slow work (immediate dialog).
+    assert harness.bringup_started.emissions == [()]
+    # The recreate progress lands BEFORE the agent phase.
+    raws = harness.bringup_phase.emissions
+    recreate_idx = next(i for i, (_p, d) in enumerate(raws) if "Recreating container" in d)
+    agent_idx = next(i for i, (p, _d) in enumerate(raws) if p == "phase_2_agent")
+    assert recreate_idx < agent_idx
+
+
+def test_recreate_wipe_stops_and_wipes_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    calls: list[str] = []
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", lambda _cfg: calls.append("stop"))
+    monkeypatch.setattr("winpodx.cli.pod._wipe_pod_storage", lambda _cfg: calls.append("wipe"))
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._generate_compose", lambda _cfg: calls.append("compose")
+    )
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._recreate_container", lambda _cfg: calls.append("recreate")
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up(recreate=True, wipe_storage=True)
+    _wait_for_done(harness)
+
+    assert harness.bringup_done.emissions == [(True, "")]
+    assert calls == ["stop", "wipe", "compose", "recreate"]
+
+
+def test_recreate_failure_stops_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", lambda _cfg: None)
+    monkeypatch.setattr("winpodx.cli.pod._wipe_pod_storage", lambda _cfg: None)
+    monkeypatch.setattr("winpodx.cli.setup_cmd._generate_compose", lambda _cfg: None)
+
+    def _boom(_cfg: Config) -> None:
+        raise RuntimeError("podman recreate busted")
+
+    monkeypatch.setattr("winpodx.cli.setup_cmd._recreate_container", _boom)
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up(recreate=True, wipe_storage=False)
+    _wait_for_done(harness)
+
+    assert len(harness.bringup_done.emissions) == 1
+    success, msg = harness.bringup_done.emissions[0]
+    assert success is False
+    assert "Recreate failed" in msg and "podman recreate busted" in msg
+    # The wait/settle chain must NOT run after a failed recreate.
+    assert "phase_2_agent" not in _phase_labels(harness.bringup_phase.emissions)
+
+
+def test_non_recreate_run_skips_phase0(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._recreate_container",
+        lambda _cfg: pytest.fail("recreate must not run when recreate=False"),
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up()  # default recreate=False
+    _wait_for_done(harness)
+
+    assert harness.bringup_done.emissions == [(True, "")]
+
+
+# ----- phase 2: agent-kick on a headless recreate boot (#525) ------------
+
+
+class _DeadAgent:
+    def __init__(self, _cfg: Config) -> None:
+        pass
+
+    def health(self) -> dict:
+        raise RuntimeError("agent down (no interactive session)")
+
+    def auth_ready(self) -> tuple[bool, str]:
+        return False, "no agent"
+
+
+def _short_kick_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    import winpodx.gui._main_window_bringup as b
+
+    monkeypatch.setattr(b, "_AGENT_KICK_GRACE_SECS", 0.0)
+    monkeypatch.setattr(b, "_POLL_CADENCE_SECS", 0.01)
+
+
+def test_phase2_kicks_session_when_initialized(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    cfg.install.wait_ready_stage3_secs = 0.3
+    cfg.pod.initialized = True
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _DeadAgent)
+    _short_kick_window(monkeypatch)
+    kicks: list[int] = []
+    monkeypatch.setattr(Harness, "_kick_interactive_session", lambda self: kicks.append(1))
+
+    harness = Harness(cfg)
+    harness._bringup_cancel = threading.Event()
+    result = harness._phase2_wait_agent_settle()
+
+    assert result is False  # agent never settled
+    assert kicks == [1]  # kicked exactly once (not re-kicked every poll)
+
+
+def test_phase2_no_kick_when_not_initialized(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    cfg.install.wait_ready_stage3_secs = 0.2
+    cfg.pod.initialized = False  # fresh install mid-Sysprep -- never RDP early
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _DeadAgent)
+    _short_kick_window(monkeypatch)
+    kicks: list[int] = []
+    monkeypatch.setattr(Harness, "_kick_interactive_session", lambda self: kicks.append(1))
+
+    harness = Harness(cfg)
+    harness._bringup_cancel = threading.Event()
+    harness._phase2_wait_agent_settle()
+
+    assert kicks == []
+
+
+def test_kick_interactive_session_launches_desktop(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    called: list[int] = []
+    monkeypatch.setattr("winpodx.core.rdp.launch_desktop", lambda _cfg, **_kw: called.append(1))
+
+    harness = Harness(cfg)
+    harness._kick_interactive_session()
+
+    assert called == [1]
+    assert any(p == "phase_2_agent" for p, _d in harness.bringup_phase.emissions)
+
+
+def test_kick_interactive_session_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+
+    def _boom(_cfg: Config, **_kw: object) -> None:
+        raise RuntimeError("no freerdp")
+
+    monkeypatch.setattr("winpodx.core.rdp.launch_desktop", _boom)
+
+    harness = Harness(cfg)
+    harness._kick_interactive_session()  # must not raise
