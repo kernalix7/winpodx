@@ -83,36 +83,62 @@ def _qemu_version(backend: str, image: str) -> str:
     return m.group(1) if m else ""
 
 
-def _build_image(args: argparse.Namespace) -> None:
-    from winpodx.core.config import DOCKUR_IMAGE_PIN, Config
+def disguise_image_present(cfg) -> bool:  # type: ignore[no-untyped-def]
+    """True if the patched-QEMU disguise image already exists locally.
+
+    Lets callers (e.g. the GUI switching to hardened mode) decide whether a
+    build is needed without rebuilding the ~20-40 min image every time.
+    """
+    backend = cfg.pod.backend if cfg.pod.backend in ("podman", "docker") else "podman"
+    try:
+        return (
+            subprocess.run(
+                [backend, "image", "inspect", _DISGUISE_TAG],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def build_disguise_image(cfg, *, on_line=None, should_cancel=None) -> bool:  # type: ignore[no-untyped-def]
+    """Build the patched-QEMU disguise image locally. Returns True on success.
+
+    Compiles QEMU with the ACPI OEM + disk-model strings patched to the HOST's
+    real values (~20-40 min). Streams build output line-by-line to ``on_line``
+    (a callable taking one str) and aborts if ``should_cancel`` returns True.
+    On success sets ``cfg.pod.disguise_image`` + saves. Never raises -- returns
+    False on any failure so callers can fall back.
+
+    LOCAL-ONLY: winpodx ships the recipe (packaging/qemu-disguise/), never a
+    patched binary, and the host values are read into the local image, never
+    committed -- so there is no GPL-binary redistribution and no host identity
+    in git.
+    """
+    from winpodx.core.config import DOCKUR_IMAGE_PIN
+
+    def _emit(line: str) -> None:
+        if on_line is not None:
+            try:
+                on_line(line)
+            except Exception:  # noqa: BLE001
+                pass
 
     recipe = _recipe_dir()
     if recipe is None:
-        print(tr("Build recipe not found (packaging/qemu-disguise). Use a source checkout."))
-        sys.exit(1)
+        _emit("disguise build: recipe not found (packaging/qemu-disguise); need a source checkout")
+        return False
 
-    cfg = Config.load()
     backend = cfg.pod.backend if cfg.pod.backend in ("podman", "docker") else "podman"
     pin = cfg.pod.image or DOCKUR_IMAGE_PIN
-
-    qver = _qemu_version(backend, pin)
-    if not qver:
-        print(
-            tr("Could not detect the QEMU version in {image}; defaulting to 10.0.8.").format(
-                image=pin
-            )
-        )
-        qver = "10.0.8"
-
+    qver = _qemu_version(backend, pin) or "10.0.8"
     vendor = _host_dmi("sys_vendor") or _host_dmi("bios_vendor")
     disk = _host_disk_model()
 
-    build_args = [
-        "--build-arg",
-        f"DOCKUR_IMAGE={pin}",
-        "--build-arg",
-        f"QEMU_VERSION={qver}",
-    ]
+    build_args = ["--build-arg", f"DOCKUR_IMAGE={pin}", "--build-arg", f"QEMU_VERSION={qver}"]
     if vendor:
         build_args += ["--build-arg", f"ACPI_OEM6={vendor}", "--build-arg", f"ACPI_OEM8={vendor}"]
     if disk:
@@ -128,25 +154,43 @@ def _build_image(args: argparse.Namespace) -> None:
         str(recipe / "Dockerfile"),
         str(recipe),
     ]
-    print(
-        tr(
-            "Building {tag} from {image} (QEMU {ver}) — this compiles QEMU and can "
-            "take 20-40 minutes.\n  ACPI OEM / disk model: {vendor} / {disk}"
-        ).format(
-            tag=_DISGUISE_TAG,
-            image=pin,
-            ver=qver,
-            vendor=vendor or "(default)",
-            disk=disk or "(default)",
-        )
+    _emit(
+        f"Building {_DISGUISE_TAG} from {pin} (QEMU {qver}); "
+        f"ACPI/disk = {vendor or '(default)'} / {disk or '(default)'}; compiling, ~20-40 min..."
     )
-    rc = subprocess.call(cmd)
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        _emit(f"disguise build: failed to start ({exc})")
+        return False
+
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            _emit(line.rstrip())
+            if should_cancel is not None and should_cancel():
+                proc.terminate()
+                _emit("disguise build: cancelled")
+                return False
+    rc = proc.wait()
     if rc != 0:
-        print(tr("Build failed (exit {rc}). See the output above.").format(rc=rc))
-        sys.exit(1)
+        _emit(f"disguise build: FAILED (exit {rc})")
+        return False
 
     cfg.pod.disguise_image = _DISGUISE_TAG
     cfg.save()
+    _emit(f"disguise build: done -> {_DISGUISE_TAG}")
+    return True
+
+
+def _build_image(args: argparse.Namespace) -> None:
+    from winpodx.core.config import Config
+
+    cfg = Config.load()
+    if not build_disguise_image(cfg, on_line=print):
+        print(tr("Build failed. See the output above."))
+        sys.exit(1)
     print(
         tr(
             "Built {tag} and set pod.disguise_image. To use it:\n"

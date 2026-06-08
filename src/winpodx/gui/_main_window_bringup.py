@@ -163,7 +163,12 @@ def _is_transient_discovery_error(exc: Exception) -> bool:
 #     phases (3-5) that can't honour the cancel event mid-call -- the
 #     dialog disables Cancel while those run.
 _PHASE_DEFS: tuple[tuple[str, str, str, bool], ...] = (
-    ("phase_1_pod", "Pod ready", "usually ~1-2 min", True),
+    (
+        "phase_1_pod",
+        "Pod ready",
+        "usually ~1-2 min; 20-40 min on a fresh install (Windows download + setup)",
+        True,
+    ),
     (
         "phase_2_agent",
         "Agent ready",
@@ -699,7 +704,13 @@ class BringUpMixin:
 
     # ----- public entry point --------------------------------------------
 
-    def _run_full_bring_up(self, *, recreate: bool = False, wipe_storage: bool = False) -> None:
+    def _run_full_bring_up(
+        self,
+        *,
+        recreate: bool = False,
+        wipe_storage: bool = False,
+        build_disguise: bool = False,
+    ) -> None:
         """Kick off the bring-up worker thread.
 
         Returns immediately. Phase progress is emitted via
@@ -721,6 +732,7 @@ class BringUpMixin:
         self._bringup_cancel = threading.Event()
         self._bringup_recreate = recreate
         self._bringup_wipe = wipe_storage
+        self._bringup_build_disguise = build_disguise
 
         # Signal back to the GUI thread that a dialog should open. The
         # caller (``_save_settings`` worker thread) cannot construct
@@ -861,6 +873,9 @@ class BringUpMixin:
         phase methods below.
         """
         try:
+            if getattr(self, "_bringup_build_disguise", False):
+                if not self._phase_build_disguise():
+                    return
             if getattr(self, "_bringup_recreate", False):
                 if not self._phase0_recreate():
                     return
@@ -878,6 +893,51 @@ class BringUpMixin:
         except Exception as exc:  # noqa: BLE001
             log.exception("bring-up worker crashed")
             self._emit_done(False, f"{exc.__class__.__name__}: {exc}")
+
+    # ----- phase 0-pre: build patched-QEMU disguise image (hardened) ------
+
+    def _phase_build_disguise(self) -> bool:
+        """Build the patched-QEMU disguise image before recreate (hardened mode).
+
+        Triggered when the user switches ``disguise_level`` to ``max`` and the
+        local image isn't built yet -- so picking "Hardened" delivers the full
+        disguise (ACPI OEM + disk-model patched to the host's values) without a
+        separate manual ``winpodx disguise build-image`` step. ~20-40 min QEMU
+        compile, streamed under the "Pod ready" row. The build is LOCAL only:
+        no patched binary is distributed, host values stay in the local image.
+
+        NON-FATAL: a build failure falls back to hardened WITHOUT the patched
+        image (the emulated SATA/e1000/std devices still apply), so the chain
+        still proceeds. Returns False only on cancel (to stop the chain).
+        """
+        if self._is_cancelled():
+            return self._emit_cancelled()
+        from winpodx.cli.disguise import build_disguise_image
+
+        self._emit_phase(
+            "phase_1_pod",
+            "Hardened mode: building patched-QEMU image (one-time, ~20-40 min)...",
+        )
+
+        def _on_line(line: str) -> None:
+            if line.strip():
+                self._emit_phase("phase_1_pod", f"build: {line[-80:]}")
+
+        try:
+            ok = build_disguise_image(self.cfg, on_line=_on_line, should_cancel=self._is_cancelled)
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            log.debug("disguise build raised: %s", exc, exc_info=True)
+
+        if self._is_cancelled():
+            return self._emit_cancelled()
+        if not ok:
+            # Fall back to hardened-without-patched-image rather than aborting.
+            self._emit_phase(
+                "phase_1_pod",
+                "patched-QEMU build failed -- continuing hardened without it",
+            )
+        return True
 
     # ----- phase 0: recreate container (settings-driven) -----------------
 

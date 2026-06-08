@@ -968,3 +968,64 @@ def test_kick_interactive_session_never_raises(monkeypatch: pytest.MonkeyPatch) 
 
     harness = Harness(cfg)
     harness._kick_interactive_session()  # must not raise
+
+
+# ----- hardened mode: auto-build the patched-QEMU image (#246) ------------
+
+
+def test_build_disguise_phase_runs_before_recreate(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    order: list[str] = []
+    monkeypatch.setattr(
+        "winpodx.cli.disguise.build_disguise_image",
+        lambda _cfg, **_kw: order.append("build") or True,
+    )
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", lambda _cfg: None)
+    monkeypatch.setattr("winpodx.cli.pod._wipe_pod_storage", lambda _cfg: None)
+    monkeypatch.setattr("winpodx.cli.setup_cmd._generate_compose", lambda _cfg: None)
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._recreate_container", lambda _cfg: order.append("recreate")
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up(recreate=True, wipe_storage=True, build_disguise=True)
+    _wait_for_done(harness)
+
+    assert harness.bringup_done.emissions == [(True, "")]
+    assert order == ["build", "recreate"]  # image built BEFORE the recreate
+
+
+def test_build_disguise_failure_is_nonfatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    # Build fails -> chain must still recreate + complete (hardened w/o image).
+    monkeypatch.setattr("winpodx.cli.disguise.build_disguise_image", lambda _cfg, **_kw: False)
+    recreated = {"n": 0}
+    monkeypatch.setattr("winpodx.cli.setup_cmd._generate_compose", lambda _cfg: None)
+    monkeypatch.setattr(
+        "winpodx.cli.setup_cmd._recreate_container",
+        lambda _cfg: recreated.__setitem__("n", recreated["n"] + 1),
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up(recreate=True, wipe_storage=False, build_disguise=True)
+    _wait_for_done(harness)
+
+    assert harness.bringup_done.emissions == [(True, "")]
+    assert recreated["n"] == 1  # recreate still happened despite build failure
+
+
+def test_no_build_disguise_when_flag_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg()
+    _mock_happy_chain(monkeypatch, cfg)
+    monkeypatch.setattr(
+        "winpodx.cli.disguise.build_disguise_image",
+        lambda _cfg, **_kw: pytest.fail("must not build when build_disguise=False"),
+    )
+
+    harness = Harness(cfg)
+    harness._run_full_bring_up()  # defaults: no recreate, no build
+    _wait_for_done(harness)
+
+    assert harness.bringup_done.emissions == [(True, "")]

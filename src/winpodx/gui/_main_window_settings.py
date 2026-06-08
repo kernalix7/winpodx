@@ -1335,6 +1335,20 @@ class SettingsPageMixin:
                     "Container must be recreated to apply (Windows disk "
                     "preserved).\n\nRestart now?"
                 )
+            # Hardened (max) delivers its full disguise only with the patched-QEMU
+            # image (ACPI OEM + disk model). Build it locally + automatically when
+            # switching to max and it isn't built yet -- no manual
+            # `winpodx disguise build-image` step. The build is local-only (no
+            # binary shipped, host values stay local), so there's no GPL/privacy
+            # cost. Warn about the one-time ~20-40 min compile up front.
+            from winpodx.cli.disguise import disguise_image_present
+
+            build_disguise = new_disguise_level == "max" and not disguise_image_present(self.cfg)
+            if build_disguise:
+                prompt += tr(
+                    "\n\nHardened mode will also build a patched-QEMU image locally "
+                    "first (one-time, ~20-40 min). Progress shows in the setup window."
+                )
             if needs_wipe:
                 # Destructive — default to No so a stray Enter can't wipe Windows.
                 reply = QMessageBox.question(
@@ -1364,7 +1378,9 @@ class SettingsPageMixin:
                 # confusion). _run_full_bring_up emits ``bringup_started`` before
                 # any slow work, so the dialog is up immediately and the
                 # stop/wipe/compose/recreate steps stream as live progress.
-                self._run_full_bring_up(recreate=True, wipe_storage=needs_wipe)
+                self._run_full_bring_up(
+                    recreate=True, wipe_storage=needs_wipe, build_disguise=build_disguise
+                )
                 return
 
             # Declined. A device-changing disguise switch must NOT be left
