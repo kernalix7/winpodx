@@ -50,6 +50,16 @@ echo "  ACPI OEM6='${ACPI_OEM6}' OEM8='${ACPI_OEM8}' DISK='${DISK_MODEL}' DVD='$
 sed -i "s/\"BOCHS \"/\"${ACPI_OEM6}\"/g" include/hw/acpi/aml-build.h
 sed -i "s/\"BXPC    \"/\"${ACPI_OEM8}\"/g" include/hw/acpi/aml-build.h
 
+# --- FADT rev6 "Hypervisor Vendor Identity" ---
+# build_fadt() hardcodes the 8-byte Hypervisor Vendor Identity field to "QEMU"
+# (hw/acpi/aml-build.c). al-khaser's "ACPI table strings" scan reads the FADT
+# and flags that literal even after the OEM ID is changed. Rewrite it to the
+# host vendor (a non-VM string) so the FADT no longer announces a hypervisor.
+HV_ID="$(printf '%s' "$ACPI_OEM6" | tr -d ' ' | cut -c1-8)"
+[ -n "$HV_ID" ] || HV_ID="ALASKA"
+sed -i "s/build_append_padded_str(tbl, \"QEMU\", 8/build_append_padded_str(tbl, \"${HV_ID}\", 8/" \
+    hw/acpi/aml-build.c
+
 # --- Disk / optical model strings ---
 # ATA (ide-hd, used by DISK_TYPE=sata) + SCSI defaults report "QEMU HARDDISK"
 # / "QEMU DVD-ROM"; al-khaser scans Disk\Enum + IDE/SCSI for "QEMU".
@@ -57,4 +67,4 @@ sed -i "s/\"QEMU HARDDISK\"/\"${DISK_MODEL}\"/g" hw/ide/core.c hw/scsi/scsi-disk
 sed -i "s/\"QEMU DVD-ROM\"/\"${DVD_MODEL}\"/g" hw/ide/core.c hw/ide/atapi.c
 sed -i "s/\"QEMU CD-ROM\"/\"${DVD_MODEL}\"/g" hw/scsi/scsi-disk.c
 
-echo "winpodx: identity-string patch applied (ACPI OEM + disk model)."
+echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + disk model)."
