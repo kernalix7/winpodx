@@ -213,6 +213,30 @@ def test_compose_disguise_image_used_only_at_max(monkeypatch):
     assert "image: winpodx-windows-disguise" in content
 
 
+def test_compose_disguise_max_injects_sensor_ssdt(monkeypatch):
+    """Max + a built disguise_image injects the sensor SSDT via -acpitable (#246)."""
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+
+    cfg = _cfg()
+    cfg.pod.disguise_image = "winpodx-windows-disguise"
+
+    cfg.pod.disguise_level = "max"
+    assert (
+        "-acpitable file=/usr/share/qemu/winpodx-ssdt-sensors.aml"
+        in _build_compose_content(cfg)
+    )
+
+    # balanced → the AML only ships in the patched max image, so no injection.
+    cfg.pod.disguise_level = "balanced"
+    assert "winpodx-ssdt-sensors.aml" not in _build_compose_content(cfg)
+
+    # max but no disguise_image built → no injection (the file wouldn't exist).
+    cfg.pod.disguise_level = "max"
+    cfg.pod.disguise_image = ""
+    assert "winpodx-ssdt-sensors.aml" not in _build_compose_content(cfg)
+
+
 def test_disguise_changes_devices_only_at_max_boundary():
     """Only crossing the max boundary changes virtual hardware (needs a wipe)."""
     from winpodx.core.config import disguise_changes_devices

@@ -280,6 +280,15 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     if cfg.pod.disguise_active and platform.machine() != "aarch64":
         extra_args += _disguise_smbios_args()
 
+    # Synthetic-sensor SSDT (#246): inject a thermal zone so the guest exposes
+    # MSAcpi_ThermalZoneTemperature / ThermalZoneInformation (al-khaser's
+    # Current-Temperature / ThermalZoneInfo probes). The compiled AML ships only
+    # inside the patched-QEMU disguise image, so gate on that image being in use
+    # (max + disguise_image set) -- otherwise the file wouldn't exist and QEMU
+    # would abort on boot.
+    if cfg.pod.disguise_max and cfg.pod.disguise_image and platform.machine() != "aarch64":
+        extra_args += ["-acpitable", "file=/usr/share/qemu/winpodx-ssdt-sensors.aml"]
+
     return " ".join(extra_args)
 
 

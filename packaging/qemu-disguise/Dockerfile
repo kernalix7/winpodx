@@ -47,9 +47,11 @@ ARG QEMU_VERSION
 #    auto-enables those backends only when their dev libs are present, so
 #    without these the binary boot-loops on "aio=native ... not supported in
 #    this build". Their runtime libs are installed into the final image below.
+#  * acpica-tools: `iasl` compiles the synthetic-sensor SSDT (ssdt-sensors.asl)
+#    that winpodx injects via -acpitable so the guest exposes a thermal zone.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ninja-build meson python3 python3-venv python3-pip \
-        git pkg-config flex bison \
+        git pkg-config flex bison acpica-tools \
         libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev libslirp-dev \
         libaio-dev liburing-dev \
         libusb-1.0-0-dev libusbredirparser-dev libspice-server-dev \
@@ -68,6 +70,15 @@ ARG DVD_MODEL=""
 RUN ACPI_OEM6="${ACPI_OEM6}" ACPI_OEM8="${ACPI_OEM8}" \
     DISK_MODEL="${DISK_MODEL}" DVD_MODEL="${DVD_MODEL}" \
     bash /build/patch-strings.sh /build/qemu
+# Synthetic-sensor SSDT: substitute the host vendor as the SSDT OEM ID (6 bytes,
+# kept consistent with the patched ACPI tables) and compile it with iasl. The
+# resulting AML is injected at runtime via -acpitable (no guest recompile).
+COPY ssdt-sensors.asl /build/ssdt-sensors.asl
+RUN OEM6="$(printf '%-6.6s' "${ACPI_OEM6:-ALASKA}")"; \
+    [ -n "$(printf '%s' "$OEM6" | tr -d ' ')" ] || OEM6="ALASKA"; \
+    sed -i "s/\"ALASKA\"/\"${OEM6}\"/" /build/ssdt-sensors.asl \
+    && iasl -p /build/ssdt-sensors /build/ssdt-sensors.asl \
+    && test -f /build/ssdt-sensors.aml
 WORKDIR /build/qemu
 # Build only the x86_64 system target. The --enable set mirrors what dockur's
 # Debian QEMU package links (slirp networking + usb-redir + spice) so the
@@ -93,5 +104,7 @@ COPY --from=build /build/qemu/build/qemu-system-x86_64 /usr/bin/qemu-system-x86_
 # different prefix, so without this the binary boot-loops on
 # "failed to find romfile vgabios-stdvga.bin" (max mode uses std VGA).
 COPY --from=build /build/qemu/pc-bios/ /usr/share/qemu/
+# Synthetic-sensor SSDT, injected by winpodx via -acpitable at disguise max.
+COPY --from=build /build/ssdt-sensors.aml /usr/share/qemu/winpodx-ssdt-sensors.aml
 # Sanity check at build time (fails the build if the binary won't run).
 RUN qemu-system-x86_64 --version
