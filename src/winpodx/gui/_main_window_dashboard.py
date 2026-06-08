@@ -357,6 +357,28 @@ class DashboardMixin:
             self.cfg.save()
         except Exception as e:  # noqa: BLE001 -- never let a toggle crash the GUI
             log.warning("failed to persist reverse-open toggle: %s", e)
+            return
+        # Make the Dashboard checkbox live (#425): ticking it must actually
+        # start the listener now, not just flip the flag. The Settings-panel
+        # checkbox already did this, but the Dashboard home card only persisted
+        # the flag -- so a user who enabled it here saw the daemon stay down
+        # until the next pod bringup and had to start it by hand (0.6.0 report).
+        # Mirror the panel's _on_enable. Best-effort + quiet: starting needs the
+        # guest up, so a failure (guest down) just leaves the flag set for the
+        # next bringup instead of popping an error.
+        from types import SimpleNamespace
+
+        from winpodx.cli.host_open import _cmd_start_listener, _cmd_stop_listener
+
+        handler = _cmd_start_listener if checked else _cmd_stop_listener
+        try:
+            handler(SimpleNamespace(json=False))
+        except Exception:  # noqa: BLE001 -- status reflects the outcome
+            log.debug(
+                "reverse-open %s on dashboard toggle failed (guest may be down)",
+                "start" if checked else "stop",
+                exc_info=True,
+            )
 
     # -- live refresh ----------------------------------------------------- #
 
