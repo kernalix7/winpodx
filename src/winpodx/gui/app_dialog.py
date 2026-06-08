@@ -336,6 +336,48 @@ def save_app_profile(data: dict) -> Path:
     return toml_path
 
 
+def preserve_app_icon(src_icon_path: str, dest_name: str) -> None:
+    """Copy an existing app icon into the saved (user) profile dir (#530).
+
+    ``AppInfo.icon_path`` is the ``icon.{svg,png}`` FILE in the app's dir, not a
+    TOML field -- so editing a profile (rename, MIME-association change, or
+    promoting a discovered app to a user override under ``apps/``) writes a new
+    ``app.toml`` whose dir has NO icon file, and desktop-entry regeneration then
+    falls back to the generic letter glyph. Copying the prior icon across keeps
+    it. Best-effort; never raises. (For a genuinely new/changed Windows icon,
+    re-running discovery re-extracts it from the guest exe.)
+    """
+    import shutil
+
+    if not src_icon_path or not _validate_app_name(dest_name):
+        return
+    src = Path(src_icon_path)
+    suffix = src.suffix.lower()
+    if suffix not in (".svg", ".png") or not src.exists():
+        return
+    # If a discovered profile of this name exists, DON'T copy: list_available_apps
+    # makes the user override inherit the discovered icon, which stays fresh when
+    # discovery re-extracts after a guest-side app update. Copying here would
+    # freeze a stale icon. Only copy for a rename (new slug, no discovered twin).
+    if any((data_dir() / "discovered" / dest_name / f"icon.{e}").exists() for e in ("svg", "png")):
+        return
+    apps_root = data_dir() / "apps"
+    dest_dir = apps_root / dest_name
+    try:
+        if not dest_dir.resolve().is_relative_to(apps_root.resolve()):
+            return
+    except OSError:
+        return
+    # Don't clobber an icon the saved dir already carries.
+    if any((dest_dir / f"icon.{e}").exists() for e in ("svg", "png")):
+        return
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(src, dest_dir / f"icon{suffix}")
+    except OSError:
+        pass
+
+
 def delete_app_profile(name: str) -> bool:
     """Delete an app profile directory (user OR discovered) (#514).
 

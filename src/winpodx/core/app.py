@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 try:
@@ -227,6 +227,17 @@ def list_available_apps() -> list[AppInfo]:
             app = load_app(app_dir, default_source=provenance)
             if app is None:
                 continue
+            prev = by_name.get(app.name)
+            if provenance == "user" and not app.icon_path and prev is not None and prev.icon_path:
+                # A user override only carries metadata -- the GUI editor can't
+                # set an icon -- so an override created by editing name/MIME has
+                # no icon file and would otherwise fall back to the generic
+                # letter glyph (#530). Inherit the discovered profile's icon.
+                # This also keeps it FRESH: a later discovery re-extract updates
+                # discovered/<name>/icon.*, which flows through here (vs freezing
+                # a copy in the override that a guest-side app update can't
+                # refresh).
+                app = replace(app, icon_path=prev.icon_path)
             if app.name not in by_name:
                 order.append(app.name)
             by_name[app.name] = app
