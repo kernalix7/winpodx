@@ -19,11 +19,9 @@ Host-class contract (only listed for readers; not enforced):
 from __future__ import annotations
 
 import logging
-import threading
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication,
     QBoxLayout,
     QComboBox,
     QFrame,
@@ -1358,50 +1356,15 @@ class SettingsPageMixin:
                     if needs_wipe
                     else tr("Recreating container...")
                 )
-                QApplication.processEvents()
-                wipe_storage = needs_wipe
-
-                def _recreate() -> None:
-                    try:
-                        from winpodx.cli.pod import _wipe_pod_storage
-                        from winpodx.cli.setup_cmd import (
-                            _generate_compose,
-                            _recreate_container,
-                        )
-                        from winpodx.core.pod import stop_pod
-
-                        if wipe_storage:
-                            # Stop before wipe -- can't remove a volume
-                            # that's still attached to a running container,
-                            # and bind-mount contents under an active
-                            # container risk EBUSY on rmtree.
-                            stop_pod(self.cfg)
-                            _wipe_pod_storage(self.cfg)
-
-                        _generate_compose(self.cfg)
-                        _recreate_container(self.cfg)
-                        self.app_launched.emit(
-                            tr("Container recreated; Windows reinstalling")
-                            if wipe_storage
-                            else tr("Container restarted")
-                        )
-                    except Exception as e:  # noqa: BLE001
-                        self.app_launch_failed.emit(tr("Restart failed: {e}").format(e=e))
-                        return
-                    # v0.5.1: the freshly-recreated guest has no booted
-                    # Windows / no agent / no rdprrap / no apps yet. Run
-                    # the full bring-up chain (wait pod -> wait agent ->
-                    # apply Windows fixes -> discover apps -> reverse-
-                    # open sync) on its own worker thread. The call
-                    # returns immediately; the user sees progress in
-                    # ``BringUpProgressDialog`` (opened on the GUI thread
-                    # via the ``bringup_started`` signal).
-                    try:
-                        self._run_full_bring_up()
-                    except Exception as e:  # noqa: BLE001
-                        self.app_launch_failed.emit(tr("Bring-up kickoff failed: {e}").format(e=e))
-
-                threading.Thread(target=_recreate, daemon=True).start()
+                # Open the bring-up dialog FIRST, then do the (slow) recreate as
+                # its phase 0 on the worker thread. Previously the recreate ran
+                # inline here and the dialog only appeared after the slow podman
+                # recreate finished -- so for tens of seconds it looked like the
+                # save did nothing, then a dialog popped out of nowhere (#525
+                # confusion). _run_full_bring_up emits ``bringup_started`` before
+                # any slow work, so the dialog is up immediately and the
+                # stop/wipe/compose/recreate steps stream as live progress.
+                self._run_full_bring_up(recreate=True, wipe_storage=needs_wipe)
                 return
 
             # Declined. A device-changing disguise switch must NOT be left

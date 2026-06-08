@@ -125,6 +125,13 @@ class _ChecklistIconLabel(QLabel):
 # transport during the long-tail Sysprep wait.
 _POLL_CADENCE_SECS = 2.0
 
+# #525: on a recreate/post-install boot the guest agent's autostart only fires
+# inside an interactive session, which a headless recreate boot lacks until an
+# RDP logon. If the agent hasn't settled this many seconds into phase 2 (and the
+# pod is already initialized, so we're not mid-Sysprep on a fresh install), open
+# a desktop session to force that logon and wake the agent.
+_AGENT_KICK_GRACE_SECS = 45.0
+
 # Discovery (phase 4) retry: on a fresh install the agent's /health can flicker
 # (TermService / rdprrap reactivation restarts it), so the discovery /exec POST
 # can land on a momentarily-closed socket ("Remote end closed connection without
@@ -692,17 +699,28 @@ class BringUpMixin:
 
     # ----- public entry point --------------------------------------------
 
-    def _run_full_bring_up(self) -> None:
+    def _run_full_bring_up(self, *, recreate: bool = False, wipe_storage: bool = False) -> None:
         """Kick off the bring-up worker thread.
 
         Returns immediately. Phase progress is emitted via
         ``bringup_phase`` / ``bringup_done``. The dialog is opened on
         the GUI thread via ``bringup_started`` (so the caller can be
         on any thread).
+
+        When ``recreate`` is True the worker runs a container recreate
+        (stop -> optional wipe -> regenerate compose -> recreate) as its
+        first step, BEFORE waiting for the pod. The settings save used to
+        do this inline and only opened the progress dialog afterwards, so
+        the dialog appeared tens of seconds late (after the slow podman
+        recreate) -- reading as "nothing happened" then a sudden popup.
+        Folding it in lets ``bringup_started`` open the dialog FIRST and
+        surface the recreate as live progress (#525 confusion).
         """
         # Lazy-allocate the cancel event. New event per run so a stale
         # "cancelled" flag from a prior bring-up can't trip the next.
         self._bringup_cancel = threading.Event()
+        self._bringup_recreate = recreate
+        self._bringup_wipe = wipe_storage
 
         # Signal back to the GUI thread that a dialog should open. The
         # caller (``_save_settings`` worker thread) cannot construct
@@ -843,6 +861,9 @@ class BringUpMixin:
         phase methods below.
         """
         try:
+            if getattr(self, "_bringup_recreate", False):
+                if not self._phase0_recreate():
+                    return
             if not self._phase1_wait_pod_ready():
                 return
             if not self._phase2_wait_agent_settle():
@@ -857,6 +878,48 @@ class BringUpMixin:
         except Exception as exc:  # noqa: BLE001
             log.exception("bring-up worker crashed")
             self._emit_done(False, f"{exc.__class__.__name__}: {exc}")
+
+    # ----- phase 0: recreate container (settings-driven) -----------------
+
+    def _phase0_recreate(self) -> bool:
+        """Recreate the container before the wait -> settle -> ... chain.
+
+        Driven by a settings save that changed a compose-affecting knob.
+        Runs on the worker thread so the (already-open) dialog shows the
+        recreate as live progress, instead of the user staring at a frozen
+        window while a slow ``podman recreate`` ran inline before the dialog
+        even appeared. Emits under the ``phase_1_pod`` row -- recreate is
+        pod-lifecycle, and reusing that slug keeps the 5-row checklist intact
+        (no renumbering). Returns False + emits ``bringup_done`` on failure.
+        """
+        if self._is_cancelled():
+            return self._emit_cancelled()
+        wipe = getattr(self, "_bringup_wipe", False)
+        try:
+            from winpodx.cli.pod import _wipe_pod_storage
+            from winpodx.cli.setup_cmd import _generate_compose, _recreate_container
+            from winpodx.core.pod import stop_pod
+
+            if wipe:
+                # Stop before wipe -- can't remove a volume still attached to a
+                # running container, and bind-mount contents under a live
+                # container risk EBUSY on rmtree.
+                self._emit_phase("phase_1_pod", "Stopping container + wiping Windows disk...")
+                stop_pod(self.cfg)
+                _wipe_pod_storage(self.cfg)
+            self._emit_phase("phase_1_pod", "Regenerating compose...")
+            _generate_compose(self.cfg)
+            self._emit_phase(
+                "phase_1_pod",
+                "Recreating container (Windows reinstalling)..."
+                if wipe
+                else "Recreating container...",
+            )
+            _recreate_container(self.cfg)
+        except Exception as exc:  # noqa: BLE001
+            self._emit_done(False, f"Recreate failed: {exc}")
+            return False
+        return True
 
     # ----- phase 1: wait pod ready ---------------------------------------
 
@@ -1005,6 +1068,7 @@ class BringUpMixin:
         client = AgentClient(self.cfg)
         started = time.monotonic()
         attempt = 0
+        kicked = False
         while True:
             if self._is_cancelled():
                 return self._emit_cancelled()
@@ -1040,11 +1104,52 @@ class BringUpMixin:
                 )
                 return True
 
+            # #525 agent-kick: a headless recreate boot has no interactive
+            # session, so the agent's autostart never fires and we'd burn the
+            # whole budget. Open a desktop session once to force the logon ->
+            # autostart -> agent. Gated to initialized pods so we never connect
+            # mid-Sysprep on a fresh install (an early RDP login can kill
+            # install.bat's autologon session). Best-effort + non-fatal.
+            if (
+                not kicked
+                and elapsed >= _AGENT_KICK_GRACE_SECS
+                and getattr(self.cfg.pod, "initialized", False)
+            ):
+                kicked = True
+                self._kick_interactive_session()
+
             self._emit_phase(
                 "phase_2_agent",
                 f"Attempt {attempt} - {health_detail}; {token_detail or 'awaiting /health'}",
             )
             self._sleep_cancellable(_POLL_CADENCE_SECS)
+
+    def _kick_interactive_session(self) -> None:
+        """Open a desktop RDP session to force an interactive logon (#525).
+
+        The guest agent only autostarts inside an interactive session; a
+        headless recreate boot has none, so this connects a plain desktop
+        session to create one (firing HKCU\\Run + the keep-alive task). This
+        is the "start a Windows app and the agent activates" workaround,
+        automated. Left OPEN intentionally -- closing it could tear the
+        session (and the agent) back down before the agent is confirmed up;
+        the user's later app launches reuse the single RDP session. Best-
+        effort; never raises.
+
+        NOTE: this path's effect (does a desktop connect reliably wake the
+        agent, and should the kick session be closed afterwards?) needs a
+        real-Windows smoke check -- it can't be verified from host code.
+        """
+        self._emit_phase(
+            "phase_2_agent",
+            "Agent not responding -- opening a desktop session to wake it (#525)...",
+        )
+        try:
+            from winpodx.core.rdp import launch_desktop
+
+            launch_desktop(self.cfg)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("agent-kick desktop launch failed: %s", exc, exc_info=True)
 
     # ----- phase 3: apply windows-side fixes -----------------------------
 
