@@ -115,7 +115,13 @@ class AppCrudMixin:
     def _reload_apps(self) -> None:
         self.apps = list_available_apps()
         self._refresh_hidden_button()
+        # Clear any active search WITHOUT firing textChanged -> _filter_apps:
+        # _refresh_launcher_home() below already triggers the single rebuild.
+        # Two back-to-back rebuilds of app_list_layout raced Qt's heightForWidth
+        # pass and helped trigger the discover-time SIGSEGV.
+        self.search_box.blockSignals(True)
         self.search_box.clear()
+        self.search_box.blockSignals(False)
         self._refresh_launcher_home()
         visible = self._visible_apps()
         # "X of Y" mirrors the library toolbar format (Task 5); no search is

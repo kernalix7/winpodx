@@ -859,16 +859,40 @@ class LibraryPageMixin:
         self._filter_apps(self.search_box.text())
 
     def _filter_apps(self, text: str) -> None:
-        q = text.lower()
-        self._refresh_commands(q)
-        base = self._visible_apps()
-        filtered = [a for a in base if q in a.full_name.lower() or q in a.name.lower()]
-        if self._active_category:
-            filtered = [a for a in filtered if self._active_category in a.categories]
-        self._refresh_launcher_sections(filtered)
-        self._populate_app_view(filtered)
-        # "X of Y" so the toolbar count reconciles with the info bar's total
-        # after a search/filter (Task 5).
-        self.app_count_label.setText(
-            tr("{shown} of {total} apps").format(shown=len(filtered), total=len(self.apps))
-        )
+        # Re-entrancy guard. Rebuilding app_list_layout below adds word-wrapped
+        # empty-state labels into a setWidgetResizable QScrollArea, which forces
+        # a synchronous heightForWidth layout pass. If that pass re-enters
+        # _filter_apps mid-rebuild -- via the window resizeEvent -> _reflow_library,
+        # or the pod-status -> _filter_apps refresh, or a discover reload that
+        # rebuilds twice -- Qt's QBoxLayout::heightForWidth recurses without bound
+        # and segfaults the whole GUI ("QObject::setParent: ... different thread"
+        # warnings then SIGSEGV, observed on Wayland after the discover button).
+        # Coalesce the nested call into one trailing rebuild instead.
+        if getattr(self, "_filtering", False):
+            self._filter_pending = text
+            return
+        self._filtering = True
+        try:
+            self._filter_pending = None
+            q = text.lower()
+            self._refresh_commands(q)
+            base = self._visible_apps()
+            filtered = [a for a in base if q in a.full_name.lower() or q in a.name.lower()]
+            if self._active_category:
+                filtered = [a for a in filtered if self._active_category in a.categories]
+            self._refresh_launcher_sections(filtered)
+            self._populate_app_view(filtered)
+            # "X of Y" so the toolbar count reconciles with the info bar's total
+            # after a search/filter (Task 5).
+            self.app_count_label.setText(
+                tr("{shown} of {total} apps").format(shown=len(filtered), total=len(self.apps))
+            )
+        finally:
+            self._filtering = False
+        # Honor the most recent text if a nested call arrived during the rebuild.
+        # This runs as a fresh top-level call (guard already released), so it
+        # cannot recurse into the layout pass that triggered it.
+        pending = self._filter_pending
+        if pending is not None and pending != text:
+            self._filter_pending = None
+            self._filter_apps(pending)
