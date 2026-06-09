@@ -75,6 +75,15 @@ sed -i "s/aml_string(\"QEMU0002\")/aml_string(\"${HID4}0002\")/" \
 sed -i "s/aml_string(\"QEMU0001\")/aml_string(\"${HID4}0001\")/" hw/misc/pvpanic-isa.c
 sed -i "s/aml_string(\"QEMUVGID\")/aml_string(\"${HID4}VGID\")/" hw/acpi/vmgenid.c
 
+# --- WAET table signature ---
+# QEMU emits a WAET ("Windows ACPI Emulated devices Table") -- a table only
+# present under emulation, which al-khaser's ACPI check enumerates as a VM tell.
+# Rename its 4-byte signature so it's no longer the recognised WAET (Windows
+# ignores the now-unknown table; we lose only WAET's RTC/PM-timer read hint).
+# Done via the signature, not by dropping the call -- that would leave
+# build_waet() unused and fail QEMU's -Werror build.
+sed -i 's/\.sig = "WAET"/.sig = "WAFT"/' hw/i386/acpi-build.c
+
 # --- Disk / optical model strings ---
 # ATA (ide-hd, used by DISK_TYPE=sata) + SCSI defaults report "QEMU HARDDISK"
 # / "QEMU DVD-ROM"; al-khaser scans Disk\Enum + IDE/SCSI for "QEMU".
@@ -82,4 +91,4 @@ sed -i "s/\"QEMU HARDDISK\"/\"${DISK_MODEL}\"/g" hw/ide/core.c hw/scsi/scsi-disk
 sed -i "s/\"QEMU DVD-ROM\"/\"${DVD_MODEL}\"/g" hw/ide/core.c hw/ide/atapi.c
 sed -i "s/\"QEMU CD-ROM\"/\"${DVD_MODEL}\"/g" hw/scsi/scsi-disk.c
 
-echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + _HIDs + disk model)."
+echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + _HIDs + WAET + disk model)."
