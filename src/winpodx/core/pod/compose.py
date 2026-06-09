@@ -288,6 +288,10 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
     # would abort on boot.
     if cfg.pod.disguise_max and cfg.pod.disguise_image and platform.machine() != "aarch64":
         extra_args += ["-acpitable", "file=/usr/share/qemu/winpodx-ssdt-sensors.aml"]
+        # WSMT (Windows SMM Security Mitigations Table): al-khaser flags its
+        # absence; QEMU never emits one, so inject the synthetic one baked into
+        # the disguise image.
+        extra_args += ["-acpitable", "file=/usr/share/qemu/winpodx-wsmt.aml"]
 
     return " ".join(extra_args)
 

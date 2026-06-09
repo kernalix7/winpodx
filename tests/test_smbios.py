@@ -89,3 +89,19 @@ def test_write_blob_failsafe_returns_none_on_bad_dir(tmp_path):
     # A non-existent OEM dir → None, never a dangling `-smbios file=` arg.
     bad = tmp_path / "does" / "not" / "exist"
     assert _compose_module._write_disguise_smbios_blob(str(bad)) is None
+
+
+def test_blob_has_over_40_structures():
+    """al-khaser's number_SMBIOS_tables() flags a guest whose SMBIOS structure
+    count is <= 40; the synthetic blob alone must clear that (QEMU adds ~9 more)."""
+    from winpodx.core.pod.smbios import build_disguise_smbios_blob
+
+    blob = build_disguise_smbios_blob()
+    i = 0
+    count = 0
+    while i < len(blob):
+        length = blob[i + 1]
+        end = blob.find(b"\x00\x00", i + length)
+        i = end + 2
+        count += 1
+    assert count > 40, f"only {count} synthetic SMBIOS structures (need > 40)"

@@ -127,7 +127,7 @@ def build_disguise_smbios_blob() -> bytes:
         bytes([0x03, 0x03, 0x03])  # location: system board, use: system memory, ecc: none
         + _dw(0x04000000)  # maximum capacity = 64 GB (in KB)
         + _w(0xFFFE)  # memory error info handle: not provided
-        + _w(1)  # number of memory devices
+        + _w(16)  # number of memory devices (1 populated + 15 empty slots below)
     )
     parts.append(_structure(16, _H_MEMARRAY, mem_array, []))
 
@@ -180,6 +180,64 @@ def build_disguise_smbios_blob() -> bytes:
     # omits it. A single benign "Default string" (what most retail boards ship)
     # avoids leaking "QEMU" / "winpodx" into a raw SMBIOS string scan.
     parts.append(_structure(11, _H_OEMSTR, bytes([1]), ["Default string"]))
+
+    # Pad the structure count. al-khaser's number_SMBIOS_tables() flags any guest
+    # whose total SMBIOS structure count is <= 40 -- QEMU emits well under that,
+    # so add the empty DIMM slots / PCIe slots / port connectors / cache levels a
+    # real 40+-structure board carries. All synthetic, unique handles, no host
+    # data. Handle range 0x4000+ is private to this padding (avoids the _H_* set).
+    h = 0x4000
+    empty_dimm = (
+        _w(_H_MEMARRAY)  # physical memory array handle
+        + _w(0xFFFE)  # error info: not provided
+        + _w(0x0040)  # total width: 64 bits
+        + _w(0x0040)  # data width: 64 bits
+        + _w(0x0000)  # size 0 -> slot present but unpopulated
+        + bytes([0x09])  # form factor: DIMM
+        + bytes([0x00])  # device set: none
+        + bytes([1])  # device locator (string 1)
+        + bytes([2])  # bank locator (string 2)
+        + bytes([0x02])  # memory type: unknown
+        + _w(0x0000)  # type detail
+        + _w(0x0000)  # speed: unknown
+        + bytes([3, 4, 5, 6])  # manufacturer / serial / asset / part (strings 3-6)
+    )
+    for i in range(1, 16):  # 15 more DIMM slots (a 16-slot board, 1 populated)
+        parts.append(
+            _structure(
+                17,
+                h,
+                empty_dimm,
+                [
+                    f"DIMM {i}",
+                    f"BANK {i}",
+                    "Not Specified",
+                    "Not Specified",
+                    "Not Specified",
+                    "Not Specified",
+                ],
+            )
+        )
+        h += 1
+    for i in range(2, 10):  # 8 more system slots
+        slot_n = bytes([1, 0xB6, 0x0D, 0x03, 0x04]) + _w(i) + bytes([0x04, 0x01])
+        parts.append(_structure(9, h, slot_n, [f"PCIe Slot {i}"]))
+        h += 1
+    for i in range(2, 10):  # 8 more port connectors
+        parts.append(_structure(8, h, bytes([1, 0xFF, 2, 0xFF, 0xFF]), [f"J{i}", "Other"]))
+        h += 1
+    for name, cfg7 in (("L2 Cache", 0x0281), ("L3 Cache", 0x0382)):  # L2 + L3 cache
+        cache_n = (
+            bytes([1])
+            + _w(cfg7)
+            + _w(0x0400)
+            + _w(0x0400)
+            + _w(0x0002)
+            + _w(0x0002)
+            + bytes([0x01, 0x06, 0x05, 0x08])
+        )
+        parts.append(_structure(7, h, cache_n, [name]))
+        h += 1
 
     blob = b"".join(parts)
     validate_blob(blob)  # raise on any encoding slip before it reaches QEMU

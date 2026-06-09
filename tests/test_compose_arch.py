@@ -222,10 +222,9 @@ def test_compose_disguise_max_injects_sensor_ssdt(monkeypatch):
     cfg.pod.disguise_image = "winpodx-windows-disguise"
 
     cfg.pod.disguise_level = "max"
-    assert (
-        "-acpitable file=/usr/share/qemu/winpodx-ssdt-sensors.aml"
-        in _build_compose_content(cfg)
-    )
+    content = _build_compose_content(cfg)
+    assert "-acpitable file=/usr/share/qemu/winpodx-ssdt-sensors.aml" in content
+    assert "-acpitable file=/usr/share/qemu/winpodx-wsmt.aml" in content  # WSMT inject
 
     # balanced → the AML only ships in the patched max image, so no injection.
     cfg.pod.disguise_level = "balanced"

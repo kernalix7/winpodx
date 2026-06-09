@@ -70,15 +70,19 @@ ARG DVD_MODEL=""
 RUN ACPI_OEM6="${ACPI_OEM6}" ACPI_OEM8="${ACPI_OEM8}" \
     DISK_MODEL="${DISK_MODEL}" DVD_MODEL="${DVD_MODEL}" \
     bash /build/patch-strings.sh /build/qemu
-# Synthetic-sensor SSDT: substitute the host vendor as the SSDT OEM ID (6 bytes,
-# kept consistent with the patched ACPI tables) and compile it with iasl. The
-# resulting AML is injected at runtime via -acpitable (no guest recompile).
+# Synthetic ACPI tables injected at runtime via -acpitable (no guest recompile):
+#   * ssdt-sensors -- thermal zone + fixed-feature PnP devices al-khaser wants
+#   * wsmt         -- the Windows SMM Security Mitigations Table QEMU omits
+# Substitute the host vendor as their OEM ID (6 bytes, consistent with the
+# patched ACPI tables) and compile both with iasl.
 COPY ssdt-sensors.asl /build/ssdt-sensors.asl
+COPY wsmt.asl /build/wsmt.asl
 RUN OEM6="$(printf '%-6.6s' "${ACPI_OEM6:-ALASKA}")"; \
     [ -n "$(printf '%s' "$OEM6" | tr -d ' ')" ] || OEM6="ALASKA"; \
-    sed -i "s/\"ALASKA\"/\"${OEM6}\"/" /build/ssdt-sensors.asl \
+    sed -i "s/\"ALASKA\"/\"${OEM6}\"/" /build/ssdt-sensors.asl /build/wsmt.asl \
     && iasl -p /build/ssdt-sensors /build/ssdt-sensors.asl \
-    && test -f /build/ssdt-sensors.aml
+    && iasl /build/wsmt.asl \
+    && test -f /build/ssdt-sensors.aml -a -f /build/wsmt.aml
 WORKDIR /build/qemu
 # Build only the x86_64 system target. The --enable set mirrors what dockur's
 # Debian QEMU package links (slirp networking + usb-redir + spice) so the
@@ -106,5 +110,6 @@ COPY --from=build /build/qemu/build/qemu-system-x86_64 /usr/bin/qemu-system-x86_
 COPY --from=build /build/qemu/pc-bios/ /usr/share/qemu/
 # Synthetic-sensor SSDT, injected by winpodx via -acpitable at disguise max.
 COPY --from=build /build/ssdt-sensors.aml /usr/share/qemu/winpodx-ssdt-sensors.aml
+COPY --from=build /build/wsmt.aml /usr/share/qemu/winpodx-wsmt.aml
 # Sanity check at build time (fails the build if the binary won't run).
 RUN qemu-system-x86_64 --version
