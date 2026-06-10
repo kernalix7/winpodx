@@ -646,6 +646,39 @@ def test_linux_to_unc_home_symlink_atomic(monkeypatch, tmp_path):
     assert result == "\\\\tsclient\\home\\Desktop\\temp.doc"
 
 
+def test_linux_to_unc_symlinked_subdir_under_home(monkeypatch, tmp_path):
+    # #547: a subdir under $HOME is itself a symlink pointing out of home
+    # (~/Documents -> /mnt/store/Documents). The file is still reachable as
+    # \\tsclient\home\Documents\... because FreeRDP serves $HOME and follows
+    # symlinks within it; resolving the file path would wrongly reject it.
+    home = tmp_path / "home" / "me"
+    home.mkdir(parents=True)
+    external = tmp_path / "mnt" / "store" / "Documents"
+    external.mkdir(parents=True)
+    (home / "Documents").symlink_to(external)
+    doc = external / "book.xlsx"
+    doc.touch()
+
+    monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: home))
+    monkeypatch.setattr("winpodx.core.rdp._find_media_base", lambda: None)
+
+    result = linux_to_unc(str(home / "Documents" / "book.xlsx"))
+    assert result == "\\\\tsclient\\home\\Documents\\book.xlsx"
+
+
+def test_linux_to_unc_dotdot_traversal_still_blocked(monkeypatch, tmp_path):
+    # '..' is collapsed lexically, so a crafted path can't escape $HOME even
+    # though the file itself is no longer resolve()'d (#547 fix must not weaken
+    # the containment check).
+    home = tmp_path / "home" / "me"
+    home.mkdir(parents=True)
+    monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: home))
+    monkeypatch.setattr("winpodx.core.rdp._find_media_base", lambda: None)
+
+    with pytest.raises(ValueError, match="outside shared locations"):
+        linux_to_unc(str(home / ".." / ".." / "etc" / "passwd"))
+
+
 class TestResolveWmClass:
     """resolve_wm_class() is the single source of truth shared by FreeRDP's
     /wm-class and the .desktop StartupWMClass (taskbar window matching)."""

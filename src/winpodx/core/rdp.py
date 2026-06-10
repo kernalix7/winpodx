@@ -1165,39 +1165,48 @@ def launch_desktop(cfg: Config, *, extra_args: str = "") -> RDPSession:
 
 def linux_to_unc(path: str) -> str:
     """Convert a Linux file path to a Windows UNC path via tsclient."""
-    p = Path(path).resolve()
+    # Normalise lexically (expanduser + absolutise + collapse '.' / '..') but do
+    # NOT resolve() the file: following its own symlinks turns a file the user
+    # deliberately placed under $HOME via a symlinked subdir (e.g.
+    # ~/Documents -> /mnt/store) into an out-of-home path and wrongly rejects it
+    # (#547). FreeRDP serves $HOME and traverses symlinks within it, so the
+    # guest reaches \\tsclient\home\<link>\file whatever the link points at.
+    # '..' is still collapsed lexically, so ../../etc/passwd cannot escape $HOME.
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    p = Path(os.path.normpath(p))
     posix_str = str(p)
     if _INVALID_WIN_CHARS & set(posix_str):
         raise ValueError(f"Path contains characters invalid for Windows: {posix_str}")
 
-    # Resolve $HOME (and the media base) too, not just the file (#418). On
-    # Fedora Atomic / Silverblue / Kinoite, /home is a symlink to /var/home, so
-    # `Path(path).resolve()` yields /var/home/me/... while a bare `Path.home()`
-    # stays /home/me — the prefix check then wrongly reports the file as
-    # "outside shared locations". Resolving both sides makes the comparison
-    # symlink-agnostic (and is a no-op on normal layouts).
-    home = Path.home().resolve()
     sep = "\\"
-    try:
-        relative = p.relative_to(home)
-        win_path = str(relative).replace("/", sep)
-        return f"\\\\tsclient\\home\\{win_path}"
-    except ValueError:
-        pass
+    # Compare against $HOME both as-is and resolved: on Fedora Atomic /home is a
+    # symlink to /var/home, so the file may arrive as /var/home/me/... while
+    # Path.home() stays /home/me (#418). Resolving only the home *prefix* (not
+    # the file) keeps that fix without re-introducing the #547 content-symlink
+    # rejection.
+    for home in {Path.home(), Path.home().resolve()}:
+        try:
+            relative = p.relative_to(home)
+            win_path = str(relative).replace("/", sep)
+            return f"\\\\tsclient\\home\\{win_path}"
+        except ValueError:
+            continue
 
-    # Media share mounted as \\tsclient\media.
+    # Media share mounted as \\tsclient\media (same dual-prefix handling).
     media_base = _find_media_base()
     if media_base is not None:
-        media_base = media_base.resolve()
-        try:
-            relative = p.relative_to(media_base)
-            win_path = str(relative).replace("/", sep)
-            return f"\\\\tsclient\\media\\{win_path}"
-        except ValueError:
-            pass
+        for mb in {media_base, media_base.resolve()}:
+            try:
+                relative = p.relative_to(mb)
+                win_path = str(relative).replace("/", sep)
+                return f"\\\\tsclient\\media\\{win_path}"
+            except ValueError:
+                continue
 
     raise ValueError(
-        f"Path is outside shared locations (home={home}"
+        f"Path is outside shared locations (home={Path.home()}"
         f"{', media=' + str(media_base) if media_base else ''}): {posix_str}. "
         "Move the file under your home directory or a mounted media volume."
     )
