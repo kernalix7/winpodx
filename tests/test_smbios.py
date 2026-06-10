@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 import winpodx.core.pod.compose as _compose_module
+from winpodx.core.pod.compose import _disguise_smbios_args, _smbios_safe
 from winpodx.core.pod.smbios import build_disguise_smbios_blob, validate_blob
 
 
@@ -105,3 +106,69 @@ def test_blob_has_over_40_structures():
         i = end + 2
         count += 1
     assert count > 40, f"only {count} synthetic SMBIOS structures (need > 40)"
+
+
+# --- _smbios_safe unit tests ---
+
+
+def test_smbios_safe_strips_unsafe_chars():
+    result = _smbios_safe("Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz")
+    assert result is not None
+    assert " " not in result
+    assert "," not in result
+    assert "=" not in result
+    assert '"' not in result
+    assert "'" not in result
+
+
+def test_smbios_safe_no_qemu_string():
+    result = _smbios_safe("Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz")
+    assert result is not None
+    assert "QEMU" not in result
+    assert "qemu" not in result.lower()
+
+
+def test_smbios_safe_spaces_collapse_to_single_dash():
+    result = _smbios_safe("Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz")
+    assert result is not None
+    assert "--" not in result
+
+
+def test_smbios_safe_none_returns_none():
+    assert _smbios_safe(None) is None
+
+
+def test_smbios_safe_empty_string_returns_none():
+    assert _smbios_safe("") is None
+
+
+# --- _disguise_smbios_args type=4 tests ---
+
+
+def test_disguise_smbios_args_type4_present(monkeypatch):
+    monkeypatch.setattr(
+        _compose_module,
+        "_host_cpu_smbios",
+        lambda: ("GenuineIntel", "Intel-Core-i7-8550U"),
+    )
+    args = _disguise_smbios_args()
+    type4_values = [
+        v for flag, v in zip(args, args[1:]) if flag == "-smbios" and v.startswith("type=4,")
+    ]
+    assert len(type4_values) >= 1, "no -smbios type=4 arg produced"
+    t4 = type4_values[0]
+    assert "manufacturer=GenuineIntel" in t4
+    assert "version=Intel-Core-i7-8550U" in t4
+
+
+def test_disguise_smbios_args_no_qemu_in_any_value(monkeypatch):
+    monkeypatch.setattr(
+        _compose_module,
+        "_host_cpu_smbios",
+        lambda: ("GenuineIntel", "Intel-Core-i7-8550U"),
+    )
+    monkeypatch.setattr(_compose_module, "_host_dmi_field", lambda name: None)
+    args = _disguise_smbios_args()
+    for elem in args:
+        assert "QEMU" not in elem, f"element {elem!r} contains 'QEMU'"
+        assert "qemu" not in elem.lower(), f"element {elem!r} contains 'qemu'"

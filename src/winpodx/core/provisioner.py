@@ -1272,7 +1272,7 @@ def _ensure_config() -> Config:
 
     log.info("No config found, creating default at %s", path)
     cfg = Config()
-    cfg.rdp.user = "User"
+    cfg.rdp.user = "WPX-User"
     cfg.rdp.ip = "127.0.0.1"
     cfg.rdp.password = generate_password()
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()

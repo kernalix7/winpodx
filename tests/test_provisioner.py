@@ -21,7 +21,7 @@ def test_ensure_config_creates_default(tmp_path, monkeypatch):
 
     cfg = _ensure_config()
 
-    assert cfg.rdp.user == "User"
+    assert cfg.rdp.user == "WPX-User"
     assert cfg.rdp.ip == "127.0.0.1"
     assert cfg.rdp.password
     assert (tmp_path / "winpodx" / "winpodx.toml").exists()

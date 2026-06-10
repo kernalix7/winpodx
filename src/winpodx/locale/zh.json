@@ -721,7 +721,7 @@
   "Windows pod stopped": "Windows pod 已停止",
   "Windows time synchronized.": "Windows 时间已同步。",
   "Windows timezone (IANA name, e.g. Asia/Seoul) [{default}]: ": "Windows 时区（IANA 名称，例如 Asia/Seoul）[{default}]: ",
-  "Windows username [User]: ": "Windows 用户名 [User]: ",
+  "Windows username [WPX-User]: ": "Windows 用户名 [WPX-User]: ",
   "Windows-on-KVM performance tuning.\n  auto         -- apply every host-supported knob, but respect\n                  idle-CPU + free-RAM gates (don't starve other\n                  host workloads).\n  performance  -- like auto + force CPU pinning + no-balloon\n                  regardless of host idle headroom. Use when\n                  this box is mostly dedicated to WinPodX.\n  safe         -- Windows-guest-only knobs (hv-*, virtio-rng,\n                  +invtsc, platform_tick) -- no host setup.\n  off          -- dockur defaults only.\nChanging this requires a container recreate -- the save flow\nwill prompt.": "Windows-on-KVM 性能调优。\n  auto         -- 应用每一个主机支持的设置，但遵循\n                  空闲 CPU + 空闲 RAM 的限制（不抢占其他\n                  主机工作负载）。\n  performance  -- 类似 auto + 强制 CPU 绑定 + 无气球，\n                  无论主机空闲余量如何。当此机器\n                  主要专用于 WinPodX 时使用。\n  safe         -- 仅 Windows 客户机的设置（hv-*、virtio-rng、\n                  +invtsc、platform_tick）-- 无需主机设置。\n  off          -- 仅 dockur 默认值。\n更改此项需要重建容器 -- 保存流程\n会进行提示。",
   "Windows-side fixes applied ({ok}/{total} OK)": "Windows 端修复已应用（{ok}/{total} 成功）",
   "Wiping Windows disk + recreating...": "正在擦除 Windows 磁盘并重建...",

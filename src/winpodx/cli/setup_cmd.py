@@ -433,7 +433,7 @@ def _resolve_credentials(cfg: Config, *, non_interactive: bool, config_existed: 
     from datetime import datetime, timezone
 
     if non_interactive:
-        cfg.rdp.user = "User"
+        cfg.rdp.user = "WPX-User"
         cfg.rdp.password = _generate_password()
         cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
         cfg.rdp.ip = "127.0.0.1"
@@ -448,7 +448,7 @@ def _resolve_credentials(cfg: Config, *, non_interactive: bool, config_existed: 
         )
         return
 
-    cfg.rdp.user = _ask(tr("Windows username [User]: "), default="User")
+    cfg.rdp.user = _ask(tr("Windows username [WPX-User]: "), default="WPX-User")
     import getpass
 
     try:

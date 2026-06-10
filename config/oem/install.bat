@@ -771,6 +771,18 @@ REM
 REM If shutdown fails for any reason, the marker is left behind --
 REM apply-fixes treats this as "still need second-pass reboot" and
 REM offers to retry. Failure mode is detectable, not silent.
+
+REM ── winpodx bare-metal disguise: prune unused virtio driver service keys ──
+REM al-khaser flags Services\{viostor,vioscsi,BalloonService} as VM tells. The
+REM virtio-win bundle installs them even with no matching device. The helper
+REM removes only the keys whose device is absent (guarded so a virtio-boot or
+REM ballooned guest keeps its driver). Runs before the reboot so the change is
+REM applied on the clean boot below. No-op when the helper isn't shipped.
+if exist "%~dp0disguise-cleanup.ps1" (
+    echo [WinPodX] Pruning unused virtio driver service keys...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0disguise-cleanup.ps1" >nul 2>&1
+)
+
 echo [WinPodX] Scheduling reboot to apply registry / power settings...
 (echo pending)>C:\winpodx\oem_reboot_pending.txt 2>nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" ^

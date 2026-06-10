@@ -60,6 +60,16 @@ HV_ID="$(printf '%s' "$ACPI_OEM6" | tr -d ' ' | cut -c1-8)"
 sed -i "s/build_append_padded_str(tbl, \"QEMU\", 8/build_append_padded_str(tbl, \"${HV_ID}\", 8/" \
     hw/acpi/aml-build.c
 
+# --- FADT Preferred_PM_Profile (FADT offset 45) ---
+# build_fadt() writes byte 45 as 0x00 ("Unspecified"). al-khaser's
+# qemu_firmware_ACPI() flags any guest whose FADT byte 45 == 0x00 as the
+# hardcoded QEMU value -- a byte check, NOT a string match, so the OEM/HV-vendor
+# patches above never clear it. A real laptop reports 0x02 (Mobile); set it so
+# the field stops reading as the QEMU default. (The PM Profile is an OS power
+# hint, not a constraint, so Windows behaviour is unchanged.)
+sed -i 's|build_append_int_noprefix(tbl, 0 /\* Unspecified \*/, 1);|build_append_int_noprefix(tbl, 2 /* Mobile (winpodx) */, 1);|' \
+    hw/acpi/aml-build.c
+
 # --- ACPI device _HID strings (QEMU* -> host vendor prefix) ---
 # fw_cfg ("QEMU0002"), pvpanic ("QEMU0001") and vmgenid ("QEMUVGID") declare
 # _HIDs that land verbatim in the DSDT; al-khaser's ACPI-table scan flags the
@@ -91,4 +101,17 @@ sed -i "s/\"QEMU HARDDISK\"/\"${DISK_MODEL}\"/g" hw/ide/core.c hw/scsi/scsi-disk
 sed -i "s/\"QEMU DVD-ROM\"/\"${DVD_MODEL}\"/g" hw/ide/core.c hw/ide/atapi.c
 sed -i "s/\"QEMU CD-ROM\"/\"${DVD_MODEL}\"/g" hw/scsi/scsi-disk.c
 
-echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + _HIDs + WAET + disk model)."
+# --- ATAPI / SCSI INQUIRY vendor field ("QEMU") ---
+# Separate from the product/model patched above. hw/ide/atapi.c sets the 8-byte
+# SCSI-INQUIRY vendor to "QEMU" (the optical drive then reports Ven_QEMU in
+# Enum\SCSI + DEVICEMAP\Scsi, which al-khaser's registry_disk_enum + DEVICEMAP
+# checks flag), and hw/scsi/scsi-disk.c defaults s->vendor to "QEMU". The ATA
+# disk is unaffected (its vendor is parsed from the IDENTIFY model, already
+# patched). Set the optical vendor to the first token of DVD_MODEL (a real
+# drive vendor) and the generic SCSI vendor to "ATA" (QEMU's own T10 default).
+DVD_VENDOR="$(printf '%s' "$DVD_MODEL" | awk '{print $1}')"
+[ -n "$DVD_VENDOR" ] || DVD_VENDOR="ASUS"
+sed -i "s/padstr8(buf + 8, 8, \"QEMU\")/padstr8(buf + 8, 8, \"${DVD_VENDOR}\")/" hw/ide/atapi.c
+sed -i "s/s->vendor = g_strdup(\"QEMU\")/s->vendor = g_strdup(\"ATA\")/" hw/scsi/scsi-disk.c
+
+echo "winpodx: identity-string patch applied (ACPI OEM + FADT HV vendor + _HIDs + WAET + disk model + INQUIRY vendor)."

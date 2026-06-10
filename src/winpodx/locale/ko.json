@@ -721,7 +721,7 @@
   "Windows pod stopped": "Windows pod 중지됨",
   "Windows time synchronized.": "Windows 시간이 동기화되었습니다.",
   "Windows timezone (IANA name, e.g. Asia/Seoul) [{default}]: ": "Windows 시간대 (IANA 이름, 예: Asia/Seoul) [{default}]: ",
-  "Windows username [User]: ": "Windows 사용자 이름 [User]: ",
+  "Windows username [WPX-User]: ": "Windows 사용자 이름 [WPX-User]: ",
   "Windows-on-KVM performance tuning.\n  auto         -- apply every host-supported knob, but respect\n                  idle-CPU + free-RAM gates (don't starve other\n                  host workloads).\n  performance  -- like auto + force CPU pinning + no-balloon\n                  regardless of host idle headroom. Use when\n                  this box is mostly dedicated to WinPodX.\n  safe         -- Windows-guest-only knobs (hv-*, virtio-rng,\n                  +invtsc, platform_tick) -- no host setup.\n  off          -- dockur defaults only.\nChanging this requires a container recreate -- the save flow\nwill prompt.": "Windows-on-KVM 성능 튜닝.\n  auto         -- 모든 호스트 지원 옵션을 적용하되, 유휴 CPU +\n                  여유 RAM 게이트를 존중합니다 (다른 호스트\n                  워크로드를 고갈시키지 않음).\n  performance  -- auto와 동일 + 호스트 유휴 여유와 무관하게 CPU\n                  핀 고정 강제 + no-balloon. 이 머신이 주로\n                  WinPodX 전용일 때 사용하세요.\n  safe         -- Windows 게스트 전용 옵션 (hv-*, virtio-rng,\n                  +invtsc, platform_tick) -- 호스트 설정 없음.\n  off          -- dockur 기본값만.\n이 값을 변경하려면 컨테이너 재생성이 필요합니다 -- 저장\n흐름에서 안내합니다.",
   "Windows-side fixes applied ({ok}/{total} OK)": "Windows 측 수정 사항 적용됨 ({ok}/{total} OK)",
   "Wiping Windows disk + recreating...": "Windows 디스크 삭제 + 재생성하는 중...",

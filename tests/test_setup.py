@@ -364,7 +364,7 @@ class TestResolveCredentials:
 
         _resolve_credentials(cfg, non_interactive=True, config_existed=False)
 
-        assert cfg.rdp.user == "User"
+        assert cfg.rdp.user == "WPX-User"
         assert cfg.rdp.password  # randomly generated
         assert cfg.rdp.ip == "127.0.0.1"
         assert cfg.rdp.password_updated
