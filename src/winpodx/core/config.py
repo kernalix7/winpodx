@@ -158,10 +158,10 @@ def _validate_device_entry(entry: object) -> str | None:
 # current ``:latest`` digest, paste below. See ``winpodx setup --update
 # -image`` for the runtime equivalent users invoke explicitly.
 #
-# As of 2026-05-21 (dockur/windows v5.15):
+# As of 2026-06-10 (dockur/windows v5.16):
 DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
-    "32abe0836aeeb744b8ff8af25688fcd348cc66016a1378fe1bd0768c8c67022c"
+    "3633f055f31aadf76bb650b1ca86897ab45b76ad8eb2cf81e86389ace5eb45ac"
 )
 
 # Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``
@@ -171,10 +171,10 @@ DOCKUR_IMAGE_PIN = (
 # OCI index, so container runtimes pick the right platform manifest
 # (amd64 or arm64) automatically.
 #
-# As of 2026-05-21 (dockur/windows-arm v5.15):
+# As of 2026-06-10 (dockur/windows-arm v5.15, :latest security rebuild):
 DOCKUR_IMAGE_ARM_PIN = (
     "docker.io/dockurr/windows-arm@sha256:"
-    "5775bcfd335bad14fe35001460dd6640e131eb660601c2f3c90af43005a9532a"
+    "7c28ddbbe69eb02900bef3b7ab3ad60fbd5fb409524a307a60a3c934f80a9dd5"
 )
 
 
