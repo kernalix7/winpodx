@@ -1,3 +1,14 @@
+winpodx (0.7.0) unstable; urgency=medium
+
+  * Bare-metal disguise (VM-detection avoidance): an opt-in hardened level
+    that makes the Windows guest read as a physical machine to VM-detection
+    software (Nvidia GPU-passthrough "code 43", launch-gate VM checks).
+    Plus the symlinked-$HOME file-open fix (#547), the dockur v5.16
+    USB-monitor fix (#286), the Devices-panel flicker fix, and the dockur
+    v5.16 image pin. See CHANGELOG.md for the full list (#246).
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Thu, 11 Jun 2026 12:00:00 +0000
+
 winpodx (0.6.0) unstable; urgency=medium
 
   * Consolidation + UX release. Host USB / PCI device passthrough (CLI +

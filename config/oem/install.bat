@@ -772,7 +772,7 @@ REM If shutdown fails for any reason, the marker is left behind --
 REM apply-fixes treats this as "still need second-pass reboot" and
 REM offers to retry. Failure mode is detectable, not silent.
 
-REM ── winpodx bare-metal disguise: prune unused virtio driver service keys ──
+REM -- winpodx bare-metal disguise: prune unused virtio driver service keys --
 REM al-khaser flags Services\{viostor,vioscsi,BalloonService} as VM tells. The
 REM virtio-win bundle installs them even with no matching device. The helper
 REM removes only the keys whose device is absent (guarded so a virtio-boot or

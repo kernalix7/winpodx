@@ -80,9 +80,73 @@ def installed_metadata_version() -> str | None:
         return None
 
 
+def _sync_spec(version: str) -> bool:
+    """Stamp ``Version: <version>`` into the RPM spec. True if it changed."""
+    path = ROOT / "packaging" / "rpm" / "winpodx.spec"
+    text = path.read_text()
+    new = re.sub(r"^(Version:\s+)\S+\s*$", rf"\g<1>{version}", text, count=1, flags=re.MULTILINE)
+    if new != text:
+        path.write_text(new)
+        return True
+    return False
+
+
+def _sync_debian(version: str) -> bool:
+    """Prepend a debian/changelog entry for ``version`` if the top entry differs.
+
+    Reuses the maintainer from the current top entry and stamps an RFC-2822
+    timestamp; the bullet is a generic pointer to CHANGELOG.md that the release
+    author can refine. True if an entry was added.
+    """
+    if debian_version() == version:
+        return False
+    path = ROOT / "debian" / "changelog"
+    text = path.read_text()
+    m = re.search(r"^ -- (.+?)  ", text, re.MULTILINE)
+    maintainer = m.group(1) if m else "Kim DaeHyun <kernalix7@kodenet.io>"
+    from datetime import datetime, timezone
+    from email.utils import format_datetime
+
+    stamp = format_datetime(datetime.now(timezone.utc))
+    entry = (
+        f"winpodx ({version}) unstable; urgency=medium\n\n"
+        f"  * Release {version}. See CHANGELOG.md for details.\n\n"
+        f" -- {maintainer}  {stamp}\n\n"
+    )
+    path.write_text(entry + text)
+    return True
+
+
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Verify (or --write) version stamps.")
+    ap.add_argument(
+        "--write",
+        action="store_true",
+        help="stamp pyproject's version into debian/changelog + the RPM spec, "
+        "then verify -- run this during release prep so the stamps can't drift",
+    )
+    args = ap.parse_args()
+
+    pv = pyproject_version()
+    if args.write:
+        changed = [
+            name
+            for name, did in (
+                ("packaging/rpm/winpodx.spec", _sync_spec(pv)),
+                ("debian/changelog", _sync_debian(pv)),
+            )
+            if did
+        ]
+        print(
+            f"Stamped {pv} into: {', '.join(changed)} (refine the debian/changelog bullet)"
+            if changed
+            else f"Already at {pv}; nothing to stamp."
+        )
+
     versions = {
-        "pyproject.toml [project] version": pyproject_version(),
+        "pyproject.toml [project] version": pv,
         "debian/changelog (first entry)": debian_version(),
         "packaging/rpm/winpodx.spec Version:": spec_version(),
     }
