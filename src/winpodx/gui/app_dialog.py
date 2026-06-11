@@ -5,9 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -48,10 +50,17 @@ class AppProfileDialog(QDialog):
         executable: str = "",
         categories: str = "",
         mime_types: str = "",
+        icon_path: str = "",
         edit_mode: bool = False,
     ) -> None:
         super().__init__(parent)
         self.edit_mode = edit_mode
+        # Path of a custom icon the user picked this session (#530). Empty
+        # means "no change" -- keep the detected/existing icon as-is. Seeded
+        # only by :meth:`_on_choose_icon`; ``icon_path`` (the current icon
+        # FILE, if any) just feeds the preview thumbnail below.
+        self._chosen_icon_path = ""
+        self._current_icon_path = icon_path
         self.setWindowTitle(tr("Edit App") if edit_mode else tr("Add App"))
         # Minimum size keeps the default compact, while allowing translations
         # and long helper text to breathe instead of clipping.
@@ -163,6 +172,35 @@ class AppProfileDialog(QDialog):
                 form.addWidget(help_lbl, row, 1)
             row += 1
 
+        # Custom-icon picker (#530). The GUI editor previously couldn't set an
+        # icon, so editing a profile fell back to the generic letter glyph;
+        # this lets the user point at any PNG/SVG, copied into the profile dir
+        # on save. Empty selection keeps whatever icon is already there.
+        icon_lbl = QLabel(tr("Icon"))
+        icon_lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 13px;")
+        form.addWidget(icon_lbl, row, 0, Qt.AlignmentFlag.AlignTop)
+
+        self._icon_preview = QLabel()
+        self._icon_preview.setFixedSize(44, 44)
+        self._icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_preview.setStyleSheet(f"background: {C.SURFACE0}; border-radius: 10px;")
+        choose_btn = QPushButton(tr("Choose Image…"))
+        choose_btn.setStyleSheet(BTN_SECONDARY)
+        choose_btn.clicked.connect(self._on_choose_icon)
+        icon_row = QHBoxLayout()
+        icon_row.setSpacing(SPACE_M)
+        icon_row.addWidget(self._icon_preview)
+        icon_row.addWidget(choose_btn)
+        icon_row.addStretch()
+        form.addLayout(icon_row, row, 1)
+        row += 1
+        icon_help = QLabel(tr("Optional. PNG or SVG. Overrides the auto-detected icon."))
+        icon_help.setStyleSheet(f"color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;")
+        icon_help.setWordWrap(True)
+        form.addWidget(icon_help, row, 1)
+        row += 1
+        self._refresh_icon_preview()
+
         body_l.addLayout(form)
 
         # Inline validation message (Task 8); hidden until a save attempt
@@ -195,13 +233,18 @@ class AppProfileDialog(QDialog):
         self._initial_values = self._current_values()
 
     def _current_values(self) -> tuple[str, ...]:
-        """Current text of every editable field, for dirty-state detection."""
+        """Current text of every editable field, for dirty-state detection.
+
+        Includes the freshly-picked icon path so Cancel also confirms before
+        discarding a custom-icon selection (#530).
+        """
         return (
             self.input_name.text(),
             self.input_full_name.text(),
             self.input_executable.text(),
             self.input_categories.text(),
             self.input_mime_types.text(),
+            self._chosen_icon_path,
         )
 
     def _is_dirty(self) -> bool:
@@ -229,6 +272,43 @@ class AppProfileDialog(QDialog):
             f"background: {color}; color: {C.CRUST};"
             f" border-radius: 12px; font-size: 20px; font-weight: 600;"
         )
+
+    def _on_choose_icon(self) -> None:
+        """Pick a custom PNG/SVG icon for this app profile (#530)."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("Choose Icon"),
+            "",
+            tr("Images (*.png *.svg)"),
+        )
+        if not path:
+            return
+        if Path(path).suffix.lower() not in (".png", ".svg"):
+            QMessageBox.warning(
+                self,
+                tr("Unsupported Image"),
+                tr("Please choose a PNG or SVG image."),
+            )
+            return
+        self._chosen_icon_path = path
+        self._refresh_icon_preview()
+
+    def _refresh_icon_preview(self) -> None:
+        """Render the chosen icon (else the current one) into the preview box."""
+        src = self._chosen_icon_path or self._current_icon_path
+        pixmap = QIcon(src).pixmap(QSize(40, 40)) if src else None
+        if pixmap is not None and not pixmap.isNull():
+            self._icon_preview.setPixmap(pixmap)
+            self._icon_preview.setText("")
+        else:
+            # No usable icon yet: show the same letter the avatar uses.
+            letter = (self.input_full_name.text() or self.input_name.text() or "?")[0].upper()
+            self._icon_preview.setPixmap(QIcon().pixmap(QSize(1, 1)))
+            self._icon_preview.setText(letter)
+            self._icon_preview.setStyleSheet(
+                f"background: {C.SURFACE0}; color: {C.OVERLAY0};"
+                f" border-radius: 10px; font-size: 18px; font-weight: 600;"
+            )
 
     def _on_accept(self) -> None:
         name = self.input_name.text().strip()
@@ -296,6 +376,15 @@ class AppProfileDialog(QDialog):
         if not value.lower().endswith(".exe"):
             return tr("This doesn't end in .exe — double-check the executable.")
         return ""
+
+    def chosen_icon_path(self) -> str:
+        """Host path of a custom icon the user picked, or "" for no change (#530).
+
+        Kept out of :meth:`get_result` on purpose: that dict is written verbatim
+        to ``app.toml`` and a transient host path is not a profile field. The
+        caller copies this file into the profile dir via ``set_custom_icon``.
+        """
+        return self._chosen_icon_path
 
     def get_result(self) -> dict[str, str | list[str]]:
         """Return the form data as a dict."""
@@ -376,6 +465,47 @@ def preserve_app_icon(src_icon_path: str, dest_name: str) -> None:
         shutil.copy2(src, dest_dir / f"icon{suffix}")
     except OSError:
         pass
+
+
+def set_custom_icon(src_icon_path: str, dest_name: str) -> bool:
+    """Copy a user-picked icon into the saved (user) profile dir (#530).
+
+    Unlike :func:`preserve_app_icon` (a best-effort carry-over of an *existing*
+    icon across an edit), this honours a DELIBERATE choice: it always overwrites
+    and ignores the discovered-twin guard, because the user explicitly wants
+    this image. ``load_app`` prefers ``icon.svg`` over ``icon.png``, so the
+    other-extension file is removed to stop a stale icon from shadowing the new
+    one. Returns ``True`` on success. Path-traversal + extension guarded.
+    """
+    import shutil
+
+    if not src_icon_path or not _validate_app_name(dest_name):
+        return False
+    src = Path(src_icon_path)
+    suffix = src.suffix.lower()
+    if suffix not in (".svg", ".png") or not src.exists():
+        return False
+    apps_root = data_dir() / "apps"
+    dest_dir = apps_root / dest_name
+    try:
+        if not dest_dir.resolve().is_relative_to(apps_root.resolve()):
+            return False
+    except OSError:
+        return False
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(src, dest_dir / f"icon{suffix}")
+    except OSError:
+        return False
+    # Drop the other-extension icon so it can't shadow the new one (svg > png).
+    other = ".png" if suffix == ".svg" else ".svg"
+    stale = dest_dir / f"icon{other}"
+    if stale.exists():
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    return True
 
 
 def delete_app_profile(name: str) -> bool:

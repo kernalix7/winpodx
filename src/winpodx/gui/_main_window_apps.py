@@ -41,17 +41,25 @@ class AppCrudMixin:
     """App profile CRUD + discovery worker behavior. Mix into ``WinpodxWindow``."""
 
     def _on_add_app(self) -> None:
-        from winpodx.gui.app_dialog import AppProfileDialog, save_app_profile
+        from winpodx.gui.app_dialog import AppProfileDialog, save_app_profile, set_custom_icon
 
         dlg = AppProfileDialog(self)
         if dlg.exec():
             data = dlg.get_result()
             save_app_profile(data)
+            # A picked icon is copied into the new profile dir (#530).
+            if dlg.chosen_icon_path():
+                set_custom_icon(dlg.chosen_icon_path(), str(data["name"]))
             self._reload_apps()
             self.info_label.setText(tr("Added: {name}").format(name=data["full_name"]))
 
     def _on_edit_app(self, app: AppInfo) -> None:
-        from winpodx.gui.app_dialog import AppProfileDialog, preserve_app_icon, save_app_profile
+        from winpodx.gui.app_dialog import (
+            AppProfileDialog,
+            preserve_app_icon,
+            save_app_profile,
+            set_custom_icon,
+        )
 
         dlg = AppProfileDialog(
             self,
@@ -60,17 +68,49 @@ class AppCrudMixin:
             executable=app.executable,
             categories=", ".join(app.categories),
             mime_types=", ".join(app.mime_types),
+            icon_path=app.icon_path,
             edit_mode=True,
         )
         if dlg.exec():
             data = dlg.get_result()
             save_app_profile(data)
-            # Keep the existing icon across the edit (rename / MIME change /
-            # discovered->user override) so it doesn't reset to the generic
-            # letter glyph (#530).
-            preserve_app_icon(app.icon_path, str(data["name"]))
+            if dlg.chosen_icon_path():
+                # A deliberate custom icon wins over the carry-over (#530).
+                set_custom_icon(dlg.chosen_icon_path(), str(data["name"]))
+            else:
+                # Keep the existing icon across the edit (rename / MIME change /
+                # discovered->user override) so it doesn't reset to the generic
+                # letter glyph (#530).
+                preserve_app_icon(app.icon_path, str(data["name"]))
             self._reload_apps()
             self.info_label.setText(tr("Updated: {name}").format(name=data["full_name"]))
+
+    def _on_reset_app(self, app: AppInfo) -> None:
+        """Discard a user override and restore the auto-discovered profile (#530).
+
+        Only meaningful (and only offered by the menu) when an edited app still
+        has a ``discovered/<name>`` twin to fall back to; ``reset_app_profile``
+        returns ``None`` otherwise and we leave everything untouched.
+        """
+        reply = QMessageBox.question(
+            self,
+            tr("Reset to Detected"),
+            tr(
+                "Discard your edits to '{name}' and restore the auto-detected "
+                "profile, including its original icon?"
+            ).format(name=app.full_name),
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        from winpodx.core.app import reset_app_profile
+
+        reverted = reset_app_profile(app.name)
+        if reverted is None:
+            self.info_label.setText(tr("Nothing to reset: {name}").format(name=app.full_name))
+            return
+        self._reload_apps()
+        self.info_label.setText(tr("Reset to detected: {name}").format(name=reverted.full_name))
 
     def _on_delete_app(self, app: AppInfo) -> None:
         reply = QMessageBox.question(

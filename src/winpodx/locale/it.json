@@ -884,5 +884,16 @@
   "⚠️  WIPE WARNING — read carefully.\n\nSwitching the bare-metal level to/from 'Hardened (max)' changes the guest's virtual hardware (disk → SATA, network → e1000, GPU → std) to emulated devices.\n\nThe EXISTING Windows install CANNOT boot on the new hardware, so this will DESTROY the Windows disk and reinstall from scratch.\n\nALL apps, files, and settings inside the Windows VM will be PERMANENTLY DELETED.\n\nReinstall takes ~5-10 minutes (ISO download + Sysprep). There is no undo.\n\nWipe Windows and reinstall now?": "⚠️  AVVISO DI CANCELLAZIONE — leggi attentamente.\n\nCambiare il livello bare-metal verso/da 'Hardened (max)' modifica l'hardware virtuale del guest (disco → SATA, rete → e1000, GPU → std) in dispositivi emulati.\n\nL'installazione di Windows ESISTENTE NON PUÒ avviarsi sul nuovo hardware, quindi questo DISTRUGGE il disco di Windows e reinstalla da zero.\n\nTUTTE le app, i file e le impostazioni nella VM Windows verranno ELIMINATI DEFINITIVAMENTE.\n\nLa reinstallazione richiede ~5-10 minuti (download ISO + Sysprep). Nessun annullamento.\n\nCancellare Windows e reinstallare ora?",
   "Reinstall Windows": "Reinstalla Windows",
   "Bare-metal level change cancelled (kept {level})": "Modifica del livello bare-metal annullata ({level} mantenuto)",
-  "WARNING: '{level}' switches the guest to emulated hardware (disk -> SATA, network -> e1000, GPU -> std). The existing Windows install CANNOT boot on it, so applying this DESTROYS the Windows disk and reinstalls from scratch. Run 'winpodx pod recreate --wipe-storage' to apply -- this PERMANENTLY DELETES all apps and data in the VM.": "AVVISO: '{level}' passa il guest a hardware emulato (disco -> SATA, rete -> e1000, GPU -> std). L'installazione di Windows esistente non può avviarsi, quindi applicarlo distrugge il disco di Windows e reinstalla da zero. Esegui 'winpodx pod recreate --wipe-storage' per applicare -- questo ELIMINA DEFINITIVAMENTE tutte le app e i dati nella VM."
+  "WARNING: '{level}' switches the guest to emulated hardware (disk -> SATA, network -> e1000, GPU -> std). The existing Windows install CANNOT boot on it, so applying this DESTROYS the Windows disk and reinstalls from scratch. Run 'winpodx pod recreate --wipe-storage' to apply -- this PERMANENTLY DELETES all apps and data in the VM.": "AVVISO: '{level}' passa il guest a hardware emulato (disco -> SATA, rete -> e1000, GPU -> std). L'installazione di Windows esistente non può avviarsi, quindi applicarlo distrugge il disco di Windows e reinstalla da zero. Esegui 'winpodx pod recreate --wipe-storage' per applicare -- questo ELIMINA DEFINITIVAMENTE tutte le app e i dati nella VM.",
+  "Reset to Detected": "Ripristina al profilo rilevato",
+  "Discard your edits to '{name}' and restore the auto-detected profile, including its original icon?": "Scartare le modifiche a «{name}» e ripristinare il profilo rilevato automaticamente, inclusa l'icona originale?",
+  "Nothing to reset: {name}": "Niente da ripristinare: {name}",
+  "Reset to detected: {name}": "Ripristinato al profilo rilevato: {name}",
+  "Icon": "Icona",
+  "Choose Image…": "Scegli immagine…",
+  "Optional. PNG or SVG. Overrides the auto-detected icon.": "Facoltativo. PNG o SVG. Sostituisce l'icona rilevata automaticamente.",
+  "Choose Icon": "Scegli icona",
+  "Images (*.png *.svg)": "Immagini (*.png *.svg)",
+  "Unsupported Image": "Immagine non supportata",
+  "Please choose a PNG or SVG image.": "Scegli un'immagine PNG o SVG."
 }

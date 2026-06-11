@@ -307,3 +307,68 @@ def set_app_hidden(name: str, hidden: bool) -> AppInfo | None:
     except Exception as e:  # noqa: BLE001 — menu sync is best-effort
         log.warning("desktop entry sync for %s failed: %s", name, e)
     return app
+
+
+def discovered_profile_exists(name: str) -> bool:
+    """True if an auto-discovered profile exists for ``name`` (#530).
+
+    Used by the GUI to decide whether a user override is *revertible*: a
+    "Reset to detected" action only makes sense when an auto-discovered
+    ``discovered/<name>`` profile is there to fall back to.
+    """
+    if not name or len(name) > 255 or not _SAFE_NAME_RE.match(name):
+        return False
+    d = discovered_apps_dir() / name
+    return _is_within(d, discovered_apps_dir()) and (d / "app.toml").is_file()
+
+
+def reset_app_profile(name: str) -> AppInfo | None:
+    """Discard a user override and restore the auto-discovered profile (#530).
+
+    Editing a discovered app in the GUI writes a user override under
+    ``apps/<name>`` that shadows the auto-discovered ``discovered/<name>``
+    profile (``list_available_apps`` lets the user dir win). When the user
+    later wants the original back -- the detected metadata *and* its
+    freshly-extracted icon -- reverting deletes ONLY that override, leaving
+    the discovered profile untouched, then re-syncs the Linux menu entry so
+    the discovered icon + fields return.
+
+    Returns the restored (discovered) :class:`AppInfo`, or ``None`` when there
+    is no override to remove or no discovered profile to fall back to -- in
+    which case the caller should treat the request as a plain delete instead.
+    """
+    import shutil
+
+    if not name or len(name) > 255 or not _SAFE_NAME_RE.match(name):
+        return None
+
+    user_dir = user_apps_dir() / name
+    discovered_dir = discovered_apps_dir() / name
+    # A revert only makes sense when a user override shadows a discovered twin.
+    if not (_is_within(user_dir, user_apps_dir()) and user_dir.is_dir()):
+        return None
+    if not (
+        _is_within(discovered_dir, discovered_apps_dir())
+        and (discovered_dir / "app.toml").is_file()
+    ):
+        return None
+
+    shutil.rmtree(user_dir, ignore_errors=True)
+
+    app = load_app(discovered_dir, default_source="discovered")
+    if app is None:
+        return None
+
+    # Re-sync the Linux menu entry so the discovered icon + metadata return.
+    try:
+        from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
+        from winpodx.desktop.icons import update_icon_cache
+
+        if app.hidden:
+            remove_desktop_entry(name)
+        else:
+            install_desktop_entry(app)
+        update_icon_cache()
+    except Exception as e:  # noqa: BLE001 — menu sync is best-effort
+        log.warning("desktop entry sync for %s failed: %s", name, e)
+    return app

@@ -884,5 +884,16 @@
   "⚠️  WIPE WARNING — read carefully.\n\nSwitching the bare-metal level to/from 'Hardened (max)' changes the guest's virtual hardware (disk → SATA, network → e1000, GPU → std) to emulated devices.\n\nThe EXISTING Windows install CANNOT boot on the new hardware, so this will DESTROY the Windows disk and reinstall from scratch.\n\nALL apps, files, and settings inside the Windows VM will be PERMANENTLY DELETED.\n\nReinstall takes ~5-10 minutes (ISO download + Sysprep). There is no undo.\n\nWipe Windows and reinstall now?": "⚠️  消去の警告 — よくお読みください。\n\nベアメタルレベルを 'Hardened (max)' に/から切り替えると、ゲストの仮想ハードウェア(ディスク → SATA、ネットワーク → e1000、GPU → std)がエミュレートデバイスに変わります。\n\n既存の Windows インストールは新しいハードウェアで起動できないため、Windows ディスクを破棄して最初から再インストールします。\n\nWindows VM 内のすべてのアプリ・ファイル・設定が完全に削除されます。\n\n再インストールには ~5-10 分かかります(ISO ダウンロード + Sysprep)。元に戻せません。\n\n今すぐ Windows を消去して再インストールしますか?",
   "Reinstall Windows": "Windows を再インストール",
   "Bare-metal level change cancelled (kept {level})": "ベアメタルレベルの変更をキャンセル ({level} を維持)",
-  "WARNING: '{level}' switches the guest to emulated hardware (disk -> SATA, network -> e1000, GPU -> std). The existing Windows install CANNOT boot on it, so applying this DESTROYS the Windows disk and reinstalls from scratch. Run 'winpodx pod recreate --wipe-storage' to apply -- this PERMANENTLY DELETES all apps and data in the VM.": "警告: '{level}' はゲストをエミュレートハードウェア(ディスク -> SATA、ネットワーク -> e1000、GPU -> std)に切り替えます。既存の Windows インストールは起動できないため、適用すると Windows ディスクを破棄して最初から再インストールします。適用するには 'winpodx pod recreate --wipe-storage' を実行してください — VM 内のすべてのアプリとデータが完全に削除されます。"
+  "WARNING: '{level}' switches the guest to emulated hardware (disk -> SATA, network -> e1000, GPU -> std). The existing Windows install CANNOT boot on it, so applying this DESTROYS the Windows disk and reinstalls from scratch. Run 'winpodx pod recreate --wipe-storage' to apply -- this PERMANENTLY DELETES all apps and data in the VM.": "警告: '{level}' はゲストをエミュレートハードウェア(ディスク -> SATA、ネットワーク -> e1000、GPU -> std)に切り替えます。既存の Windows インストールは起動できないため、適用すると Windows ディスクを破棄して最初から再インストールします。適用するには 'winpodx pod recreate --wipe-storage' を実行してください — VM 内のすべてのアプリとデータが完全に削除されます。",
+  "Reset to Detected": "検出されたプロファイルにリセット",
+  "Discard your edits to '{name}' and restore the auto-detected profile, including its original icon?": "「{name}」の編集を破棄して、自動検出されたプロファイル(元のアイコンを含む)を復元しますか?",
+  "Nothing to reset: {name}": "リセットする項目がありません: {name}",
+  "Reset to detected: {name}": "検出されたプロファイルにリセットしました: {name}",
+  "Icon": "アイコン",
+  "Choose Image…": "画像を選択…",
+  "Optional. PNG or SVG. Overrides the auto-detected icon.": "任意。PNG または SVG。自動検出されたアイコンを上書きします。",
+  "Choose Icon": "アイコンを選択",
+  "Images (*.png *.svg)": "画像 (*.png *.svg)",
+  "Unsupported Image": "サポートされていない画像",
+  "Please choose a PNG or SVG image.": "PNG または SVG 画像を選択してください。"
 }

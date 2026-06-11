@@ -736,6 +736,16 @@ class LibraryPageMixin:
         edit_action = menu.addAction(tr("Edit"))
         edit_action.triggered.connect(lambda _=False, a=app: self._on_edit_app(a))
 
+        # "Reset to Detected" only when a user override shadows a discovered
+        # twin -- otherwise there's nothing to fall back to and Delete is the
+        # right verb (#530).
+        if getattr(app, "source", "user") == "user":
+            from winpodx.core.app import discovered_profile_exists
+
+            if discovered_profile_exists(app.name):
+                reset_action = menu.addAction(tr("Reset to Detected"))
+                reset_action.triggered.connect(lambda _=False, a=app: self._on_reset_app(a))
+
         hide_action = menu.addAction(tr("Show") if app.hidden else tr("Hide"))
         hide_action.triggered.connect(lambda _=False, a=app: self._on_toggle_app_hidden(a))
 
