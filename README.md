@@ -153,6 +153,16 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 ## Key features
 
 <table>
+<tr><td colspan="2">
+
+**Bare-metal disguise (VM-detection avoidance)** — new in 0.7.0 · opt-in, off by default
+- Makes the Windows guest read as a **physical machine** to software that refuses to run under a detected hypervisor — Nvidia GPU-passthrough "code 43", launch-gate VM checks, VM-hostile installers
+- `pod.disguise_level balanced | max`: **balanced** hides the CPUID hypervisor bit + KVM signature and mirrors the host's real SMBIOS/DMI; **max** ("Hardened") adds a locally-built patched-QEMU image (`winpodx disguise build-image`) that rewrites the ACPI / disk / sensor / USB fingerprints and drops the virtio + Red-Hat PCI tells (keeps USB3)
+- Host-derived strings stay in the **local image only** (never committed to git); serial / UUID / asset-tag are never read
+- **al-khaser 0.82-verified** — enable with `winpodx config set pod.disguise_level max` or the GUI Settings "Bare-metal" selector
+- [Details →](docs/FEATURES.md#bare-metal-disguise-vm-detection-avoidance)
+
+</td></tr>
 <tr><td width="50%">
 
 **Reverse-open**
@@ -205,7 +215,6 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - Windows debloat: telemetry, ads, Cortana, search indexing disabled by default
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
 - Time sync: force Windows clock resync after host sleep/wake
-- **Bare-metal disguise** (0.7.0, opt-in): `pod.disguise_level balanced|max` makes the Windows guest read as a physical machine to VM-hostile software (Nvidia GPU code 43, launch-gate checks, VM-hostile installers) — balanced hides CPUID/KVM signatures and mirrors host SMBIOS; max adds a locally-built patched-QEMU image (`winpodx disguise build-image`); al-khaser-verified; off by default
 
 </td><td width="50%">
 
