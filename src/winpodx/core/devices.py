@@ -347,8 +347,9 @@ def host_device_nodes(devices: list[DeviceConfig]) -> list[str]:
 # because dockur's QEMU could not create the socket in the host bind-mount
 # ("Failed to bind socket ... Permission denied"). No bind-mount here.
 
-DOCKUR_MONITOR_PORT = 7100  # dockur's `-monitor telnet:localhost:7100`
-DOCKUR_USB_BUS = "xhci.0"  # bus of dockur's `-device qemu-xhci,id=xhci`
+DOCKUR_MONITOR_PORT = 7100  # legacy dockur `-monitor telnet:localhost:7100`
+DOCKUR_MONITOR_SOCK = "/run/shm/monitor.sock"  # dockur v5.16+ `-monitor unix:...`
+DOCKUR_USB_BUS = "xhci.0"  # bus of dockur's `-device {qemu,nec-usb}-xhci,id=xhci`
 
 # Treat these substrings in a monitor reply as a failed command. The telnet
 # monitor echoes the command back (plus VT100 noise), and `device_add` /
@@ -376,10 +377,20 @@ def hmp_command(backend: str, container: str, command: str, *, timeout: float = 
     """
     import shlex
 
+    # dockur's monitor transport changed across versions: v5.16+ defaults to a
+    # unix socket (DOCKUR_MONITOR_SOCK), older builds exposed telnet:7100. Prefer
+    # the socket (nc -U, shipped in the dockur image and used by its own
+    # power.sh), fall back to the telnet loopback so both generations work.
+    # `exit 7` (socket missing AND telnet refused) maps to the "unreachable"
+    # error below.
     script = (
-        f"exec 3<>/dev/tcp/127.0.0.1/{DOCKUR_MONITOR_PORT} || exit 7; "
-        f"printf '%s\\n' {shlex.quote(command)} >&3; "
-        "sleep 0.4; (timeout 1 cat <&3 || true)"
+        f"CMD={shlex.quote(command)}; "
+        f'if [ -S "{DOCKUR_MONITOR_SOCK}" ]; then '
+        f'  printf "%s\\n" "$CMD" | nc -q 1 -w 2 -U "{DOCKUR_MONITOR_SOCK}"; '
+        "else "
+        f"  exec 3<>/dev/tcp/127.0.0.1/{DOCKUR_MONITOR_PORT} || exit 7; "
+        '  printf "%s\\n" "$CMD" >&3; sleep 0.4; (timeout 1 cat <&3 || true); '
+        "fi"
     )
     try:
         from winpodx.backend._hostenv import host_env
