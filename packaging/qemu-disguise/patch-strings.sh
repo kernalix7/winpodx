@@ -85,6 +85,14 @@ sed -i "s/aml_string(\"QEMU0002\")/aml_string(\"${HID4}0002\")/" \
 sed -i "s/aml_string(\"QEMU0001\")/aml_string(\"${HID4}0001\")/" hw/misc/pvpanic-isa.c
 sed -i "s/aml_string(\"QEMUVGID\")/aml_string(\"${HID4}VGID\")/" hw/acpi/vmgenid.c
 
+# --- fw_cfg ACPI device name ("FWCF") ---
+# The fw_cfg ACPI device is named "FWCF" (aml_device("FWCF")) -- the one QEMU
+# token still present in the DSDT after the _HID scrub above. Some al-khaser
+# 0.82 builds scan the DSDT for it, so rename the AML device node. Windows has
+# no fw_cfg driver and the firmware reaches fw_cfg through its I/O ports (not
+# the ACPI node), so the rename is cosmetic; the node has no by-name references.
+sed -i "s/aml_device(\"FWCF\")/aml_device(\"FWCG\")/" hw/nvram/fw_cfg-acpi.c hw/i386/fw_cfg.c
+
 # --- WAET table signature ---
 # QEMU emits a WAET ("Windows ACPI Emulated devices Table") -- a table only
 # present under emulation, which al-khaser's ACPI check enumerates as a VM tell.
