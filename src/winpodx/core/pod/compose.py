@@ -742,8 +742,21 @@ def _build_compose_content(cfg: Config) -> str:
     # disk-model ("QEMU HARDDISK"->real) strings patched out — the bits winpodx
     # can't reach via QEMU args. Only honoured at max + on a real image string.
     image = cfg.pod.image
-    if cfg.pod.disguise_max and cfg.pod.disguise_image.strip():
-        image = cfg.pod.disguise_image.strip()
+    if cfg.pod.disguise_max:
+        disguise_img = cfg.pod.disguise_image.strip()
+        if not disguise_img and platform.machine() != "aarch64":
+            # disguise_image not wired -- e.g. a GUI balanced<->max toggle that
+            # cleared the pointer, or max set via `config set` (which doesn't
+            # build/wire). Auto-resolve to the canonical patched-image tag if
+            # it's actually built locally, so Hardened never silently falls back
+            # to the stock dockur image. (The GUI/build paths still persist the
+            # pointer; this is the belt-and-suspenders for the paths that don't.)
+            from winpodx.cli.disguise import _DISGUISE_TAG, disguise_image_present
+
+            if disguise_image_present(cfg):
+                disguise_img = _DISGUISE_TAG
+        if disguise_img:
+            image = disguise_img
     if cfg.pod.disguise_active and platform.machine() != "aarch64":
         blob_path = _write_disguise_smbios_blob(oem_dir)
         if blob_path:
