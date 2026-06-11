@@ -25,14 +25,10 @@ if (-not $virtioBalloon) {
     Remove-Item 'HKLM:\SYSTEM\CurrentControlSet\Services\BalloonService' -Recurse -Force
 }
 
-# Hyper-V integration drivers. al-khaser enumerates \Driver and \GLOBAL?? for
-# vmbus / VMBusHID / vmgid / hyperkbd / HyperVideo / IndirectKmd (+ the VMBUS# /
-# VmGenerationCounter / VmGid / VDRVROOT objects those drivers create). Under
-# KVM the guest is NOT a Hyper-V guest, so these drivers serve nothing -- mark
-# them disabled (Start=4) so they never load and create no driver/global object.
-# GUARDED on HypervisorPresent=False so a genuine Hyper-V guest keeps VMBus.
-if (-not (Get-CimInstance Win32_ComputerSystem).HypervisorPresent) {
-    foreach ($svc in 'vmbus', 'VMBusHID', 'vmgid', 'hyperkbd', 'HyperVideo', 'IndirectKmd') {
-        Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$svc" -Name Start -Value 4 -ErrorAction SilentlyContinue
-    }
-}
+# NOTE: an earlier revision also disabled the Hyper-V integration drivers
+# (vmbus / VMBusHID / vmgid / hyperkbd / HyperVideo / IndirectKmd) to clear
+# al-khaser's "Hyper-V driver/global objects" checks. That is REMOVED: IndirectKmd
+# is the Indirect Display Driver the RDP session uses for its framebuffer, so
+# disabling it left the guest with a black screen and tore the session down.
+# Those Hyper-V checks are a weak signal (Windows ships these components even on
+# bare metal) and are not worth breaking the remote display for.
