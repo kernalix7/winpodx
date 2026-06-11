@@ -1298,6 +1298,18 @@ class SettingsPageMixin:
         self.cfg.pod.timezone = new_timezone
         self.cfg.pod.tuning_profile = new_tuning_profile
         self.cfg.pod.disguise_level = new_disguise_level
+        # Hardened (max) only takes effect when cfg.pod.disguise_image points at
+        # the patched-QEMU image. build_disguise_image() sets it, but that runs
+        # only when the image is *absent*; if the image already exists while
+        # disguise_image is empty (e.g. after a max->balanced->max toggle, which
+        # leaves the image built but the pointer cleared), the presence check
+        # below skips the build and nothing re-wires the pointer -- so compose
+        # silently falls back to the stock dockur image and "Hardened" does
+        # nothing. Re-point it here whenever the image is already built.
+        from winpodx.cli.disguise import _DISGUISE_TAG, disguise_image_present
+
+        if new_disguise_level == "max" and disguise_image_present(self.cfg):
+            self.cfg.pod.disguise_image = _DISGUISE_TAG
         # Let __post_init__ clamp max_sessions to [1, 50] before save.
         self.cfg.pod.__post_init__()
         self.cfg.save()
