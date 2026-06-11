@@ -205,6 +205,7 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 - Windows debloat: telemetry, ads, Cortana, search indexing disabled by default
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
 - Time sync: force Windows clock resync after host sleep/wake
+- **Bare-metal disguise** (0.7.0, opt-in): `pod.disguise_level balanced|max` makes the Windows guest read as a physical machine to VM-hostile software (Nvidia GPU code 43, launch-gate checks, VM-hostile installers) — balanced hides CPUID/KVM signatures and mirrors host SMBIOS; max adds a locally-built patched-QEMU image (`winpodx disguise build-image`); al-khaser-verified; off by default
 
 </td><td width="50%">
 

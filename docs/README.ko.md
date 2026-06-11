@@ -205,6 +205,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 - Windows debloat: 텔레메트리, 광고, Cortana, 검색 인덱싱 기본 비활성
 - FreeRDP `extra_flags` allowlist (regex 검증) 가 사용자 input 안전 경계
 - 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 resync
+- **베어메탈 위장** (0.7.0, opt-in): `pod.disguise_level balanced|max` 로 Windows 게스트가 VM 비적합 소프트웨어에게 물리 머신처럼 보임 (Nvidia GPU code 43, launch-gate 체크, VM 비적합 설치 프로그램) — balanced 는 CPUID/KVM 시그니처 은폐 + 호스트 SMBIOS 미러링; max 는 로컬 빌드 패치된 QEMU 이미지 추가 (`winpodx disguise build-image`); al-khaser 검증 완료; 기본 꺼짐
 
 </td><td width="50%">
 

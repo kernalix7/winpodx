@@ -138,6 +138,47 @@ winpodx device detach <id>     # detach it again
 - Time sync: force Windows clock resync after host sleep/wake
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
 
+## Bare-metal disguise (VM-detection avoidance)
+
+Shipped in v0.7.0. Opt-in, off by default. Software that refuses to run when a hypervisor is detected — Nvidia GPU-passthrough "code 43", launch-gate VM checks, VM-hostile installers — sees a genuine-looking bare-metal box instead of QEMU/KVM. Select the level with:
+
+```bash
+winpodx config set pod.disguise_level off      # default — no disguise
+winpodx config set pod.disguise_level balanced # per-VM args only, no rebuild
+winpodx config set pod.disguise_level max      # patched-QEMU image (Hardened)
+```
+
+Or use the GUI Settings page → "Bare-metal level" selector (choosing Hardened triggers the image build automatically).
+
+### Levels
+
+**`balanced`** (per-VM, no rebuild):
+- Clears the CPUID hypervisor-present bit and the KVM signature (`-cpu -hypervisor,kvm=off,-kvm-pv-*`)
+- Mirrors the host's real SMBIOS/DMI (system / board / BIOS vendor + product, CPU vendor + model) into the guest
+- Injects a synthetic SMBIOS sensor/descriptor blob (voltage / temperature probes, cooling device, cache, memory array + DIMMs, 40+ structures) so `Win32_*` / `CIM_*` WMI sensor classes report like real hardware
+
+**`max` ("Hardened")** (includes everything in `balanced`, plus):
+- `winpodx disguise build-image` compiles QEMU **locally** (~20–40 min) with the VM-identifying strings that can't be overridden via command line rewritten to the host's real values: ACPI OEM IDs (`BOCHS`/`BXPC` → host), FADT hypervisor-vendor + PM-profile byte, device `_HID`s, `WAET` table signature, disk / optical model **and INQUIRY vendor**; also injects a thermal-zone SSDT and a WSMT table
+- Presents a SATA system disk, e1000 NIC, std VGA, and `nec-usb-xhci` USB-3 controller (keeps USB3 while dropping the Red Hat `VEN_1B36` tell); removes the virtio-rng device (`VEN_1AF4`) and prunes unused virtio driver service keys in the guest
+
+No binary is ever shipped — the image is built on your machine from the standard QEMU source.
+
+### Building the patched image
+
+```bash
+winpodx disguise build-image    # ~20–40 min on first build; cached after that
+```
+
+Or select "Hardened" in GUI Settings → Bare-metal level, which starts the build automatically.
+
+### Privacy
+
+The host-derived strings are *non-identifying* (vendor / model codes, like the disk model) and flow via Docker build-args into the **local image layer only — never committed to git, never pushed**. Serial / UUID / asset-tag are never read. The source ships generic fallbacks (`ALASKA` / `Samsung SSD` / `ATA`) so a build without host data is still valid.
+
+### Verification
+
+Verified against **al-khaser 0.82** on real Windows: the disk, sensor, SMBIOS, ACPI, CPUID, virtio-service, and username detection families read clean. Remaining tells are the container-QEMU structural floor (RDTSC timing, the legacy `Win32_MemoryDevice` class that is empty on real hardware too, and the Windows-inherent Hyper-V integration objects that share the RDP display driver).
+
 ## Windows disk auto-grow
 
 The Windows `C:` drive grows itself as it fills, so you don't have to pre-provision a huge virtual disk or run out of space mid-install.
