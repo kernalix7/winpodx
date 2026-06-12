@@ -27,12 +27,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -218,6 +220,18 @@ class LibraryPageMixin:
         self.btn_show_hidden.clicked.connect(self._on_toggle_hidden)
         right_group.addWidget(self.btn_show_hidden)
 
+        # Multi-select bulk-remove (#530). Toggling drops to list view (the only
+        # tile with room for a checkbox -- the grid card is a minimal external
+        # widget) and reveals the batch action bar below the toolbar.
+        self._select_mode = False
+        self._selected_names: set[str] = set()
+        self.btn_select = QPushButton(tr("Select"))
+        self.btn_select.setCheckable(True)
+        self.btn_select.setStyleSheet(BTN_GHOST)
+        self.btn_select.setToolTip(tr("Select multiple apps to remove at once"))
+        self.btn_select.clicked.connect(self._on_toggle_select_mode)
+        right_group.addWidget(self.btn_select)
+
         add_btn = QPushButton(tr("+  Add App"))
         add_btn.setStyleSheet(BTN_PRIMARY)
         add_btn.clicked.connect(self._on_add_app)
@@ -227,6 +241,7 @@ class LibraryPageMixin:
         toolbar.addLayout(right_group, 0)
 
         layout.addLayout(toolbar)
+        layout.addWidget(self._build_batch_bar())
 
         self.refresh_progress = QProgressBar()
         self.refresh_progress.setRange(0, 0)  # indeterminate
@@ -767,6 +782,15 @@ class LibraryPageMixin:
         layout.setContentsMargins(0, SPACE_S, SPACE_L, SPACE_S)
         layout.setSpacing(0)
 
+        # In multi-select mode each tile grows a leading checkbox (#530).
+        if getattr(self, "_select_mode", False):
+            cb = QCheckBox()
+            cb.setChecked(app.name in self._selected_names)
+            cb.setStyleSheet("margin-left: 12px;")
+            cb.toggled.connect(lambda checked, n=app.name: self._on_tile_checked(n, checked))
+            layout.addWidget(cb)
+            layout.addSpacing(SPACE_S)
+
         stripe = QFrame()
         stripe.setFixedWidth(4)
         stripe.setStyleSheet(f"background: {color}; border-radius: 2px; margin: 8px 0 8px 8px;")
@@ -867,6 +891,96 @@ class LibraryPageMixin:
         self._show_hidden = self.btn_show_hidden.isChecked()
         self._refresh_hidden_button()
         self._filter_apps(self.search_box.text())
+
+    # -- multi-select bulk remove (#530) ----------------------------------
+
+    def _build_batch_bar(self) -> QWidget:
+        """Hidden-by-default action bar shown while in multi-select mode."""
+        bar = QWidget()
+        bar.setVisible(False)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, SPACE_S, 0, SPACE_S)
+        row.setSpacing(SPACE_M)
+        self._batch_label = QLabel(tr("{n} selected").format(n=0))
+        self._batch_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0};")
+        row.addWidget(self._batch_label)
+        row.addStretch()
+        self._batch_remove_btn = QPushButton(tr("Remove selected"))
+        self._batch_remove_btn.setStyleSheet(BTN_DANGER)
+        self._batch_remove_btn.setEnabled(False)
+        self._batch_remove_btn.clicked.connect(self._on_batch_remove)
+        row.addWidget(self._batch_remove_btn)
+        cancel = QPushButton(tr("Cancel"))
+        cancel.setStyleSheet(BTN_GHOST)
+        cancel.clicked.connect(self._exit_select_mode)
+        row.addWidget(cancel)
+        self._batch_bar = bar
+        return bar
+
+    def _on_toggle_select_mode(self) -> None:
+        self._select_mode = self.btn_select.isChecked()
+        self._selected_names.clear()
+        # Grid cards can't host a checkbox, so lock the view to list while
+        # selecting (re-enable the grid toggle on exit).
+        self.btn_grid.setEnabled(not self._select_mode)
+        # Checkboxes only render in list view, so entering select mode forces it
+        # (which itself rebuilds via _set_view -> _filter_apps).
+        if self._select_mode and getattr(self, "_view_mode", "grid") != "list":
+            self._set_view("list")
+        else:
+            self._filter_apps(self.search_box.text())
+        self._update_batch_bar()
+
+    def _exit_select_mode(self) -> None:
+        self.btn_select.setChecked(False)
+        self._on_toggle_select_mode()
+
+    def _on_tile_checked(self, name: str, checked: bool) -> None:
+        if checked:
+            self._selected_names.add(name)
+        else:
+            self._selected_names.discard(name)
+        self._update_batch_bar()
+
+    def _update_batch_bar(self) -> None:
+        n = len(self._selected_names)
+        self._batch_bar.setVisible(self._select_mode)
+        self._batch_label.setText(tr("{n} selected").format(n=n))
+        self._batch_remove_btn.setEnabled(n > 0)
+
+    def _on_batch_remove(self) -> None:
+        names = sorted(self._selected_names)
+        if not names:
+            return
+        reply = QMessageBox.question(
+            self,
+            tr("Remove Apps"),
+            tr(
+                "Remove {n} selected app profiles?\n"
+                "This only removes the profiles, not the Windows apps."
+            ).format(n=len(names)),
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        from winpodx.core.app import find_app, suppress_app_slug
+        from winpodx.desktop.entry import remove_desktop_entry
+        from winpodx.gui.app_dialog import delete_app_profile
+
+        for name in names:
+            app = find_app(name)
+            delete_app_profile(name)
+            remove_desktop_entry(name)
+            # Tombstone discovered slugs so the next sweep doesn't resurrect them (#514).
+            if app is not None and getattr(app, "source", "user") == "discovered":
+                suppress_app_slug(name)
+
+        self._selected_names.clear()
+        self.btn_select.setChecked(False)
+        self._select_mode = False
+        self._reload_apps()  # refreshes self.apps + rebuilds the view
+        self._update_batch_bar()
+        self.info_label.setText(tr("Removed {n} apps").format(n=len(names)))
 
     def _filter_apps(self, text: str) -> None:
         # Re-entrancy guard. Rebuilding app_list_layout below adds word-wrapped

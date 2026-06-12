@@ -895,5 +895,12 @@
   "Choose Icon": "Scegli icona",
   "Images (*.png *.svg)": "Immagini (*.png *.svg)",
   "Unsupported Image": "Immagine non supportata",
-  "Please choose a PNG or SVG image.": "Scegli un'immagine PNG o SVG."
+  "Please choose a PNG or SVG image.": "Scegli un'immagine PNG o SVG.",
+  "Select": "Seleziona",
+  "Select multiple apps to remove at once": "Seleziona più app da rimuovere insieme",
+  "{n} selected": "{n} selezionati",
+  "Remove selected": "Rimuovi selezionati",
+  "Remove Apps": "Rimuovi app",
+  "Remove {n} selected app profiles?\nThis only removes the profiles, not the Windows apps.": "Rimuovere {n} profili di app selezionati?\nVengono rimossi solo i profili, non le app di Windows.",
+  "Removed {n} apps": "{n} app rimosse"
 }

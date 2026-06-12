@@ -895,5 +895,12 @@
   "Choose Icon": "选择图标",
   "Images (*.png *.svg)": "图片 (*.png *.svg)",
   "Unsupported Image": "不支持的图片",
-  "Please choose a PNG or SVG image.": "请选择 PNG 或 SVG 图片。"
+  "Please choose a PNG or SVG image.": "请选择 PNG 或 SVG 图片。",
+  "Select": "选择",
+  "Select multiple apps to remove at once": "选择多个应用以一次性删除",
+  "{n} selected": "已选择 {n} 个",
+  "Remove selected": "删除所选",
+  "Remove Apps": "删除应用",
+  "Remove {n} selected app profiles?\nThis only removes the profiles, not the Windows apps.": "删除选中的 {n} 个应用配置？\n仅删除配置，不会删除 Windows 应用。",
+  "Removed {n} apps": "已删除 {n} 个应用"
 }

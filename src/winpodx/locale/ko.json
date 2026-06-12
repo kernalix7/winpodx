@@ -895,5 +895,12 @@
   "Choose Icon": "아이콘 선택",
   "Images (*.png *.svg)": "이미지 (*.png *.svg)",
   "Unsupported Image": "지원하지 않는 이미지",
-  "Please choose a PNG or SVG image.": "PNG 또는 SVG 이미지를 선택하세요."
+  "Please choose a PNG or SVG image.": "PNG 또는 SVG 이미지를 선택하세요.",
+  "Select": "선택",
+  "Select multiple apps to remove at once": "여러 앱을 한 번에 제거하도록 선택",
+  "{n} selected": "{n}개 선택됨",
+  "Remove selected": "선택 항목 제거",
+  "Remove Apps": "앱 제거",
+  "Remove {n} selected app profiles?\nThis only removes the profiles, not the Windows apps.": "선택한 앱 프로필 {n}개를 제거할까요?\n프로필만 제거되며 Windows 앱은 삭제되지 않습니다.",
+  "Removed {n} apps": "앱 {n}개 제거됨"
 }

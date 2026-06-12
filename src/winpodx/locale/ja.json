@@ -895,5 +895,12 @@
   "Choose Icon": "アイコンを選択",
   "Images (*.png *.svg)": "画像 (*.png *.svg)",
   "Unsupported Image": "サポートされていない画像",
-  "Please choose a PNG or SVG image.": "PNG または SVG 画像を選択してください。"
+  "Please choose a PNG or SVG image.": "PNG または SVG 画像を選択してください。",
+  "Select": "選択",
+  "Select multiple apps to remove at once": "複数のアプリを一度に削除するために選択",
+  "{n} selected": "{n}件選択",
+  "Remove selected": "選択項目を削除",
+  "Remove Apps": "アプリを削除",
+  "Remove {n} selected app profiles?\nThis only removes the profiles, not the Windows apps.": "選択した {n} 個のアプリプロファイルを削除しますか?\nプロファイルのみが削除され、Windows アプリは削除されません。",
+  "Removed {n} apps": "{n} 個のアプリを削除しました"
 }

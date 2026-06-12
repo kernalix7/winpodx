@@ -431,6 +431,89 @@ def test_set_custom_icon_rejects_bad_input(monkeypatch, tmp_path):
     assert set_custom_icon(str(bad_ext), "word") is False  # unsupported extension
 
 
+# -- multi-select bulk remove (#530) --------------------------------------
+
+
+def test_batch_remove_deletes_and_tombstones(monkeypatch, tmp_path):
+    """The bulk-remove loop deletes each profile and tombstones discovered ones
+    so a sweep can't resurrect them -- driven through the real mixin method on a
+    minimal fake host (no full window needed)."""
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from PySide6.QtWidgets import QMessageBox
+
+    from winpodx.core.app import data_dir, suppressed_app_slugs
+    from winpodx.gui._main_window_library import LibraryPageMixin
+
+    # excel: discovered-only. word: user override over a discovered twin.
+    for root, name in [("discovered", "excel"), ("discovered", "word"), ("apps", "word")]:
+        d = data_dir() / root / name
+        d.mkdir(parents=True)
+        (d / "app.toml").write_text(
+            f'name = "{name}"\nfull_name = "{name}"\nexecutable = "C:\\\\x.exe"\n', encoding="utf-8"
+        )
+
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    import winpodx.desktop.entry as entry_mod
+
+    monkeypatch.setattr(entry_mod, "remove_desktop_entry", lambda n: None)
+
+    host = type("H", (), {})()
+    host._selected_names = {"excel", "word"}
+    host._select_mode = True
+    host.btn_select = type("B", (), {"setChecked": lambda self, v: None})()
+    host.info_label = type("L", (), {"setText": lambda self, t: None})()
+    host._reload_apps = lambda: None
+    host._update_batch_bar = lambda: None
+
+    LibraryPageMixin._on_batch_remove(host)
+
+    assert not (data_dir() / "discovered" / "excel").exists()
+    assert not (data_dir() / "apps" / "word").exists()
+    assert host._selected_names == set()
+    assert host._select_mode is False
+    # Parity with single-delete (#514): only an app whose listed source is
+    # "discovered" gets tombstoned. "word" resolves to the user override
+    # (source="user"), so it is NOT tombstoned -- same as _on_delete_app.
+    tomb = suppressed_app_slugs()
+    assert "excel" in tomb
+    assert "word" not in tomb
+
+
+def test_batch_remove_aborts_on_no(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from PySide6.QtWidgets import QMessageBox
+
+    from winpodx.core.app import data_dir
+    from winpodx.gui._main_window_library import LibraryPageMixin
+
+    d = data_dir() / "apps" / "keep"
+    d.mkdir(parents=True)
+    (d / "app.toml").write_text('name = "keep"\n', encoding="utf-8")
+
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    host = type("H", (), {})()
+    host._selected_names = {"keep"}
+    host._select_mode = True
+    host.btn_select = type("B", (), {"setChecked": lambda self, v: None})()
+    host.info_label = type("L", (), {"setText": lambda self, t: None})()
+    host._reload_apps = lambda: None
+    host._update_batch_bar = lambda: None
+
+    LibraryPageMixin._on_batch_remove(host)
+    assert d.exists()  # declined -> nothing removed
+    assert host._selected_names == {"keep"}  # selection preserved
+
+
 # -- checksum-gated re-extraction (periodic icon refresh) ------------------
 
 _H1 = "a" * 64
