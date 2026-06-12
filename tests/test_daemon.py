@@ -137,3 +137,85 @@ def test_cleanup_ignores_symlinks(tmp_path):
     assert len(removed) == 0
     assert target.exists()
     assert symlink.is_symlink()
+
+
+# -- periodic checksum-gated icon refresh ---------------------------------
+
+
+def test_icon_refresh_once_skips_when_paused(monkeypatch):
+    from winpodx.core import daemon
+
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda cfg: True)
+    hit = {"n": 0}
+    monkeypatch.setattr(
+        "winpodx.core.discovery.discover_apps", lambda cfg: hit.__setitem__("n", 1) or []
+    )
+    daemon._icon_refresh_once(Config())
+    assert hit["n"] == 0  # never discovered while paused
+
+
+def test_icon_refresh_once_skips_when_not_running(monkeypatch):
+    from winpodx.core import daemon
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda cfg: False)
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status", lambda cfg: PodStatus(state=PodState.STOPPED)
+    )
+    hit = {"n": 0}
+    monkeypatch.setattr(
+        "winpodx.core.discovery.discover_apps", lambda cfg: hit.__setitem__("n", 1) or []
+    )
+    daemon._icon_refresh_once(Config())
+    assert hit["n"] == 0  # pod not running -> skip
+
+
+def test_icon_refresh_once_no_sync_when_nothing_changed(monkeypatch):
+    from winpodx.core import daemon
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda cfg: False)
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status", lambda cfg: PodStatus(state=PodState.RUNNING)
+    )
+    seq = []
+    monkeypatch.setattr(
+        "winpodx.core.discovery.discover_apps", lambda cfg: seq.append("disc") or ["app"]
+    )
+    monkeypatch.setattr(
+        "winpodx.core.discovery.persist_discovered", lambda apps: seq.append("persist") or []
+    )
+    monkeypatch.setattr(
+        "winpodx.desktop.entry.install_desktop_entry",
+        lambda info: seq.append("install"),  # must NOT be called
+    )
+    daemon._icon_refresh_once(Config())
+    assert seq == ["disc", "persist"]  # checksum gate left nothing changed -> no resync
+
+
+def test_icon_refresh_once_syncs_when_changed(monkeypatch):
+    from winpodx.core import daemon
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda cfg: False)
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status", lambda cfg: PodStatus(state=PodState.RUNNING)
+    )
+    monkeypatch.setattr("winpodx.core.discovery.discover_apps", lambda cfg: ["app"])
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", lambda apps: ["/p/app.toml"])
+    monkeypatch.setattr(
+        "winpodx.core.app.list_available_apps",
+        lambda: [
+            type("A", (), {"name": "word", "hidden": False})(),
+            type("A", (), {"name": "hiddenapp", "hidden": True})(),
+        ],
+    )
+    installed = []
+    monkeypatch.setattr(
+        "winpodx.desktop.entry.install_desktop_entry", lambda info: installed.append(info.name)
+    )
+    monkeypatch.setattr(
+        "winpodx.desktop.icons.refresh_icon_cache", lambda: installed.append("cache")
+    )
+    daemon._icon_refresh_once(Config())
+    assert installed == ["word", "cache"]  # visible app installed, hidden skipped, cache refreshed

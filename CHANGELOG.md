@@ -7,6 +7,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-11
+
+### Added
+
+- **Bare-metal disguise — make the Windows guest read like a physical machine to VM-detection software (#246).** Opt-in, off by default. Software that refuses to run under a *detected* hypervisor — Nvidia GPU-passthrough "code 43", launch-gate VM checks, VM-hostile installers — sees a genuine-looking bare-metal box instead of QEMU/KVM. It works in two layers, picked by the **bare-metal level** (`winpodx config set pod.disguise_level off | balanced | max`, or the GUI Settings selector):
+  - **Per-VM, no rebuild (`balanced`+):** clears the CPUID hypervisor-present bit and the KVM signature (`-cpu -hypervisor,kvm=off,-kvm-pv-*`), mirrors the host's real SMBIOS/DMI (system / board / BIOS vendor + product, CPU vendor + model) into the guest, and injects a synthetic SMBIOS sensor/descriptor blob (voltage / temperature probe, cooling device, cache, memory array + DIMMs, 40+ structures) so the `Win32_*` / `CIM_*` WMI sensor classes report like real hardware.
+  - **Patched-QEMU image (`max` / "Hardened"):** `winpodx disguise build-image` compiles QEMU **locally** (~20–40 min; no binary is ever shipped) with the VM-identifying *strings* QEMU can't reach via the command line rewritten to the host's real values — ACPI OEM IDs (`BOCHS`/`BXPC` → host), the FADT hypervisor-vendor + PM-profile byte, device `_HID`s, the `WAET` table signature, disk / optical model **and INQUIRY vendor** — plus an injected thermal-zone SSDT and a WSMT table. At `max`, winpodx also presents a SATA system disk, an e1000 NIC, std VGA, and a `nec-usb-xhci` USB-3 controller (keeps USB3 while dropping the Red Hat `VEN_1B36` tell), removes the virtio-rng device (`VEN_1AF4`), and prunes the unused virtio driver service keys in the guest. Selecting Hardened in the GUI builds + wires the image automatically.
+  - **Privacy:** the host-derived strings are *non-identifying* (vendor / model codes, like the disk model) and flow via Docker build-args into the **local image layer only — never committed to git, never pushed**. Serial / UUID / asset-tag are never read. The source ships generic fallbacks (`ALASKA` / `Samsung SSD` / `ATA`).
+  - Verified against **al-khaser 0.82** on real Windows: the disk, sensor, SMBIOS, ACPI, CPUID, virtio-service and username detection families read clean. Remaining tells are the container-QEMU structural floor (RDTSC timing, the legacy `Win32_MemoryDevice` class that is empty on real hardware too, and the Windows-inherent Hyper-V integration objects that share the RDP display driver).
+- **Default Windows guest username is now `WPX-User`** (was `User`), which avoids al-khaser's exact-match sandbox-username list. Change it with `winpodx config set rdp.user <name>` before first install.
+
+### Fixed
+
+- **Opening a file under a symlinked subdirectory of `$HOME`** — e.g. `~/Documents` symlinked to `/mnt/store/Documents` — no longer fails with "Path is outside shared locations" (#547). The host→guest path is normalised lexically instead of resolved, so a symlinked subdir is traversed like a folder (FreeRDP follows it); `..` is still blocked, and the Fedora Atomic `/home → /var/home` handling is kept (#418).
+- **USB hot-plug works again on the new dockur image.** dockur v5.16 moved the QEMU monitor from `telnet:7100` to a unix socket, which broke the live USB attach path with "QEMU monitor unreachable"; winpodx now talks to the socket (and still falls back to telnet for older dockur) (#286).
+- **The GUI Devices panel no longer flickers** when a host USB device is unplugged while the tab is open, and a device yanked mid-enumeration no longer raises into the Qt slot.
+
+### Changed
+
+- **Pinned dockur/windows bumped to v5.16** (x86_64) and the dockur/windows-arm `:latest` security rebuild (aarch64) (#554, #555).
+
 ## [0.6.0] - 2026-06-05
 
 ### Removed

@@ -217,9 +217,22 @@ class DevicesMixin:
 
         cfg = Config.load()
         assigned = {d.key: d for d in D.parse_entries(cfg.pod.devices)}
-        hosts = _enumerate_host()
+        try:
+            hosts = _enumerate_host()
+        except Exception:  # noqa: BLE001 -- a device yanked mid-enumeration can
+            # fail transiently (sysfs/lsusb race); skip this render rather than
+            # propagate to the Qt slot. The next refresh / op re-renders cleanly.
+            return
         host_by_key = {h.to_device_config().key: h for h in hosts}
         running = _guest_running(cfg)
+
+        # Batch the repaint: a full clear + rebuild of both columns otherwise
+        # paints the empty intermediate state, so the panel visibly flickers
+        # whenever the list re-renders (e.g. a USB device yanked while open).
+        _panes = [c.parentWidget() for c in (self._dev_host_col, self._dev_guest_col)]
+        for _p in _panes:
+            if _p is not None:
+                _p.setUpdatesEnabled(False)
 
         self._clear_column(self._dev_host_col)
         self._clear_column(self._dev_guest_col)
@@ -245,6 +258,10 @@ class DevicesMixin:
         self._dev_guest_col.addStretch(1)
 
         self._devices_status.setText(tr("Guest running: ") + (tr("yes") if running else tr("no")))
+
+        for _p in _panes:
+            if _p is not None:
+                _p.setUpdatesEnabled(True)
 
     def _empty_label(self, text: str) -> QWidget:
         return make_empty_panel(text)

@@ -154,6 +154,16 @@ Or just click an app icon in your application menu. `winpodx launch` opens a sea
 ## Key features
 
 <table>
+<tr><td colspan="2">
+
+**Bare-metal disguise (VM-detection avoidance)** — new in 0.7.0 · opt-in, off by default
+- Makes the Windows guest read as a **physical machine** to software that refuses to run under a detected hypervisor — Nvidia GPU-passthrough "code 43", launch-gate VM checks, VM-hostile installers
+- `pod.disguise_level balanced | max`: **balanced** hides the CPUID hypervisor bit + KVM signature and mirrors the host's real SMBIOS/DMI; **max** ("Hardened") adds a locally-built patched-QEMU image (`winpodx disguise build-image`) that rewrites the ACPI / disk / sensor / USB fingerprints and drops the virtio + Red-Hat PCI tells (keeps USB3)
+- Host-derived strings stay in the **local image only** (never committed to git); serial / UUID / asset-tag are never read
+- **al-khaser 0.82-verified** — enable with `winpodx config set pod.disguise_level max` or the GUI Settings "Bare-metal" selector
+- [Details →](docs/FEATURES.md#bare-metal-disguise-vm-detection-avoidance)
+
+</td></tr>
 <tr><td width="50%">
 
 **Reverse-open**

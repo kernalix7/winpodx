@@ -65,7 +65,7 @@ name: "winpodx"
       NETWORK: "user"
       ADAPTER: "{adapter}"
       MTU: "{mtu}"
-      VGA: "{vga}"
+{usb_env}      VGA: "{vga}"
       CPU_FLAGS: "{cpu_flags}"
       VMX: "{vmx}"
       HV: "{hv}"
@@ -789,8 +789,14 @@ def _build_compose_content(cfg: Config) -> str:
     # dockur's virtio auto-MTU.
     if cfg.pod.disguise_max:
         disk_type, adapter, vga, mtu = "sata", "e1000", "std", "1500"
+        # Swap dockur's default qemu-xhci (VEN_1B36, Red Hat) for nec-usb-xhci
+        # (VEN_1033, NEC/Renesas) -- still a real USB3 xHCI controller, so USB3 +
+        # passthrough keep working, but al-khaser's VEN_1B36* PCI check no longer
+        # matches. dockur takes the controller from the USB env (run/config.sh).
+        usb_env = '      USB: "nec-usb-xhci,id=xhci"\n'
     else:
         disk_type, adapter, vga, mtu = "", "", "", ""
+        usb_env = ""
 
     return template.format(
         ram=cfg.pod.ram_gb,
@@ -801,6 +807,7 @@ def _build_compose_content(cfg: Config) -> str:
         disk_type=disk_type,
         adapter=adapter,
         mtu=mtu,
+        usb_env=usb_env,
         vga=vga,
         hv=hv,
         user=_yaml_escape(cfg.rdp.user),

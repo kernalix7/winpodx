@@ -254,6 +254,11 @@ class DiscoveredApp:
     source: str = "win32"  # uwp | win32 | steam
     wm_class_hint: str = ""
     launch_uri: str = ""  # UWP AUMID (shell:AppsFolder\<AUMID>) when source == "uwp"
+    # SHA256 of the guest executable (from discover_apps.ps1's Get-FileHash).
+    # Lets persist_discovered() skip re-extracting an app whose exe is unchanged,
+    # and the periodic icon-refresh re-extract only apps whose exe changed (an
+    # app update). Empty for UWP entries / when the guest couldn't hash it.
+    exe_hash: str = ""
     icon_bytes: bytes = field(default=b"", repr=False)
     # Filled by persist_discovered() after the on-disk layout is
     # materialised. Empty on freshly-parsed instances.
@@ -376,6 +381,27 @@ def _existing_hidden_override(app_dir: Path) -> bool | None:
         return None
     val = data.get("hidden")
     return bool(val) if isinstance(val, bool) else None
+
+
+def _unchanged_on_disk(app_dir: Path, exe_hash: str) -> bool:
+    """True if ``app_dir`` already holds this exe hash AND still has an icon.
+
+    The checksum gate for persist_discovered: an unchanged exe + a present icon
+    means there is nothing to re-extract, so the entry can be left as-is. A
+    missing icon forces a rewrite even on an unchanged hash so a previously
+    icon-less entry can pick one up.
+    """
+    toml_path = app_dir / "app.toml"
+    if not toml_path.exists():
+        return False
+    if not any((app_dir / f"icon.{ext}").exists() for ext in ("png", "svg")):
+        return False
+    try:
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+        return False
+    prior = data.get("exe_hash", "")
+    return isinstance(prior, str) and prior.lower() == exe_hash.lower()
 
 
 def _merge_essentials(scanned: list[DiscoveredApp]) -> list[DiscoveredApp]:
@@ -972,6 +998,14 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
     if not isinstance(launch_uri, str) or len(launch_uri) > _MAX_PATH_LEN:
         launch_uri = ""
 
+    # SHA256 hex (64 chars) of the guest exe; reject anything else so a hostile
+    # guest can't stuff junk into the persisted profile / change-detection key.
+    exe_hash = entry.get("exe_hash", "")
+    if not isinstance(exe_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", exe_hash):
+        exe_hash = ""
+    else:
+        exe_hash = exe_hash.lower()
+
     # UWP entries must have a launch_uri (AUMID); otherwise they are unlaunchable.
     if source == "uwp" and not launch_uri:
         return None
@@ -1006,6 +1040,7 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
         source=source,
         wm_class_hint=wm_class_hint,
         launch_uri=launch_uri,
+        exe_hash=exe_hash,
         icon_bytes=icon_bytes,
     )
 
@@ -1078,6 +1113,16 @@ def persist_discovered(
         seen.add(app.name)
 
         app_dir = root / app.name
+
+        # Checksum gate: if the guest reported an exe hash and it matches the
+        # one already on disk, AND that entry still has its icon, the app is
+        # unchanged -- leave it untouched. This is what makes a periodic refresh
+        # cheap (re-extract only apps whose exe changed = an app update) and
+        # keeps an unchanged app's icon stable. Skipped for UWP / hashless
+        # entries (exe_hash ""), which always re-write as before.
+        if replace and app.exe_hash and _unchanged_on_disk(app_dir, app.exe_hash):
+            written.append(app_dir / "app.toml")
+            continue
 
         # Read the user's prior hidden override BEFORE the rmtree below
         # nukes it; the override (None / True / False) decides what gets
@@ -1156,6 +1201,8 @@ def _render_app_toml(app: DiscoveredApp) -> str:
         data["wm_class_hint"] = app.wm_class_hint
     if app.launch_uri:
         data["launch_uri"] = app.launch_uri
+    if app.exe_hash:
+        data["exe_hash"] = app.exe_hash
     # Always emit hidden / essential when set so AppInfo.load_app picks
     # them up. Keep the keys absent on the default-False side to keep
     # toml diffs minimal for the common case (visible, non-essential).

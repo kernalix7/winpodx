@@ -138,6 +138,47 @@ winpodx device detach <id>     # 다시 분리
 - 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 resync
 - FreeRDP `extra_flags` allowlist (regex 검증) 가 사용자 input 안전 경계
 
+## 베어메탈 위장 (VM 탐지 회피)
+
+v0.7.0 에 탑재. Opt-in, 기본 꺼짐. 하이퍼바이저 감지 시 실행을 거부하는 소프트웨어 — Nvidia GPU 패스스루 "code 43", launch-gate VM 체크, VM 비적합 설치 프로그램 — 가 QEMU/KVM 대신 실물 베어메탈 머신으로 인식합니다. 레벨 선택:
+
+```bash
+winpodx config set pod.disguise_level off      # 기본 — 위장 없음
+winpodx config set pod.disguise_level balanced # VM 별 args 만, 재빌드 없음
+winpodx config set pod.disguise_level max      # 패치된 QEMU 이미지 (Hardened)
+```
+
+또는 GUI Settings 페이지 → "Bare-metal level" 셀렉터 사용 (Hardened 선택 시 이미지 빌드가 자동으로 시작).
+
+### 레벨
+
+**`balanced`** (VM 별, 재빌드 불필요):
+- CPUID 하이퍼바이저 present 비트와 KVM 시그니처 제거 (`-cpu -hypervisor,kvm=off,-kvm-pv-*`)
+- 호스트의 실제 SMBIOS/DMI (시스템 / 보드 / BIOS 벤더 + 제품, CPU 벤더 + 모델) 를 게스트에 미러링
+- 합성 SMBIOS 센서/디스크립터 blob (전압 / 온도 프로브, 냉각 장치, 캐시, 메모리 어레이 + DIMM, 40+ 구조체) 주입하여 `Win32_*` / `CIM_*` WMI 센서 클래스가 실제 하드웨어처럼 보고하도록
+
+**`max` ("Hardened")** (`balanced` 의 모든 것 + 추가):
+- `winpodx disguise build-image` 가 QEMU 를 **로컬에서** 컴파일 (~20–40 분), 커맨드 라인으로 override 불가한 VM 식별 문자열을 호스트 실제 값으로 재작성: ACPI OEM ID (`BOCHS`/`BXPC` → 호스트), FADT 하이퍼바이저 벤더 + PM-profile 바이트, 디바이스 `_HID`, `WAET` 테이블 시그니처, 디스크 / 광학 모델 **및 INQUIRY 벤더**; thermal-zone SSDT + WSMT 테이블도 주입
+- SATA 시스템 디스크, e1000 NIC, std VGA, `nec-usb-xhci` USB-3 컨트롤러 (USB3 유지하면서 Red Hat `VEN_1B36` 특징 제거); virtio-rng 디바이스 (`VEN_1AF4`) 제거 + 게스트 미사용 virtio 드라이버 서비스 키 정리
+
+바이너리는 절대 shipped 되지 않습니다 — 이미지는 표준 QEMU 소스로 본인 머신에서 빌드됩니다.
+
+### 패치된 이미지 빌드
+
+```bash
+winpodx disguise build-image    # 첫 빌드 ~20–40 분; 이후 캐시됨
+```
+
+또는 GUI Settings → Bare-metal level 에서 "Hardened" 선택 시 빌드가 자동으로 시작.
+
+### 개인정보
+
+호스트에서 파생된 문자열은 *비식별* (벤더 / 모델 코드 등 디스크 모델) 이며 Docker build-arg 를 거쳐 **로컬 이미지 레이어에만 — git 에 절대 커밋되지 않고 push 도 없음**. 시리얼 / UUID / 자산 태그는 읽지 않습니다. 소스는 제네릭 폴백 (`ALASKA` / `Samsung SSD` / `ATA`) 을 ship.
+
+### 검증
+
+실제 Windows 에서 **al-khaser 0.82** 검증 완료: 디스크, 센서, SMBIOS, ACPI, CPUID, virtio 서비스, 사용자명 탐지 계열 clean. 남은 특징들은 컨테이너-QEMU 구조적 바닥 (RDTSC 타이밍, 실제 하드웨어에서도 비어있는 레거시 `Win32_MemoryDevice` 클래스, RDP 디스플레이 드라이버를 공유하는 Windows 내재 Hyper-V 통합 객체).
+
 ## Windows 디스크 자동 확장
 
 Windows `C:` 드라이브가 채워질수록 스스로 커짐 — 거대한 가상 디스크를 미리 잡아둘 필요도, 설치 도중 공간이 떨어질 일도 없음.

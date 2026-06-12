@@ -147,6 +147,18 @@ function Read-IconBytesFromFile {
     } catch { return '' }
 }
 
+function Get-ExeHash {
+    # SHA256 of an app's executable, used host-side to detect when an app was
+    # updated (icon may have changed) vs unchanged (skip re-extraction). Returns
+    # '' for non-file paths (UWP InstallLocation dirs), missing or locked files.
+    param([string]$Path)
+    if (-not $Path) { return '' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+    try {
+        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLower()
+    } catch { return '' }
+}
+
 # --- DryRun short-circuit for CI smoke tests -------------------------------
 
 if ($DryRun) {
@@ -264,6 +276,7 @@ function Add-Result {
         wm_class_hint = [string]$Entry.wm_class_hint
         launch_uri    = [string]$Entry.launch_uri
         icon_b64      = [string]$Entry.icon_b64
+        exe_hash      = Get-ExeHash $path
     }) | Out-Null
 }
 

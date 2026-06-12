@@ -111,5 +111,11 @@ COPY --from=build /build/qemu/pc-bios/ /usr/share/qemu/
 # Synthetic-sensor SSDT, injected by winpodx via -acpitable at disguise max.
 COPY --from=build /build/ssdt-sensors.aml /usr/share/qemu/winpodx-ssdt-sensors.aml
 COPY --from=build /build/wsmt.aml /usr/share/qemu/winpodx-wsmt.aml
+# Drop dockur's unconditional virtio-rng-pci device. It is the only VEN_1AF4
+# (Red Hat virtio) device on the bus here -- dockur uses no virtio-serial -- and
+# al-khaser flags any VEN_1AF4* PCI device. Windows keeps its own CNG entropy,
+# so removing the paravirtual RNG is safe. config.sh is dockur's qemu-arg
+# assembler; the sed is a harmless no-op if a future dockur drops the line.
+RUN sed -i '/virtio-rng-pci/d' /run/config.sh
 # Sanity check at build time (fails the build if the binary won't run).
 RUN qemu-system-x86_64 --version

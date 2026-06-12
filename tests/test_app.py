@@ -303,3 +303,78 @@ def test_preserve_app_icon_skips_when_discovered_twin(monkeypatch, tmp_path):
     # NOT copied -- the loader inherits the (fresh) discovered icon instead of
     # freezing a stale copy that a guest-side app update couldn't refresh.
     assert not (data_dir() / "apps" / "word" / "icon.svg").exists()
+
+
+# -- checksum-gated re-extraction (periodic icon refresh) ------------------
+
+_H1 = "a" * 64
+_H2 = "b" * 64
+
+
+def _persist_one(root, *, exe_hash):
+    from winpodx.core import discovery as d
+
+    app = d.DiscoveredApp(
+        name="word",
+        full_name="Word",
+        executable="C:\\w.exe",
+        exe_hash=exe_hash,
+        icon_bytes=b"<svg/>",
+    )
+    d.persist_discovered([app], target_dir=root, add_essentials=False)
+
+
+def test_persist_skips_unchanged_exe_hash(tmp_path):
+    root = tmp_path / "discovered"
+    _persist_one(root, exe_hash=_H1)
+    sentinel = root / "word" / "SENTINEL"
+    sentinel.write_text("x", encoding="utf-8")
+
+    _persist_one(root, exe_hash=_H1)  # same hash -> unchanged -> left as-is
+    assert sentinel.exists()  # dir not rmtree'd = re-extraction skipped
+
+
+def test_persist_reextracts_on_changed_exe_hash(tmp_path):
+    root = tmp_path / "discovered"
+    _persist_one(root, exe_hash=_H1)
+    sentinel = root / "word" / "SENTINEL"
+    sentinel.write_text("x", encoding="utf-8")
+
+    _persist_one(root, exe_hash=_H2)  # changed hash -> re-extract
+    assert not sentinel.exists()  # dir rmtree'd = rewritten
+
+
+def test_persist_always_rewrites_when_no_hash(tmp_path):
+    root = tmp_path / "discovered"
+    _persist_one(root, exe_hash="")  # UWP / hashless -> no gating
+    sentinel = root / "word" / "SENTINEL"
+    sentinel.write_text("x", encoding="utf-8")
+
+    _persist_one(root, exe_hash="")
+    assert not sentinel.exists()  # always rewritten (gate disabled without a hash)
+
+
+def test_persist_rewrites_unchanged_hash_if_icon_missing(tmp_path):
+    root = tmp_path / "discovered"
+    _persist_one(root, exe_hash=_H1)
+    # Drop the icon: an icon-less entry must rewrite even on an unchanged hash.
+    for ext in ("svg", "png"):
+        (root / "word" / f"icon.{ext}").unlink(missing_ok=True)
+    sentinel = root / "word" / "SENTINEL"
+    sentinel.write_text("x", encoding="utf-8")
+
+    _persist_one(root, exe_hash=_H1)
+    assert not sentinel.exists()  # rewritten to recover the missing icon
+
+
+def test_exe_hash_roundtrips_through_toml(tmp_path):
+    from winpodx.core.app import load_app
+    from winpodx.core.discovery import DiscoveredApp, _render_app_toml
+
+    app = DiscoveredApp(name="word", full_name="Word", executable="C:\\w.exe", exe_hash=_H1)
+    d = tmp_path / "word"
+    d.mkdir()
+    (d / "app.toml").write_text(_render_app_toml(app), encoding="utf-8")
+    loaded = load_app(d)
+    assert loaded is not None
+    assert loaded.exe_hash == _H1

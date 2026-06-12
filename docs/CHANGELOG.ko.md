@@ -7,6 +7,27 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 기반으로 하며,
 버전 정책은 [Semantic Versioning](https://semver.org/lang/ko/)을 지향합니다.
 
+## [0.7.0] - 2026-06-11
+
+### Added
+
+- **베어메탈 위장 — VM 탐지 소프트웨어에게 Windows 게스트를 물리 머신처럼 보이게 (#246).** Opt-in, 기본 꺼짐. 하이퍼바이저 *감지* 시 실행을 거부하는 소프트웨어 — Nvidia GPU 패스스루 "code 43", launch-gate VM 체크, VM 비적합 설치 프로그램 — 가 QEMU/KVM 대신 실물 베어메탈 머신으로 인식. **베어메탈 레벨** 로 동작 계층을 선택합니다 (`winpodx config set pod.disguise_level off | balanced | max`, 또는 GUI Settings 셀렉터):
+  - **재빌드 불필요, VM 별 적용 (`balanced`+):** CPUID 하이퍼바이저 present 비트와 KVM 시그니처 제거 (`-cpu -hypervisor,kvm=off,-kvm-pv-*`), 호스트의 실제 SMBIOS/DMI (시스템 / 보드 / BIOS 벤더 + 제품, CPU 벤더 + 모델) 를 게스트에 미러링, 합성 SMBIOS 센서/디스크립터 blob (전압 / 온도 프로브, 냉각 장치, 캐시, 메모리 어레이 + DIMM, 40+ 구조체) 을 주입하여 `Win32_*` / `CIM_*` WMI 센서 클래스가 실제 하드웨어처럼 보고하도록.
+  - **패치된 QEMU 이미지 (`max` / "Hardened"):** `winpodx disguise build-image` 가 QEMU 를 **로컬에서** 컴파일 (~20–40 분; 바이너리는 절대 shipped 안 됨) 하되, 커맨드 라인으로 건드릴 수 없는 VM 식별 *문자열* 을 호스트 실제 값으로 재작성 — ACPI OEM ID (`BOCHS`/`BXPC` → 호스트), FADT 하이퍼바이저 벤더 + PM-profile 바이트, 디바이스 `_HID`, `WAET` 테이블 시그니처, 디스크 / 광학 모델 **및 INQUIRY 벤더** — 에 더해 thermal-zone SSDT 와 WSMT 테이블 주입. `max` 에서 winpodx 는 SATA 시스템 디스크, e1000 NIC, std VGA, `nec-usb-xhci` USB-3 컨트롤러 (USB3 유지하면서 Red Hat `VEN_1B36` 특징 제거) 를 사용하고, virtio-rng 디바이스 (`VEN_1AF4`) 를 제거하며, 게스트에서 미사용 virtio 드라이버 서비스 키를 정리. GUI 에서 Hardened 선택 시 이미지 빌드 + 연결이 자동으로 이루어짐.
+  - **개인정보:** 호스트에서 파생된 문자열은 *비식별* (벤더 / 모델 코드 등 디스크 모델) 이며 Docker build-arg 를 거쳐 **로컬 이미지 레이어에만 — git 에 절대 커밋되지 않고 push 도 없음**. 시리얼 / UUID / 자산 태그는 읽지 않습니다. 소스는 제네릭 폴백 (`ALASKA` / `Samsung SSD` / `ATA`) 을 ship.
+  - 실제 Windows 에서 **al-khaser 0.82** 검증 완료: 디스크, 센서, SMBIOS, ACPI, CPUID, virtio 서비스, 사용자명 탐지 계열 clean. 남은 특징들은 컨테이너-QEMU 구조적 바닥 (RDTSC 타이밍, 실제 하드웨어에서도 비어있는 레거시 `Win32_MemoryDevice` 클래스, RDP 디스플레이 드라이버를 공유하는 Windows 내재 Hyper-V 통합 객체).
+- **기본 Windows 게스트 사용자명이 이제 `WPX-User`** (기존 `User`) — al-khaser 의 정확한 일치 샌드박스 사용자명 목록을 회피합니다. 첫 설치 전에 `winpodx config set rdp.user <name>` 으로 변경하세요.
+
+### Fixed
+
+- **`$HOME` 의 심볼릭 링크 서브디렉토리 하위 파일 열기** — 예: `~/Documents` 가 `/mnt/store/Documents` 로 심링크된 경우 — 가 "Path is outside shared locations" 오류 없이 동작 (#547). 호스트→게스트 경로가 resolve 대신 lexical 정규화되어, 심링크 서브디렉토리를 폴더처럼 traverse (FreeRDP 가 따라가도록); `..` 는 여전히 차단되며 Fedora Atomic `/home → /var/home` 처리는 유지 (#418).
+- **새 dockur 이미지에서 USB 핫플러그 복구.** dockur v5.16 이 QEMU 모니터를 `telnet:7100` 에서 unix socket 으로 이전하면서 라이브 USB 연결 경로가 "QEMU monitor unreachable" 로 깨졌습니다; winpodx 가 이제 소켓과 통신하며 (구 dockur 는 telnet 폴백 유지) (#286).
+- **GUI Devices 패널이 USB 디바이스가 탭 열린 상태에서 뽑힐 때 더 이상 깜빡이지 않음**, 그리고 열거 도중 뽑힌 디바이스가 Qt 슬롯에서 예외를 올리지 않음.
+
+### Changed
+
+- **dockur/windows 핀을 v5.16** (x86_64) 과 dockur/windows-arm `:latest` 보안 재빌드 (aarch64) 로 업 (#554, #555).
+
 ## [0.6.0] - 2026-06-05
 
 ### Removed
