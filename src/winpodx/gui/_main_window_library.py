@@ -61,6 +61,7 @@ from winpodx.gui.theme import (
     BTN_GHOST,
     BTN_PRIMARY,
     BTN_SECONDARY,
+    CHECKBOX,
     FILTER_CHIP,
     SCROLL_AREA,
     SEARCH_BAR,
@@ -786,7 +787,10 @@ class LibraryPageMixin:
         if getattr(self, "_select_mode", False):
             cb = QCheckBox()
             cb.setChecked(app.name in self._selected_names)
-            cb.setStyleSheet("margin-left: 12px;")
+            # Use the themed indicator (bordered box, blue when checked); the
+            # old bare "margin-left" stylesheet wiped the indicator style so the
+            # box was invisible against the dark tile (#530 follow-up).
+            cb.setStyleSheet(CHECKBOX + "QCheckBox { margin-left: 12px; }")
             cb.toggled.connect(lambda checked, n=app.name: self._on_tile_checked(n, checked))
             layout.addWidget(cb)
             layout.addSpacing(SPACE_S)
