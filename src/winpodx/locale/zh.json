@@ -916,5 +916,9 @@
   "Restore all": "全部恢复",
   "Restore": "恢复",
   "Hide selected": "隐藏所选",
-  "Hid {n} apps": "已隐藏 {n} 个应用"
+  "Hid {n} apps": "已隐藏 {n} 个应用",
+  "[desktop]": "[desktop]",
+  "  mime_associations = {v}  (file types in 'Open with')": "  mime_associations = {v}  (“打开方式”中的文件类型)",
+  "Register file associations for discovered apps (Open with)": "为发现的应用注册文件关联（打开方式）",
+  "Adds them to 'Open with' on the next refresh; never sets them as the default app for a file type.": "将在下次刷新时添加到“打开方式”；绝不会设为文件类型的默认应用。"
 }

@@ -35,6 +35,28 @@ StartupWMClass={wm_class}
 _DEFAULT_COMMENT = "Windows application via WinPodX"
 
 
+def update_desktop_database() -> None:
+    """Rebuild the applications ``mimeinfo.cache`` so ``MimeType=`` lines take
+    effect — without it, an app's declared file associations never surface in
+    the file manager's "Open with" menu (#545). Best-effort: no-op when
+    ``update-desktop-database`` isn't installed; never raises.
+    """
+    import subprocess
+
+    tool = shutil.which("update-desktop-database")
+    if not tool:
+        return
+    try:
+        subprocess.run(
+            [tool, str(applications_dir())],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        log.debug("update-desktop-database failed", exc_info=True)
+
+
 def install_desktop_entry(app: AppInfo) -> Path:
     """Create and install a .desktop file for a Windows app."""
     dest_dir = applications_dir()
@@ -91,6 +113,12 @@ def install_desktop_entry(app: AppInfo) -> Path:
         install_menu_folder()
     except OSError as e:
         log.warning("Could not write winpodx menu folder definition: %s", e)
+
+    # Register file associations so the app shows up in "Open with" (#545).
+    # Only when this app declares MIME types -- most apps don't, so the cache
+    # rebuild stays bounded to the handful that need it.
+    if app.mime_types:
+        update_desktop_database()
 
     return desktop_path
 

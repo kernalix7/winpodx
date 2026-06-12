@@ -246,6 +246,35 @@ if ($stableSamples -lt $stableSamplesNeeded) {
 $results = New-Object System.Collections.Generic.List[object]
 $seen    = @{}
 
+function Get-AppExtensions {
+    # Real file types an app handles (#545): the value names under
+    # HKCR\Applications\<exe>\SupportedTypes are the extensions it registered
+    # (e.g. ".docx"). The host maps these to MIME types for the .desktop
+    # MimeType= -- so only file types the app actually accepts are added, never
+    # made-up associations. Best-effort; returns @() on anything unexpected.
+    param([string]$ExePath)
+    $exts = New-Object System.Collections.Generic.List[string]
+    try {
+        if (-not $ExePath) { return @() }
+        $exe = [System.IO.Path]::GetFileName($ExePath)
+        if (-not $exe) { return @() }
+        foreach ($hive in @('HKLM:\SOFTWARE\Classes', 'HKCU:\SOFTWARE\Classes')) {
+            $key = Join-Path $hive ("Applications\{0}\SupportedTypes" -f $exe)
+            if (-not (Test-Path -LiteralPath $key)) { continue }
+            $props = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+            if (-not $props) { continue }
+            foreach ($p in $props.PSObject.Properties) {
+                $n = ([string]$p.Name).ToLower()
+                if ($n -match '^\.[a-z0-9]{1,16}$' -and -not $exts.Contains($n)) {
+                    $exts.Add($n)
+                }
+            }
+        }
+    } catch { return @() }
+    if ($exts.Count -gt 64) { return @($exts.GetRange(0, 64)) }
+    return @($exts)
+}
+
 function Add-Result {
     param([hashtable]$Entry)
     if (-not $Entry) { return }
@@ -277,6 +306,7 @@ function Add-Result {
         launch_uri    = [string]$Entry.launch_uri
         icon_b64      = [string]$Entry.icon_b64
         exe_hash      = Get-ExeHash $path
+        extensions    = @(Get-AppExtensions $path)
     }) | Out-Null
 }
 

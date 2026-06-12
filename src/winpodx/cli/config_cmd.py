@@ -102,6 +102,13 @@ def _show() -> None:
     print(tr("  auto_start    = {auto_start}").format(auto_start=cfg.pod.auto_start))
     print(tr("  idle_timeout  = {idle_timeout}").format(idle_timeout=cfg.pod.idle_timeout))
 
+    print(tr("[desktop]"))
+    print(
+        tr("  mime_associations = {v}  (file types in 'Open with')").format(
+            v=cfg.desktop.mime_associations
+        )
+    )
+
     warning = check_session_budget(cfg)
     if warning:
         print()

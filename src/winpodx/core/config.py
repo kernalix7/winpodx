@@ -747,6 +747,24 @@ class UIConfig:
 
 
 @dataclass
+class DesktopConfig:
+    """Linux desktop-integration behaviour for discovered Windows apps.
+
+    ``mime_associations`` (default ON) lets a discovered app surface its real
+    file associations in the file manager's "Open with" menu: the guest reports
+    the extensions each app actually handles, the host writes them as the
+    ``.desktop`` ``MimeType=`` and refreshes the mime cache. It NEVER sets the
+    app as the *default* handler (no ``xdg-mime default``) — it only adds it as
+    an option. Turn it off to keep discovered apps out of "Open with".
+    """
+
+    mime_associations: bool = True
+
+    def __post_init__(self) -> None:
+        self.mime_associations = bool(self.mime_associations)
+
+
+@dataclass
 class Config:
     # SCHEMA_VERSION is written by save() and read by load(); see the
     # module-level comment on SCHEMA_VERSION + _migrate_config() for the
@@ -758,6 +776,7 @@ class Config:
     install: InstallConfig = field(default_factory=InstallConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
     @classmethod
     def path(cls) -> Path:
@@ -798,12 +817,14 @@ class Config:
         _apply(cfg.install, data.get("install", {}))
         _apply(cfg.logging, data.get("logging", {}))
         _apply(cfg.ui, data.get("ui", {}))
+        _apply(cfg.desktop, data.get("desktop", {}))
         cfg.rdp.__post_init__()
         cfg.pod.__post_init__()
         cfg.reverse_open.__post_init__()
         cfg.install.__post_init__()
         cfg.logging.__post_init__()
         cfg.ui.__post_init__()
+        cfg.desktop.__post_init__()
         return cfg
 
     def save(self) -> None:
@@ -886,6 +907,9 @@ class Config:
             },
             "ui": {
                 "language": self.ui.language,
+            },
+            "desktop": {
+                "mime_associations": self.desktop.mime_associations,
             },
         }
 

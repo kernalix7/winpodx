@@ -694,6 +694,39 @@ class SettingsPageMixin:
         applies_layout.addWidget(self.checkbox_autostart_tray)
         applies_layout.addSpacing(SPACE_M)
 
+        # File-association toggle (#545, default on). When on, discovered apps
+        # surface the file types they actually handle in the file manager's
+        # "Open with" menu -- never as the default handler. Takes effect on the
+        # next app refresh (that's when the .desktop MimeType= is rewritten).
+        from winpodx.core.config import Config as _MimeCfg
+
+        self.checkbox_mime_assoc = QCheckBox(
+            tr("Register file associations for discovered apps (Open with)")
+        )
+        try:
+            self.checkbox_mime_assoc.setChecked(_MimeCfg.load().desktop.mime_associations)
+        except Exception:  # noqa: BLE001
+            self.checkbox_mime_assoc.setChecked(True)
+        self.checkbox_mime_assoc.setStyleSheet(CHECKBOX)
+        self.checkbox_mime_assoc.setToolTip(
+            tr(
+                "Adds them to 'Open with' on the next refresh; never sets them "
+                "as the default app for a file type."
+            )
+        )
+
+        def _on_mime_assoc_toggled(checked: bool) -> None:
+            try:
+                cfg = _MimeCfg.load()
+                cfg.desktop.mime_associations = bool(checked)
+                cfg.save()
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger(__name__).warning("Could not toggle file associations: %s", e)
+
+        self.checkbox_mime_assoc.toggled.connect(_on_mime_assoc_toggled)
+        applies_layout.addWidget(self.checkbox_mime_assoc)
+        applies_layout.addSpacing(SPACE_M)
+
         # winpodx UI language (the tray / GUI / CLI text itself -- distinct
         # from the *guest* install language above). Default 'auto' follows
         # the host locale. Applied to new winpodx processes (a note tells the

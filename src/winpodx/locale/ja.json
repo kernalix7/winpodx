@@ -916,5 +916,9 @@
   "Restore all": "すべて復元",
   "Restore": "復元",
   "Hide selected": "選択項目を非表示",
-  "Hid {n} apps": "{n} 個のアプリを非表示にしました"
+  "Hid {n} apps": "{n} 個のアプリを非表示にしました",
+  "[desktop]": "[desktop]",
+  "  mime_associations = {v}  (file types in 'Open with')": "  mime_associations = {v}  (「プログラムから開く」のファイル形式)",
+  "Register file associations for discovered apps (Open with)": "検出されたアプリのファイル関連付けを登録（プログラムから開く）",
+  "Adds them to 'Open with' on the next refresh; never sets them as the default app for a file type.": "次の更新時に「プログラムから開く」に追加されます。ファイル形式の既定アプリには設定しません。"
 }

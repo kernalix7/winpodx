@@ -916,5 +916,9 @@
   "Restore all": "Tout restaurer",
   "Restore": "Restaurer",
   "Hide selected": "Masquer la sélection",
-  "Hid {n} apps": "{n} applications masquées"
+  "Hid {n} apps": "{n} applications masquées",
+  "[desktop]": "[desktop]",
+  "  mime_associations = {v}  (file types in 'Open with')": "  mime_associations = {v}  (types de fichiers dans 'Ouvrir avec')",
+  "Register file associations for discovered apps (Open with)": "Enregistrer les associations de fichiers pour les apps détectées (Ouvrir avec)",
+  "Adds them to 'Open with' on the next refresh; never sets them as the default app for a file type.": "Ajoutées à 'Ouvrir avec' au prochain rafraîchissement ; jamais définies comme app par défaut d'un type de fichier."
 }

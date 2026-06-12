@@ -916,5 +916,9 @@
   "Restore all": "Ripristina tutto",
   "Restore": "Ripristina",
   "Hide selected": "Nascondi selezionati",
-  "Hid {n} apps": "{n} app nascoste"
+  "Hid {n} apps": "{n} app nascoste",
+  "[desktop]": "[desktop]",
+  "  mime_associations = {v}  (file types in 'Open with')": "  mime_associations = {v}  (tipi di file in 'Apri con')",
+  "Register file associations for discovered apps (Open with)": "Registra le associazioni file per le app rilevate (Apri con)",
+  "Adds them to 'Open with' on the next refresh; never sets them as the default app for a file type.": "Aggiunte ad 'Apri con' al prossimo aggiornamento; mai impostate come app predefinita per un tipo di file."
 }

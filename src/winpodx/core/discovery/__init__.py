@@ -69,6 +69,9 @@ _VALID_SOURCES = frozenset({"uwp", "win32", "steam"})
 
 # Matches AppInfo's _SAFE_NAME_RE contract so a discovered app loads cleanly.
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# A plausible file extension: a dot + 1-16 alphanumerics (.docx, .7z). Guards
+# the guest-reported extension list before it reaches the .desktop MimeType=.
+_SAFE_EXT_RE = re.compile(r"^\.[a-z0-9]{1,16}$")
 _NAME_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 
 # v0.2.0: junk filter. Discovery scans Registry App Paths, Start Menu
@@ -268,6 +271,10 @@ class DiscoveredApp:
     # the curated allowlist / noise denylist + any prior user override.
     hidden: bool = False
     essential: bool = False
+    # Real file extensions the guest reports this app handles (from the registry
+    # scan in discover_apps.ps1), e.g. [".docx", ".xlsx"]. Mapped to MIME types
+    # for the .desktop MimeType= when desktop.mime_associations is on (#545).
+    extensions: list[str] = field(default_factory=list)
 
 
 # --- Hybrid filter: essentials allowlist + noise denylist -----------------
@@ -1031,6 +1038,21 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
     if not slug:
         return None
 
+    # Real file extensions the guest reports this app handles (#545). Validate +
+    # normalise to ".ext" lowercase; drop junk so a hostile guest can't smuggle
+    # arbitrary strings into the .desktop MimeType=.
+    extensions: list[str] = []
+    raw_exts = entry.get("extensions", [])
+    if isinstance(raw_exts, list):
+        for e in raw_exts[:64]:
+            if not isinstance(e, str) or not e.strip():
+                continue
+            ext = e.strip().lower()
+            if not ext.startswith("."):
+                ext = "." + ext
+            if _SAFE_EXT_RE.match(ext) and ext not in extensions:
+                extensions.append(ext)
+
     return DiscoveredApp(
         name=slug,
         full_name=raw_name.strip(),
@@ -1042,6 +1064,7 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
         launch_uri=launch_uri,
         exe_hash=exe_hash,
         icon_bytes=icon_bytes,
+        extensions=extensions,
     )
 
 
@@ -1101,6 +1124,7 @@ def persist_discovered(
     from winpodx.core.app import suppressed_app_slugs
 
     suppressed = suppressed_app_slugs()  # user-deleted discovered apps (#514)
+    mime_enabled = _mime_associations_enabled()  # file associations on? (#545)
 
     seen: set[str] = set()
     for app in apps:
@@ -1121,6 +1145,11 @@ def persist_discovered(
         # keeps an unchanged app's icon stable. Skipped for UWP / hashless
         # entries (exe_hash ""), which always re-write as before.
         if replace and app.exe_hash and _unchanged_on_disk(app_dir, app.exe_hash):
+            # Even when the exe is unchanged (so we keep the icon + skip the
+            # rewrite), backfill MIME associations into a TOML that predates the
+            # auto-map so existing Office/etc. apps gain file handlers on a plain
+            # refresh — without disturbing the icon (#545).
+            _backfill_mime_types(app_dir / "app.toml", app, mime_enabled)
             written.append(app_dir / "app.toml")
             continue
 
@@ -1153,7 +1182,7 @@ def persist_discovered(
 
         toml_path = app_dir / "app.toml"
         try:
-            toml_path.write_text(_render_app_toml(app), encoding="utf-8")
+            toml_path.write_text(_render_app_toml(app, mime_enabled), encoding="utf-8")
         except OSError as e:
             log.warning("Could not write %s: %s", toml_path, e)
             continue
@@ -1182,14 +1211,60 @@ def persist_discovered(
     return written
 
 
-def _render_app_toml(app: DiscoveredApp) -> str:
+def _mime_associations_enabled() -> bool:
+    """Whether to write file associations into discovered TOMLs (#545, default on)."""
+    try:
+        from winpodx.core.config import Config
+
+        return bool(Config.load().desktop.mime_associations)
+    except Exception:  # noqa: BLE001 — never let a config read break discovery
+        return True
+
+
+def _backfill_mime_types(toml_path: Path, app: DiscoveredApp, mime_enabled: bool = True) -> None:
+    """Add the guest's real MIME associations to an unchanged app's TOML (#545).
+
+    Apps that survive the checksum gate (unchanged exe) are never rewritten, so
+    one persisted before associations shipped would keep its empty
+    ``mime_types``. Patch it from the guest-reported extensions, ONLY when the
+    persisted list is empty (never clobber) and the feature is enabled.
+    Best-effort; preserves the icon and every other field.
+    """
+    if not mime_enabled:
+        return
+    from winpodx.core.mime_map import mimes_for_extensions
+
+    mimes = mimes_for_extensions(app.extensions)
+    if not mimes:
+        return
+    try:
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+        return
+    if data.get("mime_types"):
+        return  # already has associations — leave them
+    data["mime_types"] = mimes
+    try:
+        from winpodx.utils.toml_writer import dumps as toml_dumps
+
+        toml_path.write_text(toml_dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _render_app_toml(app: DiscoveredApp, mime_enabled: bool = True) -> str:
     """Render a ``DiscoveredApp`` into the AppInfo-loadable TOML shape."""
+    from winpodx.core.mime_map import mimes_for_extensions
+
+    # Auto-register the file associations the guest actually reported (#545),
+    # mapped to standard MIME types. Off → empty. A user edit under apps/<slug>
+    # still wins (list_available_apps).
     data: dict[str, Any] = {
         "name": app.name,
         "full_name": app.full_name,
         "executable": app.executable,
         "categories": [],
-        "mime_types": [],
+        "mime_types": mimes_for_extensions(app.extensions) if mime_enabled else [],
     }
     if app.args:
         data["args"] = app.args

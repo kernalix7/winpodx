@@ -916,5 +916,9 @@
   "Restore all": "모두 복원",
   "Restore": "복원",
   "Hide selected": "선택 항목 숨기기",
-  "Hid {n} apps": "앱 {n}개 숨김"
+  "Hid {n} apps": "앱 {n}개 숨김",
+  "[desktop]": "[desktop]",
+  "  mime_associations = {v}  (file types in 'Open with')": "  mime_associations = {v}  ('연결 프로그램'에 파일 형식)",
+  "Register file associations for discovered apps (Open with)": "발견된 앱의 파일 연결 등록 (연결 프로그램)",
+  "Adds them to 'Open with' on the next refresh; never sets them as the default app for a file type.": "다음 새로고침 때 '연결 프로그램'에 추가됩니다. 파일 형식의 기본 앱으로는 절대 설정하지 않습니다."
 }
