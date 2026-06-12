@@ -914,5 +914,7 @@
   "Apps you removed are tombstoned so discovery won't re-add them. Restore brings one back on the next scan.": "您删除的应用会被标记，以免重新扫描时再次添加。恢复后将在下次扫描时重新出现。",
   "No deleted apps.": "没有已删除的应用。",
   "Restore all": "全部恢复",
-  "Restore": "恢复"
+  "Restore": "恢复",
+  "Hide selected": "隐藏所选",
+  "Hid {n} apps": "已隐藏 {n} 个应用"
 }

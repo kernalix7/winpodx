@@ -976,6 +976,11 @@ class LibraryPageMixin:
         self._batch_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0};")
         row.addWidget(self._batch_label)
         row.addStretch()
+        self._batch_hide_btn = QPushButton(tr("Hide selected"))
+        self._batch_hide_btn.setStyleSheet(BTN_SECONDARY)
+        self._batch_hide_btn.setEnabled(False)
+        self._batch_hide_btn.clicked.connect(self._on_batch_hide)
+        row.addWidget(self._batch_hide_btn)
         self._batch_remove_btn = QPushButton(tr("Remove selected"))
         self._batch_remove_btn.setStyleSheet(BTN_DANGER)
         self._batch_remove_btn.setEnabled(False)
@@ -1018,6 +1023,23 @@ class LibraryPageMixin:
         self._batch_bar.setVisible(self._select_mode)
         self._batch_label.setText(tr("{n} selected").format(n=n))
         self._batch_remove_btn.setEnabled(n > 0)
+        self._batch_hide_btn.setEnabled(n > 0)
+
+    def _on_batch_hide(self) -> None:
+        """Hide all selected apps from the Linux menu (reversible, no confirm)."""
+        names = sorted(self._selected_names)
+        if not names:
+            return
+        from winpodx.core.app import set_app_hidden
+
+        hidden = sum(1 for name in names if set_app_hidden(name, True) is not None)
+        self._selected_names.clear()
+        self.btn_select.setChecked(False)
+        self._select_mode = False
+        self.btn_grid.setEnabled(True)
+        self._reload_apps()
+        self._update_batch_bar()
+        self.info_label.setText(tr("Hid {n} apps").format(n=hidden))
 
     def _on_batch_remove(self) -> None:
         names = sorted(self._selected_names)

@@ -914,5 +914,7 @@
   "Apps you removed are tombstoned so discovery won't re-add them. Restore brings one back on the next scan.": "Les applications supprimées sont marquées pour que la détection ne les rajoute pas. La restauration les fait réapparaître au prochain scan.",
   "No deleted apps.": "Aucune application supprimée.",
   "Restore all": "Tout restaurer",
-  "Restore": "Restaurer"
+  "Restore": "Restaurer",
+  "Hide selected": "Masquer la sélection",
+  "Hid {n} apps": "{n} applications masquées"
 }

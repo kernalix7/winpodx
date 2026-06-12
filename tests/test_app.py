@@ -514,6 +514,39 @@ def test_batch_remove_aborts_on_no(monkeypatch, tmp_path):
     assert host._selected_names == {"keep"}  # selection preserved
 
 
+def test_batch_hide_hides_selected(monkeypatch, tmp_path):
+    """Bulk 'Hide selected' flips every chosen app to hidden=true (#530)."""
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import data_dir, find_app
+    from winpodx.gui._main_window_library import LibraryPageMixin
+
+    _patch_desktop_sync(monkeypatch)
+    for name in ("word", "excel"):
+        d = data_dir() / "apps" / name
+        d.mkdir(parents=True)
+        (d / "app.toml").write_text(
+            f'name = "{name}"\nfull_name = "{name}"\nexecutable = "C:\\\\x.exe"\n', encoding="utf-8"
+        )
+
+    host = type("H", (), {})()
+    host._selected_names = {"word", "excel"}
+    host._select_mode = True
+    host.btn_select = type("B", (), {"setChecked": lambda self, v: None})()
+    host.btn_grid = type("G", (), {"setEnabled": lambda self, v: None})()
+    host.info_label = type("L", (), {"setText": lambda self, t: None})()
+    host._reload_apps = lambda: None
+    host._update_batch_bar = lambda: None
+
+    LibraryPageMixin._on_batch_hide(host)
+    assert find_app("word").hidden is True
+    assert find_app("excel").hidden is True
+    assert host._selected_names == set()
+    assert host._select_mode is False
+
+
 # -- restore deleted apps (#530 follow-up) --------------------------------
 
 

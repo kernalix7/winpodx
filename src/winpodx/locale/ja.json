@@ -914,5 +914,7 @@
   "Apps you removed are tombstoned so discovery won't re-add them. Restore brings one back on the next scan.": "削除したアプリは再検出で再追加されないようマークされます。復元すると次のスキャンで再び表示されます。",
   "No deleted apps.": "削除されたアプリはありません。",
   "Restore all": "すべて復元",
-  "Restore": "復元"
+  "Restore": "復元",
+  "Hide selected": "選択項目を非表示",
+  "Hid {n} apps": "{n} 個のアプリを非表示にしました"
 }
