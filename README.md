@@ -146,9 +146,10 @@ winpodx guest apply-fixes        # Re-applies guest-side runtime fixes (RDP time
 winpodx app run word              # Launch Word
 winpodx app run word ~/doc.docx   # Open a file
 winpodx app run desktop           # Full Windows desktop
+winpodx launch                    # Quick app launcher (Start-menu style picker)
 ```
 
-Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USAGE.md) for the full CLI, the Qt6 GUI, health checks, and configuration.
+Or just click an app icon in your application menu. `winpodx launch` opens a searchable picker of your Windows apps — bind it to a desktop-environment custom shortcut (KDE: *System Settings → Shortcuts → Custom*; GNOME: *Settings → Keyboard → Custom Shortcuts*) for a system-wide hotkey. See [docs/USAGE.md](docs/USAGE.md) for the full CLI, the Qt6 GUI, health checks, and configuration.
 
 ## Key features
 
