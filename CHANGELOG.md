@@ -7,6 +7,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Quick app launcher (`winpodx launch`).** A Start-menu-style picker for your Windows apps — search, category pills, reveal-highlight tiles, and a compact mode — sourced from the same app registry as the main GUI and launched through `winpodx app run`. Bind it to a desktop-environment custom shortcut (KDE/GNOME) for a system-wide hotkey; no extra dependencies and Wayland-safe (#561).
+
+### Contributors
+
+Thanks to @MirzaAyBaig12 for contributing the app launcher (#561).
+
 ## [0.7.0] - 2026-06-11
 
 ### Added
