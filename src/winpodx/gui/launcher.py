@@ -4,14 +4,11 @@ WinPodX Launcher — Windows 11-style Start Menu for .desktop files tagged 'winp
 Fluent Design System with Acrylic/Mica background, Reveal highlight, animations.
 """
 
+import configparser
 import os
-import re
 import subprocess
 import sys
-import threading
-import configparser
 from dataclasses import dataclass
-from pathlib import Path
 
 from PySide6.QtCore import (
     Property,
@@ -23,8 +20,6 @@ from PySide6.QtCore import (
     QRectF,
     QSize,
     Qt,
-    Signal,
-    QObject,
     QTimer,
 )
 from PySide6.QtGui import (
@@ -42,6 +37,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -53,28 +49,19 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QGraphicsDropShadowEffect,
 )
-try:
-    from evdev import InputDevice, ecodes, list_devices
-    HAVE_EVDEV = True
-except ImportError:
-    HAVE_EVDEV = False
 
-try:
-    from pynput import keyboard as pynput_kb
-    HAVE_PYNPUT = True
-except ImportError:
-    HAVE_PYNPUT = False
+from winpodx.core.app import list_available_apps
 
 # ---------------------------------------------------------------------------
 # Constants — Fluent Design / Mica Dark palette
 # ---------------------------------------------------------------------------
 
-WINDOW_WIDTH  = 660
+WINDOW_WIDTH = 660
 WINDOW_HEIGHT = 560
 SEARCH_PLACEHOLDER = "Search apps"
 CONFIG_PATH = os.path.expanduser("~/.config/launcher-search.conf")
+
 
 def load_config() -> configparser.ConfigParser:
     cfg = configparser.ConfigParser()
@@ -86,40 +73,41 @@ def load_config() -> configparser.ConfigParser:
         cfg["Launcher"] = {}
     return cfg
 
+
 def save_config(cfg: configparser.ConfigParser):
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w") as f:
         cfg.write(f)
 
-# Mica-dark solid colours
-BG_COLOR      = QColor(32,  32,  32)
-SURFACE       = QColor(43,  43,  43)
-SURFACE_HOVER = QColor(50,  50,  50)
-SURFACE_PRESS = QColor(39,  39,  39)
-TILE_DEFAULT  = QColor(43,  43,  43)
-TILE_HOVER    = QColor(50,  50,  50)
-BORDER_SUBTLE = QColor(255, 255, 255, 20)
-BORDER_FOCUS  = QColor(96,  205, 255)
-TEXT_PRIMARY  = QColor(255, 255, 255)
-TEXT_SECONDARY= QColor(255, 255, 255, 140)
-ACCENT        = QColor(96,  205, 255)
 
-DESKTOP_DIRS = [
-    "/usr/share/applications/",
-    os.path.expanduser("~/.local/share/applications/"),
-    "/var/lib/flatpak/exports/share/applications/",
-    os.path.expanduser("~/.local/share/flatpak/exports/share/applications/"),
-]
+# Mica-dark solid colours
+BG_COLOR = QColor(32, 32, 32)
+SURFACE = QColor(43, 43, 43)
+SURFACE_HOVER = QColor(50, 50, 50)
+SURFACE_PRESS = QColor(39, 39, 39)
+TILE_DEFAULT = QColor(43, 43, 43)
+TILE_HOVER = QColor(50, 50, 50)
+BORDER_SUBTLE = QColor(255, 255, 255, 20)
+BORDER_FOCUS = QColor(96, 205, 255)
+TEXT_PRIMARY = QColor(255, 255, 255)
+TEXT_SECONDARY = QColor(255, 255, 255, 140)
+ACCENT = QColor(96, 205, 255)
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "Productivity":        ["word", "excel", "powerpoint", "onenote", "outlook",
-                             "office", "publisher", "onedrive"],
-    "Developer Tools":     ["powershell", "terminal", "command", "cmd", "wt",
-                             "bash", "shell"],
-    "System":              ["settings", "control panel", "task manager",
-                             "file explorer", "explorer"],
-    "Media":               ["media player", "solitaire", "games", "vlc", "music"],
-    "Browser":             ["chrome", "firefox", "edge", "browser"],
+    "Productivity": [
+        "word",
+        "excel",
+        "powerpoint",
+        "onenote",
+        "outlook",
+        "office",
+        "publisher",
+        "onedrive",
+    ],
+    "Developer Tools": ["powershell", "terminal", "command", "cmd", "wt", "bash", "shell"],
+    "System": ["settings", "control panel", "task manager", "file explorer", "explorer"],
+    "Media": ["media player", "solitaire", "games", "vlc", "music"],
+    "Browser": ["chrome", "firefox", "edge", "browser"],
 }
 
 CATEGORY_ORDER = [
@@ -131,7 +119,6 @@ CATEGORY_ORDER = [
     "Other",
 ]
 
-STRIP_EXEC_RE = re.compile(r"\s*%[fFuUbcdDnNickvmV]", re.IGNORECASE)
 FONT_FAMILY = '"Segoe UI", "Ubuntu", sans-serif'
 
 
@@ -139,48 +126,24 @@ FONT_FAMILY = '"Segoe UI", "Ubuntu", sans-serif'
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AppEntry:
-    filename: str
+    filename: str = ""
     name: str = ""
     exec_: str = ""
     icon: str = ""
     categories: str = ""
     comment: str = ""
     category: str = "Other"
-
-
-# ---------------------------------------------------------------------------
-# .desktop file parsing
-# ---------------------------------------------------------------------------
-
-def parse_desktop_file(path: str) -> AppEntry | None:
-    entry = AppEntry(filename=os.path.basename(path))
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.rstrip("\n")
-                if line.startswith("Name=") and not entry.name:
-                    entry.name = line[5:].strip()
-                elif line.startswith("Exec="):
-                    entry.exec_ = line[5:].strip()
-                elif line.startswith("Icon="):
-                    entry.icon = line[5:].strip()
-                elif line.startswith("Categories="):
-                    entry.categories = line[11:].strip()
-                elif line.startswith("Comment="):
-                    entry.comment = line[8:].strip()
-    except Exception:
-        return None
-    if not entry.name or not entry.exec_:
-        return None
-    entry.exec_ = STRIP_EXEC_RE.sub("", entry.exec_).strip()
-    return entry
+    # winpodx app slug -- the canonical id launched via ``winpodx app run``.
+    slug: str = ""
 
 
 # ---------------------------------------------------------------------------
 # Categorisation
 # ---------------------------------------------------------------------------
+
 
 def assign_category(entry: AppEntry) -> str:
     text = (entry.name + " " + entry.categories).lower()
@@ -195,38 +158,40 @@ def assign_category(entry: AppEntry) -> str:
 # App discovery
 # ---------------------------------------------------------------------------
 
+
 def discover_apps() -> list[AppEntry]:
+    """Build the launcher's app list from winpodx's canonical registry.
+
+    Sources from ``core.app.list_available_apps()`` -- the same discovered +
+    user profiles the main GUI shows -- so the launcher stays in lock-step with
+    the rest of winpodx (icons, hidden state, source) instead of re-parsing
+    ``.desktop`` files and drifting. Hidden apps are skipped; each entry is
+    launched via the canonical ``winpodx app run <slug>`` path.
+    """
     apps: list[AppEntry] = []
-
-    for d in DESKTOP_DIRS:
-        p = Path(d)
-        if not p.is_dir():
-            continue
-        for fpath in p.glob("*.desktop"):
-            try:
-                content = fpath.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                continue
-            if "winpodx" not in content.lower():
-                continue
-            entry = parse_desktop_file(str(fpath))
-            if entry is not None:
-                entry.category = assign_category(entry)
-                apps.append(entry)
-
     seen: set[str] = set()
-    uniq: list[AppEntry] = []
-    for a in apps:
-        key = a.name.lower()
-        if key not in seen:
-            seen.add(key)
-            uniq.append(a)
-    return uniq
+    for info in list_available_apps():
+        if info.hidden or info.name in seen:
+            continue
+        seen.add(info.name)
+        entry = AppEntry(
+            filename=f"{info.name}.desktop",
+            name=info.full_name or info.name,
+            exec_=f"winpodx app run {info.name}",
+            icon=info.icon_path,
+            categories=";".join(info.categories),
+            comment=info.description,
+            slug=info.name,
+        )
+        entry.category = assign_category(entry)
+        apps.append(entry)
+    return apps
 
 
 # ---------------------------------------------------------------------------
 # Icon loading
 # ---------------------------------------------------------------------------
+
 
 def load_icon(icon_field: str, fallback: str = "application-x-executable") -> QIcon:
     if not icon_field:
@@ -242,100 +207,19 @@ def load_icon(icon_field: str, fallback: str = "application-x-executable") -> QI
 
 
 # ---------------------------------------------------------------------------
-# Qt signal bridge
+# Global activation
 # ---------------------------------------------------------------------------
-
-class HotkeySignals(QObject):
-    toggled = Signal()
-
-_hk_signals = HotkeySignals()
-
-
-# ---------------------------------------------------------------------------
-# Global hotkey
-# ---------------------------------------------------------------------------
-
-def _start_evdev_listener():
-    device = None
-    for path in list_devices():
-        try:
-            d = InputDevice(path)
-            name = d.name.lower()
-            if 'keyboard' in name and 'virtual' not in name:
-                device = d
-                break
-            d.close()
-        except Exception:
-            continue
-    if device is None:
-        return
-    ctrl_pressed = False
-    shift_pressed = False
-    CTRL_CODES  = {ecodes.KEY_LEFTCTRL,  ecodes.KEY_RIGHTCTRL}
-    SHIFT_CODES = {ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT}
-    D_CODE = ecodes.KEY_D
-    try:
-        for event in device.read_loop():
-            if event.type == ecodes.EV_KEY:
-                if event.value == 0:
-                    if event.code in CTRL_CODES:    ctrl_pressed  = False
-                    elif event.code in SHIFT_CODES: shift_pressed = False
-                elif event.value == 1:
-                    if event.code in CTRL_CODES:    ctrl_pressed  = True
-                    elif event.code in SHIFT_CODES: shift_pressed = True
-                    elif event.code == D_CODE and ctrl_pressed and shift_pressed:
-                        _hk_signals.toggled.emit()
-    except Exception:
-        pass
-    finally:
-        device.close()
-
-
-def _start_pynput_listener():
-    currently_pressed = set()
-    CTRL_KEYS  = {"ctrl",  "ctrl_l",  "ctrl_r"}
-    SHIFT_KEYS = {"shift", "shift_l", "shift_r"}
-
-    def on_press(key):
-        try:
-            if hasattr(key, "char") and key.char is not None:
-                currently_pressed.add(key.char.lower())
-            elif hasattr(key, "name"):
-                currently_pressed.add(key.name.lower())
-        except Exception:
-            pass
-        if (bool(currently_pressed & CTRL_KEYS)
-                and bool(currently_pressed & SHIFT_KEYS)
-                and "d" in currently_pressed):
-            currently_pressed.clear()
-            _hk_signals.toggled.emit()
-
-    def on_release(key):
-        try:
-            if hasattr(key, "char") and key.char is not None:
-                currently_pressed.discard(key.char.lower())
-            elif hasattr(key, "name"):
-                currently_pressed.discard(key.name.lower())
-        except Exception:
-            pass
-
-    with pynput_kb.Listener(on_press=on_press, on_release=on_release) as listener:
-        listener.join()
-
-
-def _start_hotkey_listener():
-    session_type = os.environ.get("XDG_SESSION_TYPE", "x11")
-    if session_type == "wayland" and HAVE_EVDEV:
-        _start_evdev_listener()
-    elif HAVE_PYNPUT:
-        _start_pynput_listener()
-    else:
-        print("No global hotkey backend. Press F5 in the launcher window.", flush=True)
+# The launcher is opened on demand by ``winpodx launch`` (see show_launcher).
+# A system-wide hotkey is intentionally delegated to the desktop environment
+# (KDE/GNOME custom shortcut -> ``winpodx launch``) rather than grabbing raw
+# input here: a DE shortcut needs no evdev/pynput dependency, no input-group
+# or root access, and works on Wayland (where global key-grabs are blocked).
 
 
 # ---------------------------------------------------------------------------
 # Reveal tile
 # ---------------------------------------------------------------------------
+
 
 class RevealTile(QFrame):
     def __init__(self, entry: AppEntry, launch_cb, parent=None):
@@ -383,10 +267,13 @@ class RevealTile(QFrame):
         self._selected = sel
         self.update()
 
-    def _get_hover_progress(self): return self._hover_progress
+    def _get_hover_progress(self):
+        return self._hover_progress
+
     def _set_hover_progress(self, val):
         self._hover_progress = val
         self.update()
+
     hover_progress = Property(float, fget=_get_hover_progress, fset=_set_hover_progress)
 
     def enterEvent(self, event):
@@ -408,7 +295,8 @@ class RevealTile(QFrame):
 
     def mouseMoveEvent(self, event):
         self._cursor_pos = QPointF(event.position())
-        if self._hovered: self.update()
+        if self._hovered:
+            self.update()
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
@@ -423,9 +311,17 @@ class RevealTile(QFrame):
         path.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
         painter.setClipPath(path)
         if self._hover_progress > 0:
-            r = int(TILE_DEFAULT.red()   + (TILE_HOVER.red()   - TILE_DEFAULT.red())   * self._hover_progress)
-            g = int(TILE_DEFAULT.green() + (TILE_HOVER.green() - TILE_DEFAULT.green()) * self._hover_progress)
-            b = int(TILE_DEFAULT.blue()  + (TILE_HOVER.blue()  - TILE_DEFAULT.blue())  * self._hover_progress)
+            r = int(
+                TILE_DEFAULT.red() + (TILE_HOVER.red() - TILE_DEFAULT.red()) * self._hover_progress
+            )
+            g = int(
+                TILE_DEFAULT.green()
+                + (TILE_HOVER.green() - TILE_DEFAULT.green()) * self._hover_progress
+            )
+            b = int(
+                TILE_DEFAULT.blue()
+                + (TILE_HOVER.blue() - TILE_DEFAULT.blue()) * self._hover_progress
+            )
             painter.fillPath(path, QColor(r, g, b))
         else:
             painter.fillPath(path, QColor(TILE_DEFAULT))
@@ -435,10 +331,13 @@ class RevealTile(QFrame):
             gradient.setColorAt(0.5, QColor(255, 255, 255, 10))
             gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
             painter.fillPath(path, QBrush(gradient))
-        painter.setPen(QColor(255, 255, 255, 20) if self._hover_progress < 0.5 else QColor(255, 255, 255, 35))
+        painter.setPen(
+            QColor(255, 255, 255, 20) if self._hover_progress < 0.5 else QColor(255, 255, 255, 35)
+        )
         painter.drawPath(path)
         if self._selected:
-            c = QColor("#60CDFF"); c.setAlpha(200)
+            c = QColor("#60CDFF")
+            c.setAlpha(200)
             painter.setPen(QPen(c, 2))
             painter.drawPath(path)
         painter.end()
@@ -448,6 +347,7 @@ class RevealTile(QFrame):
 # ---------------------------------------------------------------------------
 # Styled scroll area
 # ---------------------------------------------------------------------------
+
 
 class StyledScrollArea(QScrollArea):
     def __init__(self, parent=None):
@@ -470,6 +370,7 @@ class StyledScrollArea(QScrollArea):
 # ---------------------------------------------------------------------------
 # Category pill bar
 # ---------------------------------------------------------------------------
+
 
 class PillBar(QScrollArea):
     def __init__(self, categories, on_select, parent=None):
@@ -540,6 +441,7 @@ class PillBar(QScrollArea):
 # Launch notification
 # ---------------------------------------------------------------------------
 
+
 class LaunchNotification(QWidget):
     def __init__(self):
         self._visible = False
@@ -556,7 +458,9 @@ class LaunchNotification(QWidget):
         container.setObjectName("notificationFrame")
         container.setGeometry(0, 0, 280, 44)
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(16); shadow.setOffset(0, 4); shadow.setColor(QColor(0, 0, 0, 120))
+        shadow.setBlurRadius(16)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 120))
         container.setGraphicsEffect(shadow)
         container.setStyleSheet("""
             #notificationFrame {
@@ -581,19 +485,25 @@ class LaunchNotification(QWidget):
     def show_for(self, app_name: str, app_icon: str):
         self._text_label.setText(f"Opening {app_name}…")
         px = load_icon(app_icon).pixmap(20, 20)
-        if not px.isNull(): self._icon_label.setPixmap(px)
-        else: self._icon_label.clear()
+        if not px.isNull():
+            self._icon_label.setPixmap(px)
+        else:
+            self._icon_label.clear()
         screen = QGuiApplication.primaryScreen()
         if screen:
             geo = screen.geometry()
-            self.move(geo.x() + (geo.width() - self.width()) // 2,
-                      geo.y() + geo.height() - self.height() - 16)
+            self.move(
+                geo.x() + (geo.width() - self.width()) // 2,
+                geo.y() + geo.height() - self.height() - 16,
+            )
         self._visible = True
-        self.show(); self.raise_()
+        self.show()
+        self.raise_()
         QTimer.singleShot(2000, self.hide_)
 
     def hide_(self):
-        if not self._visible: return
+        if not self._visible:
+            return
         self._visible = False
         self.hide()
 
@@ -601,6 +511,7 @@ class LaunchNotification(QWidget):
 # ---------------------------------------------------------------------------
 # Compact mode list item
 # ---------------------------------------------------------------------------
+
 
 class CompactListItem(QFrame):
     def __init__(self, entry: AppEntry, launch_cb):
@@ -621,7 +532,9 @@ class CompactListItem(QFrame):
         icon = load_icon(entry.icon)
         icon_lbl = QLabel()
         px = icon.pixmap(24, 24)
-        icon_lbl.setPixmap(px if not px.isNull() else QIcon.fromTheme("application-x-executable").pixmap(24, 24))
+        icon_lbl.setPixmap(
+            px if not px.isNull() else QIcon.fromTheme("application-x-executable").pixmap(24, 24)
+        )
         icon_lbl.setFixedSize(24, 24)
         layout.addWidget(icon_lbl)
 
@@ -637,17 +550,28 @@ class CompactListItem(QFrame):
 
     def _update_style(self):
         if self._selected:
-            self.setStyleSheet("CompactListItem { background: rgba(96,205,255,0.15); border-radius: 6px; outline: none; }")
+            self.setStyleSheet(
+                "CompactListItem { background: rgba(96,205,255,0.15);"
+                " border-radius: 6px; outline: none; }"
+            )
         elif self._hovered:
-            self.setStyleSheet("CompactListItem { background: #2B2B2B; border-radius: 6px; outline: none; }")
+            self.setStyleSheet(
+                "CompactListItem { background: #2B2B2B; border-radius: 6px; outline: none; }"
+            )
         else:
-            self.setStyleSheet("CompactListItem { background: transparent; border-radius: 6px; outline: none; }")
+            self.setStyleSheet(
+                "CompactListItem { background: transparent; border-radius: 6px; outline: none; }"
+            )
 
     def enterEvent(self, event):
-        self._hovered = True; self._update_style(); super().enterEvent(event)
+        self._hovered = True
+        self._update_style()
+        super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._hovered = False; self._update_style(); super().leaveEvent(event)
+        self._hovered = False
+        self._update_style()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -663,6 +587,7 @@ class CompactListItem(QFrame):
 # ---------------------------------------------------------------------------
 # Main launcher window
 # ---------------------------------------------------------------------------
+
 
 class LauncherWindow(QWidget):
     def __init__(self):
@@ -698,7 +623,6 @@ class LauncherWindow(QWidget):
             self._content_stack.setCurrentIndex(1)
             self._pill_bar.setVisible(False)
             self._outer_layout.setSpacing(0)
-        _hk_signals.toggled.connect(self.toggle)
         self._reload_apps()
         if not self._compact_mode:
             self._set_window_height(WINDOW_HEIGHT)
@@ -712,8 +636,10 @@ class LauncherWindow(QWidget):
         screen = QGuiApplication.primaryScreen()
         if screen:
             geo = screen.geometry()
-            self.move(geo.x() + (geo.width()  - self.width())  // 2,
-                      geo.y() + (geo.height() - self.height()) // 2)
+            self.move(
+                geo.x() + (geo.width() - self.width()) // 2,
+                geo.y() + (geo.height() - self.height()) // 2,
+            )
 
     def _on_focus_changed(self, focused):
         if not self._visible:
@@ -741,7 +667,9 @@ class LauncherWindow(QWidget):
             }
         """)
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(40); shadow.setOffset(0, 12); shadow.setColor(QColor(0, 0, 0, 180))
+        shadow.setBlurRadius(40)
+        shadow.setOffset(0, 12)
+        shadow.setColor(QColor(0, 0, 0, 180))
         outer.setGraphicsEffect(shadow)
 
         layout = QVBoxLayout(outer)
@@ -770,7 +698,10 @@ class LauncherWindow(QWidget):
         self._winpodx_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._winpodx_btn.setToolTip("WinPodX")
         self._winpodx_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; border-radius: 6px 0 0 6px; padding: 0; }
+            QPushButton {
+                background: transparent; border: none;
+                border-radius: 6px 0 0 6px; padding: 0;
+            }
             QPushButton:hover { background: #323232; }
             QPushButton:pressed { background: #272727; }
         """)
@@ -793,7 +724,11 @@ class LauncherWindow(QWidget):
         self.search_bar.returnPressed.connect(self._on_return)
         search_row.addWidget(self.search_bar, 1)
 
-        gear_icon = QIcon("/home/ayaan.mirza/icons/settings.svg")
+        # Settings glyph from the active icon theme (was a hardcoded absolute
+        # path to a dev machine, which 404'd everywhere else).
+        gear_icon = QIcon.fromTheme("configure")
+        if gear_icon.isNull():
+            gear_icon = QIcon.fromTheme("open-menu-symbolic")
         self._gear_btn = QPushButton()
         self._gear_btn.setIcon(gear_icon)
         self._gear_btn.setIconSize(QSize(20, 20))
@@ -823,7 +758,9 @@ class LauncherWindow(QWidget):
         self._outer_layout = layout
 
         cfg = load_config()
-        self._reset_search_on_open = cfg["Launcher"].getboolean("reset_search_on_open", fallback=False)
+        self._reset_search_on_open = cfg["Launcher"].getboolean(
+            "reset_search_on_open", fallback=False
+        )
         self._compact_mode = cfg["Launcher"].getboolean("compact_mode", fallback=False)
         self._compact_index = -1
 
@@ -866,7 +803,8 @@ class LauncherWindow(QWidget):
     def _rebuild_compact(self):
         while self._compact_layout.count():
             item = self._compact_layout.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
+            if item.widget():
+                item.widget().deleteLater()
 
         if self._settings_mode:
             self._rebuild_compact_settings()
@@ -882,7 +820,8 @@ class LauncherWindow(QWidget):
         apps = self._filtered_apps()
         shown = 0
         for app in apps:
-            if shown >= 5: break
+            if shown >= 5:
+                break
             self._compact_layout.addWidget(CompactListItem(app, self._launch_app))
             shown += 1
         if shown == 0:
@@ -901,7 +840,14 @@ class LauncherWindow(QWidget):
 
     def _rebuild_compact_settings(self):
         items = [
-            ("Clear search on open", self._reset_search_on_open, lambda: (self._toggle_reset_search(not self._reset_search_on_open), self._rebuild_content())),
+            (
+                "Clear search on open",
+                self._reset_search_on_open,
+                lambda: (
+                    self._toggle_reset_search(not self._reset_search_on_open),
+                    self._rebuild_content(),
+                ),
+            ),
             ("Compact mode", True, lambda: self._toggle_compact(False)),
             ("Refresh apps", None, self._reload_apps),
         ]
@@ -933,7 +879,9 @@ class LauncherWindow(QWidget):
 
         self._outer_layout.setSpacing(8)
         self._outer_layout.setContentsMargins(7, 7, 7, 7)
-        self._content_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._content_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self._content_stack.setMinimumHeight(0)
         self._content_stack.setMaximumHeight(16777215)
         self._compact_scroll.setFixedHeight(0)
@@ -957,7 +905,8 @@ class LauncherWindow(QWidget):
 
     def _is_in_grid(self, obj) -> bool:
         while obj:
-            if obj is self._grid_container: return True
+            if obj is self._grid_container:
+                return True
             obj = obj.parent()
         return False
 
@@ -1018,7 +967,8 @@ class LauncherWindow(QWidget):
         self._rebuild_content()
 
     def _exit_settings_mode(self):
-        if not self._settings_mode: return
+        if not self._settings_mode:
+            return
         self._settings_mode = False
         self._rebuild_content()
 
@@ -1057,7 +1007,9 @@ class LauncherWindow(QWidget):
         try:
             self._rebuild_content()
         except Exception:
-            import traceback; traceback.print_exc()
+            import traceback
+
+            traceback.print_exc()
         cfg = load_config()
         cfg["Launcher"]["compact_mode"] = "true" if enabled else "false"
         save_config(cfg)
@@ -1084,7 +1036,8 @@ class LauncherWindow(QWidget):
         if self._compact_mode and not self._search_text:
             return
         apps = self._filtered_apps()
-        if apps: self._launch_app(apps[0])
+        if apps:
+            self._launch_app(apps[0])
 
     def _set_category(self, cat: str):
         self._active_category = cat
@@ -1095,9 +1048,16 @@ class LauncherWindow(QWidget):
 
     def _launch_app(self, entry: AppEntry):
         self.hide_()
+        # No shell: launch the canonical winpodx path by slug. Slugs are
+        # validated (alnum/dash/underscore) by core, so the argv is safe.
+        cmd = ["winpodx", "app", "run", entry.slug] if entry.slug else entry.exec_.split()
         try:
-            subprocess.Popen(entry.exec_, shell=True, start_new_session=True,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                cmd,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             self._notification.show_for(entry.name, entry.icon)
         except Exception as exc:
             print(f"Failed to launch {entry.name}: {exc}", file=sys.stderr)
@@ -1105,8 +1065,12 @@ class LauncherWindow(QWidget):
     def _launch_winpodx(self):
         self.hide_()
         try:
-            subprocess.Popen("winpodx gui", shell=True, start_new_session=True,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                ["winpodx", "gui"],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             self._notification.show_for("WinPodX", "winpodx")
         except Exception as exc:
             print(f"Failed to launch WinPodX: {exc}", file=sys.stderr)
@@ -1116,8 +1080,10 @@ class LauncherWindow(QWidget):
         self._rebuild_content()
 
     def toggle(self):
-        if self._visible: self.hide_()
-        else: self.show_()
+        if self._visible:
+            self.hide_()
+        else:
+            self.show_()
 
     def show_(self):
         if self._reset_search_on_open:
@@ -1128,11 +1094,14 @@ class LauncherWindow(QWidget):
         self._nav_index = -1
         self._clear_pill_focus()
         self._center_window()
-        self.show(); self.raise_(); self.activateWindow()
+        self.show()
+        self.raise_()
+        self.activateWindow()
         self.search_bar.setFocus()
 
     def hide_(self):
-        if not self._visible: return
+        if not self._visible:
+            return
         self._visible = False
         self.hide()
 
@@ -1153,10 +1122,13 @@ class LauncherWindow(QWidget):
 
         if key == Qt.Key.Key_Escape:
             if self._compact_mode and self._settings_mode:
-                self._exit_settings_mode(); return True
+                self._exit_settings_mode()
+                return True
             if self._compact_mode and self._search_text:
-                self.search_bar.clear(); return True
-            self.hide_(); return True
+                self.search_bar.clear()
+                return True
+            self.hide_()
+            return True
 
         if obj is self.search_bar:
             if key == Qt.Key.Key_Down:
@@ -1214,7 +1186,8 @@ class LauncherWindow(QWidget):
                 else:
                     self._nav_state = 2
                     apps = self._filtered_apps()
-                    if apps: self._focus_tile(0)
+                    if apps:
+                        self._focus_tile(0)
                 return True
             if key == Qt.Key.Key_Up:
                 self._nav_state = 0
@@ -1258,15 +1231,18 @@ class LauncherWindow(QWidget):
             apps = self._filtered_apps()
             if key == Qt.Key.Key_Right:
                 nxt = self._nav_index + 1
-                if nxt < len(apps): self._focus_tile(nxt)
+                if nxt < len(apps):
+                    self._focus_tile(nxt)
                 return True
             if key == Qt.Key.Key_Left:
                 nxt = self._nav_index - 1
-                if nxt >= 0: self._focus_tile(nxt)
+                if nxt >= 0:
+                    self._focus_tile(nxt)
                 return True
             if key == Qt.Key.Key_Down:
                 nxt = self._nav_index + cols
-                if nxt < len(apps): self._focus_tile(nxt)
+                if nxt < len(apps):
+                    self._focus_tile(nxt)
                 return True
             if key == Qt.Key.Key_Up:
                 nxt = self._nav_index - cols
@@ -1298,13 +1274,15 @@ class LauncherWindow(QWidget):
 
     def _is_in_pills(self, obj) -> bool:
         while obj:
-            if obj is self._pill_bar: return True
+            if obj is self._pill_bar:
+                return True
             obj = obj.parent()
         return False
 
     def _is_in_compact(self, obj) -> bool:
         while obj:
-            if obj is self._compact_container: return True
+            if obj is self._compact_container:
+                return True
             obj = obj.parent()
         return False
 
@@ -1338,9 +1316,11 @@ class LauncherWindow(QWidget):
             self._compact_scroll.ensureWidgetVisible(target, 0, 20)
 
     def _update_pill_styles(self):
-        if self._pill_focus < 0: return
+        if self._pill_focus < 0:
+            return
         keys = list(self._pill_bar._buttons.keys())
-        if self._pill_focus >= len(keys): return
+        if self._pill_focus >= len(keys):
+            return
         for name, btn in self._pill_bar._buttons.items():
             if name == keys[self._pill_focus]:
                 btn.setStyleSheet("""
@@ -1363,8 +1343,10 @@ class LauncherWindow(QWidget):
         self._pill_bar._update_style()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape: self.hide_()
-        elif event.key() == Qt.Key.Key_F5: self.toggle()
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide_()
+        elif event.key() == Qt.Key.Key_F5:
+            self.toggle()
         super().keyPressEvent(event)
 
 
@@ -1372,20 +1354,25 @@ class LauncherWindow(QWidget):
 # Entrypoint
 # ---------------------------------------------------------------------------
 
-def main():
-    app = QApplication(sys.argv)
+
+def show_launcher() -> int:
+    """Open the launcher window and run its event loop.
+
+    Entry point for ``winpodx launch``. Reuses an existing QApplication when
+    one is already running (so it can also be opened from within the GUI),
+    otherwise creates one. Bind a DE custom shortcut to ``winpodx launch`` for
+    a system-wide hotkey.
+    """
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setOrganizationName("WinPodX")
     app.setApplicationName("WinPodX Launcher")
-
     win = LauncherWindow()
-
-    t = threading.Thread(target=_start_hotkey_listener, daemon=True)
-    t.start()
-
-    print("WinPodX Launcher started. Press Ctrl+Shift+D to open.", flush=True)
     win.show_()
+    return app.exec()
 
-    sys.exit(app.exec())
+
+def main():
+    sys.exit(show_launcher())
 
 
 if __name__ == "__main__":

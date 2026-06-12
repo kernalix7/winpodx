@@ -467,6 +467,9 @@ def cli(argv: list[str] | None = None) -> None:
 
     # --- other commands ---
     sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")
+    sub.add_parser(
+        "launch", help="Open the quick app launcher (requires PySide6); bind to a DE shortcut"
+    )
     sub.add_parser("tray", help="Launch system tray icon")
     sub.add_parser("info", help="[deprecated → doctor] Show system information")
     autostart_p = sub.add_parser(
@@ -901,7 +904,7 @@ def cli(argv: list[str] | None = None) -> None:
     #   * ``tray`` IS the tray -- spawning a second copy is what
     #     tray_spawn's pgrep + tray.py's flock are guarding against, but
     #     short-circuiting here is cheaper than relying on those.
-    if args.command not in ("setup", "gui", "tray"):
+    if args.command not in ("setup", "gui", "tray", "launch"):
         try:
             from winpodx.desktop.tray_spawn import maybe_spawn_tray
 
@@ -963,6 +966,15 @@ def _dispatch(args: argparse.Namespace) -> None:
             from winpodx.gui.main_window import run_gui
 
             run_gui()
+        except ImportError:
+            from winpodx.utils.install_source import pyside6_install_hint
+
+            print(pyside6_install_hint())
+    elif cmd == "launch":
+        try:
+            from winpodx.gui.launcher import show_launcher
+
+            show_launcher()
         except ImportError:
             from winpodx.utils.install_source import pyside6_install_hint
 
