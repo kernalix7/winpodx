@@ -914,5 +914,7 @@
   "Apps you removed are tombstoned so discovery won't re-add them. Restore brings one back on the next scan.": "Le app rimosse vengono contrassegnate così la rilevazione non le riaggiunge. Il ripristino le riporta alla scansione successiva.",
   "No deleted apps.": "Nessuna app eliminata.",
   "Restore all": "Ripristina tutto",
-  "Restore": "Ripristina"
+  "Restore": "Ripristina",
+  "Hide selected": "Nascondi selezionati",
+  "Hid {n} apps": "{n} app nascoste"
 }
