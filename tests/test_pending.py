@@ -31,6 +31,26 @@ class TestHasPending:
         assert pending.has_pending() is False
 
 
+class TestAddStep:
+    def test_records_step(self, patched_config_dir):
+        pending.add_step("discovery")
+        assert pending.list_pending() == ["discovery"]
+
+    def test_idempotent(self, patched_config_dir):
+        pending.add_step("discovery")
+        pending.add_step("discovery")
+        assert pending.list_pending() == ["discovery"]
+
+    def test_preserves_canonical_order(self, patched_config_dir):
+        pending.add_step("discovery")
+        pending.add_step("wait_ready")
+        assert pending.list_pending() == ["wait_ready", "discovery"]
+
+    def test_ignores_invalid_step(self, patched_config_dir):
+        pending.add_step("bogus")
+        assert pending.list_pending() == []
+
+
 class TestListPending:
     def test_returns_canonical_order(self, patched_config_dir):
         # Even if the file has them in random order, list_pending returns

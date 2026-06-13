@@ -253,7 +253,21 @@ def run_migrate(args: argparse.Namespace) -> int:
     if skip_refresh:
         print(tr("\nSkipping app discovery (--no-refresh)."))
     elif non_interactive:
-        print(tr("\nSkipping app discovery (--non-interactive)."))
+        # An upgrade (install.sh) must auto-apply discovery-dependent changes
+        # (file associations, icons, new metadata) without a manual
+        # `winpodx app refresh`. Queue discovery as a pending step: the next
+        # winpodx launch resumes it automatically (every run calls
+        # _maybe_resume_pending on startup) once the guest is ready. No prompt,
+        # never blocks the installer.
+        from winpodx.utils import pending
+
+        pending.add_step("discovery")
+        print(
+            tr(
+                "\nApp discovery queued — runs automatically on next launch "
+                "(applies file associations / icons from this update)."
+            )
+        )
     elif _prompt_yes(tr("\nRun app discovery now? (scans Windows pod for installed apps)")):
         _attempt_refresh()
 

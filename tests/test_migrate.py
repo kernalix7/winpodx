@@ -363,17 +363,23 @@ def test_run_migrate_upgrade_skips_refresh_when_flagged(tmp_path, monkeypatch, c
     assert (tmp_path / "installed_version.txt").read_text().strip() == current
 
 
-def test_run_migrate_non_interactive_skips_prompt(tmp_path, monkeypatch, capsys):
+def test_run_migrate_non_interactive_queues_discovery(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    # isolate the pending file too (add_step writes via pending.config_dir)
+    monkeypatch.setattr("winpodx.utils.pending.config_dir", lambda: tmp_path)
     (tmp_path / "installed_version.txt").write_text("0.1.0\n", encoding="utf-8")
-    # no_refresh=False but non_interactive=True -> must not block on input.
+    # no_refresh=False but non_interactive=True -> must not block on input, and
+    # must auto-apply the update by queuing discovery for the next launch (#545
+    # follow-up: upgrades apply discovery-dependent changes without a manual refresh).
     called = []
     monkeypatch.setattr("builtins.input", lambda _: called.append(True) or "y")
     rc = run_migrate(_args(no_refresh=False, non_interactive=True))
     assert rc == 0
-    assert called == []  # input() must never have been called
-    out = capsys.readouterr().out.lower()
-    assert "--non-interactive" in out
+    assert called == []  # input() must never have been called (no prompt)
+
+    from winpodx.utils import pending
+
+    assert "discovery" in pending.list_pending()  # queued → auto-resumes on next launch
 
 
 # --- L2: marker-file size cap + strict semver regex ---

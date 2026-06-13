@@ -64,6 +64,25 @@ def list_pending() -> list[str]:
     return ordered
 
 
+def add_step(step: str) -> None:
+    """Record ``step`` as pending (idempotent), preserving canonical order.
+
+    Used to defer a step so the next winpodx launch resumes it automatically —
+    e.g. an upgrade records ``discovery`` so newly-added discovery-dependent
+    behaviour (file associations, icons) applies without a manual refresh.
+    """
+    if step not in _VALID_STEPS:
+        return
+    steps = set(list_pending()) | {step}
+    ordered = [s for s in ("wait_ready", "migrate", "discovery") if s in steps]
+    p = _path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("\n".join(ordered) + "\n", encoding="utf-8")
+    except OSError as e:
+        log.debug("could not record pending step %s: %s", step, e)
+
+
 def remove_step(step: str) -> None:
     """Remove ``step`` from the pending list. Deletes the file when empty."""
     p = _path()
