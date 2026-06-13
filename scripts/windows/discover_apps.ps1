@@ -246,73 +246,59 @@ if ($stableSamples -lt $stableSamplesNeeded) {
 $results = New-Object System.Collections.Generic.List[object]
 $seen    = @{}
 
-# Build {exe(lower) -> [".ext", ...]} ONCE per run: the file types each app
-# registered, the same source Windows Settings > Default apps reads (#545).
-#   1. RegisteredApplications -> <Capabilities>\FileAssociations (ext -> ProgID),
-#      with the ProgID's open command resolved to the owning .exe. (This is what
-#      Notepad / Office / browsers use -- not Applications\<exe>\SupportedTypes.)
-#   2. Applications\<exe>\SupportedTypes (value names = extensions) as a backup.
-# The host maps the extensions to MIME types for the .desktop MimeType=.
+# Build {identity -> [".ext", ...]} ONCE per run, where identity is the app a
+# file type opens with: "aumid:<AppUserModelID>" for UWP apps (Notepad, Paint,
+# Photos, the browsers...) or "exe:<basename>" for Win32. This is the source
+# Windows Settings > Default apps reads -- the per-extension UserChoice -- so it
+# covers UWP and Win32 uniformly (UWP ProgIDs have no .exe open command, so an
+# exe-only scan misses them entirely, the original #545 bug). The host maps the
+# extensions to MIME types for the .desktop MimeType=.
 $script:WinpodxExtMap = $null
+$script:WinpodxIdCache = @{}
 
 function Add-ExtTo {
-    param([hashtable]$Map, [string]$Exe, [string]$Ext)
-    if (-not $Exe -or -not $Ext) { return }
-    $e = $Exe.ToLower(); $x = $Ext.ToLower()
+    param([hashtable]$Map, [string]$Id, [string]$Ext)
+    if (-not $Id -or -not $Ext) { return }
+    $x = $Ext.ToLower()
     if ($x -notmatch '^\.[a-z0-9]{1,16}$') { return }
-    if (-not $Map.ContainsKey($e)) { $Map[$e] = New-Object System.Collections.Generic.List[string] }
-    if (-not $Map[$e].Contains($x)) { $Map[$e].Add($x) }
+    if (-not $Map.ContainsKey($Id)) { $Map[$Id] = New-Object System.Collections.Generic.List[string] }
+    if (-not $Map[$Id].Contains($x)) { $Map[$Id].Add($x) }
 }
 
-function Resolve-ProgidExe {
+function Resolve-Identity {
+    # A handler ProgID -> "aumid:<AUMID>" (UWP) or "exe:<basename>" (Win32). UWP
+    # ProgIDs carry the app's AppUserModelID under \Application; Win32 ProgIDs
+    # carry an .exe open command. Cached -- the same ProgID handles many types.
     param([string]$ProgId)
     if (-not $ProgId) { return $null }
-    foreach ($hive in @('HKLM:\SOFTWARE\Classes', 'HKCU:\SOFTWARE\Classes')) {
-        $cmdKey = Join-Path $hive ("{0}\shell\open\command" -f $ProgId)
-        if (-not (Test-Path -LiteralPath $cmdKey)) { continue }
-        $cmd = [string](Get-ItemProperty -LiteralPath $cmdKey -ErrorAction SilentlyContinue).'(default)'
-        if ($cmd -and $cmd -match '([^\\/:*?"<>|\r\n]+\.exe)') {
-            return [System.IO.Path]::GetFileName($Matches[1].Trim())
+    if ($script:WinpodxIdCache.ContainsKey($ProgId)) { return $script:WinpodxIdCache[$ProgId] }
+    $res = $null
+    foreach ($root in @('HKCU:\SOFTWARE\Classes', 'HKLM:\SOFTWARE\Classes')) {
+        $aumid = [string](Get-ItemProperty -LiteralPath "$root\$ProgId\Application" -ErrorAction SilentlyContinue).AppUserModelID
+        if ($aumid) { $res = "aumid:$aumid"; break }
+        $cmd = [string](Get-ItemProperty -LiteralPath "$root\$ProgId\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
+        if ($cmd -and $cmd -match '([a-zA-Z]:\\[^"]*?\.exe)') {
+            $res = "exe:" + ([System.IO.Path]::GetFileName($Matches[1])).ToLower()
+            break
         }
     }
-    return $null
+    $script:WinpodxIdCache[$ProgId] = $res
+    return $res
 }
 
 function Build-ExtMap {
     $map = @{}
     try {
-        # 1. Per-app Capabilities\FileAssociations via RegisteredApplications.
-        foreach ($raHive in @('HKLM:\SOFTWARE\RegisteredApplications', 'HKCU:\SOFTWARE\RegisteredApplications')) {
-            if (-not (Test-Path -LiteralPath $raHive)) { continue }
-            $ra = Get-ItemProperty -LiteralPath $raHive -ErrorAction SilentlyContinue
-            if (-not $ra) { continue }
-            foreach ($prop in $ra.PSObject.Properties) {
-                if ($prop.Name -in @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider')) { continue }
-                $capRel = [string]$prop.Value
-                if (-not $capRel) { continue }
-                foreach ($root in @('HKLM:\', 'HKCU:\')) {
-                    $faKey = Join-Path $root ($capRel + '\FileAssociations')
-                    if (-not (Test-Path -LiteralPath $faKey)) { continue }
-                    $fa = Get-ItemProperty -LiteralPath $faKey -ErrorAction SilentlyContinue
-                    if (-not $fa) { continue }
-                    foreach ($p in $fa.PSObject.Properties) {
-                        $ext = [string]$p.Name
-                        if ($ext -notlike '.*') { continue }
-                        $exe = Resolve-ProgidExe ([string]$p.Value)
-                        if ($exe) { Add-ExtTo $map $exe $ext }
-                    }
-                }
-            }
-        }
-        # 2. Applications\<exe>\SupportedTypes backup.
-        foreach ($hive in @('HKLM:\SOFTWARE\Classes\Applications', 'HKCU:\SOFTWARE\Classes\Applications')) {
-            if (-not (Test-Path -LiteralPath $hive)) { continue }
-            Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue | ForEach-Object {
-                $exe = $_.PSChildName
-                $stKey = Join-Path $_.PSPath 'SupportedTypes'
-                if (-not (Test-Path -LiteralPath $stKey)) { return }
-                $st = Get-ItemProperty -LiteralPath $stKey -ErrorAction SilentlyContinue
-                if ($st) { foreach ($p in $st.PSObject.Properties) { Add-ExtTo $map $exe ([string]$p.Name) } }
+        # Per-extension current handler (UserChoice) under the user's FileExts.
+        # Bounded to extensions the user actually has associations for, so it's
+        # fast (a full HKCR\.* scan times out) and matches Settings > Default apps.
+        $fe = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FileExts'
+        if (Test-Path -LiteralPath $fe) {
+            Get-ChildItem -LiteralPath $fe -ErrorAction SilentlyContinue | ForEach-Object {
+                $ext = $_.PSChildName
+                if ($ext -notmatch '^\.[a-z0-9]{1,16}$') { return }
+                $uc = [string](Get-ItemProperty -LiteralPath "$fe\$ext\UserChoice" -ErrorAction SilentlyContinue).ProgId
+                Add-ExtTo $map (Resolve-Identity $uc) $ext
             }
         }
     } catch { }
@@ -320,16 +306,23 @@ function Build-ExtMap {
 }
 
 function Get-AppExtensions {
-    # File extensions the given exe handles, from the per-run Capabilities map.
-    param([string]$ExePath)
+    # Extensions the given app handles, matched by AUMID (UWP, from launch_uri =
+    # "shell:AppsFolder\<AUMID>") then by exe basename (Win32).
+    param([string]$ExePath, [string]$LaunchUri)
     try {
-        if (-not $ExePath) { return @() }
         if ($null -eq $script:WinpodxExtMap) { $script:WinpodxExtMap = Build-ExtMap }
-        $exe = ([System.IO.Path]::GetFileName($ExePath)).ToLower()
-        if ($script:WinpodxExtMap.ContainsKey($exe)) {
-            $lst = $script:WinpodxExtMap[$exe]
-            if ($lst.Count -gt 64) { return @($lst.GetRange(0, 64)) }
-            return @($lst)
+        $keys = New-Object System.Collections.Generic.List[string]
+        if ($LaunchUri) {
+            $aumid = $LaunchUri -replace '^shell:AppsFolder\\', ''
+            if ($aumid) { $keys.Add("aumid:$aumid") }
+        }
+        if ($ExePath) { $keys.Add("exe:" + ([System.IO.Path]::GetFileName($ExePath)).ToLower()) }
+        foreach ($k in $keys) {
+            if ($script:WinpodxExtMap.ContainsKey($k)) {
+                $lst = $script:WinpodxExtMap[$k]
+                if ($lst.Count -gt 64) { return @($lst.GetRange(0, 64)) }
+                return @($lst)
+            }
         }
     } catch { return @() }
     return @()
@@ -366,7 +359,7 @@ function Add-Result {
         launch_uri    = [string]$Entry.launch_uri
         icon_b64      = [string]$Entry.icon_b64
         exe_hash      = Get-ExeHash $path
-        extensions    = @(Get-AppExtensions $path)
+        extensions    = @(Get-AppExtensions $path $Entry.launch_uri)
     }) | Out-Null
 }
 
