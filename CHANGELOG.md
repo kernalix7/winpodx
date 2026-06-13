@@ -35,7 +35,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Contributors
 
-Thanks to @MirzaAyBaig12 for contributing the app launcher (#561).
+Thanks to @MirzaAyBaig12 for contributing the app launcher (#561) and for reporting #530, #535, and #545; to @hermitguo for reporting #541 and #546; to @notnotno for reporting #548; and to @ismikes for reporting #549.
 
 ## [0.7.0] - 2026-06-11
 
