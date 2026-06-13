@@ -12,12 +12,14 @@ from winpodx.cli.doctor import (
     Finding,
     _check_autostart_entry,
     _check_config_state,
+    _check_freerdp,
     _check_initialized_flag,
     _check_kvm,
     _check_pending_setup,
     handle_doctor,
 )
 from winpodx.core.config import Config
+from winpodx.utils.deps import DepCheck
 
 
 def _stub_new_checks(monkeypatch):
@@ -125,6 +127,45 @@ class TestKvmCheck:
         monkeypatch.setattr("pathlib.Path.exists", lambda self: False)
         f = _check_kvm()
         assert f.severity == "fail"
+
+
+class TestCheckFreerdp:
+    """#546: warn (not fail) on old FreeRDP 3.x with broken RAIL window mapping."""
+
+    def _patch(self, monkeypatch, *, found=True, version="3.5.1"):
+        monkeypatch.setattr(
+            "winpodx.utils.deps.check_freerdp",
+            lambda: DepCheck(name="xfreerdp", found=found, path="/usr/bin/xfreerdp3"),
+        )
+
+        class _Res:
+            stdout = f"This is FreeRDP version {version} (...)\n" if version else ""
+            stderr = ""
+
+        monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _Res())
+
+    def test_old_3x_warns(self, monkeypatch):
+        self._patch(monkeypatch, version="3.5.1")
+        f = _check_freerdp()
+        assert f.severity == "warn"
+        assert "546" in f.title and "3.5.1" in f.title
+
+    def test_floor_version_is_ok(self, monkeypatch):
+        self._patch(monkeypatch, version="3.6.0")
+        assert _check_freerdp().severity == "ok"
+
+    def test_newer_3x_is_ok(self, monkeypatch):
+        self._patch(monkeypatch, version="3.10.2")
+        assert _check_freerdp().severity == "ok"
+
+    def test_unparseable_version_is_ok(self, monkeypatch):
+        # No version string -> can't judge -> don't warn (binary exists).
+        self._patch(monkeypatch, version="")
+        assert _check_freerdp().severity == "ok"
+
+    def test_missing_fails(self, monkeypatch):
+        self._patch(monkeypatch, found=False)
+        assert _check_freerdp().severity == "fail"
 
 
 class TestHandleDoctor:

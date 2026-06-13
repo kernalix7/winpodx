@@ -33,6 +33,7 @@ probe has a short timeout, and the network never gets touched.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,11 @@ from dataclasses import dataclass
 from typing import Callable
 
 from winpodx.core.i18n import tr
+
+# Oldest FreeRDP 3.x without the RemoteApp/RAIL window-mapping bugs that leave
+# an app connected but its window never shown (#546). 3.5.x and earlier are
+# affected; warn (not fail) below this, since the binary still works otherwise.
+_FREERDP_RAIL_FLOOR = (3, 6, 0)
 
 
 @dataclass(frozen=True)
@@ -211,6 +217,7 @@ def _check_freerdp() -> Finding:
         # --version doesn't downgrade the finding (binary exists, that's the
         # signal we care about for doctor).
         version_line = ""
+        ver: tuple[int, int, int] | None = None
         try:
             result = subprocess.run(
                 [dep.path, "--version"],
@@ -219,9 +226,31 @@ def _check_freerdp() -> Finding:
                 timeout=3,
                 check=False,
             )
+            blob = (result.stdout or "") + (result.stderr or "")
             version_line = result.stdout.splitlines()[0] if result.stdout else ""
+            m = re.search(r"FreeRDP version\s+(\d+)\.(\d+)\.(\d+)", blob)
+            if m:
+                ver = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
+        # Old FreeRDP 3.x RAIL: 3.5.x and earlier have window-ordering bugs that
+        # leave a RemoteApp connected but its window never mapped (only
+        # "xf_Pointer: Invalid appWindow" spam) -- see #546 (Ubuntu/Budgie 24.04
+        # ships FreeRDP 3.5.1 via apt). Advisory only: the binary works for
+        # full-desktop / many apps, so this is a warn, not a fail.
+        if ver is not None and ver[0] == 3 and ver < _FREERDP_RAIL_FLOOR:
+            shown = ".".join(str(p) for p in ver)
+            floor = ".".join(str(p) for p in _FREERDP_RAIL_FLOOR)
+            return Finding(
+                "warn",
+                f"freerdp {shown} is old; RemoteApp windows may not appear (#546)",
+                detail=version_line,
+                suggestion=(
+                    f"Upgrade FreeRDP to >= {floor} (newer distro package / PPA), or run "
+                    "the winpodx AppImage, which bundles a newer FreeRDP. Symptom: the "
+                    "app connects but no window appears ('Invalid appWindow' in stderr)."
+                ),
+            )
         return Finding("ok", f"freerdp present at {dep.path}", detail=version_line)
     return Finding(
         "fail",
