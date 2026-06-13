@@ -1,94 +1,92 @@
 # SPDX-License-Identifier: MIT
-"""Standard file-extension → MIME-type table for auto file-association (#545).
+"""File-extension → MIME-type resolution for auto file-association (#545).
 
-The Windows guest reports the *real* extensions each discovered app handles (via
-``discover_apps.ps1``'s registry scan); this maps those extensions to their
-freedesktop MIME types so the host can write the ``.desktop`` ``MimeType=``.
-
-The mapping is a universal extension→MIME constant (a ``.docx`` is always the
-Office wordprocessing type regardless of which app opens it), so the host owns
-it — only extensions the guest actually reported get mapped, which means no
-made-up associations. Unknown extensions are skipped.
+The MIME type of an extension is a system fact, not a winpodx opinion, so this
+resolves it from the host's freedesktop shared-mime-info database
+(``/usr/share/mime/globs``) — every file type the desktop knows about, not a
+hand-maintained list. The guest reports the real extensions each app handles;
+this maps them to the exact MIME the file manager uses for "Open with".
 """
 
 from __future__ import annotations
 
-# Extension (lowercase, leading dot) → MIME type. Conservative + standard.
-_EXT_TO_MIME: dict[str, str] = {
-    # Word processing
-    ".doc": "application/msword",
-    ".dot": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
-    ".docm": "application/vnd.ms-word.document.macroenabled.12",
-    ".odt": "application/vnd.oasis.opendocument.text",
-    ".rtf": "application/rtf",
-    # Spreadsheets
-    ".xls": "application/vnd.ms-excel",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
-    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
-    ".csv": "text/csv",
-    # Presentations
-    ".ppt": "application/vnd.ms-powerpoint",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".pps": "application/vnd.ms-powerpoint",
-    ".ppsx": "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
-    ".odp": "application/vnd.oasis.opendocument.presentation",
-    # Documents / text
-    ".pdf": "application/pdf",
-    ".txt": "text/plain",
-    ".md": "text/markdown",
-    ".xml": "application/xml",
-    ".json": "application/json",
-    ".htm": "text/html",
-    ".html": "text/html",
-    # Images
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".bmp": "image/bmp",
-    ".tif": "image/tiff",
-    ".tiff": "image/tiff",
-    ".webp": "image/webp",
-    ".svg": "image/svg+xml",
-    ".ico": "image/vnd.microsoft.icon",
-    ".psd": "image/vnd.adobe.photoshop",
-    # Audio
-    ".mp3": "audio/mpeg",
-    ".wav": "audio/x-wav",
-    ".flac": "audio/flac",
-    ".ogg": "audio/ogg",
-    ".m4a": "audio/mp4",
-    # Video
-    ".mp4": "video/mp4",
-    ".avi": "video/x-msvideo",
-    ".mkv": "video/x-matroska",
-    ".mov": "video/quicktime",
-    ".webm": "video/webm",
-    ".wmv": "video/x-ms-wmv",
-    # Archives
-    ".zip": "application/zip",
-    ".7z": "application/x-7z-compressed",
-    ".rar": "application/vnd.rar",
-}
+import mimetypes
+from functools import lru_cache
+from pathlib import Path
+
+# freedesktop shared-mime-info glob databases. The first one that exists wins;
+# ``globs2`` (weighted) is preferred over plain ``globs`` where both are present.
+_GLOBS_FILES: tuple[str, ...] = (
+    "/usr/share/mime/globs2",
+    "/usr/share/mime/globs",
+    "/usr/local/share/mime/globs2",
+    "/usr/local/share/mime/globs",
+)
+
+
+@lru_cache(maxsize=1)
+def _ext_mime_db() -> dict[str, str]:
+    """Build ``{".ext": "mime/type"}`` from the system shared-mime-info globs.
+
+    Parsed once. ``globs`` lines are ``mime:*.ext``; ``globs2`` lines are
+    ``weight:mime:*.ext`` (extra trailing fields ignored). Only simple
+    ``*.ext`` patterns are taken — literal globs, ``*.*``, and full-name
+    patterns are skipped. The highest-weight (first) entry for an extension
+    wins, matching how the file manager resolves it.
+    """
+    db: dict[str, str] = {}
+    for path in _GLOBS_FILES:
+        p = Path(path)
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(":")
+            if len(parts) == 2:  # globs: mime:glob
+                mime, glob = parts[0], parts[1]
+            elif len(parts) >= 3 and parts[0].isdigit():  # globs2: weight:mime:glob[:...]
+                mime, glob = parts[1], parts[2]
+            else:
+                continue
+            if not glob.startswith("*."):
+                continue
+            stem = glob[2:]
+            if not stem or any(c in stem for c in "*?["):
+                continue
+            db.setdefault("." + stem.lower(), mime)
+        if db:
+            break  # first usable globs file is the authoritative one
+    return db
 
 
 def mime_for_extension(ext: str) -> str | None:
-    """MIME type for a single file extension (``.docx`` or ``docx``), or None."""
+    """MIME type for a file extension via the system MIME db, or None if unknown.
+
+    Accepts ``.docx`` or ``docx``. Falls back to Python's :mod:`mimetypes`
+    (``/etc/mime.types`` etc.) for anything the freedesktop globs didn't cover.
+    """
     if not ext:
         return None
     e = ext.strip().lower()
     if not e.startswith("."):
         e = "." + e
-    return _EXT_TO_MIME.get(e)
+    hit = _ext_mime_db().get(e)
+    if hit:
+        return hit
+    guess, _ = mimetypes.guess_type("x" + e)
+    return guess
 
 
 def mimes_for_extensions(extensions: list[str]) -> list[str]:
     """Map the guest-reported extensions to MIME types (deduped, order-stable).
 
-    Skips extensions we don't have a standard MIME for. Empty in → empty out.
+    Skips extensions with no known MIME. Empty in → empty out.
     """
     out: list[str] = []
     seen: set[str] = set()
