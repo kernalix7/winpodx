@@ -246,33 +246,93 @@ if ($stableSamples -lt $stableSamplesNeeded) {
 $results = New-Object System.Collections.Generic.List[object]
 $seen    = @{}
 
-function Get-AppExtensions {
-    # Real file types an app handles (#545): the value names under
-    # HKCR\Applications\<exe>\SupportedTypes are the extensions it registered
-    # (e.g. ".docx"). The host maps these to MIME types for the .desktop
-    # MimeType= -- so only file types the app actually accepts are added, never
-    # made-up associations. Best-effort; returns @() on anything unexpected.
-    param([string]$ExePath)
-    $exts = New-Object System.Collections.Generic.List[string]
+# Build {exe(lower) -> [".ext", ...]} ONCE per run: the file types each app
+# registered, the same source Windows Settings > Default apps reads (#545).
+#   1. RegisteredApplications -> <Capabilities>\FileAssociations (ext -> ProgID),
+#      with the ProgID's open command resolved to the owning .exe. (This is what
+#      Notepad / Office / browsers use -- not Applications\<exe>\SupportedTypes.)
+#   2. Applications\<exe>\SupportedTypes (value names = extensions) as a backup.
+# The host maps the extensions to MIME types for the .desktop MimeType=.
+$script:WinpodxExtMap = $null
+
+function Add-ExtTo {
+    param([hashtable]$Map, [string]$Exe, [string]$Ext)
+    if (-not $Exe -or -not $Ext) { return }
+    $e = $Exe.ToLower(); $x = $Ext.ToLower()
+    if ($x -notmatch '^\.[a-z0-9]{1,16}$') { return }
+    if (-not $Map.ContainsKey($e)) { $Map[$e] = New-Object System.Collections.Generic.List[string] }
+    if (-not $Map[$e].Contains($x)) { $Map[$e].Add($x) }
+}
+
+function Resolve-ProgidExe {
+    param([string]$ProgId)
+    if (-not $ProgId) { return $null }
+    foreach ($hive in @('HKLM:\SOFTWARE\Classes', 'HKCU:\SOFTWARE\Classes')) {
+        $cmdKey = Join-Path $hive ("{0}\shell\open\command" -f $ProgId)
+        if (-not (Test-Path -LiteralPath $cmdKey)) { continue }
+        $cmd = [string](Get-ItemProperty -LiteralPath $cmdKey -ErrorAction SilentlyContinue).'(default)'
+        if ($cmd -and $cmd -match '([^\\/:*?"<>|\r\n]+\.exe)') {
+            return [System.IO.Path]::GetFileName($Matches[1].Trim())
+        }
+    }
+    return $null
+}
+
+function Build-ExtMap {
+    $map = @{}
     try {
-        if (-not $ExePath) { return @() }
-        $exe = [System.IO.Path]::GetFileName($ExePath)
-        if (-not $exe) { return @() }
-        foreach ($hive in @('HKLM:\SOFTWARE\Classes', 'HKCU:\SOFTWARE\Classes')) {
-            $key = Join-Path $hive ("Applications\{0}\SupportedTypes" -f $exe)
-            if (-not (Test-Path -LiteralPath $key)) { continue }
-            $props = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
-            if (-not $props) { continue }
-            foreach ($p in $props.PSObject.Properties) {
-                $n = ([string]$p.Name).ToLower()
-                if ($n -match '^\.[a-z0-9]{1,16}$' -and -not $exts.Contains($n)) {
-                    $exts.Add($n)
+        # 1. Per-app Capabilities\FileAssociations via RegisteredApplications.
+        foreach ($raHive in @('HKLM:\SOFTWARE\RegisteredApplications', 'HKCU:\SOFTWARE\RegisteredApplications')) {
+            if (-not (Test-Path -LiteralPath $raHive)) { continue }
+            $ra = Get-ItemProperty -LiteralPath $raHive -ErrorAction SilentlyContinue
+            if (-not $ra) { continue }
+            foreach ($prop in $ra.PSObject.Properties) {
+                if ($prop.Name -in @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider')) { continue }
+                $capRel = [string]$prop.Value
+                if (-not $capRel) { continue }
+                foreach ($root in @('HKLM:\', 'HKCU:\')) {
+                    $faKey = Join-Path $root ($capRel + '\FileAssociations')
+                    if (-not (Test-Path -LiteralPath $faKey)) { continue }
+                    $fa = Get-ItemProperty -LiteralPath $faKey -ErrorAction SilentlyContinue
+                    if (-not $fa) { continue }
+                    foreach ($p in $fa.PSObject.Properties) {
+                        $ext = [string]$p.Name
+                        if ($ext -notlike '.*') { continue }
+                        $exe = Resolve-ProgidExe ([string]$p.Value)
+                        if ($exe) { Add-ExtTo $map $exe $ext }
+                    }
                 }
             }
         }
+        # 2. Applications\<exe>\SupportedTypes backup.
+        foreach ($hive in @('HKLM:\SOFTWARE\Classes\Applications', 'HKCU:\SOFTWARE\Classes\Applications')) {
+            if (-not (Test-Path -LiteralPath $hive)) { continue }
+            Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue | ForEach-Object {
+                $exe = $_.PSChildName
+                $stKey = Join-Path $_.PSPath 'SupportedTypes'
+                if (-not (Test-Path -LiteralPath $stKey)) { return }
+                $st = Get-ItemProperty -LiteralPath $stKey -ErrorAction SilentlyContinue
+                if ($st) { foreach ($p in $st.PSObject.Properties) { Add-ExtTo $map $exe ([string]$p.Name) } }
+            }
+        }
+    } catch { }
+    return $map
+}
+
+function Get-AppExtensions {
+    # File extensions the given exe handles, from the per-run Capabilities map.
+    param([string]$ExePath)
+    try {
+        if (-not $ExePath) { return @() }
+        if ($null -eq $script:WinpodxExtMap) { $script:WinpodxExtMap = Build-ExtMap }
+        $exe = ([System.IO.Path]::GetFileName($ExePath)).ToLower()
+        if ($script:WinpodxExtMap.ContainsKey($exe)) {
+            $lst = $script:WinpodxExtMap[$exe]
+            if ($lst.Count -gt 64) { return @($lst.GetRange(0, 64)) }
+            return @($lst)
+        }
     } catch { return @() }
-    if ($exts.Count -gt 64) { return @($exts.GetRange(0, 64)) }
-    return @($exts)
+    return @()
 }
 
 function Add-Result {
