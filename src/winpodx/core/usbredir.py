@@ -252,8 +252,10 @@ def attach(backend: str, container: str, dev: DeviceConfig) -> None:
     if not ured:
         raise HmpError(
             "usbredirect not found. Install the host 'usbredir' package "
-            "(openSUSE: sudo zypper install usbredir; Fedora: usbredir; "
-            "Debian/Ubuntu: usbredir)."
+            "(openSUSE: sudo zypper install usbredir; "
+            "Fedora: sudo dnf install usbredir-tools; "
+            "Atomic Fedora: rpm-ostree install --apply-live usbredir-tools"
+            "Debian/Ubuntu: sudo apt install usbredirect)."
         )
     priv = _privilege_wrapper()
     if priv is None:
