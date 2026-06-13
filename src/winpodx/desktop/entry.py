@@ -84,6 +84,13 @@ def install_desktop_entry(app: AppInfo) -> Path:
     comment = (app.description or "").replace("\n", " ").replace("\r", " ").replace("\t", " ")
     comment = comment.strip() or _DEFAULT_COMMENT
 
+    # Same line-termination hazard for the Name= key: full_name comes from guest
+    # discovery JSON (a compromised/hostile guest could embed a newline to inject
+    # arbitrary .desktop keys like Exec= into the launcher spec). Strip control
+    # whitespace exactly as Comment= does, and fall back to the slug if blank.
+    full_name = (app.full_name or app.name).replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    full_name = full_name.strip() or app.name
+
     # Consolidate every Windows app under one menu folder (Wine-style) instead
     # of scattering them across native categories (Office, Graphics, ...). The
     # entry carries only the custom MENU_CATEGORY, which the winpodx .menu
@@ -92,7 +99,7 @@ def install_desktop_entry(app: AppInfo) -> Path:
     categories = f"{MENU_CATEGORY};"
 
     content = DESKTOP_TEMPLATE.format(
-        full_name=app.full_name,
+        full_name=full_name,
         name=app.name,
         comment=comment,
         icon_name=icon_name,

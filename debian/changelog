@@ -1,3 +1,12 @@
+winpodx (0.7.1) unstable; urgency=medium
+
+  * Auto file associations for discovered apps ("Open with"); GUI app
+    reset/custom-icon/multi-select; quick app launcher; doctor warns on old
+    FreeRDP; install.sh honours --main on Atomic Fedora; gui detaches from the
+    terminal. See CHANGELOG.md for details.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sat, 13 Jun 2026 14:24:21 +0000
+
 winpodx (0.7.0) unstable; urgency=medium
 
   * Bare-metal disguise (VM-detection avoidance): an opt-in hardened level

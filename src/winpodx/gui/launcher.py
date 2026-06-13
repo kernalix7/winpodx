@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
 WinPodX Launcher — Windows 11-style Start Menu for .desktop files tagged 'winpodx'.
 Fluent Design System with Acrylic/Mica background, Reveal highlight, animations.

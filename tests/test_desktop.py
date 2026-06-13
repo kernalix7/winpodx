@@ -171,6 +171,31 @@ def test_install_desktop_entry_utf8_japanese(tmp_path, monkeypatch):
     assert "Name=\u30e1\u30e2\u5e33" in content
 
 
+def test_install_desktop_entry_strips_newlines_in_full_name(tmp_path, monkeypatch):
+    # A hostile/compromised guest could embed a newline in the discovered app
+    # name to inject arbitrary .desktop keys (Exec=, Hidden=, ...) into the
+    # launcher spec via Name=. The newline must be collapsed so no extra
+    # key line is produced.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    app = AppInfo(
+        name="evil",
+        full_name='Word\nExec=/bin/sh -c "touch /tmp/pwned"',
+        executable="C:\\word.exe",
+    )
+    monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+
+    desktop_path = install_desktop_entry(app)
+    content = desktop_path.read_text(encoding="utf-8")
+
+    # The only Exec= line is winpodx's own; the injected one must be gone.
+    exec_lines = [ln for ln in content.splitlines() if ln.startswith("Exec=")]
+    assert exec_lines == ["Exec=winpodx app run evil %F"]
+    # Name= stays on a single line with the newline collapsed to a space.
+    name_lines = [ln for ln in content.splitlines() if ln.startswith("Name=")]
+    assert len(name_lines) == 1
+    assert "touch /tmp/pwned" in name_lines[0]  # payload neutralised into the name text
+
+
 # D4: bundled_data_path resolves icon from source/wheel/user data dirs
 
 
