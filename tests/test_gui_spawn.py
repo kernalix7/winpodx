@@ -4,11 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from unittest.mock import patch
 
 import pytest
 
 from winpodx.gui import spawn
+
+# The dispatch path imports winpodx.gui.main_window (PySide6); the spawn helper
+# itself does not. CI's test job installs .[dev] without [gui], so guard only
+# the dispatch tests — should_detach/spawn coverage still runs everywhere.
+_HAS_PYSIDE6 = importlib.util.find_spec("PySide6") is not None
 
 
 class TestShouldDetachGui:
@@ -62,6 +68,7 @@ class TestSpawnGuiDetached:
             assert spawn.spawn_gui_detached() is False
 
 
+@pytest.mark.skipif(not _HAS_PYSIDE6, reason="GUI dispatch path requires PySide6")
 class TestGuiDispatch:
     def _dispatch(self, foreground):
         from winpodx.cli.main import _dispatch
