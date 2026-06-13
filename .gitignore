@@ -45,6 +45,15 @@ config/oem/agent_token.txt
 # compose time (#246). Runtime artefact — never commit.
 config/oem/winpodx-smbios.bin
 
+# Rust reverse-open shim build tree (~21 MB of regenerable Cargo artifacts).
+# Already ignored by the nested config/oem/reverse-open/shim/.gitignore, but
+# listing it at the ROOT too keeps it out of the sdist: hatchling's sdist VCS
+# walk honors the root .gitignore, so a maintainer-local build (where the shim
+# was compiled) produces a clean tarball. Only the committed shim/bin/ prebuilt
+# .exe should ship. (The CI release builds from a fresh checkout, so target/
+# never exists there — published artifacts are clean regardless.)
+config/oem/reverse-open/shim/target/
+
 # Coverage / test artefacts.
 .coverage
 htmlcov/

@@ -7,6 +7,36 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 기반으로 하며,
 버전 정책은 [Semantic Versioning](https://semver.org/lang/ko/)을 지향합니다.
 
+## [Unreleased]
+
+## [0.7.1] - 2026-06-13
+
+### Added
+
+- **빠른 앱 런처 (`winpodx launch`).** Windows 앱을 위한 시작 메뉴 스타일 선택기 — 검색, 카테고리 칩, reveal-highlight 타일, compact 모드 — 메인 GUI 와 동일한 앱 레지스트리에서 가져오며 `winpodx app run` 으로 실행. 데스크톱 환경 커스텀 단축키(KDE/GNOME)에 바인딩하면 시스템 전역 핫키로 사용 가능; 추가 의존성 없음, Wayland 안전 (#561).
+- **자동 파일 연결 — 탐지된 Windows 앱이 파일 관리자의 "다른 프로그램으로 열기" 메뉴에 표시 (#545).** 기본 활성화; `winpodx config set desktop.mime_associations false` 또는 GUI 설정 토글로 비활성화. 앱은 "열기" / 추천 목록에 *추가* 만 됩니다 — winpodx 는 Windows 앱을 특정 형식의 기본 핸들러로 설정하지 않습니다. 연결은 Windows 에서 실시간으로 읽으며 앱이 열 수 있다고 선언한 모든 위치를 합칩니다 (확장자별 `UserChoice`, 앱별 `Capabilities\FileAssociations`, `Applications\<exe>\SupportedTypes`, UWP AppxManifest `windows.fileTypeAssociation`) — 예: `.png` 는 Paint/Photos/Snipping Tool, `.pdf` 는 Edge, `.txt` 는 Notepad. 확장자→MIME 매핑은 시스템 `shared-mime-info` DB 사용 (하드코딩 테이블 없음), 다음 `install.sh` 업데이트 시 재탐지로 자동 적용 — 수동 `app refresh` 불필요.
+- **GUI 앱 관리 — 재설정, 커스텀 아이콘, 다중 선택 (#530).** 앱별 **탐지값으로 재설정** 이 자동 탐지된 이름/아이콘 복원; **커스텀 아이콘 선택기** 로 아이콘 덮어쓰기; **다중 선택** 으로 **선택 숨기기** / **선택 삭제** 일괄 처리; 삭제된 앱은 **복원 목록** 에 들어가 삭제 취소 가능 (전체 재탐지 버튼 포함). 체크박스는 이제 보이는 대비 색상 사용.
+- **`winpodx doctor` 가 RemoteApp 창이 깨지는 구버전 FreeRDP 를 경고 (#546).** 네이티브 `xfreerdp` 3.x 가 3.6.0 미만 (예: Ubuntu/Budgie 24.04 apt 기본인 3.5.1) 이면 RAIL 창 매핑 버그로 RemoteApp 이 연결돼도 창이 안 뜸. doctor 가 이를 경고(실패 아님)로 표시하고 업그레이드 또는 winpodx AppImage 를 안내.
+- **체크섬 게이트 주기적 아이콘 갱신.** 탐지 앱 아이콘은 소스 실행 파일의 체크섬이 바뀔 때만 게스트에서 재동기화 — 일상 갱신이 변경되지 않은 아이콘을 다시 쓰지 않음 (#539).
+
+### Fixed
+
+- **`winpodx gui` 가 더 이상 터미널을 막지 않음 (#549).** 셸에서 실행하면 자체 세션으로 분리되어 트레이 + 대시보드를 띄우고 즉시 프롬프트를 반환. `.desktop` 자동시작과 빠른 런처는 이미 분리 실행 중이었음; `winpodx gui --foreground` 로 디버깅 시 연결 유지 가능.
+- **`install.sh --main` (및 `--ref` / `--source` / `--image-tar`) 이 Atomic Fedora 에서 존중됨 (#548).** rpm-ostree 시스템 (Silverblue/Kinoite/Bazzite/...) 이 OBS RPM 으로 기본 동작하며 명시적 소스 오버라이드를 무시했음; RPM 은 태그 릴리스만 담아 `--main` 이 도달 불가였음. 이제 rpm-ostree 경로가 해당 플래그가 모두 비었을 때만 동작 — 커스텀 이미지 빌더가 소스에서 레이어링 가능. 기본 Atomic 설치는 불변.
+- **`install.sh` 가 `/dev/kvm` 이 없지만 CPU 가 가상화를 지원할 때 `kvm` 모듈을 자동 로드 (#541).**
+- **베어메탈 위장이 더 이상 컨테이너를 크래시 루프시키지 않음 (#246 후속).** winpodx 가 합성 SMBIOS blob 을 재작성한 뒤 컨테이너가 다시 읽을 수 있도록 파일 레이블을 재지정 — 이전엔 오래된 레이블이 다음 부팅을 깨뜨림.
+- **`winpodx doctor` 가 의도적으로 숨긴 앱을 누락된 desktop entry 로 표시하지 않음 (#535).**
+- **`uninstall.sh` 가 winpodx 가 만든 것을 모두 제거** — 통합 "WinPodX" 메뉴 폴더 (`.directory` / `.menu` 조각, 안 지우면 빈 서브메뉴가 남음), 오래된 `mimeapps.list` 핸들러 항목, 그리고 (`--purge` 시) `/etc/modules-load.d/winpodx-kvm.conf` 드롭인.
+- **탐지된 앱 이름이 더 이상 `.desktop` 런처에 추가 키를 주입할 수 없음.** 게스트가 준 이름의 제어 문자를 `Name=` 필드에서 제거 — 기존 `Comment=` 처리와 일치 (하드닝; 악의적 게스트가 있어야 발동).
+
+### Changed
+
+- **`winpodx gui` 가 인터랙티브 실행 시 기본 분리**, `--foreground` 로 opt-out (#549).
+
+### Contributors
+
+앱 런처 (#561) 기여 및 #530 · #535 · #545 제보해주신 @MirzaAyBaig12, #541 · #546 제보해주신 @hermitguo, #548 제보해주신 @notnotno, #549 제보해주신 @ismikes 님께 감사드립니다.
+
 ## [0.7.0] - 2026-06-11
 
 ### Added

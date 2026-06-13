@@ -366,6 +366,20 @@ if [[ "$DESKTOP_COUNT" -gt 0 ]]; then
         REMOVED=$((REMOVED + DESKTOP_COUNT))
     fi
 fi
+# Remove the consolidated "winpodx" menu folder definitions (desktop/menu.py
+# writes both on every app install). Without this an empty "WinPodX (Windows
+# Apps)" submenu lingers in KDE/XFCE/Cinnamon/MATE/LXQt after uninstall, since
+# the .menu fragment auto-merges into applications.menu. Always remove -- both
+# files are winpodx-specific and useless without the app entries.
+MENU_DIRFILE="${XDG_DATA_HOME:-$HOME/.local/share}/desktop-directories/winpodx-windows.directory"
+MENU_FRAGMENT="${XDG_CONFIG_HOME:-$HOME/.config}/menus/applications-merged/winpodx.menu"
+for mf in "$MENU_DIRFILE" "$MENU_FRAGMENT"; do
+    if [[ -e "$mf" ]]; then
+        rm -f "$mf"
+        log "Removed $mf"
+        REMOVED=$((REMOVED + 1))
+    fi
+done
 # Update desktop database
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
@@ -395,6 +409,15 @@ MIMEINFO="${XDG_DATA_HOME:-$HOME/.local/share}/applications/mimeinfo.cache"
 if [[ -f "$MIMEINFO" ]] && grep -q "winpodx" "$MIMEINFO" 2>/dev/null; then
     sed -i '/winpodx/d' "$MIMEINFO" 2>/dev/null || true
     log "Cleaned WinPodX MIME associations"
+fi
+# mimeapps.list keeps [Default Applications] / [Added Associations] entries
+# pointing at winpodx-*.desktop (written by `winpodx app install --mime` and
+# `winpodx doctor --fix` via xdg-mime default). Left behind they dangle at
+# removed handlers. Drop any line that references a winpodx handler.
+MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
+if [[ -f "$MIMEAPPS" ]] && grep -q "winpodx-" "$MIMEAPPS" 2>/dev/null; then
+    sed -i '/winpodx-/d' "$MIMEAPPS" 2>/dev/null || true
+    log "Cleaned WinPodX entries from mimeapps.list"
 fi
 
 # --- 5. App definitions ---
@@ -437,6 +460,21 @@ if [[ -d "$CONFIG_DIR" ]]; then
         REMOVED=$((REMOVED + 1))
     else
         warn "Config preserved at $CONFIG_DIR (use --purge to remove)"
+    fi
+fi
+
+# --- 7b. KVM module-load drop-in (purge only) ---
+# install.sh (#541) writes /etc/modules-load.d/winpodx-kvm.conf via sudo when
+# /dev/kvm is missing but the CPU supports virtualization. It's a winpodx-
+# created root-owned file, so a full --purge should remove it. Best-effort:
+# needs sudo and only loads a stock kernel module, so a non-purge run leaves it.
+KVM_MODCONF="/etc/modules-load.d/winpodx-kvm.conf"
+if [[ "$PURGE" == true && -e "$KVM_MODCONF" ]]; then
+    if sudo rm -f "$KVM_MODCONF" 2>/dev/null; then
+        log "Removed $KVM_MODCONF"
+        REMOVED=$((REMOVED + 1))
+    else
+        warn "Could not remove $KVM_MODCONF (needs sudo); remove it manually if desired"
     fi
 fi
 

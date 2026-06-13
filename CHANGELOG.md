@@ -9,13 +9,33 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-13
+
 ### Added
 
 - **Quick app launcher (`winpodx launch`).** A Start-menu-style picker for your Windows apps — search, category pills, reveal-highlight tiles, and a compact mode — sourced from the same app registry as the main GUI and launched through `winpodx app run`. Bind it to a desktop-environment custom shortcut (KDE/GNOME) for a system-wide hotkey; no extra dependencies and Wayland-safe (#561).
+- **Automatic file associations — discovered Windows apps now appear in your file manager's "Open with" menu (#545).** On by default; disable with `winpodx config set desktop.mime_associations false` or the GUI Settings toggle. Apps are only *added* to the "Open with" / Recommended list — winpodx never sets a Windows app as the default handler for a type. The associations are read live from Windows and unioned across every place an app declares what it can open (per-extension `UserChoice`, per-app `Capabilities\FileAssociations`, `Applications\<exe>\SupportedTypes`, and the UWP AppxManifest `windows.fileTypeAssociation`), so e.g. `.png` offers Paint/Photos/Snipping Tool, `.pdf` offers Edge, `.txt` offers Notepad. Extensions are mapped to MIME types via the system `shared-mime-info` database (no hardcoded tables), and the change auto-applies on the next `install.sh` update via the discovery refresh — no manual `app refresh`.
+- **GUI app management — reset, custom icons, and multi-select (#530).** Per-app **Reset to detected** restores the auto-discovered name/icon; a **custom icon picker** overrides the icon; **multi-select** enables bulk **Hide selected** / **Remove selected**; and removed apps land in a **restore list** so a deletion can be undone (plus a full re-detect button). Checkboxes now use a visible (contrasting) colour.
+- **`winpodx doctor` warns on an old FreeRDP build with broken RemoteApp windows (#546).** A native `xfreerdp` 3.x below 3.6.0 (e.g. the 3.5.1 that Ubuntu/Budgie 24.04 ships via apt) has RAIL window-mapping bugs that leave a RemoteApp connected but its window never shown. doctor now flags this as a warning (not a failure) and points to an upgrade or the winpodx AppImage.
+- **Checksum-gated periodic icon refresh.** Discovered-app icons re-sync from the guest only when the source executable's checksum changes, so a routine refresh no longer rewrites unchanged icons (#539).
+
+### Fixed
+
+- **`winpodx gui` no longer blocks the terminal (#549).** Launched from a shell it now detaches into its own session, brings up the tray + dashboard, and returns the prompt immediately. `.desktop` autostart and the quick launcher already ran it detached; `winpodx gui --foreground` keeps it attached for debugging.
+- **`install.sh --main` (and `--ref` / `--source` / `--image-tar`) is honoured on Atomic Fedora (#548).** rpm-ostree systems (Silverblue/Kinoite/Bazzite/...) defaulted to the OBS RPM and ignored an explicit source override; the RPM only ships tagged releases, so `--main` could never reach you. The rpm-ostree path is now gated on those flags being unset, so custom-image builders can layer winpodx from source. Default Atomic installs are unchanged.
+- **`install.sh` auto-loads the `kvm` module when `/dev/kvm` is missing but the CPU supports virtualization (#541).**
+- **Bare-metal disguise no longer crash-loops the container (#246 follow-up).** After winpodx re-writes the synthetic SMBIOS blob, the file is relabelled so the container can read it back; a stale label previously broke the next boot.
+- **`winpodx doctor` no longer flags intentionally hidden apps as missing desktop entries (#535).**
+- **`uninstall.sh` now removes everything winpodx creates** — the consolidated "WinPodX" menu folder (`.directory` / `.menu` fragments, which otherwise left an empty submenu), stale `mimeapps.list` handler entries, and (on `--purge`) the `/etc/modules-load.d/winpodx-kvm.conf` drop-in.
+- **A discovered app name can no longer inject extra keys into its `.desktop` launcher.** Control characters in the guest-supplied name are stripped from the `Name=` field, matching the existing `Comment=` handling (hardening; a hostile guest is required to trigger it).
+
+### Changed
+
+- **`winpodx gui` detaches by default** for interactive launches, with `--foreground` to opt out (#549).
 
 ### Contributors
 
-Thanks to @MirzaAyBaig12 for contributing the app launcher (#561).
+Thanks to @MirzaAyBaig12 for contributing the app launcher (#561) and for reporting #530, #535, and #545; to @hermitguo for reporting #541 and #546; to @notnotno for reporting #548; and to @ismikes for reporting #549.
 
 ## [0.7.0] - 2026-06-11
 
