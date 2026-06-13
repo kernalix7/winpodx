@@ -466,7 +466,12 @@ def cli(argv: list[str] | None = None) -> None:
     )
 
     # --- other commands ---
-    sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")
+    gui_parser = sub.add_parser("gui", help="Launch graphical interface (requires PySide6)")
+    gui_parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Run in the foreground (block the terminal) instead of detaching (#549).",
+    )
     sub.add_parser(
         "launch", help="Open the quick app launcher (requires PySide6); bind to a DE shortcut"
     )
@@ -964,12 +969,23 @@ def _dispatch(args: argparse.Namespace) -> None:
     elif cmd == "gui":
         try:
             from winpodx.gui.main_window import run_gui
-
-            run_gui()
         except ImportError:
             from winpodx.utils.install_source import pyside6_install_hint
 
             print(pyside6_install_hint())
+        else:
+            # #549: a bare `winpodx gui` from a terminal used to block the
+            # prompt until the window closed. Detach into its own session and
+            # return immediately; the re-spawned `--foreground` child runs the
+            # real Qt loop. Non-interactive / --foreground launches stay inline.
+            from winpodx.gui.spawn import should_detach_gui, spawn_gui_detached
+
+            if should_detach_gui(foreground=getattr(args, "foreground", False)) and (
+                spawn_gui_detached()
+            ):
+                print("WinPodX GUI launched. (run `winpodx gui --foreground` to stay attached)")
+            else:
+                run_gui()
     elif cmd == "launch":
         try:
             from winpodx.gui.launcher import show_launcher
