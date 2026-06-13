@@ -266,24 +266,28 @@ function Add-ExtTo {
 }
 
 function Resolve-Identity {
-    # A handler ProgID -> "aumid:<AUMID>" (UWP) or "exe:<basename>" (Win32). UWP
-    # ProgIDs carry the app's AppUserModelID under \Application; Win32 ProgIDs
-    # carry an .exe open command. Cached -- the same ProgID handles many types.
+    # A handler ProgID -> ALL identities it is known by: "aumid:<AUMID>" (UWP,
+    # from \Application\AppUserModelID) and/or "exe:<basename>" (Win32, from the
+    # shell\open\command). An app such as Edge carries BOTH (an AUMID and an
+    # msedge.exe command), and app discovery may surface it either way -- emit
+    # every identity so the per-app lookup hits no matter which form was found.
+    # Returns an array (possibly empty). Cached -- one ProgID handles many types.
     param([string]$ProgId)
-    if (-not $ProgId) { return $null }
+    if (-not $ProgId) { return @() }
     if ($script:WinpodxIdCache.ContainsKey($ProgId)) { return $script:WinpodxIdCache[$ProgId] }
-    $res = $null
+    $ids = New-Object System.Collections.Generic.List[string]
     foreach ($root in @('HKCU:\SOFTWARE\Classes', 'HKLM:\SOFTWARE\Classes')) {
         $aumid = [string](Get-ItemProperty -LiteralPath "$root\$ProgId\Application" -ErrorAction SilentlyContinue).AppUserModelID
-        if ($aumid) { $res = "aumid:$aumid"; break }
+        if ($aumid) { $id = "aumid:$aumid"; if (-not $ids.Contains($id)) { $ids.Add($id) } }
         $cmd = [string](Get-ItemProperty -LiteralPath "$root\$ProgId\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
         if ($cmd -and $cmd -match '([a-zA-Z]:\\[^"]*?\.exe)') {
-            $res = "exe:" + ([System.IO.Path]::GetFileName($Matches[1])).ToLower()
-            break
+            $id = "exe:" + ([System.IO.Path]::GetFileName($Matches[1])).ToLower()
+            if (-not $ids.Contains($id)) { $ids.Add($id) }
         }
     }
-    $script:WinpodxIdCache[$ProgId] = $res
-    return $res
+    $arr = @($ids)
+    $script:WinpodxIdCache[$ProgId] = $arr
+    return $arr
 }
 
 function Build-ExtMap {
@@ -298,7 +302,46 @@ function Build-ExtMap {
                 $ext = $_.PSChildName
                 if ($ext -notmatch '^\.[a-z0-9]{1,16}$') { return }
                 $uc = [string](Get-ItemProperty -LiteralPath "$fe\$ext\UserChoice" -ErrorAction SilentlyContinue).ProgId
-                Add-ExtTo $map (Resolve-Identity $uc) $ext
+                foreach ($id in (Resolve-Identity $uc)) { Add-ExtTo $map $id $ext }
+            }
+        }
+        # Per-app DECLARED associations: RegisteredApplications -> Capabilities\
+        # FileAssociations (browsers, mail clients, desktop apps that aren't the
+        # current default for a type still declare what they can open). The
+        # Capabilities path is relative to the SAME hive root as its
+        # RegisteredApplications entry — resolve it there only (probing the
+        # other root costs ~50x as much on non-existent cross-hive paths).
+        foreach ($pair in @(
+                @('HKLM:\SOFTWARE\RegisteredApplications', 'HKLM:\'),
+                @('HKCU:\SOFTWARE\RegisteredApplications', 'HKCU:\'))) {
+            $raHive = $pair[0]; $root = $pair[1]
+            if (-not (Test-Path -LiteralPath $raHive)) { continue }
+            $ra = Get-ItemProperty -LiteralPath $raHive -ErrorAction SilentlyContinue
+            if (-not $ra) { continue }
+            foreach ($prop in $ra.PSObject.Properties) {
+                if ($prop.Name -match '^PS') { continue }
+                $capRel = [string]$prop.Value
+                if (-not $capRel) { continue }
+                $faKey = Join-Path $root ($capRel + '\FileAssociations')
+                if (-not (Test-Path -LiteralPath $faKey)) { continue }
+                $fa = Get-ItemProperty -LiteralPath $faKey -ErrorAction SilentlyContinue
+                if (-not $fa) { continue }
+                foreach ($p in $fa.PSObject.Properties) {
+                    if ($p.Name -match '^PS' -or $p.Name -notlike '.*') { continue }
+                    foreach ($id in (Resolve-Identity ([string]$p.Value))) { Add-ExtTo $map $id ([string]$p.Name) }
+                }
+            }
+        }
+        # Per-app SupportedTypes: Applications\<exe>\SupportedTypes (Win32 apps
+        # that declare openable types by exe rather than via Capabilities).
+        foreach ($appsHive in @('HKLM:\SOFTWARE\Classes\Applications', 'HKCU:\SOFTWARE\Classes\Applications')) {
+            if (-not (Test-Path -LiteralPath $appsHive)) { continue }
+            Get-ChildItem -LiteralPath $appsHive -ErrorAction SilentlyContinue | ForEach-Object {
+                $stKey = Join-Path $_.PSPath 'SupportedTypes'
+                if (-not (Test-Path -LiteralPath $stKey)) { return }
+                $id = "exe:" + $_.PSChildName.ToLower()
+                $st = Get-ItemProperty -LiteralPath $stKey -ErrorAction SilentlyContinue
+                if ($st) { foreach ($p in $st.PSObject.Properties) { if ($p.Name -notmatch '^PS') { Add-ExtTo $map $id ([string]$p.Name) } } }
             }
         }
     } catch { }
@@ -317,13 +360,16 @@ function Get-AppExtensions {
             if ($aumid) { $keys.Add("aumid:$aumid") }
         }
         if ($ExePath) { $keys.Add("exe:" + ([System.IO.Path]::GetFileName($ExePath)).ToLower()) }
+        # Union every matching identity (an app discovered with both an AUMID
+        # and an exe path can have entries under both keys).
+        $acc = New-Object System.Collections.Generic.List[string]
         foreach ($k in $keys) {
             if ($script:WinpodxExtMap.ContainsKey($k)) {
-                $lst = $script:WinpodxExtMap[$k]
-                if ($lst.Count -gt 64) { return @($lst.GetRange(0, 64)) }
-                return @($lst)
+                foreach ($x in $script:WinpodxExtMap[$k]) { if (-not $acc.Contains($x)) { $acc.Add($x) } }
             }
         }
+        if ($acc.Count -gt 64) { return @($acc.GetRange(0, 64)) }
+        return @($acc)
     } catch { return @() }
     return @()
 }
@@ -359,7 +405,20 @@ function Add-Result {
         launch_uri    = [string]$Entry.launch_uri
         icon_b64      = [string]$Entry.icon_b64
         exe_hash      = Get-ExeHash $path
-        extensions    = @(Get-AppExtensions $path $Entry.launch_uri)
+        # Union of every place Windows records what this app can open: the
+        # caller's declared associations (UWP AppxManifest fileTypeAssociation)
+        # AND the registry handler map (per-app Capabilities\FileAssociations,
+        # Applications\<exe>\SupportedTypes, and the per-extension UserChoice
+        # default). An app that isn't the *default* for a type still shows up
+        # in the Linux "Open with" list as long as it declares it anywhere.
+        extensions    = @(
+            $extAcc = New-Object System.Collections.Generic.List[string]
+            foreach ($e in (@($Entry.extensions) + @(Get-AppExtensions $path $Entry.launch_uri))) {
+                $el = ([string]$e).ToLower()
+                if ($el -match '^\.[a-z0-9]{1,16}$' -and -not $extAcc.Contains($el)) { $extAcc.Add($el) }
+            }
+            if ($extAcc.Count -gt 64) { $extAcc.GetRange(0, 64) } else { $extAcc }
+        )
     }) | Out-Null
 }
 
@@ -570,6 +629,30 @@ try {
                         }
                     }
 
+                    # File associations the app DECLARES it can open (#545) --
+                    # the AppxManifest's windows.fileTypeAssociation. This is the
+                    # full set the app handles (Paint -> .png/.jpg/..., Photos ->
+                    # all images), not just whatever it's the *default* for. The
+                    # manifest is already parsed, so this is free.
+                    $uwpExts = New-Object System.Collections.Generic.List[string]
+                    try {
+                        foreach ($ex in @($appNode.Extensions.Extension)) {
+                            if (([string]$ex.Category) -notmatch 'fileTypeAssociation') { continue }
+                            foreach ($fta in @($ex.FileTypeAssociation)) {
+                                foreach ($ft in @($fta.SupportedFileTypes.FileType)) {
+                                    $v = [string]$ft.'#text'
+                                    if (-not $v) { $v = [string]$ft }
+                                    $v = $v.Trim().ToLower()
+                                    if ($v -and -not $v.StartsWith('.')) { $v = ".$v" }
+                                    if ($v -match '^\.[a-z0-9]{1,16}$' -and -not $uwpExts.Contains($v)) {
+                                        $uwpExts.Add($v)
+                                    }
+                                }
+                            }
+                        }
+                    } catch { }
+                    if ($uwpExts.Count -gt 64) { $uwpExts = $uwpExts.GetRange(0, 64) }
+
                     # path must be non-empty per core contract; use InstallLocation as placeholder.
                     Add-Result @{
                         name          = $displayName
@@ -580,6 +663,7 @@ try {
                         wm_class_hint = ''
                         launch_uri    = $aumid
                         icon_b64      = $iconB64
+                        extensions    = @($uwpExts)
                     }
                 } catch { }
             }
