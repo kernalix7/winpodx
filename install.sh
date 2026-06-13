@@ -491,7 +491,13 @@ install_pkg() {
 # rpm-ostree's RPM install path is wholly separate from the venv flow below,
 # so it disarms the rollback trap (its artifacts are an OBS repo file +
 # layered RPM, neither of which the venv rollback should touch) and exits.
-if command -v rpm-ostree >/dev/null 2>&1; then
+#
+# An EXPLICIT source override (--main / --ref / --source / --image-tar) always
+# wins: the OBS RPM only ships tagged releases, so honouring those flags means
+# falling through to the git/venv flow even on Atomic (#548 — custom-image
+# builders layer winpodx from main like any other Fedora package).
+if command -v rpm-ostree >/dev/null 2>&1 \
+   && [ -z "$WINPODX_REF" ] && [ -z "$WINPODX_SOURCE" ] && [ -z "$WINPODX_IMAGE_TAR" ]; then
     ROLLBACK_ARMED=0
     log "Detected rpm-ostree — Atomic Fedora install path."
     if [ ! -f /etc/os-release ]; then
@@ -524,6 +530,11 @@ if command -v rpm-ostree >/dev/null 2>&1; then
         fi
     fi
     exit 0
+elif command -v rpm-ostree >/dev/null 2>&1; then
+    # rpm-ostree present, but the user asked for a specific source above — note
+    # the bypass (the OBS RPM only ships tagged releases) and fall through to
+    # the git/venv install path below.
+    log "rpm-ostree detected, but --main/--ref/--source/--image-tar was set — installing from source via the venv path."
 fi
 
 # =====================================================================

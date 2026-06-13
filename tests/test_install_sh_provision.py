@@ -44,6 +44,26 @@ def test_invokes_winpodx_provision(script: str) -> None:
     assert '"$SYMLINK" "${PROVISION_CMD[@]}"' in script
 
 
+def test_atomic_rpm_path_honours_explicit_source_override(script: str) -> None:
+    # #548: on Atomic (rpm-ostree) install.sh defaults to the OBS RPM, but an
+    # explicit --main/--ref/--source/--image-tar must win and fall through to
+    # the git/venv flow (the OBS RPM only ships tagged releases). The gate must
+    # therefore require all three override vars to be empty before taking the
+    # rpm-ostree path.
+    lines = script.splitlines()
+    # The gate opens with `if command -v rpm-ostree ... \` and continues the
+    # compound `&& [ -z ... ]` condition on the next line.
+    gate = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("if command -v rpm-ostree")),
+        None,
+    )
+    assert gate is not None, "rpm-ostree gate must open the Atomic install path"
+    cond = " ".join(lines[gate : gate + 2])
+    assert '-z "$WINPODX_REF"' in cond
+    assert '-z "$WINPODX_SOURCE"' in cond
+    assert '-z "$WINPODX_IMAGE_TAR"' in cond
+
+
 def test_no_inline_health_curl_poll(script: str) -> None:
     # The 30× `curl .../health` settle poll moved into finish_provisioning.
     # (install.sh still uses curl elsewhere — e.g. the GitHub release check —
