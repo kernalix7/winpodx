@@ -674,13 +674,14 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "-async-channels",
         "+auto-reconnect",
         "-auto-reconnect",
-        # Cache toggles (off-by-default usually saves bandwidth at cost of CPU).
-        "+bitmap-cache",
-        "-bitmap-cache",
-        "+offscreen-cache",
-        "-offscreen-cache",
-        "+glyph-cache",
-        "-glyph-cache",
+        # #380 (notnotno, FreeRDP 3.26, reopened 2026-06-11): the cache toggles
+        # are the SAME case as the gfx-* siblings above — FreeRDP 3.x folds them
+        # into the `/cache:` option (`/cache:bitmap:on|off`, `/cache:glyph:...`,
+        # `/cache:offscreen:...`, `/cache:codec:rfx|nsc`), so the bare FreeRDP-2
+        # spellings `+/-bitmap-cache`, `+/-offscreen-cache`, `+/-glyph-cache`
+        # passed our allowlist only to be rejected by xfreerdp's own parser.
+        # Removed; the `/cache` value-regex in _SIMPLE_VALUE_FLAGS accepts the
+        # correct forms.
         # Multi-monitor / repaint experiments (RAIL window-move corruption,
         # 2026-05-30). Bare forms; the value forms (/multimon:force, /gdi:sw,
         # /smart-sizing:WxH, /monitors:0,1) live in _SIMPLE_VALUE_FLAGS below.
@@ -720,6 +721,14 @@ _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
     "/monitors": re.compile(r"[0-9]{1,2}(,[0-9]{1,2}){0,7}"),  # /monitors:0,1
     "/smart-sizing": re.compile(r"[1-9][0-9]{1,4}x[1-9][0-9]{1,4}"),  # /smart-sizing:WxH
     "/window-position": re.compile(r"[0-9]{1,5}x[0-9]{1,5}"),  # /window-position:<x>x<y> (#380)
+    # /cache:bitmap:on|off, /cache:glyph:..., /cache:offscreen:..., /cache:codec:rfx|nsc,
+    # /cache:persist (and comma-joined combos). FreeRDP-3 replacement for the bare
+    # +/-{bitmap,offscreen,glyph}-cache toggles (#380). `persist-file:<path>` is
+    # intentionally NOT accepted — no file paths through the extra-args allowlist.
+    "/cache": re.compile(
+        r"(?:(?:bitmap|glyph|offscreen):(?:on|off)|codec:(?:rfx|nsc)|persist)"
+        r"(?:,(?:(?:bitmap|glyph|offscreen):(?:on|off)|codec:(?:rfx|nsc)|persist))*"
+    ),
 }
 
 # Device-redirection allowlist; empty set rejects all :value forms.

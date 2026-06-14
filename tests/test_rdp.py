@@ -534,7 +534,10 @@ class TestBuildRdpCommand:
 
         (gfx-progressive / gfx-thin-client / gfx-small-cache were removed in
         #380 — they are `/gfx:` sub-options, not bare toggles; see
-        ``test_gfx_suboptions_and_window_position``.)"""
+        ``test_gfx_suboptions_and_window_position``. The bare cache toggles
+        -bitmap-cache / -offscreen-cache / -glyph-cache were likewise removed
+        when #380 reopened — they are `/cache:<sub>:on|off` sub-options; see
+        ``test_cache_suboptions``.)"""
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
@@ -545,15 +548,30 @@ class TestBuildRdpCommand:
             "-grab-keyboard +grab-keyboard -grab-mouse +grab-mouse "
             "-mouse-relative +mouse-relative "
             "-async-update +async-update -async-channels +async-channels "
-            "-auto-reconnect +auto-reconnect "
-            "-bitmap-cache +bitmap-cache "
-            "-offscreen-cache +offscreen-cache "
-            "-glyph-cache +glyph-cache"
+            "-auto-reconnect +auto-reconnect"
         )
         cfg.rdp.extra_flags = toggles
         cmd, _ = build_rdp_command(cfg)
         for toggle in toggles.split():
             assert toggle in cmd, f"toggle dropped by filter: {toggle!r}"
+
+    def test_cache_suboptions(self, cfg, monkeypatch):
+        """#380 (reopened, FreeRDP 3.26): cache toggles use `/cache:<sub>:on|off`,
+        not bare `+/-{bitmap,offscreen,glyph}-cache`."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg.rdp.extra_flags = (
+            "/cache:bitmap:on /cache:offscreen:off /cache:glyph:on "
+            "+bitmap-cache -glyph-cache"  # stale bare forms must be dropped
+        )
+        cmd, _ = build_rdp_command(cfg)
+        assert "/cache:bitmap:on" in cmd
+        assert "/cache:offscreen:off" in cmd
+        assert "/cache:glyph:on" in cmd
+        assert "+bitmap-cache" not in cmd
+        assert "-glyph-cache" not in cmd
 
     def test_gfx_suboptions_and_window_position(self, cfg, monkeypatch):
         """#380 (notnotno, FreeRDP 3.26): the gfx sub-options and

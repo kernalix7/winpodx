@@ -95,6 +95,38 @@ class TestExtraFlagsWhitelist:
     def test_empty_flags(self):
         assert _filter_extra_flags("") == []
 
+    def test_freerdp3_cache_option_forms_pass(self):
+        # #380: FreeRDP 3.x folds cache toggles into /cache:<sub>:<val>.
+        for flag in (
+            "/cache:bitmap:on",
+            "/cache:bitmap:off",
+            "/cache:glyph:off",
+            "/cache:offscreen:on",
+            "/cache:codec:rfx",
+            "/cache:persist",
+            "/cache:bitmap:on,glyph:off,offscreen:on",
+        ):
+            assert _filter_extra_flags(flag) == [flag], flag
+
+    def test_stale_freerdp2_bare_cache_flags_blocked(self):
+        # #380 (reopened): the bare FreeRDP-2 spellings are rejected by xfreerdp
+        # 3.x, so they must not pass the allowlist.
+        result = _filter_extra_flags(
+            "+bitmap-cache -bitmap-cache +offscreen-cache -offscreen-cache "
+            "+glyph-cache -glyph-cache"
+        )
+        assert result == []
+
+    def test_cache_option_rejects_file_path_and_injection(self):
+        # persist-file:<path> and bad values must not slip through /cache.
+        for bad in (
+            "/cache:persist-file:/etc/passwd",
+            "/cache:bitmap:maybe",
+            "/cache:../etc",
+            "/cache:bitmap:on;rm -rf",
+        ):
+            assert _filter_extra_flags(bad) == [], bad
+
 
 # --- Device-redirection flag hardening (H1) ---
 
