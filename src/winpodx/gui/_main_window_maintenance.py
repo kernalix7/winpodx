@@ -428,7 +428,13 @@ class MaintenanceMixin:
                 # Marshal the close back onto the GUI thread.
                 QTimer.singleShot(0, dlg.finish)
 
-        threading.Thread(target=_do, daemon=True).start()
+        # Start the worker only once dlg.exec()'s nested event loop is running
+        # (#550): a fast op (e.g. the "speed" debloat preset) could otherwise
+        # finish and call dlg.finish() -> accept() BEFORE exec() began, so the
+        # accept was a no-op and the dialog hung open until the user closed it.
+        # Deferring the start via a 0-timer guarantees the thread launches from
+        # inside the running loop, so finish() always lands on a live dialog.
+        QTimer.singleShot(0, lambda: threading.Thread(target=_do, daemon=True).start())
         dlg.exec()
 
     def _on_cleanup(self) -> None:

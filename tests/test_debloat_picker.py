@@ -39,6 +39,16 @@ def catalog():
 
 
 class TestDialogInitialState:
+    def test_opens_with_roomy_starting_size(self, qapp, catalog):
+        # #550: the picker must open large enough to show preset + items,
+        # not at a cramped default.
+        dlg = DebloatPickerDialog(catalog)
+        try:
+            assert dlg.width() >= 700
+            assert dlg.height() >= 640
+        finally:
+            dlg.deleteLater()
+
     def test_opens_with_normal_preset_seeded(self, qapp, catalog):
         dlg = DebloatPickerDialog(catalog)
         try:

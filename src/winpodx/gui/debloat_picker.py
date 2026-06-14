@@ -108,6 +108,9 @@ class DebloatPickerDialog(QDialog):
 
         self.setWindowTitle(tr("Debloat picker"))
         self.setMinimumWidth(560)
+        # Open roomy enough to show the preset row + several catalog items at
+        # once instead of a cramped default (#550); still resizable + scrolls.
+        self.resize(760, 720)
         self.setModal(True)
         self.setStyleSheet(DIALOG + CHECKBOX + RADIO + SCROLL_AREA)
 
