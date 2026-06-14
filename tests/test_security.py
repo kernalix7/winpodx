@@ -117,6 +117,16 @@ class TestExtraFlagsWhitelist:
         )
         assert result == []
 
+    def test_gfx_bare_toggle_allows_disable_workaround(self):
+        # #393: `-gfx` (disable the GFX channel → legacy GDI path) is a valid
+        # FreeRDP workaround for the XWayland RAIL render glitch and must pass;
+        # `/gfx:RFX` value form keeps working; the OPTIONAL sub-option
+        # `-gfx-h264` stays blocked (it's not a bare toggle).
+        assert _filter_extra_flags("-gfx") == ["-gfx"]
+        assert _filter_extra_flags("+gfx") == ["+gfx"]
+        assert _filter_extra_flags("/gfx:RFX") == ["/gfx:RFX"]
+        assert _filter_extra_flags("-gfx-h264") == []
+
     def test_cache_option_rejects_file_path_and_injection(self):
         # persist-file:<path> and bad values must not slip through /cache.
         for bad in (

@@ -630,6 +630,16 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "/gfx",
         "/rfx",
         "/smartcard",
+        # #393 (ismikes, Ubuntu 26.04 KDE Wayland+XWayland): RAIL windows on the
+        # GFX pipeline (Calculator etc.) warp / go blue / "bounce" on fast moves,
+        # while plain-GDI windows (PowerShell, Notepad) are fine — and even
+        # `/gfx:RFX` doesn't help, so the GFX channel surface mapping itself is
+        # the culprit under XWayland. `/gfx` is an OPTIONAL-value flag, so the
+        # bare disable `-gfx` (fall back to the legacy GDI path the unaffected
+        # apps use) is a valid workaround — it was only ever blocked by our
+        # allowlist, not by xfreerdp. Expose `+gfx` / `-gfx` as bare toggles.
+        "+gfx",
+        "-gfx",
         # ---- codec / graphics toggles (#126 diagnosis, 2026-05-06/07) ----
         # FreeRDP 3.x splits codec flags into BOOL (`+/-foo` toggles) vs
         # OPTIONAL/REQUIRED (`/foo:value` only). xiyeming's first test of
