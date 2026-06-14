@@ -268,6 +268,16 @@ class LibraryPageMixin:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Vertical scrollbar ALWAYS on (#567): with widgetResizable=True an
+        # AsNeeded vertical bar fluctuates as content height changes, which
+        # changes the viewport width, which makes QScrollArea.updateScrollBars
+        # re-query the layout's heightForWidth — and with the word-wrapped app
+        # name labels below that QBoxLayout::heightForWidth feedback recurses
+        # without bound and SIGSEGVs the whole GUI on "Refresh Apps" (confirmed
+        # by the crash backtrace; same family as #532). Pinning the bar on keeps
+        # the viewport width stable so the loop can't form. The SCROLL_AREA
+        # stylesheet keeps it visually unobtrusive.
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         scroll.setStyleSheet(SCROLL_AREA)
 
         self.app_list_container = QWidget()
