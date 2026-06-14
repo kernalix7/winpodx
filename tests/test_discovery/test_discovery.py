@@ -196,10 +196,25 @@ def test_slugify_strips_leading_trailing_punctuation():
     assert _slugify_name("  ---Foo---  ") == "foo"
 
 
-def test_slugify_unicode_maps_to_empty_or_dash():
-    # Non-ASCII chars get collapsed to '-'; pure-Unicode names resolve to
-    # empty slugs (which the caller rejects).
-    assert _slugify_name("한글") == ""
+def test_slugify_pure_unicode_falls_back_to_stable_hash():
+    # #553: a name with NO ASCII-safe chars (Chinese/Korean/Japanese app names)
+    # must NOT be dropped — it gets a stable, safe `app-<hash>` slug so the app
+    # is discoverable (full_name keeps the original characters for display).
+    import re
+
+    safe = re.compile(r"^[a-zA-Z0-9_-]+$")
+    for name in ("한글", "东方财富", "同花顺"):
+        slug = _slugify_name(name)
+        assert slug.startswith("app-")
+        assert safe.match(slug)
+    # Stable (re-scan doesn't duplicate) and unique across distinct names.
+    assert _slugify_name("东方财富") == _slugify_name("东方财富")
+    assert _slugify_name("东方财富") != _slugify_name("同花顺")
+    # A name with SOME ASCII keeps that part instead of hashing.
+    assert _slugify_name("微信WeChat") == "wechat"
+    # Genuinely empty / whitespace-only is still rejected (empty slug).
+    assert _slugify_name("") == ""
+    assert _slugify_name("   ") == ""
 
 
 def test_slugify_bounds_length():

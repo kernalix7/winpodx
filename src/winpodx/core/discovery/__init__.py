@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import binascii
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -1073,10 +1074,23 @@ def _slugify_name(raw: str) -> str:
 
     Lowercases, replaces runs of unsafe chars with ``-``, trims leading
     and trailing dashes and underscores, and bounds the length.
+
+    A name with NO ASCII-safe characters at all (e.g. a purely Chinese /
+    Japanese / Korean app name) would otherwise sanitize to an empty slug and
+    the app would be silently dropped from discovery (#553). The slug is only
+    an internal key (the ``.desktop`` filename, ``/wm-class``, and
+    ``winpodx app run <slug>``); the human-visible name is ``full_name``, which
+    keeps the original characters. So when sanitization is empty we fall back to
+    a STABLE ASCII slug derived from the raw name (same name -> same slug, so a
+    re-scan doesn't duplicate it) instead of discarding the app.
     """
-    slug = _NAME_SANITIZE_RE.sub("-", raw.strip().lower()).strip("-_")
+    raw = raw.strip()
+    slug = _NAME_SANITIZE_RE.sub("-", raw.lower()).strip("-_")
     if not slug:
-        return ""
+        if not raw:
+            return ""
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
+        return f"app-{digest}"
     if len(slug) > 64:
         slug = slug[:64].rstrip("-_")
     if not _SAFE_NAME_RE.match(slug):
