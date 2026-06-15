@@ -107,7 +107,11 @@ def test_podman_backend_stop_keeps_container():
     fake = MagicMock()
     fake.returncode = 0
     fake.stderr = ""
-    with patch("winpodx.backend.podman.subprocess.run", return_value=fake) as mock_run:
+    # Mock _compose_cmd too: it raises if podman-compose isn't on PATH (CI).
+    with (
+        patch.object(backend, "_compose_cmd", return_value=["podman-compose", "-f", "c.yaml"]),
+        patch("winpodx.backend.podman.subprocess.run", return_value=fake) as mock_run,
+    ):
         backend.stop()
     cmd = mock_run.call_args[0][0]
     assert "stop" in cmd
@@ -121,7 +125,10 @@ def test_docker_backend_stop_keeps_container():
     fake = MagicMock()
     fake.returncode = 0
     fake.stderr = ""
-    with patch("winpodx.backend.docker.subprocess.run", return_value=fake) as mock_run:
+    with (
+        patch.object(backend, "_compose_cmd", return_value=["docker", "compose", "-f", "c.yaml"]),
+        patch("winpodx.backend.docker.subprocess.run", return_value=fake) as mock_run,
+    ):
         backend.stop()
     cmd = mock_run.call_args[0][0]
     assert "stop" in cmd
