@@ -9,6 +9,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-15
+
+### Fixed
+
+- **GUI no longer crashes when clicking "Refresh Apps"** on KDE/Plasma Wayland (#567). The app list is a `widgetResizable` scroll area whose as-needed vertical scrollbar made `QScrollArea.updateScrollBars` re-query the word-wrapped labels' `heightForWidth` without bound → stack-overflow SIGSEGV. The scrollbar is now pinned so the viewport width can't oscillate.
+- **Tray "Terminate Session" and "USB Devices" submenus open again** on KDE/Plasma (#573). Their menu entries were built with parentless `QAction`s inside a helper, so PySide6 garbage-collected them once the helper returned and the submenus exported with zero children (the arrow showed but nothing opened). Each action is now parented to its submenu so it survives.
+- **Chinese / Japanese / Korean app names are no longer dropped from discovery** (#553). A purely non-ASCII name sanitized to an empty slug and the app vanished; it now keeps the original characters as the display name and gets a stable internal id, so CJK-named apps appear like any other.
+- **`winpodx pod stop` keeps the container** instead of removing it. It used `compose down` (which deletes the container), so updating winpodx while stopped recreated the container from compose every time — "Container 'winpodx-windows' is missing — creating it …" plus an unnecessary Windows reboot. It now uses `compose stop`; `start` just restarts the kept container. The disk is unaffected.
+- **A missing Windows username now fails fast with a clear message** instead of a cryptic FreeRDP `Inappropriate ioctl for device` error (#569). With no credentials xfreerdp fell back to an interactive prompt that can't run under a GUI launch; winpodx now says to run `winpodx setup`.
+- **`winpodx doctor` / extra RDP flags accept the current FreeRDP 3 spellings** (#380): the cache toggles are `/cache:bitmap:on|off` (etc.) — the old FreeRDP-2 `+/-bitmap-cache` forms that xfreerdp 3 rejects are dropped from the allow-list.
+- **`-gfx` can be passed to disable the GFX pipeline** (#393) as a workaround for RAIL render glitches (blue/warping windows) on some XWayland/Plasma setups; the bare `+gfx`/`-gfx` toggles were previously blocked by the extra-args allow-list.
+- **The Debloat picker opens at a usable size**, and the "running debloat" dialog now closes itself when the run finishes (a fast preset could leave it hanging) (#550).
+
 ## [0.7.1] - 2026-06-13
 
 ### Added

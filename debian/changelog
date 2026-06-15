@@ -1,3 +1,12 @@
+winpodx (0.7.2) unstable; urgency=medium
+
+  * Bug-fix release: GUI Refresh crash (#567), tray submenus open on Plasma
+    (#573), CJK app names discovered (#553), pod stop keeps the container,
+    clear error on missing credentials (#569), FreeRDP-3 cache flags (#380),
+    -gfx workaround (#393), debloat dialog UX (#550). See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 15 Jun 2026 05:50:03 +0000
+
 winpodx (0.7.1) unstable; urgency=medium
 
   * Auto file associations for discovered apps ("Open with"); GUI app

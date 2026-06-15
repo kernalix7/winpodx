@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-15
+
+### Fixed
+
+- **"Refresh Apps" 클릭 시 GUI 크래시** (KDE/Plasma Wayland) 수정 (#567). 앱 목록이 `widgetResizable` 스크롤 영역이라 as-needed 수직 스크롤바가 `updateScrollBars`→word-wrap 라벨 `heightForWidth`를 무한 재귀시켜 스택 오버플로 SIGSEGV. 스크롤바를 고정해 뷰포트 폭이 진동하지 않게 함.
+- **트레이 "Terminate Session" · "USB Devices" 서브메뉴가 다시 열림** (KDE/Plasma) (#573). 메뉴 항목을 헬퍼 안에서 부모 없는 `QAction`으로 만들어 헬퍼 반환 후 PySide6 GC가 수거 → 서브메뉴가 children 0개로 export(화살표만 뜨고 안 열림). 각 액션에 서브메뉴를 부모로 지정해 생존시킴.
+- **중국어/일본어/한국어 앱 이름이 디스커버리에서 누락되지 않음** (#553). 순수 비ASCII 이름이 빈 슬러그가 되어 앱이 사라졌음; 이제 원본 문자를 표시 이름으로 유지하고 안정적 내부 id를 부여해 다른 앱처럼 표시됨.
+- **`winpodx pod stop`이 컨테이너를 보존** (제거하지 않음). `compose down`(컨테이너 삭제)을 써서 정지 상태로 업데이트하면 매번 컨테이너를 재생성("Container 'winpodx-windows' is missing — creating it …")하고 불필요한 Windows 재부팅 발생. 이제 `compose stop` 사용 — `start`가 보존된 컨테이너를 재시작. 디스크는 영향 없음.
+- **Windows 사용자명이 비면 정체불명의 FreeRDP `Inappropriate ioctl for device` 대신 명확한 에러로 빠르게 실패** (#569). 자격증명이 없으면 xfreerdp가 대화형 프롬프트로 빠지는데 GUI 실행에선 동작 불가 — 이제 `winpodx setup` 실행을 안내.
+- **추가 RDP 플래그가 현재 FreeRDP 3 철자를 수용** (#380): 캐시 토글은 `/cache:bitmap:on|off` 등 — xfreerdp 3가 거부하는 구 FreeRDP-2 `+/-bitmap-cache` 형식을 allow-list에서 제거.
+- **`-gfx`로 GFX 파이프라인 비활성화 가능** (#393) — 일부 XWayland/Plasma에서 RAIL 렌더 깨짐(파란/뭉개진 창) 워크어라운드; bare `+gfx`/`-gfx` 토글이 이전엔 allow-list에 막혀 있었음.
+- **Debloat 피커가 적절한 크기로 열리고**, "debloat 실행 중" 창이 작업 완료 시 자동으로 닫힘(빠른 프리셋에서 안 닫히던 문제) (#550).
+
 ## [0.7.1] - 2026-06-13
 
 ### Added
