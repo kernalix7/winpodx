@@ -441,13 +441,21 @@ def run_tray() -> None:
         except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
             log.warning("sessions menu: enumeration failed: %s", e)
             active = []
+        # Parent each QAction to the submenu (#573). A parentless QAction added
+        # via addAction() is kept on the *Python* side only; when this closure
+        # returns, the local refs drop and PySide6 garbage-collects the actions,
+        # so the submenu ends up empty — which DBusMenu/Plasma exports as a
+        # submenu with ZERO children that can't be opened (confirmed via
+        # `dbusmenu GetLayout`: Terminate/USB had no children while the eagerly
+        # built Launch App / Maintenance submenus did). Giving the QAction a C++
+        # parent (the menu) makes it outlive the closure.
         if not active:
-            empty = QAction(tr("(no active sessions)"))
+            empty = QAction(tr("(no active sessions)"), sessions_menu)
             empty.setEnabled(False)
             sessions_menu.addAction(empty)
             return
         for s in active:
-            act = QAction(tr("Terminate: {name}").format(name=s.app_name))
+            act = QAction(tr("Terminate: {name}").format(name=s.app_name), sessions_menu)
             act.triggered.connect(_make_session_kill(s.app_name))
             sessions_menu.addAction(act)
 
@@ -515,14 +523,16 @@ def run_tray() -> None:
         except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
             log.warning("device menu: enumeration failed: %s", e)
             usb, assigned = [], set()
+        # Parent QActions to the submenu so they survive this closure (#573) —
+        # see _rebuild_sessions_menu for the GC / empty-DBusMenu-children detail.
         if not usb:
-            empty = QAction(tr("(no USB devices detected)"))
+            empty = QAction(tr("(no USB devices detected)"), devices_menu)
             empty.setEnabled(False)
             devices_menu.addAction(empty)
             return
         for host in usb:
             dc = host.to_device_config()
-            act = QAction(host.label or dc.did)
+            act = QAction(host.label or dc.did, devices_menu)
             act.setCheckable(True)
             act.setChecked(dc.key in assigned)
             # `triggered` (not `toggled`) fires only on user clicks, so the
