@@ -459,13 +459,15 @@ def run_tray() -> None:
             act.triggered.connect(_make_session_kill(s.app_name))
             sessions_menu.addAction(act)
 
-    # NO aboutToShow here (#573): on KDE/Plasma the tray menu is rendered over
-    # DBusMenu, and an aboutToShow-driven submenu is exported with *deferred*
-    # children that Plasma never fills (the nested aboutToShow round-trip
-    # doesn't reach Qt), so the submenu wouldn't even open. Populate eagerly
-    # like the Launch App / Maintenance submenus (which work), and keep it fresh
-    # from the refresh_status timer tick instead — Plasma reads the current
-    # children via DBusMenu GetLayout when the submenu is opened.
+    # Refresh on open via aboutToShow so the list is current the instant the
+    # user opens it — without this the submenu only refreshed on the 30 s timer
+    # tick, so a session started after launch took up to ~30 s to appear (#573
+    # follow-up; reporter saw ~10-12 s). The earlier worry that aboutToShow
+    # broke opening under Plasma was a misdiagnosis — the real cause was the
+    # parentless-QAction GC fixed above; with the actions parented, aboutToShow
+    # is safe and re-fills the live list on each open. The timer rebuild stays
+    # as a fallback for hosts that don't deliver the nested aboutToShow.
+    sessions_menu.aboutToShow.connect(_rebuild_sessions_menu)
     _rebuild_sessions_menu()
     menu.addMenu(sessions_menu)
 
@@ -540,9 +542,10 @@ def run_tray() -> None:
             act.triggered.connect(_make_device_toggle(host))
             devices_menu.addAction(act)
 
-    # Eager populate + timer refresh, no aboutToShow — see the Terminate-Session
-    # submenu above (#573): aboutToShow-deferred submenus don't open under
-    # Plasma's DBusMenu.
+    # Refresh on open (parented actions make aboutToShow safe) + timer fallback,
+    # so hot-plugged USB devices show without waiting for the next tick — see the
+    # Terminate-Session submenu above (#573 follow-up).
+    devices_menu.aboutToShow.connect(_rebuild_devices_menu)
     _rebuild_devices_menu()
     menu.addMenu(devices_menu)
 
