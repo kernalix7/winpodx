@@ -22,6 +22,10 @@
 - **`-gfx`로 GFX 파이프라인 비활성화 가능** (#393) — 일부 XWayland/Plasma에서 RAIL 렌더 깨짐(파란/뭉개진 창) 워크어라운드; bare `+gfx`/`-gfx` 토글이 이전엔 allow-list에 막혀 있었음.
 - **Debloat 피커가 적절한 크기로 열리고**, "debloat 실행 중" 창이 작업 완료 시 자동으로 닫힘(빠른 프리셋에서 안 닫히던 문제) (#550).
 
+### Contributors
+
+이번 릴리즈를 이끈 버그 제보를 해주신 @ismikes (#393, #550, #573), @notnotno (#380), @hermitguo (#553), @bangetto (#567), @biskasarchaniotakis (#569) 님께 감사드립니다.
+
 ## [0.7.1] - 2026-06-13
 
 ### Added

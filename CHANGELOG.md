@@ -22,6 +22,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **`-gfx` can be passed to disable the GFX pipeline** (#393) as a workaround for RAIL render glitches (blue/warping windows) on some XWayland/Plasma setups; the bare `+gfx`/`-gfx` toggles were previously blocked by the extra-args allow-list.
 - **The Debloat picker opens at a usable size**, and the "running debloat" dialog now closes itself when the run finishes (a fast preset could leave it hanging) (#550).
 
+### Contributors
+
+Thanks to @ismikes (#393, #550, #573), @notnotno (#380), @hermitguo (#553), @bangetto (#567), and @biskasarchaniotakis (#569) for the bug reports that drove this release.
+
 ## [0.7.1] - 2026-06-13
 
 ### Added
