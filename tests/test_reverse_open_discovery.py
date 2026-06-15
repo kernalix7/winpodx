@@ -173,6 +173,27 @@ def test_discover_apps_skips_entries_without_mime() -> None:
     assert discover_apps() == []
 
 
+def test_discover_apps_drops_records_reason() -> None:
+    # #594: the `drops` out-param records every scanned .desktop that wasn't
+    # returned, with a human reason — the data behind `host-open refresh -v`.
+    p = _write_desktop(
+        "settings.desktop",
+        "[Desktop Entry]\nType=Application\nName=Settings\nExec=settings\n",
+    )
+    drops: list = []
+    apps = discover_apps(drops=drops)
+    assert apps == []
+    assert (p, "no MimeType= (handles no file type / URL scheme)") in drops
+
+
+def test_discover_apps_drops_empty_when_app_kept() -> None:
+    _write_desktop("org.kde.kate.desktop", _kate_entry())
+    drops: list = []
+    apps = discover_apps(drops=drops)
+    assert len(apps) == 1
+    assert drops == []
+
+
 def test_discover_apps_skips_nodisplay_by_default() -> None:
     _write_desktop("kate.desktop", _kate_entry("NoDisplay=true\n"))
     assert discover_apps() == []

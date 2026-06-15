@@ -348,6 +348,7 @@ def discover_apps(
     *,
     extra_dirs: Iterable[Path] | None = None,
     include_nodisplay: bool = False,
+    drops: list[tuple[Path, str]] | None = None,
 ) -> list[LinuxApp]:
     """Walk the XDG application directories and return mime-handling apps.
 
@@ -363,9 +364,18 @@ def discover_apps(
       A list of :class:`LinuxApp`, deduplicated by basename (first hit
       wins, matching xdg-open shadowing semantics). Stable order:
       sorted by slug.
+
+      drops: if a list is passed, every scanned ``.desktop`` that is NOT
+        returned is appended as ``(path, reason)`` — the diagnostic behind
+        ``winpodx host-open refresh --verbose`` so "why is my app missing?"
+        is answerable without guessing.
     """
     desktops = _current_desktops()
     defaults = _read_default_handlers()
+
+    def _drop(path: Path, reason: str) -> None:
+        if drops is not None:
+            drops.append((path, reason))
 
     seen_basenames: set[str] = set()
     apps: dict[str, LinuxApp] = {}
@@ -385,49 +395,61 @@ def discover_apps(
         for path in files:
             basename = path.name
             if basename in seen_basenames:
+                _drop(path, "shadowed by an earlier entry with the same filename")
                 continue
             seen_basenames.add(basename)
 
             entry = _parse_desktop(path)
             if entry is None:
+                _drop(path, "unparseable .desktop ([Desktop Entry] missing/invalid)")
                 continue
             if entry.get("Type", "Application").strip() != "Application":
+                _drop(path, f"Type={entry.get('Type', '').strip()!r} (not Application)")
                 continue
 
             mime_value = entry.get("MimeType", "").strip()
             if not mime_value:
+                _drop(path, "no MimeType= (handles no file type / URL scheme)")
                 continue
 
             if not include_nodisplay and not _is_displayed(entry, desktops):
+                _drop(path, "NoDisplay/Hidden/OnlyShowIn/NotShowIn excludes it here")
                 continue
             if include_nodisplay and entry.get("Hidden", "false").strip().lower() == "true":
                 # Even with --include-nodisplay, Hidden=true is a tombstone.
+                _drop(path, "Hidden=true (tombstone)")
                 continue
 
             try_exec = entry.get("TryExec", "").strip()
             if try_exec and not _resolve_try_exec(try_exec):
+                _drop(path, f"TryExec={try_exec!r} not found on PATH")
                 continue
 
             exec_line = entry.get("Exec", "").strip()
             if not exec_line:
+                _drop(path, "empty Exec=")
                 continue
             try:
                 argv = shlex.split(exec_line, posix=True)
             except ValueError:
                 # Unbalanced quotes etc. — skip rather than guess.
+                _drop(path, "Exec= has unbalanced quotes")
                 continue
             argv = _strip_field_codes(argv)
             if not _exec_is_safe(exec_line, argv):
+                _drop(path, "Exec= rejected by the safety filter (shell metachar / wrapper)")
                 continue
 
             name = (entry.get("Name") or "").strip() or path.stem
             if name.startswith(_WINPODX_NAME_PREFIX):
+                _drop(path, "winpodx-generated Windows-app entry (skip recursion)")
                 continue
             comment = (entry.get("Comment") or "").strip()
             icon_name = (entry.get("Icon") or "").strip()
 
             mime_types = _split_mimes(mime_value)
             if not mime_types:
+                _drop(path, "MimeType= parsed to no valid types")
                 continue
 
             slug = slug_for_desktop(path)

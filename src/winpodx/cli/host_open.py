@@ -194,8 +194,20 @@ def _print_human_list(apps: list[LinuxApp], stream) -> None:
 
 def _cmd_refresh(args: argparse.Namespace) -> int:
     cfg = Config.load()
-    apps = discover_apps(include_nodisplay=args.include_nodisplay)
+    drops: list[tuple[Path, str]] | None = [] if getattr(args, "verbose", False) else None
+    apps = discover_apps(include_nodisplay=args.include_nodisplay, drops=drops)
     kept, skipped = _filter_apps(apps, cfg)
+
+    if drops is not None:
+        # --verbose: show every scanned .desktop that wasn't discovered + why,
+        # so a "my app is missing" report (e.g. #594) is self-diagnosable.
+        print(
+            f"Discovered {len(apps)} mime-handling app(s); "
+            f"dropped {len(drops)} .desktop entry(ies):"
+        )
+        for path, reason in sorted(drops, key=lambda d: str(d[0])):
+            print(f"  - {path}: {reason}")
+        print("")
 
     icons_dir = _icons_dir()
     icons_dir.mkdir(parents=True, exist_ok=True)
@@ -665,6 +677,13 @@ def add_subcommand(top_subparsers: argparse._SubParsersAction) -> None:
         "--include-nodisplay",
         action="store_true",
         help="Include entries marked NoDisplay=true (protocol handlers etc.)",
+    )
+    refresh.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="List every scanned .desktop that was NOT discovered, with the reason "
+        "(diagnose a missing app, e.g. #594).",
     )
 
     lst = sub.add_parser("list", help="Print discovered or cached apps")
