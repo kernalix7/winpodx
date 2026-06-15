@@ -263,6 +263,22 @@ def run_tray() -> None:
             active = []
         sessions_action.setText(tr("Sessions: {n}").format(n=len(active)))
 
+        # Keep the Terminate-Session / USB-Devices submenus fresh from the timer
+        # tick (#573). KDE/Plasma's StatusNotifierItem renders the tray menu over
+        # DBusMenu, which does NOT reliably deliver a *nested* submenu's
+        # aboutToShow — so the two submenus (populated only via their own
+        # aboutToShow) stayed stuck at their build-time content ("(no active
+        # sessions)" / "(no USB devices detected)") and looked broken even though
+        # the top-level "Sessions: N" count (refreshed here) was correct.
+        # Rebuilding them on this always-firing QTimer tick keeps them current
+        # regardless of whether aboutToShow fires. Guarded: this is a QTimer slot
+        # and must never raise (an uncaught exception aborts app.exec()).
+        for _rebuild in (_rebuild_sessions_menu, _rebuild_devices_menu):
+            try:
+                _rebuild()
+            except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
+                log.warning("tray submenu refresh failed: %s", e)
+
         # Re-assert the icon every tick. KDE/GNOME StatusNotifier hosts can
         # restart (plasmashell reload, panel reconfigure, host crash) and Qt
         # does NOT reliably re-register the item afterwards -> the icon
