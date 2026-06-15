@@ -399,6 +399,19 @@ def build_rdp_command(
     if not found:
         raise RuntimeError("FreeRDP 3+ not found. Install xfreerdp3 or xfreerdp.")
 
+    # An empty username is never a valid RDP launch: xfreerdp would fall back to
+    # an interactive credential prompt, which under a GUI / no-tty launch dies
+    # with "set_terminal_nonblock: tcgetattr() failed with Inappropriate ioctl
+    # for device" and ERRCONNECT_CONNECT_CANCELLED — the cryptic "ioctl error"
+    # users hit when setup left the config without credentials (#569). Fail fast
+    # with a clear, actionable message instead of launching a broken command.
+    if not (cfg.rdp.user or "").strip():
+        raise RuntimeError(
+            "Windows credentials are not configured (empty username). "
+            "Run `winpodx setup` to provision the guest, or set one with "
+            "`winpodx config set rdp.user <name>`."
+        )
+
     binary, variant = found
 
     # FreeRDP runs directly on the host. Rootless podman publishes the

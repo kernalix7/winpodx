@@ -72,8 +72,25 @@ def test_launch_app_remoteapp_without_display_raises(monkeypatch, tmp_path):
     monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
     monkeypatch.delenv("DISPLAY", raising=False)
 
+    # A real launch has credentials; set one so we reach the display/XWayland
+    # guard rather than the empty-username guard (#569).
+    cfg = Config()
+    cfg.rdp.user = "TestUser"
     with pytest.raises(RuntimeError, match="XWayland"):
-        rdp_mod.launch_app(Config(), app_executable="notepad.exe")
+        rdp_mod.launch_app(cfg, app_executable="notepad.exe")
+
+
+def test_build_rdp_command_empty_user_raises_clear_error(monkeypatch):
+    # #569: an empty username made xfreerdp fall back to an interactive prompt
+    # that died with "Inappropriate ioctl for device" under a GUI launch. Fail
+    # fast with an actionable message instead.
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"))
+    cfg = Config()
+    cfg.rdp.user = ""
+    with pytest.raises(RuntimeError, match="credentials are not configured"):
+        rdp_mod.build_rdp_command(cfg)
 
 
 def test_find_freerdp_returns_tuple_or_none():
