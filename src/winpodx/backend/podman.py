@@ -146,9 +146,17 @@ class PodmanBackend(Backend):
             raise subprocess.CalledProcessError(returncode=rc, cmd=cmd, output=out, stderr=out)
 
     def stop(self) -> None:
+        # `compose stop`, NOT `compose down`: `down` REMOVES the container, so a
+        # later `winpodx install` / `migrate` sees no container and "heals" it by
+        # recreating from compose every time the user updates while stopped
+        # ("Container 'winpodx-windows' is missing — creating it ...") — a needless
+        # Windows reboot. `stop` keeps the (stopped) container so `start`'s
+        # `compose up -d` just restarts it, and the heal path correctly no-ops
+        # because the container still exists. The persistent disk volume survives
+        # either way; the difference is whether the container object is kept.
         try:
             result = subprocess.run(
-                [*self._compose_cmd(), "down"],
+                [*self._compose_cmd(), "stop"],
                 capture_output=True,
                 text=True,
                 timeout=180,
@@ -156,12 +164,12 @@ class PodmanBackend(Backend):
             )
             if result.returncode != 0:
                 log.warning(
-                    "podman compose down failed (rc=%d): %s",
+                    "podman compose stop failed (rc=%d): %s",
                     result.returncode,
                     result.stderr.strip(),
                 )
         except subprocess.TimeoutExpired:
-            log.error("podman compose down timed out (180s)")
+            log.error("podman compose stop timed out (180s)")
 
     def _container_state(self) -> str:
         """Return the lower-cased container state, or empty string if unavailable."""

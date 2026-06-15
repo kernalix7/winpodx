@@ -49,9 +49,14 @@ class DockerBackend(Backend):
             raise
 
     def stop(self) -> None:
+        # `compose stop`, NOT `compose down`: `down` removes the container, so an
+        # update-while-stopped re-triggers the "container missing — creating it"
+        # heal + Windows reboot every time. `stop` keeps the stopped container so
+        # `start` (`compose up -d`) just restarts it. The disk volume is unaffected
+        # either way. Mirrors the podman backend.
         try:
             result = subprocess.run(
-                [*self._compose_cmd(), "down"],
+                [*self._compose_cmd(), "stop"],
                 capture_output=True,
                 text=True,
                 timeout=180,
@@ -59,12 +64,12 @@ class DockerBackend(Backend):
             )
             if result.returncode != 0:
                 log.warning(
-                    "docker compose down failed (rc=%d): %s",
+                    "docker compose stop failed (rc=%d): %s",
                     result.returncode,
                     result.stderr.strip(),
                 )
         except subprocess.TimeoutExpired:
-            log.error("docker compose down timed out (180s)")
+            log.error("docker compose stop timed out (180s)")
 
     def _container_state(self) -> str:
         """Return the lower-cased container state, or empty string if unavailable."""
