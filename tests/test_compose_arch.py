@@ -68,6 +68,24 @@ def test_compose_cpu_flags_x86_64(monkeypatch):
     assert 'CPU_FLAGS: "arch_capabilities=off"' in content
 
 
+def test_compose_ssd_emulation_off_by_default(monkeypatch):
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    content = _build_compose_content(_cfg())
+    assert "rotation_rate" not in content
+
+
+def test_compose_ssd_emulation_injects_rotation_rate(monkeypatch):
+    # #606: pod.ssd -> -global <driver>.rotation_rate=1 so Windows sees an SSD.
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_config_module.platform, "machine", lambda: "x86_64")
+    cfg = _cfg()
+    cfg.pod.ssd = True
+    content = _build_compose_content(cfg)
+    assert "ide-hd.rotation_rate=1" in content
+    assert "scsi-hd.rotation_rate=1" in content
+
+
 def test_compose_cpu_flags_aarch64(monkeypatch):
     """aarch64 hosts emit empty CPU_FLAGS -- dockur picks the host CPU.
 
