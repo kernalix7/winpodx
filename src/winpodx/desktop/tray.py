@@ -451,7 +451,13 @@ def run_tray() -> None:
             act.triggered.connect(_make_session_kill(s.app_name))
             sessions_menu.addAction(act)
 
-    sessions_menu.aboutToShow.connect(_rebuild_sessions_menu)
+    # NO aboutToShow here (#573): on KDE/Plasma the tray menu is rendered over
+    # DBusMenu, and an aboutToShow-driven submenu is exported with *deferred*
+    # children that Plasma never fills (the nested aboutToShow round-trip
+    # doesn't reach Qt), so the submenu wouldn't even open. Populate eagerly
+    # like the Launch App / Maintenance submenus (which work), and keep it fresh
+    # from the refresh_status timer tick instead — Plasma reads the current
+    # children via DBusMenu GetLayout when the submenu is opened.
     _rebuild_sessions_menu()
     menu.addMenu(sessions_menu)
 
@@ -524,7 +530,9 @@ def run_tray() -> None:
             act.triggered.connect(_make_device_toggle(host))
             devices_menu.addAction(act)
 
-    devices_menu.aboutToShow.connect(_rebuild_devices_menu)
+    # Eager populate + timer refresh, no aboutToShow — see the Terminate-Session
+    # submenu above (#573): aboutToShow-deferred submenus don't open under
+    # Plasma's DBusMenu.
     _rebuild_devices_menu()
     menu.addMenu(devices_menu)
 
