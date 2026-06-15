@@ -97,6 +97,37 @@ def test_podman_backend_is_running_uses_configured_container_name():
     assert "name=winpodx-windows" not in cmd
 
 
+def test_podman_backend_stop_keeps_container():
+    # #573-session follow-up: stop must `compose stop` (keep the stopped
+    # container), NOT `compose down` (which removes it and makes an
+    # update-while-stopped recreate the container every time).
+    from winpodx.backend.podman import PodmanBackend
+
+    backend = PodmanBackend(Config())
+    fake = MagicMock()
+    fake.returncode = 0
+    fake.stderr = ""
+    with patch("winpodx.backend.podman.subprocess.run", return_value=fake) as mock_run:
+        backend.stop()
+    cmd = mock_run.call_args[0][0]
+    assert "stop" in cmd
+    assert "down" not in cmd
+
+
+def test_docker_backend_stop_keeps_container():
+    from winpodx.backend.docker import DockerBackend
+
+    backend = DockerBackend(Config())
+    fake = MagicMock()
+    fake.returncode = 0
+    fake.stderr = ""
+    with patch("winpodx.backend.docker.subprocess.run", return_value=fake) as mock_run:
+        backend.stop()
+    cmd = mock_run.call_args[0][0]
+    assert "stop" in cmd
+    assert "down" not in cmd
+
+
 def test_docker_backend_is_running_uses_configured_container_name():
     from winpodx.backend.docker import DockerBackend
 
