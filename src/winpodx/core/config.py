@@ -299,6 +299,15 @@ class PodConfig:
     # a safety reserve). Set a dockur size (e.g. "512G", "1T") to impose an
     # explicit upper bound regardless of host capacity.
     disk_max_size: str = ""
+    # #606: present the Windows disk as an SSD (non-rotational) rather than a
+    # spinning HDD. Injects QEMU `rotation_rate=1` on the ATA/SCSI disk device,
+    # so Windows enables TRIM + skips scheduled defrag and treats it like an
+    # SSD (the Proxmox "SSD emulation" checkbox). Disguise-safe: it keeps the
+    # current disk bus + the disguise's INQUIRY model masking, and a
+    # non-rotational disk is *more* bare-metal-realistic on modern hardware.
+    # Auto-set from the host storage device at setup; override with
+    # `winpodx config set pod.ssd true|false`. Takes effect on next pod create.
+    ssd: bool = False
     # v0.5.x: guest sync. After a host upgrade, push the refreshed guest
     # artifacts (agent.ps1, urlacl, rdprrap/shim, registry fixes) into the
     # running guest instead of forcing a wipe-reinstall. Auto-runs once per
@@ -525,6 +534,8 @@ class PodConfig:
                 self.disk_max_size = ""
         if not isinstance(self.guest_autosync, bool):
             self.guest_autosync = True
+        if not isinstance(self.ssd, bool):
+            self.ssd = bool(self.ssd)
         # storage_path: keep empty (named-volume mode) or coerce to a
         # safe absolute string under the user's home or under a known
         # winpodx-managed root. The caller responsible for materialising
@@ -872,6 +883,7 @@ class Config:
                 "disk_autogrow_target_free_pct": self.pod.disk_autogrow_target_free_pct,
                 "disk_autogrow_increment": self.pod.disk_autogrow_increment,
                 "disk_max_size": self.pod.disk_max_size,
+                "ssd": self.pod.ssd,
                 "guest_autosync": self.pod.guest_autosync,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,

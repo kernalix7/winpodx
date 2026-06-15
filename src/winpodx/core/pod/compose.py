@@ -293,6 +293,18 @@ def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
         # the disguise image.
         extra_args += ["-acpitable", "file=/usr/share/qemu/winpodx-wsmt.aml"]
 
+    # SSD emulation (#606): make the guest disk report as non-rotational so
+    # Windows enables TRIM + skips scheduled defrag and treats it as an SSD
+    # (the Proxmox "SSD emulation" checkbox). `-global <driver>.rotation_rate=1`
+    # sets the property on whichever ATA/SCSI disk device dockur creates; QEMU
+    # ignores a `-global` whose driver isn't instantiated (non-fatal), so it's
+    # safe to set both regardless of the DISK_TYPE bus in use. virtio-blk has no
+    # rotation concept, so this is a no-op there. Disguise-safe: no bus change,
+    # so the disguise's INQUIRY model masking is untouched.
+    if cfg.pod.ssd:
+        extra_args += ["-global", "ide-hd.rotation_rate=1"]
+        extra_args += ["-global", "scsi-hd.rotation_rate=1"]
+
     return " ".join(extra_args)
 
 

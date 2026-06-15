@@ -283,6 +283,15 @@ def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
             print(tr("    You can retry manually: chattr +C"), target)
     cfg.pod.storage_path = str(target)
 
+    # SSD emulation default (#606): if the host storage device is non-rotational,
+    # present the guest disk as an SSD too (TRIM + no scheduled defrag). Only
+    # flip ON for a confirmed SSD; HDD / undetectable keeps the HDD default.
+    from winpodx.utils.btrfs import host_storage_is_ssd
+
+    if host_storage_is_ssd(target) is True:
+        cfg.pod.ssd = True
+        print(tr("  Host storage is an SSD — the Windows disk will emulate SSD (TRIM, no defrag)."))
+
 
 def _handle_migrate_storage(args: argparse.Namespace) -> int:
     """Move storage from the legacy ``winpodx-data`` named volume to a host

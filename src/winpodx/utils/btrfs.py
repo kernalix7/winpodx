@@ -112,6 +112,59 @@ def detect_path_fs(path: Path) -> str:
     return stdout.strip().lower()
 
 
+def host_storage_is_ssd(path: Path) -> bool | None:
+    """Best-effort: is the block device backing ``path`` non-rotational (SSD)?
+
+    Resolves ``path`` to its mount source via ``findmnt -no SOURCE``, strips the
+    partition suffix to the parent disk, and reads
+    ``/sys/block/<disk>/queue/rotational`` (0 = SSD/flash, 1 = spinning). Used to
+    pick the default for ``cfg.pod.ssd`` (#606).
+
+    Returns ``True`` (SSD), ``False`` (HDD), or ``None`` when it can't tell —
+    network / device-mapper / LVM / btrfs-multidevice sources, no findmnt, or an
+    unreadable sysfs node. Callers default to HDD behaviour on ``None``.
+    """
+    if shutil.which("findmnt") is None:
+        return None
+    probe = path
+    try:
+        for _ in range(64):
+            if probe.exists():
+                break
+            parent = probe.parent
+            if parent == probe:
+                break
+            probe = parent
+    except OSError:
+        probe = path
+    rc, stdout, _ = _run(["findmnt", "-no", "SOURCE", "--target", str(probe)])
+    source = stdout.strip()
+    # Only handle a plain /dev/<disk>[partition] source. Anything else
+    # (mapper/LVM "/dev/mapper/...", "UUID=", network "host:/export", a
+    # btrfs multi-device list) is too ambiguous to map to one rotational flag.
+    if rc != 0 or not source.startswith("/dev/") or "," in source or " " in source:
+        return None
+    dev = source[len("/dev/") :]
+    if "/" in dev:  # e.g. /dev/mapper/... -> "mapper/..."
+        return None
+    # Strip the partition suffix to the parent disk: sda3 -> sda,
+    # nvme0n1p2 -> nvme0n1, mmcblk0p1 -> mmcblk0.
+    import re
+
+    disk = re.sub(r"p?\d+$", "", dev) if re.search(r"\d", dev) else dev
+    if re.match(r"^(nvme|mmcblk)", dev):
+        disk = re.sub(r"p\d+$", "", dev)
+    try:
+        val = Path(f"/sys/block/{disk}/queue/rotational").read_text().strip()
+    except OSError:
+        return None
+    if val == "0":
+        return True
+    if val == "1":
+        return False
+    return None
+
+
 def is_cow_disabled(path: Path) -> bool | None:
     """Return ``True`` if ``+C`` is set on ``path``, ``False`` if not, ``None`` if unknown.
 

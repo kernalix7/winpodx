@@ -209,3 +209,33 @@ class TestDoesNotTouchGraphRoot:
                 f"btrfs.py must not expose {forbidden!r} — would re-introduce "
                 f"the graph-root chattr behaviour we explicitly rejected"
             )
+
+
+class TestHostStorageIsSsd:
+    """#606: map a path -> backing disk -> /sys/block/<disk>/queue/rotational."""
+
+    def _patch(self, monkeypatch, *, source, rotational=None, has_findmnt=True):
+        fake, _ = _run_factory([(0, source + "\n", "")])
+        monkeypatch.setattr(btrfs, "_run", fake)
+        monkeypatch.setattr(
+            btrfs.shutil, "which", lambda *_: "/usr/bin/findmnt" if has_findmnt else None
+        )
+        if rotational is not None:
+            monkeypatch.setattr(btrfs.Path, "read_text", lambda self, *a, **k: rotational + "\n")
+
+    def test_ssd_when_rotational_zero(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, source="/dev/nvme0n1p2", rotational="0")
+        assert btrfs.host_storage_is_ssd(tmp_path) is True
+
+    def test_hdd_when_rotational_one(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, source="/dev/sda3", rotational="1")
+        assert btrfs.host_storage_is_ssd(tmp_path) is False
+
+    def test_none_for_devmapper_source(self, tmp_path, monkeypatch):
+        # device-mapper / LVM is too ambiguous to map to one rotational flag.
+        self._patch(monkeypatch, source="/dev/mapper/vg-root")
+        assert btrfs.host_storage_is_ssd(tmp_path) is None
+
+    def test_none_when_findmnt_missing(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, source="/dev/sda1", has_findmnt=False)
+        assert btrfs.host_storage_is_ssd(tmp_path) is None
