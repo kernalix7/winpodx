@@ -580,6 +580,12 @@ if command -v podman >/dev/null 2>&1; then
     fi
 fi
 
+# winpodx requires the standalone `podman-compose` (NOT `podman compose`, which
+# delegates to docker-compose and breaks our keep-groups extension -- #288).
+# It's a separate package the `podman` package doesn't pull in.
+PODMAN_COMPOSE_PRESENT=false
+command -v podman-compose >/dev/null 2>&1 && PODMAN_COMPOSE_PRESENT=true
+
 DOCKER_PRESENT=false
 command -v docker >/dev/null 2>&1 && DOCKER_PRESENT=true
 # FreeRDP detection — track native client, Flatpak client, and the Flatpak
@@ -919,6 +925,10 @@ case "${WINPODX_BACKEND:-podman}" in
                 warn "podman is present but too old (major $PODMAN_MAJOR); see the note above. Continuing — pod start may fail until you upgrade podman or switch to --backend docker."
             fi
         fi
+        # podman-compose is required but ships separately from podman; without
+        # it pod creation later fails with "compose command not found" (#503,
+        # #580). Install it alongside podman.
+        [ "$PODMAN_COMPOSE_PRESENT" = false ] && MISSING+=("podman-compose")
         ;;
     docker)
         [ "$DOCKER_PRESENT" = false ] && MISSING+=("docker")

@@ -164,6 +164,7 @@ def _collect_findings(*, quick: bool, do_fix: bool) -> list[Finding]:
     findings.append(_check_install_source())
     findings.append(_check_freerdp())
     findings.append(_check_kvm())
+    findings.append(_check_rootless_subid())
     findings.extend(_check_container_backend())
     findings.append(_check_config_state())
     findings.append(_check_pending_setup())
@@ -281,6 +282,53 @@ def _check_kvm() -> Finding:
             "load via one pkexec prompt); if /dev/kvm is still absent, enable "
             "VT-x / AMD-V (SVM) in your BIOS/UEFI."
         ),
+    )
+
+
+def _check_rootless_subid() -> Finding | None:
+    """Rootless podman needs /etc/subuid + /etc/subgid entries for the user.
+
+    A renamed account (entries left under the old name), or a never-configured
+    host, makes rootless podman unable to create the container — surfacing as a
+    cryptic ``Error: no container with name ... found`` at pod start (#580).
+    Flag it clearly here, pointing at the existing one-shot fixer. Only relevant
+    for the podman backend; ``None`` (skipped) otherwise.
+    """
+    try:
+        from winpodx.core.config import Config
+
+        if Config.load().pod.backend != "podman":
+            return None
+    except Exception:  # noqa: BLE001 — config issues are reported by their own check
+        return None
+
+    try:
+        from winpodx.setup_wizard.host_state import detect_host_state
+
+        state = detect_host_state()
+    except Exception:  # noqa: BLE001 — never let a probe crash doctor
+        return None
+
+    if state.subuid_configured and state.subgid_configured:
+        return Finding("ok", "rootless subuid/subgid configured")
+
+    missing = ", ".join(
+        path
+        for path, ok in (
+            ("/etc/subuid", state.subuid_configured),
+            ("/etc/subgid", state.subgid_configured),
+        )
+        if not ok
+    )
+    return Finding(
+        "fail",
+        f"rootless podman id-mapping missing ({missing})",
+        detail=(
+            "Rootless Podman can't create the container without a subuid/subgid "
+            "range for your user — pod start fails with 'no container ... found'. "
+            "Common after renaming your account (the entries keep the old name)."
+        ),
+        suggestion="Run `winpodx setup-host --apply` to add the entries via one pkexec prompt.",
     )
 
 

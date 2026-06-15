@@ -44,6 +44,15 @@ def test_invokes_winpodx_provision(script: str) -> None:
     assert '"$SYMLINK" "${PROVISION_CMD[@]}"' in script
 
 
+def test_installs_podman_compose_with_podman(script: str) -> None:
+    # #580/#503: winpodx hard-requires the standalone podman-compose, which the
+    # podman package doesn't pull in. install.sh must detect it and add it to
+    # the install set so pod creation doesn't fail with "compose command not
+    # found".
+    assert "PODMAN_COMPOSE_PRESENT" in script
+    assert 'MISSING+=("podman-compose")' in script
+
+
 def test_atomic_rpm_path_honours_explicit_source_override(script: str) -> None:
     # #548: on Atomic (rpm-ostree) install.sh defaults to the OBS RPM, but an
     # explicit --main/--ref/--source/--image-tar must win and fall through to

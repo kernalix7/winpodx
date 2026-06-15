@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 
 import pytest
 
@@ -168,6 +169,39 @@ class TestCheckFreerdp:
         assert _check_freerdp().severity == "fail"
 
 
+class TestCheckRootlessSubid:
+    """#580: rootless podman needs /etc/subuid + /etc/subgid for the user."""
+
+    def _state(self, **kw):
+        base = {"subuid_configured": True, "subgid_configured": True}
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def _run(self, monkeypatch, *, backend="podman", state=None):
+        from winpodx.cli.doctor import _check_rootless_subid
+
+        monkeypatch.setattr(
+            "winpodx.core.config.Config.load",
+            classmethod(lambda cls: SimpleNamespace(pod=SimpleNamespace(backend=backend))),
+        )
+        if state is not None:
+            monkeypatch.setattr("winpodx.setup_wizard.host_state.detect_host_state", lambda: state)
+        return _check_rootless_subid()
+
+    def test_skipped_for_docker_backend(self, monkeypatch):
+        assert self._run(monkeypatch, backend="docker") is None
+
+    def test_ok_when_configured(self, monkeypatch):
+        f = self._run(monkeypatch, state=self._state())
+        assert f.severity == "ok"
+
+    def test_fails_when_subuid_missing(self, monkeypatch):
+        f = self._run(monkeypatch, state=self._state(subuid_configured=False))
+        assert f.severity == "fail"
+        assert "/etc/subuid" in f.title
+        assert "setup-host" in f.suggestion
+
+
 class TestHandleDoctor:
     def test_exits_zero_on_no_fail(self, tmp_path, monkeypatch, capsys):
         """All checks return OK or WARN -> exit 0."""
@@ -179,6 +213,7 @@ class TestHandleDoctor:
             "_check_install_source",
             "_check_freerdp",
             "_check_kvm",
+            "_check_rootless_subid",
             "_check_config_state",
             "_check_pending_setup",
             "_check_autostart_entry",
@@ -201,6 +236,7 @@ class TestHandleDoctor:
             "_check_install_source",
             "_check_freerdp",
             "_check_kvm",
+            "_check_rootless_subid",
             "_check_config_state",
             "_check_pending_setup",
             "_check_autostart_entry",
