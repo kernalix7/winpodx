@@ -11,7 +11,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
-- **Debloat disables more telemetry and ad surfaces** (#590 / #625, thanks @GameSoul7Eugene). The *Ads & suggestions* item now clears additional `ContentDeliveryManager` suggestion keys and the rotating lock-screen ads, and the *Unnecessary scheduled tasks* item disables more pure-telemetry tasks (`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights data collection, and the Office telemetry agents). Security- and system-critical tasks (Windows Defender, licensing/activation, certificate services, Windows Update repair, language packs, Windows Hello) are deliberately left untouched so debloat can't break activation, updates, or the IME.
+- **Debloat disables more telemetry and ad surfaces** (#590, thanks @GameSoul7Eugene). The *Ads & suggestions* item now clears additional `ContentDeliveryManager` suggestion keys and the rotating lock-screen ads, and the *Unnecessary scheduled tasks* item disables more pure-telemetry tasks (`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights data collection, and the Office telemetry agents). Security- and system-critical tasks (Windows Defender, licensing/activation, certificate services, Windows Update repair, language packs, Windows Hello) are deliberately left untouched so debloat can't break activation, updates, or the IME.
 
 ### Fixed
 

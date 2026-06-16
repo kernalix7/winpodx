@@ -11,7 +11,7 @@
 
 ### Added
 
-- **Debloat가 더 많은 텔레메트리·광고 항목을 비활성화** (#590 / #625, @GameSoul7Eugene 기여 감사). *Ads & suggestions* 항목이 추가 `ContentDeliveryManager` 추천 키와 회전 잠금화면 광고를 제거하고, *불필요한 예약 작업* 항목이 순수 텔레메트리 작업(`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights 데이터 수집, Office 텔레메트리 에이전트)을 추가로 비활성화합니다. 보안·시스템 핵심 작업(Windows Defender, 라이선스/활성화, 인증서 서비스, Windows Update 복구, 언어 팩, Windows Hello)은 활성화·업데이트·IME가 깨지지 않도록 의도적으로 건드리지 않습니다.
+- **Debloat가 더 많은 텔레메트리·광고 항목을 비활성화** (#590, @GameSoul7Eugene 기여 감사). *Ads & suggestions* 항목이 추가 `ContentDeliveryManager` 추천 키와 회전 잠금화면 광고를 제거하고, *불필요한 예약 작업* 항목이 순수 텔레메트리 작업(`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights 데이터 수집, Office 텔레메트리 에이전트)을 추가로 비활성화합니다. 보안·시스템 핵심 작업(Windows Defender, 라이선스/활성화, 인증서 서비스, Windows Update 복구, 언어 팩, Windows Hello)은 활성화·업데이트·IME가 깨지지 않도록 의도적으로 건드리지 않습니다.
 
 ### Fixed
 
