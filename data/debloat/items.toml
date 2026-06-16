@@ -76,7 +76,7 @@ risk = "low"
 
 [items.scheduled_tasks]
 label = "Unnecessary scheduled tasks"
-description = "Disable telemetry tasks: App Experience / CEIP / Feedback / WindowsAI + Office telemetry / Disk Diagnostic / Maps / RetailDemo / WER (no Defender, licensing, or update tasks)."
+description = "Disable App Experience / Autochk / CEIP / Disk Diagnostic / Maps / RetailDemo / WER."
 script = "scheduled_tasks.ps1"
 undo_script = "undo/scheduled_tasks.ps1"
 risk = "low"
