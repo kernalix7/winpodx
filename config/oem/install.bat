@@ -204,18 +204,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFol
 echo [WinPodX] Setting up USB media auto-mapping...
 mkdir C:\winpodx 2>nul
 
-REM Prefer compose-mounted C:\winpodx-scripts; fall back to well-known install locations over \\tsclient\home. See config/oem/README.md.
+REM media_monitor.ps1 ships in the OEM bundle (config/oem/), which dockur stages
+REM into C:\OEM\ during the unattended install -- the same reliable path every
+REM other guest script uses. %~dp0 is C:\OEM\ (where this script runs from).
+REM \\tsclient\home is NOT mounted yet at first-boot (no RDP session), so the
+REM tsclient paths below are belt-and-braces only. See config/oem/README.md.
 set "WINPODX_SRC_OK="
-if exist "C:\winpodx-scripts\media_monitor.ps1" (
+if exist "%~dp0media_monitor.ps1" (
+    copy /Y "%~dp0media_monitor.ps1" C:\winpodx\media_monitor.ps1 >nul 2>&1
+    if not errorlevel 1 set "WINPODX_SRC_OK=1"
+)
+if not defined WINPODX_SRC_OK if exist "C:\winpodx-scripts\media_monitor.ps1" (
     copy /Y "C:\winpodx-scripts\media_monitor.ps1" C:\winpodx\media_monitor.ps1 >nul 2>&1
-    set "WINPODX_SRC_OK=1"
+    if not errorlevel 1 set "WINPODX_SRC_OK=1"
 )
 if not defined WINPODX_SRC_OK (
     for %%P in (
-        "\\tsclient\home\.local\share\winpodx\scripts\windows\media_monitor.ps1"
-        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\media_monitor.ps1"
-        "\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1"
-        "\\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\.local\share\winpodx\config\oem\media_monitor.ps1"
+        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\config\oem\media_monitor.ps1"
+        "\\tsclient\home\winpodx\config\oem\media_monitor.ps1"
+        "\\tsclient\home\.local\bin\winpodx-app\config\oem\media_monitor.ps1"
     ) do (
         if not defined WINPODX_SRC_OK if exist %%P (
             copy /Y %%P C:\winpodx\media_monitor.ps1 >nul 2>&1
@@ -225,8 +233,7 @@ if not defined WINPODX_SRC_OK (
 )
 if not defined WINPODX_SRC_OK (
     echo [WinPodX] WARNING: media_monitor.ps1 not found in any known location.
-    echo [WinPodX] Mount the scripts dir at C:\winpodx-scripts via compose, or
-    echo [WinPodX] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
+    echo [WinPodX] Expected it in the OEM bundle at %~dp0media_monitor.ps1 (staged from config/oem/).
 )
 REM WinpodxMedia HKCU\Run registration moved later in install.bat -- the
 REM same PowerShell block that registers WinpodxAgent now writes both
