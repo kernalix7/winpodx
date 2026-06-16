@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Debloat disables more telemetry and ad surfaces** (#590 / #625, thanks @GameSoul7Eugene). The *Ads & suggestions* item now clears additional `ContentDeliveryManager` suggestion keys and the rotating lock-screen ads, and the *Unnecessary scheduled tasks* item disables more pure-telemetry tasks (`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights data collection, and the Office telemetry agents). Security- and system-critical tasks (Windows Defender, licensing/activation, certificate services, Windows Update repair, language packs, Windows Hello) are deliberately left untouched so debloat can't break activation, updates, or the IME.
+
+### Fixed
+
+- **`media_monitor.ps1` is now delivered to the guest** (#613). It was the only first-boot guest script not shipped in the OEM bundle, so dockur never staged it to `C:\OEM\` and `install.bat` couldn't find it — the `C:\winpodx-scripts` mount it looked for was never wired, and the `\\tsclient` fallbacks aren't available during dockur's unattended first boot (no RDP session yet). The result was a `media_monitor.ps1 not found` warning and the USB media auto-mapper never being registered, on every install. The script now ships in `config/oem/` like every other guest script and is copied from `C:\OEM\` at first boot.
+
 ## [0.7.2] - 2026-06-15
 
 ### Fixed

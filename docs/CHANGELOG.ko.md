@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Debloat가 더 많은 텔레메트리·광고 항목을 비활성화** (#590 / #625, @GameSoul7Eugene 기여 감사). *Ads & suggestions* 항목이 추가 `ContentDeliveryManager` 추천 키와 회전 잠금화면 광고를 제거하고, *불필요한 예약 작업* 항목이 순수 텔레메트리 작업(`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights 데이터 수집, Office 텔레메트리 에이전트)을 추가로 비활성화합니다. 보안·시스템 핵심 작업(Windows Defender, 라이선스/활성화, 인증서 서비스, Windows Update 복구, 언어 팩, Windows Hello)은 활성화·업데이트·IME가 깨지지 않도록 의도적으로 건드리지 않습니다.
+
+### Fixed
+
+- **`media_monitor.ps1`가 이제 게스트에 전달됨** (#613). first-boot 게스트 스크립트 중 유일하게 OEM 번들에 포함되지 않아 dockur가 `C:\OEM\`로 스테이징하지 못했고, `install.bat`도 찾지 못했습니다 — 찾던 `C:\winpodx-scripts` 마운트는 구현된 적이 없고, `\\tsclient` 폴백은 dockur 무인 first-boot(아직 RDP 세션 없음)에는 사용할 수 없습니다. 그 결과 모든 설치에서 `media_monitor.ps1 not found` 경고가 뜨고 USB 미디어 자동 매핑이 등록되지 않았습니다. 이제 다른 게스트 스크립트처럼 `config/oem/`로 배송되어 first-boot에 `C:\OEM\`에서 복사됩니다.
+
 ## [0.7.2] - 2026-06-15
 
 ### Fixed
