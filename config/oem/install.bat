@@ -516,7 +516,7 @@ echo [agent-install] step=urlacl status=enter>>"%SETUP_LOG%"
 netsh http delete urlacl url=http://127.0.0.1:8765/ >>"%SETUP_LOG%" 2>&1
 netsh http delete urlacl url=http://*:8765/ >>"%SETUP_LOG%" 2>&1
 netsh http delete urlacl url=http://+:8765/ >>"%SETUP_LOG%" 2>&1
-netsh http add urlacl url=http://+:8765/ sddl="D:(A;;GX;;;WD)" >>"%SETUP_LOG%" 2>&1
+netsh http add urlacl url=http://+:8765/ sddl=D:(A;;GX;;;WD) >>"%SETUP_LOG%" 2>&1
 echo [agent-install] urlacl add rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 netsh http show urlacl url=http://+:8765/ >>"%SETUP_LOG%" 2>&1
 echo [agent-install] step=urlacl status=exit>>"%SETUP_LOG%"
