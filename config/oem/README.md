@@ -11,23 +11,47 @@ executes `install.bat` once, on first boot, after Windows OOBE finishes.
 | `install.bat` | One-shot first-boot configurator: DNS, RDP/NLA, RemoteApp, firewall, power plan, telemetry lockdown, USB media auto-mapper hookup. |
 | `toggle_updates.ps1` | Runtime toggle for Windows Update (`enable`/`disable`/`status`). Edits `hosts` with `-Encoding ASCII` (PS 5.1 ANSI default and PS 7 UTF-8-BOM both break the Windows DNS client's `hosts` parser). |
 
-## Media monitor wiring
+## Media monitor wiring (see `install.bat:102` region)
 
-`media_monitor.ps1` ships **in this OEM bundle** (`config/oem/media_monitor.ps1`),
-so dockur stages it into `C:\OEM\` during the unattended install — the same
-reliable delivery path every other guest script (`agent.ps1`, `power-monitor.ps1`,
-rdprrap, …) uses. `install.bat` copies it to `C:\winpodx\media_monitor.ps1` and
-registers it in the HKCU Run key. The copy step searches, in order:
+`install.bat` copies `scripts/windows/media_monitor.ps1` to
+`C:\winpodx\media_monitor.ps1` and registers it in the HKCU Run key. The copy
+step searches the following sources, in order:
 
-1. **`%~dp0media_monitor.ps1`** (= `C:\OEM\media_monitor.ps1`, preferred).
-   Always present because it rides the existing `/oem` bind mount.
-2. `C:\winpodx-scripts\media_monitor.ps1` (only if a future compose mount
-   provides it; not wired today).
-3–6. `\\tsclient\home\…\config\oem\media_monitor.ps1` for several install
-   layouts — **belt-and-braces only**: `\\tsclient` (RDP drive redirection) is
-   not mounted at first boot, when there is no RDP session yet, so these never
-   fire during the unattended install. Kept for hand re-runs from a live session.
+1. **`C:\winpodx-scripts\media_monitor.ps1`** (preferred). Mount
+   `scripts/windows` into the guest at `C:\winpodx-scripts` via compose
+   (editable installs, wheel installs, and flatpak all work uniformly this
+   way, no dependency on where the Linux package ended up).
+2. `\\tsclient\home\.local\share\winpodx\scripts\windows\media_monitor.ps1`
+   (pip wheel install: `sys.prefix/share/winpodx/...` when `sys.prefix` is
+   the user's home).
+3. `\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\media_monitor.ps1`
+   (pipx install).
+4. `\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1` (source
+   checkout at `~/winpodx`).
+5. `\\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1`
+   (legacy manual install path, kept for backward compatibility).
 
-If none match, `install.bat` prints a warning; the USB auto-mapper stays
-disabled until a boot that finds the script. With the file in the OEM bundle,
-option 1 always matches on a normal install (#613).
+If none match, `install.bat` prints a warning and leaves the Run key pointing
+at a non-existent file; the USB auto-mapper is disabled until the next boot
+that finds the script.
+
+### Recommended: compose mount
+
+Platform/QA owns `pyproject.toml` and `data/`, but compose generation lives
+in `src/winpodx/cli/setup_cmd.py` (CLI team). To enable option 1 above, the
+CLI team needs to add a bind mount to `_COMPOSE_TEMPLATE_BASE`:
+
+```yaml
+    volumes:
+      - winpodx-data:/storage:Z
+      - {oem_dir}:/oem:Z
+      - {scripts_dir}:/oem/winpodx-scripts:ro,Z   # <- add
+```
+
+…and arrange for `install.bat` to `xcopy /Y /E C:\winpodx-scripts*` into
+`C:\winpodx-scripts` during first boot (dockur exposes `/oem` at
+`C:\OEM\` on the Windows side; a `/oem/winpodx-scripts` subdir would be
+visible there). Until that lands, the fallback search in `install.bat`
+covers the common install layouts.
+
+See the TODO(M4) comment in `install.bat` for the handoff point.

@@ -204,26 +204,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFol
 echo [WinPodX] Setting up USB media auto-mapping...
 mkdir C:\winpodx 2>nul
 
-REM media_monitor.ps1 ships in the OEM bundle (config/oem/), which dockur stages
-REM into C:\OEM\ during the unattended install -- the same reliable path every
-REM other guest script uses. %~dp0 is C:\OEM\ (where this script runs from).
-REM \\tsclient\home is NOT mounted yet at first-boot (no RDP session), so the
-REM tsclient paths below are belt-and-braces only. See config/oem/README.md.
+REM Prefer compose-mounted C:\winpodx-scripts; fall back to well-known install locations over \\tsclient\home. See config/oem/README.md.
 set "WINPODX_SRC_OK="
-if exist "%~dp0media_monitor.ps1" (
-    copy /Y "%~dp0media_monitor.ps1" C:\winpodx\media_monitor.ps1 >nul 2>&1
-    if not errorlevel 1 set "WINPODX_SRC_OK=1"
-)
-if not defined WINPODX_SRC_OK if exist "C:\winpodx-scripts\media_monitor.ps1" (
+if exist "C:\winpodx-scripts\media_monitor.ps1" (
     copy /Y "C:\winpodx-scripts\media_monitor.ps1" C:\winpodx\media_monitor.ps1 >nul 2>&1
-    if not errorlevel 1 set "WINPODX_SRC_OK=1"
+    set "WINPODX_SRC_OK=1"
 )
 if not defined WINPODX_SRC_OK (
     for %%P in (
-        "\\tsclient\home\.local\share\winpodx\config\oem\media_monitor.ps1"
-        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\config\oem\media_monitor.ps1"
-        "\\tsclient\home\winpodx\config\oem\media_monitor.ps1"
-        "\\tsclient\home\.local\bin\winpodx-app\config\oem\media_monitor.ps1"
+        "\\tsclient\home\.local\share\winpodx\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1"
+        "\\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1"
     ) do (
         if not defined WINPODX_SRC_OK if exist %%P (
             copy /Y %%P C:\winpodx\media_monitor.ps1 >nul 2>&1
@@ -233,7 +225,8 @@ if not defined WINPODX_SRC_OK (
 )
 if not defined WINPODX_SRC_OK (
     echo [WinPodX] WARNING: media_monitor.ps1 not found in any known location.
-    echo [WinPodX] Expected it in the OEM bundle at %~dp0media_monitor.ps1 (staged from config/oem/).
+    echo [WinPodX] Mount the scripts dir at C:\winpodx-scripts via compose, or
+    echo [WinPodX] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
 )
 REM WinpodxMedia HKCU\Run registration moved later in install.bat -- the
 REM same PowerShell block that registers WinpodxAgent now writes both
@@ -516,12 +509,7 @@ echo [agent-install] step=urlacl status=enter>>"%SETUP_LOG%"
 netsh http delete urlacl url=http://127.0.0.1:8765/ >>"%SETUP_LOG%" 2>&1
 netsh http delete urlacl url=http://*:8765/ >>"%SETUP_LOG%" 2>&1
 netsh http delete urlacl url=http://+:8765/ >>"%SETUP_LOG%" 2>&1
-REM Caret-escape the SDDL parens so the line is safe whether or not it ever
-REM ends up inside a parenthesized block: cmd unescapes ^( ^) to ( ) and passes
-REM a clean descriptor to netsh. Quoting it ("D:(...)") does NOT work -- netsh
-REM takes the literal quotes as part of the SDDL and rejects the reservation,
-REM which leaves the agent unable to bind http://+:8765/ (#614).
-netsh http add urlacl url=http://+:8765/ sddl=D:^(A;;GX;;;WD^) >>"%SETUP_LOG%" 2>&1
+netsh http add urlacl url=http://+:8765/ sddl="D:(A;;GX;;;WD)" >>"%SETUP_LOG%" 2>&1
 echo [agent-install] urlacl add rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 netsh http show urlacl url=http://+:8765/ >>"%SETUP_LOG%" 2>&1
 echo [agent-install] step=urlacl status=exit>>"%SETUP_LOG%"
