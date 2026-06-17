@@ -11,6 +11,7 @@
 
 ### Added
 
+- **`+multitouch`가 허용된 FreeRDP 플래그가 됨 — 터치스크린 / 스타일러스 / 펜 패스스루** (#623, @Scratch2xs 기여 감사). extra FreeRDP 플래그(`winpodx.toml`의 `rdp.extra_flags`, 또는 Settings의 extra-args 필드)에 `+multitouch`를 추가하면 터치스크린·드로잉 태블릿·펜이 Windows 앱 안에서 동작합니다 — Linux 빌드가 없는 드로잉 소프트웨어에 유용. 입력 전용 토글이라 보안 트레이드오프 없이 FreeRDP 플래그 허용목록에 들어갑니다.
 - **VM RAM 해제를 위한 idle 자동 정지 옵션** (#622, @hermitguo 기여 감사). Settings → **Idle Action**에서 *Idle Timeout* 경과 시 동작 선택: **Pause**(기본 — VM 동결, CPU 해제, RAM 유지, 즉시 재개) 또는 **Stop**(VM의 RAM 해제; 다음 실행은 풀 부팅). 기본 off — Idle Timeout 자체가 기본 off이고, Stop을 직접 켜지 않으면 Pause 유지. (인터페이스 다국어도 이 요청의 일부인데 이미 지원 — Settings → **UI Language**에서 中文/日本語/한국어 포함 8개 선택.)
 - **Reverse-open이 공유 Home뿐 아니라 Windows VM 자체의 파일도 엽니다** (#616, @notnotno 기여 감사). Windows 파일의 *연결 프로그램* 메뉴에서 Linux 앱을 고르는 기능이 기존엔 공유 Home(`\\tsclient\home`) 아래 파일만 됐고, Windows 데스크탑이나 `C:` 어디든 있는 파일은 "파일 없음" 오류로 실패했습니다. 이제 게스트 `C:`를 호스트에 SMB(루프백 전용)로 공유·온디맨드 마운트해서, 호스트 앱이 실제 게스트 파일을 열고 **편집은 원본으로 바로 저장**됩니다. 전부 런타임 전달(에이전트로 게스트 공유 + 호스트 마운트)이라 `install.bat`은 안 건드립니다. 호스트에 **kio-fuse**(KDE) 필요 — 없으면 `winpodx doctor`가 경고합니다.
 - **Debloat가 더 많은 텔레메트리·광고 항목을 비활성화** (#590, @GameSoul7Eugene 기여 감사). *Ads & suggestions* 항목이 추가 `ContentDeliveryManager` 추천 키와 회전 잠금화면 광고를 제거하고, *불필요한 예약 작업* 항목이 순수 텔레메트리 작업(`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights 데이터 수집, Office 텔레메트리 에이전트)을 추가로 비활성화합니다. 보안·시스템 핵심 작업(Windows Defender, 라이선스/활성화, 인증서 서비스, Windows Update 복구, 언어 팩, Windows Hello)은 활성화·업데이트·IME가 깨지지 않도록 의도적으로 건드리지 않습니다.

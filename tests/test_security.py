@@ -80,6 +80,11 @@ class TestExtraFlagsWhitelist:
         assert "+fonts" in result
         assert "/dynamic-resolution" in result
 
+    def test_allows_multitouch(self):
+        # #623: +multitouch enables touchscreen / stylus / pen passthrough.
+        # Input-only bare toggle, so it's on the allowlist.
+        assert _filter_extra_flags("+multitouch") == ["+multitouch"]
+
     def test_blocks_dangerous_flags(self):
         result = _filter_extra_flags("/app:cmd.exe /cmd:bash /exec:whoami /shell:sh")
         assert len(result) == 0

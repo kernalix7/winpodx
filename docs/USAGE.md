@@ -302,7 +302,10 @@ port = 3390
 scale = 100                  # Auto-detected from your DE
 dpi = 0                      # Windows DPI % (0 = auto)
 multimon = "span"            # Multi-monitor RAIL: span | multimon | off
-extra_flags = ""             # Additional FreeRDP flags (allowlisted)
+extra_flags = ""             # Additional FreeRDP flags (allowlisted); e.g.
+                             #   "+multitouch" — touchscreen / stylus / pen
+                             #   passthrough into Windows apps (#623)
+                             #   "-gfx" — legacy GDI path (RAIL render workaround)
 
 [pod]
 backend = "podman"

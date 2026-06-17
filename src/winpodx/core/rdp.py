@@ -715,6 +715,7 @@ _BARE_FLAGS: frozenset[str] = frozenset(
         "/multimon",
         "/span",
         "/smart-sizing",
+        "+multitouch",
     }
 )
 
