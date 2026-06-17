@@ -17,6 +17,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 - **`media_monitor.ps1` is now delivered to the guest** (#613). It was the only first-boot guest script not shipped in the OEM bundle, so dockur never staged it to `C:\OEM\` and `install.bat` couldn't find it — the `C:\winpodx-scripts` mount it looked for was never wired, and the `\\tsclient` fallbacks aren't available during dockur's unattended first boot (no RDP session yet). The result was a `media_monitor.ps1 not found` warning and the USB media auto-mapper never being registered, on every install. The script now ships in `config/oem/` like every other guest script and is copied from `C:\OEM\` at first boot.
 - **The `usbredirect not found` hint now names the right package per distro** (#593, thanks @techabsol). Debian/Ubuntu is `usbredirect`, Fedora is `usbredir-tools` (plus an Atomic Fedora `rpm-ostree` form), and openSUSE stays `usbredir` — the previous message pointed at packages that don't carry the binary.
+- **`install.bat` no longer throws a syntax error reserving the agent URL** (#614, thanks @zephir2008). The `netsh http add urlacl … sddl=D:(A;;GX;;;WD)` line left the SDDL unquoted, so `cmd.exe` treated its `(`, `;`, and `)` as metacharacters (`")" was unexpected at this time`) and the reservation failed — which can stop the guest agent from binding port 8765. The SDDL value is now quoted.
 
 ## [0.7.2] - 2026-06-15
 
