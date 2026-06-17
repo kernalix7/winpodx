@@ -17,8 +17,7 @@
 
 - **`media_monitor.ps1`가 이제 게스트에 전달됨** (#613). first-boot 게스트 스크립트 중 유일하게 OEM 번들에 포함되지 않아 dockur가 `C:\OEM\`로 스테이징하지 못했고, `install.bat`도 찾지 못했습니다 — 찾던 `C:\winpodx-scripts` 마운트는 구현된 적이 없고, `\\tsclient` 폴백은 dockur 무인 first-boot(아직 RDP 세션 없음)에는 사용할 수 없습니다. 그 결과 모든 설치에서 `media_monitor.ps1 not found` 경고가 뜨고 USB 미디어 자동 매핑이 등록되지 않았습니다. 이제 다른 게스트 스크립트처럼 `config/oem/`로 배송되어 first-boot에 `C:\OEM\`에서 복사됩니다.
 - **`usbredirect not found` 안내가 배포판별로 올바른 패키지를 안내** (#593, @techabsol 기여 감사). Debian/Ubuntu는 `usbredirect`, Fedora는 `usbredir-tools`(Atomic Fedora는 `rpm-ostree` 형태 추가), openSUSE는 `usbredir` 유지 — 기존 메시지는 바이너리가 들어있지 않은 패키지를 안내했습니다.
-
-## [0.7.2] - 2026-06-15
+- **`install.bat`가 에이전트 URL 예약 시 더 이상 구문 오류를 내지 않음** (#614, @zephir2008 기여 감사). `netsh http add urlacl … sddl=D:(A;;GX;;;WD)` 줄에서 SDDL 값을 따옴표로 감싸지 않아 `cmd.exe`가 `(`, `;`, `)`를 메타문자로 해석(`")" was unexpected`)하여 예약이 실패했고 — 게스트 에이전트가 8765 포트를 바인딩하지 못할 수 있었습니다. 이제 SDDL 값을 따옴표로 감쌉니다.
 
 ### Fixed
 
