@@ -33,9 +33,12 @@ def handle_guest(args: argparse.Namespace) -> None:
         _pod._multi_session(args.action)
     elif cmd == "recover-oem":
         _pod._recover_oem()
+    elif cmd == "resync-token":
+        _pod._resync_token()
     else:
         print(
-            "Usage: winpodx guest {apply-fixes|sync|sync-password|multi-session|recover-oem}",
+            "Usage: winpodx guest "
+            "{apply-fixes|sync|sync-password|multi-session|recover-oem|resync-token}",
             file=sys.stderr,
         )
         sys.exit(1)

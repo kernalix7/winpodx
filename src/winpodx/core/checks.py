@@ -125,7 +125,12 @@ def probe_guest_exec(cfg: Config) -> Probe:
     """
 
     def _run() -> tuple[ProbeStatus, str]:
-        from winpodx.core.agent import AgentClient, AgentError, AgentTimeoutError
+        from winpodx.core.agent import (
+            AgentAuthError,
+            AgentClient,
+            AgentError,
+            AgentTimeoutError,
+        )
         from winpodx.core.pod import PodState, pod_status
 
         # Skip rather than fail when the pod itself is down — keeps the
@@ -138,8 +143,23 @@ def probe_guest_exec(cfg: Config) -> Probe:
             return "skip", "pod state unknown"
 
         client = AgentClient(cfg)
+        healed = False
         try:
             result = client.exec("Write-Output ok\n", timeout=30.0)
+        except AgentAuthError:
+            # 401 = the guest's baked token drifted from the host's (#615).
+            # This is config drift, not a transient blip, so it never clears
+            # on its own — auto-heal once over FreeRDP, then re-probe.
+            from winpodx.core.agent_resync import resync_token
+
+            ok, detail = resync_token(cfg)
+            if not ok:
+                return "fail", f"auth 401 (token drift); auto-resync failed: {detail}"
+            healed = True
+            try:
+                result = AgentClient(cfg).exec("Write-Output ok\n", timeout=30.0)
+            except AgentError as e:
+                return "fail", f"auth 401; resynced but re-probe failed: {e}"
         except AgentTimeoutError as e:
             return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
@@ -149,6 +169,8 @@ def probe_guest_exec(cfg: Config) -> Probe:
         out = (result.stdout or "").strip()
         if out != "ok":
             return "warn", f"unexpected stdout: {out[:80]!r}"
+        if healed:
+            return "ok", "guest token had drifted (401); auto-resynced over FreeRDP → round-trip OK"
         return "ok", "round-trip OK (rc=0, stdout='ok')"
 
     status, detail, ms = _timed(_run)

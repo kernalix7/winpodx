@@ -820,6 +820,14 @@ def cli(argv: list[str] | None = None) -> None:
             "first-boot OEM copy failed. podman/docker backends only."
         ),
     )
+    guest_sub.add_parser(
+        "resync-token",
+        help=(
+            "Re-push the agent bearer token to the guest over FreeRDP and "
+            "respawn the agent. Use when guest_exec / guest_summary report "
+            "HTTP 401 (the guest's baked token drifted from the host's)."
+        ),
+    )
 
     # --- install (install + storage state, 0.6.0 item G) ---
     # Canonical home for install progress and disk operations.

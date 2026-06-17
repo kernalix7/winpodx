@@ -289,6 +289,49 @@ def _apply_fixes() -> None:
     print(tr("\nAll fixes applied to existing guest (no container recreate needed)."))
 
 
+def _resync_token() -> None:
+    """Re-push the agent bearer token to the guest and respawn the agent (#615).
+
+    Fixes the HTTP 401 state where the guest's baked ``C:\\OEM\\agent_token.txt``
+    drifted from the host token (so ``guest_exec`` / ``guest_summary`` health
+    probes fail with auth errors). Delivered over FreeRDP, which authenticates
+    with the Windows account password rather than the bearer token, so it works
+    while the agent itself is rejecting auth.
+    """
+    from winpodx.core.agent_resync import resync_token
+    from winpodx.core.config import Config
+    from winpodx.core.pod import PodState, pod_status
+
+    cfg = Config.load()
+
+    if cfg.pod.backend not in ("podman", "docker"):
+        print(
+            tr("Backend {backend} doesn't run the HTTP agent; nothing to resync.").format(
+                backend=repr(cfg.pod.backend)
+            )
+        )
+        sys.exit(2)
+
+    if not cfg.rdp.password:
+        print(tr("No Windows password set in config — run `winpodx setup` first."))
+        sys.exit(2)
+
+    try:
+        if pod_status(cfg).state != PodState.RUNNING:
+            print(tr("Pod is not running. Start it first with: winpodx pod start --wait"))
+            sys.exit(2)
+    except Exception:  # noqa: BLE001 — pod-state probe is best-effort here
+        pass
+
+    print(tr("Re-pushing the agent token to the guest over FreeRDP and respawning the agent..."))
+    ok, detail = resync_token(cfg)
+    if ok:
+        print(tr("OK: {detail}").format(detail=detail))
+        return
+    print(tr("FAIL: {detail}").format(detail=detail))
+    sys.exit(3)
+
+
 def _sync_password(non_interactive: bool) -> None:
     """v0.1.9.5: rescue path when cfg.password no longer matches Windows.
 
