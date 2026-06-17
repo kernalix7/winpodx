@@ -516,7 +516,12 @@ echo [agent-install] step=urlacl status=enter>>"%SETUP_LOG%"
 netsh http delete urlacl url=http://127.0.0.1:8765/ >>"%SETUP_LOG%" 2>&1
 netsh http delete urlacl url=http://*:8765/ >>"%SETUP_LOG%" 2>&1
 netsh http delete urlacl url=http://+:8765/ >>"%SETUP_LOG%" 2>&1
-netsh http add urlacl url=http://+:8765/ sddl=D:(A;;GX;;;WD) >>"%SETUP_LOG%" 2>&1
+REM Caret-escape the SDDL parens so the line is safe whether or not it ever
+REM ends up inside a parenthesized block: cmd unescapes ^( ^) to ( ) and passes
+REM a clean descriptor to netsh. Quoting it ("D:(...)") does NOT work -- netsh
+REM takes the literal quotes as part of the SDDL and rejects the reservation,
+REM which leaves the agent unable to bind http://+:8765/ (#614).
+netsh http add urlacl url=http://+:8765/ sddl=D:^(A;;GX;;;WD^) >>"%SETUP_LOG%" 2>&1
 echo [agent-install] urlacl add rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 netsh http show urlacl url=http://+:8765/ >>"%SETUP_LOG%" 2>&1
 echo [agent-install] step=urlacl status=exit>>"%SETUP_LOG%"
