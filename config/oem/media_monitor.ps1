@@ -19,6 +19,39 @@ $pollSeconds = 5
 $availableLetters = @("E","F","G","H","I","J","K","L","N","O","P","Q","R","S","T","U","V","W","X","Y","Z")
 $mapped = @{}
 
+# Single instance PER SESSION. Drive mappings are per-logon-session, so one
+# media_monitor must run in each session (full desktop AND each RemoteApp
+# window's session) -- but it can be launched more than once in the same
+# session (HKCU\Run + the AtLogOn scheduled task both fire). A mutex WITHOUT
+# the "Global\" prefix lives in the session's local namespace, so this lets
+# exactly one instance run per session and silently exits the duplicates
+# (otherwise two pollers would map the same volume to two different letters).
+$script:__mmMutex = New-Object System.Threading.Mutex($false, "winpodx-media-monitor")
+if (-not $script:__mmMutex.WaitOne(0)) { return }
+
+# net use adds the drive to the session, but it does NOT tell the shell, so an
+# already-open Explorer window never shows the new drive in "This PC". Fire
+# SHChangeNotify(SHCNE_DRIVEADD/REMOVED) after each map/unmap so Explorer
+# refreshes live.
+Add-Type -Namespace WinPodX -Name Shell -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+public static extern void SHChangeNotify(int wEventId, uint uFlags, System.IntPtr dwItem1, System.IntPtr dwItem2);
+'@ -ErrorAction SilentlyContinue
+
+function Notify-Shell([string]$root, [int]$eventId) {
+    # eventId: 0x100 = SHCNE_DRIVEADD, 0x80 = SHCNE_DRIVEREMOVED. uFlags 0x0005
+    # = SHCNF_PATHW (dwItem1 is a wide path string like "E:\").
+    try {
+        $ptr = [System.Runtime.InteropServices.Marshal]::StringToHGlobalUni($root)
+        try {
+            [WinPodX.Shell]::SHChangeNotify($eventId, 0x0005, $ptr, [System.IntPtr]::Zero)
+        } finally {
+            [System.Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+        }
+    } catch {
+    }
+}
+
 function Get-NextFreeLetter {
     foreach ($letter in $script:availableLetters) {
         $drive = "${letter}:"
@@ -45,6 +78,7 @@ function Sync-Drives {
                 & net use "${letter}:" $child.FullName /persistent:no 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
                     $script:mapped[$child.Name] = $letter
+                    Notify-Shell "${letter}:\" 0x100   # SHCNE_DRIVEADD
                 }
             } catch {
             }
@@ -60,6 +94,7 @@ function Sync-Drives {
             # Drop tracking if delete succeeded or the letter is already gone.
             if ($LASTEXITCODE -eq 0) {
                 $toRemove += $entry.Key
+                Notify-Shell "$($entry.Value):\" 0x80   # SHCNE_DRIVEREMOVED
             } elseif (-not (Get-PSDrive -Name $entry.Value -ErrorAction SilentlyContinue)) {
                 $toRemove += $entry.Key
             }

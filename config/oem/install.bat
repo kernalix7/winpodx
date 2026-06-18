@@ -679,6 +679,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "}" >>"%SETUP_LOG%" 2>&1
 echo [agent-install] step=keepalive-task status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
 
+REM media_monitor must run in EVERY interactive session (the full desktop AND
+REM each RemoteApp window's session) because the USB drive-letter mappings it
+REM creates are per-logon-session. HKCU\Run fires for shell logons; an AtLogOn
+REM scheduled task with an Interactive principal also fires for RemoteApp
+REM logons, so registering both (deduped by media_monitor's per-session mutex)
+REM covers every session. MultipleInstances Parallel so each session's logon
+REM starts its own instance instead of being suppressed by another session's.
+echo [agent-install] step=media-task status=enter>>"%SETUP_LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$wrap = 'C:\Users\Public\winpodx\launchers\hidden-launcher.vbs';" ^
+  "$mm = 'C:\winpodx\media_monitor.ps1';" ^
+  "if (-not (Test-Path -LiteralPath $mm)) { Write-Output 'media-task: media_monitor.ps1 not staged; skipping'; exit 0 };" ^
+  "if (Test-Path -LiteralPath $wrap) {" ^
+  "  $exe = 'wscript.exe';" ^
+  "  $arg = '\"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"' + $mm + '\"';" ^
+  "} else {" ^
+  "  $exe = 'powershell.exe';" ^
+  "  $arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"' + $mm + '\"';" ^
+  "}" ^
+  "$act = New-ScheduledTaskAction -Execute $exe -Argument $arg;" ^
+  "$tLogon = New-ScheduledTaskTrigger -AtLogOn;" ^
+  "$me = \"$env:USERDOMAIN\$env:USERNAME\";" ^
+  "$prin = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited;" ^
+  "$set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances Parallel -ExecutionTimeLimit (New-TimeSpan -Hours 0);" ^
+  "try {" ^
+  "  Register-ScheduledTask -TaskName 'WinpodxMediaMonitor' -Action $act -Trigger $tLogon -Principal $prin -Settings $set -Force | Out-Null;" ^
+  "  Write-Output ('media-task: registered for ' + $me);" ^
+  "} catch {" ^
+  "  Write-Output ('media-task: ERROR ' + $_.Exception.Message);" ^
+  "}" >>"%SETUP_LOG%" 2>&1
+echo [agent-install] step=media-task status=exit rc=%ERRORLEVEL%>>"%SETUP_LOG%"
+
 REM Token is delivered via the OEM bind mount - no \\tsclient\home copy
 REM needed. Setup stages it to {oem_dir}/agent_token.txt before container
 REM creation; dockur lays the OEM directory contents into C:\OEM\.
