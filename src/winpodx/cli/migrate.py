@@ -42,8 +42,8 @@ _VERSION_NOTES: dict[str, list[str]] = {
         "via `winpodx setup --update-image`. Migrate auto-aligns existing pods "
         "on upgrade (one ~30s recreate on next pod start, volume preserved -- "
         "no ISO redownload).",
-        "No more PowerShell console flashes anywhere. WinpodxAgent and "
-        "WinpodxMedia HKCU\\Run entries both wrapped under wscript+"
+        "No more PowerShell console flashes anywhere. The WinpodxAgent "
+        "HKCU\\Run entry wrapped under wscript+"
         "hidden-launcher.vbs; legacy flashing fallbacks removed; install.bat "
         "ASCII-only so Windows Script Host doesn't choke on em-dashes; "
         "install.bat's `reg add` replaced with PowerShell Set-ItemProperty so "

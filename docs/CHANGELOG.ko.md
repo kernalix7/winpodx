@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- **설치를 계속 불안정하게 만들던 USB 드라이브 문자 자동매핑 기능 제거** (#613, #638, @zephir2008·@ismikes 기여 감사). `media_monitor.ps1`은 각 USB 볼륨을 드라이브 문자(E:, F:…)로 띄우려 했지만, RemoteApp(RAIL) 세션에서 안정적으로 띄우지 못했고, OEM 번들에 포함되자 간헐적 Windows Defender/rdprrap first-boot 설치 데드락을 재발시켰습니다(새 설치가 그 파일 복사 직후 멈춤). 제거했습니다. USB 미디어는 여전히 **모든** 세션에서 `\\tsclient\media` 리다이렉션과 바탕화면 **USB** 바로가기로 접근 가능하며, 진짜 드라이브 문자/raw 블록 장치가 필요하면 USB passthrough를 쓰면 됩니다. 기존 pod는 다음 `apply-fixes` 때 잔존 `WinpodxMedia` 자동시작 항목이 정리됩니다.
 - **`usbredirect not found` 안내가 배포판별로 올바른 패키지를 안내** (#593, @techabsol 기여 감사). Debian/Ubuntu는 `usbredirect`, Fedora는 `usbredir-tools`(Atomic Fedora는 `rpm-ostree` 형태 추가), openSUSE는 `usbredir` 유지 — 기존 메시지는 바이너리가 들어있지 않은 패키지를 안내했습니다.
 - **`install.bat`가 에이전트 URL 예약 시 더 이상 구문 오류를 내지 않음** (#614, @zephir2008 기여 감사). `netsh http add urlacl … sddl=D:(A;;GX;;;WD)` 줄에서 SDDL 값을 따옴표로 감싸지 않아 `cmd.exe`가 `(`, `;`, `)`를 메타문자로 해석해 예약이 실패할 수 있었습니다. 이제 SDDL 값을 따옴표로 감쌉니다(`sddl="D:(A;;GX;;;WD)"`).
 - **게스트 에이전트가 드리프트된 bearer 토큰에서 복구됨 — 더 이상 영구 401에 머무르지 않음** (#615, @zephir2008 기여 감사). 에이전트는 부팅 시 `C:\OEM\agent_token.txt`의 bake본에서 토큰을 한 번만 읽는데, 이게 호스트 토큰과 어긋나면 `guest_exec`/`guest_summary`(및 모든 authed `/exec`)가 HTTP 401을 반환하고 에이전트가 스스로 고칠 방법이 없습니다. 새 `winpodx guest resync-token`이 현재 토큰을 FreeRDP 채널(Windows 암호로 인증하므로 에이전트가 401이어도 동작)로 다시 밀어넣고 에이전트를 재시작해 재독하게 합니다. `winpodx doctor`는 `guest_exec` 프로브가 401을 만나면 이를 자동 실행한 뒤 재확인합니다.
