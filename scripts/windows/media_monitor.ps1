@@ -1,21 +1,10 @@
 # SPDX-License-Identifier: MIT
-# media_monitor.ps1 - Auto-map USB drives as drive letters in the guest.
-# The host redirects removable media so each volume shows up as a subfolder of
-# \\tsclient\media (\\tsclient\media\<LABEL>). This maps each one to a free
-# drive letter (E:, F:, ...) and unmaps it when the volume goes away.
-# Started via the WinpodxMedia HKCU\Run entry; one instance per logon session.
-#
-# Why polling (not FileSystemWatcher): \\tsclient is an RDP drive redirection,
-# and redirected drives do NOT deliver directory change notifications, so a
-# FileSystemWatcher never fires for a USB plugged in after the session starts
-# (verified #613). Polling Get-ChildItem is the only reliable way to catch
-# hotplug on a redirected drive. Test-Path/Get-ChildItem on \\tsclient\media
-# are cheap (~60 ms) and non-blocking even when the share is absent (the
-# console/autologon session has no tsclient redirection), so this idles
-# harmlessly there and does the real work in the RDP session.
+# media_monitor.ps1 - Auto-map USB drives as network drives in Explorer
+# Uses FileSystemWatcher (event-driven, no polling) to detect USB mount/unmount.
+# Maps new USB subfolders in \\tsclient\media to drive letters (E:, F:, ...).
+# Runs as a background process, started via registry Run key.
 
 $mediaPath = "\\tsclient\media"
-$pollSeconds = 5
 $availableLetters = @("E","F","G","H","I","J","K","L","N","O","P","Q","R","S","T","U","V","W","X","Y","Z")
 $mapped = @{}
 
@@ -30,7 +19,7 @@ function Get-NextFreeLetter {
 }
 
 function Sync-Drives {
-    # Failures anywhere are non-fatal; the next poll retries.
+    # Failures anywhere are non-fatal; the next Created/Deleted event retries.
     $children = @(Get-ChildItem -Path $script:mediaPath -Directory -ErrorAction SilentlyContinue)
 
     $current = @{}
@@ -71,14 +60,24 @@ function Sync-Drives {
     }
 }
 
-# Poll loop. Sync-Drives maps newly-appeared volumes and unmaps gone ones, so
-# a single periodic call handles both plug and unplug. When the media share
-# isn't present (console session, or before the RDP redirection is up) the
-# Test-Path is false and we just idle until it appears.
-while ($true) {
-    try {
-        if (Test-Path $mediaPath) { Sync-Drives }
-    } catch {
-    }
-    Start-Sleep -Seconds $pollSeconds
+# Wait for RDP media share to become available
+while (-not (Test-Path $mediaPath)) {
+    Start-Sleep -Seconds 3
 }
+
+# Initial sync - map any USB drives already plugged in
+Sync-Drives
+
+# Watch for changes (event-driven, no polling)
+$watcher = New-Object System.IO.FileSystemWatcher
+$watcher.Path = $mediaPath
+$watcher.NotifyFilter = [IO.NotifyFilters]::DirectoryName
+$watcher.IncludeSubdirectories = $false
+$watcher.EnableRaisingEvents = $true
+
+Register-ObjectEvent $watcher "Created" -Action { Sync-Drives } | Out-Null
+Register-ObjectEvent $watcher "Deleted" -Action { Sync-Drives } | Out-Null
+Register-ObjectEvent $watcher "Renamed" -Action { Sync-Drives } | Out-Null
+
+# Keep script alive (events fire on background threads)
+Wait-Event -Timeout ([int]::MaxValue)
