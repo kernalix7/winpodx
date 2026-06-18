@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent - there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=26
+set WINPODX_OEM_VERSION=27
 
 echo [WinPodX] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -201,37 +201,14 @@ REM dockur's base image ships a "Shared" desktop item pointing to \\host.lan\Dat
 echo [WinPodX] Creating desktop shortcuts to tsclient shares...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); foreach($n in 'Shared','Shared.lnk'){ $p=Join-Path $d $n; if(Test-Path -LiteralPath $p){ Remove-Item -Force -Recurse -LiteralPath $p -ErrorAction SilentlyContinue } }; $s=New-Object -ComObject WScript.Shell; foreach($x in @(@('Home','\\tsclient\home'), @('USB','\\tsclient\media'))){ $l=$s.CreateShortcut((Join-Path $d ($x[0]+'.lnk'))); $l.TargetPath=$x[1]; $l.Save() }"
 
-echo [WinPodX] Setting up USB media auto-mapping...
+REM C:\winpodx is the persistent run dir for runtime-delivered helpers
+REM (e.g. agent-keepalive.ps1, copied here by the keep-alive task). USB
+REM media is reachable in every session via the \\tsclient\media RDP
+REM redirection (the desktop "USB" shortcut above points at it); a real
+REM block device is available through USB passthrough. There is no
+REM drive-letter auto-mapper -- it couldn't surface a letter reliably in
+REM RemoteApp sessions and kept destabilizing first boot (#613/#638).
 mkdir C:\winpodx 2>nul
-
-REM Prefer compose-mounted C:\winpodx-scripts; fall back to well-known install locations over \\tsclient\home. See config/oem/README.md.
-set "WINPODX_SRC_OK="
-if exist "C:\winpodx-scripts\media_monitor.ps1" (
-    copy /Y "C:\winpodx-scripts\media_monitor.ps1" C:\winpodx\media_monitor.ps1 >nul 2>&1
-    set "WINPODX_SRC_OK=1"
-)
-if not defined WINPODX_SRC_OK (
-    for %%P in (
-        "\\tsclient\home\.local\share\winpodx\scripts\windows\media_monitor.ps1"
-        "\\tsclient\home\.local\pipx\venvs\winpodx\share\winpodx\scripts\windows\media_monitor.ps1"
-        "\\tsclient\home\winpodx\scripts\windows\media_monitor.ps1"
-        "\\tsclient\home\.local\bin\winpodx-app\scripts\windows\media_monitor.ps1"
-    ) do (
-        if not defined WINPODX_SRC_OK if exist %%P (
-            copy /Y %%P C:\winpodx\media_monitor.ps1 >nul 2>&1
-            if not errorlevel 1 set "WINPODX_SRC_OK=1"
-        )
-    )
-)
-if not defined WINPODX_SRC_OK (
-    echo [WinPodX] WARNING: media_monitor.ps1 not found in any known location.
-    echo [WinPodX] Mount the scripts dir at C:\winpodx-scripts via compose, or
-    echo [WinPodX] place media_monitor.ps1 under ~/.local/share/winpodx/scripts/windows/.
-)
-REM WinpodxMedia HKCU\Run registration moved later in install.bat -- the
-REM same PowerShell block that registers WinpodxAgent now writes both
-REM entries with shared launcher-existence gating + setup.log diagnostics.
-REM See "Registering HKCU\Run entries" below.
 
 REM Clean up any legacy OEM updater task / file from pre-0.1.6 installs.
 schtasks /delete /tn "WinpodxOEMUpdate" /f >nul 2>&1
@@ -531,9 +508,7 @@ REM      starts the agent; without it, HKCU\Run fired wscript on a
 REM      missing file -> "Cannot find script file" dialog blocking
 REM      the user session indefinitely (kernalix7 saw this on a fresh
 REM      install 2026-05-02 18:48).
-REM   3. Single PS round-trip writes both WinpodxAgent and WinpodxMedia,
-REM      replacing the two separate reg-add lines + the WinpodxMedia
-REM      special case below.
+REM   3. Single PS round-trip writes the WinpodxAgent entry.
 echo [WinPodX] Registering HKCU\Run entries...
 echo [agent-install] step=hkcu-run-register status=enter>>"%SETUP_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -543,17 +518,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';" ^
   "if ($haveWrap) {" ^
   "  $agent = 'wscript.exe \"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\OEM\agent.ps1\"';" ^
-  "  $media = 'wscript.exe \"' + $wrap + '\" \"powershell.exe\" \"-NoProfile\" \"-ExecutionPolicy\" \"Bypass\" \"-File\" \"C:\winpodx\media_monitor.ps1\"';" ^
   "} else {" ^
     "  Write-Output 'reg-add: hidden-launcher.vbs missing -> fallback to direct powershell (brief flash)';" ^
   "  $agent = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1';" ^
-  "  $media = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\winpodx\media_monitor.ps1';" ^
   "}" ^
   "try {" ^
   "  Set-ItemProperty -Path $key -Name 'WinpodxAgent' -Value $agent -Force;" ^
-  "  Set-ItemProperty -Path $key -Name 'WinpodxMedia' -Value $media -Force;" ^
     "  Write-Output ('reg-add: WinpodxAgent=' + $agent);" ^
-    "  Write-Output ('reg-add: WinpodxMedia=' + $media);" ^
   "} catch {" ^
     "  Write-Output ('reg-add: ERROR ' + $_.Exception.GetType().FullName + ': ' + $_.Exception.Message);" ^
   "}" >>"%SETUP_LOG%" 2>&1

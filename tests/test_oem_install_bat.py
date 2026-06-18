@@ -43,7 +43,7 @@ def test_install_bat_does_not_self_lock_setup_log() -> None:
 
 def test_install_bat_oem_version_matches_expected_setup_contract() -> None:
     text = INSTALL_BAT.read_text(encoding="utf-8")
-    assert "set WINPODX_OEM_VERSION=26" in text
+    assert "set WINPODX_OEM_VERSION=27" in text
     assert "(echo %WINPODX_OEM_VERSION%)>C:\\winpodx\\oem_version.txt" in text
 
 
@@ -59,7 +59,9 @@ def test_install_bat_registers_and_spawns_guest_agent() -> None:
     text = INSTALL_BAT.read_text(encoding="utf-8")
 
     assert "Set-ItemProperty -Path $key -Name 'WinpodxAgent'" in text
-    assert "Set-ItemProperty -Path $key -Name 'WinpodxMedia'" in text
+    # WinpodxMedia (media_monitor USB drive-letter mapper) was removed (#613/#638).
+    assert "WinpodxMedia" not in text
+    assert "media_monitor" not in text
     assert "agent-spawn: wscript+hidden-launcher.vbs" in text
     assert "agent-spawn: direct-powershell-fallback" in text
 

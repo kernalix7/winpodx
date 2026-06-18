@@ -1051,30 +1051,15 @@ def _apply_vbs_launchers(cfg: Config) -> None:
         '"powershell.exe" "-NoProfile" "-ExecutionPolicy" "Bypass" '
         '"-File" "C:\\OEM\\agent.ps1"'
     ).replace("'", "''")
-    # HKCU\Run\WinpodxMedia — same wrapper-fix as WinpodxAgent. Pre-OEM-
-    # v19 install.bat registered media_monitor.ps1 with bare
-    # `-WindowStyle Hidden`; under multi-session each new RDP logon re-
-    # fires HKCU\Run, briefly allocating a console for every app launch
-    # (kernalix7 reported 2026-05-02: "검정 콘솔이 잠깐 뜨고 글씨는 안보여 ...
-    # 앱 실행하고 나면" — the conhost flash before SW_HIDE applies).
-    media_reg_value = (
-        f'wscript.exe "{target_dir}\\hidden-launcher.vbs" '
-        '"powershell.exe" "-NoProfile" "-ExecutionPolicy" "Bypass" '
-        '"-File" "C:\\winpodx\\media_monitor.ps1"'
-    ).replace("'", "''")
+    # Drop any stale WinpodxMedia Run entry left by older OEM builds — the
+    # media_monitor USB drive-letter mapper was removed (#613/#638); USB is
+    # reachable via the \\tsclient\media redirection instead.
     lines.extend(
         [
             "$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'",
             "if (-not (Test-Path $runKey)) { [void](New-Item -Path $runKey -Force) }",
             f"Set-ItemProperty -Path $runKey -Name 'WinpodxAgent' -Value '{reg_value}'",
-            # Only rewrite WinpodxMedia if the old (unwrapped) entry exists —
-            # avoids creating a stale entry on pods where install.bat skipped
-            # the media_monitor staging (warned + omitted the reg add).
-            "$cur = (Get-ItemProperty -Path $runKey -Name 'WinpodxMedia' "
-            "-ErrorAction SilentlyContinue).WinpodxMedia",
-            "if ($cur) {",
-            f"    Set-ItemProperty -Path $runKey -Name 'WinpodxMedia' -Value '{media_reg_value}'",
-            "}",
+            "Remove-ItemProperty -Path $runKey -Name 'WinpodxMedia' -ErrorAction SilentlyContinue",
         ]
     )
     # Auto-respawn the running agent under the new wscript wrapper so the
