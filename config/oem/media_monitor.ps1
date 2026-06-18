@@ -33,15 +33,28 @@ if (-not $script:__mmMutex.WaitOne(0)) { return }
 # already-open Explorer window never shows the new drive in "This PC". Fire
 # SHChangeNotify(SHCNE_DRIVEADD/REMOVED) after each map/unmap so Explorer
 # refreshes live.
-Add-Type -Namespace WinPodX -Name Shell -MemberDefinition @'
-[System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-public static extern void SHChangeNotify(int wEventId, uint uFlags, System.IntPtr dwItem1, System.IntPtr dwItem2);
-'@ -ErrorAction SilentlyContinue
+#
+# The shell32 P/Invoke is compiled LAZILY (first map) on purpose: Add-Type
+# shells out to csc.exe, and at the very first boot media_monitor starts (via
+# HKCU\Run) while install.bat is still finishing. Compiling then would put a
+# csc temp assembly under %TEMP% (not in the Defender exclusions) in front of
+# Defender while install.bat is mid-flight -- the exact "Defender scan during
+# install" contention class that has deadlocked install.bat before (#613).
+# No USB is plugged during first boot, so deferring the compile to the first
+# actual map keeps the install-time path identical to plain polling.
+$script:__shellReady = $false
 
 function Notify-Shell([string]$root, [int]$eventId) {
     # eventId: 0x100 = SHCNE_DRIVEADD, 0x80 = SHCNE_DRIVEREMOVED. uFlags 0x0005
     # = SHCNF_PATHW (dwItem1 is a wide path string like "E:\").
     try {
+        if (-not $script:__shellReady) {
+            Add-Type -Namespace WinPodX -Name Shell -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+public static extern void SHChangeNotify(int wEventId, uint uFlags, System.IntPtr dwItem1, System.IntPtr dwItem2);
+'@
+            $script:__shellReady = $true
+        }
         $ptr = [System.Runtime.InteropServices.Marshal]::StringToHGlobalUni($root)
         try {
             [WinPodX.Shell]::SHChangeNotify($eventId, 0x0005, $ptr, [System.IntPtr]::Zero)
