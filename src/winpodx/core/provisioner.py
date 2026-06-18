@@ -909,6 +909,11 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
         ("vbs_launchers", _apply_vbs_launchers),
         ("multi_session", _apply_multi_session),
         ("agent_keepalive", _apply_agent_keepalive),
+        # media_monitor LAST: it reuses the hidden-launcher.vbs that
+        # vbs_launchers stages, and it's a non-critical convenience (USB
+        # drive-letter mapping) so a failure here shouldn't precede the
+        # session-keeping fixes above.
+        ("media_monitor", _apply_media_monitor),
     ):
         try:
             fn(cfg)
@@ -1109,6 +1114,76 @@ def _apply_vbs_launchers(cfg: Config) -> None:
     if result.rc != 0:
         raise RuntimeError(f"vbs_launchers apply failed (rc={result.rc}): {result.stderr.strip()}")
     log.info("vbs_launchers: %s", result.stdout.strip())
+
+
+def _apply_media_monitor(cfg: Config) -> None:
+    """Deliver media_monitor.ps1 to the guest + register/start it, via the agent.
+
+    media_monitor maps host USB volumes (``\\tsclient\\media\\<LABEL>``) to
+    guest drive letters. It is delivered at RUNTIME here -- never via
+    install.bat / the OEM bundle -- because adding a file to ``C:\\OEM``
+    re-triggers the intermittent Defender/rdprrap first-boot deadlock that
+    hangs the install (#613/#638). This pushes the script to ``C:\\winpodx``,
+    (re)registers the ``WinpodxMedia`` HKCU\\Run entry under the hidden-launcher
+    wrapper so every interactive logon (full desktop + each RemoteApp session)
+    starts one instance, and kicks one now so the current session maps drives
+    without waiting for the next logon. A per-session mutex in the script makes
+    the duplicate launch exit cleanly. Idempotent.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    src = bundle_dir() / "scripts" / "windows" / "media_monitor.ps1"
+    if not src.is_file():
+        raise RuntimeError(f"media_monitor source missing: {src}")
+    try:
+        body = src.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(f"cannot read {src}: {e}") from e
+
+    import base64 as _b64
+
+    b64 = _b64.b64encode(body.encode("utf-8")).decode("ascii")
+    launcher = "C:\\Users\\Public\\winpodx\\launchers\\hidden-launcher.vbs"
+    target = "C:\\winpodx\\media_monitor.ps1"
+    media_reg_value = (
+        f'wscript.exe "{launcher}" '
+        '"powershell.exe" "-NoProfile" "-ExecutionPolicy" "Bypass" '
+        f'"-File" "{target}"'
+    ).replace("'", "''")
+    lines = [
+        "$ErrorActionPreference = 'Stop'",
+        "if (-not (Test-Path 'C:\\winpodx')) "
+        "{ [void](New-Item -ItemType Directory -Force -Path 'C:\\winpodx') }",
+        f"$bytes = [Convert]::FromBase64String('{b64}')",
+        f"[IO.File]::WriteAllBytes('{target}', $bytes)",
+        "$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'",
+        "if (-not (Test-Path $runKey)) { [void](New-Item -Path $runKey -Force) }",
+        f"Set-ItemProperty -Path $runKey -Name 'WinpodxMedia' -Value '{media_reg_value}'",
+        # Kick one instance now so the current session maps drives immediately;
+        # the per-session mutex makes a later (next-logon) duplicate exit.
+        f"if (Test-Path -LiteralPath '{launcher}') {{",
+        f"    Start-Process wscript.exe -ArgumentList "
+        f"@('{launcher}','powershell.exe','-NoProfile','-ExecutionPolicy',"
+        f"'Bypass','-File','{target}') | Out-Null",
+        "} else {",
+        f"    Start-Process powershell.exe -ArgumentList "
+        f"@('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden',"
+        f"'-File','{target}') | Out-Null",
+        "}",
+        "Write-Output 'media_monitor delivered + started'",
+    ]
+    payload = "\n".join(lines) + "\n"
+
+    from winpodx.core.windows_exec import WindowsExecError
+
+    try:
+        result = _apply_via_transport(cfg, payload, description="apply-media-monitor")
+    except WindowsExecError as e:
+        raise RuntimeError(f"media_monitor apply failed: {e}") from e
+    if result.rc != 0:
+        raise RuntimeError(f"media_monitor apply failed (rc={result.rc}): {result.stderr.strip()}")
+    log.info("media_monitor: %s", result.stdout.strip())
 
 
 def _apply_agent_keepalive(cfg: Config) -> None:

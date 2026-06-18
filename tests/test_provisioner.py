@@ -207,6 +207,47 @@ def test_apply_agent_keepalive_raises_on_nonzero_rc(monkeypatch):
         provisioner._apply_agent_keepalive(cfg)
 
 
+def test_apply_media_monitor_payload_pushes_and_registers(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    captured = _mock_run_in_windows(monkeypatch, rc=0, stdout="media_monitor delivered + started")
+    provisioner._apply_media_monitor(cfg)
+    assert len(captured) == 1
+    description, payload = captured[0]
+    assert description == "apply-media-monitor"
+    # Pushes the script bytes to C:\winpodx (NOT C:\OEM — that's the whole point).
+    assert "FromBase64String" in payload
+    assert "C:\\winpodx\\media_monitor.ps1" in payload
+    assert "C:\\OEM" not in payload
+    # (Re)registers the per-logon Run entry under the hidden-launcher wrapper.
+    assert "WinpodxMedia" in payload
+    assert "hidden-launcher.vbs" in payload
+    # Kicks one instance now so the current session maps drives immediately.
+    assert "Start-Process" in payload
+
+
+def test_apply_media_monitor_raises_on_nonzero_rc(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    _mock_run_in_windows(monkeypatch, rc=1, stderr="write denied")
+    with pytest.raises(RuntimeError, match="rc=1"):
+        provisioner._apply_media_monitor(cfg)
+
+
+def test_apply_media_monitor_skips_manual_backend():
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    # No transport call, no raise — just a clean no-op.
+    provisioner._apply_media_monitor(cfg)
+
+
 def test_apply_oem_runtime_fixes_skips_manual(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
@@ -343,6 +384,7 @@ def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
         "multi_session",
         "vbs_launchers",
         "agent_keepalive",
+        "media_monitor",
     }
     for v in result.values():
         assert v == "ok"

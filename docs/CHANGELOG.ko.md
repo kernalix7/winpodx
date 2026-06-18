@@ -11,6 +11,7 @@
 
 ### Added
 
+- **USB 드라이브가 게스트 드라이브 문자로 자동 매핑** (#613, @zephir2008·@ismikes 기여 감사). 호스트에 USB를 꽂으면 몇 초 내 Windows 게스트에 드라이브(E:, F:…)로 뜨고(풀데스크탑 + 각 RemoteApp 창), 빼면 해제됩니다. `media_monitor.ps1`은 `install.bat`/OEM 번들이 아니라 **게스트 에이전트로 런타임 전달·등록**(provisioning / `winpodx guest apply-fixes` 시)되어, 취약한 first-boot 설치를 절대 위협하지 않습니다(이전 OEM 번들 전달이 설치 데드락 재발, #638). 리다이렉트된 `\\tsclient\media`를 폴링하고(RDP 드라이브는 변경 알림 미제공) 매핑 후 `SHChangeNotify`로 탐색기에 즉시 표시, 세션별 mutex로 로그온당 1개만 유지합니다.
 - **Debloat가 더 많은 텔레메트리·광고 항목을 비활성화** (#590, @GameSoul7Eugene 기여 감사). *Ads & suggestions* 항목이 추가 `ContentDeliveryManager` 추천 키와 회전 잠금화면 광고를 제거하고, *불필요한 예약 작업* 항목이 순수 텔레메트리 작업(`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights 데이터 수집, Office 텔레메트리 에이전트)을 추가로 비활성화합니다. 보안·시스템 핵심 작업(Windows Defender, 라이선스/활성화, 인증서 서비스, Windows Update 복구, 언어 팩, Windows Hello)은 활성화·업데이트·IME가 깨지지 않도록 의도적으로 건드리지 않습니다.
 
 ### Fixed
