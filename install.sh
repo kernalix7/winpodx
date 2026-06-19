@@ -1230,11 +1230,15 @@ else
     if [ -d "$INSTALL_DIR/.git" ]; then
         log "Updating existing installation to $INSTALL_REF..."
         git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
-        git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" \
+        # Check out the freshly-fetched ref. Prefer origin/<ref> so a BRANCH
+        # advances to its latest remote tip — `git fetch` updates origin/<ref>
+        # but NOT the stale local branch, so a plain `checkout <branch>` would
+        # pin the install to whatever commit was first cloned (#616: every
+        # re-run reinstalled the same old commit). Fall back to <ref> for tags
+        # / commits, which aren't origin/-prefixed.
+        git -C "$INSTALL_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
+            || git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
             || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
-        if [ "$INSTALL_REF" = "main" ]; then
-            git -C "$INSTALL_DIR" reset --hard --quiet "origin/$INSTALL_REF"
-        fi
     else
         # If running from repo, copy only needed files (skip .venv, .git, etc.).
         # When piped via `curl ... | bash`, bash reads from stdin and
@@ -1260,11 +1264,11 @@ else
             fi
             git clone --quiet "$REPO_URL" "$INSTALL_DIR"
             git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
-            git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" \
+            # origin/<ref> first so a branch lands on its latest tip; fall
+            # back to <ref> for tags / commits (see the update path above).
+            git -C "$INSTALL_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
+                || git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
                 || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
-            if [ "$INSTALL_REF" = "main" ]; then
-                git -C "$INSTALL_DIR" reset --hard --quiet "origin/$INSTALL_REF"
-            fi
         fi
     fi
 fi
