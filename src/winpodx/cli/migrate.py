@@ -766,15 +766,17 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bo
 
     if state != PodState.RUNNING:
         print(f"  Pod is {state.value if hasattr(state, 'value') else state}, not running.")
-        if non_interactive:
-            print(
-                "  Skipping (--non-interactive). "
-                "Run `winpodx app run desktop` later — apply fires automatically."
-            )
-            return
-        if not _prompt_yes("  Start the pod now and apply?", default=True):
+        # An update must leave the pod updated AND running: deferring to "next
+        # launch" stranded guest-side changes (the new guest_share, fixes) and
+        # left users confused that the update "did nothing". Start the pod and
+        # apply now. Non-interactive (install.sh) does it unprompted; the
+        # existing install means no ISO/Sysprep — a ~30-90 s reused boot. The
+        # interactive path keeps the confirm so a manual `winpodx migrate`
+        # doesn't boot Windows unexpectedly.
+        if not non_interactive and not _prompt_yes("  Start the pod now and apply?", default=True):
             print("  Skipped — apply will run automatically next time the pod starts.")
             return
+        print("  Starting the pod to apply the update (existing install — no ISO/Sysprep)...")
         try:
             from winpodx.core.provisioner import ensure_ready
 
