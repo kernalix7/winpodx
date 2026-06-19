@@ -26,11 +26,13 @@ from __future__ import annotations
 #: Guest-side SMB port forwarded into the VM via dockur ``USER_PORTS``.
 GUEST_SMB_PORT = 445
 
-#: Host loopback port published to reach the guest SMB service. Defaults to
-#: 445 for maximum SMB-client compatibility (clients that ignore a custom
-#: port still work); on a host already running Samba this can collide, in
-#: which case it is overridden to a high port.
-SMB_HOST_PORT = 445
+#: Host loopback port published to reach the guest SMB service. Must be an
+#: UNPRIVILEGED port (>= 1024): rootless podman/docker can't bind 445 on the
+#: host ("rootlessport cannot expose privileged port 445"). The guest still
+#: listens on the standard 445 (:data:`GUEST_SMB_PORT`); the host SMB client
+#: connects to this port explicitly (``smb://127.0.0.1:4445/…`` / cifs
+#: ``-o port=4445``).
+SMB_HOST_PORT = 4445
 
 #: Name of the explicit share the guest creates for ``C:\``. An explicit
 #: share (not the built-in ``C$`` admin share) avoids the local-account
