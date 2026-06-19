@@ -197,9 +197,7 @@ def ensure_guest_mount(cfg: Config) -> Path | None:
 
     mount = _gvfs_mount(cfg)
     if mount is None:
-        log.warning(
-            "guest mount: could not mount %s via kio-fuse or gvfs", smb_uri(cfg)
-        )
+        log.warning("guest mount: could not mount %s via kio-fuse or gvfs", smb_uri(cfg))
     return mount
 
 
