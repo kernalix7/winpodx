@@ -909,6 +909,9 @@ def apply_windows_runtime_fixes(cfg: Config) -> dict[str, str]:
         ("vbs_launchers", _apply_vbs_launchers),
         ("multi_session", _apply_multi_session),
         ("agent_keepalive", _apply_agent_keepalive),
+        # Share the guest C: over SMB (loopback only) so the host can open
+        # Windows-local files picked from "Open with -> Linux app" (#616).
+        ("guest_share", _apply_guest_share),
     ):
         try:
             fn(cfg)
@@ -973,6 +976,65 @@ def _apply_oem_runtime_fixes(cfg: Config) -> None:
             f"oem_runtime_fixes apply failed (rc={result.rc}): {result.stderr.strip()}"
         )
     log.info("oem_runtime_fixes: %s", result.stdout.strip())
+
+
+def _apply_guest_share(cfg: Config) -> None:
+    """Share the guest ``C:\\`` over SMB so the host can open guest-local files.
+
+    Reverse-open (#616) lets the user pick a host Linux app from the Windows
+    "Open with" menu. For a file on the guest's own disk (e.g. the Windows
+    Desktop) the host needs to reach it — so the guest exposes ``C:\\`` as the
+    :data:`~winpodx.core.guest_disk.GUEST_SMB_SHARE` SMB share and the host
+    mounts it (compose publishes the port on loopback only).
+
+    Applied at runtime over the agent (never install.bat — adding files to the
+    OEM bundle re-triggers the first-boot install deadlock, #638). Idempotent:
+    re-running re-asserts the share, the service state, and the firewall rule.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return
+
+    from winpodx.core.guest_disk import GUEST_SMB_SHARE
+
+    user = cfg.rdp.user.replace("'", "''")
+    share = GUEST_SMB_SHARE.replace("'", "''")
+    payload = (
+        "$ErrorActionPreference = 'Continue'\n"
+        # The SMB server service must be running + auto-start.
+        "Set-Service -Name LanmanServer -StartupType Automatic "
+        "-ErrorAction SilentlyContinue\n"
+        "Start-Service -Name LanmanServer -ErrorAction SilentlyContinue\n"
+        # Let a LOCAL account authenticate over the network without the UAC
+        # remote-token filtering that otherwise strips its access to C:.
+        "New-ItemProperty -Path "
+        "'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' "
+        "-Name 'LocalAccountTokenFilterPolicy' -Value 1 -PropertyType DWord "
+        "-Force | Out-Null\n"
+        # (Re)create the explicit C:\ share granting the winpodx user. Replace
+        # any prior definition so a changed user/path is re-asserted cleanly.
+        f"$share = '{share}'\n"
+        "if (Get-SmbShare -Name $share -ErrorAction SilentlyContinue) "
+        "{ Remove-SmbShare -Name $share -Force -ErrorAction SilentlyContinue }\n"
+        f"New-SmbShare -Name $share -Path 'C:\\' -FullAccess '{user}' "
+        "-ErrorAction SilentlyContinue | Out-Null\n"
+        # Open SMB inbound (the host reaches it over the loopback-published port).
+        "Enable-NetFirewallRule -DisplayGroup 'File and Printer Sharing' "
+        "-ErrorAction SilentlyContinue\n"
+        "$s = Get-SmbShare -Name $share -ErrorAction SilentlyContinue\n"
+        "if ($s) { Write-Output ('guest-share ok: ' + $s.Name + ' -> ' + $s.Path) } "
+        "else { Write-Output 'guest-share: New-SmbShare did not create the share' }\n"
+    )
+
+    from winpodx.core.windows_exec import WindowsExecError
+
+    try:
+        result = _apply_via_transport(cfg, payload, description="apply-guest-share")
+    except WindowsExecError as e:
+        log.warning("guest_share: channel failure: %s", e)
+        raise
+    if result.rc != 0:
+        raise RuntimeError(f"guest_share apply failed (rc={result.rc}): {result.stderr.strip()}")
+    log.info("guest_share: %s", result.stdout.strip())
 
 
 def _apply_vbs_launchers(cfg: Config) -> None:

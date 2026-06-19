@@ -18,6 +18,7 @@ from winpodx.core.devices import (
     parse_entries,
     qemu_device_args,
 )
+from winpodx.core.guest_disk import GUEST_SMB_PORT, SMB_HOST_PORT
 from winpodx.utils.paths import bundle_dir, config_dir
 
 # Two storage-volume modes are now supported (v0.4.x post-#122):
@@ -70,7 +71,7 @@ name: "winpodx"
       VMX: "{vmx}"
       HV: "{hv}"
       ARGUMENTS: "{qemu_arguments}"
-      USER_PORTS: "{agent_port}"
+      USER_PORTS: "{user_ports}"
     volumes:
       - {storage_mount}
       - {oem_dir}:/oem:Z
@@ -79,6 +80,7 @@ name: "winpodx"
       - "127.0.0.1:{rdp_port}:3389/udp"
       - "127.0.0.1:{vnc_port}:8006"
       - "127.0.0.1:{agent_port}:{agent_port}/tcp"
+      - "127.0.0.1:{smb_port}:445/tcp"
     devices:
 {device_nodes}    cap_add:
       - NET_ADMIN
@@ -874,6 +876,10 @@ def _build_compose_content(cfg: Config) -> str:
         vmx=_vmx_env_for_host(cfg),
         qemu_arguments=qemu_args,
         agent_port=AGENT_PORT,
+        # dockur USER_PORTS = guest ports to forward into the VM (the agent
+        # + the guest SMB share for reverse-open guest-disk access, #616).
+        user_ports=f"{AGENT_PORT} {GUEST_SMB_PORT}",
+        smb_port=SMB_HOST_PORT,
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),
         security_opt=_security_opt_block(cfg),

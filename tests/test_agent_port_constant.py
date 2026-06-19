@@ -12,6 +12,7 @@ import re
 
 from winpodx.core import guest_sync
 from winpodx.core.agent import AGENT_PORT, AgentClient
+from winpodx.core.guest_disk import GUEST_SMB_PORT, SMB_HOST_PORT
 from winpodx.core.pod import compose
 
 
@@ -34,8 +35,11 @@ def test_compose_template_port_mapping_uses_constant() -> None:
 
     cfg = Config()
     rendered = compose._build_compose_content(cfg)
-    assert f'USER_PORTS: "{AGENT_PORT}"' in rendered
+    # USER_PORTS forwards both the agent port and the guest SMB port (#616).
+    assert f'USER_PORTS: "{AGENT_PORT} {GUEST_SMB_PORT}"' in rendered
     assert f'"127.0.0.1:{AGENT_PORT}:{AGENT_PORT}/tcp"' in rendered
+    # Guest SMB share (reverse-open guest-disk) published on loopback only.
+    assert f'"127.0.0.1:{SMB_HOST_PORT}:{GUEST_SMB_PORT}/tcp"' in rendered
     # Sanity: only the AGENT_PORT-derived occurrences appear (3 total:
     # USER_PORTS env + the two halves of the loopback host:container map).
     occurrences = re.findall(r"\b8765\b", rendered)

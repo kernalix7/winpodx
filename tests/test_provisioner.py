@@ -207,6 +207,50 @@ def test_apply_agent_keepalive_raises_on_nonzero_rc(monkeypatch):
         provisioner._apply_agent_keepalive(cfg)
 
 
+def test_apply_guest_share_skips_manual(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    captured = _mock_run_in_windows(monkeypatch)
+    provisioner._apply_guest_share(cfg)
+    assert captured == []
+
+
+def test_apply_guest_share_payload_creates_share(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+    from winpodx.core.guest_disk import GUEST_SMB_SHARE
+
+    cfg = Config()
+    cfg.rdp.user = "WPX-User"
+    captured = _mock_run_in_windows(monkeypatch, rc=0, stdout="guest-share ok: winpodx-c -> C:\\")
+    provisioner._apply_guest_share(cfg)
+    assert len(captured) == 1
+    description, payload = captured[0]
+    assert description == "apply-guest-share"
+    # Shares C:\ as the named share, granting the winpodx user.
+    assert "New-SmbShare" in payload
+    assert GUEST_SMB_SHARE in payload
+    assert "-Path 'C:\\'" in payload
+    assert "WPX-User" in payload
+    # Service + local-account network auth + firewall are asserted.
+    assert "LanmanServer" in payload
+    assert "LocalAccountTokenFilterPolicy" in payload
+    assert "File and Printer Sharing" in payload
+
+
+def test_apply_guest_share_raises_on_nonzero_rc(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    _mock_run_in_windows(monkeypatch, rc=1, stderr="access denied")
+    with pytest.raises(RuntimeError, match="rc=1"):
+        provisioner._apply_guest_share(cfg)
+
+
 def test_apply_oem_runtime_fixes_skips_manual(monkeypatch):
     from winpodx.core import provisioner
     from winpodx.core.config import Config
@@ -343,6 +387,7 @@ def test_apply_windows_runtime_fixes_returns_per_helper_status(monkeypatch):
         "multi_session",
         "vbs_launchers",
         "agent_keepalive",
+        "guest_share",
     }
     for v in result.values():
         assert v == "ok"

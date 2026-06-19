@@ -469,7 +469,8 @@ class TestAgentPortMapping:
         _generate_compose(cfg)
 
         compose = (tmp_path / "winpodx" / "compose.yaml").read_text()
-        assert 'USER_PORTS: "8765"' in compose
+        # Agent port + guest SMB port (reverse-open guest-disk, #616).
+        assert 'USER_PORTS: "8765 445"' in compose
 
     def test_compose_includes_host_port_mapping(self, tmp_path, monkeypatch):
         from winpodx.cli.setup_cmd import _generate_compose
