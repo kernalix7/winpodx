@@ -53,6 +53,25 @@ SMB_HOST_PORT = 4445
 GUEST_SMB_SHARE = "winpodx-c"
 
 
+def kio_fuse_available() -> bool:
+    """True if KDE's kio-fuse (the mount backend that handles the custom SMB
+    port) is installed. gvfs can't use the non-standard port, so kio-fuse is
+    the real runtime dependency for reverse-open guest-disk access (#616)."""
+    import glob
+    import shutil
+
+    if shutil.which("kio-fuse"):
+        return True
+    candidates = [
+        "/usr/libexec/kio-fuse",
+        "/usr/lib/kio-fuse",
+        "/usr/lib64/kio-fuse",
+    ]
+    if any(os.path.exists(p) for p in candidates):
+        return True
+    return bool(glob.glob("/usr/lib*/kio-fuse") or glob.glob("/usr/lib*/*/kio-fuse"))
+
+
 def _gvfs_root() -> Path:
     """The user's gvfs FUSE mount root (``$XDG_RUNTIME_DIR/gvfs``)."""
     base = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"

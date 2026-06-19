@@ -269,6 +269,29 @@ def probe_oem_version(cfg: Config) -> Probe:
     return Probe("oem_version", status, detail, ms)
 
 
+def probe_guest_mount(cfg: Config) -> Probe:
+    """Reverse-open guest-disk needs KDE's kio-fuse to mount the guest C:
+    over the non-standard SMB port (gvfs can't use a custom port). Warn — with
+    the package name — when it's missing, so 'Open with -> Linux app' on a
+    Windows-local file doesn't silently fail (#616)."""
+
+    def _run() -> tuple[ProbeStatus, str]:
+        if not cfg.reverse_open.enabled:
+            return "skip", "reverse-open disabled"
+        from winpodx.core.guest_disk import kio_fuse_available
+
+        if kio_fuse_available():
+            return "ok", "kio-fuse present"
+        return (
+            "warn",
+            "kio-fuse not found — reverse-open can't open Windows-local files "
+            "(install 'kio-fuse'); host-redirect files still work",
+        )
+
+    status, detail, ms = _timed(_run)
+    return Probe("guest_mount", status, detail, ms)
+
+
 def probe_password_age(cfg: Config) -> Probe:
     def _run() -> tuple[ProbeStatus, str]:
         if cfg.rdp.password_max_age <= 0:
@@ -339,6 +362,7 @@ PROBES: tuple[Callable[[Config], Probe], ...] = (
     probe_guest_exec,  # round-trip test — proves /exec works, not just /health
     probe_guest_summary,  # in-guest snapshot (Windows version / uptime / sessions / disk)
     probe_oem_version,
+    probe_guest_mount,
     probe_password_age,
     probe_apps_discovered,
     probe_disk_free,
