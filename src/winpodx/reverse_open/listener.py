@@ -118,6 +118,13 @@ class ListenerConfig:
     max_in_flight: int = _MAX_IN_FLIGHT_DEFAULT
     janitor_age_seconds: int = _JANITOR_AGE_SECS_DEFAULT
     poll_interval: float = _POLL_INTERVAL_DEFAULT
+    # Resolver for guest-local (``origin="guest"``) requests: returns the
+    # host path where the guest's ``C:\`` is mounted (gvfs SMB), mounting it
+    # on demand, or ``None`` if the guest disk can't be reached. ``None``
+    # here (the default) means guest-local reverse-open isn't wired up and
+    # such requests are rejected cleanly. The daemon injects the real
+    # resolver (``lambda: guest_disk.ensure_guest_mount(cfg)``).
+    guest_mount: Callable[[], Path | None] | None = None
 
 
 class Listener:
@@ -284,19 +291,11 @@ class Listener:
             return
 
         # Guest-local files (origin="guest") live on the guest's own disk,
-        # not under the host-home redirect, so they can only be opened once
-        # the guest disk is mounted on the host. That mount isn't wired up
-        # yet — reject cleanly with a clear marker instead of mis-resolving
-        # the path (the pre-#616 shim used to rewrite C:\… to
-        # \\tsclient\home\… and fail with a confusing "No such file").
+        # reached through the host SMB mount of the guest C: (see
+        # guest_disk.ensure_guest_mount). Resolve + spawn here; the
+        # host-redirect (\\tsclient) path falls through to safe_open_unc.
         if data.get("origin", "host") == "guest":
-            self._stats.rejected_guest_unsupported += 1
-            log.warning(
-                "listener: guest-local reverse-open not yet supported (%s): %s",
-                path.name,
-                data["path"],
-            )
-            _safe_unlink(path)
+            self._handle_guest_request(path, slug, app, data["path"])
             return
 
         unc = data["path"]
@@ -342,6 +341,72 @@ class Listener:
         # spawn-error path above leaves the UUID unrecorded so the
         # guest can retry without hitting the replay reject. The
         # path-reject branch DOES record nothing for the same reason.
+        self._seen.add(uuid)
+        self._stats.accepted += 1
+        _safe_unlink(path)
+
+    def _handle_guest_request(self, path: Path, slug: str, app: object, win_path: str) -> None:
+        """Open a guest-local file (``C:\\…``) via the host SMB mount of guest C:.
+
+        Resolves the mount on demand through the injected ``guest_mount``
+        resolver, maps the Windows path onto it, and spawns the app. Any
+        failure (no resolver, mount unavailable, bad path, missing file,
+        spawn error) rejects cleanly and drops the request — the guest can
+        retry. The UUID is recorded only after a successful spawn.
+        """
+        uuid = path.stem
+        resolver = self._cfg.guest_mount
+        if resolver is None:
+            self._stats.rejected_guest_unsupported += 1
+            log.warning(
+                "listener: guest-local reverse-open not enabled (%s): %s",
+                path.name,
+                win_path,
+            )
+            _safe_unlink(path)
+            return
+
+        try:
+            mount_root = resolver()
+        except Exception as exc:  # noqa: BLE001
+            mount_root = None
+            log.warning("listener: guest mount resolver failed (%s): %s", path.name, exc)
+
+        if mount_root is None:
+            self._stats.rejected_path += 1
+            log.warning("listener: guest disk not mounted, can't open %s (%s)", win_path, path.name)
+            _safe_unlink(path)
+            return
+
+        from winpodx.core.guest_disk import guest_win_path_to_host
+
+        host_path = guest_win_path_to_host(win_path, Path(mount_root))
+        if host_path is None:
+            self._stats.rejected_path += 1
+            log.warning("listener: guest path rejected (%s): %s", path.name, win_path)
+            _safe_unlink(path)
+            return
+        if not host_path.exists():
+            self._stats.rejected_path += 1
+            log.warning(
+                "listener: guest file not found under mount (%s): %s -> %s",
+                path.name,
+                win_path,
+                host_path,
+            )
+            _safe_unlink(path)
+            return
+
+        argv = substitute_path(app.exec_argv, str(host_path))  # type: ignore[attr-defined]
+        log.info("listener: spawning (guest) slug=%s argv=%r", slug, argv)
+        try:
+            self._spawn(argv, {})
+        except OSError as exc:
+            self._stats.spawn_errors += 1
+            log.warning("listener: spawn failed for %s: %s", slug, exc)
+            _safe_unlink(path)
+            return
+
         self._seen.add(uuid)
         self._stats.accepted += 1
         _safe_unlink(path)

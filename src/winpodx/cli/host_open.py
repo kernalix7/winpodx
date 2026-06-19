@@ -121,9 +121,14 @@ def _share_roots(cfg: Config) -> dict[str, Path]:
 
 def _listener_config(cfg: Config) -> ListenerConfig:
     """Default daemon tuning — wired through host_open + tests can override."""
+    from winpodx.core.guest_disk import ensure_guest_mount
+
     return ListenerConfig(
         incoming_dir=_incoming_dir(),
         share_roots=_share_roots(cfg),
+        # Resolve (mounting on demand) the host SMB mount of the guest C: so
+        # the listener can open guest-local files (#616, origin="guest").
+        guest_mount=lambda: ensure_guest_mount(cfg),
     )
 
 
