@@ -36,7 +36,7 @@ def test_compose_template_port_mapping_uses_constant() -> None:
     cfg = Config()
     rendered = compose._build_compose_content(cfg)
     # USER_PORTS forwards both the agent port and the guest SMB port (#616).
-    assert f'USER_PORTS: "{AGENT_PORT} {GUEST_SMB_PORT}"' in rendered
+    assert f'USER_PORTS: "{AGENT_PORT},{GUEST_SMB_PORT}"' in rendered
     assert f'"127.0.0.1:{AGENT_PORT}:{AGENT_PORT}/tcp"' in rendered
     # Guest SMB share (reverse-open guest-disk) published on loopback only.
     assert f'"127.0.0.1:{SMB_HOST_PORT}:{GUEST_SMB_PORT}/tcp"' in rendered

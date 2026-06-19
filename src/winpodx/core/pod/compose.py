@@ -878,7 +878,10 @@ def _build_compose_content(cfg: Config) -> str:
         agent_port=AGENT_PORT,
         # dockur USER_PORTS = guest ports to forward into the VM (the agent
         # + the guest SMB share for reverse-open guest-disk access, #616).
-        user_ports=f"{AGENT_PORT} {GUEST_SMB_PORT}",
+        # COMMA-separated — dockur strips the spaces from a space-separated
+        # list and concatenates the digits into one bad port ("8765 445" ->
+        # "8765445" -> QEMU "Bad host port", container won't boot).
+        user_ports=f"{AGENT_PORT},{GUEST_SMB_PORT}",
         smb_port=SMB_HOST_PORT,
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),
