@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- **`winpodx app refresh`가 느린 게스트에서 30초 만에 타임아웃되지 않음** (#619, @KyleSanderson 기여 감사). 디스커버리는 게스트의 시작 메뉴 + AppX 패키지를 열거하는데, 콜드/저사양 게스트에선 1분을 넘는 게 정상입니다 — 그런데 CLI가 30초로 캡(`/exec timed out after 29.0s`)한 반면 새 설치는 라이브러리 자체 기본 180초로 잘 됐습니다. 이제 모든 경로(provision, `app refresh`, GUI Refresh)가 단일 넉넉한 기본값(`DEFAULT_DISCOVERY_TIMEOUT` = 300초)을 씁니다. 타임아웃은 정상 완료를 자르려는 게 아니라 진짜 멈춘(wedged) 게스트만 한정하기 위한 것이며, 극단적으로 느린 게스트는 `winpodx app refresh --timeout`으로 올릴 수 있습니다.
 - **`install.sh --ref <branch>` 재실행 시 이제 브랜치 최신 커밋을 설치** (#616). 원격을 fetch만 하고 stale한 *로컬* 브랜치 ref를 체크아웃했고(`reset --hard`는 `main`만), 그래서 피처 브랜치로 업데이트를 재실행하면 처음 clone된 커밋이 다시 깔리는 **조용한 no-op**이었습니다. 이제 `origin/<ref>`를 체크아웃합니다.
 - **업데이트가 compose 변경을 적용하고 멈춘 pod를 기동** (#616). `install.sh`는 업그레이드마다 `compose.yaml`을 재생성하지만 컨테이너 recreate는 pod가 떠 있을 때만 했고, 멈춰 있으면 Windows측 적용을 통째로 건너뛰어, 업데이트가 가져온 게스트측 변경이 다음 수동 실행 전까지 조용히 적용 안 됐습니다. 이제 compose가 바뀌면 멈춰 있어도 recreate하고, 멈춘 pod를 기동해 적용합니다(기존 설치 — ISO 재다운로드 없음).
 - **설치를 계속 불안정하게 만들던 USB 드라이브 문자 자동매핑 기능 제거** (#613, #638, @zephir2008·@ismikes 기여 감사). `media_monitor.ps1`은 각 USB 볼륨을 드라이브 문자(E:, F:…)로 띄우려 했지만, RemoteApp(RAIL) 세션에서 안정적으로 띄우지 못했고, OEM 번들에 포함되자 간헐적 Windows Defender/rdprrap first-boot 설치 데드락을 재발시켰습니다(새 설치가 그 파일 복사 직후 멈춤). 제거했습니다. USB 미디어는 여전히 **모든** 세션에서 `\\tsclient\media` 리다이렉션과 바탕화면 **USB** 바로가기로 접근 가능하며, 진짜 드라이브 문자/raw 블록 장치가 필요하면 USB passthrough를 쓰면 됩니다. 기존 pod는 다음 `apply-fixes` 때 잔존 `WinpodxMedia` 자동시작 항목이 정리됩니다.

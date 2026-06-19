@@ -23,7 +23,12 @@ def handle_app(args: argparse.Namespace) -> None:
     if cmd == "list":
         _list_apps()
     elif cmd == "refresh":
-        _refresh_apps(getattr(args, "json", False), getattr(args, "timeout", 30))
+        from winpodx.core.discovery import DEFAULT_DISCOVERY_TIMEOUT
+
+        _refresh_apps(
+            getattr(args, "json", False),
+            getattr(args, "timeout", DEFAULT_DISCOVERY_TIMEOUT),
+        )
     elif cmd == "run":
         _run_app(
             args.name,

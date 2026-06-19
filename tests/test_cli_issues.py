@@ -620,6 +620,31 @@ class TestRefreshAppsCli:
             assert args[0] is fake_cfg
             assert kwargs.get("timeout", None) == 30
 
+    def test_refresh_default_timeout_is_generous(self):
+        # #619: `winpodx app refresh` with no --timeout must use the generous
+        # discovery default (300s), NOT a tight 30s cap that made discovery
+        # time out with "/exec timed out after 29.0s" on a slow guest while a
+        # fresh install (which uses the library default) discovered fine.
+        from winpodx.cli.main import cli as cli_entry
+        from winpodx.core.config import Config
+        from winpodx.core.discovery import DEFAULT_DISCOVERY_TIMEOUT
+
+        assert DEFAULT_DISCOVERY_TIMEOUT == 300
+        fake_cfg = Config()
+        with (
+            patch("winpodx.cli.main._maybe_resume_pending", lambda *a, **k: None),
+            patch("winpodx.core.config.Config.load", return_value=fake_cfg),
+            patch("winpodx.core.discovery.discover_apps", return_value=[]) as mock_da,
+            patch("winpodx.core.discovery.persist_discovered", return_value=[]),
+        ):
+            try:
+                cli_entry(["app", "refresh"])
+            except SystemExit:
+                pass
+            mock_da.assert_called_once()
+            _args, kwargs = mock_da.call_args
+            assert kwargs.get("timeout") == DEFAULT_DISCOVERY_TIMEOUT
+
     def test_refresh_pod_not_running_exits_2(self):
         from winpodx.core.config import Config
         from winpodx.core.discovery import DiscoveryError

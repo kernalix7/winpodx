@@ -53,11 +53,16 @@ def cli(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Print discovered apps as JSON to stdout (human text to stderr)",
     )
+    from winpodx.core.discovery import DEFAULT_DISCOVERY_TIMEOUT
+
     refresh_p.add_argument(
         "--timeout",
         type=int,
-        default=30,
-        help="Discovery timeout in seconds (default: 30)",
+        default=DEFAULT_DISCOVERY_TIMEOUT,
+        help=(
+            "Discovery timeout in seconds "
+            f"(default: {DEFAULT_DISCOVERY_TIMEOUT}; raise it for a very slow guest)"
+        ),
     )
 
     run_p = app_sub.add_parser("run", help="Run a Windows application")

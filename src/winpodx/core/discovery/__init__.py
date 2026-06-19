@@ -49,6 +49,17 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 
 log = logging.getLogger(__name__)
 
+# Default discovery /exec budget. Guest-side Start-Menu + AppX enumeration on
+# a cold or low-spec guest (e.g. 2-core tiny10) legitimately runs over a
+# minute, so the timeout exists only to bound a genuinely wedged guest, not to
+# cap normal completion. Generous (5 min) + the single source of truth for
+# every caller (provision, `winpodx app refresh`, GUI Refresh) — a tighter
+# per-caller override (the CLI used 30 s) is what made `app refresh` time out
+# with "/exec timed out after 29.0s" while a fresh install discovered fine
+# (#619). Users on a pathologically slow guest can still raise it with
+# `winpodx app refresh --timeout`.
+DEFAULT_DISCOVERY_TIMEOUT = 300
+
 # Upper bound so a runaway guest enumerator can't fill the user's disk.
 _MAX_APPS = 500
 _MAX_ICON_BYTES = 1_048_576  # 1 MiB per icon
@@ -595,7 +606,7 @@ def _classify_channel_error(exc: Exception) -> str:
 
 def discover_apps(
     cfg: Config,
-    timeout: int = 180,
+    timeout: int = DEFAULT_DISCOVERY_TIMEOUT,
     *,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[DiscoveredApp]:
@@ -611,9 +622,9 @@ def discover_apps(
     and may include ``"_truncated": true`` as its last element to
     indicate the guest clipped its own output.
 
-    Default ``timeout`` bumped 120 → 180 to absorb the script's
-    first-boot readiness gate (up to 60 s waiting for AppXSvc + Start
-    Menu .lnks before enumeration starts).
+    Default ``timeout`` is :data:`DEFAULT_DISCOVERY_TIMEOUT` (generous, to
+    absorb the script's first-boot readiness gate — up to 60 s waiting for
+    AppXSvc + Start Menu .lnks — plus AppX enumeration on a low-spec guest).
 
     First-boot races (Sysprep just finished, AppX still deploying,
     Start Menu indexer mid-propagation) used to produce empty / partial
@@ -1480,7 +1491,7 @@ def _safe_rmtree(path: Path, root: Path) -> None:
 
 def scan(
     cfg: Config,
-    timeout: int = 120,
+    timeout: int = DEFAULT_DISCOVERY_TIMEOUT,
     *,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[DiscoveredApp]:
