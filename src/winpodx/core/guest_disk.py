@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from winpodx.core.config import Config
@@ -77,34 +79,72 @@ def _find_existing_mount() -> Path | None:
     return None
 
 
-def smb_uri(cfg: Config) -> str:
-    """``smb://<user>@127.0.0.1:<port>/<share>`` for the guest C: share."""
-    return f"smb://{cfg.rdp.user}@127.0.0.1:{SMB_HOST_PORT}/{GUEST_SMB_SHARE}"
+def smb_uri(cfg: Config, *, with_password: bool = False) -> str:
+    """``smb://<user>[:<pw>]@127.0.0.1:<port>/<share>`` for the guest C: share.
 
-
-def ensure_guest_mount(cfg: Config) -> Path | None:
-    """Mount the guest ``C:\\`` SMB share on the host (gvfs) and return its path.
-
-    Userspace gvfs mount — no sudo. Idempotent: returns the existing mount if
-    already present. Returns ``None`` (with a logged reason) if gvfs is
-    missing, the password is unknown, or the share can't be reached — the
-    reverse-open listener then rejects the guest request cleanly instead of
-    raising.
+    The password (URL-encoded) is included only for the kio-fuse path, which
+    has no out-of-band credential channel; gvfs takes it on stdin instead.
     """
-    if cfg.pod.backend not in ("podman", "docker"):
-        return None
+    auth = cfg.rdp.user
+    if with_password and cfg.rdp.password:
+        auth = f"{cfg.rdp.user}:{quote(cfg.rdp.password, safe='')}"
+    return f"smb://{auth}@127.0.0.1:{SMB_HOST_PORT}/{GUEST_SMB_SHARE}"
 
+
+def _kio_fuse_mount(cfg: Config) -> Path | None:
+    """Mount via KDE's kio-fuse and return the real FUSE path, or None.
+
+    kio-fuse (KDE) honours a non-standard SMB port — unlike gvfs, which
+    rejects ``smb://host:4445/…`` with "Invalid argument" — so it's the
+    primary path for the unprivileged host port rootless podman forces
+    (#616). ``mountUrl`` returns a real path under
+    ``$XDG_RUNTIME_DIR/kio-fuse-XXXX/`` that any host app can open, and the
+    mount is live (edits write straight back to the guest file).
+
+    The credentialed URL is passed as a D-Bus arg; on a single-user desktop
+    over loopback that exposure is acceptable (gvfs's stdin path isn't
+    available here).
+    """
+    url = smb_uri(cfg, with_password=True)
+    try:
+        proc = subprocess.run(
+            [
+                "dbus-send",
+                "--session",
+                "--print-reply",
+                "--dest=org.kde.KIOFuse",
+                "/org/kde/KIOFuse",
+                "org.kde.KIOFuse.VFS.mountUrl",
+                f"string:{url}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        log.debug("guest mount: kio-fuse mountUrl failed: %s", proc.stderr.strip())
+        return None
+    m = re.search(r'string\s+"([^"]+)"', proc.stdout)
+    if not m:
+        return None
+    path = Path(m.group(1))
+    return path if path.is_dir() else None
+
+
+def _gvfs_mount(cfg: Config) -> Path | None:
+    """Mount via gvfs (GNOME) and return the FUSE path, or None.
+
+    Fallback for non-KDE hosts. NOTE: gvfs rejects a non-standard SMB port,
+    so this only succeeds when the host publishes the share on the default
+    445 — on the 4445 default it will fail and the caller falls through.
+    """
     existing = _find_existing_mount()
     if existing is not None:
         return existing
-
-    password = cfg.rdp.password or ""
     uri = smb_uri(cfg)
-    # gio mount reads the password from stdin when stdin is not a TTY. The
-    # username is already in the URI, so the only prompt is the password;
-    # the trailing newlines cover gvfs builds that also prompt for an empty
-    # domain / re-confirm. gio writes the prompt to stderr and the mount is
-    # async-but-settled by the time the process exits 0.
+    password = cfg.rdp.password or ""
     try:
         proc = subprocess.run(
             ["gio", "mount", uri],
@@ -113,26 +153,33 @@ def ensure_guest_mount(cfg: Config) -> Path | None:
             capture_output=True,
             timeout=30,
         )
-    except FileNotFoundError:
-        log.warning("guest mount: 'gio' not found — install the gvfs SMB backend")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
-    except subprocess.TimeoutExpired:
-        log.warning("guest mount: gio mount timed out for %s", uri)
-        return None
-
     if proc.returncode != 0:
-        # Non-zero often just means "already mounted"; fall through to the
-        # mount-dir scan and only warn if that also turns up nothing.
         log.debug("guest mount: gio mount rc=%d stderr=%s", proc.returncode, proc.stderr.strip())
+    return _find_existing_mount()
 
-    mount = _find_existing_mount()
+
+def ensure_guest_mount(cfg: Config) -> Path | None:
+    """Mount the guest ``C:\\`` SMB share on the host and return its FUSE path.
+
+    Userspace mount — no sudo. Tries KDE's kio-fuse first (it honours the
+    non-standard host port rootless podman forces), then gvfs (GNOME; default
+    port only). Idempotent. Returns ``None`` (with a logged reason) when no
+    backend can reach the share — the reverse-open listener then rejects the
+    guest request cleanly instead of raising.
+    """
+    if cfg.pod.backend not in ("podman", "docker"):
+        return None
+
+    mount = _kio_fuse_mount(cfg)
+    if mount is not None:
+        return mount
+
+    mount = _gvfs_mount(cfg)
     if mount is None:
         log.warning(
-            "guest mount: mounted %s but no smb-share dir under %s (rc=%d, stderr=%s)",
-            uri,
-            _gvfs_root(),
-            proc.returncode,
-            proc.stderr.strip(),
+            "guest mount: could not mount %s via kio-fuse or gvfs", smb_uri(cfg)
         )
     return mount
 

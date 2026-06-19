@@ -30,6 +30,42 @@ def test_smb_uri_uses_user_and_host_port() -> None:
     assert uri == f"smb://WPX-User@127.0.0.1:{SMB_HOST_PORT}/{GUEST_SMB_SHARE}"
 
 
+def test_smb_uri_with_password_is_url_encoded() -> None:
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.rdp.user = "WPX-User"
+    cfg.rdp.password = "p@ss/wo rd"
+    uri = smb_uri(cfg, with_password=True)
+    # Special chars in the password are percent-encoded so the URL parses.
+    assert "p%40ss%2Fwo%20rd" in uri
+    assert uri.startswith("smb://WPX-User:")
+    assert uri.endswith(f"@127.0.0.1:{SMB_HOST_PORT}/{GUEST_SMB_SHARE}")
+
+
+def test_kio_fuse_mount_parses_dbus_path(monkeypatch) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    fuse_path = "/run/user/1000/kio-fuse-AB/smb/WPX-User@127.0.0.1:4445/winpodx-c"
+
+    class _Proc:
+        returncode = 0
+        stdout = f'method return ...\n   string "{fuse_path}"\n'
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        # The credentialed mountUrl D-Bus call is what we issue.
+        assert argv[0] == "dbus-send"
+        assert "org.kde.KIOFuse.VFS.mountUrl" in argv
+        return _Proc()
+
+    monkeypatch.setattr(guest_disk.subprocess, "run", fake_run)
+    monkeypatch.setattr(guest_disk.Path, "is_dir", lambda self: True)
+    cfg = Config()
+    assert guest_disk._kio_fuse_mount(cfg) == Path(fuse_path)
+
+
 def test_translate_maps_c_drive_under_mount() -> None:
     mr = Path("/mnt/guest")
     assert guest_win_path_to_host(r"C:\Users\me\Desktop\x.txt", mr) == (
