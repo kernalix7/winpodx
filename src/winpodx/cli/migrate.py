@@ -709,33 +709,28 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
     if new_compose == old_compose:
         return  # nothing changed — no recreate, no noise
 
-    # compose.yaml changed (image pin and/or a compose-template feature). A
-    # running container keeps its OLD QEMU command line until it is recreated,
-    # so deferring to "next pod start" would leave a default-on change (e.g.
-    # the #246 disguise) silently inactive until the user happened to restart.
-    # Apply it now when the pod is up; otherwise it lands on the next start.
-    # The storage volume is preserved — no ISO redownload, no Sysprep, ~30 s.
-    from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
+    # compose.yaml changed (image pin and/or a compose-template feature). The
+    # container keeps its OLD spec/QEMU command line until it is recreated, so
+    # an update that changed compose must recreate to actually apply it — even
+    # if the pod is currently stopped. Deferring the stopped case to "next pod
+    # start" used to strand the user: e.g. a prior start that failed on a
+    # since-fixed compose left the pod down, and the next update regenerated
+    # compose but didn't recreate, so they had to run `winpodx pod recreate` by
+    # hand. Recreate unconditionally here; migrate only runs on an
+    # already-set-up install, so a container exists (stop_pod is a no-op if
+    # already stopped, start_pod brings it up on the new compose). Storage
+    # volume is preserved — no ISO redownload, no Sysprep, ~30 s.
+    from winpodx.core.pod import start_pod, stop_pod
 
+    print(
+        "  compose.yaml changed — recreating the container to apply it now\n"
+        "  (~30 s, storage volume preserved — no ISO redownload, no Sysprep)..."
+    )
     try:
-        running = pod_status(cfg).state == PodState.RUNNING
-    except Exception:  # noqa: BLE001
-        running = False
-    if running:
-        print(
-            "  compose.yaml changed — recreating the container to apply it now\n"
-            "  (~30 s, storage volume preserved — no ISO redownload, no Sysprep)..."
-        )
-        try:
-            stop_pod(cfg)
-            start_pod(cfg)
-        except Exception as e:  # noqa: BLE001 — never let this abort migrate
-            print(f"  warning: recreate failed ({e}); applies on next `winpodx pod start`.")
-    else:
-        print(
-            "  compose.yaml updated — applies on the next `winpodx pod start`\n"
-            "  (~30 s, storage volume preserved — no ISO redownload, no Sysprep)."
-        )
+        stop_pod(cfg)
+        start_pod(cfg)
+    except Exception as e:  # noqa: BLE001 — never let this abort migrate
+        print(f"  warning: recreate failed ({e}); applies on next `winpodx pod start`.")
 
 
 def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bool = False) -> None:
