@@ -63,7 +63,7 @@ fn main() {
         _ => process::exit(EXIT_BAD_ARGS),
     };
 
-    let unc = local_to_unc(&file_arg);
+    let (path, origin) = classify_path(&file_arg);
 
     let uid = new_uuid();
     let ts = format!(
@@ -74,7 +74,7 @@ fn main() {
             .unwrap_or(0)
     );
 
-    let json = build_request_json(&slug, &unc, &ts);
+    let json = build_request_json(&slug, &path, origin, &ts);
 
     let tmp = format!("{}\\{}.json.tmp", INCOMING_DIR_UNC, uid);
     let final_path = format!("{}\\{}.json", INCOMING_DIR_UNC, uid);
@@ -111,30 +111,34 @@ fn extract_slug() -> Option<String> {
     Some(stem.to_string())
 }
 
-/// Translate a Windows local file path to its `\\tsclient\home\…` UNC
-/// equivalent (the host's `$HOME` shared via FreeRDP's `+home-drive`).
+/// Classify the file argument and produce the `(path, origin)` pair the
+/// host listener consumes.
 ///
-/// Already-UNC paths pass through. A drive-relative path like
-/// `Z:\Users\User\Documents\foo.txt` becomes
-/// `\\tsclient\home\Users\User\Documents\foo.txt`. Any other shape
-/// passes through verbatim — the host listener will reject it at
-/// `safe_open_unc` validation if it isn't reachable under one of the
-/// active share roots.
-fn local_to_unc(file: &str) -> String {
+/// - A `\\…` UNC path (in practice `\\tsclient\home\…`) is a **host**
+///   file reached through FreeRDP's `+home-drive` redirect. Passed
+///   through verbatim with origin `"host"`; the host resolves it to its
+///   `$HOME`-relative path.
+/// - A drive-letter path (`C:\…`, `D:/…`) is a file on the **guest's own
+///   disk**. The guest disk is exposed to the host as a network mount, so
+///   the original Windows path is sent verbatim with origin `"guest"` and
+///   the host maps it onto that mount.
+/// - Any other shape passes through as `"host"`; the host validator
+///   rejects it if it isn't reachable under an active share root.
+///
+/// Earlier versions rewrote *every* drive letter to `\\tsclient\home\…`,
+/// which only makes sense if `$HOME` were the root of that drive. It never
+/// is for `C:`, so a guest-local file (e.g. the Windows Desktop) resolved
+/// to a non-existent host path and silently failed (#616).
+fn classify_path(file: &str) -> (String, &'static str) {
     if file.starts_with(r"\\") {
-        return file.to_string();
+        return (file.to_string(), "host");
     }
     let bytes = file.as_bytes();
-    if bytes.len() >= 3
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/')
-    {
-        let rest = &file[3..];
-        let rest_winpath = rest.replace('/', r"\");
-        format!(r"\\tsclient\home\{}", rest_winpath)
-    } else {
-        file.to_string()
+    if bytes.len() >= 3 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/') {
+        // Guest-local drive path — normalise separators, keep the drive.
+        return (file.replace('/', r"\"), "guest");
     }
+    (file.to_string(), "host")
 }
 
 /// Generate a UUIDv4 hex string without dashes.
@@ -160,16 +164,18 @@ fn new_uuid() -> String {
 ///
 /// Schema (kept in sync with
 /// `winpodx.reverse_open.listener._validate_schema`):
-///   version: 1
+///   version: 2
 ///   app:     <slug>      (^[a-z0-9-]+$)
-///   path:    <unc>       (string, ≤ 4 KB, NUL-free, \\tsclient\… prefix)
+///   path:    <path>      (string, ≤ 4 KB, NUL-free)
+///   origin:  "host"|"guest"  (host = \\tsclient\… redirect; guest = guest disk)
 ///   ts:      <ts>        (string, non-empty)
 ///   pod_id:  null
-fn build_request_json(slug: &str, path: &str, ts: &str) -> String {
+fn build_request_json(slug: &str, path: &str, origin: &str, ts: &str) -> String {
     format!(
-        r#"{{"version":1,"app":"{}","path":"{}","ts":"{}","pod_id":null}}"#,
+        r#"{{"version":2,"app":"{}","path":"{}","origin":"{}","ts":"{}","pod_id":null}}"#,
         json_escape(slug),
         json_escape(path),
+        json_escape(origin),
         json_escape(ts),
     )
 }
@@ -200,24 +206,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_to_unc_passes_through_existing_unc() {
-        assert_eq!(local_to_unc(r"\\server\share\x"), r"\\server\share\x");
-    }
-
-    #[test]
-    fn local_to_unc_maps_drive_letter_to_tsclient_home() {
+    fn classify_unc_is_host() {
         assert_eq!(
-            local_to_unc(r"C:\Users\User\notes.txt"),
-            r"\\tsclient\home\Users\User\notes.txt"
+            classify_path(r"\\tsclient\home\Documents\x"),
+            (r"\\tsclient\home\Documents\x".to_string(), "host")
         );
     }
 
     #[test]
-    fn local_to_unc_normalises_forward_slashes() {
+    fn classify_drive_letter_is_guest_local() {
+        // The Windows path is kept verbatim (NOT rewritten to
+        // \\tsclient\home) and tagged guest so the host maps it onto
+        // the guest-disk mount. Regression guard for #616.
         assert_eq!(
-            local_to_unc("Z:/User/x"),
-            r"\\tsclient\home\User\x"
+            classify_path(r"C:\Users\User\Desktop\notes.txt"),
+            (r"C:\Users\User\Desktop\notes.txt".to_string(), "guest")
         );
+    }
+
+    #[test]
+    fn classify_normalises_forward_slashes_keeping_drive() {
+        assert_eq!(
+            classify_path("D:/User/x"),
+            (r"D:\User\x".to_string(), "guest")
+        );
+    }
+
+    #[test]
+    fn build_request_json_emits_v2_with_origin() {
+        let j = build_request_json("sublime", r"C:\a\b.txt", "guest", "123");
+        assert!(j.contains(r#""version":2"#));
+        assert!(j.contains(r#""origin":"guest""#));
+        assert!(j.contains(r#""app":"sublime""#));
+        // Backslashes are JSON-escaped.
+        assert!(j.contains(r#""path":"C:\\a\\b.txt""#));
     }
 
     #[test]

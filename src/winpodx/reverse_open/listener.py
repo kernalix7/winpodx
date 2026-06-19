@@ -66,7 +66,12 @@ from winpodx.reverse_open.seen_uuids import SeenUUIDs
 log = logging.getLogger(__name__)
 
 
-_VERSION = 1
+# Accepted request schema versions. v1 = legacy (host-redirect paths only,
+# no `origin` field — treated as origin "host"). v2 adds the `origin`
+# field so the guest can flag a file that lives on its own disk
+# ("guest") versus one reached through the host-home redirect ("host").
+_VERSION = 2
+_ACCEPTED_VERSIONS = (1, 2)
 _MAX_REQUEST_BYTES_DEFAULT = 64 * 1024
 _MAX_REQUEST_DEPTH_DEFAULT = 8
 _MAX_IN_FLIGHT_DEFAULT = 200
@@ -79,6 +84,10 @@ _POLL_INTERVAL_DEFAULT = 0.5
 _REQUEST_FILE_RE = re.compile(r"^[0-9a-fA-F-]{8,64}\.json$")
 _SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 _POD_ID_RE = re.compile(r"^[a-z0-9-]+$")
+# A guest-local path is a Windows drive path (``C:\…``). Validated only
+# for ``origin="guest"`` requests; host-redirect requests keep the
+# ``\\tsclient\…`` prefix check.
+_GUEST_PATH_RE = re.compile(r"^[A-Za-z]:\\")
 
 
 @dataclass
@@ -91,6 +100,7 @@ class ListenerStats:
     rejected_schema: int = 0
     rejected_unknown_app: int = 0
     rejected_path: int = 0
+    rejected_guest_unsupported: int = 0
     rejected_replay: int = 0
     rejected_in_flight: int = 0
     janitor_removed: int = 0
@@ -273,6 +283,22 @@ class Listener:
             _safe_unlink(path)
             return
 
+        # Guest-local files (origin="guest") live on the guest's own disk,
+        # not under the host-home redirect, so they can only be opened once
+        # the guest disk is mounted on the host. That mount isn't wired up
+        # yet — reject cleanly with a clear marker instead of mis-resolving
+        # the path (the pre-#616 shim used to rewrite C:\… to
+        # \\tsclient\home\… and fail with a confusing "No such file").
+        if data.get("origin", "host") == "guest":
+            self._stats.rejected_guest_unsupported += 1
+            log.warning(
+                "listener: guest-local reverse-open not yet supported (%s): %s",
+                path.name,
+                data["path"],
+            )
+            _safe_unlink(path)
+            return
+
         unc = data["path"]
         try:
             with safe_open_unc(unc, self._cfg.share_roots) as safe:
@@ -383,11 +409,15 @@ def _validate_schema(data: object) -> str | None:
     """
     if not isinstance(data, dict):
         return "not a JSON object"
-    if data.get("version") != _VERSION:
-        return f"version != {_VERSION} (got {data.get('version')!r})"
+    if data.get("version") not in _ACCEPTED_VERSIONS:
+        return f"version not in {_ACCEPTED_VERSIONS} (got {data.get('version')!r})"
     app = data.get("app")
     if not isinstance(app, str) or not _SLUG_RE.fullmatch(app):
         return "app field invalid"
+    # origin defaults to "host" for v1 requests (no origin field).
+    origin = data.get("origin", "host")
+    if origin not in ("host", "guest"):
+        return "origin must be 'host' or 'guest'"
     path = data.get("path")
     if not isinstance(path, str):
         return "path field not a string"
@@ -395,7 +425,12 @@ def _validate_schema(data: object) -> str | None:
         return "path field contains NUL"
     if len(path.encode("utf-8")) > 4096:
         return "path field exceeds 4096 bytes"
-    if not path.startswith("\\\\tsclient\\") and not path.startswith("//tsclient/"):
+    if origin == "guest":
+        # Guest-local file: a Windows drive path (C:\…), resolved later
+        # against the guest-disk mount rather than a \\tsclient\ share.
+        if not _GUEST_PATH_RE.match(path):
+            return "guest path must be a drive path (C:\\…)"
+    elif not path.startswith("\\\\tsclient\\") and not path.startswith("//tsclient/"):
         # Accept both Windows backslash form and forward-slash form
         # (Go's filepath.ToSlash leaves the latter when the shim
         # rendering pipeline doubles back through cross-platform Path).
