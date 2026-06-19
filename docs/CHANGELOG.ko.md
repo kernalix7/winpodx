@@ -11,10 +11,13 @@
 
 ### Added
 
+- **Reverse-open이 공유 Home뿐 아니라 Windows VM 자체의 파일도 엽니다** (#616, @notnotno 기여 감사). Windows 파일의 *연결 프로그램* 메뉴에서 Linux 앱을 고르는 기능이 기존엔 공유 Home(`\\tsclient\home`) 아래 파일만 됐고, Windows 데스크탑이나 `C:` 어디든 있는 파일은 "파일 없음" 오류로 실패했습니다. 이제 게스트 `C:`를 호스트에 SMB(루프백 전용)로 공유·온디맨드 마운트해서, 호스트 앱이 실제 게스트 파일을 열고 **편집은 원본으로 바로 저장**됩니다. 전부 런타임 전달(에이전트로 게스트 공유 + 호스트 마운트)이라 `install.bat`은 안 건드립니다. 호스트에 **kio-fuse**(KDE) 필요 — 없으면 `winpodx doctor`가 경고합니다.
 - **Debloat가 더 많은 텔레메트리·광고 항목을 비활성화** (#590, @GameSoul7Eugene 기여 감사). *Ads & suggestions* 항목이 추가 `ContentDeliveryManager` 추천 키와 회전 잠금화면 광고를 제거하고, *불필요한 예약 작업* 항목이 순수 텔레메트리 작업(`AitAgent`, `ProgramInventoryUpdater`, CEIP `BthSQM`, `Feedback\Siuf`, `WindowsAI` Copilot/Insights 데이터 수집, Office 텔레메트리 에이전트)을 추가로 비활성화합니다. 보안·시스템 핵심 작업(Windows Defender, 라이선스/활성화, 인증서 서비스, Windows Update 복구, 언어 팩, Windows Hello)은 활성화·업데이트·IME가 깨지지 않도록 의도적으로 건드리지 않습니다.
 
 ### Fixed
 
+- **`install.sh --ref <branch>` 재실행 시 이제 브랜치 최신 커밋을 설치** (#616). 원격을 fetch만 하고 stale한 *로컬* 브랜치 ref를 체크아웃했고(`reset --hard`는 `main`만), 그래서 피처 브랜치로 업데이트를 재실행하면 처음 clone된 커밋이 다시 깔리는 **조용한 no-op**이었습니다. 이제 `origin/<ref>`를 체크아웃합니다.
+- **업데이트가 compose 변경을 적용하고 멈춘 pod를 기동** (#616). `install.sh`는 업그레이드마다 `compose.yaml`을 재생성하지만 컨테이너 recreate는 pod가 떠 있을 때만 했고, 멈춰 있으면 Windows측 적용을 통째로 건너뛰어, 업데이트가 가져온 게스트측 변경이 다음 수동 실행 전까지 조용히 적용 안 됐습니다. 이제 compose가 바뀌면 멈춰 있어도 recreate하고, 멈춘 pod를 기동해 적용합니다(기존 설치 — ISO 재다운로드 없음).
 - **설치를 계속 불안정하게 만들던 USB 드라이브 문자 자동매핑 기능 제거** (#613, #638, @zephir2008·@ismikes 기여 감사). `media_monitor.ps1`은 각 USB 볼륨을 드라이브 문자(E:, F:…)로 띄우려 했지만, RemoteApp(RAIL) 세션에서 안정적으로 띄우지 못했고, OEM 번들에 포함되자 간헐적 Windows Defender/rdprrap first-boot 설치 데드락을 재발시켰습니다(새 설치가 그 파일 복사 직후 멈춤). 제거했습니다. USB 미디어는 여전히 **모든** 세션에서 `\\tsclient\media` 리다이렉션과 바탕화면 **USB** 바로가기로 접근 가능하며, 진짜 드라이브 문자/raw 블록 장치가 필요하면 USB passthrough를 쓰면 됩니다. 기존 pod는 다음 `apply-fixes` 때 잔존 `WinpodxMedia` 자동시작 항목이 정리됩니다.
 - **`usbredirect not found` 안내가 배포판별로 올바른 패키지를 안내** (#593, @techabsol 기여 감사). Debian/Ubuntu는 `usbredirect`, Fedora는 `usbredir-tools`(Atomic Fedora는 `rpm-ostree` 형태 추가), openSUSE는 `usbredir` 유지 — 기존 메시지는 바이너리가 들어있지 않은 패키지를 안내했습니다.
 - **`install.bat`가 에이전트 URL 예약 시 더 이상 구문 오류를 내지 않음** (#614, @zephir2008 기여 감사). `netsh http add urlacl … sddl=D:(A;;GX;;;WD)` 줄에서 SDDL 값을 따옴표로 감싸지 않아 `cmd.exe`가 `(`, `;`, `)`를 메타문자로 해석해 예약이 실패할 수 있었습니다. 이제 SDDL 값을 따옴표로 감쌉니다(`sddl="D:(A;;GX;;;WD)"`).
