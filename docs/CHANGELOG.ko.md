@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- **대시보드 RAM + Disk C: 게이지가 "n/a"에 멈추지 않음** (#634, @ismikes 기여 감사). 둘 다 게스트에서 에이전트로 읽는데(CPU는 호스트측이라 멀쩡했음), 그 조용한 poll의 타임아웃이 빡센 4초여서 — 느리거나 방금 재실행된 게스트에선 그 안에 못 끝내고 둘 다 "n/a"로 비었습니다. 넉넉한 12초로 상향(poll은 GUI 스레드 밖 + 재진입 가드로 돌아서, 긴 budget이 대시보드를 멈추거나 중첩시키지 않습니다). #619와 같은 "타임아웃 너무 빡셈" 부류.
 - **`winpodx app refresh`가 느린 게스트에서 30초 만에 타임아웃되지 않음** (#619, @KyleSanderson 기여 감사). 디스커버리는 게스트의 시작 메뉴 + AppX 패키지를 열거하는데, 콜드/저사양 게스트에선 1분을 넘는 게 정상입니다 — 그런데 CLI가 30초로 캡(`/exec timed out after 29.0s`)한 반면 새 설치는 라이브러리 자체 기본 180초로 잘 됐습니다. 이제 모든 경로(provision, `app refresh`, GUI Refresh)가 단일 넉넉한 기본값(`DEFAULT_DISCOVERY_TIMEOUT` = 300초)을 씁니다. 타임아웃은 정상 완료를 자르려는 게 아니라 진짜 멈춘(wedged) 게스트만 한정하기 위한 것이며, 극단적으로 느린 게스트는 `winpodx app refresh --timeout`으로 올릴 수 있습니다.
 - **`install.sh --ref <branch>` 재실행 시 이제 브랜치 최신 커밋을 설치** (#616). 원격을 fetch만 하고 stale한 *로컬* 브랜치 ref를 체크아웃했고(`reset --hard`는 `main`만), 그래서 피처 브랜치로 업데이트를 재실행하면 처음 clone된 커밋이 다시 깔리는 **조용한 no-op**이었습니다. 이제 `origin/<ref>`를 체크아웃합니다.
 - **업데이트가 compose 변경을 적용하고 멈춘 pod를 기동** (#616). `install.sh`는 업그레이드마다 `compose.yaml`을 재생성하지만 컨테이너 recreate는 pod가 떠 있을 때만 했고, 멈춰 있으면 Windows측 적용을 통째로 건너뛰어, 업데이트가 가져온 게스트측 변경이 다음 수동 실행 전까지 조용히 적용 안 됐습니다. 이제 compose가 바뀌면 멈춰 있어도 recreate하고, 멈춘 pod를 기동해 적용합니다(기존 설치 — ISO 재다운로드 없음).

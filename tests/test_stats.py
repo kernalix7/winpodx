@@ -102,6 +102,21 @@ def test_snapshot_all_none_when_probes_fail(monkeypatch: pytest.MonkeyPatch) -> 
     assert snap.disk_pct is None
 
 
+def test_guest_resources_uses_generous_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    # #634: the Dashboard RAM + Disk gauges read from the guest agent; a tight
+    # 4s budget left them stuck on "n/a" on a slow / freshly-relaunched guest.
+    # The probe now passes a generous timeout (off-thread, guarded — no freeze).
+    seen: dict[str, int] = {}
+
+    def fake_get_guest_resources(_cfg, *, timeout):
+        seen["timeout"] = timeout
+        return None
+
+    monkeypatch.setattr("winpodx.core.disk.get_guest_resources", fake_get_guest_resources)
+    stats._guest_resources(_running_cfg())
+    assert seen["timeout"] >= 12
+
+
 def test_snapshot_skips_guest_probe_when_with_disk_false(monkeypatch: pytest.MonkeyPatch) -> None:
     # CPU updates every tick; the guest agent round-trip is skipped off-cadence.
     _patch_state(monkeypatch, "running")
