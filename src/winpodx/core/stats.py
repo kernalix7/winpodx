@@ -406,7 +406,13 @@ def _guest_resources(
     try:
         from winpodx.core.disk import get_guest_resources
 
-        gr = get_guest_resources(cfg, timeout=4)
+        # 12s (was 4s): the guest RAM+disk /exec legitimately takes several
+        # seconds on a slow or freshly-relaunched guest, so a tight 4s budget
+        # left the Dashboard RAM + Disk gauges stuck on "n/a" (#634). The poll
+        # runs off the GUI thread with a re-entrancy guard, so a longer budget
+        # never freezes or stacks the dashboard. Same too-tight-timeout class
+        # as the discovery #619 fix.
+        gr = get_guest_resources(cfg, timeout=12)
     except Exception as e:  # noqa: BLE001 -- never let a probe break the snapshot
         log.debug("guest resources probe failed: %s", e)
         return none_disk, none_ram
@@ -521,7 +527,10 @@ def pod_resource_snapshot(
         for w in workers:
             w.start()
         for w in workers:
-            w.join(timeout=8)  # hard cap regardless of any single probe hanging
+            # Hard cap above the guest probe's own 12s /exec budget (#634) so
+            # the join doesn't cut a slow-but-succeeding RAM+disk read short.
+            # CPU is host-side + fast, so this only bites a genuinely hung probe.
+            w.join(timeout=14)
 
         cpu_val = box.get("cpu")
         cpu_pct = cpu_val if isinstance(cpu_val, (int, float)) else None
