@@ -362,6 +362,14 @@ class SettingsPageMixin:
         self.input_cpu = QLineEdit(str(self.cfg.pod.cpu_cores))
         self.input_ram = QLineEdit(str(self.cfg.pod.ram_gb))
         self.input_idle = QLineEdit(str(self.cfg.pod.idle_timeout))
+        # What the idle timeout does when it fires (#622): pause (default) keeps
+        # RAM for an instant resume; stop frees the VM's RAM (next launch boots).
+        self.input_idle_action = QComboBox()
+        self.input_idle_action.setStyleSheet(COMBO)
+        self.input_idle_action.addItem(tr("Pause (free CPU, keep RAM)"), "pause")
+        self.input_idle_action.addItem(tr("Stop (free RAM, boots on next launch)"), "stop")
+        _ia = self.cfg.pod.idle_action if self.cfg.pod.idle_action in ("pause", "stop") else "pause"
+        self.input_idle_action.setCurrentIndex(self.input_idle_action.findData(_ia))
         self.input_max_sessions = QLineEdit(str(self.cfg.pod.max_sessions))
 
         # Windows edition picker (#178). Read-only combo — the dark
@@ -517,6 +525,7 @@ class SettingsPageMixin:
                 (tr("CPU Cores"), self.input_cpu),
                 (tr("RAM (GB)"), self.input_ram),
                 (tr("Idle Timeout"), self.input_idle),
+                (tr("Idle Action"), self.input_idle_action),
                 (tr("Max Sessions (1-50)"), self.input_max_sessions),
             ],
         )
@@ -1324,6 +1333,7 @@ class SettingsPageMixin:
         self.cfg.pod.cpu_cores = cpu
         self.cfg.pod.ram_gb = ram
         self.cfg.pod.idle_timeout = idle
+        self.cfg.pod.idle_action = self.input_idle_action.currentData() or "pause"
         self.cfg.pod.max_sessions = max_sessions
         self.cfg.pod.language = new_language
         self.cfg.pod.region = new_region

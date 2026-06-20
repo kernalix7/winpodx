@@ -200,6 +200,31 @@ def sync_windows_time(cfg: Config) -> bool:
 # --- Idle Monitor ---
 
 
+def _apply_idle_action(cfg: Config) -> None:
+    """Pause (default) or stop (#622, opt-in) the pod when the idle timeout fires.
+
+    ``idle_action="stop"`` frees the VM's RAM (not just CPU) — only stops a
+    running pod so a subsequent idle tick doesn't re-stop an already-stopped
+    one, and the next app launch cold-boots. Default ``"pause"`` keeps the
+    prior behaviour (freeze, RAM retained, instant resume).
+    """
+    if cfg.pod.idle_action == "stop":
+        from winpodx.core.pod import PodState, pod_status, stop_pod
+
+        try:
+            running = pod_status(cfg).state == PodState.RUNNING
+        except Exception:  # noqa: BLE001 -- degrade to "don't stop"
+            running = False
+        if running:
+            log.info("Idle timeout reached, stopping pod (idle_action=stop)")
+            stop_pod(cfg)
+            cleanup_lock_files()
+    elif not is_pod_paused(cfg):
+        log.info("Idle timeout reached, suspending pod")
+        suspend_pod(cfg)
+        cleanup_lock_files()
+
+
 def run_idle_monitor(
     cfg: Config,
     stop_event: threading.Event | None = None,
@@ -258,12 +283,8 @@ def run_idle_monitor(
                 idle_since = time.monotonic()
                 log.debug("No active sessions, starting idle timer")
             elif time.monotonic() - idle_since >= idle_timeout:
-                if not is_pod_paused(cfg):
-                    log.info("Idle timeout reached, suspending pod")
-                    suspend_pod(cfg)
-                    # Cleanup lock files after suspend
-                    cleanup_lock_files()
-                idle_since = None  # Reset after suspend
+                _apply_idle_action(cfg)
+                idle_since = None  # Reset after the idle action
 
         stop_event.wait(30)  # Check every 30 seconds, interruptible
 

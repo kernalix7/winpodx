@@ -258,6 +258,11 @@ class PodConfig:
     # (it's heavy) -- never forced by a plain install.
     auto_start: bool = False
     idle_timeout: int = 0  # 0 = disabled
+    # What to do when idle_timeout elapses (#622): "pause" (default — freeze
+    # the VM: frees CPU, RAM stays, resume is instant) or "stop" (opt-in — shut
+    # the VM down to free its RAM; the next launch is a full boot). Only takes
+    # effect when idle_timeout > 0, which is itself off by default.
+    idle_action: str = "pause"
     boot_timeout: int = 300  # seconds, max wait for RDP after start_pod
     # Container image for dockur/windows. Pinned to a specific digest by
     # default so dockur pushing a new ``:latest`` doesn't trigger an
@@ -446,6 +451,8 @@ class PodConfig:
         self.ram_gb = max(1, min(512, int(self.ram_gb)))
         self.vnc_port = max(1, min(65535, int(self.vnc_port)))
         self.idle_timeout = max(0, int(self.idle_timeout))
+        if self.idle_action not in ("pause", "stop"):
+            self.idle_action = "pause"
         self.boot_timeout = max(30, min(3600, int(self.boot_timeout)))
         self.max_sessions = max(1, min(50, int(self.max_sessions)))
         # Resolve disguise_level (#246, tiered). Prefer an explicit level; else
@@ -875,6 +882,7 @@ class Config:
                 "vnc_port": self.pod.vnc_port,
                 "auto_start": self.pod.auto_start,
                 "idle_timeout": self.pod.idle_timeout,
+                "idle_action": self.pod.idle_action,
                 "boot_timeout": self.pod.boot_timeout,
                 "image": self.pod.image,
                 "disk_size": self.pod.disk_size,

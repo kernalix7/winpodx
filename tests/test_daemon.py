@@ -4,6 +4,9 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from winpodx.core import daemon
 from winpodx.core.config import Config
 from winpodx.core.daemon import (
     cleanup_lock_files,
@@ -68,6 +71,56 @@ def test_suspend_pod_uses_configured_container_name():
 
     cmd = mr.call_args.args[0]
     assert cmd == ["podman", "pause", "alt-winpod"]
+
+
+def test_idle_action_default_pauses(monkeypatch):
+    # Default idle_action="pause": freeze the pod (keep RAM), never stop it.
+    cfg = Config()
+    assert cfg.pod.idle_action == "pause"
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda _cfg: False)
+    monkeypatch.setattr(daemon, "suspend_pod", lambda _cfg: True)
+    monkeypatch.setattr(daemon, "cleanup_lock_files", lambda: None)
+    suspended = {"n": 0}
+    monkeypatch.setattr(daemon, "suspend_pod", lambda _cfg: suspended.__setitem__("n", 1))
+    daemon._apply_idle_action(cfg)
+    assert suspended["n"] == 1
+
+
+def test_idle_action_stop_stops_running_pod(monkeypatch):
+    # idle_action="stop" (#622) frees RAM by stopping a *running* pod.
+    from winpodx.core.pod import PodState
+
+    cfg = Config()
+    cfg.pod.idle_action = "stop"
+    cfg.pod.__post_init__()
+    stopped = {"n": 0}
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: type("S", (), {"state": PodState.RUNNING})(),
+    )
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", lambda _cfg: stopped.__setitem__("n", 1))
+    monkeypatch.setattr(daemon, "cleanup_lock_files", lambda: None)
+    monkeypatch.setattr(daemon, "suspend_pod", lambda _cfg: pytest.fail("must not pause"))
+    daemon._apply_idle_action(cfg)
+    assert stopped["n"] == 1
+
+
+def test_idle_action_stop_skips_already_stopped(monkeypatch):
+    # Don't re-stop a pod that isn't running (avoids churn every idle tick).
+    from winpodx.core.pod import PodState
+
+    cfg = Config()
+    cfg.pod.idle_action = "stop"
+    cfg.pod.__post_init__()
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: type("S", (), {"state": PodState.STOPPED})(),
+    )
+    monkeypatch.setattr(
+        "winpodx.core.pod.stop_pod", lambda _cfg: pytest.fail("must not stop a stopped pod")
+    )
+    monkeypatch.setattr(daemon, "suspend_pod", lambda _cfg: pytest.fail("must not pause"))
+    daemon._apply_idle_action(cfg)  # no raise = pass
 
 
 def test_resume_pod_uses_configured_container_name():
