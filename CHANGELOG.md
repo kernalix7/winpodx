@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-06-20
+
 ### Added
 
 - **`+multitouch` is now an allowed FreeRDP flag — touchscreen / stylus / pen passthrough** (#623, thanks @Scratch2xs). Add `+multitouch` to your extra FreeRDP flags (`rdp.extra_flags` in `winpodx.toml`, or the Settings extra-args field) so a touchscreen, drawing tablet, or pen works inside Windows apps — handy for drawing software with no Linux build. It's an input-only toggle, so it joins the FreeRDP flag allowlist with no security trade-off.
@@ -26,6 +28,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **The `usbredirect not found` hint now names the right package per distro** (#593, thanks @techabsol). Debian/Ubuntu is `usbredirect`, Fedora is `usbredir-tools` (plus an Atomic Fedora `rpm-ostree` form), and openSUSE stays `usbredir` — the previous message pointed at packages that don't carry the binary.
 - **`install.bat` no longer throws a syntax error reserving the agent URL** (#614, thanks @zephir2008). The `netsh http add urlacl … sddl=D:(A;;GX;;;WD)` line left the SDDL unquoted, so `cmd.exe` treated its `(`, `;`, and `)` as metacharacters and the reservation could fail. The SDDL value is now quoted (`sddl="D:(A;;GX;;;WD)"`).
 - **The guest agent recovers from a drifted bearer token instead of staying 401 forever** (#615, thanks @zephir2008). The agent reads its token once at boot from a baked copy of `C:\OEM\agent_token.txt`; if that diverges from the host token, `guest_exec` / `guest_summary` (and any authenticated `/exec`) return HTTP 401 with no way for the agent to fix itself. A new `winpodx guest resync-token` re-pushes the current token over the FreeRDP channel (which auths with the Windows password, so it works while the agent is 401) and respawns the agent to re-read it. `winpodx doctor` now auto-runs this when its `guest_exec` probe hits a 401, then re-checks.
+
+### Contributors
+
+Thanks to @notnotno (#616), @hermitguo (#622), @Scratch2xs (#623), @KyleSanderson (#619), @ismikes (#634, #638), @GameSoul7Eugene (#590), @techabsol (#593), and @zephir2008 (#613, #614, #615) for the reports and contributions that drove this release.
 
 ## [0.7.2] - 2026-06-15
 

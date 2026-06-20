@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-06-20
+
 ### Added
 
 - **`+multitouch`가 허용된 FreeRDP 플래그가 됨 — 터치스크린 / 스타일러스 / 펜 패스스루** (#623, @Scratch2xs 기여 감사). extra FreeRDP 플래그(`winpodx.toml`의 `rdp.extra_flags`, 또는 Settings의 extra-args 필드)에 `+multitouch`를 추가하면 터치스크린·드로잉 태블릿·펜이 Windows 앱 안에서 동작합니다 — Linux 빌드가 없는 드로잉 소프트웨어에 유용. 입력 전용 토글이라 보안 트레이드오프 없이 FreeRDP 플래그 허용목록에 들어갑니다.
@@ -26,6 +28,10 @@
 - **`usbredirect not found` 안내가 배포판별로 올바른 패키지를 안내** (#593, @techabsol 기여 감사). Debian/Ubuntu는 `usbredirect`, Fedora는 `usbredir-tools`(Atomic Fedora는 `rpm-ostree` 형태 추가), openSUSE는 `usbredir` 유지 — 기존 메시지는 바이너리가 들어있지 않은 패키지를 안내했습니다.
 - **`install.bat`가 에이전트 URL 예약 시 더 이상 구문 오류를 내지 않음** (#614, @zephir2008 기여 감사). `netsh http add urlacl … sddl=D:(A;;GX;;;WD)` 줄에서 SDDL 값을 따옴표로 감싸지 않아 `cmd.exe`가 `(`, `;`, `)`를 메타문자로 해석해 예약이 실패할 수 있었습니다. 이제 SDDL 값을 따옴표로 감쌉니다(`sddl="D:(A;;GX;;;WD)"`).
 - **게스트 에이전트가 드리프트된 bearer 토큰에서 복구됨 — 더 이상 영구 401에 머무르지 않음** (#615, @zephir2008 기여 감사). 에이전트는 부팅 시 `C:\OEM\agent_token.txt`의 bake본에서 토큰을 한 번만 읽는데, 이게 호스트 토큰과 어긋나면 `guest_exec`/`guest_summary`(및 모든 authed `/exec`)가 HTTP 401을 반환하고 에이전트가 스스로 고칠 방법이 없습니다. 새 `winpodx guest resync-token`이 현재 토큰을 FreeRDP 채널(Windows 암호로 인증하므로 에이전트가 401이어도 동작)로 다시 밀어넣고 에이전트를 재시작해 재독하게 합니다. `winpodx doctor`는 `guest_exec` 프로브가 401을 만나면 이를 자동 실행한 뒤 재확인합니다.
+
+### Contributors
+
+이번 릴리스를 이끈 리포트와 기여에 감사드립니다 — @notnotno (#616), @hermitguo (#622), @Scratch2xs (#623), @KyleSanderson (#619), @ismikes (#634, #638), @GameSoul7Eugene (#590), @techabsol (#593), @zephir2008 (#613, #614, #615).
 
 ## [0.7.2] - 2026-06-15
 

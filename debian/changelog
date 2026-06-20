@@ -1,3 +1,18 @@
+winpodx (0.7.3) unstable; urgency=medium
+
+  * Feature + bug-fix release: reverse-open now opens files on the Windows VM
+    itself via an SMB share + kio-fuse mount (#616), optional idle auto-stop to
+    free the VM's RAM (#622), +multitouch / stylus passthrough flag (#623),
+    discovery timeout unified + raised so `app refresh` doesn't time out (#619),
+    Dashboard RAM/Disk gauges no longer stick on "n/a" (#634), removed the USB
+    drive-letter auto-mapper that destabilized installs (#613, #638), more
+    debloat telemetry/ad surfaces (#590), per-distro usbredir hint (#593),
+    quoted urlacl SDDL (#614), guest agent token self-heal (#615), and an
+    install.sh `--ref` fix so a re-run installs the branch's latest commit.
+    See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sat, 20 Jun 2026 09:00:00 +0000
+
 winpodx (0.7.2) unstable; urgency=medium
 
   * Bug-fix release: GUI Refresh crash (#567), tray submenus open on Plasma
