@@ -32,6 +32,13 @@ ruff check src/ tests/
 ruff format --check src/ tests/
 ```
 
+`pytest` runs on a Linux CI runner and cannot exercise the Windows guest. Any
+change that touches the guest (`config/oem/`, `scripts/windows/`, the
+reverse-open shim, `compose` ports/QEMU args, the agent, install flow, RAIL
+launch) must also be smoke-tested against a real Windows guest before merge —
+see [docs/RELEASE_TESTING.md](docs/RELEASE_TESTING.md) for the guest-side smoke
++ per-release checklist.
+
 ## Workflow
 
 1. **Fork** the repository

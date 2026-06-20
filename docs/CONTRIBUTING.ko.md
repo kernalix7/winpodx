@@ -32,6 +32,12 @@ ruff check src/ tests/
 ruff format --check src/ tests/
 ```
 
+`pytest`는 Linux CI 러너에서 돌며 Windows 게스트를 실행할 수 없습니다. 게스트를
+건드리는 변경(`config/oem/`, `scripts/windows/`, reverse-open shim, `compose`
+포트/QEMU args, 에이전트, 설치 흐름, RAIL 실행)은 머지 전 **실제 Windows 게스트
+스모크**도 필요 — 게스트측 스모크 + 릴리즈별 체크리스트는
+[docs/RELEASE_TESTING.ko.md](RELEASE_TESTING.ko.md) 참고.
+
 ## 워크플로우
 
 1. 저장소를 **포크**합니다
