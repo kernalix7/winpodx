@@ -17,6 +17,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 
+- **The Debian/Ubuntu `.deb` now pulls in `podman-compose`, and a missing compose provider fails loudly instead of cryptically** (#644, thanks @paolodongilli). On Debian 13 the `.deb` installed winpodx + podman but not `podman-compose`, so `winpodx setup` couldn't create the container and died downstream with `no such container "winpodx-windows"`. `podman-compose` is now a package `Recommends` (apt installs it by default), and if no compose provider is present at setup time winpodx prints an actionable error naming the package to install per distro instead of silently skipping container creation. (The `curl … install.sh` path already installed it — this closes the `.deb` gap.)
 - **The maintenance task dialog (Debloat, Grow Disk, Sync Guest, …) no longer opens cramped** (#550, thanks @ismikes). The `BusyDialog` progress window had only a 380px minimum width and sized its height to content, so it came up around 392×139 — too small to read comfortably, most visibly on the Debloat *Speed* run. Given a 480×168 floor. (The picker-window size and the fast-op auto-close were already addressed in 0.7.2.)
 
 ## [0.7.3] - 2026-06-20

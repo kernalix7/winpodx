@@ -27,6 +27,7 @@ Depends:
  freerdp-x11 | freerdp3-x11 | freerdp2-x11
 Recommends:
  podman,
+ podman-compose,
  python3-pyside6.qtcore,
  python3-pyside6.qtgui,
  python3-pyside6.qtwidgets,

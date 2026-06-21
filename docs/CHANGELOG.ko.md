@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- **Debian/Ubuntu `.deb`가 이제 `podman-compose`를 끌어오고, compose provider 누락 시 cryptic 대신 명확히 실패** (#644, @paolodongilli 기여 감사). Debian 13에서 `.deb`가 winpodx + podman은 깔아도 `podman-compose`는 안 깔아 `winpodx setup`이 컨테이너를 못 만들고 나중에 `no such container "winpodx-windows"`로 죽었습니다. 이제 `podman-compose`가 패키지 `Recommends`(apt 기본 설치)이고, setup 시점에 compose provider가 없으면 배포판별 설치 패키지명을 알려주는 실행가능 에러를 출력합니다(조용히 건너뛰지 않음). (`curl … install.sh` 경로는 이미 설치했음 — `.deb` 빈틈을 메움.)
 - **유지보수 작업 다이얼로그(Debloat, Grow Disk, Sync Guest 등)가 더 이상 비좁게 열리지 않음** (#550, @ismikes 기여 감사). `BusyDialog` 진행 창이 최소 너비 380px에 높이는 내용에 맞춰져 약 392×139로 떠 읽기에 너무 작았습니다(특히 Debloat *Speed* 실행). 480×168 하한 부여. (picker 창 크기와 빠른 작업 자동 닫힘은 0.7.2에서 이미 처리됨.)
 
 ## [0.7.3] - 2026-06-20

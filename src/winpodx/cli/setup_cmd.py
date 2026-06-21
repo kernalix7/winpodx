@@ -1060,7 +1060,32 @@ def _recreate_container(cfg: Config) -> None:
             compose_cmd = ["docker", "compose"]
 
     if not compose_cmd:
-        print(tr("Compose command not found, skipping container recreation."))
+        # No compose provider → the container is never created, and setup later
+        # fails with the cryptic `no such container "winpodx-windows"` (#644).
+        # Say so loudly + actionably instead of silently skipping.
+        if backend == "podman":
+            print(
+                tr(
+                    "ERROR: no compose provider found. winpodx creates the Windows "
+                    "container via compose, but neither `podman-compose` nor the "
+                    "`podman compose` plugin is installed, so the container can't be "
+                    "created (this is what later surfaces as "
+                    "'no such container \"winpodx-windows\"', #644).\n"
+                    "  Install it, then re-run `winpodx setup`:\n"
+                    "    Debian/Ubuntu:  sudo apt install podman-compose\n"
+                    "    Fedora:         sudo dnf install podman-compose\n"
+                    "    openSUSE:       sudo zypper install podman-compose\n"
+                    "    (fallback:      pipx install podman-compose)"
+                )
+            )
+        else:
+            print(
+                tr(
+                    "ERROR: no compose provider found for the docker backend. Install "
+                    "Docker Compose (the `docker compose` plugin or `docker-compose`), "
+                    "then re-run `winpodx setup`."
+                )
+            )
         return
 
     print(tr("\nRecreating container with new settings..."))
