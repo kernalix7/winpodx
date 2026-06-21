@@ -10,7 +10,7 @@ set -euo pipefail
 #   or: ./install.sh [--main] [--ref TAG] [--source PATH] [--image-tar PATH]
 #                    [--mode r|a|c|n] [--backend podman|docker|manual]
 #                    [--no-gui] [--manual] [--skip-deps] [--win-version VER]
-#                    [--win-iso PATH] [--help]
+#                    [--win-iso PATH] [--storage-dir PATH] [--help]
 #
 # Installs winpodx to ~/.local/bin/winpodx-app/ and creates a launcher.
 # Python always runs from a private venv under
@@ -70,6 +70,13 @@ set -euo pipefail
 #                      it, so it costs no extra space on btrfs/xfs. Saves the
 #                      ~5-8 GB download on every purge/reinstall cycle (#647).
 #                      (env: WINPODX_WIN_ISO)
+#   --storage-dir PATH On a FRESH install, put the Windows VM disk + ISO at PATH
+#                      (e.g. a roomier partition) instead of
+#                      ~/.local/share/winpodx/storage. The dir is created and
+#                      gets the same prep as the default (chattr +C on btrfs,
+#                      SSD emulation if applicable) (#646). To relocate an
+#                      EXISTING install, use `winpodx setup --migrate-storage
+#                      --migrate-storage-target PATH`. (env: WINPODX_STORAGE_DIR)
 #   --manual           Install winpodx + create the venv only — skip
 #                      'winpodx setup', 'winpodx pod wait-ready', app
 #                      discovery, and reverse-open. Finish provisioning
@@ -99,6 +106,7 @@ WINPODX_REF="${WINPODX_REF:-}"
 # re-configuration for upgrade flows). See #178.
 WINPODX_WIN_VERSION="${WINPODX_WIN_VERSION:-}"
 WINPODX_WIN_ISO="${WINPODX_WIN_ISO:-}"
+WINPODX_STORAGE_DIR="${WINPODX_STORAGE_DIR:-}"
 WINPODX_MANUAL="${WINPODX_MANUAL:-}"
 # v2: new knobs.
 WINPODX_NO_GUI="${WINPODX_NO_GUI:-}"
@@ -133,6 +141,7 @@ Flags:
   --skip-deps         Skip distro dependency install
   --win-version VER   Windows edition for fresh installs
   --win-iso PATH      Install from a local Windows ISO instead of downloading
+  --storage-dir PATH  Put the VM disk + ISO at PATH (fresh install; roomier partition)
   --manual            Install binary + venv only — skip provisioning
   --allow-old-podman  Proceed with podman even if its major version is < 4
                       (bypass the too-old-podman guard; #271)
@@ -188,6 +197,29 @@ while [ $# -gt 0 ]; do
                 *.iso|*.ISO) : ;;
                 *) log "Note: --win-iso path doesn't end in .iso — using it anyway: $WINPODX_WIN_ISO" ;;
             esac
+            shift 2
+            ;;
+        --storage-dir)
+            WINPODX_STORAGE_DIR="${2:-}"
+            if [ -z "$WINPODX_STORAGE_DIR" ]; then
+                err "--storage-dir requires a path (e.g. /mnt/data/winpodx)"
+                exit 1
+            fi
+            if [ -e "$WINPODX_STORAGE_DIR" ] && [ ! -d "$WINPODX_STORAGE_DIR" ]; then
+                err "--storage-dir: not a directory: $WINPODX_STORAGE_DIR"
+                exit 1
+            fi
+            # Create it now so we can absolutize + verify it's writable; setup
+            # re-creates idempotently and applies the btrfs/SSD prep.
+            if ! mkdir -p "$WINPODX_STORAGE_DIR" 2>/dev/null; then
+                err "--storage-dir: cannot create $WINPODX_STORAGE_DIR (check the path / permissions)"
+                exit 1
+            fi
+            if [ ! -w "$WINPODX_STORAGE_DIR" ]; then
+                err "--storage-dir: not writable: $WINPODX_STORAGE_DIR"
+                exit 1
+            fi
+            WINPODX_STORAGE_DIR="$(cd "$WINPODX_STORAGE_DIR" && pwd)"
             shift 2
             ;;
         --no-gui)
@@ -1418,6 +1450,10 @@ else
     if [ -n "$WINPODX_WIN_VERSION" ]; then
         SETUP_ARGS+=(--win-version "$WINPODX_WIN_VERSION")
         log "Installing Windows edition: $WINPODX_WIN_VERSION"
+    fi
+    if [ -n "$WINPODX_STORAGE_DIR" ]; then
+        SETUP_ARGS+=(--storage-path "$WINPODX_STORAGE_DIR")
+        log "Storage location: $WINPODX_STORAGE_DIR"
     fi
     # Persist the resolved FreeRDP source so the launcher honours it
     # (cfg.rdp.freerdp_source). Skip "auto" — that's the default.

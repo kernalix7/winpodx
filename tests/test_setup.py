@@ -449,3 +449,39 @@ class TestResolveCredentials:
 
         assert cfg.rdp.password == "FillIn!"
         getpass_mock.assert_called_once()
+
+
+class TestDecideStorageModeExplicitTarget:
+    """`--storage-path` / install.sh `--storage-dir` (#646)."""
+
+    def test_explicit_target_fresh_sets_storage_path(self, tmp_path):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        target = tmp_path / "roomy" / "winpodx"
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = ""
+        with (
+            patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="ext4"),
+            patch("winpodx.utils.btrfs.host_storage_is_ssd", return_value=False),
+        ):
+            _decide_storage_mode(cfg, non_interactive=True, explicit_target=Path(target))
+        assert cfg.pod.storage_path == str(target)
+        assert target.is_dir()
+
+    def test_explicit_target_ignored_when_already_configured(self, tmp_path):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = "/existing/storage"
+        _decide_storage_mode(cfg, non_interactive=True, explicit_target=Path(tmp_path / "other"))
+        # An already-configured install isn't relocated here (that's --migrate-storage).
+        assert cfg.pod.storage_path == "/existing/storage"

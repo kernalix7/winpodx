@@ -464,6 +464,18 @@ def cli(argv: list[str] | None = None) -> None:
         ),
     )
     setup_p.add_argument(
+        "--storage-path",
+        metavar="PATH",
+        help=(
+            "On a FRESH install, put the Windows VM disk + ISO at PATH "
+            "(e.g. a roomier partition) instead of "
+            "~/.local/share/winpodx/storage (#646). Same prep as the default "
+            "(directory created, `chattr +C` on btrfs, SSD emulation if "
+            "applicable). To relocate an EXISTING install use "
+            "`--migrate-storage --migrate-storage-target` instead."
+        ),
+    )
+    setup_p.add_argument(
         "--yes",
         "-y",
         action="store_true",

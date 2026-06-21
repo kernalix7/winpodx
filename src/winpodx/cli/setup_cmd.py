@@ -207,17 +207,33 @@ def _update_image_pin() -> int:
     return 0
 
 
-def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
+def _decide_storage_mode(
+    cfg: Config, *, non_interactive: bool, explicit_target: Path | None = None
+) -> None:
     """Resolve ``cfg.pod.storage_path`` for the about-to-be-generated compose.
 
     See the call site in ``handle_setup`` for the three-case decision.
     Mutates ``cfg`` in place; the caller saves + regenerates compose.
+
+    ``explicit_target`` (``winpodx setup --storage-path`` / install.sh
+    ``--storage-dir``, #646) picks the bind-mount location for a *fresh*
+    install — e.g. a roomier partition. It gets the same fresh-target prep
+    (mkdir + btrfs NoCoW + SSD emulation) as the default path. Relocating an
+    *existing* install is out of scope here — that's ``--migrate-storage``.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
     # Case 1: already set explicitly. Trust the user.
     if cfg.pod.storage_path:
+        if explicit_target is not None:
+            print(
+                tr(
+                    "  Note: storage is already configured ({path}); ignoring "
+                    "--storage-path. To relocate an existing install, use "
+                    "`winpodx setup --migrate-storage --migrate-storage-target`."
+                ).format(path=cfg.pod.storage_path)
+            )
         return
 
     from winpodx.core.storage_migration import (
@@ -235,6 +251,15 @@ def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
     # the prefixed name.
     resolved = resolve_named_volume(cfg.pod.backend)
     if resolved is not None:
+        if explicit_target is not None:
+            print(
+                tr(
+                    "  Note: an existing {volume} volume was found; ignoring "
+                    "--storage-path. To move the install to {target}, use "
+                    "`winpodx setup --migrate-storage --migrate-storage-target {target}`."
+                ).format(volume=repr(resolved), target=explicit_target)
+            )
+            return
         mp = get_volume_mountpoint(cfg.pod.backend, resolved)
         if mp is not None and detect_path_fs(mp) == "btrfs":
             print()
@@ -250,10 +275,11 @@ def _decide_storage_mode(cfg: Config, *, non_interactive: bool) -> None:
             print()
         return
 
-    # Case 3: fresh install. Pick the default bind-mount path, create the
+    # Case 3: fresh install. Pick the bind-mount path (the user's
+    # --storage-path if given, else the per-user default), create the
     # directory, and disable CoW if it's on btrfs BEFORE the volume gets
     # populated by the next compose-up.
-    target = default_target_path()
+    target = explicit_target if explicit_target is not None else default_target_path()
     try:
         target.mkdir(parents=True, exist_ok=True)
     except OSError as e:
@@ -856,7 +882,11 @@ def handle_setup(args: argparse.Namespace) -> None:
         #      the per-user default `~/.local/share/winpodx/storage`,
         #      create the directory, and `chattr +C` on btrfs so the
         #      Windows raw disk image inherits NoCoW from day one.
-        _decide_storage_mode(cfg, non_interactive=non_interactive)
+        _storage_path_arg = getattr(args, "storage_path", None)
+        _explicit_storage = Path(_storage_path_arg).expanduser() if _storage_path_arg else None
+        _decide_storage_mode(
+            cfg, non_interactive=non_interactive, explicit_target=_explicit_storage
+        )
 
         # #395: bail out with an actionable message if the selected backend's
         # daemon isn't reachable, rather than letting compose fail with a
