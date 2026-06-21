@@ -24,10 +24,21 @@ class TestRecommendTier:
         assert t.ram_gb == 12
 
     def test_mid_when_both_axes_clear_mid(self):
-        t = recommend_tier(HostSpecs(cpu_threads=8, ram_gb=24))
+        t = recommend_tier(HostSpecs(cpu_threads=8, ram_gb=20))
         assert t.name == "mid"
         assert t.cpu_cores == 4
         assert t.ram_gb == 6
+
+    def test_mid_bumps_to_8gb_at_24gb_host(self):
+        # #630: a >=24 GB host (still mid CPU tier) gets an 8 GB VM instead of
+        # 6 — Windows 11 runs better with 8 GB and the host can spare it.
+        for ram in (24, 28, 31):
+            t = recommend_tier(HostSpecs(cpu_threads=8, ram_gb=ram))
+            assert t.name == "mid", ram
+            assert t.cpu_cores == 4, ram
+            assert t.ram_gb == 8, ram
+        # Just under 24 GB stays at 6.
+        assert recommend_tier(HostSpecs(cpu_threads=8, ram_gb=23)).ram_gb == 6
 
     def test_low_for_small_machines(self):
         t = recommend_tier(HostSpecs(cpu_threads=2, ram_gb=8))

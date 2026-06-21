@@ -11,6 +11,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Fresh installs on a 24 GB+ host now default the VM to 8 GB RAM instead of 6** (#630, thanks @ismikes). Windows 11 runs noticeably smoother with 8 GB, and a host with ≥24 GB can spare it — the auto-tier that pre-fills `pod.ram_gb` during `winpodx setup` bumps the mid tier from 6 to 8 GB on those hosts (CPU sizing unchanged; ≥32 GB / ≥12-thread hosts still get the 12 GB high tier). Existing installs keep your configured value; change it any time in Settings or with `winpodx config set pod.ram_gb 8`.
 - **`install.sh --win-iso <path>` installs from a local Windows ISO instead of downloading** (#647, thanks @ismikes). Point the installer at a Windows ISO you already have and it's staged into the storage dir as dockur's `custom.iso`, so the install skips the ~5-8 GB Microsoft download — handy for repeated purge/reinstall cycles. Reflink-copied where the filesystem supports it (btrfs/xfs), so it costs no extra disk. (You could already drop a `custom.iso` into the storage dir by hand; this wires it to a flag and documents it in `--help`.)
 
 ### Fixed
