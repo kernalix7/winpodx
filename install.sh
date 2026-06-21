@@ -10,7 +10,7 @@ set -euo pipefail
 #   or: ./install.sh [--main] [--ref TAG] [--source PATH] [--image-tar PATH]
 #                    [--mode r|a|c|n] [--backend podman|docker|manual]
 #                    [--no-gui] [--manual] [--skip-deps] [--win-version VER]
-#                    [--help]
+#                    [--win-iso PATH] [--help]
 #
 # Installs winpodx to ~/.local/bin/winpodx-app/ and creates a launcher.
 # Python always runs from a private venv under
@@ -63,6 +63,13 @@ set -euo pipefail
 #                      (11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 |
 #                       2025 | 2022 | 2019 | 2016 — see docs/ARCHITECTURE.md).
 #                      (env: WINPODX_WIN_VERSION)
+#   --win-iso PATH     Install from a local Windows ISO at PATH instead of
+#                      downloading it from Microsoft. The ISO is staged into
+#                      the storage dir as `custom.iso` (dockur's bring-your-own
+#                      convention); reflink-copied where the filesystem supports
+#                      it, so it costs no extra space on btrfs/xfs. Saves the
+#                      ~5-8 GB download on every purge/reinstall cycle (#647).
+#                      (env: WINPODX_WIN_ISO)
 #   --manual           Install winpodx + create the venv only — skip
 #                      'winpodx setup', 'winpodx pod wait-ready', app
 #                      discovery, and reverse-open. Finish provisioning
@@ -91,6 +98,7 @@ WINPODX_REF="${WINPODX_REF:-}"
 # Ignored when an existing winpodx.toml is present (setup skips
 # re-configuration for upgrade flows). See #178.
 WINPODX_WIN_VERSION="${WINPODX_WIN_VERSION:-}"
+WINPODX_WIN_ISO="${WINPODX_WIN_ISO:-}"
 WINPODX_MANUAL="${WINPODX_MANUAL:-}"
 # v2: new knobs.
 WINPODX_NO_GUI="${WINPODX_NO_GUI:-}"
@@ -124,6 +132,7 @@ Flags:
   --image-tar PATH    Load container image from local tar
   --skip-deps         Skip distro dependency install
   --win-version VER   Windows edition for fresh installs
+  --win-iso PATH      Install from a local Windows ISO instead of downloading
   --manual            Install binary + venv only — skip provisioning
   --allow-old-podman  Proceed with podman even if its major version is < 4
                       (bypass the too-old-podman guard; #271)
@@ -160,6 +169,25 @@ while [ $# -gt 0 ]; do
                 err "--win-version requires a value (e.g. ltsc10, iot11, tiny11)"
                 exit 1
             fi
+            shift 2
+            ;;
+        --win-iso)
+            WINPODX_WIN_ISO="${2:-}"
+            if [ -z "$WINPODX_WIN_ISO" ]; then
+                err "--win-iso requires a path (e.g. /path/to/Win11.iso)"
+                exit 1
+            fi
+            if [ ! -f "$WINPODX_WIN_ISO" ]; then
+                err "--win-iso: no such file: $WINPODX_WIN_ISO"
+                exit 1
+            fi
+            # Resolve to an absolute path now — later `cp` may run from a
+            # different cwd, and the value is logged for the user.
+            WINPODX_WIN_ISO="$(cd "$(dirname "$WINPODX_WIN_ISO")" && pwd)/$(basename "$WINPODX_WIN_ISO")"
+            case "$WINPODX_WIN_ISO" in
+                *.iso|*.ISO) : ;;
+                *) log "Note: --win-iso path doesn't end in .iso — using it anyway: $WINPODX_WIN_ISO" ;;
+            esac
             shift 2
             ;;
         --no-gui)
@@ -1401,6 +1429,37 @@ else
     # full-provision tail; install.sh runs the chain once via the explicit
     # `winpodx provision` call below (0.6.0 item B, replaces --create-only).
     WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
+fi
+
+# --- Stage a user-provided Windows ISO (--win-iso, #647) ---
+# dockur installs from `<storage>/custom.iso` if present, skipping the
+# ~5-8 GB Microsoft download. Runs after setup (which has written the config
+# + storage_path) and before `winpodx provision` (which triggers the boot).
+# Reflink-copy where the filesystem supports it (btrfs/xfs → no extra space),
+# plain copy otherwise.
+if [ -n "$WINPODX_WIN_ISO" ] && [ -z "$WINPODX_MANUAL" ]; then
+    WIN_ISO_STORAGE="$("$VENV_PY" -c 'import os
+from winpodx.core.config import Config
+p = Config.load().pod.storage_path
+print(os.path.expanduser(p) if p else "")' 2>/dev/null)"
+    if [ -z "$WIN_ISO_STORAGE" ]; then
+        log "WARNING: --win-iso needs the bind-mount storage layout, but this install uses the legacy named volume."
+        log "         Run 'winpodx setup --migrate-storage' once, then re-run with --win-iso. Continuing with the normal download."
+    else
+        mkdir -p "$WIN_ISO_STORAGE"
+        WIN_ISO_DST="$WIN_ISO_STORAGE/custom.iso"
+        if [ "$WINPODX_WIN_ISO" -ef "$WIN_ISO_DST" ]; then
+            log "Local ISO already in place: $WIN_ISO_DST (skipping copy)"
+        else
+            log "Staging local ISO -> $WIN_ISO_DST (skipping Microsoft download)..."
+            if ! cp --reflink=auto "$WINPODX_WIN_ISO" "$WIN_ISO_DST" 2>/dev/null \
+                && ! cp "$WINPODX_WIN_ISO" "$WIN_ISO_DST"; then
+                err "Failed to stage --win-iso into $WIN_ISO_DST"
+                exit 1
+            fi
+            log "  Local ISO staged ($(du -h "$WIN_ISO_DST" 2>/dev/null | cut -f1)); dockur will install from it."
+        fi
+    fi
 fi
 
 # --- Install winpodx GUI desktop entry & icon ---
