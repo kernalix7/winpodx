@@ -13,6 +13,10 @@
 
 - **`install.sh --win-iso <path>`로 다운로드 대신 로컬 Windows ISO에서 설치** (#647, @ismikes 기여 감사). 이미 가진 Windows ISO 경로를 넘기면 storage 디렉터리에 dockur의 `custom.iso`로 스테이징돼 ~5-8 GB Microsoft 다운로드를 건너뜁니다 — 반복 purge/reinstall 사이클에 유용. 파일시스템이 지원하면(btrfs/xfs) reflink 복사라 추가 디스크 비용 없음. (직접 storage에 `custom.iso`를 둘 수도 있었지만, 이걸 플래그로 연결하고 `--help`에 문서화함.)
 
+### Fixed
+
+- **유지보수 작업 다이얼로그(Debloat, Grow Disk, Sync Guest 등)가 더 이상 비좁게 열리지 않음** (#550, @ismikes 기여 감사). `BusyDialog` 진행 창이 최소 너비 380px에 높이는 내용에 맞춰져 약 392×139로 떠 읽기에 너무 작았습니다(특히 Debloat *Speed* 실행). 480×168 하한 부여. (picker 창 크기와 빠른 작업 자동 닫힘은 0.7.2에서 이미 처리됨.)
+
 ## [0.7.3] - 2026-06-20
 
 ### Added

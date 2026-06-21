@@ -13,6 +13,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 - **`install.sh --win-iso <path>` installs from a local Windows ISO instead of downloading** (#647, thanks @ismikes). Point the installer at a Windows ISO you already have and it's staged into the storage dir as dockur's `custom.iso`, so the install skips the ~5-8 GB Microsoft download — handy for repeated purge/reinstall cycles. Reflink-copied where the filesystem supports it (btrfs/xfs), so it costs no extra disk. (You could already drop a `custom.iso` into the storage dir by hand; this wires it to a flag and documents it in `--help`.)
 
+### Fixed
+
+- **The maintenance task dialog (Debloat, Grow Disk, Sync Guest, …) no longer opens cramped** (#550, thanks @ismikes). The `BusyDialog` progress window had only a 380px minimum width and sized its height to content, so it came up around 392×139 — too small to read comfortably, most visibly on the Debloat *Speed* run. Given a 480×168 floor. (The picker-window size and the fast-op auto-close were already addressed in 0.7.2.)
+
 ## [0.7.3] - 2026-06-20
 
 ### Added

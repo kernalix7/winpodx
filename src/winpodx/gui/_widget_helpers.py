@@ -345,7 +345,10 @@ class BusyDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(380)
+        # #550: the old 380-wide / content-height dialog opened cramped (the
+        # debloat task window was ~392x139). Give it a comfortable floor so the
+        # message + progress bar + ETA hint aren't squeezed.
+        self.setMinimumSize(480, 168)
         self.setStyleSheet(DIALOG)
         self._cancel_cbs: list[Callable[[], None]] = []
 
