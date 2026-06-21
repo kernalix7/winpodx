@@ -11,6 +11,7 @@
 
 ### Added
 
+- **24GB+ 호스트의 신규 설치는 VM RAM 기본값이 6 대신 8GB** (#630, @ismikes 기여 감사). Windows 11은 8GB에서 눈에 띄게 부드럽고, ≥24GB 호스트는 이를 감당할 수 있습니다 — `winpodx setup`이 `pod.ram_gb`를 미리 채우는 auto-tier가 해당 호스트에서 mid 티어를 6→8GB로 올립니다(CPU 사이징 불변; ≥32GB/≥12스레드는 여전히 12GB high 티어). 기존 설치는 설정값 유지 — Settings 또는 `winpodx config set pod.ram_gb 8`로 언제든 변경.
 - **`install.sh --win-iso <path>`로 다운로드 대신 로컬 Windows ISO에서 설치** (#647, @ismikes 기여 감사). 이미 가진 Windows ISO 경로를 넘기면 storage 디렉터리에 dockur의 `custom.iso`로 스테이징돼 ~5-8 GB Microsoft 다운로드를 건너뜁니다 — 반복 purge/reinstall 사이클에 유용. 파일시스템이 지원하면(btrfs/xfs) reflink 복사라 추가 디스크 비용 없음. (직접 storage에 `custom.iso`를 둘 수도 있었지만, 이걸 플래그로 연결하고 `--help`에 문서화함.)
 
 ### Fixed

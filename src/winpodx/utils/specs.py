@@ -12,7 +12,8 @@ Tier policy (deliberate, not auto-derived):
 
     Host RAM      Host CPU      Tier   VM CPU   VM RAM
     >=32 GB       >=12 thr      high     8       12 GB
-    16-32 GB       6-12 thr     mid      4        6 GB
+    24-32 GB       6-12 thr     mid      4        8 GB   (#630)
+    16-24 GB       6-12 thr     mid      4        6 GB
     <16 GB         <6 thr       low      2        4 GB
 
 Both axes must clear the threshold to land in mid/high — a 64 GB
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -82,6 +83,11 @@ def recommend_tier(specs: HostSpecs) -> TierPreset:
     if specs.ram_gb >= 32 and specs.cpu_threads >= 12:
         return _TIER_HIGH
     if specs.ram_gb >= 16 and specs.cpu_threads >= 6:
+        # #630: Windows 11 runs noticeably better with 8 GB, and a host with
+        # >=24 GB can spare it while still leaving the host comfortable. Bump
+        # the mid VM from 6 to 8 GB on those hosts (CPU tier unchanged).
+        if specs.ram_gb >= 24:
+            return replace(_TIER_MID, ram_gb=8)
         return _TIER_MID
     return _TIER_LOW
 
