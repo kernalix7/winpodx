@@ -19,7 +19,7 @@ Version=1.0
 Type=Application
 Name={full_name}
 Comment={comment}
-Exec=winpodx app run {name} %F
+Exec={winpodx_exe} app run {name} %F
 Icon={icon_name}
 Categories={categories}
 MimeType={mime_types}
@@ -55,6 +55,17 @@ def update_desktop_database() -> None:
         )
     except (OSError, subprocess.SubprocessError):
         log.debug("update-desktop-database failed", exc_info=True)
+
+
+def _winpodx_exe() -> str:
+    """Return the absolute path to the winpodx executable.
+
+    Desktop entries must use an absolute path so they work when launched by
+    desktop environments that run apps as systemd transient units with a
+    stripped PATH (e.g. Deepin's dde-application-manager).  Falls back to the
+    bare name when shutil.which() can't resolve it (e.g. during tests).
+    """
+    return shutil.which("winpodx") or "winpodx"
 
 
 def install_desktop_entry(app: AppInfo) -> Path:
@@ -99,6 +110,7 @@ def install_desktop_entry(app: AppInfo) -> Path:
     categories = f"{MENU_CATEGORY};"
 
     content = DESKTOP_TEMPLATE.format(
+        winpodx_exe=_winpodx_exe(),
         full_name=full_name,
         name=app.name,
         comment=comment,
