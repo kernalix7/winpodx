@@ -816,13 +816,13 @@ def _filter_extra_flags(flags_str: str) -> list[str]:
 
 
 def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> None:
-    """Best-effort: open *file_path* in an already-running RemoteApp via the guest agent.
+    """Best-effort: open *file_path* in an already-running RemoteApp.
 
     Used when a second ``gio launch`` for the same app arrives while a session is
-    already live.  The agent runs ``Start-Process`` inside the existing Windows
-    session, which lets the running app (e.g. Word) open the new document without
-    disconnecting the FreeRDP RAIL window.  Failures are logged but never raised —
-    the caller still returns the live session handle so the desktop entry succeeds.
+    already live.  Tries the guest agent first (fast, no visual artifacts); falls
+    back to ``run_in_windows`` (FreeRDP RemoteApp, ~5-10 s) when the agent is
+    unreachable.  Failures are logged but never raised — the caller still returns
+    the live session handle so the desktop entry succeeds.
     """
     try:
         unc = linux_to_unc(file_path)
@@ -834,14 +834,27 @@ def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> N
     safe_file = unc.replace("'", "''")
     ps = f"Start-Process '{safe_exe}' -ArgumentList '\"{safe_file}\"'"
 
-    try:
-        from winpodx.core.transport import dispatch
+    from winpodx.core.transport import dispatch
+    from winpodx.core.transport.base import TransportUnavailable
 
+    try:
         transport = dispatch(cfg, prefer="agent")
         transport.exec(ps, timeout=15)
         log.info("_open_file_in_session: opened %r in existing session", file_path)
+        return
+    except TransportUnavailable:
+        log.debug("_open_file_in_session: agent unavailable, falling back to FreeRDP")
     except Exception as exc:  # noqa: BLE001
         log.debug("_open_file_in_session: agent dispatch failed: %s", exc)
+        return
+
+    try:
+        from winpodx.core.windows_exec import run_in_windows
+
+        run_in_windows(cfg, ps, description="open-file", timeout=30)
+        log.info("_open_file_in_session: opened %r via FreeRDP fallback", file_path)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("_open_file_in_session: FreeRDP fallback failed: %s", exc)
 
 
 def _find_existing_session(app_name: str) -> RDPSession | None:
