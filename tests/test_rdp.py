@@ -72,10 +72,11 @@ def test_launch_app_remoteapp_without_display_raises(monkeypatch, tmp_path):
     monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
     monkeypatch.delenv("DISPLAY", raising=False)
 
-    # A real launch has credentials; set one so we reach the display/XWayland
-    # guard rather than the empty-username guard (#569).
+    # A real launch has credentials; set them so we reach the display/XWayland
+    # guard rather than the empty-credential guards (#569).
     cfg = Config()
     cfg.rdp.user = "TestUser"
+    cfg.rdp.password = "secret"
     with pytest.raises(RuntimeError, match="XWayland"):
         rdp_mod.launch_app(cfg, app_executable="notepad.exe")
 
@@ -90,6 +91,21 @@ def test_build_rdp_command_empty_user_raises_clear_error(monkeypatch):
     cfg = Config()
     cfg.rdp.user = ""
     with pytest.raises(RuntimeError, match="credentials are not configured"):
+        rdp_mod.build_rdp_command(cfg)
+
+
+def test_build_rdp_command_empty_password_and_no_askpass_raises_clear_error(monkeypatch):
+    # Empty password with no askpass makes xfreerdp prompt interactively, which
+    # dies under a GUI launch with the same "Inappropriate ioctl for device" /
+    # ERRCONNECT_CONNECT_CANCELLED error as an empty username.
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"))
+    cfg = Config()
+    cfg.rdp.user = "TestUser"
+    cfg.rdp.password = ""
+    cfg.rdp.askpass = ""
+    with pytest.raises(RuntimeError, match="password is not configured"):
         rdp_mod.build_rdp_command(cfg)
 
 
@@ -498,15 +514,23 @@ class TestBuildRdpCommand:
         cmd, _ = build_rdp_command(cfg)
         assert not any(c.startswith("/scale-desktop:") for c in cmd)
 
-    def test_no_password_no_stdin(self, cfg, monkeypatch):
+    def test_no_password_with_askpass_uses_askpass_not_stdin(self, cfg, monkeypatch):
+        # When the config password is empty but askpass is set, the password is
+        # resolved from askpass and embedded in /p:; no /from-stdin:force.
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
+        monkeypatch.setattr(
+            "winpodx.core.rdp._resolve_password",
+            lambda _cfg: "askpass-secret",
+        )
         cfg.rdp.password = ""
+        cfg.rdp.askpass = "my-askpass"
         cmd, password = build_rdp_command(cfg)
         assert password == ""
         assert "/from-stdin:force" not in cmd
+        assert any(c.startswith("/p:askpass-secret") for c in cmd)
 
     def test_domain_flag(self, cfg, monkeypatch):
         monkeypatch.setattr(
@@ -657,6 +681,18 @@ class TestBuildRdpCommand:
         cmd_empty, _ = build_rdp_command(cfg, extra_args="")
         assert cmd_no_extra == cmd_empty
         assert "" not in cmd_empty
+
+    def test_kbd_layout_flag_passes_filter(self, cfg, monkeypatch):
+        """/kbd layout flag must survive the allowlist so users can work
+        around FreeRDP's 'keycode 0x08 no rdp scancode found' warning and
+        keyboard-layout mismatches (e.g. /kbd:layout:us)."""
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg.rdp.extra_flags = "/kbd:layout:us"
+        cmd, _ = build_rdp_command(cfg)
+        assert "/kbd:layout:us" in cmd
 
 
 def test_linux_to_unc_home_symlink_atomic(monkeypatch, tmp_path):
@@ -930,3 +966,60 @@ def test_launch_app_healthy_spawn_starts_reaper_no_retry(monkeypatch, tmp_path):
     assert len(spawned) == 1
     assert "/span" in spawned[0]
     assert session.process is not None
+
+
+def test_launch_app_existing_session_with_file_calls_open_in_session(monkeypatch, tmp_path):
+    # When a session for the same app is already running AND a file_path is
+    # provided (e.g. a second ``gio launch ... 2.docx``), launch_app must NOT
+    # silently discard the file -- it should call _open_file_in_session so the
+    # file is delivered to the running app via the guest agent.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    live = RDPSession(app_name="winword")
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        rdp_mod,
+        "_open_file_in_session",
+        lambda cfg, exe, fp: calls.append((exe, fp)),
+    )
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    result = rdp_mod.launch_app(
+        cfg,
+        app_executable="C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+        file_path=str(tmp_path / "2.docx"),
+    )
+
+    assert result is live
+    assert len(calls) == 1, "_open_file_in_session was not called"
+    assert calls[0][1] == str(tmp_path / "2.docx")
+
+
+def test_launch_app_existing_session_without_file_does_not_call_open(monkeypatch, tmp_path):
+    # Without a file_path (plain app launch), the existing session is returned
+    # immediately without calling _open_file_in_session.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    live = RDPSession(app_name="winword")
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    calls: list = []
+    monkeypatch.setattr(rdp_mod, "_open_file_in_session", lambda *a: calls.append(a))
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    result = rdp_mod.launch_app(
+        cfg,
+        app_executable="C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+        file_path=None,
+    )
+
+    assert result is live
+    assert calls == []  # no spurious call
