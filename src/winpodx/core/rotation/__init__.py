@@ -95,7 +95,15 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
     user = cfg.rdp.user.replace("'", "''")
     pw = new_password.replace("'", "''")
-    payload = f"& net user '{user}' '{pw}' | Out-Null\nWrite-Output 'password set'\n"
+    # ``net user`` writes errors to stderr but exits with a non-zero code.
+    # Without checking $LASTEXITCODE the script continues to Write-Output,
+    # so the agent reported rc=0 even when the user did not exist or the
+    # password change failed (#569).
+    payload = (
+        f"& net user '{user}' '{pw}' | Out-Null\n"
+        "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+        "Write-Output 'password set'\n"
+    )
 
     from winpodx.core.transport import dispatch
     from winpodx.core.transport.base import TransportAuthError, TransportUnavailable
