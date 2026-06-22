@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- **Logs 탭의 Status / Pod logs / Inspect 버튼이 항상 `podman`을 실행하는 대신 선택된 컨테이너 백엔드를 사용함.** Docker 백엔드 설치에서 Terminal 탭 진단 버튼이 `pod.backend`와 무관하게 `podman ps` / `podman logs` / `podman inspect`를 실행해, podman이 활성 백엔드가 아닐 때 실패하거나 엉뚱한 런타임을 조회했습니다. 이제 `cfg.pod.backend`를 따릅니다 — Docker 선택 시 `docker`(`manual`은 `podman`으로 폴백하며, 거기선 컨테이너 명령이 무의미함). 화면의 pod 로그 tail `$ …` 에코도 하드코딩된 `podman` 대신 실제 백엔드를 출력하도록 수정.
 - **이미 실행 중인 Windows 앱에서 두 번째 문서를 여는 게 이제 동작함(조용히 무시되지 않음).** 앱이 이미 열려 있을 때(예: Word) 두 번째 파일을 그 앱으로 실행하면 — 두 번째 `gio launch`, 또는 우클릭 → *연결 프로그램* → 해당 앱 — 파일이 버려졌습니다: 라이브 세션은 재사용했지만 경로를 폐기했습니다. 이제 파일이 실행 중인 세션으로 전달됩니다 — `\\tsclient` UNC 경로로 매핑돼 `Start-Process`로 열리며, 게스트 에이전트로 보내되 에이전트가 닿지 않으면 FreeRDP RemoteApp으로 폴백합니다. Best-effort: 실패는 로그만 남기고 실행을 막지 않습니다.
 - **우클릭 → *연결 프로그램*으로 Windows 앱 실행이 PATH가 잘리는 데스크탑(예: Deepin)에서도 동작.** 생성된 `.desktop` 파일이 bare `Exec=winpodx …`를 써서, 데스크탑 환경이 런처를 `~/.local/bin`을 PATH에서 떨어뜨리는 systemd transient 유닛으로 실행하면(Deepin의 `dde-application-manager`) `exec: winpodx: not found`로 실패했습니다. 터미널에서 `gio launch`는 셸 PATH를 상속받아 동작했기에 버그가 가려졌습니다. 이제 엔트리가 설치 시점에 `shutil.which()`로 해석한 winpodx 절대 경로를 박아 넣습니다(해석 실패 시 bare 이름으로 폴백).
 - **RDP 비밀번호 누락 시 답할 수 없는 프롬프트 대신 명확한 에러로 실패** (#569, @biskasarchaniotakis 기여 감사). `rdp.password`와 `rdp.askpass`가 둘 다 미설정이면 xfreerdp가 GUI 실행에서 답할 수 없는 대화형 비밀번호 프롬프트로 빠져, 실행이 불투명한 `Inappropriate ioctl for device` / `ERRCONNECT_CONNECT_CANCELLED`로만 실패했습니다. 이제 `build_rdp_command`가 누락된 설정을 짚어 사전에 예외를 던집니다.
