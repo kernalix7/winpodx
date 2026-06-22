@@ -117,7 +117,8 @@ class LogsMixin:
 
         self._on_stop_tail()
         self._log_append(
-            f"$ podman logs -f --tail 50 {self.cfg.pod.container_name} (Stop tail to end)",
+            f"$ {self.cfg.pod.backend} logs -f --tail 50 "
+            f"{self.cfg.pod.container_name} (Stop tail to end)",
             C.BLUE,
         )
         try:
@@ -254,6 +255,37 @@ class LogsMixin:
 
         self._run_log_cmd(cmd)
 
+    def _backend_cli(self) -> str:
+        """Return the container CLI for the configured backend.
+
+        Honours ``cfg.pod.backend`` so the Docker backend's diagnostics
+        run ``docker ...`` rather than the old hardcoded ``podman ...``.
+        ``manual`` (or any unexpected value) falls back to ``podman`` —
+        matching the idiom in ``cli/disguise.py``; the container commands
+        are inert under the manual / raw-RDP backend anyway.
+        """
+        backend = self.cfg.pod.backend
+        return backend if backend in ("podman", "docker") else "podman"
+
+    def _diagnostic_commands(self) -> list[tuple[str, object]]:
+        """Build the (label, command) pairs for the Terminal-tab quick buttons.
+
+        Pure (no Qt) so the backend-routing can be unit-tested headlessly.
+        The container probes use :meth:`_backend_cli`; the non-command
+        entries (``"tail_app_log"`` / ``None``) are wired to handlers by
+        the caller.
+        """
+        container = self.cfg.pod.container_name
+        cli = self._backend_cli()
+        return [
+            ("Status", [cli, "ps", "-a", "--filter", f"name={container}"]),
+            ("Pod logs", [cli, "logs", "--tail", "100", container]),
+            ("App log", "tail_app_log"),
+            ("Inspect", [cli, "inspect", container]),
+            ("RDP Test", None),
+            ("Clear", None),
+        ]
+
     def _build_logs_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -317,21 +349,13 @@ class LogsMixin:
         # already stream into this terminal + the bottom log bar, so
         # those buttons would be redundant (and prone to fighting with
         # the always-on tails). What's left is one-shot diagnostics.
-        container = self.cfg.pod.container_name
         # Non-command tooltips for the buttons that don't shell out a list.
         special_tips = {
             "App log": tr("Show the tail of WinPodX's own log file"),
             "RDP Test": tr("Probe the RDP port (TCP handshake) for the configured guest"),
             "Clear": tr("Clear this terminal view"),
         }
-        quick = [
-            ("Status", ["podman", "ps", "-a", "--filter", f"name={container}"]),
-            ("Pod logs", ["podman", "logs", "--tail", "100", container]),
-            ("App log", "tail_app_log"),
-            ("Inspect", ["podman", "inspect", container]),
-            ("RDP Test", None),
-            ("Clear", None),
-        ]
+        quick = self._diagnostic_commands()
         for label, cmd in quick:
             btn = QPushButton(tr(label))
             btn.setStyleSheet(BTN_GHOST)
@@ -469,7 +493,7 @@ class LogsMixin:
         if getattr(self, "_tail_proc_raw", None) is not None:
             return  # already running
         self._log_append(
-            f"[RAW] $ podman logs -f --tail 20 {self.cfg.pod.container_name}",
+            f"[RAW] $ {self.cfg.pod.backend} logs -f --tail 20 {self.cfg.pod.container_name}",
             C.BLUE,
         )
         try:
