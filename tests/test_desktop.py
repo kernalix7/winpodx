@@ -25,6 +25,7 @@ def test_desktop_template():
     )
 
     content = DESKTOP_TEMPLATE.format(
+        winpodx_exe="winpodx",
         full_name=app.full_name,
         name=app.name,
         comment="Word processor",
@@ -144,6 +145,10 @@ def test_install_desktop_entry_utf8_korean(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+    # Pin the Exec prefix so the assertion is independent of whether winpodx is
+    # resolvable on the test runner's PATH (install_desktop_entry now embeds the
+    # absolute path from shutil.which).
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
 
     desktop_path = install_desktop_entry(app)
     assert desktop_path.exists()
@@ -183,6 +188,7 @@ def test_install_desktop_entry_strips_newlines_in_full_name(tmp_path, monkeypatc
         executable="C:\\word.exe",
     )
     monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
 
     desktop_path = install_desktop_entry(app)
     content = desktop_path.read_text(encoding="utf-8")
@@ -580,6 +586,7 @@ def test_install_desktop_entry_strips_newlines_in_description(tmp_path, monkeypa
     corrupt later .desktop keys (each key is line-terminated)."""
     monkeypatch.setattr("winpodx.desktop.entry.applications_dir", lambda: tmp_path)
     monkeypatch.setattr("winpodx.desktop.entry.icons_dir", lambda: tmp_path / "icons")
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
     app = AppInfo(
         name="messy",
         full_name="Messy App",
@@ -594,6 +601,34 @@ def test_install_desktop_entry_strips_newlines_in_description(tmp_path, monkeypa
     assert "\r" not in comment_line
     # Following keys (Exec, Icon, …) must still be intact.
     assert "Exec=winpodx app run messy %F" in raw
+
+
+def test_install_desktop_entry_uses_absolute_exec_path(tmp_path, monkeypatch):
+    # Desktop environments that launch apps as systemd transient units (e.g.
+    # Deepin's dde-application-manager) run with a stripped PATH that doesn't
+    # include ~/.local/bin, so a bare ``Exec=winpodx`` fails with
+    # "exec: winpodx: not found". install_desktop_entry must embed the absolute
+    # path resolved at install time.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: f"/home/u/.local/bin/{name}")
+
+    app = AppInfo(
+        name="notepad",
+        full_name="Notepad",
+        executable="C:\\notepad.exe",
+    )
+    desktop_path = install_desktop_entry(app)
+    content = desktop_path.read_text(encoding="utf-8")
+    assert "Exec=/home/u/.local/bin/winpodx app run notepad %F" in content
+
+
+def test_winpodx_exe_falls_back_to_bare_name(monkeypatch):
+    # shutil.which returns None when winpodx isn't on PATH (e.g. running from a
+    # checkout); the bare name keeps the .desktop entry valid for PATH-based
+    # launchers rather than emitting ``Exec=None``.
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda _name: None)
+    assert entry_mod._winpodx_exe() == "winpodx"
 
 
 if __name__ == "__main__":  # pragma: no cover
