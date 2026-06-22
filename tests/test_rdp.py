@@ -1023,3 +1023,78 @@ def test_launch_app_existing_session_without_file_does_not_call_open(monkeypatch
 
     assert result is live
     assert calls == []  # no spurious call
+
+
+def test_open_file_in_session_agent_success_skips_freerdp(monkeypatch):
+    # When the guest agent is reachable, the file is delivered over the fast
+    # HTTP channel and the slow FreeRDP fallback is never invoked.
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p: "\\\\tsclient\\home\\2.docx")
+
+    exec_calls: list[str] = []
+
+    class _Transport:
+        def exec(self, ps, timeout=None):
+            exec_calls.append(ps)
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg, prefer: _Transport())
+
+    rin_calls: list = []
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_in_windows",
+        lambda *a, **k: rin_calls.append(a),
+    )
+
+    rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/home/u/2.docx")
+
+    assert len(exec_calls) == 1
+    assert "\\\\tsclient\\home\\2.docx" in exec_calls[0]
+    assert rin_calls == [], "FreeRDP fallback must not run when the agent succeeds"
+
+
+def test_open_file_in_session_falls_back_to_freerdp_when_agent_unavailable(monkeypatch):
+    # The #569 cachyos bug: the agent /health times out. _open_file_in_session
+    # must then fall back to run_in_windows (FreeRDP RemoteApp) instead of
+    # silently dropping the file.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.transport.base import TransportUnavailable
+
+    monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p: "\\\\tsclient\\home\\2.docx")
+
+    def _raise_unavailable(cfg, prefer):
+        raise TransportUnavailable("agent /health timed out")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", _raise_unavailable)
+
+    rin_calls: list[str] = []
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_in_windows",
+        lambda cfg, ps, **k: rin_calls.append(ps),
+    )
+
+    rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/home/u/2.docx")
+
+    assert len(rin_calls) == 1, "FreeRDP fallback was not invoked"
+    assert "\\\\tsclient\\home\\2.docx" in rin_calls[0]
+
+
+def test_open_file_in_session_invalid_path_returns_early(monkeypatch):
+    # A path that can't be mapped to a UNC share (outside the redirected home)
+    # is logged and dropped -- neither transport is touched.
+    from winpodx.core import rdp as rdp_mod
+
+    def _raise_value(_p):
+        raise ValueError("not under the home share")
+
+    monkeypatch.setattr(rdp_mod, "linux_to_unc", _raise_value)
+
+    dispatched: list = []
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch",
+        lambda *a, **k: dispatched.append(a),
+    )
+
+    rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/etc/passwd")
+
+    assert dispatched == []
