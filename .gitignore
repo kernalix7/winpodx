@@ -6,6 +6,9 @@ dist/
 build/
 .eggs/
 *.egg
+# Stray PEP 517 build-backend wheels that a local `python -m build` / pip can
+# drop in the repo root (hatchling, build, pluggy, …). Never part of winpodx.
+/*.whl
 .venv/
 venv/
 

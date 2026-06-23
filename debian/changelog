@@ -1,3 +1,17 @@
+winpodx (0.7.4) unstable; urgency=medium
+
+  * Feature + bug-fix release: choose the VM storage location with
+    `install.sh --storage-dir` (#646) and install from a local Windows ISO
+    with `--win-iso` (#647), a 24 GB+ host now defaults the VM to 8 GB RAM
+    (#630); fixes opening a second document in an already-running app, "Open
+    with" on stripped-PATH desktops (Deepin), a clear error on a missing RDP
+    password + rejected `net user` rotation (#569), the `/kbd` extra flag, the
+    GUI Logs-tab buttons honouring the Docker backend, the `.deb` pulling in
+    `podman-compose` (#644), and the maintenance task dialog size (#550).
+    See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 23 Jun 2026 09:00:00 +0000
+
 winpodx (0.7.3) unstable; urgency=medium
 
   * Feature + bug-fix release: reverse-open now opens files on the Windows VM

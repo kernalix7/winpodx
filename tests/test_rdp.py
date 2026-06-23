@@ -1098,3 +1098,19 @@ def test_open_file_in_session_invalid_path_returns_early(monkeypatch):
     rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/etc/passwd")
 
     assert dispatched == []
+
+
+def test_redact_cmd_for_log_masks_password():
+    # The FreeRDP argv carries the Windows password as /p: (and gateway pw as
+    # /gp:); the launch log must not print either in cleartext.
+    from winpodx.core.rdp import _redact_cmd_for_log
+
+    out = _redact_cmd_for_log(
+        ["xfreerdp3", "/v:127.0.0.1:3390", "/u:User", "/p:s3cr3t", "/gp:gwpass", "/cert:ignore"]
+    )
+    assert "s3cr3t" not in out
+    assert "gwpass" not in out
+    assert "/p:***" in out
+    assert "/gp:***" in out
+    assert "/u:User" in out  # non-secret tokens are preserved
+    assert "/v:127.0.0.1:3390" in out

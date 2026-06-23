@@ -55,6 +55,9 @@
       <div class="label" data-i18n="gs.install.label">Any supported distro</div>
       <div class="code"><button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash">Copy</button><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</div>
     </div>
+    <div class="note" style="border-left-color:var(--blue)" data-i18n-html="gs.install.flags">
+      <b>Optional installer flags</b> (download <code>install.sh</code> and pass them, or run it locally): <code>--storage-dir &lt;path&gt;</code> puts the Windows VM disk on a roomier partition instead of <code>~/.local/share/winpodx/storage</code>, and <code>--win-iso &lt;path&gt;</code> installs from a Windows ISO you already have so it skips the ~5–8&nbsp;GB download. Both apply to fresh installs.
+    </div>
 
     <h2 class="subhead" data-i18n="gs.pkg.title">Or via a package manager</h2>
     <div class="dist">
@@ -119,11 +122,11 @@ winpodx pod wait-ready --logs    <span class="code-comment" data-i18n="gs.setup.
       </div>
       <div class="block">
         <h3 data-i18n="gs.req.mem.title">Memory &amp; disk</h3>
-        <p data-i18n="gs.req.mem.body">8 GB+ RAM (12 GB+ recommended) and ~30 GB free disk for the Windows image.</p>
+        <p data-i18n-html="gs.req.mem.body">8 GB+ host RAM (12 GB+ recommended) and ~30 GB free disk for the Windows image. Setup auto-sizes the VM's RAM to your host — a 24 GB+ host now gives the VM 8 GB by default; change it any time with <code>winpodx config set pod.ram_gb 8</code>.</p>
       </div>
       <div class="block">
         <h3 data-i18n="gs.req.rt.title">Container runtime + FreeRDP</h3>
-        <p data-i18n-html="gs.req.rt.body">A host container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> also supported) and FreeRDP 3+. <code>winpodx setup-host</code> fixes kvm-group + <code>/etc/subuid</code> / <code>subgid</code> via one <code>pkexec</code> prompt; <code>winpodx doctor</code> surfaces anything still missing.</p>
+        <p data-i18n-html="gs.req.rt.body">A host container runtime (<code>podman</code> ≥ 4 recommended; <code>docker</code> also supported), a compose provider (the <code>.deb</code> now pulls in <code>podman-compose</code>, and setup fails loudly with the package to install if none is found), and FreeRDP 3+. <code>winpodx setup-host</code> fixes kvm-group + <code>/etc/subuid</code> / <code>subgid</code> via one <code>pkexec</code> prompt; <code>winpodx doctor</code> surfaces anything still missing.</p>
       </div>
     </div>
     <p class="lead cta-lead">

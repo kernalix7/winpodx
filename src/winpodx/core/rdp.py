@@ -938,6 +938,22 @@ def _early_exit_stderr(session: RDPSession, *, settle: float = 0.5) -> str | Non
     return _read_stderr_log(session.stderr_log) or "(stderr log was empty)"
 
 
+def _redact_cmd_for_log(cmd: list[str]) -> str:
+    """Join the FreeRDP argv for logging with any password token masked.
+
+    xfreerdp takes the Windows password as ``/p:<pw>`` (and the gateway
+    password as ``/gp:<pw>``) on the command line; don't write those to the
+    log in cleartext.
+    """
+    out = []
+    for tok in cmd:
+        if tok.startswith(("/p:", "/gp:")):
+            out.append(f"{tok.split(':', 1)[0]}:***")
+        else:
+            out.append(tok)
+    return " ".join(out)
+
+
 def _spawn_detached(session: RDPSession, cmd: list[str]) -> RDPSession:
     """Acquire the PID lock and spawn a detached FreeRDP client for ``session``.
 
@@ -1171,7 +1187,7 @@ def launch_app(
     if is_remoteapp and cfg.pod.backend in ("podman", "docker"):
         _wait_session_interactive(cfg)
 
-    log.info("Launching RDP: %s", " ".join(cmd))
+    log.info("Launching RDP: %s", _redact_cmd_for_log(cmd))
 
     # Spawn detached + grab the PID lock. The reaper / UWP-relist threads start
     # only after the settle window below, so a failed spawn can be retried
@@ -1225,7 +1241,7 @@ def launch_app(
                 "retrying single-monitor. Set cfg.rdp.multimon='off' to skip "
                 "the span."
             )
-        log.info("Relaunching RDP: %s", " ".join(cmd))
+        log.info("Relaunching RDP: %s", _redact_cmd_for_log(cmd))
         session = _spawn_detached(RDPSession(app_name=app_name), cmd)
         if session.process is None:
             return session

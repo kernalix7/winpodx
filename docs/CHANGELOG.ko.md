@@ -9,22 +9,29 @@
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-06-23
+
 ### Added
 
 - **`install.sh --storage-dir <path>` (및 `winpodx setup --storage-path`)로 Windows VM 위치 선택** (#646, @realahmed7777 기여 감사). VM 디스크 + ISO를 `~/.local/share/winpodx/storage` 대신 더 넉넉한 파티션에 둡니다 — 디렉터리는 기본값과 동일한 처리로 생성(btrfs면 `chattr +C`로 raw 디스크 단편화 방지, 대상이 비회전 디스크면 SSD 에뮬레이션). 신규 설치 전용; 기존 설치 이전은 `winpodx setup --migrate-storage --migrate-storage-target` 유지.
 - **24GB+ 호스트의 신규 설치는 VM RAM 기본값이 6 대신 8GB** (#630, @ismikes 기여 감사). Windows 11은 8GB에서 눈에 띄게 부드럽고, ≥24GB 호스트는 이를 감당할 수 있습니다 — `winpodx setup`이 `pod.ram_gb`를 미리 채우는 auto-tier가 해당 호스트에서 mid 티어를 6→8GB로 올립니다(CPU 사이징 불변; ≥32GB/≥12스레드는 여전히 12GB high 티어). 기존 설치는 설정값 유지 — Settings 또는 `winpodx config set pod.ram_gb 8`로 언제든 변경.
-- **`install.sh --win-iso <path>`로 다운로드 대신 로컬 Windows ISO에서 설치** (#647, @ismikes 기여 감사). 이미 가진 Windows ISO 경로를 넘기면 storage 디렉터리에 dockur의 `custom.iso`로 스테이징돼 ~5-8 GB Microsoft 다운로드를 건너뜁니다 — 반복 purge/reinstall 사이클에 유용. 파일시스템이 지원하면(btrfs/xfs) reflink 복사라 추가 디스크 비용 없음. (직접 storage에 `custom.iso`를 둘 수도 있었지만, 이걸 플래그로 연결하고 `--help`에 문서화함.) 이미 가진 Windows ISO 경로를 넘기면 storage 디렉터리에 dockur의 `custom.iso`로 스테이징돼 ~5-8 GB Microsoft 다운로드를 건너뜁니다 — 반복 purge/reinstall 사이클에 유용. 파일시스템이 지원하면(btrfs/xfs) reflink 복사라 추가 디스크 비용 없음. (직접 storage에 `custom.iso`를 둘 수도 있었지만, 이걸 플래그로 연결하고 `--help`에 문서화함.)
+- **`install.sh --win-iso <path>`로 다운로드 대신 로컬 Windows ISO에서 설치** (#647, @ismikes 기여 감사). 이미 가진 Windows ISO 경로를 넘기면 storage 디렉터리에 dockur의 `custom.iso`로 스테이징돼 ~5-8 GB Microsoft 다운로드를 건너뜁니다 — 반복 purge/reinstall 사이클에 유용. 파일시스템이 지원하면(btrfs/xfs) reflink 복사라 추가 디스크 비용 없음. (직접 storage에 `custom.iso`를 둘 수도 있었지만, 이걸 플래그로 연결하고 `--help`에 문서화함.)
 
 ### Fixed
 
-- **Logs 탭의 Status / Pod logs / Inspect 버튼이 항상 `podman`을 실행하는 대신 선택된 컨테이너 백엔드를 사용함.** Docker 백엔드 설치에서 Terminal 탭 진단 버튼이 `pod.backend`와 무관하게 `podman ps` / `podman logs` / `podman inspect`를 실행해, podman이 활성 백엔드가 아닐 때 실패하거나 엉뚱한 런타임을 조회했습니다. 이제 `cfg.pod.backend`를 따릅니다 — Docker 선택 시 `docker`(`manual`은 `podman`으로 폴백하며, 거기선 컨테이너 명령이 무의미함). 화면의 pod 로그 tail `$ …` 에코도 하드코딩된 `podman` 대신 실제 백엔드를 출력하도록 수정.
-- **이미 실행 중인 Windows 앱에서 두 번째 문서를 여는 게 이제 동작함(조용히 무시되지 않음).** 앱이 이미 열려 있을 때(예: Word) 두 번째 파일을 그 앱으로 실행하면 — 두 번째 `gio launch`, 또는 우클릭 → *연결 프로그램* → 해당 앱 — 파일이 버려졌습니다: 라이브 세션은 재사용했지만 경로를 폐기했습니다. 이제 파일이 실행 중인 세션으로 전달됩니다 — `\\tsclient` UNC 경로로 매핑돼 `Start-Process`로 열리며, 게스트 에이전트로 보내되 에이전트가 닿지 않으면 FreeRDP RemoteApp으로 폴백합니다. Best-effort: 실패는 로그만 남기고 실행을 막지 않습니다.
-- **우클릭 → *연결 프로그램*으로 Windows 앱 실행이 PATH가 잘리는 데스크탑(예: Deepin)에서도 동작.** 생성된 `.desktop` 파일이 bare `Exec=winpodx …`를 써서, 데스크탑 환경이 런처를 `~/.local/bin`을 PATH에서 떨어뜨리는 systemd transient 유닛으로 실행하면(Deepin의 `dde-application-manager`) `exec: winpodx: not found`로 실패했습니다. 터미널에서 `gio launch`는 셸 PATH를 상속받아 동작했기에 버그가 가려졌습니다. 이제 엔트리가 설치 시점에 `shutil.which()`로 해석한 winpodx 절대 경로를 박아 넣습니다(해석 실패 시 bare 이름으로 폴백).
+- **Windows 비밀번호가 더 이상 로그에 평문으로 기록되지 않음.** "Launching RDP" / "Relaunching RDP" 로그 줄이 `/p:<password>`를 포함한 전체 `xfreerdp` argv를 출력했습니다. 이제 비밀번호 토큰(`/p:`, `/gp:`)을 로깅 전 `/p:***`로 마스킹합니다. (로컬 로그 한정; 기존 문제 — 0.7.4 보안 검토 중 강화.)
+- **Logs 탭의 Status / Pod logs / Inspect 버튼이 항상 `podman`을 실행하는 대신 선택된 컨테이너 백엔드를 사용함** (#658). Docker 백엔드 설치에서 Terminal 탭 진단 버튼이 `pod.backend`와 무관하게 `podman ps` / `podman logs` / `podman inspect`를 실행해, podman이 활성 백엔드가 아닐 때 실패하거나 엉뚱한 런타임을 조회했습니다. 이제 `cfg.pod.backend`를 따릅니다 — Docker 선택 시 `docker`(`manual`은 `podman`으로 폴백하며, 거기선 컨테이너 명령이 무의미함). 화면의 pod 로그 tail `$ …` 에코도 하드코딩된 `podman` 대신 실제 백엔드를 출력하도록 수정.
+- **이미 실행 중인 Windows 앱에서 두 번째 문서를 여는 게 이제 동작함(조용히 무시되지 않음)** (#657). 앱이 이미 열려 있을 때(예: Word) 두 번째 파일을 그 앱으로 실행하면 — 두 번째 `gio launch`, 또는 우클릭 → *연결 프로그램* → 해당 앱 — 파일이 버려졌습니다: 라이브 세션은 재사용했지만 경로를 폐기했습니다. 이제 파일이 실행 중인 세션으로 전달됩니다 — `\\tsclient` UNC 경로로 매핑돼 `Start-Process`로 열리며, 게스트 에이전트로 보내되 에이전트가 닿지 않으면 FreeRDP RemoteApp으로 폴백합니다. Best-effort: 실패는 로그만 남기고 실행을 막지 않습니다.
+- **우클릭 → *연결 프로그램*으로 Windows 앱 실행이 PATH가 잘리는 데스크탑(예: Deepin)에서도 동작** (#657). 생성된 `.desktop` 파일이 bare `Exec=winpodx …`를 써서, 데스크탑 환경이 런처를 `~/.local/bin`을 PATH에서 떨어뜨리는 systemd transient 유닛으로 실행하면(Deepin의 `dde-application-manager`) `exec: winpodx: not found`로 실패했습니다. 터미널에서 `gio launch`는 셸 PATH를 상속받아 동작했기에 버그가 가려졌습니다. 이제 엔트리가 설치 시점에 `shutil.which()`로 해석한 winpodx 절대 경로를 박아 넣습니다(해석 실패 시 bare 이름으로 폴백).
 - **RDP 비밀번호 누락 시 답할 수 없는 프롬프트 대신 명확한 에러로 실패** (#569, @biskasarchaniotakis 기여 감사). `rdp.password`와 `rdp.askpass`가 둘 다 미설정이면 xfreerdp가 GUI 실행에서 답할 수 없는 대화형 비밀번호 프롬프트로 빠져, 실행이 불투명한 `Inappropriate ioctl for device` / `ERRCONNECT_CONNECT_CANCELLED`로만 실패했습니다. 이제 `build_rdp_command`가 누락된 설정을 짚어 사전에 예외를 던집니다.
 - **비밀번호 로테이션이 거부된 `net user`를 성공으로 보고하지 않음** (#569). 게스트측 PowerShell이 `net user` 종료 코드와 무관하게 `password set`를 출력해서, 거부된 변경이 저장된 비밀번호와 실제 Windows 비밀번호를 어긋나게 둔 채 rc=0으로 보고됐습니다 — 이는 이후 RDP 인증 실패 / 앱이 안 열림으로 드러납니다. 이제 `$LASTEXITCODE`를 확인하고 실패 시 non-zero로 종료합니다.
-- **`/kbd`가 허용된 FreeRDP extra 플래그가 됨.** `rdp.extra_flags`로 키보드 레이아웃 오버라이드(예: `/kbd:layout:0x409`)를 넘겨 일부 레이아웃의 FreeRDP keycode 스캐닝 경고를 우회할 수 있습니다.
+- **`/kbd`가 허용된 FreeRDP extra 플래그가 됨** (#657). `rdp.extra_flags`로 키보드 레이아웃 오버라이드(예: `/kbd:layout:0x409`)를 넘겨 일부 레이아웃의 FreeRDP keycode 스캐닝 경고를 우회할 수 있습니다.
 - **Debian/Ubuntu `.deb`가 이제 `podman-compose`를 끌어오고, compose provider 누락 시 cryptic 대신 명확히 실패** (#644, @paolodongilli 기여 감사). Debian 13에서 `.deb`가 winpodx + podman은 깔아도 `podman-compose`는 안 깔아 `winpodx setup`이 컨테이너를 못 만들고 나중에 `no such container "winpodx-windows"`로 죽었습니다. 이제 `podman-compose`가 패키지 `Recommends`(apt 기본 설치)이고, setup 시점에 compose provider가 없으면 배포판별 설치 패키지명을 알려주는 실행가능 에러를 출력합니다(조용히 건너뛰지 않음). (`curl … install.sh` 경로는 이미 설치했음 — `.deb` 빈틈을 메움.)
 - **유지보수 작업 다이얼로그(Debloat, Grow Disk, Sync Guest 등)가 더 이상 비좁게 열리지 않음** (#550, @ismikes 기여 감사). `BusyDialog` 진행 창이 최소 너비 380px에 높이는 내용에 맞춰져 약 392×139로 떠 읽기에 너무 작았습니다(특히 Debloat *Speed* 실행). 480×168 하한 부여. (picker 창 크기와 빠른 작업 자동 닫힘은 0.7.2에서 이미 처리됨.)
+
+### Contributors
+
+코드 기여 @cxgreat2014 (PR #657, #658), 그리고 이번 릴리스를 이끈 리포트·제안에 감사드립니다 — @ismikes (#630, #550), @realahmed7777 (#646), @paolodongilli (#644), @biskasarchaniotakis (#569).
 
 ## [0.7.3] - 2026-06-20
 
