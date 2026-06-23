@@ -130,6 +130,23 @@ def test_agent_nonzero_rc_returns_false(_rotate_cfg, monkeypatch):
     rin.assert_not_called()
 
 
+def test_agent_payload_checks_lastexitcode(_rotate_cfg, monkeypatch):
+    """The PowerShell payload must exit with net user's rc, not just continue."""
+    from winpodx.core import rotation
+
+    transport = MagicMock()
+    transport.exec.return_value = _ok_result()
+    dispatch = MagicMock(return_value=transport)
+    monkeypatch.setattr("winpodx.core.transport.dispatch", dispatch)
+
+    rotation._change_windows_password(_rotate_cfg, "new-pw")
+
+    args, _ = transport.exec.call_args
+    payload = args[0]
+    assert "$LASTEXITCODE" in payload
+    assert "exit $LASTEXITCODE" in payload
+
+
 def test_freerdp_fallback_channel_failure_returns_false(_rotate_cfg, monkeypatch):
     from winpodx.core import rotation
     from winpodx.core.transport.base import TransportUnavailable

@@ -412,6 +412,19 @@ def build_rdp_command(
             "`winpodx config set rdp.user <name>`."
         )
 
+    # Same empty-credential guard for the password: without /p: or /from-stdin
+    # xfreerdp falls back to an interactive prompt and dies with the same
+    # "Inappropriate ioctl for device" / ERRCONNECT_CONNECT_CANCELLED under a
+    # GUI launch. Allow an empty password only when an askpass helper is
+    # configured to supply it at runtime.
+    if not (cfg.rdp.password or "").strip() and not (cfg.rdp.askpass or "").strip():
+        raise RuntimeError(
+            "Windows password is not configured (empty password) and no "
+            "askpass command is set. Set one with "
+            "`winpodx config set rdp.password <password>` or configure "
+            "`rdp.askpass` to retrieve it interactively."
+        )
+
     binary, variant = found
 
     # FreeRDP runs directly on the host. Rootless podman publishes the
@@ -736,6 +749,9 @@ _SIMPLE_VALUE_FLAGS: dict[str, re.Pattern[str]] = {
     "/sound": re.compile(r"[a-zA-Z0-9_-]{1,16}(:[a-zA-Z0-9_-]{1,16}){0,3}"),
     "/microphone": re.compile(r"[a-zA-Z0-9_-]{1,16}(:[a-zA-Z0-9_-]{1,16}){0,3}"),
     "/gfx": re.compile(r"[a-zA-Z0-9_,:+-]{1,64}"),
+    # /kbd layout/lang/sub-options; comma-joined combos like
+    # /kbd:layout:0x00020409,lang:0x00000413 or legacy /kbd:us.
+    "/kbd": re.compile(r"[a-zA-Z0-9_,:+-]{1,64}"),
     "/rfx": re.compile(r"[a-zA-Z0-9_-]{1,32}"),
     # Documented log levels only; rejects wildcard scopes like TRACE:FOO.
     "/log-level": re.compile(r"(OFF|FATAL|ERROR|WARN|INFO|DEBUG|TRACE)", re.IGNORECASE),
@@ -797,6 +813,48 @@ def _filter_extra_flags(flags_str: str) -> list[str]:
         else:
             log.warning("Blocked unsafe extra_flag: %s", part)
     return safe
+
+
+def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> None:
+    """Best-effort: open *file_path* in an already-running RemoteApp.
+
+    Used when a second ``gio launch`` for the same app arrives while a session is
+    already live.  Tries the guest agent first (fast, no visual artifacts); falls
+    back to ``run_in_windows`` (FreeRDP RemoteApp, ~5-10 s) when the agent is
+    unreachable.  Failures are logged but never raised — the caller still returns
+    the live session handle so the desktop entry succeeds.
+    """
+    try:
+        unc = linux_to_unc(file_path)
+    except (ValueError, RuntimeError) as exc:
+        log.debug("_open_file_in_session: cannot map %r to UNC: %s", file_path, exc)
+        return
+
+    safe_exe = app_executable.replace("'", "''")
+    safe_file = unc.replace("'", "''")
+    ps = f"Start-Process '{safe_exe}' -ArgumentList '\"{safe_file}\"'"
+
+    from winpodx.core.transport import dispatch
+    from winpodx.core.transport.base import TransportUnavailable
+
+    try:
+        transport = dispatch(cfg, prefer="agent")
+        transport.exec(ps, timeout=15)
+        log.info("_open_file_in_session: opened %r in existing session", file_path)
+        return
+    except TransportUnavailable:
+        log.debug("_open_file_in_session: agent unavailable, falling back to FreeRDP")
+    except Exception as exc:  # noqa: BLE001
+        log.debug("_open_file_in_session: agent dispatch failed: %s", exc)
+        return
+
+    try:
+        from winpodx.core.windows_exec import run_in_windows
+
+        run_in_windows(cfg, ps, description="open-file", timeout=30)
+        log.info("_open_file_in_session: opened %r via FreeRDP fallback", file_path)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("_open_file_in_session: FreeRDP fallback failed: %s", exc)
 
 
 def _find_existing_session(app_name: str) -> RDPSession | None:
@@ -1077,6 +1135,8 @@ def launch_app(
 
     existing = _find_existing_session(app_name)
     if existing is not None:
+        if file_path and app_executable:
+            _open_file_in_session(cfg, app_executable, file_path)
         return existing
 
     cmd, password = build_rdp_command(
