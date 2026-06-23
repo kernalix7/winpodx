@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **The reverse-open listener now self-heals on app launch instead of staying dead until the next `pod start`.** A `winpodx pod stop` / tray Quit stops the listener (`stop_listener()`); while the pod kept running, nothing re-spawned the watcher, so "Open with → a Linux app" from Windows silently did nothing. `ensure_ready` (every `winpodx app run` / GUI launch) now idempotently ensures the listener is up when `reverse_open` is enabled. Surfaced during the v0.7.4 smoke.
+
 ## [0.7.4] - 2026-06-23
 
 ### Added

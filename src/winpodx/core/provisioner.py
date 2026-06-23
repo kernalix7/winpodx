@@ -191,6 +191,17 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # explicitly. ``ensure_ready`` stays cheap and side-effect-free.
     _ensure_desktop_entries()
 
+    # Self-heal the reverse-open listener: a `pod stop` / tray Quit calls
+    # stop_listener(), so a pod-running-but-listener-dead state silently breaks
+    # "Open with → Linux app" until the next `pod start`. Launching any app
+    # now revives it. Best-effort + idempotent — never blocks the launch.
+    try:
+        from winpodx.cli.host_open import ensure_listener_running
+
+        ensure_listener_running(cfg)
+    except Exception as e:  # noqa: BLE001 — listener self-heal must never break a launch
+        log.debug("ensure_ready: reverse-open listener self-heal skipped: %s", e)
+
     return cfg
 
 

@@ -137,34 +137,17 @@ def _start(wait: bool, timeout: int, tuning_override: str | None = None) -> None
 
 
 def _maybe_start_reverse_open_listener(cfg) -> None:  # type: ignore[no-untyped-def]
-    if not getattr(cfg.reverse_open, "enabled", False):
-        return
     try:
-        from winpodx.cli.host_open import (
-            _apps_json,
-            _listener_config,
-            _seen_uuids_path,
-        )
-        from winpodx.reverse_open.lifecycle import (
-            ListenerStartFailed,
-            is_listener_running,
-            start_listener,
-        )
+        from winpodx.cli.host_open import ensure_listener_running
     except Exception:  # noqa: BLE001 — import surface should never break pod start
         return
-    if is_listener_running() is not None:
-        return
-    listener_cfg = _listener_config(cfg)
-    try:
-        listener_cfg.incoming_dir.mkdir(parents=True, exist_ok=True)
-        listener_cfg.incoming_dir.chmod(0o700)
-        pid = start_listener(listener_cfg, _apps_json(), _seen_uuids_path())
-        print(tr("  reverse-open listener: started (pid {pid})").format(pid=pid))
-    except (ListenerStartFailed, OSError) as exc:
-        print(
-            tr("  reverse-open listener: start failed ({error})").format(error=exc),
-            file=sys.stderr,
-        )
+    result = ensure_listener_running(cfg)
+    if result == "started":
+        from winpodx.reverse_open.lifecycle import is_listener_running
+
+        print(tr("  reverse-open listener: started (pid {pid})").format(pid=is_listener_running()))
+    elif result == "failed":
+        print(tr("  reverse-open listener: start failed (see log)"), file=sys.stderr)
 
 
 def _stop() -> None:

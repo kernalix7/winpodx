@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **reverse-open 리스너가 다음 `pod start`까지 죽어있지 않고 앱 실행 시 자가복구됨.** `winpodx pod stop` / 트레이 Quit이 리스너를 멈추는데(`stop_listener()`), pod는 계속 돌고 있으면 watcher를 다시 띄우는 게 없어 Windows의 "연결 프로그램 → Linux 앱"이 조용히 무반응이었습니다. 이제 `ensure_ready`(모든 `winpodx app run` / GUI 실행)가 `reverse_open` 활성 시 리스너를 idempotent하게 보장합니다. v0.7.4 스모크 중 발견.
+
 ## [0.7.4] - 2026-06-23
 
 ### Added

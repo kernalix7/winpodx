@@ -339,3 +339,62 @@ def test_refresh_signals_running_daemon(capsys: pytest.CaptureFixture[str]) -> N
     finally:
         cli_main(["host-open", "stop-listener"])
         capsys.readouterr()
+
+
+class TestEnsureListenerRunning:
+    """`ensure_listener_running` self-heal (0.7.5) — listener revived after a
+    pod stop / tray Quit stop_listener() while the pod keeps running."""
+
+    def test_disabled_when_feature_off(self):
+        from winpodx.cli.host_open import ensure_listener_running
+
+        cfg = Config()
+        cfg.reverse_open.enabled = False
+        assert ensure_listener_running(cfg) == "disabled"
+
+    def test_running_when_already_up(self, monkeypatch):
+        import winpodx.cli.host_open as ho
+
+        monkeypatch.setattr(ho, "is_listener_running", lambda *a, **k: 4321)
+        started = {"n": 0}
+        monkeypatch.setattr(ho, "start_listener", lambda *a, **k: started.__setitem__("n", 1))
+        cfg = Config()
+        cfg.reverse_open.enabled = True
+        assert ho.ensure_listener_running(cfg) == "running"
+        assert started["n"] == 0  # must NOT spawn a second listener
+
+    def test_started_when_down(self, monkeypatch, tmp_path):
+        import winpodx.cli.host_open as ho
+
+        monkeypatch.setattr(ho, "is_listener_running", lambda *a, **k: None)
+        monkeypatch.setattr(
+            ho, "_listener_config", lambda _cfg: type("LC", (), {"incoming_dir": tmp_path / "in"})()
+        )
+        monkeypatch.setattr(ho, "_apps_json", lambda: tmp_path / "apps.json")
+        monkeypatch.setattr(ho, "_seen_uuids_path", lambda: tmp_path / "seen")
+        spawned = []
+        monkeypatch.setattr(ho, "start_listener", lambda *a, **k: spawned.append(a) or 9999)
+        cfg = Config()
+        cfg.reverse_open.enabled = True
+        assert ho.ensure_listener_running(cfg) == "started"
+        assert len(spawned) == 1
+        assert (tmp_path / "in").is_dir()  # incoming dir created
+
+    def test_failed_when_start_raises(self, monkeypatch, tmp_path):
+        import winpodx.cli.host_open as ho
+        from winpodx.reverse_open.lifecycle import ListenerStartFailed
+
+        monkeypatch.setattr(ho, "is_listener_running", lambda *a, **k: None)
+        monkeypatch.setattr(
+            ho, "_listener_config", lambda _cfg: type("LC", (), {"incoming_dir": tmp_path / "in"})()
+        )
+        monkeypatch.setattr(ho, "_apps_json", lambda: tmp_path / "apps.json")
+        monkeypatch.setattr(ho, "_seen_uuids_path", lambda: tmp_path / "seen")
+
+        def _boom(*a, **k):
+            raise ListenerStartFailed("boom")
+
+        monkeypatch.setattr(ho, "start_listener", _boom)
+        cfg = Config()
+        cfg.reverse_open.enabled = True
+        assert ho.ensure_listener_running(cfg) == "failed"

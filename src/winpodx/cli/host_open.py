@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sys
 from dataclasses import asdict
@@ -54,6 +55,8 @@ from winpodx.reverse_open.lifecycle import (
 )
 from winpodx.reverse_open.listener import ListenerConfig
 from winpodx.utils.paths import data_dir
+
+log = logging.getLogger(__name__)
 
 _SLUG_VALIDATE = re.compile(r"^[a-z0-9-]+$")
 
@@ -130,6 +133,34 @@ def _listener_config(cfg: Config) -> ListenerConfig:
         # the listener can open guest-local files (#616, origin="guest").
         guest_mount=lambda: ensure_guest_mount(cfg),
     )
+
+
+def ensure_listener_running(cfg: Config) -> str:
+    """Self-heal: start the reverse-open listener if it should be up but isn't.
+
+    Idempotent. Used by ``pod start``, the app-launch path (``ensure_ready``),
+    and the CLI so the listener doesn't stay dead after a ``pod stop`` / tray
+    Quit ``stop_listener()`` while the pod keeps running (which silently breaks
+    "Open with → Linux app" until the next ``pod start``).
+
+    Quiet — logs only; returns ``"disabled"`` (feature off), ``"running"``
+    (already up), ``"started"`` (newly spawned), or ``"failed"`` so callers can
+    surface their own user-facing message off the return value.
+    """
+    if not getattr(cfg.reverse_open, "enabled", False):
+        return "disabled"
+    if is_listener_running() is not None:
+        return "running"
+    listener_cfg = _listener_config(cfg)
+    try:
+        listener_cfg.incoming_dir.mkdir(parents=True, exist_ok=True)
+        listener_cfg.incoming_dir.chmod(0o700)
+        pid = start_listener(listener_cfg, _apps_json(), _seen_uuids_path())
+        log.info("reverse-open listener self-healed: started (pid %s)", pid)
+        return "started"
+    except (ListenerStartFailed, OSError) as exc:
+        log.warning("reverse-open listener self-heal failed: %s", exc)
+        return "failed"
 
 
 def _filter_apps(apps: list[LinuxApp], cfg: Config) -> tuple[list[LinuxApp], list[tuple[str, str]]]:
