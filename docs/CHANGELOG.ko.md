@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **번들 rdprrap 0.1.3 → 0.3.0.** rdprrap(각 RemoteApp 창에 독립 세션을 주는 멀티세션 RDP wrapper)이 `termsrv.dll` 패치 지점을 **동적으로** 도출합니다 — 하드코딩된 struct 오프셋/레지스터/바이트 템플릿 대신 런타임에 각 타겟 함수를 디스어셈블해 패치 바이트를 인코딩. Windows 빌드별 `termsrv.dll` 구조 변화에도 멀티세션이 유지됩니다. OEM 버전 27 → 28이라 기존 설치는 다음 `winpodx guest sync` / `apply-fixes` 때 반영.
+
 ### Fixed
 
 - **reverse-open 리스너가 다음 `pod start`까지 죽어있지 않고 앱 실행 시 자가복구됨.** `winpodx pod stop` / 트레이 Quit이 리스너를 멈추는데(`stop_listener()`), pod는 계속 돌고 있으면 watcher를 다시 띄우는 게 없어 Windows의 "연결 프로그램 → Linux 앱"이 조용히 무반응이었습니다. 이제 `ensure_ready`(모든 `winpodx app run` / GUI 실행)가 `reverse_open` 활성 시 리스너를 idempotent하게 보장합니다. v0.7.4 스모크 중 발견.
