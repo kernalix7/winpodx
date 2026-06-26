@@ -476,6 +476,17 @@ def cli(argv: list[str] | None = None) -> None:
         ),
     )
     setup_p.add_argument(
+        "--win-iso",
+        metavar="PATH",
+        help=(
+            "Install from a local Windows ISO at PATH instead of downloading "
+            "from Microsoft (#647). Staged into the storage dir as dockur's "
+            "`custom.iso` BEFORE the container boots so dockur installs from "
+            "it. Reflink-copied where the filesystem supports it. Fresh "
+            "installs only (needs the bind-mount storage layout)."
+        ),
+    )
+    setup_p.add_argument(
         "--yes",
         "-y",
         action="store_true",
