@@ -1455,6 +1455,12 @@ else
         SETUP_ARGS+=(--storage-path "$WINPODX_STORAGE_DIR")
         log "Storage location: $WINPODX_STORAGE_DIR"
     fi
+    # #647: hand the local ISO to setup so it stages <storage>/custom.iso
+    # BEFORE compose-up (dockur needs it present when the container boots).
+    if [ -n "$WINPODX_WIN_ISO" ]; then
+        SETUP_ARGS+=(--win-iso "$WINPODX_WIN_ISO")
+        log "Local Windows ISO: $WINPODX_WIN_ISO"
+    fi
     # Persist the resolved FreeRDP source so the launcher honours it
     # (cfg.rdp.freerdp_source). Skip "auto" — that's the default.
     if [ -n "${WINPODX_FREERDP_SOURCE:-}" ] && [ "$WINPODX_FREERDP_SOURCE" != "auto" ]; then
@@ -1467,36 +1473,10 @@ else
     WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
 fi
 
-# --- Stage a user-provided Windows ISO (--win-iso, #647) ---
-# dockur installs from `<storage>/custom.iso` if present, skipping the
-# ~5-8 GB Microsoft download. Runs after setup (which has written the config
-# + storage_path) and before `winpodx provision` (which triggers the boot).
-# Reflink-copy where the filesystem supports it (btrfs/xfs → no extra space),
-# plain copy otherwise.
-if [ -n "$WINPODX_WIN_ISO" ] && [ -z "$WINPODX_MANUAL" ]; then
-    WIN_ISO_STORAGE="$("$VENV_PY" -c 'import os
-from winpodx.core.config import Config
-p = Config.load().pod.storage_path
-print(os.path.expanduser(p) if p else "")' 2>/dev/null)"
-    if [ -z "$WIN_ISO_STORAGE" ]; then
-        log "WARNING: --win-iso needs the bind-mount storage layout, but this install uses the legacy named volume."
-        log "         Run 'winpodx setup --migrate-storage' once, then re-run with --win-iso. Continuing with the normal download."
-    else
-        mkdir -p "$WIN_ISO_STORAGE"
-        WIN_ISO_DST="$WIN_ISO_STORAGE/custom.iso"
-        if [ "$WINPODX_WIN_ISO" -ef "$WIN_ISO_DST" ]; then
-            log "Local ISO already in place: $WIN_ISO_DST (skipping copy)"
-        else
-            log "Staging local ISO -> $WIN_ISO_DST (skipping Microsoft download)..."
-            if ! cp --reflink=auto "$WINPODX_WIN_ISO" "$WIN_ISO_DST" 2>/dev/null \
-                && ! cp "$WINPODX_WIN_ISO" "$WIN_ISO_DST"; then
-                err "Failed to stage --win-iso into $WIN_ISO_DST"
-                exit 1
-            fi
-            log "  Local ISO staged ($(du -h "$WIN_ISO_DST" 2>/dev/null | cut -f1)); dockur will install from it."
-        fi
-    fi
-fi
+# NOTE: --win-iso staging now happens INSIDE `winpodx setup` (passed via
+# SETUP_ARGS above), before compose-up, so dockur finds custom.iso when the
+# container boots (#647). It used to be staged here, after setup had already
+# started the container + dockur had begun downloading — too late.
 
 # --- Install winpodx GUI desktop entry & icon ---
 mkdir -p "$DESKTOP_DIR" "$ICON_DIR"

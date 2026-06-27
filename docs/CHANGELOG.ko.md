@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- **`--win-iso`가 이제 다운로드 대신 실제로 그 ISO에서 설치함** (#647, @ismikes 기여 감사). 로컬 ISO가 `winpodx setup`이 이미 `compose up`을 돌린 *뒤*에 `<storage>/custom.iso`로 스테이징돼서, 컨테이너가 이미 부팅되고 dockur가 Microsoft 다운로드를 시작한 다음에야 파일이 생겼습니다(dockur는 부팅 순간 `custom.iso`를 찾음). 이제 스테이징이 **`winpodx setup` 내부**에서 storage 경로 확정 후 **컨테이너 (재)생성 전**에 일어나, dockur가 ISO를 찾아 설치합니다. `winpodx setup --win-iso <path>`로도 노출.
 - **reverse-open 리스너가 다음 `pod start`까지 죽어있지 않고 앱 실행 시 자가복구됨.** `winpodx pod stop` / 트레이 Quit이 리스너를 멈추는데(`stop_listener()`), pod는 계속 돌고 있으면 watcher를 다시 띄우는 게 없어 Windows의 "연결 프로그램 → Linux 앱"이 조용히 무반응이었습니다. 이제 `ensure_ready`(모든 `winpodx app run` / GUI 실행)가 `reverse_open` 활성 시 리스너를 idempotent하게 보장합니다. v0.7.4 스모크 중 발견.
 
 ## [0.7.4] - 2026-06-23

@@ -485,3 +485,71 @@ class TestDecideStorageModeExplicitTarget:
         _decide_storage_mode(cfg, non_interactive=True, explicit_target=Path(tmp_path / "other"))
         # An already-configured install isn't relocated here (that's --migrate-storage).
         assert cfg.pod.storage_path == "/existing/storage"
+
+
+class TestStageWinIso:
+    """`_stage_win_iso` — #647: stage <storage>/custom.iso before compose-up."""
+
+    def _iso(self, tmp_path):
+        from pathlib import Path
+
+        p = Path(tmp_path) / "win.iso"
+        p.write_bytes(b"0" * 4096)
+        return p
+
+    def test_none_path_is_noop(self, tmp_path):
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.storage_path = str(tmp_path / "storage")
+        _stage_win_iso(cfg, None)
+        assert not (tmp_path / "storage" / "custom.iso").exists()
+
+    def test_stages_to_custom_iso(self, tmp_path):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        iso = self._iso(tmp_path)
+        cfg = Config()
+        cfg.pod.storage_path = str(tmp_path / "storage")
+        _stage_win_iso(cfg, str(iso))
+        dst = Path(tmp_path) / "storage" / "custom.iso"
+        assert dst.is_file()
+        assert dst.read_bytes() == iso.read_bytes()
+
+    def test_no_storage_path_skips(self, tmp_path):
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        iso = self._iso(tmp_path)
+        cfg = Config()
+        cfg.pod.storage_path = ""  # legacy named-volume → no host dir
+        _stage_win_iso(cfg, str(iso))  # must not raise
+        # nothing to assert beyond "no crash"; named-volume has no host dir
+
+    def test_missing_iso_skips(self, tmp_path):
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.storage_path = str(tmp_path / "storage")
+        _stage_win_iso(cfg, str(tmp_path / "nope.iso"))  # must not raise
+        assert not (tmp_path / "storage" / "custom.iso").exists()
+
+    def test_same_file_is_noop(self, tmp_path):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        storage = Path(tmp_path) / "storage"
+        storage.mkdir()
+        dst = storage / "custom.iso"
+        dst.write_bytes(b"0" * 4096)
+        cfg = Config()
+        cfg.pod.storage_path = str(storage)
+        _stage_win_iso(cfg, str(dst))  # src == dst → no error, no truncation
+        assert dst.read_bytes() == b"0" * 4096

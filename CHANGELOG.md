@@ -15,6 +15,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 
+- **`--win-iso` now actually installs from your ISO instead of downloading Windows anyway** (#647, thanks @ismikes). The local ISO was staged into `<storage>/custom.iso` *after* `winpodx setup` had already run `compose up` — so the container had booted and dockur had started its Microsoft download before the file existed (dockur looks for `custom.iso` the moment it boots). The staging now happens **inside `winpodx setup`**, after the storage path is resolved but **before the container is (re)created**, so dockur finds the ISO and installs from it. Also exposed as `winpodx setup --win-iso <path>`.
 - **The reverse-open listener now self-heals on app launch instead of staying dead until the next `pod start`.** A `winpodx pod stop` / tray Quit stops the listener (`stop_listener()`); while the pod kept running, nothing re-spawned the watcher, so "Open with → a Linux app" from Windows silently did nothing. `ensure_ready` (every `winpodx app run` / GUI launch) now idempotently ensures the listener is up when `reverse_open` is enabled. Surfaced during the v0.7.4 smoke.
 
 ## [0.7.4] - 2026-06-23

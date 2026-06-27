@@ -319,6 +319,53 @@ def _decide_storage_mode(
         print(tr("  Host storage is an SSD — the Windows disk will emulate SSD (TRIM, no defrag)."))
 
 
+def _stage_win_iso(cfg: Config, iso_path: str | None) -> None:
+    """Stage a user-provided Windows ISO as dockur's ``<storage>/custom.iso`` (#647).
+
+    MUST run after :func:`_decide_storage_mode` (so ``storage_path`` is
+    resolved) and BEFORE ``_recreate_container`` does ``compose up`` — dockur's
+    ``findFile()`` looks for ``custom.iso`` the moment the container boots, so
+    the ISO has to already be in place or dockur downloads Windows anyway
+    (the #647 bug: install.sh staged it *after* the container had started).
+
+    Reflink-copies where the filesystem supports it (btrfs/xfs → instant, no
+    extra space). No-op on the legacy named-volume layout (no host storage dir).
+    """
+    if not iso_path:
+        return
+    import shutil
+    import subprocess
+
+    src = Path(iso_path).expanduser()
+    if not src.is_file():
+        print(tr("--win-iso: no such file: {path}").format(path=src))
+        return
+    storage = (cfg.pod.storage_path or "").strip()
+    if not storage:
+        print(
+            tr(
+                "--win-iso: needs the bind-mount storage layout — the legacy named "
+                "volume has no host directory to stage into. Run "
+                "`winpodx setup --migrate-storage` first. Skipping (Windows will download)."
+            )
+        )
+        return
+    storage_dir = Path(storage).expanduser()
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    dst = storage_dir / "custom.iso"
+    if src.resolve() == dst.resolve():
+        print(tr("--win-iso: already staged at {dst}").format(dst=dst))
+        return
+    print(tr("Staging local ISO → {dst} (dockur installs from it; no download)…").format(dst=dst))
+    try:
+        # reflink where supported (btrfs/xfs); falls back to a full copy.
+        subprocess.run(["cp", "--reflink=auto", str(src), str(dst)], check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        shutil.copyfile(src, dst)
+    gib = dst.stat().st_size / (1024**3)
+    print(tr("  Local ISO staged ({gib:.1f} GB).").format(gib=gib))
+
+
 def _handle_migrate_storage(args: argparse.Namespace) -> int:
     """Move storage from the legacy ``winpodx-data`` named volume to a host
     bind mount, applying ``chattr +C`` automatically on btrfs.
@@ -887,6 +934,12 @@ def handle_setup(args: argparse.Namespace) -> None:
         _decide_storage_mode(
             cfg, non_interactive=non_interactive, explicit_target=_explicit_storage
         )
+
+        # Stage a user-provided ISO into <storage>/custom.iso BEFORE compose up
+        # so dockur picks it up instead of downloading Windows (#647). Must come
+        # after _decide_storage_mode (storage_path resolved) + before
+        # _recreate_container below.
+        _stage_win_iso(cfg, getattr(args, "win_iso", None))
 
         # #395: bail out with an actionable message if the selected backend's
         # daemon isn't reachable, rather than letting compose fail with a
