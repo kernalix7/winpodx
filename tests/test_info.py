@@ -76,7 +76,7 @@ def test_bundled_oem_version_matches_install_bat_marker(monkeypatch):
     Force the install.bat fallback by nulling the .txt stamp reader.
     """
     monkeypatch.setattr("winpodx.core.info._read_text_file", lambda *a, **k: None)
-    assert _bundled_oem_version() == "27"
+    assert _bundled_oem_version() == "28"
 
 
 def test_bundled_oem_version_falls_back_to_unknown(monkeypatch, tmp_path):
