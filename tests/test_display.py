@@ -29,3 +29,24 @@ def test_desktop_environment_gnome(monkeypatch):
 def test_desktop_environment_kde(monkeypatch):
     monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
     assert desktop_environment() == "kde"
+
+
+def test_qt_dpr_returns_none_off_main_thread():
+    # QGuiApplication.screens() is GUI-thread-only; calling it from a worker
+    # thread emits "setParent: ... different thread" and can SIGABRT the process
+    # (GUI InfoWorker running gather_info off-thread). The guard must short-
+    # circuit to None on any non-main thread so callers fall back to subprocess
+    # detection instead of touching Qt.
+    import threading
+
+    from winpodx.display.scaling import _qt_max_device_pixel_ratio
+
+    result: list[float | None] = []
+
+    def worker():
+        result.append(_qt_max_device_pixel_ratio())
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+    assert result == [None]

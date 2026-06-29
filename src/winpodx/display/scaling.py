@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 
 from winpodx.display.detector import desktop_environment
 
@@ -148,7 +149,20 @@ def _wayland_compositor_scale() -> float:
 
 
 def _qt_max_device_pixel_ratio() -> float | None:
-    """Return max devicePixelRatio across screens, or None if no live QGuiApplication."""
+    """Return max devicePixelRatio across screens, or None if no live QGuiApplication.
+
+    GUI-thread-only: ``QGuiApplication.screens()`` / ``QScreen`` belong to the
+    main GUI thread. Calling them from a worker thread — the GUI's InfoWorker
+    runs ``gather_info`` → ``_display_section`` → here off-thread, and likewise
+    other background probes — emits ``QObject::setParent: ... new parent is in a
+    different thread`` and can abort the whole process (SIGABRT
+    ``__cxa_pure_virtual`` during the worker QThread teardown). Off the main
+    thread we return None so the caller falls back to the subprocess / env
+    detection below — slightly less precise, but crash-free.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return None
+
     try:
         from PySide6.QtGui import QGuiApplication
     except ImportError:
