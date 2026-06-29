@@ -120,6 +120,38 @@ class WinpodxWindow(
         # app immediately rather than blocking on a network probe.
         QTimer.singleShot(800, self._maybe_run_first_launch_checks)
 
+    def closeEvent(self, event) -> None:  # noqa: N802 -- Qt override
+        """Join any in-flight worker threads before the window — and its
+        child QThread objects — are destroyed.
+
+        Both the "Refresh Apps" DiscoveryWorker thread (_main_window_apps.py)
+        and the Info-tab InfoWorker thread (_main_window_info.py) are created
+        as ``QThread(self)`` — children of this window. If the window is torn
+        down while one is still running, ``~QThread`` sees ``isRunning()`` and
+        aborts ("QThread: Destroyed while thread is still running"). These
+        threads have no other cancellation path, so we quit()+wait() them
+        here. ``wait()`` is unbounded on purpose: a bounded wait that timed
+        out would leave a running thread to be destroyed, re-introducing the
+        abort. Both workers' run() always return (each emits its terminal
+        signal from a try/except), so wait() is guaranteed to complete.
+        """
+        self._join_worker_threads()
+        super().closeEvent(event)
+
+    def _join_worker_threads(self) -> None:
+        for attr in ("_refresh_thread", "_info_thread"):
+            thread = getattr(self, attr, None)
+            if thread is None:
+                continue
+            try:
+                if thread.isRunning():
+                    thread.quit()
+                    thread.wait()
+            except RuntimeError:
+                # Underlying C++ QThread already deleted via deleteLater —
+                # the worker finished on its own; nothing to join.
+                pass
+
     def _setup_signals(self) -> None:
         self.pod_status_updated.connect(self._on_pod_status)
         self.transport_status_updated.connect(self._on_transport_status)

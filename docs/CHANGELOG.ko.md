@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- **GUI "Refresh Apps"가 완료 시점에 죽던(SIGSEGV) 문제 수정.** 디스커버리 워커(parent 없는 파이썬 소유 `QObject`)에 삭제 경로가 2개였습니다 — 워커 스레드의 `deleteLater` *와* 메인 스레드의 파이썬 ref-drop. Qt6는 워커의 `deleteLater` flush *전에* `QThread.finished`를 emit하므로, cleanup 슬롯이 그 삭제가 진행 중인데 마지막 파이썬 ref를 떨궈 워커를 스레드 간 double-free(`QObject::~QObject` 세그폴트)했습니다. 이제 삭제 경로가 정확히 하나(ref-drop, `thread.wait()`로 워커 스레드 종료 확인 후)이고, 시작 가드가 살아있는 스레드 ref에도 bail하며(빠른 재클릭이 끝나가는 워커를 떨구지 못하게), 윈도우 close 시 실행 중 워커 스레드를 join합니다.
 - **백그라운드 워커가 디스플레이 배율을 읽을 때 GUI가 죽던(SIGABRT) 문제 수정.** `QGuiApplication.screens()`는 GUI 메인 스레드 전용인데, 워커 스레드(Info 패널의 `gather_info` 등)에서 닿을 수 있어 `QObject::setParent: ... different thread` 경고를 쏟아내고 워커 스레드 종료 시 `__cxa_pure_virtual`로 앱 전체를 abort시켰습니다 — refresh 시 GUI가 죽는 증상으로 나타남. Qt 배율 프로브가 이제 메인 스레드가 아니면 `None`으로 단락되어 서브프로세스/환경변수 감지로 폴백합니다.
 - **`winpodx app refresh`가 이제 더 이상 검출 안 되는 앱을 추가만 하지 않고 제거도 함** (#581). 기존 refresh는 항상 *추가만* 해서, 사라진 검출 앱(Windows에서 언인스톨된 앱, 또는 새 시작메뉴-전용 기본값으로 빠진 모든 앱)이 수동 삭제 전까지 Linux 메뉴에 남았습니다. 이제 사라진 discovered 프로필(과 런처)을 prune해서 메뉴가 실제로 현재 집합으로 마이그레이션됩니다. 수동 추가 앱(`~/.local/share/winpodx/apps/`)은 절대 안 건드리고, 실패/빈 스캔은 메뉴를 비우지 않습니다.
 - **`--win-iso`가 이제 다운로드 대신 실제로 그 ISO에서 설치함** (#647, @ismikes 기여 감사). 로컬 ISO가 `winpodx setup`이 이미 `compose up`을 돌린 *뒤*에 `<storage>/custom.iso`로 스테이징돼서, 컨테이너가 이미 부팅되고 dockur가 Microsoft 다운로드를 시작한 다음에야 파일이 생겼습니다(dockur는 부팅 순간 `custom.iso`를 찾음). 이제 스테이징이 **`winpodx setup` 내부**에서 storage 경로 확정 후 **컨테이너 (재)생성 전**에 일어나, dockur가 ISO를 찾아 설치합니다. `winpodx setup --win-iso <path>`로도 노출.

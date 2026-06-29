@@ -177,7 +177,17 @@ class AppCrudMixin:
 
     def _on_refresh_apps(self) -> None:
         """Entry point for the "Refresh Apps" button; kicks off the QThread worker."""
-        if self._refresh_state == "scanning":
+        # Bail while a scan is in flight. We check BOTH the UI state and the
+        # live thread ref. The result slots flip the state back to "idle"
+        # (re-enabling the button) the same event-loop tick `thread.finished`
+        # fires, but the QThread/worker pair is not fully torn down until
+        # `_cleanup_refresh_worker` nulls `self._refresh_thread`. Without the
+        # ref check, a rapid re-click could overwrite self._refresh_thread /
+        # self._refresh_worker (below) and drop the last Python ref to a
+        # worker still finishing on its own thread — the cross-thread
+        # double-free this guard, with `_cleanup_refresh_worker`, exists to
+        # prevent.
+        if self._refresh_state == "scanning" or self._refresh_thread is not None:
             return
         self._set_refresh_state("scanning")
 
@@ -188,17 +198,21 @@ class AppCrudMixin:
         worker.succeeded.connect(self._on_refresh_succeeded)
         worker.failed.connect(self._on_refresh_failed)
         worker.finished.connect(thread.quit)
-        # v0.2.0.11: keep Qt's canonical cleanup chain (worker.deleteLater
-        # processed by the worker thread's event loop *before* it exits,
-        # then thread.deleteLater after the thread dies) BUT do not also
-        # null out `self._refresh_worker` from the success/failure slots.
-        # The previous code raced Python's ref drop with Qt's queued
-        # deleteLater event → QObject destructor ran on a half-freed
-        # pointer → Signal 11. Now Python refs are dropped only via
-        # `_cleanup_refresh_worker`, bound to `thread.finished` which
-        # fires after both worker and thread have been fully torn down
-        # by Qt.
-        worker.finished.connect(worker.deleteLater)
+        # DiscoveryWorker is a PARENTLESS, Python-owned QObject — shiboken
+        # keeps ownership and deleteLater() does NOT transfer it. So we must
+        # NOT post a worker.deleteLater here. Qt6's QThreadPrivate::finish()
+        # emits QThread::finished() *before* it flushes the worker's pending
+        # DeferredDelete on the worker thread; the queued
+        # _cleanup_refresh_worker (below) would then drop the last Python ref
+        # and let shiboken delete the C++ worker from the MAIN thread while
+        # the worker thread's in-flight DeferredDelete deletes it again ->
+        # SIGSEGV in ~QObject. This is the residual race v0.2.0.10/.11 chased:
+        # v0.2.0.10 nulled refs from the result slots (raced the deleteLater);
+        # v0.2.0.11 moved the null to thread.finished but left BOTH delete
+        # paths live. Fix: keep exactly ONE delete path — the Python ref drop
+        # in _cleanup_refresh_worker, which runs on the main thread, only
+        # once, and only after thread.wait() confirms the worker thread is
+        # dead (so nothing races the delete).
         thread.finished.connect(self._cleanup_refresh_worker)
         thread.finished.connect(thread.deleteLater)
         # Keep references so the QThread+QObject aren't garbage-collected mid-run.
@@ -235,14 +249,28 @@ class AppCrudMixin:
 
     @Slot()
     def _cleanup_refresh_worker(self) -> None:
-        """Drop Python refs to the worker + thread once Qt has finished
-        with them. Bound to ``thread.finished`` so it runs after the
-        worker's event loop has drained — racing the ref drop with Qt's
-        deleteLater is what crashed v0.2.0.10."""
-        # `worker.deleteLater()` is implicit — once we drop the last
-        # Python ref AND the thread is done, Qt collects the QObject on
-        # the next event-loop tick of its owning thread (which is now
-        # the main thread since the worker thread has exited).
+        """Drop the Python refs to the worker + thread after the worker
+        thread has fully exited.
+
+        Bound to ``thread.finished``, which Qt6 emits from
+        ``QThreadPrivate::finish()`` while the worker thread is still mid-
+        teardown. We ``wait()`` first so the worker thread is provably dead
+        before the last Python ref drops: DiscoveryWorker is a parentless,
+        Python-owned QObject with no deleteLater, so dropping
+        ``self._refresh_worker`` is what deletes the C++ object — and that
+        delete must happen on the main thread, exactly once, with the worker
+        thread joined so nothing races it. ``wait()`` returns near-instantly
+        because the thread is already finishing. This is the piece
+        v0.2.0.10/.11 missed: they moved the ref drop to thread.finished but
+        left it racing the worker's own deleteLater flush."""
+        thread = self._refresh_thread
+        if thread is not None:
+            try:
+                thread.wait()
+            except RuntimeError:
+                # C++ QThread already gone (the sibling thread.deleteLater
+                # won the race) — nothing left to join.
+                pass
         self._refresh_worker = None
         self._refresh_thread = None
 
