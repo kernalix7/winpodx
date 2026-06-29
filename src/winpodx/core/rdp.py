@@ -627,6 +627,14 @@ def build_rdp_command(
     if extra_args:
         cmd += _filter_extra_flags(extra_args)
 
+    # #660: auto-propagate cfg.pod.keyboard to FreeRDP as /kbd:layout, but only
+    # when the user hasn't already supplied a /kbd via extra_flags (their flag
+    # wins) and the locale maps to a non-default layout (see _auto_kbd_flag).
+    if not any(c.startswith("/kbd") for c in cmd):
+        kbd = _auto_kbd_flag(cfg)
+        if kbd:
+            cmd.append(kbd)
+
     return cmd, password
 
 
@@ -813,6 +821,103 @@ def _filter_extra_flags(flags_str: str) -> list[str]:
         else:
             log.warning("Blocked unsafe extra_flag: %s", part)
     return safe
+
+
+# #660: map the dockur-style ``cfg.pod.keyboard`` locale (the value that also
+# drives the guest install KEYBOARD env) to a Windows keyboard-layout ID so we
+# can hand FreeRDP a ``/kbd:layout:0x...`` flag. Keyed by lower-cased culture
+# name; the bare two-letter language is also accepted as a fallback for the
+# most common locales. KLIDs are the standard low-word == primary-LCID form.
+_KEYBOARD_LCID: dict[str, str] = {
+    "en-us": "00000409",
+    "en-gb": "00000809",
+    "de-de": "00000407",
+    "de": "00000407",
+    "de-ch": "00000807",
+    "fr-fr": "0000040c",
+    "fr": "0000040c",
+    "fr-ca": "00000c0c",
+    "fr-ch": "0000100c",
+    "es-es": "0000040a",
+    "es": "0000040a",
+    "es-mx": "0000080a",
+    "it-it": "00000410",
+    "it": "00000410",
+    "pt-br": "00000416",
+    "pt-pt": "00000816",
+    "pt": "00000816",
+    "nl-nl": "00000413",
+    "nl": "00000413",
+    "ru-ru": "00000419",
+    "ru": "00000419",
+    "ja-jp": "00000411",
+    "ja": "00000411",
+    "ko-kr": "00000412",
+    "ko": "00000412",
+    "zh-cn": "00000804",
+    "zh-tw": "00000404",
+    "pl-pl": "00000415",
+    "pl": "00000415",
+    "sv-se": "0000041d",
+    "sv": "0000041d",
+    "nb-no": "00000414",
+    "no": "00000414",
+    "da-dk": "00000406",
+    "da": "00000406",
+    "fi-fi": "0000040b",
+    "fi": "0000040b",
+    "cs-cz": "00000405",
+    "cs": "00000405",
+    "hu-hu": "0000040e",
+    "hu": "0000040e",
+    "tr-tr": "0000041f",
+    "tr": "0000041f",
+    "el-gr": "00000408",
+    "el": "00000408",
+    "he-il": "0000040d",
+    "he": "0000040d",
+    "ar-sa": "00000401",
+    "ar": "00000401",
+    "th-th": "0000041e",
+    "th": "0000041e",
+    "uk-ua": "00000422",
+    "uk": "00000422",
+    "ro-ro": "00000418",
+    "ro": "00000418",
+    "sk-sk": "0000041b",
+    "sk": "0000041b",
+    "bg-bg": "00000402",
+    "bg": "00000402",
+    "hr-hr": "0000041a",
+    "hr": "0000041a",
+    "sl-si": "00000424",
+    "sl": "00000424",
+    "et-ee": "00000425",
+    "et": "00000425",
+    "lv-lv": "00000426",
+    "lv": "00000426",
+    "lt-lt": "00000427",
+    "lt": "00000427",
+}
+
+
+def _auto_kbd_flag(cfg: Config) -> str | None:
+    """Derive a ``/kbd:layout:0x...`` flag from ``cfg.pod.keyboard`` (#660).
+
+    Returns ``None`` (no flag — FreeRDP keeps auto-detecting the host XKB
+    layout) when the value is unset, the ``en-US`` default, or unmapped. We
+    deliberately skip the default so users who never touched the setting but run
+    a non-US host keyboard are not silently forced onto the US layout.
+    """
+    raw = (getattr(cfg.pod, "keyboard", "") or "").strip()
+    if not raw or raw.lower() == "en-us":
+        return None
+    key = raw.lower()
+    lcid = _KEYBOARD_LCID.get(key) or _KEYBOARD_LCID.get(key.split("-")[0])
+    if not lcid:
+        log.debug("No FreeRDP /kbd mapping for keyboard=%r; leaving auto-detect", raw)
+        return None
+    return f"/kbd:layout:0x{lcid}"
 
 
 def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> None:

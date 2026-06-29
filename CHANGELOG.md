@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Your `[pod] keyboard` setting now drives the FreeRDP session keyboard layout** (#660). The locale you pick for the Windows install (e.g. `keyboard = "hu-HU"`) is now mapped to the matching Windows layout and passed to FreeRDP as `/kbd:layout:0x…`, so a non-US keyboard works in the RemoteApp window without hand-writing `rdp.extra_flags`. The default `en-US` is left untouched (FreeRDP keeps auto-detecting your host XKB layout, so users who never changed the setting aren't forced onto US), an explicit `/kbd` in `rdp.extra_flags` always wins, and an unmapped locale falls back to auto-detect. (Passing `/kbd` manually via `rdp.extra_flags` was already unblocked in 0.7.4.)
+
 ### Changed
 
 - **Bundled rdprrap bumped 0.1.3 → 0.3.0.** rdprrap (the multi-session RDP wrapper that lets each RemoteApp window get its own session) now derives its `termsrv.dll` patch sites **dynamically** — it disassembles each target function at runtime and encodes the patch bytes, instead of relying on hardcoded struct offsets / register choices / byte templates. This keeps multi-session working across Windows build-to-build `termsrv.dll` struct-layout shifts. OEM version 27 → 28, so existing installs pick it up on the next `winpodx guest sync` / `apply-fixes`.

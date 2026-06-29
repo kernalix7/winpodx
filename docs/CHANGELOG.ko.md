@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`[pod] keyboard` 설정이 이제 FreeRDP 세션 키보드 레이아웃에 반영됨** (#660). Windows 설치용으로 고른 로케일(예: `keyboard = "hu-HU"`)이 대응하는 Windows 레이아웃으로 매핑되어 FreeRDP에 `/kbd:layout:0x…`로 전달됩니다. 비-US 키보드가 `rdp.extra_flags`를 손으로 안 써도 RemoteApp 창에서 동작합니다. 기본값 `en-US`는 그대로 둬서(FreeRDP가 호스트 XKB 레이아웃 자동감지 유지 — 설정을 안 건드린 유저가 US로 강제되지 않음), `rdp.extra_flags`에 명시한 `/kbd`가 항상 우선하고, 매핑에 없는 로케일은 자동감지로 폴백합니다. (`rdp.extra_flags`로 `/kbd`를 직접 넘기는 건 0.7.4에서 이미 허용됨.)
+
 ### Changed
 
 - **번들 rdprrap 0.1.3 → 0.3.0.** rdprrap(각 RemoteApp 창에 독립 세션을 주는 멀티세션 RDP wrapper)이 `termsrv.dll` 패치 지점을 **동적으로** 도출합니다 — 하드코딩된 struct 오프셋/레지스터/바이트 템플릿 대신 런타임에 각 타겟 함수를 디스어셈블해 패치 바이트를 인코딩. Windows 빌드별 `termsrv.dll` 구조 변화에도 멀티세션이 유지됩니다. OEM 버전 27 → 28이라 기존 설치는 다음 `winpodx guest sync` / `apply-fixes` 때 반영.

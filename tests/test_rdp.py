@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from winpodx.core.config import Config
-from winpodx.core.rdp import build_rdp_command, linux_to_unc
+from winpodx.core.rdp import _auto_kbd_flag, build_rdp_command, linux_to_unc
 
 
 def test_linux_to_unc_home(monkeypatch, tmp_path):
@@ -1114,3 +1114,80 @@ def test_redact_cmd_for_log_masks_password():
     assert "/gp:***" in out
     assert "/u:User" in out  # non-secret tokens are preserved
     assert "/v:127.0.0.1:3390" in out
+
+
+# #660: cfg.pod.keyboard -> FreeRDP /kbd:layout propagation
+
+
+class TestKeyboardLayoutPropagation:
+    def test_auto_kbd_flag_default_en_us_is_none(self):
+        c = Config()
+        c.pod.keyboard = "en-US"
+        assert _auto_kbd_flag(c) is None
+
+    def test_auto_kbd_flag_empty_is_none(self):
+        c = Config()
+        c.pod.keyboard = ""
+        assert _auto_kbd_flag(c) is None
+
+    def test_auto_kbd_flag_full_culture(self):
+        c = Config()
+        c.pod.keyboard = "de-DE"
+        assert _auto_kbd_flag(c) == "/kbd:layout:0x00000407"
+
+    def test_auto_kbd_flag_bare_language_fallback(self):
+        c = Config()
+        c.pod.keyboard = "hu"
+        assert _auto_kbd_flag(c) == "/kbd:layout:0x0000040e"
+
+    def test_auto_kbd_flag_culture_prefix_fallback(self):
+        # Unknown region but known language prefix -> falls back to the language.
+        c = Config()
+        c.pod.keyboard = "fr-BE"
+        assert _auto_kbd_flag(c) == "/kbd:layout:0x0000040c"
+
+    def test_auto_kbd_flag_unmapped_is_none(self):
+        c = Config()
+        c.pod.keyboard = "xx-YY"
+        assert _auto_kbd_flag(c) is None
+
+    def _cfg(self):
+        c = Config()
+        c.rdp.ip = "127.0.0.1"
+        c.rdp.port = 3390
+        c.rdp.user = "TestUser"
+        c.rdp.password = "secret"
+        c.rdp.extra_flags = ""
+        c.pod.backend = "manual"
+        return c
+
+    def test_non_default_keyboard_appends_kbd(self, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg = self._cfg()
+        cfg.pod.keyboard = "hu-HU"
+        cmd, _ = build_rdp_command(cfg)
+        assert "/kbd:layout:0x0000040e" in cmd
+
+    def test_default_keyboard_does_not_append_kbd(self, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg = self._cfg()  # default en-US
+        cmd, _ = build_rdp_command(cfg)
+        assert not any(c.startswith("/kbd") for c in cmd)
+
+    def test_user_extra_flags_kbd_wins(self, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg = self._cfg()
+        cfg.pod.keyboard = "hu-HU"  # would auto-map to 0x040e
+        cfg.rdp.extra_flags = "/kbd:layout:0x00000409"  # user forces US
+        cmd, _ = build_rdp_command(cfg)
+        kbd_flags = [c for c in cmd if c.startswith("/kbd")]
+        assert kbd_flags == ["/kbd:layout:0x00000409"]  # only the user's, no auto
