@@ -12,6 +12,7 @@
 ### Added
 
 - **Windows 앱이 Linux 메뉴에서 시작 메뉴 폴더별로 그룹화됩니다** (#581, @Milliw 기여 감사). 각 앱이 속한 시작 메뉴 하위 폴더(예: `Microsoft Office\Tools`)를 "winpodx" 메뉴 폴더 아래 중첩 하위 그룹으로 미러 — Windows에서 보이는 그대로. KDE Plasma·XFCE·Cinnamon·MATE·LXQt에서 렌더(freedesktop `.menu` 메커니즘); GNOME은 앱이 보이긴 하나 그룹화 안 됨(오버뷰가 평면 그리드). 최상위 앱·폴더 없는 앱은 "winpodx" 바로 아래에 위치.
+- **`[pod] keyboard` 설정이 이제 FreeRDP 세션 키보드 레이아웃에 반영됨** (#660). Windows 설치용으로 고른 로케일(예: `keyboard = "hu-HU"`)이 대응하는 Windows 레이아웃으로 매핑되어 FreeRDP에 `/kbd:layout:0x…`로 전달됩니다. 비-US 키보드가 `rdp.extra_flags`를 손으로 안 써도 RemoteApp 창에서 동작합니다. 기본값 `en-US`는 그대로 둬서(FreeRDP가 호스트 XKB 레이아웃 자동감지 유지 — 설정을 안 건드린 유저가 US로 강제되지 않음), `rdp.extra_flags`에 명시한 `/kbd`가 항상 우선하고, 매핑에 없는 로케일은 자동감지로 폴백합니다. (`rdp.extra_flags`로 `/kbd`를 직접 넘기는 건 0.7.4에서 이미 허용됨.)
 
 ### Changed
 
