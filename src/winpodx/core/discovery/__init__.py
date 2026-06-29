@@ -1190,6 +1190,12 @@ def persist_discovered(
     # after the bug — users don't need a manual `rm -rf` step.
     _purge_reverse_open_entries(root)
 
+    # #581: whether the SCAN itself returned anything (captured before
+    # essentials are merged in). Gates the orphan-prune below so a failed /
+    # empty discovery — which would otherwise leave only synthesized essentials
+    # — can never wipe the existing menu.
+    had_real_apps = bool(apps)
+
     # Hybrid filter step — guarantee essentials are present (synthesizing
     # stubs when the scan missed them) before we touch disk. Tests can
     # opt out via ``add_essentials=False`` to keep their fixtures
@@ -1284,6 +1290,32 @@ def persist_discovered(
                     log.warning("Could not write icon for %s: %s", app.name, e)
 
         written.append(toml_path)
+
+    # #581: prune ORPHANED discovered entries — per-app dirs from a previous
+    # (larger) scan that this scan no longer produced. This is what makes a
+    # refresh MIGRATE the menu: when the Start-Menu-only default shrinks the set
+    # (or an app is uninstalled in the guest), the stale ``discovered/<slug>``
+    # dir is removed here, so list_available_apps() drops it and the downstream
+    # ``app refresh`` .desktop cleanup removes its launcher. Guards:
+    #   * only on ``replace`` (the full-replacement contract), and only when the
+    #     scan returned real apps (``had_real_apps``) — a failed/empty discovery
+    #     must never wipe the menu down to essentials.
+    #   * scoped to ``root`` (the discovered tree); user_apps_dir() is a separate
+    #     directory and is never enumerated here, so manually-added apps are
+    #     untouched.
+    # Suppressed slugs (#514) are already absent from ``seen`` and from disk, so
+    # they need no special handling.
+    if replace and had_real_apps:
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            if child.name in seen or not child.is_dir():
+                continue
+            if not _SAFE_NAME_RE.match(child.name):
+                continue
+            _safe_rmtree(child, root)
 
     return written
 

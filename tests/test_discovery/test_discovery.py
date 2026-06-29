@@ -1238,3 +1238,58 @@ def test_folder_round_trips_through_persist_and_load(tmp_path):
     loaded = load_app(tmp_path / "word")
     assert loaded is not None
     assert loaded.start_menu_folder == "Microsoft Office/Tools"
+
+
+# --- #581: refresh migration — orphan prune + user-dir preservation -------
+
+
+def test_persist_prunes_orphaned_discovered_entries(tmp_path):
+    # The migration: a later, smaller scan removes discovered dirs no longer
+    # present (the legacy full->Start-Menu shrink case).
+    big = [
+        DiscoveredApp(name=n, full_name=n, executable=f"C:\\{n}.exe")
+        for n in ("alpha", "beta", "gamma")
+    ]
+    persist_discovered(big, target_dir=tmp_path, add_essentials=False)
+    assert {p.name for p in tmp_path.iterdir()} == {"alpha", "beta", "gamma"}
+
+    persist_discovered(
+        [DiscoveredApp(name="alpha", full_name="alpha", executable="C:\\alpha.exe")],
+        target_dir=tmp_path,
+        add_essentials=False,
+    )
+    assert {p.name for p in tmp_path.iterdir()} == {"alpha"}
+
+
+def test_persist_empty_scan_does_not_prune(tmp_path):
+    # A failed/empty discovery must NOT wipe the existing menu down to nothing.
+    persist_discovered(
+        [DiscoveredApp(name="keep", full_name="keep", executable="C:\\k.exe")],
+        target_dir=tmp_path,
+        add_essentials=False,
+    )
+    persist_discovered([], target_dir=tmp_path, add_essentials=False)
+    assert (tmp_path / "keep").exists()
+
+
+def test_persist_does_not_touch_user_apps_dir(tmp_path, monkeypatch):
+    # A manually-added app (user_apps_dir) survives a discovery refresh that does
+    # not include it -- the prune is scoped to the discovered dir only.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from winpodx.core.app import discovered_apps_dir, user_apps_dir
+
+    user_app = user_apps_dir() / "myportable"
+    user_app.mkdir(parents=True)
+    (user_app / "app.toml").write_text(
+        'name = "myportable"\nfull_name = "My Portable"\nexecutable = "C:\\\\p.exe"\n',
+        encoding="utf-8",
+    )
+
+    # Discover a totally different set into the (separate) discovered dir.
+    persist_discovered(
+        [DiscoveredApp(name="discovered1", full_name="D1", executable="C:\\d.exe")],
+        target_dir=discovered_apps_dir(),
+        add_essentials=False,
+    )
+    assert user_app.exists()
+    assert (user_app / "app.toml").exists()
