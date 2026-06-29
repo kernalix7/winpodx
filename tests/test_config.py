@@ -96,6 +96,32 @@ def test_pod_config_devices_non_list_coerced():
     assert pc.devices == []
 
 
+def test_desktop_config_full_app_scan_defaults_false():
+    # #581: default is Start-Menu-only discovery; the legacy full 5-source scan
+    # is opt-in.
+    from winpodx.core.config import DesktopConfig
+
+    assert DesktopConfig().full_app_scan is False
+
+
+def test_desktop_config_full_app_scan_coerced():
+    from winpodx.core.config import DesktopConfig
+
+    assert DesktopConfig(full_app_scan="yes").full_app_scan is True  # type: ignore[arg-type]
+    assert DesktopConfig(full_app_scan=1).full_app_scan is True  # type: ignore[arg-type]
+    assert DesktopConfig(full_app_scan=0).full_app_scan is False  # type: ignore[arg-type]
+
+
+def test_desktop_config_full_app_scan_round_trips(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.desktop.full_app_scan = True
+    cfg.save()
+    assert Config.load().desktop.full_app_scan is True
+
+
 def test_pod_config_usb_live_defaults_true():
     # Core feature, default ON: binds the host USB bus so live attach works via
     # dockur's own monitor (no crashing custom QMP socket / cgroup rule).

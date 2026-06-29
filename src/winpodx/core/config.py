@@ -774,12 +774,22 @@ class DesktopConfig:
     ``.desktop`` ``MimeType=`` and refreshes the mime cache. It NEVER sets the
     app as the *default* handler (no ``xdg-mime default``) — it only adds it as
     an option. Turn it off to keep discovered apps out of "Open with".
+
+    ``full_app_scan`` (default OFF, #581) controls how broadly discovery scans
+    the guest. Default (False) is Start-Menu-only: discovery surfaces just the
+    apps the Windows Start Menu actually shows (Start Menu shortcuts +
+    Start-Menu-visible UWP + OS essentials), so the Linux menu isn't flooded
+    with uninstallers / helpers / background exes. Turn it ON to also scan the
+    registry App Paths, Chocolatey/Scoop shims, and every UWP package (the
+    legacy behaviour) — useful for portable apps that have no Start Menu entry.
     """
 
     mime_associations: bool = True
+    full_app_scan: bool = False
 
     def __post_init__(self) -> None:
         self.mime_associations = bool(self.mime_associations)
+        self.full_app_scan = bool(self.full_app_scan)
 
 
 @dataclass
@@ -930,6 +940,7 @@ class Config:
             },
             "desktop": {
                 "mime_associations": self.desktop.mime_associations,
+                "full_app_scan": self.desktop.full_app_scan,
             },
         }
 

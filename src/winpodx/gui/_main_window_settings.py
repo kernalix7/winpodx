@@ -736,6 +736,39 @@ class SettingsPageMixin:
         applies_layout.addWidget(self.checkbox_mime_assoc)
         applies_layout.addSpacing(SPACE_M)
 
+        # Full app scan toggle (#581, default OFF). Default discovery is
+        # Start-Menu-only -- only what the Windows Start Menu actually shows
+        # reaches the Linux menu. Turn this on to also scan registry App Paths,
+        # Chocolatey/Scoop shims and every UWP package (legacy behaviour), for
+        # portable apps with no Start Menu entry. Takes effect on next refresh.
+        self.checkbox_full_app_scan = QCheckBox(
+            tr("Discover all installed apps (not just Start Menu apps)")
+        )
+        try:
+            self.checkbox_full_app_scan.setChecked(_MimeCfg.load().desktop.full_app_scan)
+        except Exception:  # noqa: BLE001
+            self.checkbox_full_app_scan.setChecked(False)
+        self.checkbox_full_app_scan.setStyleSheet(CHECKBOX)
+        self.checkbox_full_app_scan.setToolTip(
+            tr(
+                "Off (default): only apps from the Windows Start Menu are added, "
+                "keeping the Linux menu clean. On: also scans App Paths, "
+                "Chocolatey/Scoop shims and all UWP packages. Applies on next refresh."
+            )
+        )
+
+        def _on_full_app_scan_toggled(checked: bool) -> None:
+            try:
+                cfg = _MimeCfg.load()
+                cfg.desktop.full_app_scan = bool(checked)
+                cfg.save()
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger(__name__).warning("Could not toggle full app scan: %s", e)
+
+        self.checkbox_full_app_scan.toggled.connect(_on_full_app_scan_toggled)
+        applies_layout.addWidget(self.checkbox_full_app_scan)
+        applies_layout.addSpacing(SPACE_M)
+
         # winpodx UI language (the tray / GUI / CLI text itself -- distinct
         # from the *guest* install language above). Default 'auto' follows
         # the host locale. Applied to new winpodx processes (a note tells the

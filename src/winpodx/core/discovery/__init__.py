@@ -672,6 +672,20 @@ def discover_apps(
             f"Cannot read discovery script {script}: {e}", kind="script_missing"
         ) from e
 
+    # #581: opt into the legacy full 5-source scan. The script defaults to
+    # Start-Menu-only; flip its `$WinpodxFullScan = $false` line to `= $true`
+    # when the user enabled desktop.full_app_scan. We patch the body (not a
+    # prepend / CLI arg) because the script is exec'd as a -Command body where
+    # `param` must remain the first statement and switch args can't be passed.
+    if getattr(cfg.desktop, "full_app_scan", False):
+        patched = script_body.replace("$WinpodxFullScan = $false", "$WinpodxFullScan = $true", 1)
+        if patched == script_body:
+            log.warning(
+                "full_app_scan enabled but discovery script sentinel not found; "
+                "falling back to default Start-Menu-only scan"
+            )
+        script_body = patched
+
     # Wait for at least one transport to answer before invoking the
     # script. Covers the install.sh race where migrate's apply chain
     # just cycled TermService (multi-session activation) and the

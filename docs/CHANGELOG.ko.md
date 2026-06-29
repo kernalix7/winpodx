@@ -11,6 +11,7 @@
 
 ### Changed
 
+- **앱 검출이 기본적으로 Windows 시작 메뉴에 실제로 뜨는 앱만 노출합니다** (#581, @Milliw 기여 감사). 기존에는 등록된 모든 실행 파일(레지스트리 App Paths, Chocolatey/Scoop shim, 모든 UWP 패키지)을 긁어 Linux 메뉴에 쏟아부어 언인스톨러·헬퍼·백그라운드 프로세스로 범람했습니다. 이제 기본값은 시작 메뉴 전용입니다: 시작 메뉴 바로가기 + 시작 메뉴에 보이는 UWP 앱(`Get-StartApps`와 교차) + OS 필수앱(파일 탐색기/계산기/설정). 옛 동작은 **`winpodx config set desktop.full_app_scan true`** 또는 설정 → "설치된 모든 앱 검출(시작 메뉴 외 포함)" 체크박스로 되돌립니다 — 시작 메뉴 항목이 없는 포터블 앱에 유용. 다음 `winpodx app refresh`부터 적용.
 - **번들 rdprrap 0.1.3 → 0.3.0.** rdprrap(각 RemoteApp 창에 독립 세션을 주는 멀티세션 RDP wrapper)이 `termsrv.dll` 패치 지점을 **동적으로** 도출합니다 — 하드코딩된 struct 오프셋/레지스터/바이트 템플릿 대신 런타임에 각 타겟 함수를 디스어셈블해 패치 바이트를 인코딩. Windows 빌드별 `termsrv.dll` 구조 변화에도 멀티세션이 유지됩니다. OEM 버전 27 → 28이라 기존 설치는 다음 `winpodx guest sync` / `apply-fixes` 때 반영.
 
 ### Fixed

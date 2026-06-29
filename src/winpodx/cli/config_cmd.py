@@ -108,6 +108,11 @@ def _show() -> None:
             v=cfg.desktop.mime_associations
         )
     )
+    print(
+        tr("  full_app_scan     = {v}  (off = Start Menu apps only)").format(
+            v=cfg.desktop.full_app_scan
+        )
+    )
 
     warning = check_session_budget(cfg)
     if warning:

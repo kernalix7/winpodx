@@ -1,14 +1,23 @@
 # SPDX-License-Identifier: MIT
 # discover_apps.ps1 -- enumerate installed Windows apps and emit JSON on stdout
 #
-# Consumed by winpodx.core.discovery. Four sources are scanned inside the
-# running guest and unioned, deduping by lowercase executable path or UWP
+# Consumed by winpodx.core.discovery. Up to five sources are scanned inside
+# the running guest and unioned, deduping by lowercase executable path or UWP
 # AUMID:
 #
-#   1. Registry App Paths (HKLM + HKCU)
+#   1. Registry App Paths (HKLM + HKCU)        [full-scan only]
 #   2. Start Menu .lnk recursion (ProgramData + every user profile)
 #   3. UWP / MSIX packages via Get-AppxPackage + AppxManifest.xml
-#   4. Chocolatey + Scoop shims
+#      (default: only those whose AUMID is in the Start Menu / Get-StartApps)
+#   4. Chocolatey + Scoop shims                [full-scan only]
+#   5. Essentials (File Explorer / Calculator / Settings) -- always emitted
+#
+# DEFAULT (Start-Menu-only, #581): only what the Windows Start Menu actually
+# shows reaches the Linux menu -- Source 2 (.lnk), Start-Menu-visible UWP, and
+# the essentials. App Paths + choco/scoop shims (the sources that flooded the
+# menu with uninstallers / helpers / background exes) are SKIPPED. Set
+# ``desktop.full_app_scan = true`` (host prepends the opt-in, see below) or
+# pass ``-FullScan`` (file/CLI use) to restore the legacy 5-source union.
 #
 # Output schema per entry (JSON array on stdout):
 #
@@ -35,8 +44,18 @@
 
 [CmdletBinding()]
 param(
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$FullScan
 )
+
+# #581: scan mode. DEFAULT is Start-Menu-only (App Paths + choco/scoop shims
+# skipped; UWP intersected with the Start Menu set). For
+# ``desktop.full_app_scan = true`` the host flips the assignment below to true
+# BEFORE exec (it can't prepend -- ``param`` must stay the first statement; it
+# does a one-shot literal swap of the line `<var> = $false`). The ``-FullScan``
+# switch forces it for direct file / CLI runs.
+$WinpodxFullScan = $false
+if ($FullScan.IsPresent) { $WinpodxFullScan = $true }
 
 $ErrorActionPreference = 'Continue'
 
@@ -432,8 +451,11 @@ if (-not (Get-Command 'Write-WinpodxProgress' -ErrorAction SilentlyContinue)) {
     function Write-WinpodxProgress($msg) { }
 }
 
-# --- Source 1: Registry App Paths ------------------------------------------
+# --- Source 1: Registry App Paths --------------------------- [full-scan only]
+# Skipped by default (#581): App Paths lists every registered exe (helpers,
+# CLI tools, background processes) -- not what the Start Menu shows.
 
+if ($WinpodxFullScan) {
 Write-WinpodxProgress 'Scanning Registry App Paths...'
 foreach ($hive in 'HKLM:', 'HKCU:') {
     $root = Join-Path $hive 'Software\Microsoft\Windows\CurrentVersion\App Paths'
@@ -462,6 +484,7 @@ foreach ($hive in 'HKLM:', 'HKCU:') {
         }
     } catch { }
 }
+}  # end if ($WinpodxFullScan) -- Source 1
 
 # --- Source 2: Start Menu .lnk files ---------------------------------------
 
@@ -562,6 +585,16 @@ try {
                     # `shell:AppsFolder\` itself; duplicating the prefix
                     # here would produce `shell:AppsFolder\shell:AppsFolder\...`.
                     $aumid = "$($pkg.PackageFamilyName)!$appId"
+
+                    # #581: in the default Start-Menu-only mode, keep only UWP
+                    # apps the Start Menu actually shows (AUMID in Get-StartApps).
+                    # Drops background/headless packages. Fall back to emitting
+                    # all when Get-StartApps came back empty (non-interactive
+                    # session) so we never hide every UWP app.
+                    if (-not $WinpodxFullScan -and $startAppNames.Count -gt 0 `
+                        -and -not $startAppNames.ContainsKey($aumid)) {
+                        continue
+                    }
 
                     $ve = $null
                     foreach ($probe in 'VisualElements', 'uap:VisualElements') {
@@ -671,8 +704,10 @@ try {
     }
 } catch { }
 
-# --- Source 4: Chocolatey + Scoop shims ------------------------------------
+# --- Source 4: Chocolatey + Scoop shims --------------------- [full-scan only]
+# Skipped by default (#581): shims are CLI tools, rarely Start Menu apps.
 
+if ($WinpodxFullScan) {
 Write-WinpodxProgress 'Scanning Chocolatey + Scoop shims...'
 $shimDirs = @()
 if ($env:ProgramData) {
@@ -709,6 +744,7 @@ foreach ($d in $shimDirs) {
         }
     } catch { }
 }
+}  # end if ($WinpodxFullScan) -- Source 4
 
 # --- Source 5: Essentials (always emit) ------------------------------------
 #

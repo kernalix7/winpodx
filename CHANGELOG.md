@@ -11,6 +11,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Changed
 
+- **App discovery now surfaces only the apps your Windows Start Menu actually shows, by default** (#581, thanks @Milliw). Previously every registered executable was scanned (registry App Paths, Chocolatey/Scoop shims, every UWP package) and dumped into the Linux menu, flooding it with uninstallers, helpers, and background processes. Discovery now defaults to Start-Menu-only: Start Menu shortcuts, Start-Menu-visible UWP apps (intersected with `Get-StartApps`), and the OS essentials (File Explorer / Calculator / Settings). Turn the old behaviour back on with **`winpodx config set desktop.full_app_scan true`** or the Settings → "Discover all installed apps (not just Start Menu apps)" checkbox — useful for portable apps that have no Start Menu entry. Takes effect on the next `winpodx app refresh`.
 - **Bundled rdprrap bumped 0.1.3 → 0.3.0.** rdprrap (the multi-session RDP wrapper that lets each RemoteApp window get its own session) now derives its `termsrv.dll` patch sites **dynamically** — it disassembles each target function at runtime and encodes the patch bytes, instead of relying on hardcoded struct offsets / register choices / byte templates. This keeps multi-session working across Windows build-to-build `termsrv.dll` struct-layout shifts. OEM version 27 → 28, so existing installs pick it up on the next `winpodx guest sync` / `apply-fixes`.
 
 ### Fixed

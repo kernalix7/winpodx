@@ -828,6 +828,50 @@ def test_discover_happy_path_roundtrip(tmp_path, monkeypatch):
     assert "# stub" in captured["payload"]
 
 
+# --- #581: full_app_scan host-side script patch ----------------------------
+
+_FULLSCAN_SENTINEL_SCRIPT = "param([switch]$FullScan)\n$WinpodxFullScan = $false\n# body"
+
+
+def test_full_app_scan_off_leaves_startmenu_default(tmp_path, monkeypatch):
+    """Default (full_app_scan False): the script body reaches the guest with
+    its Start-Menu-only sentinel untouched."""
+    cfg = _make_cfg(backend="podman")
+    cfg.desktop.full_app_scan = False
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text(_FULLSCAN_SENTINEL_SCRIPT)
+
+    captured = _stub_run_in_windows(monkeypatch, rc=0, stdout="[]")
+    with (
+        patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
+        patch("winpodx.core.discovery._ps_script_path", return_value=script),
+    ):
+        discover_apps(cfg)
+
+    assert "$WinpodxFullScan = $false" in captured["payload"]
+    assert "$WinpodxFullScan = $true" not in captured["payload"]
+
+
+def test_full_app_scan_on_patches_sentinel_to_true(tmp_path, monkeypatch):
+    """Opt-in (full_app_scan True): the host flips the sentinel so the guest
+    runs the legacy 5-source scan."""
+    cfg = _make_cfg(backend="podman")
+    cfg.desktop.full_app_scan = True
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text(_FULLSCAN_SENTINEL_SCRIPT)
+
+    captured = _stub_run_in_windows(monkeypatch, rc=0, stdout="[]")
+    with (
+        patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
+        patch("winpodx.core.discovery._ps_script_path", return_value=script),
+    ):
+        discover_apps(cfg)
+
+    assert "$WinpodxFullScan = $true" in captured["payload"]
+    # Only the assignment flips; the param switch default stays intact.
+    assert "$WinpodxFullScan = $false" not in captured["payload"]
+
+
 def test_discover_nonzero_exit_raises(tmp_path, monkeypatch):
     cfg = _make_cfg(backend="podman")
     script = tmp_path / "discover_apps.ps1"
