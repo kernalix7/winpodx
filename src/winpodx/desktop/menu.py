@@ -125,7 +125,9 @@ def _read_app_folders() -> list[str]:
                     break
         except OSError:
             continue
-    return folders
+    # Sorted so a slug-collision merge (distinct display names → same slug) keeps
+    # a deterministic label across rebuilds (glob order is arbitrary otherwise).
+    return sorted(folders)
 
 
 def _build_tree(folders: list[str]) -> dict:
@@ -148,7 +150,7 @@ def _render_menu_nodes(tree: dict, indent: str) -> str:
         cat = f"{MENU_CATEGORY}-{cum_slug}"
         out += f"{indent}<Menu>\n"
         out += f"{indent}  <Name>{_xml_escape(cum_slug)}</Name>\n"
-        out += f"{indent}  <Directory>winpodx-{cum_slug}.directory</Directory>\n"
+        out += f"{indent}  <Directory>winpodx-folder-{cum_slug}.directory</Directory>\n"
         out += f"{indent}  <Include><Category>{_xml_escape(cat)}</Category></Include>\n"
         out += _render_menu_nodes(node["children"], indent + "  ")
         out += f"{indent}</Menu>\n"
@@ -204,10 +206,12 @@ def install_menu_folder() -> None:
     dir_dir.mkdir(parents=True, exist_ok=True)
     (dir_dir / _DIRECTORY_FILENAME).write_text(_ROOT_DIRECTORY_CONTENT, encoding="utf-8")
 
-    # Per-folder .directory files for the current tree.
+    # Per-folder .directory files for the current tree. The "folder-" namespace
+    # keeps them out of the root's name space so a Start Menu folder named
+    # exactly "Windows" (slug "windows") can't clobber winpodx-windows.directory.
     wanted = {_DIRECTORY_FILENAME}
     for cum_slug, display in _flatten(tree):
-        fname = f"winpodx-{cum_slug}.directory"
+        fname = f"winpodx-folder-{cum_slug}.directory"
         wanted.add(fname)
         (dir_dir / fname).write_text(_directory_content(display), encoding="utf-8")
 

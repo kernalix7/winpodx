@@ -766,8 +766,10 @@ def test_nested_menu_tree_and_directory_files(tmp_path, monkeypatch):
     assert office_idx < tools_idx  # parent declared before child
 
     dirs = tmp_path / "desktop-directories"
-    assert (dirs / "winpodx-microsoft-office.directory").exists()
-    tools_dir = (dirs / "winpodx-microsoft-office-tools.directory").read_text(encoding="utf-8")
+    assert (dirs / "winpodx-folder-microsoft-office.directory").exists()
+    tools_dir = (dirs / "winpodx-folder-microsoft-office-tools.directory").read_text(
+        encoding="utf-8"
+    )
     assert "Name=Tools" in tools_dir  # display name = leaf component, not slug
 
 
@@ -789,7 +791,7 @@ def test_ampersand_folder_does_not_break_menu_xml(tmp_path, monkeypatch):
     assert "Games & Stuff" not in frag  # raw & never enters the XML
     assert "<Category>X-winpodx-games-stuff</Category>" in frag
     dirs = tmp_path / "desktop-directories"
-    disp = (dirs / "winpodx-games-stuff.directory").read_text(encoding="utf-8")
+    disp = (dirs / "winpodx-folder-games-stuff.directory").read_text(encoding="utf-8")
     assert "Name=Games & Stuff" in disp  # literal in the Desktop Entry .directory
 
 
@@ -808,7 +810,7 @@ def test_emptied_subfolder_directory_is_pruned(tmp_path, monkeypatch):
         )
     )
     dirs = tmp_path / "desktop-directories"
-    office_dir = dirs / "winpodx-microsoft-office.directory"
+    office_dir = dirs / "winpodx-folder-microsoft-office.directory"
     assert office_dir.exists()
 
     # Removing the only app in "Microsoft Office" prunes its .directory while the
@@ -816,3 +818,26 @@ def test_emptied_subfolder_directory_is_pruned(tmp_path, monkeypatch):
     remove_desktop_entry("word")
     assert not office_dir.exists()
     assert (dirs / "winpodx-windows.directory").exists()
+
+
+def test_top_level_windows_folder_does_not_clobber_root(tmp_path, monkeypatch):
+    # A Start Menu folder named exactly "Windows" slugs to "windows"; its
+    # per-folder .directory must be namespaced (winpodx-folder-windows...) so it
+    # can't overwrite the root winpodx-windows.directory label/icon.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    install_desktop_entry(
+        AppInfo(
+            name="wt",
+            full_name="Windows Terminal",
+            executable="C:\\wt.exe",
+            start_menu_folder="Windows",
+        )
+    )
+    dirs = tmp_path / "desktop-directories"
+    root = (dirs / "winpodx-windows.directory").read_text(encoding="utf-8")
+    assert "Name=WinPodX (Windows Apps)" in root
+    assert "Icon=winpodx" in root
+    # The "Windows" subfolder lives under the namespaced name with its own label.
+    sub = (dirs / "winpodx-folder-windows.directory").read_text(encoding="utf-8")
+    assert "Name=Windows" in sub
