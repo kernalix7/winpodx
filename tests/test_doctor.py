@@ -464,6 +464,11 @@ def _all_ok_legacy(monkeypatch):
     monkeypatch.setattr(doctor, "_check_freerdp", lambda: Finding("ok", "frdp"))
     monkeypatch.setattr(doctor, "_check_kvm", lambda: Finding("ok", "kvm"))
     monkeypatch.setattr(doctor, "_check_container_backend", lambda: [Finding("ok", "be")])
+    # Stub the rootless subuid/subgid probe so the "all OK" path is independent
+    # of host /etc/subuid state. Hermetic build sandboxes (e.g. nix, #659) have
+    # no UID/GID mappings, so the real probe returns FAIL there -> handle_doctor
+    # sys.exit(1) -> these tests spuriously error and block the build.
+    monkeypatch.setattr(doctor, "_check_rootless_subid", lambda: Finding("ok", "subid"))
     monkeypatch.setattr(doctor, "_check_config_state", lambda: Finding("ok", "cfg"))
     monkeypatch.setattr(doctor, "_check_pending_setup", lambda: Finding("ok", "pending"))
     monkeypatch.setattr(doctor, "_check_autostart_entry", lambda: Finding("ok", "auto"))
