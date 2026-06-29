@@ -34,7 +34,9 @@ from winpodx.core.discovery import (
     _is_junk_entry,
     _parse_discovery_output,
     _purge_reverse_open_entries,
+    _render_app_toml,
     _safe_rmtree,
+    _sanitize_start_menu_folder,
     _slugify_name,
     _sniff_icon_ext,
     _validate_png_bytes,
@@ -1157,3 +1159,82 @@ def test_noise_pattern_yields_to_essential(tmp_path):
     persist_discovered([], target_dir=tmp_path, add_essentials=True)
     toml_text = (tmp_path / "file-explorer" / "app.toml").read_text()
     assert "hidden = true" not in toml_text
+
+
+# --- #581 Goal 2: start_menu_folder sanitize + thread-through -------------
+
+
+def test_sanitize_start_menu_folder_normal():
+    assert _sanitize_start_menu_folder("Microsoft Office\\Tools") == "Microsoft Office/Tools"
+
+
+def test_sanitize_start_menu_folder_empty_and_nonstr():
+    assert _sanitize_start_menu_folder("") == ""
+    assert _sanitize_start_menu_folder("   ") == ""
+    assert _sanitize_start_menu_folder(None) == ""
+    assert _sanitize_start_menu_folder(123) == ""
+
+
+def test_sanitize_start_menu_folder_drops_traversal_and_drive():
+    # ".." / "." components and drive-letter / ADS components are removed.
+    assert _sanitize_start_menu_folder("..\\..\\Evil") == "Evil"
+    assert _sanitize_start_menu_folder("C:\\Windows\\System32") == "Windows/System32"
+    assert _sanitize_start_menu_folder(".\\Foo\\.\\Bar") == "Foo/Bar"
+
+
+def test_sanitize_start_menu_folder_caps_depth():
+    assert _sanitize_start_menu_folder("a/b/c/d/e/f") == "a/b/c/d"
+
+
+def test_sanitize_start_menu_folder_strips_control_chars():
+    assert _sanitize_start_menu_folder("Of\nfice\t/To\rols") == "Office/Tools"
+
+
+def test_entry_to_discovered_carries_folder():
+    app = _entry_to_discovered(
+        _valid_entry(name="Word", start_menu_folder="Microsoft Office\\Tools")
+    )
+    assert app is not None
+    assert app.start_menu_folder == "Microsoft Office/Tools"
+
+
+def test_entry_to_discovered_default_folder_empty():
+    app = _entry_to_discovered(_valid_entry(name="Word"))
+    assert app is not None
+    assert app.start_menu_folder == ""
+
+
+def test_render_app_toml_emits_folder_when_set():
+    app = DiscoveredApp(
+        name="word",
+        full_name="Word",
+        executable="C:\\w.exe",
+        start_menu_folder="Microsoft Office/Tools",
+    )
+    toml_text = _render_app_toml(app)
+    assert 'start_menu_folder = "Microsoft Office/Tools"' in toml_text
+
+
+def test_render_app_toml_omits_folder_when_empty():
+    app = DiscoveredApp(name="word", full_name="Word", executable="C:\\w.exe")
+    assert "start_menu_folder" not in _render_app_toml(app)
+
+
+def test_folder_round_trips_through_persist_and_load(tmp_path):
+    from winpodx.core.app import load_app
+
+    persist_discovered(
+        [
+            DiscoveredApp(
+                name="word",
+                full_name="Word",
+                executable="C:\\w.exe",
+                start_menu_folder="Microsoft Office/Tools",
+            )
+        ],
+        target_dir=tmp_path,
+        add_essentials=False,
+    )
+    loaded = load_app(tmp_path / "word")
+    assert loaded is not None
+    assert loaded.start_menu_folder == "Microsoft Office/Tools"

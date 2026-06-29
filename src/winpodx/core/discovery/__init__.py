@@ -287,6 +287,10 @@ class DiscoveredApp:
     # scan in discover_apps.ps1), e.g. [".docx", ".xlsx"]. Mapped to MIME types
     # for the .desktop MimeType= when desktop.mime_associations is on (#545).
     extensions: list[str] = field(default_factory=list)
+    # #581 Goal 2: the app's Start Menu subfolder, relative + sanitized, with
+    # "/" separators (e.g. "Microsoft Office/Tools"). "" = top-level. Mirrored
+    # into a nested winpodx submenu by the desktop-entry / menu generators.
+    start_menu_folder: str = ""
 
 
 # --- Hybrid filter: essentials allowlist + noise denylist -----------------
@@ -997,6 +1001,37 @@ def _parse_discovery_output(stdout: str) -> list[DiscoveredApp]:
     return apps
 
 
+# #581 Goal 2: bounds for the Start Menu folder path mirrored into the menu.
+_MAX_FOLDER_DEPTH = 4
+_MAX_FOLDER_COMPONENT_LEN = 48
+
+
+def _sanitize_start_menu_folder(raw: object) -> str:
+    """Normalise a guest-reported Start Menu subfolder into a safe relative path.
+
+    The value becomes both an XDG menu node and a ``.directory`` filename slug,
+    so a hostile/odd guest must not be able to smuggle path traversal, absolute
+    paths, control characters, or unbounded depth. Returns a ``/``-joined path
+    of cleaned components (display text preserved — spaces/case kept), or ``""``
+    for top-level / unusable input.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    components: list[str] = []
+    for part in raw.replace("\\", "/").split("/"):
+        # Strip control chars (incl. newlines — .directory is line-terminated)
+        # and surrounding whitespace/dots.
+        cleaned = "".join(ch for ch in part if ch.isprintable()).strip().strip(".")
+        if not cleaned or cleaned in (".", ".."):
+            continue
+        if ":" in cleaned:  # drive letters / NTFS ADS — never a real subfolder
+            continue
+        components.append(cleaned[:_MAX_FOLDER_COMPONENT_LEN])
+        if len(components) >= _MAX_FOLDER_DEPTH:
+            break
+    return "/".join(components)
+
+
 def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
     """Validate and convert one JSON entry into a ``DiscoveredApp``."""
     raw_name = entry.get("name")
@@ -1079,6 +1114,8 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
             if _SAFE_EXT_RE.match(ext) and ext not in extensions:
                 extensions.append(ext)
 
+    start_menu_folder = _sanitize_start_menu_folder(entry.get("start_menu_folder", ""))
+
     return DiscoveredApp(
         name=slug,
         full_name=raw_name.strip(),
@@ -1091,6 +1128,7 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
         exe_hash=exe_hash,
         icon_bytes=icon_bytes,
         extensions=extensions,
+        start_menu_folder=start_menu_folder,
     )
 
 
@@ -1317,6 +1355,8 @@ def _render_app_toml(app: DiscoveredApp, mime_enabled: bool = True) -> str:
         data["launch_uri"] = app.launch_uri
     if app.exe_hash:
         data["exe_hash"] = app.exe_hash
+    if app.start_menu_folder:
+        data["start_menu_folder"] = app.start_menu_folder
     # Always emit hidden / essential when set so AppInfo.load_app picks
     # them up. Keep the keys absent on the default-False side to keep
     # toml diffs minimal for the common case (visible, non-essential).

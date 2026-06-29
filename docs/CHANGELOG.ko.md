@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Windows 앱이 Linux 메뉴에서 시작 메뉴 폴더별로 그룹화됩니다** (#581, @Milliw 기여 감사). 각 앱이 속한 시작 메뉴 하위 폴더(예: `Microsoft Office\Tools`)를 "winpodx" 메뉴 폴더 아래 중첩 하위 그룹으로 미러 — Windows에서 보이는 그대로. KDE Plasma·XFCE·Cinnamon·MATE·LXQt에서 렌더(freedesktop `.menu` 메커니즘); GNOME은 앱이 보이긴 하나 그룹화 안 됨(오버뷰가 평면 그리드). 최상위 앱·폴더 없는 앱은 "winpodx" 바로 아래에 위치.
+
 ### Changed
 
 - **앱 검출이 기본적으로 Windows 시작 메뉴에 실제로 뜨는 앱만 노출합니다** (#581, @Milliw 기여 감사). 기존에는 등록된 모든 실행 파일(레지스트리 App Paths, Chocolatey/Scoop shim, 모든 UWP 패키지)을 긁어 Linux 메뉴에 쏟아부어 언인스톨러·헬퍼·백그라운드 프로세스로 범람했습니다. 이제 기본값은 시작 메뉴 전용입니다: 시작 메뉴 바로가기 + 시작 메뉴에 보이는 UWP 앱(`Get-StartApps`와 교차) + OS 필수앱(파일 탐색기/계산기/설정). 옛 동작은 **`winpodx config set desktop.full_app_scan true`** 또는 설정 → "설치된 모든 앱 검출(시작 메뉴 외 포함)" 체크박스로 되돌립니다 — 시작 메뉴 항목이 없는 포터블 앱에 유용. 다음 `winpodx app refresh`부터 적용.

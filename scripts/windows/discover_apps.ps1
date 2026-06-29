@@ -23,7 +23,9 @@
 #
 #   { "name": str, "path": str, "args": str,
 #     "source": "win32" | "uwp", "wm_class_hint": str,
-#     "launch_uri": str, "icon_b64": str }
+#     "launch_uri": str, "icon_b64": str,
+#     "start_menu_folder": str }   # #581 Goal 2: relative Start Menu subfolder
+#                                  # ("" for top-level / non-.lnk sources)
 #
 # Semantic contract for `launch_uri`:
 #   - source == "uwp"   : bare AUMID of the form `PackageFamilyName!AppId`
@@ -183,14 +185,15 @@ function Get-ExeHash {
 if ($DryRun) {
     $canned = @(
         [ordered]@{
-            name          = 'Notepad (DryRun)'
-            description   = 'Plain text editor (DryRun fixture)'
-            path          = 'C:\Windows\notepad.exe'
-            args          = ''
-            source        = 'win32'
-            wm_class_hint = 'notepad'
-            launch_uri    = ''
-            icon_b64      = ''
+            name              = 'Notepad (DryRun)'
+            description       = 'Plain text editor (DryRun fixture)'
+            path              = 'C:\Windows\notepad.exe'
+            args              = ''
+            source            = 'win32'
+            wm_class_hint     = 'notepad'
+            launch_uri        = ''
+            icon_b64          = ''
+            start_menu_folder = 'Accessories'
         }
     )
     # @(...) wrapper forces array even for single element on PS 5.1.
@@ -415,14 +418,16 @@ function Add-Result {
     if ($seen.ContainsKey($key)) { return }
     $seen[$key] = $true
     $results.Add([ordered]@{
-        name          = $name
-        description   = [string]$Entry.description
-        path          = $path
-        args          = [string]$Entry.args
-        source        = [string]$Entry.source
-        wm_class_hint = [string]$Entry.wm_class_hint
-        launch_uri    = [string]$Entry.launch_uri
-        icon_b64      = [string]$Entry.icon_b64
+        name              = $name
+        description       = [string]$Entry.description
+        path              = $path
+        args              = [string]$Entry.args
+        source            = [string]$Entry.source
+        wm_class_hint     = [string]$Entry.wm_class_hint
+        launch_uri        = [string]$Entry.launch_uri
+        icon_b64          = [string]$Entry.icon_b64
+        # #581 Goal 2: Start Menu subfolder (relative), '' for non-.lnk sources.
+        start_menu_folder = [string]$Entry.start_menu_folder
         exe_hash      = Get-ExeHash $path
         # Union of every place Windows records what this app can open: the
         # caller's declared associations (UWP AppxManifest fileTypeAssociation)
@@ -529,15 +534,30 @@ foreach ($d in $startDirs) {
                     $lnkDesc = ''
                     try { $lnkDesc = [string]$lnk.Description } catch { $lnkDesc = '' }
                     if (-not $lnkDesc) { $lnkDesc = Get-AppDescription $target }
+                    # #581 Goal 2: the Start Menu subfolder this .lnk lives in,
+                    # relative to its Programs root ($d). e.g. a shortcut at
+                    # ...\Programs\Microsoft Office\Tools\Foo.lnk -> "Microsoft
+                    # Office\Tools"; a top-level shortcut -> "". The host mirrors
+                    # this into a nested winpodx submenu. Only the relative
+                    # subpath is emitted -- never the absolute / user path.
+                    $smFolder = ''
+                    try {
+                        $lnkDir = [System.IO.Path]::GetDirectoryName($_.FullName)
+                        if ($lnkDir -and $lnkDir.Length -gt $d.Length -and
+                            $lnkDir.ToLower().StartsWith($d.ToLower())) {
+                            $smFolder = $lnkDir.Substring($d.Length).Trim('\').Trim('/')
+                        }
+                    } catch { $smFolder = '' }
                     Add-Result @{
-                        name          = Get-DisplayName -ExePath $target -Fallback $baseName
-                        description   = $lnkDesc
-                        path          = $target
-                        args          = [string]$lnk.Arguments
-                        source        = 'win32'
-                        wm_class_hint = Get-WmClassHint $target
-                        launch_uri    = ''
-                        icon_b64      = ConvertTo-IconBase64 $target
+                        name              = Get-DisplayName -ExePath $target -Fallback $baseName
+                        description       = $lnkDesc
+                        path              = $target
+                        args              = [string]$lnk.Arguments
+                        source            = 'win32'
+                        wm_class_hint     = Get-WmClassHint $target
+                        launch_uri        = ''
+                        icon_b64          = ConvertTo-IconBase64 $target
+                        start_menu_folder = $smFolder
                     }
                 } catch { }
             }

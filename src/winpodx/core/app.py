@@ -59,6 +59,10 @@ class AppInfo:
     # this to re-extract only apps whose exe changed (an app update). "" for
     # UWP / user entries.
     exe_hash: str = ""
+    # #581 Goal 2: the app's Windows Start Menu subfolder (relative, "/"-joined,
+    # e.g. "Microsoft Office/Tools"). "" = top-level. Mirrored into a nested
+    # winpodx submenu by the desktop-entry generator.
+    start_menu_folder: str = ""
 
 
 def user_apps_dir() -> Path:
@@ -199,6 +203,7 @@ def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
         hidden=bool(data.get("hidden", False)),
         essential=bool(data.get("essential", False)),
         exe_hash=str(data.get("exe_hash", "") or ""),
+        start_menu_folder=str(data.get("start_menu_folder", "") or ""),
     )
 
 

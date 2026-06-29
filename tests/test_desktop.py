@@ -33,6 +33,7 @@ def test_desktop_template():
         categories=";".join(app.categories) + ";",
         mime_types=";".join(app.mime_types) + ";",
         wm_class="winword",
+        folder_line="",
     )
 
     assert "Name=Microsoft Word" in content
@@ -705,3 +706,113 @@ def test_remove_last_app_tears_down_menu_folder(tmp_path, monkeypatch):
     remove_desktop_entry("excel")
     assert not directory.exists()
     assert not fragment.exists()
+
+
+# #581 Goal 2: Start Menu folder hierarchy mirrored into nested winpodx submenus
+
+
+def test_foldered_app_carries_leaf_category_and_folder_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    app = AppInfo(
+        name="word",
+        full_name="Microsoft Word",
+        executable="C:\\Office\\WINWORD.EXE",
+        start_menu_folder="Microsoft Office/Tools",
+    )
+    content = install_desktop_entry(app).read_text(encoding="utf-8")
+    # Leaf category only -- not the bare root -- so it lands in the nested node.
+    cat_line = next(ln for ln in content.splitlines() if ln.startswith("Categories="))
+    assert cat_line == "Categories=X-winpodx-microsoft-office-tools;"
+    assert "X-Winpodx-Folder=Microsoft Office/Tools" in content
+
+
+def test_top_level_app_keeps_root_category_no_folder_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+    content = install_desktop_entry(app).read_text(encoding="utf-8")
+    assert "Categories=X-winpodx;" in content
+    assert "X-Winpodx-Folder=" not in content
+
+
+def test_nested_menu_tree_and_directory_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    install_desktop_entry(
+        AppInfo(
+            name="word",
+            full_name="Word",
+            executable="C:\\w.exe",
+            start_menu_folder="Microsoft Office",
+        )
+    )
+    install_desktop_entry(
+        AppInfo(
+            name="solver",
+            full_name="Solver",
+            executable="C:\\s.exe",
+            start_menu_folder="Microsoft Office/Tools",
+        )
+    )
+
+    _, fragment = _menu_paths(tmp_path)
+    frag = fragment.read_text(encoding="utf-8")
+    # Nested: Tools submenu lives under Microsoft Office.
+    assert "<Category>X-winpodx-microsoft-office</Category>" in frag
+    assert "<Category>X-winpodx-microsoft-office-tools</Category>" in frag
+    office_idx = frag.index("microsoft-office.directory")
+    tools_idx = frag.index("microsoft-office-tools.directory")
+    assert office_idx < tools_idx  # parent declared before child
+
+    dirs = tmp_path / "desktop-directories"
+    assert (dirs / "winpodx-microsoft-office.directory").exists()
+    tools_dir = (dirs / "winpodx-microsoft-office-tools.directory").read_text(encoding="utf-8")
+    assert "Name=Tools" in tools_dir  # display name = leaf component, not slug
+
+
+def test_ampersand_folder_does_not_break_menu_xml(tmp_path, monkeypatch):
+    # A folder like "Games & Stuff" must not emit a raw & into the .menu XML;
+    # the node name/category use the slug, the display name lives in .directory.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    install_desktop_entry(
+        AppInfo(
+            name="game",
+            full_name="Game",
+            executable="C:\\g.exe",
+            start_menu_folder="Games & Stuff",
+        )
+    )
+    _, fragment = _menu_paths(tmp_path)
+    frag = fragment.read_text(encoding="utf-8")
+    assert "Games & Stuff" not in frag  # raw & never enters the XML
+    assert "<Category>X-winpodx-games-stuff</Category>" in frag
+    dirs = tmp_path / "desktop-directories"
+    disp = (dirs / "winpodx-games-stuff.directory").read_text(encoding="utf-8")
+    assert "Name=Games & Stuff" in disp  # literal in the Desktop Entry .directory
+
+
+def test_emptied_subfolder_directory_is_pruned(tmp_path, monkeypatch):
+    from winpodx.desktop.entry import remove_desktop_entry
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    install_desktop_entry(AppInfo(name="top", full_name="Top", executable="C:\\t.exe"))
+    install_desktop_entry(
+        AppInfo(
+            name="word",
+            full_name="Word",
+            executable="C:\\w.exe",
+            start_menu_folder="Microsoft Office",
+        )
+    )
+    dirs = tmp_path / "desktop-directories"
+    office_dir = dirs / "winpodx-microsoft-office.directory"
+    assert office_dir.exists()
+
+    # Removing the only app in "Microsoft Office" prunes its .directory while the
+    # top-level app keeps the root folder alive.
+    remove_desktop_entry("word")
+    assert not office_dir.exists()
+    assert (dirs / "winpodx-windows.directory").exists()

@@ -8,7 +8,12 @@ import shutil
 from pathlib import Path
 
 from winpodx.core.app import AppInfo
-from winpodx.desktop.menu import MENU_CATEGORY, install_menu_folder, remove_menu_folder
+from winpodx.desktop.menu import (
+    FOLDER_KEY,
+    category_for_folder,
+    install_menu_folder,
+    remove_menu_folder,
+)
 from winpodx.utils.paths import applications_dir, icons_dir
 
 log = logging.getLogger(__name__)
@@ -27,7 +32,7 @@ Keywords=windows;winpodx;rdp;{name};
 Terminal=false
 StartupNotify=true
 StartupWMClass={wm_class}
-"""
+{folder_line}"""
 
 # Default Comment when discovery couldn't pull a real description from
 # the app's metadata. Better than nothing — keeps the .desktop spec's
@@ -102,12 +107,20 @@ def install_desktop_entry(app: AppInfo) -> Path:
     full_name = (app.full_name or app.name).replace("\n", " ").replace("\r", " ").replace("\t", " ")
     full_name = full_name.strip() or app.name
 
-    # Consolidate every Windows app under one menu folder (Wine-style) instead
-    # of scattering them across native categories (Office, Graphics, ...). The
-    # entry carries only the custom MENU_CATEGORY, which the winpodx .menu
-    # fragment maps into the "winpodx" submenu. App-type discoverability is
-    # preserved via Keywords (windows;winpodx;<name>) for menu search.
-    categories = f"{MENU_CATEGORY};"
+    # Consolidate every Windows app under the "winpodx" menu folder (Wine-style)
+    # instead of scattering them across native categories. #581 Goal 2: the entry
+    # carries the LEAF category for its Start Menu subfolder (just X-winpodx for a
+    # top-level app, or X-winpodx-<slug-chain> for a foldered one), so it lands in
+    # exactly one nested sub-group that the winpodx .menu fragment defines.
+    # App-type discoverability stays via Keywords for menu search.
+    folder = (getattr(app, "start_menu_folder", "") or "").strip()
+    categories = f"{category_for_folder(folder)};"
+    # Record the display folder path so menu.py can rebuild the nested tree +
+    # name each .directory. Sanitised upstream; strip stray newlines defensively.
+    folder_line = ""
+    if folder:
+        safe_folder = folder.replace("\n", " ").replace("\r", " ").strip()
+        folder_line = f"{FOLDER_KEY}={safe_folder}\n"
 
     content = DESKTOP_TEMPLATE.format(
         winpodx_exe=_winpodx_exe(),
@@ -118,6 +131,7 @@ def install_desktop_entry(app: AppInfo) -> Path:
         categories=categories,
         mime_types=";".join(app.mime_types) + ";" if app.mime_types else "",
         wm_class=wm_class,
+        folder_line=folder_line,
     )
 
     desktop_path = dest_dir / f"winpodx-{app.name}.desktop"
@@ -167,14 +181,18 @@ def remove_desktop_entry(app_name: str) -> None:
         (size_dir / f"winpodx-{app_name}.svg").unlink(missing_ok=True)
         (size_dir / f"winpodx-{app_name}.png").unlink(missing_ok=True)
 
-    # Tear down the shared menu folder once the last Windows app is gone, so we
-    # don't leave an empty "winpodx" submenu behind. The GUI launcher's entry is
+    # Keep the nested menu tree consistent. The GUI launcher's entry is
     # winpodx.desktop (no "winpodx-" prefix), so it never counts here.
-    if apps_dir.exists() and not any(apps_dir.glob("winpodx-*.desktop")):
-        try:
+    #   - last app gone -> tear the whole folder down (no empty "winpodx").
+    #   - apps remain   -> rebuild so an emptied subfolder's .directory is
+    #     pruned and the .menu fragment drops the now-unused node (#581 Goal 2).
+    try:
+        if apps_dir.exists() and any(apps_dir.glob("winpodx-*.desktop")):
+            install_menu_folder()
+        else:
             remove_menu_folder()
-        except OSError as e:  # pragma: no cover - defensive, never blocks removal
-            log.warning("Could not remove winpodx menu folder definition: %s", e)
+    except OSError as e:  # pragma: no cover - defensive, never blocks removal
+        log.warning("Could not update winpodx menu folder definition: %s", e)
 
 
 def _install_icon(app: AppInfo) -> str:

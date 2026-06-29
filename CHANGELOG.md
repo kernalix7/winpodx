@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Windows apps are now grouped on the Linux menu by their Start Menu folder** (#581, thanks @Milliw). The Start Menu subfolder each app lives in (e.g. `Microsoft Office\Tools`) is mirrored into nested sub-groups under the "winpodx" menu folder, just like Windows shows them. Renders on KDE Plasma, XFCE, Cinnamon, MATE and LXQt (the freedesktop `.menu` mechanism); on GNOME the apps still appear but ungrouped (its overview is a flat grid). Top-level apps and apps with no folder stay directly under "winpodx".
+
 ### Changed
 
 - **App discovery now surfaces only the apps your Windows Start Menu actually shows, by default** (#581, thanks @Milliw). Previously every registered executable was scanned (registry App Paths, Chocolatey/Scoop shims, every UWP package) and dumped into the Linux menu, flooding it with uninstallers, helpers, and background processes. Discovery now defaults to Start-Menu-only: Start Menu shortcuts, Start-Menu-visible UWP apps (intersected with `Get-StartApps`), and the OS essentials (File Explorer / Calculator / Settings). Turn the old behaviour back on with **`winpodx config set desktop.full_app_scan true`** or the Settings → "Discover all installed apps (not just Start Menu apps)" checkbox — useful for portable apps that have no Start Menu entry. Takes effect on the next `winpodx app refresh`.
