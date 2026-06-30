@@ -250,7 +250,11 @@ class RevealTile(QFrame):
 
         self._name_label = QLabel(entry.name)
         self._name_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self._name_label.setMaximumWidth(180)
+        # #553: FIXED (not max) width so the word-wrap label's heightForWidth is
+        # a constant and can't feed the viewport width back into its height —
+        # that feedback re-enters QBoxLayout::setGeometry without bound on Qt
+        # 6.11 (this tile lives in a setWidgetResizable QScrollArea) -> SIGSEGV.
+        self._name_label.setFixedWidth(180)
         self._name_label.setWordWrap(True)
         self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self._name_label.setMaximumHeight(38)

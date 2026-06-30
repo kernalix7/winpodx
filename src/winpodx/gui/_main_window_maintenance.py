@@ -425,15 +425,17 @@ class MaintenanceMixin:
             try:
                 work()
             finally:
-                # Marshal the close back onto the GUI thread.
-                QTimer.singleShot(0, dlg.finish)
+                # #550: close via BusyDialog.finish(), which is thread-safe
+                # (emits a signal -> queued accept() on the GUI thread). The old
+                # `QTimer.singleShot(0, dlg.finish)` created the timer on THIS
+                # worker thread, which is a bare threading.Thread with no Qt
+                # event loop, so it never fired and the dialog hung open.
+                dlg.finish()
 
-        # Start the worker only once dlg.exec()'s nested event loop is running
-        # (#550): a fast op (e.g. the "speed" debloat preset) could otherwise
-        # finish and call dlg.finish() -> accept() BEFORE exec() began, so the
-        # accept was a no-op and the dialog hung open until the user closed it.
-        # Deferring the start via a 0-timer guarantees the thread launches from
-        # inside the running loop, so finish() always lands on a live dialog.
+        # Start the worker only once dlg.exec()'s nested event loop is running:
+        # deferring the start via a GUI-thread 0-timer guarantees the thread
+        # launches from inside the running loop, so the queued accept() always
+        # lands on a live dialog.
         QTimer.singleShot(0, lambda: threading.Thread(target=_do, daemon=True).start())
         dlg.exec()
 

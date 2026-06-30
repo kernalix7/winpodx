@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -329,9 +329,17 @@ class BusyDialog(QDialog):
     "typically takes ~N" hint so the user knows the app isn't frozen. Pass
     ``cancellable=True`` to add a Cancel button; connect to :attr:`cancelled`
     (a plain callback list via :meth:`on_cancel`) to react. The caller runs
-    the actual work on a worker thread and calls :meth:`finish` (or just
-    ``accept()``/``close()``) when done.
+    the actual work on a worker thread and calls :meth:`finish` when done —
+    :meth:`finish` is thread-safe (see its docstring).
     """
+
+    # #550: closing the dialog from a worker thread must be marshaled to the
+    # GUI thread. A worker-thread ``QTimer.singleShot(0, dlg.accept)`` never
+    # fires (no Qt event loop on a bare ``threading.Thread``), so the dialog
+    # hung open. ``finish()`` emits this instead; auto-connection makes the
+    # cross-thread emit a QUEUED call, so ``accept()`` runs on the GUI thread's
+    # ``exec()`` loop. A same-thread (GUI) emit stays a direct call.
+    _close_requested = Signal()
 
     def __init__(
         self,
@@ -343,6 +351,7 @@ class BusyDialog(QDialog):
         cancellable: bool = False,
     ) -> None:
         super().__init__(parent)
+        self._close_requested.connect(self.accept)
         self.setWindowTitle(title)
         self.setModal(True)
         # #550: the old 380-wide / content-height dialog opened cramped (the
@@ -394,8 +403,14 @@ class BusyDialog(QDialog):
             cb()
 
     def finish(self) -> None:
-        """Close the dialog (safe to call from the GUI thread on completion)."""
-        self.accept()
+        """Close the dialog. Thread-safe — safe to call from a worker thread.
+
+        Emits ``_close_requested`` (connected to ``accept``); a cross-thread
+        emit becomes a queued call so ``accept()`` runs on the GUI thread's
+        ``exec()`` loop (#550). A GUI-thread emit stays a direct call, so
+        existing on-thread callers keep closing synchronously.
+        """
+        self._close_requested.emit()
 
 
 def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
@@ -489,6 +504,14 @@ def make_empty_panel(
     frame = QFrame()
     frame.setObjectName("emptyState")
     frame.setStyleSheet(EMPTY_STATE)
+    # #553: this panel lives inside the app-list QScrollArea(setWidgetResizable
+    # =True). Word-wrap QLabels whose wrap width tracks the viewport feed their
+    # width back into their height, and on Qt 6.11 that re-enters
+    # QBoxLayout::setGeometry -> heightForWidth without bound -> SIGSEGV. Cap the
+    # panel and pin the labels to a CONSTANT wrap width so heightForWidth no
+    # longer depends on the viewport, breaking the feedback loop.
+    frame.setMaximumWidth(460)
+    _WRAP_W = 400  # 460 - 2 * SPACE_XL side margins
 
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
@@ -498,6 +521,7 @@ def make_empty_panel(
     title_lbl = QLabel(title)
     title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     title_lbl.setWordWrap(True)
+    title_lbl.setFixedWidth(_WRAP_W)  # #553: constant wrap width
     title_lbl.setStyleSheet(
         f"background: transparent; color: {C.SUBTEXT1}; font-size: {FONT_BODY}px; font-weight: 500;"
     )
@@ -507,6 +531,7 @@ def make_empty_panel(
         body_lbl = QLabel(body)
         body_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         body_lbl.setWordWrap(True)
+        body_lbl.setFixedWidth(_WRAP_W)  # #553: constant wrap width
         body_lbl.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0}; font-size: {FONT_CAPTION}px;"
         )
