@@ -1,4 +1,4 @@
-winpodx (0.7.5) unstable; urgency=medium
+winpodx (0.8.0) unstable; urgency=medium
 
   * Feature + bug-fix release: app discovery now defaults to Start-Menu-only
     (only what the Windows Start Menu shows, grouped into nested folder

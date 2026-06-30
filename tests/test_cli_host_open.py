@@ -342,7 +342,7 @@ def test_refresh_signals_running_daemon(capsys: pytest.CaptureFixture[str]) -> N
 
 
 class TestEnsureListenerRunning:
-    """`ensure_listener_running` self-heal (0.7.5) — listener revived after a
+    """`ensure_listener_running` self-heal (0.8.0) — listener revived after a
     pod stop / tray Quit stop_listener() while the pod keeps running."""
 
     def test_disabled_when_feature_off(self):

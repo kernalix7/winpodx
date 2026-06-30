@@ -7,7 +7,7 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 기반으로 하며,
 버전 정책은 [Semantic Versioning](https://semver.org/lang/ko/)을 지향합니다.
 
-## [0.7.5] - 2026-06-30
+## [0.8.0] - 2026-06-30
 
 ### Added
 

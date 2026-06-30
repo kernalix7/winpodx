@@ -36,7 +36,7 @@ licenses govern.
 > **Historical note.** WinPodX 0.1.6 bundled rdprrap 0.1.0, which upstream
 > later withdrew because the 0.1.0 / 0.1.1 ZIPs were missing `NOTICE` and
 > `vendor/licenses/`. 0.1.7 onward bundles 0.1.3 and is the first
-> license-compliant WinPodX release for this component. WinPodX 0.7.5 bumps the
+> license-compliant WinPodX release for this component. WinPodX 0.8.0 bumps the
 > bundled component to rdprrap 0.3.0 (same MIT terms, same copyright holder;
 > 0.3.0 derives the `termsrv.dll` patch sites dynamically).
 
