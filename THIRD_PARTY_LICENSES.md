@@ -9,9 +9,9 @@ runtime/optional dependencies, together with their upstream licenses.
 ### rdprrap
 
 - Upstream: https://github.com/kernalix7/rdprrap
-- Version: 0.1.3 (pinned by `config/oem/rdprrap_version.txt`, SHA256-verified)
+- Version: 0.3.0 (pinned by `config/oem/rdprrap_version.txt`, SHA256-verified)
 - License: MIT
-- Bundled as: `config/oem/rdprrap-0.1.3-windows-x64.zip`
+- Bundled as: `config/oem/rdprrap-0.3.0-windows-x64.zip`
 - Role: enables multi-session RDP on the Windows guest during first-boot OEM
   install. Same copyright holder as WinPodX.
 
@@ -36,7 +36,9 @@ licenses govern.
 > **Historical note.** WinPodX 0.1.6 bundled rdprrap 0.1.0, which upstream
 > later withdrew because the 0.1.0 / 0.1.1 ZIPs were missing `NOTICE` and
 > `vendor/licenses/`. 0.1.7 onward bundles 0.1.3 and is the first
-> license-compliant WinPodX release for this component.
+> license-compliant WinPodX release for this component. WinPodX 0.7.5 bumps the
+> bundled component to rdprrap 0.3.0 (same MIT terms, same copyright holder;
+> 0.3.0 derives the `termsrv.dll` patch sites dynamically).
 
 ### rcedit
 

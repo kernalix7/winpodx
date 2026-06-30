@@ -64,8 +64,8 @@
         <p data-i18n-html="feat.seamless.assoc.body">Double-click a <code>.docx</code> in your file manager and Word opens. Open a second file for an app that's already running and it's delivered into the live session — mapped to its <code>\\tsclient</code> path and opened in place — instead of being silently dropped. The reverse works too — see below. <em>Open with…</em> also works on desktops that launch with a stripped PATH (e.g. Deepin), since entries embed winpodx's absolute path.</p>
       </div>
       <div class="block">
-        <h3 data-i18n="feat.seamless.menugroup.title">One tidy menu folder</h3>
-        <p data-i18n-html="feat.seamless.menugroup.body">Every Windows app lands in a single <code>WinPodX</code> menu folder (Wine-style) instead of scattering 50+ entries across native categories like Office and Graphics. Menu search still finds each app by name.</p>
+        <h3 data-i18n="feat.seamless.menugroup.title">Folder-grouped app menu</h3>
+        <p data-i18n-html="feat.seamless.menugroup.body">Windows apps land under a single <code>WinPodX</code> menu group, mirroring the Start Menu's own folder hierarchy as nested sub-groups instead of scattering 50+ entries across native categories like Office and Graphics. (GNOME flattens nested menus, so it shows them as one group.) Menu search still finds each app by name.</p>
       </div>
       <div class="block">
         <h3 data-i18n="feat.seamless.multi.title">Multi-session RDP</h3>
@@ -74,6 +74,10 @@
       <div class="block">
         <h3 data-i18n="feat.seamless.multimon.title">Multi-monitor RAIL</h3>
         <p data-i18n-html="feat.seamless.multimon.body">Remote-app windows span multiple displays by default (<code>rdp.multimon</code>) — drag a window onto a second monitor and it keeps taking input, no dead window on the other screen.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.seamless.keyboard.title">Your keyboard layout</h3>
+        <p data-i18n-html="feat.seamless.keyboard.body">Set <code>[pod] keyboard</code> in your config and WinPodX passes it straight to FreeRDP (<code>/kbd:layout</code>), so non-US layouts type correctly in every Windows app.</p>
       </div>
     </div>
   </section>
@@ -105,7 +109,7 @@
       </div>
       <div class="block">
         <h3 data-i18n="feat.zeroconf.discovery.title">Auto-discovery</h3>
-        <p data-i18n-html="feat.zeroconf.discovery.body">First boot scans the running Windows guest and registers every installed app with its real icon — Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop. Rescan any time with <code>winpodx app refresh</code> or the GUI Refresh button.</p>
+        <p data-i18n-html="feat.zeroconf.discovery.body">By default WinPodX registers only the apps your Windows Start Menu shows, grouped into matching folder sub-groups, each with its real icon. Set <code>desktop.full_app_scan</code> (CLI or a Settings checkbox) to also scan the registry App Paths, all UWP/MSIX, Chocolatey and Scoop. Rescan any time with <code>winpodx app refresh</code> or the GUI Refresh button.</p>
       </div>
       <div class="block">
         <h3 data-i18n="feat.zeroconf.backend.title">Multi-backend</h3>

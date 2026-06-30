@@ -310,6 +310,7 @@ extra_flags = ""             # Additional FreeRDP flags (allowlisted); e.g.
 [pod]
 backend = "podman"
 win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016 — see ARCHITECTURE.md for custom ISOs
+keyboard = "en-US"                               # Windows install locale; also mapped to the FreeRDP session layout (/kbd:layout) so non-US keyboards work in RemoteApp windows (#660)
 cpu_cores = 4
 ram_gb = 4
 vnc_port = 8007
@@ -329,6 +330,10 @@ guest_autosync = true                            # After a host upgrade, push up
 
 [ui]
 language = "auto"                                # UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale, falls back to English; change via `winpodx language` or GUI Settings)
+
+[desktop]
+mime_associations = true                         # Discovered apps offer their real file types in the file manager's "Open with" (#545); never set as the default handler
+full_app_scan = false                            # false = Start-Menu-only discovery (clean menu, folder-grouped); true = also scan registry App Paths / Chocolatey / Scoop / all UWP (#581) — for portable apps with no Start Menu entry
 
 [reverse_open]
 enabled = true                                   # Default since v0.5.0

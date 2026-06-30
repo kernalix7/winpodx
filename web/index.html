@@ -62,7 +62,7 @@
       Zero config.</p>
 
     <div class="badges">
-      <span class="badge beta" data-i18n="index.badge.beta">beta · v0.7.4</span>
+      <span class="badge beta" data-i18n="index.badge.beta">beta · v0.7.5</span>
       <span class="badge">MIT</span>
       <span class="badge">Python 3.9+</span>
       <span class="badge" data-i18n="index.badge.no_telemetry">no telemetry</span>
@@ -113,7 +113,7 @@
         <div class="step">
           <div class="head"><span class="n">2</span><span class="ico green"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span></div>
           <h3 data-i18n="index.how.step2.title">Apps auto-discovered</h3>
-          <p data-i18n-html="index.how.step2.body">First boot scans the guest — Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop — and registers every app with its real icon as a Linux <code>.desktop</code> entry.</p>
+          <p data-i18n-html="index.how.step2.body">By default, WinPodX adds only the apps your Windows Start Menu actually shows — mirrored into matching folder sub-groups — each as a Linux <code>.desktop</code> entry with its real icon. Opt in with <code>desktop.full_app_scan</code> to also sweep the registry App Paths, UWP/MSIX, Chocolatey and Scoop.</p>
         </div>
         <div class="step">
           <div class="head"><span class="n">3</span><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-cursor"/></svg></span></div>
@@ -165,8 +165,8 @@
         </ul></div>
         <div class="card"><h3 data-i18n-html="index.feat.zeroconf.title"><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-bolt"/></svg></span>Zero-config launch</h3><ul>
           <li data-i18n="index.feat.zeroconf.li1">First click auto-provisions config, container, desktop entries</li>
-          <li data-i18n="index.feat.zeroconf.li2">First-boot discovery registers every app with its real icon</li>
-          <li data-i18n="index.feat.zeroconf.li3">Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop</li>
+          <li data-i18n="index.feat.zeroconf.li2">First-boot discovery adds your Start Menu apps with their real icons</li>
+          <li data-i18n="index.feat.zeroconf.li3">Start-Menu-only by default; opt-in full scan adds registry App Paths, all UWP/MSIX, Chocolatey, Scoop</li>
           <li data-i18n="index.feat.zeroconf.li4">Backends: Podman (default), Docker, manual RDP</li>
         </ul></div>
         <div class="card"><h3 data-i18n-html="index.feat.peripherals.title"><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-hdd"/></svg></span>Peripherals &amp; sharing</h3><ul>

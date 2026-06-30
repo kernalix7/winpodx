@@ -7,7 +7,7 @@ Name:           %{pypi_name}
 # bumping it per release is NOT required and has no effect on OBS output.
 # scripts/ci/verify_versions.py guards against drift between this literal and
 # pyproject.toml so a local-build version doesn't masquerade as a stale one.
-Version:        0.7.4
+Version:        0.7.5
 Release:        0
 Summary:        Windows app integration for Linux desktop
 # MIT covers winpodx + bundled rdprrap (same MIT terms).

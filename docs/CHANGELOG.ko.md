@@ -7,12 +7,12 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 기반으로 하며,
 버전 정책은 [Semantic Versioning](https://semver.org/lang/ko/)을 지향합니다.
 
-## [Unreleased]
+## [0.7.5] - 2026-06-30
 
 ### Added
 
 - **Windows 앱이 Linux 메뉴에서 시작 메뉴 폴더별로 그룹화됩니다** (#581, @Milliw 기여 감사). 각 앱이 속한 시작 메뉴 하위 폴더(예: `Microsoft Office\Tools`)를 "winpodx" 메뉴 폴더 아래 중첩 하위 그룹으로 미러 — Windows에서 보이는 그대로. KDE Plasma·XFCE·Cinnamon·MATE·LXQt에서 렌더(freedesktop `.menu` 메커니즘); GNOME은 앱이 보이긴 하나 그룹화 안 됨(오버뷰가 평면 그리드). 최상위 앱·폴더 없는 앱은 "winpodx" 바로 아래에 위치.
-- **`[pod] keyboard` 설정이 이제 FreeRDP 세션 키보드 레이아웃에 반영됨** (#660). Windows 설치용으로 고른 로케일(예: `keyboard = "hu-HU"`)이 대응하는 Windows 레이아웃으로 매핑되어 FreeRDP에 `/kbd:layout:0x…`로 전달됩니다. 비-US 키보드가 `rdp.extra_flags`를 손으로 안 써도 RemoteApp 창에서 동작합니다. 기본값 `en-US`는 그대로 둬서(FreeRDP가 호스트 XKB 레이아웃 자동감지 유지 — 설정을 안 건드린 유저가 US로 강제되지 않음), `rdp.extra_flags`에 명시한 `/kbd`가 항상 우선하고, 매핑에 없는 로케일은 자동감지로 폴백합니다. (`rdp.extra_flags`로 `/kbd`를 직접 넘기는 건 0.7.4에서 이미 허용됨.)
+- **`[pod] keyboard` 설정이 이제 FreeRDP 세션 키보드 레이아웃에 반영됨** (#660, @lsvab 기여 감사). Windows 설치용으로 고른 로케일(예: `keyboard = "hu-HU"`)이 대응하는 Windows 레이아웃으로 매핑되어 FreeRDP에 `/kbd:layout:0x…`로 전달됩니다. 비-US 키보드가 `rdp.extra_flags`를 손으로 안 써도 RemoteApp 창에서 동작합니다. 기본값 `en-US`는 그대로 둬서(FreeRDP가 호스트 XKB 레이아웃 자동감지 유지 — 설정을 안 건드린 유저가 US로 강제되지 않음), `rdp.extra_flags`에 명시한 `/kbd`가 항상 우선하고, 매핑에 없는 로케일은 자동감지로 폴백합니다. (`rdp.extra_flags`로 `/kbd`를 직접 넘기는 건 0.7.4에서 이미 허용됨.)
 
 ### Changed
 
@@ -21,13 +21,17 @@
 
 ### Fixed
 
-- **앱 이름이 길거나 CJK일 때, 또는 앱 목록이 비었을 때 GUI가 레이아웃 재귀로 죽던(SIGSEGV) 문제 수정** (#553). 리사이즈되는 앱 목록 스크롤 영역 안의 word-wrap `QLabel`(빈 상태 패널, 런처 타일)이 wrap 폭을 viewport에 맞춰 따라가서, 높이가 폭으로 되먹임돼 Qt 6.11에서 `QBoxLayout::setGeometry` → `heightForWidth`를 무한 재진입했습니다 — 시작 시(빈 목록) 또는 CJK 이름 앱 추가 직후 하드 세그폴트. 해당 라벨들에 고정 wrap 폭을 줘서 되먹임 루프를 끊었습니다.
+- **앱 이름이 길거나 CJK일 때, 또는 앱 목록이 비었을 때 GUI가 레이아웃 재귀로 죽던(SIGSEGV) 문제 수정** (#553, @hermitguo 기여 감사). 리사이즈되는 앱 목록 스크롤 영역 안의 word-wrap `QLabel`(빈 상태 패널, 런처 타일)이 wrap 폭을 viewport에 맞춰 따라가서, 높이가 폭으로 되먹임돼 Qt 6.11에서 `QBoxLayout::setGeometry` → `heightForWidth`를 무한 재진입했습니다 — 시작 시(빈 목록) 또는 CJK 이름 앱 추가 직후 하드 세그폴트. 해당 라벨들에 고정 wrap 폭을 줘서 되먹임 루프를 끊었습니다.
 - **Debloat / 유지보수 작업 창이 작업 완료 시 스스로 닫힘** (#550, @ismikes 기여 감사). 진행 `BusyDialog`를 워커 내부에서 `QTimer.singleShot(0, dlg.finish)`로 닫았는데, 맨 `threading.Thread`엔 Qt 이벤트 루프가 없어 그 타이머가 영영 안 떠서 창이 손으로 닫을 때까지 떠 있었습니다(v0.7.2 변경은 *워커 시작 시점*만 고쳤고 닫기는 아님). `BusyDialog.finish()`가 이제 시그널 기반이라 스레드 간 닫기가 `accept()`를 GUI 스레드에 큐잉해서 완료 시 창이 닫힙니다(Debloat, Grow Disk, Sync Guest, Apply Fixes).
 - **GUI "Refresh Apps"가 완료 시점에 죽던(SIGSEGV) 문제 수정.** 디스커버리 워커(parent 없는 파이썬 소유 `QObject`)에 삭제 경로가 2개였습니다 — 워커 스레드의 `deleteLater` *와* 메인 스레드의 파이썬 ref-drop. Qt6는 워커의 `deleteLater` flush *전에* `QThread.finished`를 emit하므로, cleanup 슬롯이 그 삭제가 진행 중인데 마지막 파이썬 ref를 떨궈 워커를 스레드 간 double-free(`QObject::~QObject` 세그폴트)했습니다. 이제 삭제 경로가 정확히 하나(ref-drop, `thread.wait()`로 워커 스레드 종료 확인 후)이고, 시작 가드가 살아있는 스레드 ref에도 bail하며(빠른 재클릭이 끝나가는 워커를 떨구지 못하게), 윈도우 close 시 실행 중 워커 스레드를 join합니다.
 - **백그라운드 워커가 디스플레이 배율을 읽을 때 GUI가 죽던(SIGABRT) 문제 수정.** `QGuiApplication.screens()`는 GUI 메인 스레드 전용인데, 워커 스레드(Info 패널의 `gather_info` 등)에서 닿을 수 있어 `QObject::setParent: ... different thread` 경고를 쏟아내고 워커 스레드 종료 시 `__cxa_pure_virtual`로 앱 전체를 abort시켰습니다 — refresh 시 GUI가 죽는 증상으로 나타남. Qt 배율 프로브가 이제 메인 스레드가 아니면 `None`으로 단락되어 서브프로세스/환경변수 감지로 폴백합니다.
 - **`winpodx app refresh`가 이제 더 이상 검출 안 되는 앱을 추가만 하지 않고 제거도 함** (#581). 기존 refresh는 항상 *추가만* 해서, 사라진 검출 앱(Windows에서 언인스톨된 앱, 또는 새 시작메뉴-전용 기본값으로 빠진 모든 앱)이 수동 삭제 전까지 Linux 메뉴에 남았습니다. 이제 사라진 discovered 프로필(과 런처)을 prune해서 메뉴가 실제로 현재 집합으로 마이그레이션됩니다. 수동 추가 앱(`~/.local/share/winpodx/apps/`)은 절대 안 건드리고, 실패/빈 스캔은 메뉴를 비우지 않습니다.
 - **`--win-iso`가 이제 다운로드 대신 실제로 그 ISO에서 설치함** (#647, @ismikes 기여 감사). 로컬 ISO가 `winpodx setup`이 이미 `compose up`을 돌린 *뒤*에 `<storage>/custom.iso`로 스테이징돼서, 컨테이너가 이미 부팅되고 dockur가 Microsoft 다운로드를 시작한 다음에야 파일이 생겼습니다(dockur는 부팅 순간 `custom.iso`를 찾음). 이제 스테이징이 **`winpodx setup` 내부**에서 storage 경로 확정 후 **컨테이너 (재)생성 전**에 일어나, dockur가 ISO를 찾아 설치합니다. `winpodx setup --win-iso <path>`로도 노출.
 - **reverse-open 리스너가 다음 `pod start`까지 죽어있지 않고 앱 실행 시 자가복구됨.** `winpodx pod stop` / 트레이 Quit이 리스너를 멈추는데(`stop_listener()`), pod는 계속 돌고 있으면 watcher를 다시 띄우는 게 없어 Windows의 "연결 프로그램 → Linux 앱"이 조용히 무반응이었습니다. 이제 `ensure_ready`(모든 `winpodx app run` / GUI 실행)가 `reverse_open` 활성 시 리스너를 idempotent하게 보장합니다. v0.7.4 스모크 중 발견.
+
+### Contributors
+
+이번 릴리즈에서 고친 이슈를 제보해 주신 분들께 감사드립니다: @Milliw (#581), @lsvab (#660), @ismikes (#647, #550), @hermitguo (#553), @liveifsh (#659).
 
 ## [0.7.4] - 2026-06-23
 
