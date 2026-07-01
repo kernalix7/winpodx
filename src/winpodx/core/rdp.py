@@ -920,20 +920,25 @@ def _auto_kbd_flag(cfg: Config) -> str | None:
     return f"/kbd:layout:0x{lcid}"
 
 
-def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> None:
-    """Best-effort: open *file_path* in an already-running RemoteApp.
+def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> bool:
+    """Open *file_path* in an already-running RemoteApp session.
 
     Used when a second ``gio launch`` for the same app arrives while a session is
-    already live.  Tries the guest agent first (fast, no visual artifacts); falls
+    already live. Tries the guest agent first (fast, no visual artifacts); falls
     back to ``run_in_windows`` (FreeRDP RemoteApp, ~5-10 s) when the agent is
-    unreachable.  Failures are logged but never raised — the caller still returns
-    the live session handle so the desktop entry succeeds.
+    unreachable **or errors**.
+
+    Returns ``True`` when the file was dispatched, ``False`` when BOTH channels
+    failed — the caller can then fall back to a fresh RAIL spawn. Raises
+    ``ValueError`` / ``RuntimeError`` when the path can't be mapped to a guest
+    UNC, so the caller surfaces it (parity with the cold-start "Cannot open
+    file" error) instead of silently dropping the file (#675).
     """
-    try:
-        unc = linux_to_unc(file_path)
-    except (ValueError, RuntimeError) as exc:
-        log.debug("_open_file_in_session: cannot map %r to UNC: %s", file_path, exc)
-        return
+    # NB: linux_to_unc raises for paths outside the shared $HOME / media
+    # locations; we let it propagate so the caller can notify the user, rather
+    # than swallowing it (which made "Open with" a silent no-op once the app was
+    # already open — #675).
+    unc = linux_to_unc(file_path)
 
     safe_exe = app_executable.replace("'", "''")
     safe_file = unc.replace("'", "''")
@@ -946,20 +951,21 @@ def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> N
         transport = dispatch(cfg, prefer="agent")
         transport.exec(ps, timeout=15)
         log.info("_open_file_in_session: opened %r in existing session", file_path)
-        return
+        return True
     except TransportUnavailable:
         log.debug("_open_file_in_session: agent unavailable, falling back to FreeRDP")
-    except Exception as exc:  # noqa: BLE001
-        log.debug("_open_file_in_session: agent dispatch failed: %s", exc)
-        return
+    except Exception as exc:  # noqa: BLE001 — a transient agent error must NOT skip the fallback
+        log.debug("_open_file_in_session: agent dispatch failed, trying FreeRDP: %s", exc)
 
     try:
         from winpodx.core.windows_exec import run_in_windows
 
         run_in_windows(cfg, ps, description="open-file", timeout=30)
         log.info("_open_file_in_session: opened %r via FreeRDP fallback", file_path)
+        return True
     except Exception as exc:  # noqa: BLE001
         log.debug("_open_file_in_session: FreeRDP fallback failed: %s", exc)
+        return False
 
 
 def _find_existing_session(app_name: str) -> RDPSession | None:
@@ -1256,9 +1262,25 @@ def launch_app(
 
     existing = _find_existing_session(app_name)
     if existing is not None:
-        if file_path and app_executable:
-            _open_file_in_session(cfg, app_executable, file_path)
-        return existing
+        if not (file_path and app_executable):
+            return existing
+        # #675: deliver the file into the live session and FAIL LOUD. The old
+        # fire-and-forget swallowed every error at debug, so "Open with <app>"
+        # silently did nothing once the app was already running.
+        try:
+            if _open_file_in_session(cfg, app_executable, file_path):
+                return existing
+        except (ValueError, RuntimeError) as exc:
+            # e.g. the file is outside the shared $HOME / media locations —
+            # surface it exactly like the cold-start path, then stop.
+            from winpodx.desktop.notify import notify_error
+
+            notify_error(str(exc))
+            return existing
+        # Agent + FreeRDP fallback both failed — fall through to a fresh RAIL
+        # spawn below so the document actually opens (build_rdp_command carries
+        # file_path into the /app cmd).
+        log.info("open-in-session failed for %r; spawning a fresh window", app_name)
 
     cmd, password = build_rdp_command(
         cfg,
@@ -1379,6 +1401,14 @@ def launch_desktop(cfg: Config, *, extra_args: str = "") -> RDPSession:
 
 def linux_to_unc(path: str) -> str:
     """Convert a Linux file path to a Windows UNC path via tsclient."""
+    # A launcher / desktop portal may hand us a ``file://`` URI instead of a
+    # bare path (some file managers do this even for a ``%f`` field); decode it
+    # to a plain path first, else the "file:" prefix makes it non-absolute and
+    # cwd gets prepended into a bogus UNC (#675 defence-in-depth).
+    if path.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+
+        path = unquote(urlparse(path).path)
     # Normalise lexically (expanduser + absolutise + collapse '.' / '..') but do
     # NOT resolve() the file: following its own symlinks turns a file the user
     # deliberately placed under $HOME via a symlinked subdir (e.g.

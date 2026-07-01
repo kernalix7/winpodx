@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 
 from winpodx.core.i18n import tr
@@ -25,8 +26,12 @@ def send_notification(
     urgency: str = "normal",
 ) -> None:
     """Send a desktop notification using notify-send."""
+    # Resolve the absolute path: a DE that launches a winpodx .desktop as a
+    # systemd transient unit strips PATH, so a bare "notify-send" raises
+    # FileNotFoundError and the error toast silently never shows (#675).
+    notify_send = shutil.which("notify-send") or "notify-send"
     cmd = [
-        "notify-send",
+        notify_send,
         f"--urgency={urgency}",
         f"--icon={icon}",
         "--app-name=winpodx",
