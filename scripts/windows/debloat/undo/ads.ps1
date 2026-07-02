@@ -35,6 +35,7 @@ $adValues = @(
 
 foreach ($item in $adValues) {
     Remove-ItemProperty -Path $item.Path -Name $item.Name -Force -ErrorAction SilentlyContinue
+	if (-not (Get-ChildItem $item.Path -ErrorAction SilentlyContinue | Select-Object -First 1)) { Remove-Item $item.Path -Force -ErrorAction SilentlyContinue }
 }
 
 # Advertising ID itself will be removed on either ad enable / disable, as an exception to the list
