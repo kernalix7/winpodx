@@ -923,12 +923,22 @@ def _auto_kbd_flag(cfg: Config) -> str | None:
 def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> bool:
     """Open *file_path* in an already-running RemoteApp session.
 
-    Used when a second ``gio launch`` for the same app arrives while a session is
-    already live. Tries the guest agent first (fast, no visual artifacts); falls
-    back to ``run_in_windows`` (FreeRDP RemoteApp, ~5-10 s) when the agent is
-    unreachable **or errors**.
+    Used when a second ``gio launch`` for the same app arrives while a session
+    is already live. Delivery goes **only** through a FreeRDP RemoteApp
+    connection (``run_in_windows``), never the HTTP agent.
 
-    Returns ``True`` when the file was dispatched, ``False`` when BOTH channels
+    Why not the agent: ``\\tsclient\\home`` is a *per-RDP-session* drive
+    redirection — it exists only inside the FreeRDP session that established it.
+    The winpodx agent runs as a child of the **autologon console session**
+    (``HKCU\\Run``), which has no such redirection, so an agent
+    ``Start-Process <app> \\tsclient\\home\\doc`` opens a path that doesn't
+    exist in that session: the app pops "Access denied" while the agent reports
+    success and winpodx logs a false "opened in existing session" (#680).
+    ``run_in_windows`` opens its own RemoteApp connection with ``+home-drive``,
+    so ``\\tsclient\\home`` resolves and the app's single-instance handler
+    routes the document to the already-visible window.
+
+    Returns ``True`` when the file was dispatched, ``False`` when delivery
     failed — the caller can then fall back to a fresh RAIL spawn. Raises
     ``ValueError`` / ``RuntimeError`` when the path can't be mapped to a guest
     UNC, so the caller surfaces it (parity with the cold-start "Cannot open
@@ -944,27 +954,14 @@ def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> b
     safe_file = unc.replace("'", "''")
     ps = f"Start-Process '{safe_exe}' -ArgumentList '\"{safe_file}\"'"
 
-    from winpodx.core.transport import dispatch
-    from winpodx.core.transport.base import TransportUnavailable
-
-    try:
-        transport = dispatch(cfg, prefer="agent")
-        transport.exec(ps, timeout=15)
-        log.info("_open_file_in_session: opened %r in existing session", file_path)
-        return True
-    except TransportUnavailable:
-        log.debug("_open_file_in_session: agent unavailable, falling back to FreeRDP")
-    except Exception as exc:  # noqa: BLE001 — a transient agent error must NOT skip the fallback
-        log.debug("_open_file_in_session: agent dispatch failed, trying FreeRDP: %s", exc)
-
     try:
         from winpodx.core.windows_exec import run_in_windows
 
         run_in_windows(cfg, ps, description="open-file", timeout=30)
-        log.info("_open_file_in_session: opened %r via FreeRDP fallback", file_path)
+        log.info("_open_file_in_session: opened %r via RemoteApp", file_path)
         return True
     except Exception as exc:  # noqa: BLE001
-        log.debug("_open_file_in_session: FreeRDP fallback failed: %s", exc)
+        log.debug("_open_file_in_session: RemoteApp delivery failed: %s", exc)
         return False
 
 

@@ -1029,47 +1029,21 @@ def test_launch_app_existing_session_without_file_does_not_call_open(monkeypatch
     assert calls == []  # no spurious call
 
 
-def test_open_file_in_session_agent_success_skips_freerdp(monkeypatch):
-    # When the guest agent is reachable, the file is delivered over the fast
-    # HTTP channel and the slow FreeRDP fallback is never invoked.
+def test_open_file_in_session_delivers_via_remoteapp_not_agent(monkeypatch):
+    # #680: the file must be delivered through a FreeRDP RemoteApp connection
+    # (which carries the per-session \\tsclient\home redirect), NOT the HTTP
+    # agent. The agent runs in the autologon console session with no such
+    # redirect, so Start-Process <app> \\tsclient\home\... there opens a path
+    # that doesn't exist -> the app shows "Access denied" while the agent
+    # reports success. run_in_windows must be called with the Start-Process cmd.
     from winpodx.core import rdp as rdp_mod
 
     monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p: "\\\\tsclient\\home\\2.docx")
 
-    exec_calls: list[str] = []
-
-    class _Transport:
-        def exec(self, ps, timeout=None):
-            exec_calls.append(ps)
-
-    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg, prefer: _Transport())
-
-    rin_calls: list = []
     monkeypatch.setattr(
-        "winpodx.core.windows_exec.run_in_windows",
-        lambda *a, **k: rin_calls.append(a),
+        "winpodx.core.transport.dispatch",
+        lambda *a, **k: pytest.fail("agent must not open a \\\\tsclient file (#680)"),
     )
-
-    rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/home/u/2.docx")
-
-    assert len(exec_calls) == 1
-    assert "\\\\tsclient\\home\\2.docx" in exec_calls[0]
-    assert rin_calls == [], "FreeRDP fallback must not run when the agent succeeds"
-
-
-def test_open_file_in_session_falls_back_to_freerdp_when_agent_unavailable(monkeypatch):
-    # The #569 cachyos bug: the agent /health times out. _open_file_in_session
-    # must then fall back to run_in_windows (FreeRDP RemoteApp) instead of
-    # silently dropping the file.
-    from winpodx.core import rdp as rdp_mod
-    from winpodx.core.transport.base import TransportUnavailable
-
-    monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p: "\\\\tsclient\\home\\2.docx")
-
-    def _raise_unavailable(cfg, prefer):
-        raise TransportUnavailable("agent /health timed out")
-
-    monkeypatch.setattr("winpodx.core.transport.dispatch", _raise_unavailable)
 
     rin_calls: list[str] = []
     monkeypatch.setattr(
@@ -1077,16 +1051,16 @@ def test_open_file_in_session_falls_back_to_freerdp_when_agent_unavailable(monke
         lambda cfg, ps, **k: rin_calls.append(ps),
     )
 
-    rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/home/u/2.docx")
-
-    assert len(rin_calls) == 1, "FreeRDP fallback was not invoked"
+    assert rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/home/u/2.docx") is True
+    assert len(rin_calls) == 1, "delivery must go through run_in_windows (RemoteApp)"
     assert "\\\\tsclient\\home\\2.docx" in rin_calls[0]
+    assert "Start-Process" in rin_calls[0]
 
 
 def test_open_file_in_session_invalid_path_raises(monkeypatch):
     # #675: a path that can't be mapped to a UNC share (outside the redirected
     # home) must RAISE so the caller can surface it, not be silently dropped.
-    # Neither transport is touched (the raise happens before dispatch).
+    # Delivery (run_in_windows) is never reached (the raise happens first).
     from winpodx.core import rdp as rdp_mod
 
     def _raise_value(_p):
@@ -1094,16 +1068,16 @@ def test_open_file_in_session_invalid_path_raises(monkeypatch):
 
     monkeypatch.setattr(rdp_mod, "linux_to_unc", _raise_value)
 
-    dispatched: list = []
+    delivered: list = []
     monkeypatch.setattr(
-        "winpodx.core.transport.dispatch",
-        lambda *a, **k: dispatched.append(a),
+        "winpodx.core.windows_exec.run_in_windows",
+        lambda *a, **k: delivered.append(a),
     )
 
     with pytest.raises(ValueError, match="home share"):
         rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/etc/passwd")
 
-    assert dispatched == []
+    assert delivered == []
 
 
 def test_launch_app_warm_session_unmappable_file_notifies_not_silent(monkeypatch, tmp_path):
