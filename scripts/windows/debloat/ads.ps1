@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # winpodx debloat: ads & suggestions (Start menu / lock screen / settings)
 
-Write-Host "[ads] Disabling all known advertising suggestions..."
+Write-Host "[ads] Disabling ContentDeliveryManager + advertising suggestions..."
 
 $adValues = @(
     # Turn off possible File Explorer Ads
@@ -58,7 +58,7 @@ $adValues = @(
 
 foreach ($item in $adValues) {
     New-Item -Path $item.Path -Force -ErrorAction SilentlyContinue | Out-Null
-    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Type DWord -Force -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Force -ErrorAction SilentlyContinue
 }
 
 # Advertising ID itself will be removed on either ad enable / disable, as an exception to the list
