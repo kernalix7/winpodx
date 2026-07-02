@@ -1,15 +1,19 @@
 # SPDX-License-Identifier: MIT
 # winpodx debloat UNDO: Cortana + Start menu web search lookups
 
-Write-Host "[web_search] Restoring Cortana policy..."
-Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "AllowCortana" -Force -ErrorAction SilentlyContinue
+Write-Host "[web_search] Restoring Cortana + Start menu web search lookups..."
 
-Write-Host "[web_search] Restoring Bing web results in Windows Search..."
-Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "BingSearchEnabled" -Force -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "ConnectedSearchUseWeb" -Force -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer" -Name "DisableSearchBoxSuggestions" -Force -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Force -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "CortanaConsent" -Force -ErrorAction SilentlyContinue
+$webValues = @(
+  @{Path="HKLM:\Software\Policies\Microsoft\Windows\Windows Search"; Name="AllowCortana"},
+  @{Path="HKLM:\Software\Policies\Microsoft\Windows\Windows Search"; Name="BingSearchEnabled"},
+  @{Path="HKLM:\Software\Policies\Microsoft\Windows\Windows Search"; Name="ConnectedSearchUseWeb"},
+  @{Path="HKCU:\Software\Policies\Microsoft\Windows\Explorer"; Name="DisableSearchBoxSuggestions"},
+  @{Path="HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"; Name="BingSearchEnabled"},
+  @{Path="HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"; Name="CortanaConsent"},
+  @{Path="HKCU:\Software\Policies\Microsoft\Edge"; Name="WebWidgetAllowed"}
+)
 
-Write-Host "[web_search] Restoring Edge desktop search widget bar..."
-Remove-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Microsoft\Edge" -Name "WebWidgetAllowed" -Force -ErrorAction SilentlyContinue
+foreach ($item in $webValues) {
+  Remove-ItemProperty -Path $item.Path -Name $item.Name -Force -ErrorAction SilentlyContinue
+  if (-not (Get-ChildItem $item.Path -ErrorAction SilentlyContinue | Select-Object -First 1)) { Remove-Item $item.Path -Force -ErrorAction SilentlyContinue }
+}
