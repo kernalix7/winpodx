@@ -7,6 +7,12 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 기반으로 하며,
 버전 정책은 [Semantic Versioning](https://semver.org/lang/ko/)을 지향합니다.
 
+## [Unreleased]
+
+### Fixed
+
+- **이미 실행 중인 Windows 앱에 "연결 프로그램으로 열기"가 이제 동작함** (#675, @ajeshchrist 기여 감사). 예를 들어 Word가 이미 떠 있으면, 문서 우클릭 → "Word로 열기"가 조용히 아무것도 안 했습니다 — 실행-중-세션 경로가 모든 실패를 debug 레벨로 삼켜서(창도 에러도 없음). 이제 파일이 실행 중 세션에 전달되고, 실패하면 파일과 함께 새 RemoteApp 창을 띄웁니다; 공유 `$HOME`/미디어 밖의 문서는 이제 조용히 사라지지 않고 눈에 보이는 에러를 냅니다. 느린 게스트에서는 세션이 interactive 로 확인될 때만 warm 전달을 사용 — 잠긴/로그온-중 세션에서는 agent 가 문서를 보이지 않는 잠긴 데스크톱에 열어버리므로, 대신 새 RemoteApp 스폰으로 넘어갑니다(자격증명 접속이 세션 잠금을 해제) —, cold 실행은 RAIL 창 생성 전 데스크톱이 interactive 될 때까지 더 오래(최대 45초) 대기해 느린 자동로그온이 앱 위에 stale 로그온 화면을 그리지 않게 합니다. 조용한-실패 표면도 강화: `.desktop`의 `Exec`가 `%f`(다중선택 시 파일당 창 하나, no-op 방지), `notify-send`·`file://` URI를 절대경로로 해석해 stripped-PATH 실행에서도 에러 토스트·파일 인자가 살아남습니다.
+
 ## [0.8.0] - 2026-06-30
 
 ### Added

@@ -979,12 +979,14 @@ def test_launch_app_existing_session_with_file_calls_open_in_session(monkeypatch
     live = RDPSession(app_name="winword")
     monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    # #675 v2: warm delivery is gated on the session being interactive.
+    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: True)
 
     calls: list[tuple] = []
     monkeypatch.setattr(
         rdp_mod,
         "_open_file_in_session",
-        lambda cfg, exe, fp: calls.append((exe, fp)),
+        lambda cfg, exe, fp: calls.append((exe, fp)) or True,  # True = delivered
     )
 
     cfg = Config()
@@ -1009,6 +1011,8 @@ def test_launch_app_existing_session_without_file_does_not_call_open(monkeypatch
     live = RDPSession(app_name="winword")
     monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    # #675 v2: warm delivery is gated on the session being interactive.
+    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: True)
 
     calls: list = []
     monkeypatch.setattr(rdp_mod, "_open_file_in_session", lambda *a: calls.append(a))
@@ -1079,9 +1083,10 @@ def test_open_file_in_session_falls_back_to_freerdp_when_agent_unavailable(monke
     assert "\\\\tsclient\\home\\2.docx" in rin_calls[0]
 
 
-def test_open_file_in_session_invalid_path_returns_early(monkeypatch):
-    # A path that can't be mapped to a UNC share (outside the redirected home)
-    # is logged and dropped -- neither transport is touched.
+def test_open_file_in_session_invalid_path_raises(monkeypatch):
+    # #675: a path that can't be mapped to a UNC share (outside the redirected
+    # home) must RAISE so the caller can surface it, not be silently dropped.
+    # Neither transport is touched (the raise happens before dispatch).
     from winpodx.core import rdp as rdp_mod
 
     def _raise_value(_p):
@@ -1095,9 +1100,115 @@ def test_open_file_in_session_invalid_path_returns_early(monkeypatch):
         lambda *a, **k: dispatched.append(a),
     )
 
-    rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/etc/passwd")
+    with pytest.raises(ValueError, match="home share"):
+        rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/etc/passwd")
 
     assert dispatched == []
+
+
+def test_launch_app_warm_session_unmappable_file_notifies_not_silent(monkeypatch, tmp_path):
+    # #675: when the app is already running and the dropped file is outside the
+    # shared home, the warm path must surface an error (parity with the cold
+    # path) instead of silently returning — and must NOT spawn a fresh window.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    live = RDPSession(app_name="winword")
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    # #675 v2: warm delivery is gated on the session being interactive.
+    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: True)
+
+    def _raise_value(_cfg, _exe, _fp):
+        raise ValueError("Cannot open file: outside shared locations")
+
+    monkeypatch.setattr(rdp_mod, "_open_file_in_session", _raise_value)
+    # A fresh spawn would call find_freerdp; make it explode so the test fails
+    # loudly if we wrongly fall through instead of notifying + returning.
+    monkeypatch.setattr(
+        rdp_mod, "find_freerdp", lambda *a, **k: pytest.fail("should not spawn a fresh window")
+    )
+
+    notified: list[str] = []
+    import winpodx.desktop.notify as notify_mod
+
+    monkeypatch.setattr(notify_mod, "notify_error", lambda msg: notified.append(msg))
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    result = rdp_mod.launch_app(cfg, app_executable="C:\\WINWORD.EXE", file_path="/etc/passwd")
+
+    assert result is live
+    assert notified and "outside shared locations" in notified[0]
+
+
+def test_launch_app_warm_session_not_interactive_skips_warm_delivery(monkeypatch, tmp_path):
+    # #675 v2: when the app is running but the guest session is NOT interactive
+    # (locked / logging on), the warm agent delivery is skipped -- Start-Process
+    # would paint the doc onto an invisible locked desktop, reporting a false
+    # success. We must fall through to a fresh RAIL spawn instead, whose
+    # credentialed connect unlocks the session and shows the document.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    live = RDPSession(app_name="winword")
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: False)
+
+    monkeypatch.setattr(
+        rdp_mod,
+        "_open_file_in_session",
+        lambda *a: pytest.fail("warm delivery must be skipped when not interactive"),
+    )
+
+    # Prove we fell through to the cold RAIL path (build_rdp_command reached).
+    class _ReachedCold(RuntimeError):
+        pass
+
+    def _boom(*a, **k):
+        raise _ReachedCold()
+
+    monkeypatch.setattr(rdp_mod, "build_rdp_command", _boom)
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    with pytest.raises(_ReachedCold):
+        rdp_mod.launch_app(
+            cfg,
+            app_executable="C:\\WINWORD.EXE",
+            file_path=str(tmp_path / "2.docx"),
+        )
+
+
+def test_launch_app_cold_path_uses_longer_interactive_timeout(monkeypatch, tmp_path):
+    # #675 v2: the cold RemoteApp path waits _INTERACTIVE_WAIT_TIMEOUT (bumped
+    # from 20s) for the guest session to become interactive before creating the
+    # RAIL window, so a slow guest finishing autologon doesn't get a stale-logon
+    # framebuffer painted over the app.
+    from winpodx.core.rdp import _INTERACTIVE_WAIT_TIMEOUT
+
+    assert _INTERACTIVE_WAIT_TIMEOUT >= 45
+
+    rdp_mod, spawned = _patch_launch_to_spawn(
+        monkeypatch, tmp_path, ["xfreerdp", "/v:127.0.0.1", "notepad"]
+    )
+    monkeypatch.setattr(rdp_mod, "_early_exit_stderr", lambda *a, **k: None)
+
+    seen: list = []
+
+    def _record_wait(cfg, *, timeout=20):
+        seen.append(timeout)
+        return True
+
+    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", _record_wait)
+
+    cfg = Config()
+    cfg.pod.backend = "podman"  # so the cold-path interactive wait actually fires
+    rdp_mod.launch_app(cfg, app_executable="notepad.exe")
+
+    assert seen == [_INTERACTIVE_WAIT_TIMEOUT]
+    assert len(spawned) == 1
 
 
 def test_redact_cmd_for_log_masks_password():
