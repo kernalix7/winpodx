@@ -1135,6 +1135,21 @@ _SESSION_STATE_PS = (
 )
 
 
+# Cold RemoteApp launches wait this long for the guest session to become
+# interactive before creating the RAIL window (#332). Bumped from the original
+# 20s because a slow guest (spinning-disk storage / low RAM) can take 60-90s to
+# finish autologon after a disconnect-driven logoff, and creating the RAIL
+# window mid-logon paints a stale framebuffer -- the #675 re-report ("opens a
+# couple times, then the same issue") once the session has cycled. Polls every
+# 2s and returns the instant the desktop is READY, so a healthy session pays no
+# extra latency; only a locked/logging-on one waits.
+_INTERACTIVE_WAIT_TIMEOUT = 45
+# The warm path (app already running) only needs a quick "is it READY right
+# now?" probe: a visible running RAIL window is READY instantly, while a locked
+# session returns fast so we fall through to the unlock-capable cold spawn.
+_WARM_READY_PROBE = 4
+
+
 def _wait_session_interactive(cfg: Config, *, timeout: int = 20) -> bool:
     """Best-effort wait until the guest console is logged in + unlocked (#332).
 
@@ -1267,20 +1282,35 @@ def launch_app(
         # #675: deliver the file into the live session and FAIL LOUD. The old
         # fire-and-forget swallowed every error at debug, so "Open with <app>"
         # silently did nothing once the app was already running.
-        try:
-            if _open_file_in_session(cfg, app_executable, file_path):
-                return existing
-        except (ValueError, RuntimeError) as exc:
-            # e.g. the file is outside the shared $HOME / media locations —
-            # surface it exactly like the cold-start path, then stop.
-            from winpodx.desktop.notify import notify_error
+        #
+        # But only deliver via the agent when the guest session is actually
+        # interactive. On a slow/locked session the agent's Start-Process
+        # "succeeds" yet paints the document onto an invisible locked desktop,
+        # so the user sees nothing (the #675 re-report on a slow guest). When
+        # not READY, skip the warm delivery and fall through to a fresh RAIL
+        # spawn, whose credentialed connect unlocks / re-logs-in the session and
+        # actually shows the document.
+        if _wait_session_interactive(cfg, timeout=_WARM_READY_PROBE):
+            try:
+                if _open_file_in_session(cfg, app_executable, file_path):
+                    return existing
+            except (ValueError, RuntimeError) as exc:
+                # e.g. the file is outside the shared $HOME / media locations —
+                # surface it exactly like the cold-start path, then stop.
+                from winpodx.desktop.notify import notify_error
 
-            notify_error(str(exc))
-            return existing
-        # Agent + FreeRDP fallback both failed — fall through to a fresh RAIL
-        # spawn below so the document actually opens (build_rdp_command carries
-        # file_path into the /app cmd).
-        log.info("open-in-session failed for %r; spawning a fresh window", app_name)
+                notify_error(str(exc))
+                return existing
+            # Agent + FreeRDP fallback both failed — fall through to a fresh RAIL
+            # spawn below so the document actually opens (build_rdp_command
+            # carries file_path into the /app cmd).
+            log.info("open-in-session failed for %r; spawning a fresh window", app_name)
+        else:
+            log.info(
+                "guest session not interactive; skipping warm delivery for %r and "
+                "spawning a fresh RAIL window to unlock + open the file",
+                app_name,
+            )
 
     cmd, password = build_rdp_command(
         cfg,
@@ -1312,7 +1342,7 @@ def launch_app(
     # screen shows the login background", + `xf_Pointer: Invalid appWindow`
     # spam. Wait (best-effort, agent-only) until the desktop is interactive.
     if is_remoteapp and cfg.pod.backend in ("podman", "docker"):
-        _wait_session_interactive(cfg)
+        _wait_session_interactive(cfg, timeout=_INTERACTIVE_WAIT_TIMEOUT)
 
     log.info("Launching RDP: %s", _redact_cmd_for_log(cmd))
 
