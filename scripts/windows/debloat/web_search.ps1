@@ -6,19 +6,24 @@
 # search here keeps local app search working; it only stops Bing
 # round-trips for every keystroke.
 
-Write-Host "[web_search] Disabling Cortana policy..."
-New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Force -ErrorAction SilentlyContinue | Out-Null
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "AllowCortana" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+Write-Host "[web_search] Disabling Cortana + Start menu web search lookups..."
 
-Write-Host "[web_search] Disabling Bing web results in Windows Search..."
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "BingSearchEnabled" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "ConnectedSearchUseWeb" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
-New-Item -Path "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer" -Force -ErrorAction SilentlyContinue | Out-Null
-Set-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer" -Name "DisableSearchBoxSuggestions" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
-New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Force -ErrorAction SilentlyContinue | Out-Null
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "CortanaConsent" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+$webValues = @(
+	# Disable Cortana policy
+	@{Path="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"; Name="AllowCortana"; Value=0},
+	
+	# Disable Bing web results in Windows Search
+	@{Path="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"; Name="BingSearchEnabled"; Value=0},
+	@{Path="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"; Name="ConnectedSearchUseWeb"; Value=0},
+	@{Path="HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer"; Name="DisableSearchBoxSuggestions"; Value=1},
+	@{Path="HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"; Name="BingSearchEnabled"; Value=0},
+	@{Path="HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"; Name="CortanaConsent"; Value=0},
+	
+	# Disable Edge desktop search widget bar
+	@{Path="HKCU:\SOFTWARE\Policies\Microsoft\Edge"; Name="WebWidgetAllowed"; Value=0}
+)
 
-Write-Host "[web_search] Disabling Edge desktop search widget bar..."
-New-Item -Path "HKCU:\SOFTWARE\Policies\Microsoft\Edge" -Force -ErrorAction SilentlyContinue | Out-Null
-Set-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Microsoft\Edge" -Name "WebWidgetAllowed" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+foreach ($item in $webValues) {
+    New-Item -Path $item.Path -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Force -ErrorAction SilentlyContinue
+}
