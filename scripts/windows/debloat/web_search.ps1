@@ -25,5 +25,5 @@ $webValues = @(
 
 foreach ($item in $webValues) {
     New-Item -Path $item.Path -Force -ErrorAction SilentlyContinue | Out-Null
-    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Force -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Type DWord -Force -ErrorAction SilentlyContinue
 }

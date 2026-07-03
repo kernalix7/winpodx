@@ -58,7 +58,7 @@ $adValues = @(
 
 foreach ($item in $adValues) {
     New-Item -Path $item.Path -Force -ErrorAction SilentlyContinue | Out-Null
-    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Force -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $item.Path -Name $item.Name -Value $item.Value -Type DWord -Force -ErrorAction SilentlyContinue
 }
 
 # Advertising ID itself will be removed on either ad enable / disable, as an exception to the list
