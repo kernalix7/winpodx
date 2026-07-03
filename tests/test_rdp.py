@@ -1185,6 +1185,35 @@ def test_launch_app_cold_path_uses_longer_interactive_timeout(monkeypatch, tmp_p
     assert len(spawned) == 1
 
 
+def test_spawn_detached_sets_wlog_filter_env(monkeypatch, tmp_path):
+    # #680 nit: the FreeRDP subprocess runs with WLOG_FILTER raising the
+    # commandline WLog tag to FATAL, silencing the cosmetic get_next_comma
+    # warning at every launch -- without touching the delivered argv or the
+    # process-group setup kill_session() relies on.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    captured: dict = {}
+
+    class _FakeProc:
+        pid = 4321
+
+    def fake_popen(cmd, **kwargs):
+        captured.update(kwargs)
+        return _FakeProc()
+
+    monkeypatch.setattr(rdp_mod.subprocess, "Popen", fake_popen)
+
+    session = rdp_mod._spawn_detached(RDPSession(app_name="excel"), ["xfreerdp", "/v:x"])
+
+    assert session.process is not None
+    env = captured.get("env") or {}
+    assert env.get("WLOG_FILTER") == "com.winpr.commandline:FATAL"
+    assert captured.get("start_new_session") is True  # PGID preserved for kill_session
+
+
 def test_redact_cmd_for_log_masks_password():
     # The FreeRDP argv carries the Windows password as /p: (and gateway pw as
     # /gp:); the launch log must not print either in cleartext.

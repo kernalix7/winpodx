@@ -1098,12 +1098,22 @@ def _spawn_detached(session: RDPSession, cmd: list[str]) -> RDPSession:
     # kill_session() signal the whole tree at once (os.killpg).
     err_log = session.stderr_log.open("wb")
     try:
+        # Silence FreeRDP's cosmetic per-launch warning
+        #   [ERROR][com.winpr.commandline] [get_next_comma]: Invalid quoted argument
+        # emitted for the balanced-quote cmd:"<UNC>" form we must keep (#473) so a
+        # space in the file path isn't split. The `/log-filters:...:FATAL` command
+        # -line flag is parsed too late in the same commandline pass to suppress
+        # its own parser's warning; the WLOG_FILTER env var is read first and does.
+        # Only this one WLog tag is raised to FATAL -- other diagnostics are intact,
+        # and the delivered RemoteApplicationCmdLine bytes are unchanged (#680 nit).
+        spawn_env = {**os.environ, "WLOG_FILTER": "com.winpr.commandline:FATAL"}
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=err_log,
             start_new_session=True,
+            env=spawn_env,
         )
         err_log.close()
 
