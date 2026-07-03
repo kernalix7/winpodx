@@ -1214,6 +1214,103 @@ def test_spawn_detached_sets_wlog_filter_env(monkeypatch, tmp_path):
     assert captured.get("start_new_session") is True  # PGID preserved for kill_session
 
 
+def test_count_rail_windows_matches_res_class(monkeypatch):
+    # #680: RAIL windows are res_name RAIL + res_class == the app_name slug, so
+    # `wmctrl -lx` column 3 is "RAIL.<app>". Count only exact-class matches.
+    from winpodx.core import rdp as rdp_mod
+
+    out = (
+        "0x01 0 RAIL.excel host Book1\n"
+        "0x02 0 RAIL.excel host Book2\n"
+        "0x03 0 RAIL.winword host Doc\n"
+        "0x04 0 firefox.Firefox host web\n"
+    )
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out})())
+    assert rdp_mod._count_rail_windows("wmctrl", "RAIL.excel") == 2
+    assert rdp_mod._count_rail_windows("wmctrl", "RAIL.winword") == 1
+    assert rdp_mod._count_rail_windows("wmctrl", "RAIL.none") == 0
+
+
+def test_count_rail_windows_none_on_scan_error(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    def _boom(*a, **k):
+        raise OSError("wmctrl gone")
+
+    monkeypatch.setattr(rdp_mod.subprocess, "run", _boom)
+    assert rdp_mod._count_rail_windows("wmctrl", "RAIL.excel") is None
+
+
+class _AliveProc:
+    def poll(self):
+        return None  # never exits on its own -- the watcher must reap it
+
+
+def _fast_reaper_tuning(monkeypatch, rdp_mod):
+    monkeypatch.setattr(rdp_mod, "_WINDOW_REAP_POLL", 0.001)
+    monkeypatch.setattr(rdp_mod, "_WINDOW_REAP_APPEAR_TIMEOUT", 0.4)
+    monkeypatch.setattr(rdp_mod, "_WINDOW_REAP_DEBOUNCE", 0.005)
+    monkeypatch.setattr(rdp_mod.shutil, "which", lambda _n: "/usr/bin/wmctrl")
+
+
+def test_window_reaper_reaps_after_windows_close(monkeypatch):
+    # A window appears (arms the watcher), then all windows close -> after the
+    # debounce the session is reaped via kill_session even though the process
+    # never exited on its own (#680).
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    _fast_reaper_tuning(monkeypatch, rdp_mod)
+    # present for the first couple scans, gone forever after.
+    seq = iter([1, 1])
+    monkeypatch.setattr(rdp_mod, "_count_rail_windows", lambda *a: next(seq, 0))
+
+    killed: list[str] = []
+    monkeypatch.setattr("winpodx.core.process.kill_session", lambda name: killed.append(name))
+
+    session = RDPSession(app_name="excel")
+    session.process = _AliveProc()
+    rdp_mod._window_reaper(session, "excel")
+
+    assert killed == ["excel"]
+
+
+def test_window_reaper_never_reaps_if_no_window_appears(monkeypatch):
+    # Safe-by-omission: an app whose RAIL window never maps is left entirely to
+    # the process-reaper -- the watcher must NOT kill it.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    _fast_reaper_tuning(monkeypatch, rdp_mod)
+    monkeypatch.setattr(rdp_mod, "_count_rail_windows", lambda *a: 0)  # never appears
+
+    killed: list[str] = []
+    monkeypatch.setattr("winpodx.core.process.kill_session", lambda name: killed.append(name))
+
+    session = RDPSession(app_name="excel")
+    session.process = _AliveProc()
+    rdp_mod._window_reaper(session, "excel")
+
+    assert killed == []
+
+
+def test_window_reaper_noop_without_wmctrl(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    monkeypatch.setattr(rdp_mod.shutil, "which", lambda _n: None)
+    scanned: list = []
+    monkeypatch.setattr(rdp_mod, "_count_rail_windows", lambda *a: scanned.append(a))
+    killed: list[str] = []
+    monkeypatch.setattr("winpodx.core.process.kill_session", lambda name: killed.append(name))
+
+    session = RDPSession(app_name="excel")
+    session.process = _AliveProc()
+    rdp_mod._window_reaper(session, "excel")
+
+    assert scanned == [] and killed == []
+
+
 def test_redact_cmd_for_log_masks_password():
     # The FreeRDP argv carries the Windows password as /p: (and gateway pw as
     # /gp:); the launch log must not print either in cleartext.

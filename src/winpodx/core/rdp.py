@@ -1246,6 +1246,104 @@ def _relist_uwp_taskbar(wm_class: str) -> None:
         time.sleep(0.8)
 
 
+# _window_reaper tuning (#680): reap a RAIL session when its windows close even
+# though xfreerdp stays connected (Office keeps the process + RemoteApp session
+# resident after the document window closes, so `_reaper_thread`'s proc.wait()
+# blocks forever and the app shows RUNNING indefinitely). Deliberately generous:
+# over-waiting leaves a zombie a few seconds longer; under-waiting would kill a
+# live app that briefly has no top-level window.
+_WINDOW_REAP_POLL = 2.0  # seconds between wmctrl scans
+_WINDOW_REAP_APPEAR_TIMEOUT = 40  # give the first RAIL window this long to map
+_WINDOW_REAP_DEBOUNCE = 6.0  # windows must stay gone this long before reaping
+
+
+def _count_rail_windows(wmctrl: str, target: str) -> int | None:
+    """Count mapped ``RAIL.<wm_class>`` windows; ``None`` when the scan failed.
+
+    Mirrors ``_relist_uwp_taskbar``'s match: ``wmctrl -lx`` column 3 is
+    ``<res_name>.<res_class>``, and FreeRDP RAIL windows use res_name ``RAIL``
+    with res_class == the ``/wm-class`` token (our app_name slug).
+    """
+    try:
+        out = subprocess.run(
+            [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    count = 0
+    for line in out.splitlines():
+        parts = line.split(None, 4)  # id, desktop, wm_class, host, title
+        if len(parts) >= 3 and parts[2] == target:
+            count += 1
+    return count
+
+
+def _window_reaper(session: RDPSession, wm_class: str) -> None:
+    """Reap a RAIL session when its windows close, even though xfreerdp stays
+    connected (#680: "app sessions never terminate after closing").
+
+    A FreeRDP RAIL client exits only when the SERVER disconnects; Office keeps
+    its process (and the RemoteApp session) resident after the document window
+    is closed, so `_reaper_thread`'s `proc.wait()` never returns and the app
+    lists RUNNING forever, holding a half-stuck `\\tsclient\\home` redirect.
+    This watcher tracks the app's RAIL windows on the host and, once they are
+    all gone, SIGTERMs the session (via `kill_session`, the same vetted PGID
+    kill the GUI/tray use) -- which lets `_reaper_thread` unlink the .cproc.
+
+    Safe-by-omission: a clean no-op when wmctrl is absent (Wayland without
+    XWayland), when the scan errors, or when NO window ever maps -- it arms only
+    AFTER the first window appears, so an app we never saw a window for is left
+    entirely to the process-reaper (never killed early). X11 / XWayland only.
+    """
+    import time
+
+    proc = session.process
+    if proc is None:
+        return
+    wmctrl = shutil.which("wmctrl")
+    if not wmctrl:
+        return
+    target = f"RAIL.{wm_class}"
+
+    # Phase 1 -- arm: wait for the first window to map. If none ever appears,
+    # bail (never window-reap an app we never saw a window for).
+    appeared = False
+    deadline = time.monotonic() + _WINDOW_REAP_APPEAR_TIMEOUT
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return  # process already exited; _reaper_thread handles cleanup
+        if _count_rail_windows(wmctrl, target):
+            appeared = True
+            break
+        time.sleep(_WINDOW_REAP_POLL)
+    if not appeared:
+        return
+
+    # Phase 2 -- watch: reap once windows stay gone for the debounce window.
+    gone_since: float | None = None
+    while proc.poll() is None:
+        count = _count_rail_windows(wmctrl, target)
+        if count is None:
+            gone_since = None  # transient scan failure -> don't treat as gone
+        elif count == 0:
+            now = time.monotonic()
+            if gone_since is None:
+                gone_since = now
+            elif now - gone_since >= _WINDOW_REAP_DEBOUNCE:
+                from winpodx.core.process import kill_session
+
+                log.info(
+                    "RAIL windows for %r gone %.0fs after close; reaping the stuck session",
+                    session.app_name,
+                    _WINDOW_REAP_DEBOUNCE,
+                )
+                kill_session(session.app_name)
+                return
+        else:
+            gone_since = None
+        time.sleep(_WINDOW_REAP_POLL)
+
+
 def launch_app(
     cfg: Config,
     app_executable: str | None = None,
@@ -1421,6 +1519,16 @@ def launch_app(
     # ApplicationFrameHost, marked SKIP_TASKBAR/SKIP_PAGER) back onto the Linux
     # taskbar. app_name == the /wm-class token for UWP.
     threading.Thread(target=_reaper_thread, args=(session,), daemon=True).start()
+    # #680: reap the session when its RAIL windows close even if xfreerdp stays
+    # connected (Office keeps its process resident, so the process-reaper never
+    # fires). RemoteApp only -- a full desktop session has no RAIL.<wm_class>
+    # window and must never be reaped on window-absence.
+    if is_remoteapp:
+        threading.Thread(
+            target=_window_reaper,
+            args=(session, session.app_name),
+            daemon=True,
+        ).start()
     if launch_uri is not None:
         threading.Thread(
             target=_relist_uwp_taskbar,
