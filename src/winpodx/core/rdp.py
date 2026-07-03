@@ -920,51 +920,6 @@ def _auto_kbd_flag(cfg: Config) -> str | None:
     return f"/kbd:layout:0x{lcid}"
 
 
-def _open_file_in_session(cfg: Config, app_executable: str, file_path: str) -> bool:
-    """Open *file_path* in an already-running RemoteApp session.
-
-    Used when a second ``gio launch`` for the same app arrives while a session
-    is already live. Delivery goes **only** through a FreeRDP RemoteApp
-    connection (``run_in_windows``), never the HTTP agent.
-
-    Why not the agent: ``\\tsclient\\home`` is a *per-RDP-session* drive
-    redirection — it exists only inside the FreeRDP session that established it.
-    The winpodx agent runs as a child of the **autologon console session**
-    (``HKCU\\Run``), which has no such redirection, so an agent
-    ``Start-Process <app> \\tsclient\\home\\doc`` opens a path that doesn't
-    exist in that session: the app pops "Access denied" while the agent reports
-    success and winpodx logs a false "opened in existing session" (#680).
-    ``run_in_windows`` opens its own RemoteApp connection with ``+home-drive``,
-    so ``\\tsclient\\home`` resolves and the app's single-instance handler
-    routes the document to the already-visible window.
-
-    Returns ``True`` when the file was dispatched, ``False`` when delivery
-    failed — the caller can then fall back to a fresh RAIL spawn. Raises
-    ``ValueError`` / ``RuntimeError`` when the path can't be mapped to a guest
-    UNC, so the caller surfaces it (parity with the cold-start "Cannot open
-    file" error) instead of silently dropping the file (#675).
-    """
-    # NB: linux_to_unc raises for paths outside the shared $HOME / media
-    # locations; we let it propagate so the caller can notify the user, rather
-    # than swallowing it (which made "Open with" a silent no-op once the app was
-    # already open — #675).
-    unc = linux_to_unc(file_path)
-
-    safe_exe = app_executable.replace("'", "''")
-    safe_file = unc.replace("'", "''")
-    ps = f"Start-Process '{safe_exe}' -ArgumentList '\"{safe_file}\"'"
-
-    try:
-        from winpodx.core.windows_exec import run_in_windows
-
-        run_in_windows(cfg, ps, description="open-file", timeout=30)
-        log.info("_open_file_in_session: opened %r via RemoteApp", file_path)
-        return True
-    except Exception as exc:  # noqa: BLE001
-        log.debug("_open_file_in_session: RemoteApp delivery failed: %s", exc)
-        return False
-
-
 def _find_existing_session(app_name: str) -> RDPSession | None:
     """Check if an RDP session for this app is already running."""
     from winpodx.core.process import is_freerdp_pid
@@ -1135,10 +1090,21 @@ def _spawn_detached(session: RDPSession, cmd: list[str]) -> RDPSession:
     return session
 
 
+# Session-scoped lock probe (#680/#675). A plain machine-wide `Get-Process
+# LogonUI` reports LOCKED whenever ANY session shows the lock/logon screen -- a
+# stale disconnected RAIL session or the autologon console -- which wrongly
+# flips a perfectly-interactive app session to LOCKED and makes launch_app skip
+# delivery / wait the full timeout. Instead compare SessionIds: READY iff some
+# session has explorer.exe with NO LogonUI in that SAME session (an unlocked
+# interactive desktop); LOCKED iff every explorer session also has a LogonUI
+# (genuinely locked); NOSHELL iff no explorer at all.
 _SESSION_STATE_PS = (
-    "if (Get-Process LogonUI -ErrorAction SilentlyContinue) { 'LOCKED' } "
-    "elseif (Get-Process explorer -ErrorAction SilentlyContinue) { 'READY' } "
-    "else { 'NOSHELL' }"
+    "$lock = @(Get-Process LogonUI -ErrorAction SilentlyContinue | "
+    "ForEach-Object { $_.SessionId }); "
+    "$exp = @(Get-Process explorer -ErrorAction SilentlyContinue); "
+    "if ($exp.Count -eq 0) { 'NOSHELL' } "
+    "elseif (@($exp | Where-Object { $lock -notcontains $_.SessionId }).Count -gt 0) { 'READY' } "
+    "else { 'LOCKED' }"
 )
 
 
@@ -1151,10 +1117,6 @@ _SESSION_STATE_PS = (
 # 2s and returns the instant the desktop is READY, so a healthy session pays no
 # extra latency; only a locked/logging-on one waits.
 _INTERACTIVE_WAIT_TIMEOUT = 45
-# The warm path (app already running) only needs a quick "is it READY right
-# now?" probe: a visible running RAIL window is READY instantly, while a locked
-# session returns fast so we fall through to the unlock-capable cold spawn.
-_WARM_READY_PROBE = 4
 
 
 def _wait_session_interactive(cfg: Config, *, timeout: int = 20) -> bool:
@@ -1384,38 +1346,31 @@ def launch_app(
     if existing is not None:
         if not (file_path and app_executable):
             return existing
-        # #675: deliver the file into the live session and FAIL LOUD. The old
-        # fire-and-forget swallowed every error at debug, so "Open with <app>"
-        # silently did nothing once the app was already running.
+        # #675/#680: "Open with <app>" while the app is already running. We do
+        # NOT try to deliver the file into the live session anymore. The guest
+        # runs multi-session RDP (fSingleSessionPerUser=0), so a transient
+        # delivery connection lands in a DIFFERENT session than the visible app
+        # -- the old agent/RemoteApp warm path just spun ~30s (the "crash-
+        # relaunch" delay the reporter saw) before falling through to a fresh
+        # spawn anyway. Go straight to a fresh RAIL window carrying the file
+        # (build_rdp_command puts it in the /app cmd + redirects $HOME), which
+        # also unlocks/re-logs-in the session via its credentialed connect.
         #
-        # But only deliver via the agent when the guest session is actually
-        # interactive. On a slow/locked session the agent's Start-Process
-        # "succeeds" yet paints the document onto an invisible locked desktop,
-        # so the user sees nothing (the #675 re-report on a slow guest). When
-        # not READY, skip the warm delivery and fall through to a fresh RAIL
-        # spawn, whose credentialed connect unlocks / re-logs-in the session and
-        # actually shows the document.
-        if _wait_session_interactive(cfg, timeout=_WARM_READY_PROBE):
-            try:
-                if _open_file_in_session(cfg, app_executable, file_path):
-                    return existing
-            except (ValueError, RuntimeError) as exc:
-                # e.g. the file is outside the shared $HOME / media locations —
-                # surface it exactly like the cold-start path, then stop.
-                from winpodx.desktop.notify import notify_error
+        # Validate the path up front so a file outside the shared $HOME / media
+        # locations surfaces a visible error toast instead of a raw traceback
+        # (#675 fail-loud), then fall through to the cold spawn below.
+        try:
+            linux_to_unc(file_path)
+        except (ValueError, RuntimeError) as exc:
+            from winpodx.desktop.notify import notify_error
 
-                notify_error(str(exc))
-                return existing
-            # Agent + FreeRDP fallback both failed — fall through to a fresh RAIL
-            # spawn below so the document actually opens (build_rdp_command
-            # carries file_path into the /app cmd).
-            log.info("open-in-session failed for %r; spawning a fresh window", app_name)
-        else:
-            log.info(
-                "guest session not interactive; skipping warm delivery for %r and "
-                "spawning a fresh RAIL window to unlock + open the file",
-                app_name,
-            )
+            notify_error(str(exc))
+            return existing
+        log.info(
+            "opening a fresh window for %r (warm delivery is unreliable under multi-session RDP)",
+            app_name,
+        )
+        # fall through to the cold RAIL spawn below.
 
     cmd, password = build_rdp_command(
         cfg,

@@ -968,175 +968,19 @@ def test_launch_app_healthy_spawn_starts_reaper_no_retry(monkeypatch, tmp_path):
     assert session.process is not None
 
 
-def test_launch_app_existing_session_with_file_calls_open_in_session(monkeypatch, tmp_path):
-    # When a session for the same app is already running AND a file_path is
-    # provided (e.g. a second ``gio launch ... 2.docx``), launch_app must NOT
-    # silently discard the file -- it should call _open_file_in_session so the
-    # file is delivered to the running app via the guest agent.
+def test_launch_app_existing_session_with_file_spawns_fresh_window(monkeypatch, tmp_path):
+    # #680/#2: opening a file while the app is already running no longer attempts
+    # a (futile under multi-session, ~30s) warm delivery -- it falls straight
+    # through to a fresh RAIL spawn carrying the file. Prove build_rdp_command is
+    # reached rather than an early return of the existing session.
     from winpodx.core import rdp as rdp_mod
     from winpodx.core.rdp import RDPSession
 
     live = RDPSession(app_name="winword")
     monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
-    # #675 v2: warm delivery is gated on the session being interactive.
-    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: True)
-
-    calls: list[tuple] = []
-    monkeypatch.setattr(
-        rdp_mod,
-        "_open_file_in_session",
-        lambda cfg, exe, fp: calls.append((exe, fp)) or True,  # True = delivered
-    )
-
-    cfg = Config()
-    cfg.pod.backend = "manual"
-    result = rdp_mod.launch_app(
-        cfg,
-        app_executable="C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
-        file_path=str(tmp_path / "2.docx"),
-    )
-
-    assert result is live
-    assert len(calls) == 1, "_open_file_in_session was not called"
-    assert calls[0][1] == str(tmp_path / "2.docx")
-
-
-def test_launch_app_existing_session_without_file_does_not_call_open(monkeypatch, tmp_path):
-    # Without a file_path (plain app launch), the existing session is returned
-    # immediately without calling _open_file_in_session.
-    from winpodx.core import rdp as rdp_mod
-    from winpodx.core.rdp import RDPSession
-
-    live = RDPSession(app_name="winword")
-    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
-    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
-    # #675 v2: warm delivery is gated on the session being interactive.
-    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: True)
-
-    calls: list = []
-    monkeypatch.setattr(rdp_mod, "_open_file_in_session", lambda *a: calls.append(a))
-
-    cfg = Config()
-    cfg.pod.backend = "manual"
-    result = rdp_mod.launch_app(
-        cfg,
-        app_executable="C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
-        file_path=None,
-    )
-
-    assert result is live
-    assert calls == []  # no spurious call
-
-
-def test_open_file_in_session_delivers_via_remoteapp_not_agent(monkeypatch):
-    # #680: the file must be delivered through a FreeRDP RemoteApp connection
-    # (which carries the per-session \\tsclient\home redirect), NOT the HTTP
-    # agent. The agent runs in the autologon console session with no such
-    # redirect, so Start-Process <app> \\tsclient\home\... there opens a path
-    # that doesn't exist -> the app shows "Access denied" while the agent
-    # reports success. run_in_windows must be called with the Start-Process cmd.
-    from winpodx.core import rdp as rdp_mod
-
     monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p: "\\\\tsclient\\home\\2.docx")
 
-    monkeypatch.setattr(
-        "winpodx.core.transport.dispatch",
-        lambda *a, **k: pytest.fail("agent must not open a \\\\tsclient file (#680)"),
-    )
-
-    rin_calls: list[str] = []
-    monkeypatch.setattr(
-        "winpodx.core.windows_exec.run_in_windows",
-        lambda cfg, ps, **k: rin_calls.append(ps),
-    )
-
-    assert rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/home/u/2.docx") is True
-    assert len(rin_calls) == 1, "delivery must go through run_in_windows (RemoteApp)"
-    assert "\\\\tsclient\\home\\2.docx" in rin_calls[0]
-    assert "Start-Process" in rin_calls[0]
-
-
-def test_open_file_in_session_invalid_path_raises(monkeypatch):
-    # #675: a path that can't be mapped to a UNC share (outside the redirected
-    # home) must RAISE so the caller can surface it, not be silently dropped.
-    # Delivery (run_in_windows) is never reached (the raise happens first).
-    from winpodx.core import rdp as rdp_mod
-
-    def _raise_value(_p):
-        raise ValueError("not under the home share")
-
-    monkeypatch.setattr(rdp_mod, "linux_to_unc", _raise_value)
-
-    delivered: list = []
-    monkeypatch.setattr(
-        "winpodx.core.windows_exec.run_in_windows",
-        lambda *a, **k: delivered.append(a),
-    )
-
-    with pytest.raises(ValueError, match="home share"):
-        rdp_mod._open_file_in_session(Config(), "WINWORD.EXE", "/etc/passwd")
-
-    assert delivered == []
-
-
-def test_launch_app_warm_session_unmappable_file_notifies_not_silent(monkeypatch, tmp_path):
-    # #675: when the app is already running and the dropped file is outside the
-    # shared home, the warm path must surface an error (parity with the cold
-    # path) instead of silently returning — and must NOT spawn a fresh window.
-    from winpodx.core import rdp as rdp_mod
-    from winpodx.core.rdp import RDPSession
-
-    live = RDPSession(app_name="winword")
-    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
-    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
-    # #675 v2: warm delivery is gated on the session being interactive.
-    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: True)
-
-    def _raise_value(_cfg, _exe, _fp):
-        raise ValueError("Cannot open file: outside shared locations")
-
-    monkeypatch.setattr(rdp_mod, "_open_file_in_session", _raise_value)
-    # A fresh spawn would call find_freerdp; make it explode so the test fails
-    # loudly if we wrongly fall through instead of notifying + returning.
-    monkeypatch.setattr(
-        rdp_mod, "find_freerdp", lambda *a, **k: pytest.fail("should not spawn a fresh window")
-    )
-
-    notified: list[str] = []
-    import winpodx.desktop.notify as notify_mod
-
-    monkeypatch.setattr(notify_mod, "notify_error", lambda msg: notified.append(msg))
-
-    cfg = Config()
-    cfg.pod.backend = "manual"
-    result = rdp_mod.launch_app(cfg, app_executable="C:\\WINWORD.EXE", file_path="/etc/passwd")
-
-    assert result is live
-    assert notified and "outside shared locations" in notified[0]
-
-
-def test_launch_app_warm_session_not_interactive_skips_warm_delivery(monkeypatch, tmp_path):
-    # #675 v2: when the app is running but the guest session is NOT interactive
-    # (locked / logging on), the warm agent delivery is skipped -- Start-Process
-    # would paint the doc onto an invisible locked desktop, reporting a false
-    # success. We must fall through to a fresh RAIL spawn instead, whose
-    # credentialed connect unlocks the session and shows the document.
-    from winpodx.core import rdp as rdp_mod
-    from winpodx.core.rdp import RDPSession
-
-    live = RDPSession(app_name="winword")
-    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
-    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
-    monkeypatch.setattr(rdp_mod, "_wait_session_interactive", lambda *a, **k: False)
-
-    monkeypatch.setattr(
-        rdp_mod,
-        "_open_file_in_session",
-        lambda *a: pytest.fail("warm delivery must be skipped when not interactive"),
-    )
-
-    # Prove we fell through to the cold RAIL path (build_rdp_command reached).
     class _ReachedCold(RuntimeError):
         pass
 
@@ -1153,6 +997,58 @@ def test_launch_app_warm_session_not_interactive_skips_warm_delivery(monkeypatch
             app_executable="C:\\WINWORD.EXE",
             file_path=str(tmp_path / "2.docx"),
         )
+
+
+def test_launch_app_existing_session_without_file_returns_existing(monkeypatch, tmp_path):
+    # Without a file_path (plain re-launch), the existing session is returned
+    # immediately -- no fresh spawn.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    live = RDPSession(app_name="winword")
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        rdp_mod, "build_rdp_command", lambda *a, **k: pytest.fail("must not spawn without a file")
+    )
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    result = rdp_mod.launch_app(cfg, app_executable="C:\\WINWORD.EXE", file_path=None)
+
+    assert result is live
+
+
+def test_launch_app_warm_session_unmappable_file_notifies_not_silent(monkeypatch, tmp_path):
+    # #675: a dropped file outside the shared home must surface an error toast
+    # (parity with the cold path) and NOT spawn a fresh window -- the warm branch
+    # validates the path up front and notifies instead of falling through.
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.rdp import RDPSession
+
+    live = RDPSession(app_name="winword")
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    def _raise_value(_p):
+        raise ValueError("Cannot open file: outside shared locations")
+
+    monkeypatch.setattr(rdp_mod, "linux_to_unc", _raise_value)
+    monkeypatch.setattr(
+        rdp_mod, "build_rdp_command", lambda *a, **k: pytest.fail("should not spawn a fresh window")
+    )
+
+    notified: list[str] = []
+    import winpodx.desktop.notify as notify_mod
+
+    monkeypatch.setattr(notify_mod, "notify_error", lambda msg: notified.append(msg))
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    result = rdp_mod.launch_app(cfg, app_executable="C:\\WINWORD.EXE", file_path="/etc/passwd")
+
+    assert result is live
+    assert notified and "outside shared locations" in notified[0]
 
 
 def test_launch_app_cold_path_uses_longer_interactive_timeout(monkeypatch, tmp_path):
@@ -1309,6 +1205,21 @@ def test_window_reaper_noop_without_wmctrl(monkeypatch):
     rdp_mod._window_reaper(session, "excel")
 
     assert scanned == [] and killed == []
+
+
+def test_session_state_probe_is_session_scoped(monkeypatch):
+    # #680/#5: the LOCKED probe must compare LogonUI/explorer by SessionId so a
+    # lock screen in ANOTHER session (console / stale disconnected RAIL) doesn't
+    # flip an interactive app session to LOCKED. Guard the exact shape of the PS.
+    from winpodx.core.rdp import _SESSION_STATE_PS
+
+    assert "SessionId" in _SESSION_STATE_PS
+    assert "-notcontains" in _SESSION_STATE_PS
+    # all three states still emitted
+    for state in ("'READY'", "'LOCKED'", "'NOSHELL'"):
+        assert state in _SESSION_STATE_PS
+    # the naive machine-wide "any LogonUI -> LOCKED" form is gone
+    assert "if (Get-Process LogonUI" not in _SESSION_STATE_PS
 
 
 def test_redact_cmd_for_log_masks_password():
