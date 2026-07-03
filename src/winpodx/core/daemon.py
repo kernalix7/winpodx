@@ -11,13 +11,14 @@ Handles:
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 import threading
 import time
 from pathlib import Path
 
 from winpodx.core.config import Config
-from winpodx.core.process import list_active_sessions
+from winpodx.core.process import kill_session, list_active_sessions
 
 log = logging.getLogger(__name__)
 
@@ -322,6 +323,94 @@ def run_icon_refresh_monitor(
             except Exception as e:  # noqa: BLE001 -- never kill the monitor
                 log.debug("icon-refresh pass failed (will retry): %s", e)
         stop_event.wait(60)  # interruptible; coarse enough for a 6 h cadence
+
+
+# Session window-reaper cadence (#680). Poll fast enough that a closed window
+# drops off "RUNNING" within a few seconds; debounce so a transient no-window
+# moment (splash -> main handoff, a modal being the only top-level) can't reap a
+# live app.
+_WINDOW_REAP_POLL_SECS = 3.0
+_WINDOW_REAP_DEBOUNCE_SECS = 6.0
+
+
+def _rail_window_classes(wmctrl: str) -> set[str] | None:
+    """Set of res_class tokens for mapped ``RAIL.<class>`` windows; ``None`` on
+    scan error. FreeRDP RAIL windows are res_name ``RAIL`` + res_class == the
+    app_name slug, so ``wmctrl -lx`` column 3 is ``RAIL.<app_name>``.
+    """
+    try:
+        out = subprocess.run(
+            [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    classes: set[str] = set()
+    for line in out.splitlines():
+        parts = line.split(None, 4)  # id, desktop, wm_class, host, title
+        if len(parts) >= 3 and parts[2].startswith("RAIL."):
+            classes.add(parts[2][len("RAIL.") :])
+    return classes
+
+
+def run_session_window_reaper(
+    cfg: Config,
+    stop_event: threading.Event | None = None,
+) -> None:
+    """Reap RAIL sessions whose windows have closed (#680), from a long-lived host.
+
+    The per-launch ``_window_reaper`` in rdp.py runs as a daemon thread inside
+    the launching process, but ``winpodx app run`` returns immediately (unless
+    ``--wait``) -- so for the real launch paths (menu ``.desktop`` entries,
+    ``winpodx app run <app> <file>``) that thread dies at once and never fires.
+    This runs in the tray (always started, long-lived) and watches ALL active
+    sessions: once a session's RAIL window has appeared and then stayed gone for
+    a debounce, it terminates the session via ``kill_session`` so an app that
+    keeps its process resident after the window closes (Office) stops showing
+    RUNNING forever and stops holding a half-stuck ``\\tsclient\\home`` redirect.
+
+    X11 / XWayland only (needs ``wmctrl``); a clean no-op otherwise. Only reaps a
+    session whose window was actually seen, so a launching / window-less session
+    is never killed early.
+    """
+    if stop_event is None:
+        stop_event = threading.Event()
+    wmctrl = shutil.which("wmctrl")
+    if not wmctrl:
+        log.debug("session window-reaper: wmctrl absent; disabled")
+        return
+    log.info("Session window-reaper started")
+    seen: set[str] = set()  # app_names whose RAIL window has appeared at least once
+    gone_since: dict[str, float] = {}
+    while not stop_event.is_set():
+        try:
+            live = {s.app_name for s in list_active_sessions()}
+            # Forget state for sessions that have ended.
+            seen.intersection_update(live)
+            for name in list(gone_since):
+                if name not in live:
+                    gone_since.pop(name, None)
+
+            classes = _rail_window_classes(wmctrl)
+            if classes is not None:
+                now = time.monotonic()
+                for name in live:
+                    if name in classes:
+                        seen.add(name)
+                        gone_since.pop(name, None)
+                    elif name in seen:
+                        first_gone = gone_since.setdefault(name, now)
+                        if now - first_gone >= _WINDOW_REAP_DEBOUNCE_SECS:
+                            log.info(
+                                "session %r windows gone %.0fs after close; reaping",
+                                name,
+                                _WINDOW_REAP_DEBOUNCE_SECS,
+                            )
+                            kill_session(name)
+                            seen.discard(name)
+                            gone_since.pop(name, None)
+        except Exception as e:  # noqa: BLE001 -- never kill the monitor
+            log.debug("session window-reaper pass failed: %s", e)
+        stop_event.wait(_WINDOW_REAP_POLL_SECS)
 
 
 def _icon_refresh_once(cfg: Config) -> None:

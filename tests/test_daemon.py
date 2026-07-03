@@ -272,3 +272,93 @@ def test_icon_refresh_once_syncs_when_changed(monkeypatch):
     )
     daemon._icon_refresh_once(Config())
     assert installed == ["word", "cache"]  # visible app installed, hidden skipped, cache refreshed
+
+
+# --- Session window-reaper (#680) --------------------------------------------
+
+
+def test_rail_window_classes_parses_res_class(monkeypatch):
+    out = (
+        "0x01 0 RAIL.excel host Book1\n"
+        "0x02 0 RAIL.winword host Doc\n"
+        "0x03 0 firefox.Firefox host web\n"
+    )
+    monkeypatch.setattr(daemon.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out})())
+    assert daemon._rail_window_classes("wmctrl") == {"excel", "winword"}
+
+
+def test_rail_window_classes_none_on_scan_error(monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("wmctrl gone")
+
+    monkeypatch.setattr(daemon.subprocess, "run", _boom)
+    assert daemon._rail_window_classes("wmctrl") is None
+
+
+def _reaper_env(monkeypatch, scans):
+    """Wire a fast session window-reaper over a scripted sequence of window-class
+    scans. Returns (stop_event, killed_list)."""
+    import threading
+
+    from winpodx.core.process import TrackedProcess
+
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_POLL_SECS", 0.001)
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_DEBOUNCE_SECS", 0.0)
+    monkeypatch.setattr(daemon.shutil, "which", lambda _n: "/usr/bin/wmctrl")
+    monkeypatch.setattr(daemon, "list_active_sessions", lambda: [TrackedProcess("excel", 111)])
+    it = iter(scans)
+    monkeypatch.setattr(daemon, "_rail_window_classes", lambda _w: next(it, set()))
+    stop = threading.Event()
+    killed: list[str] = []
+
+    def _kill(name):
+        killed.append(name)
+        stop.set()  # one reap is enough for the test
+
+    monkeypatch.setattr(daemon, "kill_session", _kill)
+    return stop, killed
+
+
+def test_session_window_reaper_reaps_after_window_closes(monkeypatch):
+    # Window present on the first scan (arms), gone after -> reaped via kill_session.
+    stop, killed = _reaper_env(monkeypatch, [{"excel"}, set(), set()])
+    daemon.run_session_window_reaper(Config(), stop)
+    assert killed == ["excel"]
+
+
+def test_session_window_reaper_never_reaps_unseen_window(monkeypatch):
+    # A session whose RAIL window never appears must never be reaped.
+    import threading
+
+    from winpodx.core.process import TrackedProcess
+
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_POLL_SECS", 0.001)
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_DEBOUNCE_SECS", 0.0)
+    monkeypatch.setattr(daemon.shutil, "which", lambda _n: "/usr/bin/wmctrl")
+    monkeypatch.setattr(daemon, "list_active_sessions", lambda: [TrackedProcess("excel", 111)])
+
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def _scan(_w):
+        calls["n"] += 1
+        if calls["n"] >= 4:
+            stop.set()
+        return set()  # excel window never maps
+
+    monkeypatch.setattr(daemon, "_rail_window_classes", _scan)
+    killed: list[str] = []
+    monkeypatch.setattr(daemon, "kill_session", lambda name: killed.append(name))
+
+    daemon.run_session_window_reaper(Config(), stop)
+    assert killed == []
+
+
+def test_session_window_reaper_noop_without_wmctrl(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(daemon.shutil, "which", lambda _n: None)
+    called: list = []
+    monkeypatch.setattr(daemon, "list_active_sessions", lambda: called.append("x") or [])
+    daemon.run_session_window_reaper(Config(), threading.Event())
+    assert called == []  # returned before the loop

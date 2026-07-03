@@ -828,6 +828,18 @@ def run_tray() -> None:
         daemon=True,
     ).start()
 
+    # Session window-reaper (#680): reap RAIL sessions whose windows have closed.
+    # The per-launch reaper dies with the short-lived `winpodx app run` process,
+    # so the tray (long-lived) is the reliable host. Always on; no-op without
+    # wmctrl.
+    from winpodx.core.daemon import run_session_window_reaper
+
+    threading.Thread(
+        target=run_session_window_reaper,
+        args=(cfg, idle_stop),
+        daemon=True,
+    ).start()
+
     def on_tray_activate(reason: int) -> None:
         # Qt slot: any uncaught exception here aborts the event loop and kills
         # the tray, so catch broadly (not just RuntimeError).
