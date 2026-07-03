@@ -157,6 +157,56 @@ function Get-AppDescription {
     return ''
 }
 
+function Resolve-AdvertisedShortcut {
+    # Office 2016 (and other MSI) apps install *advertised* Start Menu shortcuts:
+    # the .lnk stores a Windows Installer "Darwin descriptor", not a direct exe
+    # path. WScript.Shell's .TargetPath resolves such a shortcut to the product's
+    # generic icon stub under C:\Windows\Installer\{ProductCode}\ (e.g.
+    # xlicons.exe), whose FileDescription is a shared "Microsoft Office 2016
+    # component" -- so Word/Excel/PowerPoint all resolve to look-alike stubs that
+    # dedup into one dead entry (#680). MsiGetShortcutTarget + MsiGetComponentPath
+    # resolve the advertisement to the REAL installed executable. Returns the
+    # resolved .exe path, or '' when the shortcut isn't an advertised/installed
+    # MSI target (caller then keeps the plain .TargetPath). Best-effort: any
+    # failure (no msi.dll interop, not advertised, component absent) returns ''.
+    param([string]$LnkPath)
+    if (-not $script:MsiInteropTried) {
+        $script:MsiInteropTried = $true
+        try {
+            Add-Type -Namespace Winpodx -Name Msi -ErrorAction Stop -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("msi.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern uint MsiGetShortcutTarget(string szShortcutTarget, System.Text.StringBuilder szProductCode, System.Text.StringBuilder szFeatureId, System.Text.StringBuilder szComponentCode);
+[System.Runtime.InteropServices.DllImport("msi.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int MsiGetComponentPath(string szProduct, string szComponent, System.Text.StringBuilder lpPathBuf, ref uint pcchBuf);
+'@
+            $script:MsiInteropReady = $true
+        } catch {
+            $script:MsiInteropReady = $false
+        }
+    }
+    if (-not $script:MsiInteropReady) { return '' }
+    try {
+        # Product + Component are GUID strings (38 chars); Feature can be longer.
+        $prod = New-Object System.Text.StringBuilder 40
+        $feat = New-Object System.Text.StringBuilder 260
+        $comp = New-Object System.Text.StringBuilder 40
+        $rc = [Winpodx.Msi]::MsiGetShortcutTarget($LnkPath, $prod, $feat, $comp)
+        # ERROR_SUCCESS = 0; a normal (non-advertised) shortcut returns non-zero.
+        if ($rc -ne 0) { return '' }
+        $buf = New-Object System.Text.StringBuilder 1024
+        [uint32]$len = 1024
+        $state = [Winpodx.Msi]::MsiGetComponentPath($prod.ToString(), $comp.ToString(), $buf, [ref]$len)
+        # INSTALLSTATE_LOCAL = 3, INSTALLSTATE_SOURCE = 4 -> a usable install.
+        if ($state -eq 3 -or $state -eq 4) {
+            $p = $buf.ToString()
+            if ($p -and $p -match '\.exe$' -and (Test-Path -LiteralPath $p -PathType Leaf)) {
+                return $p
+            }
+        }
+    } catch { }
+    return ''
+}
+
 function Read-IconBytesFromFile {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
@@ -524,6 +574,13 @@ foreach ($d in $startDirs) {
                     if ($_.Name -match '(?i)uninstall|readme|license|eula') { return }
                     $lnk = $wsh.CreateShortcut($_.FullName)
                     $target = [string]$lnk.TargetPath
+                    # Advertised (MSI/Darwin) shortcuts: .TargetPath resolves to a
+                    # shared icon stub under C:\Windows\Installer\, collapsing all
+                    # of Office into one dead entry (#680). Resolve the real
+                    # installed exe via the Installer API; normal (Click-to-Run /
+                    # direct) shortcuts return '' and keep their plain target.
+                    $advTarget = Resolve-AdvertisedShortcut $_.FullName
+                    if ($advTarget) { $target = $advTarget }
                     if (-not $target) { return }
                     if ($target -notmatch '\.exe$') { return }
                     if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return }
