@@ -644,7 +644,20 @@ def run_tray() -> None:
         except Exception as e:  # noqa: BLE001
             log.debug("stop_pod during tray-quit failed: %s", e)
 
-        # 2. Close any winpodx GUI / dashboard process the user may
+        # 2. Stop the reverse-open listener deliberately (#691). Until now it
+        #    only died here as COLLATERAL of the pkill below -- the listener is
+        #    a double-forked daemon so /proc/<pid>/cmdline is inherited from
+        #    whoever spawned it: started from the GUI settings panel it matches
+        #    "python.*winpodx.*gui" and got killed; started from `pod start` /
+        #    provision it didn't. Make the stop explicit + deterministic.
+        try:
+            from winpodx.reverse_open.lifecycle import stop_listener
+
+            stop_listener()
+        except Exception as e:  # noqa: BLE001
+            log.debug("stop_listener during tray-quit failed: %s", e)
+
+        # 3. Close any winpodx GUI / dashboard process the user may
         #    have open. Three launcher cmdline shapes exist:
         #      (a) install.sh wrapper:  python -m winpodx gui
         #      (b) pip / venv entry pt: python /.../venv/bin/winpodx gui
@@ -668,7 +681,7 @@ def run_tray() -> None:
         except (FileNotFoundError, _sp.TimeoutExpired):
             pass
 
-        # 3. Quit the tray itself.
+        # 4. Quit the tray itself.
         app.quit()
 
     quit_action.triggered.connect(_confirmed_quit)
@@ -821,6 +834,23 @@ def run_tray() -> None:
 
     idle_stop = threading.Event()
     cfg = Config.load()
+
+    # Reverse-open listener self-heal at tray startup (#691). The listener was
+    # only (re)started by `pod start` and the app-launch ensure_ready path --
+    # starting just the GUI/tray left it dead even with reverse_open.enabled,
+    # so Windows->Linux "Open with" silently no-op'd until the next app launch.
+    # ensure_listener_running is idempotent + gated on cfg.reverse_open.enabled;
+    # run it off the UI thread (it forks + waits for a ready sentinel).
+    def _ensure_reverse_open_listener() -> None:
+        try:
+            from winpodx.cli.host_open import ensure_listener_running
+
+            ensure_listener_running(cfg)
+        except Exception as e:  # noqa: BLE001 -- never block/crash tray startup
+            log.debug("reverse-open listener ensure at tray start failed: %s", e)
+
+    threading.Thread(target=_ensure_reverse_open_listener, daemon=True).start()
+
     if cfg.pod.idle_timeout > 0:
         from winpodx.core.daemon import run_idle_monitor
 
