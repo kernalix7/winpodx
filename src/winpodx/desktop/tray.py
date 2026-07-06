@@ -767,23 +767,35 @@ def run_tray() -> None:
         QTimer.singleShot(5000, refresh_status)
 
     try:
+        from PySide6.QtCore import SLOT, QObject, Slot
         from PySide6.QtDBus import QDBusConnection
+
+        # PySide6's QDBusConnection.connect has NO overload taking a bare
+        # Python callable -- every shape ends in (receiver: QObject,
+        # slot: SLOT("name(sig)")). Passing the plain function raised
+        # ``called with wrong argument types: connect(str,str,str,str,str,
+        # function)`` on every PySide6, so the subscription NEVER succeeded
+        # and fast suspend/resume recovery silently fell back to the 30 s
+        # poll since it shipped (#690).
+        class _SleepListener(QObject):
+            @Slot(bool)
+            def onPrepareForSleep(self, active: bool) -> None:
+                _on_prepare_for_sleep(active)
 
         bus = QDBusConnection.systemBus()
         if bus.isConnected():
-            # PySide6's QDBusConnection.connect requires the 6-arg overload
-            # (service, path, interface, name, signature, slot). The signal
-            # we want -- ``PrepareForSleep(b)`` -- emits a single boolean.
-            # The 5-arg shape compiled fine but crashed at runtime with
-            # ``TypeError: connect expected at least 6 arguments, got 5``
-            # on the user's PySide6.
+            # Keep a durable reference by hanging the receiver off the tray
+            # icon: a local-only QObject can be GC'd out from under the D-Bus
+            # connection (the #573 lesson), killing the subscription again.
+            tray._winpodx_sleep_listener = _SleepListener()
             ok = bus.connect(
                 "org.freedesktop.login1",
                 "/org/freedesktop/login1",
                 "org.freedesktop.login1.Manager",
                 "PrepareForSleep",
                 "b",
-                _on_prepare_for_sleep,
+                tray._winpodx_sleep_listener,
+                SLOT("onPrepareForSleep(bool)"),
             )
             if not ok:
                 log.debug(
