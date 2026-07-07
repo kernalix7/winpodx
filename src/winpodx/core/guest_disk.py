@@ -53,6 +53,27 @@ SMB_HOST_PORT = 4445
 GUEST_SMB_SHARE = "winpodx-c"
 
 
+def _kio_fuse_dbus_service_present() -> bool:
+    """True if the ``org.kde.KIOFuse`` D-Bus activation service file exists.
+
+    This is the authoritative signal: ``_kio_fuse_mount`` mounts by calling the
+    D-Bus service, which the bus auto-activates from this file regardless of
+    where the binary lives. Distros that put the binary in a path we don't
+    enumerate (e.g. Fedora's KF6-versioned libexec, #697) still register the
+    service here. Checks the standard XDG session-bus service dirs.
+    """
+    import glob
+
+    dirs: list[str] = []
+    xdg_data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    dirs.append(xdg_data_home)
+    xdg_data_dirs = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    dirs.extend(d for d in xdg_data_dirs.split(":") if d)
+    return any(
+        glob.glob(os.path.join(d, "dbus-1", "services", "org.kde.KIOFuse.service")) for d in dirs
+    )
+
+
 def kio_fuse_available() -> bool:
     """True if KDE's kio-fuse (the mount backend that handles the custom SMB
     port) is installed. gvfs can't use the non-standard port, so kio-fuse is
@@ -62,14 +83,23 @@ def kio_fuse_available() -> bool:
 
     if shutil.which("kio-fuse"):
         return True
-    candidates = [
+    # Binary locations across distros: plain libexec, KF6-versioned libexec
+    # (/usr/libexec/kf6/kio-fuse), lib/lib64, and Debian multiarch
+    # (/usr/lib/<triplet>/libexec/kio-fuse -- three levels, missed by the old
+    # /usr/lib*/*/kio-fuse two-level glob, #697).
+    patterns = [
         "/usr/libexec/kio-fuse",
+        "/usr/libexec/*/kio-fuse",
         "/usr/lib/kio-fuse",
         "/usr/lib64/kio-fuse",
+        "/usr/lib*/kio-fuse",
+        "/usr/lib*/*/kio-fuse",
+        "/usr/lib/*/libexec/kio-fuse",
     ]
-    if any(os.path.exists(p) for p in candidates):
+    if any(glob.glob(p) for p in patterns):
         return True
-    return bool(glob.glob("/usr/lib*/kio-fuse") or glob.glob("/usr/lib*/*/kio-fuse"))
+    # Authoritative fallback: the D-Bus activation service _kio_fuse_mount uses.
+    return _kio_fuse_dbus_service_present()
 
 
 def _gvfs_root() -> Path:

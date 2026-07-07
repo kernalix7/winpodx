@@ -14,6 +14,53 @@ from winpodx.core.guest_disk import (
 )
 
 
+def test_kio_fuse_dbus_service_present_finds_service_file(monkeypatch, tmp_path) -> None:
+    # #697: the authoritative signal is the D-Bus activation service file that
+    # _kio_fuse_mount calls -- on distros (Fedora Kinoite / KF6) whose binary
+    # lives in a path we don't enumerate, this is what makes the mount work.
+    # Real glob against a temp XDG_DATA_DIRS.
+    import winpodx.core.guest_disk as gd
+
+    svc = tmp_path / "dbus-1" / "services"
+    svc.mkdir(parents=True)
+    (svc / "org.kde.KIOFuse.service").write_text("[D-BUS Service]\nName=org.kde.KIOFuse\n")
+    monkeypatch.setenv("XDG_DATA_DIRS", f"/nonexistent-a:{tmp_path}")
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+    assert gd._kio_fuse_dbus_service_present() is True
+
+
+def test_kio_fuse_available_via_dbus_when_binary_hidden(monkeypatch) -> None:
+    # No binary anywhere, but the D-Bus service is present -> available.
+    import winpodx.core.guest_disk as gd
+
+    monkeypatch.setattr("shutil.which", lambda _n: None)
+    monkeypatch.setattr("glob.glob", lambda _p: [])  # no binary matches
+    monkeypatch.setattr(gd, "_kio_fuse_dbus_service_present", lambda: True)
+    assert gd.kio_fuse_available() is True
+
+
+def test_kio_fuse_available_debian_multiarch_libexec(monkeypatch) -> None:
+    # #697: /usr/lib/<triplet>/libexec/kio-fuse is three levels deep -- missed
+    # by the old /usr/lib*/*/kio-fuse two-level glob; the new pattern catches it.
+    import winpodx.core.guest_disk as gd
+
+    monkeypatch.setattr("shutil.which", lambda _n: None)
+    monkeypatch.setattr(gd, "_kio_fuse_dbus_service_present", lambda: False)
+    hit = "/usr/lib/x86_64-linux-gnu/libexec/kio-fuse"
+    monkeypatch.setattr("glob.glob", lambda p: [hit] if p == "/usr/lib/*/libexec/kio-fuse" else [])
+    assert gd.kio_fuse_available() is True
+
+
+def test_kio_fuse_unavailable_when_nothing_present(monkeypatch) -> None:
+    import winpodx.core.guest_disk as gd
+
+    monkeypatch.setattr("shutil.which", lambda _n: None)
+    monkeypatch.setattr("glob.glob", lambda _p: [])
+    monkeypatch.setattr(gd, "_kio_fuse_dbus_service_present", lambda: False)
+    assert gd.kio_fuse_available() is False
+
+
 def test_host_port_is_unprivileged() -> None:
     # Rootless podman/docker can't bind a privileged host port (#616).
     assert SMB_HOST_PORT >= 1024
