@@ -31,6 +31,22 @@ def test_load_app(tmp_path):
     assert app.mime_types == ["text/plain"]
     # v0.1.9: source defaults to "user" when the TOML doesn't declare one.
     assert app.source == "user"
+    # #421/#694: url_schemes defaults to [] when absent.
+    assert app.url_schemes == []
+
+
+def test_load_app_reads_url_schemes(tmp_path):
+    app_dir = tmp_path / "outlook"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "outlook"\n'
+        'full_name = "Outlook"\n'
+        'executable = "C:\\\\o.exe"\n'
+        'url_schemes = ["mailto", "webcal"]\n'
+    )
+    app = load_app(app_dir)
+    assert app is not None
+    assert app.url_schemes == ["mailto", "webcal"]
 
 
 def test_load_app_default_source_can_be_overridden(tmp_path):

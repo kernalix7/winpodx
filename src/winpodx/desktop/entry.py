@@ -24,7 +24,7 @@ Version=1.0
 Type=Application
 Name={full_name}
 Comment={comment}
-Exec={winpodx_exe} app run {name} %f
+Exec={winpodx_exe} app run {name} %u
 Icon={icon_name}
 Categories={categories}
 MimeType={mime_types}
@@ -122,6 +122,13 @@ def install_desktop_entry(app: AppInfo) -> Path:
         safe_folder = folder.replace("\n", " ").replace("\r", " ").strip()
         folder_line = f"{FOLDER_KEY}={safe_folder}\n"
 
+    # #421/#694: register the app for its URL schemes too, as
+    # x-scheme-handler/<scheme> MIME entries alongside its file MIME types. The
+    # schemes were already policy-filtered in discovery, so no re-escaping here.
+    mime_entries = list(app.mime_types) + [
+        f"x-scheme-handler/{s}" for s in (getattr(app, "url_schemes", None) or [])
+    ]
+
     content = DESKTOP_TEMPLATE.format(
         winpodx_exe=_winpodx_exe(),
         full_name=full_name,
@@ -129,7 +136,7 @@ def install_desktop_entry(app: AppInfo) -> Path:
         comment=comment,
         icon_name=icon_name,
         categories=categories,
-        mime_types=";".join(app.mime_types) + ";" if app.mime_types else "",
+        mime_types=";".join(mime_entries) + ";" if mime_entries else "",
         wm_class=wm_class,
         folder_line=folder_line,
     )
@@ -147,10 +154,10 @@ def install_desktop_entry(app: AppInfo) -> Path:
     except OSError as e:
         log.warning("Could not write winpodx menu folder definition: %s", e)
 
-    # Register file associations so the app shows up in "Open with" (#545).
-    # Only when this app declares MIME types -- most apps don't, so the cache
-    # rebuild stays bounded to the handful that need it.
-    if app.mime_types:
+    # Register file + URL-scheme associations so the app shows up in "Open with"
+    # (#545) and as a URL handler (#421/#694). Only when it declares something --
+    # most apps don't, so the cache rebuild stays bounded to the few that need it.
+    if mime_entries:
         update_desktop_database()
 
     return desktop_path

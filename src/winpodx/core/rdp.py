@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from winpodx.core.config import Config
+from winpodx.core.url_schemes import sanitize_url_arg, url_scheme_of
 from winpodx.utils.paths import runtime_dir
 
 log = logging.getLogger(__name__)
@@ -573,7 +574,13 @@ def build_rdp_command(
             # commas to spaces here too before building the combined arg.
             program_token = app_executable.replace(",", " ")
             app_arg = f"/app:program:{program_token},name:{name_token}"
-            if file_path:
+            if file_path and url_scheme_of(file_path):
+                # #421/#694: a URL (mailto:, https:, slack:, ...) is handed to
+                # the app verbatim, NOT mapped to a $HOME UNC (linux_to_unc only
+                # maps file paths + would raise). Same comma/quote sanitising as
+                # the UNC path -- a comma splits the /app: value into sub-keys.
+                app_arg += f',cmd:"{sanitize_url_arg(file_path)}"'
+            elif file_path:
                 try:
                     unc_path = linux_to_unc(file_path)
                 except ValueError as e:
@@ -594,7 +601,10 @@ def build_rdp_command(
             # are safe because each flag is its own argv entry.
             cmd.append(f"/app:{app_executable}")
             cmd.append(f"/app-name:{name_token}")
-            if file_path:
+            if file_path and url_scheme_of(file_path):
+                # #421/#694: URL handed to the app verbatim (see FreeRDP 3 branch).
+                cmd.append(f'/app-cmd:"{sanitize_url_arg(file_path)}"')
+            elif file_path:
                 try:
                     unc_path = linux_to_unc(file_path)
                 except ValueError as e:
@@ -1358,9 +1368,12 @@ def launch_app(
         #
         # Validate the path up front so a file outside the shared $HOME / media
         # locations surfaces a visible error toast instead of a raw traceback
-        # (#675 fail-loud), then fall through to the cold spawn below.
+        # (#675 fail-loud), then fall through to the cold spawn below. A URL arg
+        # (#421/#694) isn't a file path -- skip the UNC check so it isn't
+        # rejected as "outside home"; build_rdp_command routes it as a URL.
         try:
-            linux_to_unc(file_path)
+            if not url_scheme_of(file_path):
+                linux_to_unc(file_path)
         except (ValueError, RuntimeError) as exc:
             from winpodx.desktop.notify import notify_error
 

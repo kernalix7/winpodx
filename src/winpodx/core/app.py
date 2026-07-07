@@ -63,6 +63,10 @@ class AppInfo:
     # e.g. "Microsoft Office/Tools"). "" = top-level. Mirrored into a nested
     # winpodx submenu by the desktop-entry generator.
     start_menu_folder: str = ""
+    # #421/#694: URL schemes the Windows app registered as a handler for
+    # (mailto, https, slack, ...). Emitted as x-scheme-handler/<scheme> in the
+    # .desktop MimeType so clicking a host URL opens it in this Windows app.
+    url_schemes: list[str] = field(default_factory=list)
 
 
 def user_apps_dir() -> Path:
@@ -204,6 +208,7 @@ def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
         essential=bool(data.get("essential", False)),
         exe_hash=str(data.get("exe_hash", "") or ""),
         start_menu_folder=str(data.get("start_menu_folder", "") or ""),
+        url_schemes=data.get("url_schemes", []) or [],
     )
 
 

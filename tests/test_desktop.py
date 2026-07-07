@@ -38,7 +38,7 @@ def test_desktop_template():
 
     assert "Name=Microsoft Word" in content
     assert "Comment=Word processor" in content
-    assert "Exec=winpodx app run word %f" in content
+    assert "Exec=winpodx app run word %u" in content
     assert "Icon=winpodx-word" in content
     assert "Categories=Office;WordProcessor;" in content
     assert "MimeType=application/msword;" in content
@@ -156,10 +156,45 @@ def test_install_desktop_entry_utf8_korean(tmp_path, monkeypatch):
 
     content = desktop_path.read_text(encoding="utf-8")
     assert "Name=\ud55c\uae00 \uba54\ubaa8\uc7a5" in content
-    assert "Exec=winpodx app run hangul %f" in content
+    assert "Exec=winpodx app run hangul %u" in content
 
     raw = desktop_path.read_bytes()
     assert "\ud55c\uae00 \uba54\ubaa8\uc7a5".encode("utf-8") in raw
+
+
+def test_desktop_entry_emits_scheme_handler(tmp_path, monkeypatch):
+    # #421/#694: url_schemes become x-scheme-handler/<scheme> MIME entries
+    # alongside the file MIME types.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
+
+    app = AppInfo(
+        name="outlook",
+        full_name="Outlook",
+        executable="C:\\o.exe",
+        mime_types=["application/pdf"],
+        url_schemes=["mailto", "slack"],
+    )
+    content = install_desktop_entry(app).read_text(encoding="utf-8")
+    mime_line = next(ln for ln in content.splitlines() if ln.startswith("MimeType="))
+    assert "application/pdf" in mime_line
+    assert "x-scheme-handler/mailto" in mime_line
+    assert "x-scheme-handler/slack" in mime_line
+
+
+def test_scheme_only_app_triggers_db_update(tmp_path, monkeypatch):
+    # An app with URL schemes but NO file MIME types must still rebuild the
+    # desktop database (the old gate only checked app.mime_types).
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
+    called: list = []
+    monkeypatch.setattr(entry_mod, "update_desktop_database", lambda: called.append(1))
+
+    app = AppInfo(name="mailer", full_name="Mailer", executable="C:\\m.exe", url_schemes=["mailto"])
+    install_desktop_entry(app)
+    assert called == [1]
 
 
 def test_install_desktop_entry_utf8_japanese(tmp_path, monkeypatch):
@@ -196,7 +231,7 @@ def test_install_desktop_entry_strips_newlines_in_full_name(tmp_path, monkeypatc
 
     # The only Exec= line is winpodx's own; the injected one must be gone.
     exec_lines = [ln for ln in content.splitlines() if ln.startswith("Exec=")]
-    assert exec_lines == ["Exec=winpodx app run evil %f"]
+    assert exec_lines == ["Exec=winpodx app run evil %u"]
     # Name= stays on a single line with the newline collapsed to a space.
     name_lines = [ln for ln in content.splitlines() if ln.startswith("Name=")]
     assert len(name_lines) == 1
@@ -603,7 +638,7 @@ def test_install_desktop_entry_strips_newlines_in_description(tmp_path, monkeypa
     assert "\t" not in comment_line
     assert "\r" not in comment_line
     # Following keys (Exec, Icon, …) must still be intact.
-    assert "Exec=winpodx app run messy %f" in raw
+    assert "Exec=winpodx app run messy %u" in raw
 
 
 def test_install_desktop_entry_uses_absolute_exec_path(tmp_path, monkeypatch):
@@ -623,7 +658,7 @@ def test_install_desktop_entry_uses_absolute_exec_path(tmp_path, monkeypatch):
     )
     desktop_path = install_desktop_entry(app)
     content = desktop_path.read_text(encoding="utf-8")
-    assert "Exec=/home/u/.local/bin/winpodx app run notepad %f" in content
+    assert "Exec=/home/u/.local/bin/winpodx app run notepad %u" in content
 
 
 def test_winpodx_exe_falls_back_to_bare_name(monkeypatch):
