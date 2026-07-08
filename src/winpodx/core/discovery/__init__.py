@@ -1351,28 +1351,33 @@ def _mime_associations_enabled() -> bool:
 
 
 def _backfill_mime_types(toml_path: Path, app: DiscoveredApp, mime_enabled: bool = True) -> None:
-    """Add the guest's real MIME associations to an unchanged app's TOML (#545).
+    """Add the guest's real associations to an unchanged app's TOML (#545, #694).
 
     Apps that survive the checksum gate (unchanged exe) are never rewritten, so
-    one persisted before associations shipped would keep its empty
-    ``mime_types``. Patch it from the guest-reported extensions, ONLY when the
-    persisted list is empty (never clobber) and the feature is enabled.
-    Best-effort; preserves the icon and every other field.
+    one persisted before a feature shipped would keep its empty ``mime_types`` /
+    ``url_schemes``. Patch each from the guest-reported data, ONLY when the
+    persisted list is empty (never clobber). MIME is gated on the feature flag;
+    URL schemes mirror ``_render_app_toml`` (always). Best-effort; preserves the
+    icon and every other field.
     """
-    if not mime_enabled:
-        return
     from winpodx.core.mime_map import mimes_for_extensions
 
-    mimes = mimes_for_extensions(app.extensions)
-    if not mimes:
-        return
     try:
         data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
         return
-    if data.get("mime_types"):
-        return  # already has associations — leave them
-    data["mime_types"] = mimes
+
+    changed = False
+    if mime_enabled and not data.get("mime_types"):
+        mimes = mimes_for_extensions(app.extensions)
+        if mimes:
+            data["mime_types"] = mimes
+            changed = True
+    if app.url_schemes and not data.get("url_schemes"):
+        data["url_schemes"] = app.url_schemes
+        changed = True
+    if not changed:
+        return
     try:
         from winpodx.utils.toml_writer import dumps as toml_dumps
 

@@ -272,6 +272,25 @@ def test_render_app_toml_emits_url_schemes():
     # absent when empty (minimal-diff convention)
     bare = _render_app_toml(DiscoveredApp(name="n", full_name="N", executable="C:\\n.exe"))
     assert "url_schemes" not in bare
+
+
+def test_backfill_adds_url_schemes_to_unchanged_toml(tmp_path):
+    # #694: an app persisted before the feature (unchanged exe -> not rewritten)
+    # must get url_schemes backfilled, without clobbering an existing list.
+    from winpodx.core.discovery import DiscoveredApp, _backfill_mime_types
+
+    toml = tmp_path / "app.toml"
+    toml.write_text('name = "edge"\nfull_name = "Edge"\nexecutable = "C:\\\\edge.exe"\n')
+    app = DiscoveredApp(
+        name="edge", full_name="Edge", executable="C:\\edge.exe", url_schemes=["http", "https"]
+    )
+    _backfill_mime_types(toml, app, mime_enabled=False)  # mime off; schemes still land
+    assert 'url_schemes = ["http", "https"]' in toml.read_text()
+
+    # never clobber an existing list
+    toml.write_text('name = "edge"\nexecutable = "C:\\\\e.exe"\nurl_schemes = ["mailto"]\n')
+    _backfill_mime_types(toml, app, mime_enabled=False)
+    assert "mailto" in toml.read_text() and "http" not in toml.read_text()
     assert _entry_to_discovered(_valid_entry(name=None)) is None
 
 
