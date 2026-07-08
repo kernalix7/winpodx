@@ -11,7 +11,7 @@
 
 ### Added
 
-- **Windows 앱을 Linux에서 URL-scheme 핸들러로 등록 가능** (#421, #694 — 호스트측 기반). 앱이 URL 스킴(`mailto`, `https`, `slack`, `vnc`, …)을 가지면 `.desktop`에 `x-scheme-handler/<scheme>` 항목이 붙고 `Exec`가 URL을 받아, 호스트에서 그런 링크를 클릭하면 Windows 앱에서 열립니다 — URL은 `$HOME` 파일 경로로 매핑하지 않고 앱에 그대로 전달됩니다. 공유 정책 모듈(denylist + 엄격한 스킴 정규식 + `/app`-cmd sanitizer)이 위험 스킴(`file:`, `javascript:`, `data:`, …)을 차단하고 등록·실행 양쪽에서 커맨드라인 인젝션을 무력화합니다. 앱의 `app.toml`에 `url_schemes = ["mailto", …]`를 넣으면 지금 쓸 수 있고, 게스트에서 앱별 스킴 자동 발견은 다음에 옵니다.
+- **Windows 앱을 Linux에서 URL-scheme 핸들러로 등록 가능** (#421, #694 — 호스트측 기반). 앱이 URL 스킴(`mailto`, `https`, `slack`, `vnc`, …)을 가지면 `.desktop`에 `x-scheme-handler/<scheme>` 항목이 붙고 `Exec`가 URL을 받아, 호스트에서 그런 링크를 클릭하면 Windows 앱에서 열립니다 — URL은 `$HOME` 파일 경로로 매핑하지 않고 앱에 그대로 전달됩니다. 공유 정책 모듈(denylist + 엄격한 스킴 정규식 + `/app`-cmd sanitizer)이 위험 스킴(`file:`, `javascript:`, `data:`, …)을 차단하고 등록·실행 양쪽에서 커맨드라인 인젝션을 무력화합니다. discovery가 이제 게스트에서 각 앱의 스킴을 자동 수확하므로(스킴별 `UrlAssociations` 기본값, 앱별 `Capabilities\URLAssociations`, UWP 매니페스트의 `windows.protocol`), `mailto`/`https` 등을 처리하는 앱이 수동 `app.toml` 편집 없이 자동 등록됩니다.
 
 ### Fixed
 

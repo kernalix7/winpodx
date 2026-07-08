@@ -72,6 +72,18 @@ def test_legacy_sources_are_gated_behind_full_scan(discover_source: str):
     assert "end if ($WinpodxFullScan) -- Source 4" in discover_source
 
 
+def test_url_scheme_harvest_functions_present(discover_source: str):
+    """#421/#694: the URL-scheme harvest mirrors the file-ext harvest -- guard
+    that the three functions + both emit sites exist so a refactor can't quietly
+    drop the guest side of the feature."""
+    for fn in ("function Add-SchemeTo", "function Build-SchemeMap", "function Get-AppUrlSchemes"):
+        assert fn in discover_source, f"missing {fn}"
+    # emitted from both the Win32 (Get-AppUrlSchemes) and UWP (windows.protocol) paths
+    assert "Get-AppUrlSchemes $path" in discover_source
+    assert "windows\\.protocol" in discover_source
+    assert discover_source.count("url_schemes   = @(") == 2
+
+
 def test_uwp_gated_by_startapps_in_default_mode(discover_source: str):
     """Default mode keeps only UWP apps whose AUMID is in Get-StartApps, with
     an empty-set fallback so we never hide every UWP app."""

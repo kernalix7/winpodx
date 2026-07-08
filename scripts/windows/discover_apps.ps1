@@ -328,6 +328,19 @@ $seen    = @{}
 $script:WinpodxExtMap = $null
 $script:WinpodxIdCache = @{}
 
+# URL-scheme harvest state (#421 mailto->Outlook + #694). Same shape as
+# WinpodxExtMap: {identity -> List[<scheme>]} built ONCE per run, identity being
+# "aumid:<AUMID>" or "exe:<basename>" via the shared Resolve-Identity.
+$script:WinpodxSchemeMap = $null
+# Schemes never surfaced as an x-scheme-handler on Linux (code-exec / local-file
+# / settings vectors). Coarse guest-side guard; core/url_schemes.py owns the
+# authoritative denylist -- keep the two in lockstep.
+$script:WinpodxSchemeDeny = [System.Collections.Generic.HashSet[string]]::new(
+    [string[]]@('file', 'javascript', 'vbscript', 'data', 'about', 'shell', 'res',
+        'chrome', 'chrome-extension', 'ms-settings', 'ms-msdt', 'ms-search',
+        'search-ms', 'hcp', 'its', 'mk', 'ldap', 'help', 'wscript', 'cscript',
+        'view-source'))
+
 function Add-ExtTo {
     param([hashtable]$Map, [string]$Id, [string]$Ext)
     if (-not $Id -or -not $Ext) { return }
@@ -446,6 +459,84 @@ function Get-AppExtensions {
     return @()
 }
 
+function Add-SchemeTo {
+    param([hashtable]$Map, [string]$Id, [string]$Scheme)
+    if (-not $Id -or -not $Scheme) { return }
+    $s = $Scheme.ToLower().Trim().TrimEnd(':')
+    # RFC 3986 scheme syntax, length-bounded (mirrors core/url_schemes.py).
+    if ($s -notmatch '^[a-z][a-z0-9+.\-]{0,31}$') { return }
+    if ($script:WinpodxSchemeDeny.Contains($s)) { return }
+    if (-not $Map.ContainsKey($Id)) { $Map[$Id] = New-Object System.Collections.Generic.List[string] }
+    if (-not $Map[$Id].Contains($s)) { $Map[$Id].Add($s) }
+}
+
+function Build-SchemeMap {
+    # URL analog of Build-ExtMap: {identity -> List[scheme]} from the per-scheme
+    # UserChoice default + per-app declared Capabilities\URLAssociations.
+    $map = @{}
+    try {
+        # Per-scheme current handler (UserChoice) under the user's UrlAssociations
+        # -- bounded to protocols the user has a default for (matches Settings).
+        $ua = 'HKCU:\SOFTWARE\Microsoft\Windows\Shell\Associations\UrlAssociations'
+        if (Test-Path -LiteralPath $ua) {
+            Get-ChildItem -LiteralPath $ua -ErrorAction SilentlyContinue | ForEach-Object {
+                $scheme = $_.PSChildName
+                $uc = [string](Get-ItemProperty -LiteralPath "$ua\$scheme\UserChoice" -ErrorAction SilentlyContinue).ProgId
+                foreach ($id in (Resolve-Identity $uc)) { Add-SchemeTo $map $id $scheme }
+            }
+        }
+        # Per-app DECLARED handlers: RegisteredApplications -> Capabilities\
+        # URLAssociations (value NAME = scheme, DATA = handler ProgId). Same
+        # same-hive-root rule Build-ExtMap uses for FileAssociations.
+        foreach ($pair in @(
+                @('HKLM:\SOFTWARE\RegisteredApplications', 'HKLM:\'),
+                @('HKCU:\SOFTWARE\RegisteredApplications', 'HKCU:\'))) {
+            $raHive = $pair[0]; $root = $pair[1]
+            if (-not (Test-Path -LiteralPath $raHive)) { continue }
+            $ra = Get-ItemProperty -LiteralPath $raHive -ErrorAction SilentlyContinue
+            if (-not $ra) { continue }
+            foreach ($prop in $ra.PSObject.Properties) {
+                if ($prop.Name -match '^PS') { continue }
+                $capRel = [string]$prop.Value
+                if (-not $capRel) { continue }
+                $uaKey = Join-Path $root ($capRel + '\URLAssociations')
+                if (-not (Test-Path -LiteralPath $uaKey)) { continue }
+                $ub = Get-ItemProperty -LiteralPath $uaKey -ErrorAction SilentlyContinue
+                if (-not $ub) { continue }
+                foreach ($p in $ub.PSObject.Properties) {
+                    if ($p.Name -match '^PS') { continue }
+                    foreach ($id in (Resolve-Identity ([string]$p.Value))) { Add-SchemeTo $map $id ([string]$p.Name) }
+                }
+            }
+        }
+    } catch { }
+    return $map
+}
+
+function Get-AppUrlSchemes {
+    # URL schemes the given app handles, matched by AUMID then exe basename --
+    # the URL analog of Get-AppExtensions.
+    param([string]$ExePath, [string]$LaunchUri)
+    try {
+        if ($null -eq $script:WinpodxSchemeMap) { $script:WinpodxSchemeMap = Build-SchemeMap }
+        $keys = New-Object System.Collections.Generic.List[string]
+        if ($LaunchUri) {
+            $aumid = $LaunchUri -replace '^shell:AppsFolder\\', ''
+            if ($aumid) { $keys.Add("aumid:$aumid") }
+        }
+        if ($ExePath) { $keys.Add("exe:" + ([System.IO.Path]::GetFileName($ExePath)).ToLower()) }
+        $acc = New-Object System.Collections.Generic.List[string]
+        foreach ($k in $keys) {
+            if ($script:WinpodxSchemeMap.ContainsKey($k)) {
+                foreach ($s in $script:WinpodxSchemeMap[$k]) { if (-not $acc.Contains($s)) { $acc.Add($s) } }
+            }
+        }
+        if ($acc.Count -gt 32) { return @($acc.GetRange(0, 32)) }
+        return @($acc)
+    } catch { return @() }
+    return @()
+}
+
 function Add-Result {
     param([hashtable]$Entry)
     if (-not $Entry) { return }
@@ -492,6 +583,21 @@ function Add-Result {
                 if ($el -match '^\.[a-z0-9]{1,16}$' -and -not $extAcc.Contains($el)) { $extAcc.Add($el) }
             }
             if ($extAcc.Count -gt 64) { $extAcc.GetRange(0, 64) } else { $extAcc }
+        )
+        # URL schemes this app handles (#421/#694): union of the caller's declared
+        # schemes (UWP AppxManifest windows.protocol) + the registry map (UserChoice
+        # default + Capabilities\URLAssociations). Dangerous schemes dropped here
+        # (WinpodxSchemeDeny) and again host-side. Emitted as a JSON array like
+        # extensions; the host maps each to MimeType=x-scheme-handler/<scheme>.
+        url_schemes   = @(
+            $schemeAcc = New-Object System.Collections.Generic.List[string]
+            foreach ($s in (@($Entry.url_schemes) + @(Get-AppUrlSchemes $path $Entry.launch_uri))) {
+                $sl = ([string]$s).ToLower().Trim().TrimEnd(':')
+                if ($sl -match '^[a-z][a-z0-9+.\-]{0,31}$' -and
+                    -not $script:WinpodxSchemeDeny.Contains($sl) -and
+                    -not $schemeAcc.Contains($sl)) { $schemeAcc.Add($sl) }
+            }
+            if ($schemeAcc.Count -gt 32) { $schemeAcc.GetRange(0, 32) } else { $schemeAcc }
         )
     }) | Out-Null
 }
@@ -763,6 +869,24 @@ try {
                     } catch { }
                     if ($uwpExts.Count -gt 64) { $uwpExts = $uwpExts.GetRange(0, 64) }
 
+                    # URL schemes the UWP app DECLARES via the manifest's
+                    # windows.protocol extension (uap:Protocol Name="..."). URL
+                    # analog of the fileTypeAssociation harvest above; free from the
+                    # already-parsed manifest. Add-Result unions it with the
+                    # registry map + denylist.
+                    $uwpSchemes = New-Object System.Collections.Generic.List[string]
+                    try {
+                        foreach ($ex in @($appNode.Extensions.Extension)) {
+                            if (([string]$ex.Category) -notmatch 'windows\.protocol') { continue }
+                            foreach ($proto in @($ex.Protocol)) {
+                                $nm = ([string]$proto.Name).Trim().ToLower()
+                                if ($nm -match '^[a-z][a-z0-9+.\-]{0,31}$' -and -not $uwpSchemes.Contains($nm)) {
+                                    $uwpSchemes.Add($nm)
+                                }
+                            }
+                        }
+                    } catch { }
+
                     # path must be non-empty per core contract; use InstallLocation as placeholder.
                     Add-Result @{
                         name          = $displayName
@@ -774,6 +898,7 @@ try {
                         launch_uri    = $aumid
                         icon_b64      = $iconB64
                         extensions    = @($uwpExts)
+                        url_schemes   = @($uwpSchemes)
                     }
                 } catch { }
             }
