@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Windows apps can be registered as URL-scheme handlers on Linux** (#421, #694 — host-side groundwork). When an app carries URL schemes (`mailto`, `https`, `slack`, `vnc`, …), its `.desktop` now gets `x-scheme-handler/<scheme>` entries and the `Exec` accepts a URL, so clicking such a link on the host opens it in the Windows app — the URL is passed straight through to the app (not mapped to a `$HOME` file path). A shared policy module (denylist + strict scheme regex + a `/app`-cmd sanitizer) blocks dangerous schemes (`file:`, `javascript:`, `data:`, …) and neutralizes command-line injection at both registration and launch. Set `url_schemes = ["mailto", …]` in an app's `app.toml` to use it today; automatic per-app scheme discovery from the guest lands next.
+
 ### Fixed
 
 - **kio-fuse is no longer reported "not installed" when it actually is** (#697, thanks @notnotno). The Info/health check only looked for the `kio-fuse` binary in a fixed set of paths, so on distros that put it elsewhere — Fedora Kinoite / KF6-versioned libexec, or the Debian multiarch `/usr/lib/<triplet>/libexec/kio-fuse` (three levels deep, missed by the old two-level glob) — it read as missing even though reverse-open guest-disk mounting (#616) works fine. Detection now also matches the multiarch path and, as the authoritative signal, the `org.kde.KIOFuse` D-Bus activation service that the mount actually calls.

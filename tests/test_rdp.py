@@ -1222,6 +1222,68 @@ def test_session_state_probe_is_session_scoped(monkeypatch):
     assert "if (Get-Process LogonUI" not in _SESSION_STATE_PS
 
 
+def _url_cfg() -> Config:
+    cfg = Config()
+    cfg.rdp.user = "u"
+    cfg.rdp.password = "p"
+    return cfg
+
+
+def _build_url(monkeypatch, file_path: str, *, major: int = 3):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"))
+    monkeypatch.setattr(rdp_mod, "freerdp_major_version", lambda: major)
+    cmd, _ = rdp_mod.build_rdp_command(
+        _url_cfg(), app_executable="OUTLOOK.EXE", file_path=file_path
+    )
+    return cmd
+
+
+def test_url_scheme_bypasses_unc_freerdp3(monkeypatch) -> None:
+    # #421/#694: a mailto: URL is routed to the /app cmd verbatim, not mapped to
+    # a \\tsclient\home UNC (which would raise "outside home").
+    cmd = _build_url(monkeypatch, "mailto:foo@bar.com")
+    app = next(c for c in cmd if c.startswith("/app:"))
+    assert 'cmd:"mailto:foo@bar.com"' in app
+    assert "tsclient" not in app
+
+
+def test_url_scheme_freerdp2(monkeypatch) -> None:
+    cmd = _build_url(monkeypatch, "slack://team/x", major=2)
+    assert '/app-cmd:"slack://team/x"' in cmd
+
+
+def test_url_comma_quote_sanitized(monkeypatch) -> None:
+    cmd = _build_url(monkeypatch, 'slack://team,chan"x')
+    app = next(c for c in cmd if c.startswith("/app:"))
+    # comma + double-quote inside the URL are space-replaced (no sub-key inject)
+    assert 'cmd:"slack://team chan x"' in app
+
+
+def test_file_url_still_routed_through_unc(monkeypatch, tmp_path) -> None:
+    # file: is denylisted -> stays on the UNC path; linux_to_unc strips file://
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod.Path, "home", staticmethod(lambda: tmp_path))
+    doc = tmp_path / "doc.txt"
+    doc.touch()
+    cmd = _build_url(monkeypatch, doc.as_uri())  # file:///…/doc.txt
+    app = next(c for c in cmd if c.startswith("/app:"))
+    assert "\\\\tsclient\\home\\doc.txt" in app
+
+
+def test_dangerous_scheme_not_routed_as_url(monkeypatch, tmp_path) -> None:
+    # javascript: must NOT reach the guest as a URL; url_scheme_of returns None
+    # so it falls through to linux_to_unc, which rejects it (not a $HOME path).
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod.Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setattr(rdp_mod, "_find_media_base", lambda: None)
+    with pytest.raises(RuntimeError, match="Cannot open file"):
+        _build_url(monkeypatch, "javascript:alert(1)")
+
+
 def test_redact_cmd_for_log_masks_password():
     # The FreeRDP argv carries the Windows password as /p: (and gateway pw as
     # /gp:); the launch log must not print either in cleartext.

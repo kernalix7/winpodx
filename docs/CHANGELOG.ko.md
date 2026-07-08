@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Windows 앱을 Linux에서 URL-scheme 핸들러로 등록 가능** (#421, #694 — 호스트측 기반). 앱이 URL 스킴(`mailto`, `https`, `slack`, `vnc`, …)을 가지면 `.desktop`에 `x-scheme-handler/<scheme>` 항목이 붙고 `Exec`가 URL을 받아, 호스트에서 그런 링크를 클릭하면 Windows 앱에서 열립니다 — URL은 `$HOME` 파일 경로로 매핑하지 않고 앱에 그대로 전달됩니다. 공유 정책 모듈(denylist + 엄격한 스킴 정규식 + `/app`-cmd sanitizer)이 위험 스킴(`file:`, `javascript:`, `data:`, …)을 차단하고 등록·실행 양쪽에서 커맨드라인 인젝션을 무력화합니다. 앱의 `app.toml`에 `url_schemes = ["mailto", …]`를 넣으면 지금 쓸 수 있고, 게스트에서 앱별 스킴 자동 발견은 다음에 옵니다.
+
 ### Fixed
 
 - **kio-fuse 가 실제로 설치돼 있는데도 "미설치"로 표시되던 문제 수정** (#697, @notnotno 기여 감사). Info/헬스 체크가 `kio-fuse` 바이너리를 고정된 경로 몇 개에서만 찾아서, 다른 곳에 두는 배포판 — Fedora Kinoite / KF6 버전 libexec, 또는 Debian multiarch `/usr/lib/<triplet>/libexec/kio-fuse`(3단계 깊이라 기존 2단계 glob 이 놓침) — 에선 reverse-open 게스트 디스크 마운트(#616)가 잘 되는데도 미설치로 읽혔습니다. 이제 multiarch 경로와, 마운트가 실제로 호출하는 authoritative 신호인 `org.kde.KIOFuse` D-Bus 활성화 서비스까지 확인합니다.

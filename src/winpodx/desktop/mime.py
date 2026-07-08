@@ -22,7 +22,11 @@ def register_mime_types(app: AppInfo) -> None:
     if not desktop_file.exists():
         return
 
-    for mime in app.mime_types:
+    # File MIME types + URL scheme handlers (#421/#694): making the Windows app
+    # the default handler for its declared schemes (e.g. x-scheme-handler/mailto
+    # -> Outlook) so a host mailto: link opens in it.
+    scheme_mimes = [f"x-scheme-handler/{s}" for s in (app.url_schemes or [])]
+    for mime in list(app.mime_types) + scheme_mimes:
         try:
             result = subprocess.run(
                 ["xdg-mime", "default", desktop_file.name, mime],

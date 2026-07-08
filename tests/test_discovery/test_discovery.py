@@ -246,6 +246,32 @@ def test_entry_happy_path():
 
 def test_entry_missing_name_rejected():
     assert _entry_to_discovered(_valid_entry(name="")) is None
+
+
+def test_entry_parses_and_filters_url_schemes():
+    # #421/#694: valid schemes kept (lowercased, deduped); dangerous + malformed
+    # dropped by the shared policy.
+    app = _entry_to_discovered(
+        _valid_entry(url_schemes=["mailto", "SLACK", "javascript", "bad scheme", "vnc", "mailto:"])
+    )
+    assert app is not None
+    assert app.url_schemes == ["mailto", "slack", "vnc"]
+
+
+def test_render_app_toml_emits_url_schemes():
+    from winpodx.core.discovery import DiscoveredApp
+
+    app = DiscoveredApp(
+        name="outlook",
+        full_name="Outlook",
+        executable="C:\\o.exe",
+        url_schemes=["mailto", "webcal"],
+    )
+    toml = _render_app_toml(app)
+    assert 'url_schemes = ["mailto", "webcal"]' in toml
+    # absent when empty (minimal-diff convention)
+    bare = _render_app_toml(DiscoveredApp(name="n", full_name="N", executable="C:\\n.exe"))
+    assert "url_schemes" not in bare
     assert _entry_to_discovered(_valid_entry(name=None)) is None
 
 

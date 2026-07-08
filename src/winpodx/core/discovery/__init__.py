@@ -291,6 +291,10 @@ class DiscoveredApp:
     # "/" separators (e.g. "Microsoft Office/Tools"). "" = top-level. Mirrored
     # into a nested winpodx submenu by the desktop-entry / menu generators.
     start_menu_folder: str = ""
+    # #421/#694: URL schemes the guest reports this app handles (mailto, https,
+    # slack, ...), filtered through the shared url_schemes policy. Emitted as
+    # x-scheme-handler/<scheme> in the .desktop MimeType.
+    url_schemes: list[str] = field(default_factory=list)
 
 
 # --- Hybrid filter: essentials allowlist + noise denylist -----------------
@@ -1116,6 +1120,21 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
 
     start_menu_folder = _sanitize_start_menu_folder(entry.get("start_menu_folder", ""))
 
+    # #421/#694: URL schemes the app handles. Filter through the shared policy
+    # (syntactic regex + denylist) so a hostile guest can't register winpodx as
+    # a handler for a dangerous scheme (file:, javascript:, ...); dedupe + cap.
+    from winpodx.core.url_schemes import is_safe_scheme
+
+    url_schemes: list[str] = []
+    raw_schemes = entry.get("url_schemes", [])
+    if isinstance(raw_schemes, list):
+        for s in raw_schemes[:64]:
+            if not isinstance(s, str):
+                continue
+            scheme = s.strip().rstrip(":").lower()
+            if is_safe_scheme(scheme) and scheme not in url_schemes:
+                url_schemes.append(scheme)
+
     return DiscoveredApp(
         name=slug,
         full_name=raw_name.strip(),
@@ -1129,6 +1148,7 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
         icon_bytes=icon_bytes,
         extensions=extensions,
         start_menu_folder=start_menu_folder,
+        url_schemes=url_schemes,
     )
 
 
@@ -1389,6 +1409,8 @@ def _render_app_toml(app: DiscoveredApp, mime_enabled: bool = True) -> str:
         data["exe_hash"] = app.exe_hash
     if app.start_menu_folder:
         data["start_menu_folder"] = app.start_menu_folder
+    if app.url_schemes:
+        data["url_schemes"] = app.url_schemes
     # Always emit hidden / essential when set so AppInfo.load_app picks
     # them up. Keep the keys absent on the default-False side to keep
     # toml diffs minimal for the common case (visible, non-essential).
