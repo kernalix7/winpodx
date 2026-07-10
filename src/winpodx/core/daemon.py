@@ -410,9 +410,7 @@ def run_session_window_reaper(
                         seen.add(name)
                         gone_since.pop(name, None)
                     elif name in seen:
-                        armed_at, armed_pid = gone_since.setdefault(
-                            name, (now, live_pids[name])
-                        )
+                        armed_at, armed_pid = gone_since.setdefault(name, (now, live_pids[name]))
                         if armed_pid != live_pids[name]:
                             # A fresh session replaced the one we armed against
                             # (its window just hasn't mapped yet). Re-arm on the

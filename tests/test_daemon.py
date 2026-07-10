@@ -381,9 +381,7 @@ def test_session_window_reaper_never_reaps_unseen_window(monkeypatch):
 
     monkeypatch.setattr(daemon, "_rail_window_classes", _scan)
     killed: list[str] = []
-    monkeypatch.setattr(
-        daemon, "kill_session", lambda name, expected_pid=None: killed.append(name)
-    )
+    monkeypatch.setattr(daemon, "kill_session", lambda name, expected_pid=None: killed.append(name))
 
     daemon.run_session_window_reaper(Config(), stop)
     assert killed == []
