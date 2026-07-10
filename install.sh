@@ -1315,8 +1315,17 @@ else
             copy_from_local "$SCRIPT_DIR"
         else
             if ! command -v git >/dev/null 2>&1; then
-                err "git is required for remote install. Install git first or run from the repository."
-                exit 1
+                # git isn't preinstalled on some fresh systems (e.g. Linux Mint);
+                # auto-install it like every other dependency so the one-liner
+                # is self-contained (#705). Fall back to a clear error if the
+                # package manager can't provide it.
+                log "git is required to fetch WinPodX but isn't installed; installing it..."
+                install_pkg git || true
+                if ! command -v git >/dev/null 2>&1; then
+                    err "git is required for remote install but could not be installed automatically."
+                    err "Install git manually (e.g. 'sudo apt-get install git') and re-run, or run from a cloned repository."
+                    exit 1
+                fi
             fi
             log "Cloning from GitHub..."
             if [ -d "$INSTALL_DIR" ]; then
