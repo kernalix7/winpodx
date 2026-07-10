@@ -72,11 +72,11 @@
       </details>
       <details>
         <summary data-i18n="faq.q.reverse.q">Can Linux apps open from inside Windows too?</summary>
-        <div class="a" data-i18n-html="faq.q.reverse.a">Yes — that's "reverse-open". Your Linux apps appear in the Windows guest's "Open with…" menu with their real icons; picking one round-trips the file open back to the host's <code>xdg-open</code>. It's on by default.</div>
+        <div class="a" data-i18n-html="faq.q.reverse.a">Yes — that's "reverse-open". Your Linux apps appear in the Windows guest's "Open with…" menu with their real icons; picking one round-trips the file open back to the host's <code>xdg-open</code>. It's on by default. It can even open files on the Windows disk itself — the guest <code>C:</code> is shared over SMB and mounted with kio-fuse (KDE), so edits save straight back.</div>
       </details>
       <details>
         <summary data-i18n="faq.q.peripherals.q">What about clipboard, sound, printers, and USB?</summary>
-        <div class="a" data-i18n-html="faq.q.peripherals.a">Clipboard (text + images), sound, printers, and your home directory (<code>\\tsclient\home</code>) are shared by default. USB drives auto-map to drive letters, and there's live USB device passthrough (a host ↔ guest switcher) for things like security dongles.</div>
+        <div class="a" data-i18n-html="faq.q.peripherals.a">Clipboard (text + images), sound, printers, and your home directory (<code>\\tsclient\home</code>) are shared by default. USB drives are shared in-session at <code>\\tsclient\media</code> (with a desktop shortcut inside Windows), and there's live USB device passthrough (a host ↔ guest switcher) for things like security dongles.</div>
       </details>
       <details>
         <summary data-i18n="faq.q.requirements.q">What are the requirements?</summary>
@@ -88,7 +88,7 @@
       </details>
       <details>
         <summary data-i18n="faq.q.resources.q">Does the container keep running and eating resources?</summary>
-        <div class="a" data-i18n-html="faq.q.resources.a">No — it auto-suspends when idle and resumes on the next launch. You can also enable pod auto-start on login, or stop it entirely. A stalled RDP guest is detected and self-healed without a manual restart.</div>
+        <div class="a" data-i18n-html="faq.q.resources.a">No — it auto-suspends when idle and resumes on the next launch, and an opt-in idle auto-stop can fully stop the VM to free its RAM. You can also enable pod auto-start on login, or stop it entirely. A stalled RDP guest is detected and self-healed without a manual restart.</div>
       </details>
       <details>
         <summary data-i18n="faq.q.uninstall.q">How do I uninstall? Will it wipe my Windows data?</summary>
@@ -96,7 +96,7 @@
       </details>
       <details>
         <summary data-i18n="faq.q.status.q">Is it stable? What's the project status?</summary>
-        <div class="a" data-i18n-html="faq.q.status.a">It's in active <b>beta</b> (v0.8.0) — usable day-to-day, with ongoing polish. Bug reports and PRs are welcome on <a target="_blank" rel="noopener noreferrer" href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</div>
+        <div class="a" data-i18n-html="faq.q.status.a">It's in active <b>beta</b> (v0.8.1) — usable day-to-day, with ongoing polish. Bug reports and PRs are welcome on <a target="_blank" rel="noopener noreferrer" href="https://github.com/kernalix7/winpodx/issues">GitHub</a>.</div>
       </details>
     </div>
   </section>

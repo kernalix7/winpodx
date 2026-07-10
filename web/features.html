@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Features — WinPodX</title>
-  <meta name="description" content="WinPodX features: seamless RemoteApp windows, reverse-open, zero-config discovery, peripherals, multi-session RDP, automation & resilience.">
+  <meta name="description" content="WinPodX features: seamless RemoteApp windows, URL-scheme link handling, reverse-open, zero-config discovery, peripherals, multi-session RDP, automation & resilience.">
   <link rel="icon" type="image/svg+xml" href="assets/winpodx-icon.svg">
   <link rel="canonical" href="https://www.winpodx.org/features.html">
   <meta name="theme-color" content="#0d1117">
@@ -45,7 +45,7 @@
   <section class="page-hero wrap">
     <span class="eyebrow" data-i18n="feat.hero.eyebrow">Features</span>
     <h1 data-i18n="feat.hero.h1">Windows apps, as native Linux citizens</h1>
-    <p data-i18n="feat.hero.sub">The full picture — from per-app RemoteApp windows to the bidirectional "Open with…" bridge, peripherals, multi-session RDP, and self-healing operations.</p>
+    <p data-i18n="feat.hero.sub">The full picture — from per-app RemoteApp windows and URL-scheme link handling to the bidirectional "Open with…" bridge, peripherals, multi-session RDP, and self-healing operations.</p>
   </section>
 
   <section class="wrap">
@@ -62,6 +62,10 @@
       <div class="block">
         <h3 data-i18n="feat.seamless.assoc.title">Bidirectional file associations</h3>
         <p data-i18n-html="feat.seamless.assoc.body">Double-click a <code>.docx</code> in your file manager and Word opens. Open a second file for an app that's already running and it's delivered into the live session — mapped to its <code>\\tsclient</code> path and opened in place — instead of being silently dropped. The reverse works too — see below. <em>Open with…</em> also works on desktops that launch with a stripped PATH (e.g. Deepin), since entries embed winpodx's absolute path.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.seamless.urlschemes.title">Links open the right Windows app</h3>
+        <p data-i18n-html="feat.seamless.urlschemes.body">Click a <code>mailto:</code> link and Outlook opens; app schemes like <code>slack:</code>, <code>vnc:</code>, <code>zoommtg:</code> route to the right Windows app automatically — every scheme an app registers is harvested during discovery and turned into a Linux <code>x-scheme-handler</code>. Web schemes (<code>http:</code>/<code>https:</code>) are registered too, but never silently made your default — you opt in. A shared denylist + sanitizer blocks dangerous schemes (<code>file:</code>, <code>javascript:</code>, <code>data:</code>, …) at both registration and launch.</p>
       </div>
       <div class="block">
         <h3 data-i18n="feat.seamless.menugroup.title">Folder-grouped app menu</h3>
@@ -92,6 +96,10 @@
       <div class="block">
         <h3 data-i18n="feat.reverse.roundtrip.title">Round-trips to the host</h3>
         <p data-i18n-html="feat.reverse.roundtrip.body">Pick a Linux app inside Windows and the file open round-trips back to the host's <code>xdg-open</code>. WinPodX auto-discovers host-side Linux apps and their MIME associations from freedesktop standards.</p>
+      </div>
+      <div class="block">
+        <h3 data-i18n="feat.reverse.guestdisk.title">Windows-side files too</h3>
+        <p data-i18n-html="feat.reverse.guestdisk.body">Not just your shared home — the guest <code>C:</code> drive is shared over SMB and mounted with kio-fuse, so the Linux app opens the real guest file and edits save straight back (KDE; needs kio-fuse).</p>
       </div>
       <div class="block">
         <h3 data-i18n="feat.reverse.manage.title">Manageable</h3>
@@ -132,7 +140,7 @@
         <li data-i18n-html="feat.peripherals.default.li4">Home directory — shared as <code>\\tsclient\home</code></li>
       </ul></div>
       <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-hdd"/></svg></span><span data-i18n="feat.peripherals.storage.title">Storage &amp; devices</span></h3><ul>
-        <li data-i18n="feat.peripherals.storage.li1">USB drives auto-mapped to drive letters (E:, F:, …)</li>
+        <li data-i18n-html="feat.peripherals.storage.li1">USB drives shared at <code>\\tsclient\media</code> — the Windows desktop shortcut always resolves</li>
         <li data-i18n="feat.peripherals.storage.li2">Drives plugged in mid-session resolve, subfolders work</li>
         <li data-i18n="feat.peripherals.storage.li3">USB / PCI device passthrough (CLI, GUI Devices tab, tray switcher) — USB hot-plugs live</li>
         <li data-i18n="feat.peripherals.storage.li4">Smart DPI scaling from GNOME / KDE / Sway / Hyprland / Cinnamon</li>
@@ -146,6 +154,7 @@
     <div class="grid">
       <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-activity"/></svg></span><span data-i18n="feat.automation.healthy.title">Keeps itself healthy</span></h3><ul>
         <li data-i18n="feat.automation.healthy.li1">Auto suspend / resume — pauses when idle, resumes on launch</li>
+        <li data-i18n="feat.automation.healthy.li5">Opt-in idle auto-stop — fully stops the VM and frees its RAM</li>
         <li data-i18n="feat.automation.healthy.li2">Optional pod auto-start on login</li>
         <li data-i18n="feat.automation.healthy.li3">UNRESPONSIVE → recover: self-heals a stalled RDP guest</li>
         <li data-i18n="feat.automation.healthy.li4">Windows disk auto-grows when C: fills, bounded by host space</li>
