@@ -123,6 +123,22 @@ jobs:
           # python-build-standalone ships its license files; surface them.
           find AppDir/opt/python -maxdepth 3 -iname "LICENSE*" -path "*python*" \
               -exec cp {} AppDir/usr/share/doc/winpodx/third-party/python-LICENSE.txt \; 2>/dev/null || true
+          # LGPL compliance (0.8.1 legal gate): the fat AppImage REDISTRIBUTES the
+          # PySide6/Qt6 binaries (LGPL-3.0), so their license text must travel with
+          # it -- don't merely assume the wheel's dist-info carries it. Copy the
+          # PySide6-shipped license texts (this runs BEFORE the slim step, so the
+          # licenses dir is still present) and HARD-FAIL if none is found, so a
+          # wheel that ever stops shipping them breaks the build loudly instead of
+          # silently publishing a non-compliant AppImage.
+          mkdir -p AppDir/usr/share/doc/winpodx/third-party/pyside6
+          find AppDir/opt/python \( -path "*PySide6*licenses*" -o -path "*PySide6*.dist-info*" \) \
+              \( -iname "*LGPL*" -o -iname "*GPL*" -o -iname "LICENSE*" -o -iname "*COPYING*" \) \
+              -exec cp -n {} AppDir/usr/share/doc/winpodx/third-party/pyside6/ \; 2>/dev/null || true
+          if ! ls AppDir/usr/share/doc/winpodx/third-party/pyside6/ 2>/dev/null \
+                | grep -qiE "lgpl|gpl|licen|copying"; then
+              echo "::error::LGPL compliance: no PySide6/Qt license text bundled in the AppImage; refusing to publish a non-compliant build." >&2
+              exit 1
+          fi
           du -sh AppDir
 
       - name: Slim PySide6 — drop unused Qt6 modules

@@ -11,7 +11,7 @@ pkgrel=1
 pkgdesc="Windows app integration for Linux desktop (Podman/FreeRDP RemoteApp)"
 arch=('any')
 url="https://github.com/kernalix7/winpodx"
-license=('MIT')
+license=('MIT' 'Apache-2.0')  # Apache-2.0: bundled rdprrap zip ports stascorp/rdpwrap
 # Arch's `python` is rolling and already >= 3.13, so tomllib is stdlib and
 # the tomli fallback is a no-op here (marker-gated in pyproject.toml).
 depends=(
