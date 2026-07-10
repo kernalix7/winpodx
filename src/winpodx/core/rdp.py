@@ -1237,13 +1237,18 @@ def _count_rail_windows(wmctrl: str, target: str) -> int | None:
     with res_class == the ``/wm-class`` token (our app_name slug).
     """
     try:
-        out = subprocess.run(
+        proc = subprocess.run(
             [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
-        ).stdout
+        )
     except (OSError, subprocess.SubprocessError):
         return None
+    # Non-zero exit = scan failed (WM transitioning), not "zero windows". Return
+    # None so the caller treats it as a transient failure and holds its state
+    # rather than counting it as the app's windows having closed.
+    if proc.returncode != 0:
+        return None
     count = 0
-    for line in out.splitlines():
+    for line in proc.stdout.splitlines():
         parts = line.split(None, 4)  # id, desktop, wm_class, host, title
         if len(parts) >= 3 and parts[2] == target:
             count += 1
@@ -1309,7 +1314,10 @@ def _window_reaper(session: RDPSession, wm_class: str) -> None:
                     session.app_name,
                     _WINDOW_REAP_DEBOUNCE,
                 )
-                kill_session(session.app_name)
+                # Guard the relaunch race: only reap if the .cproc still holds
+                # THIS session's PID. If the user reopened the app meanwhile, a
+                # fresh session overwrote the marker -- leave the newcomer alone.
+                kill_session(session.app_name, expected_pid=proc.pid)
                 return
         else:
             gone_since = None

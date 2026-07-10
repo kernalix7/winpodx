@@ -134,8 +134,16 @@ def list_active_sessions() -> list[TrackedProcess]:
     return sessions
 
 
-def kill_session(app_name: str) -> bool:
-    """Terminate an active RDP session by app name (SIGTERM the tracked PID)."""
+def kill_session(app_name: str, expected_pid: int | None = None) -> bool:
+    """Terminate an active RDP session by app name (SIGTERM the tracked PID).
+
+    ``expected_pid`` guards against a relaunch race: the ``.cproc`` for an app is
+    overwritten in place when a fresh session of the same app spawns. A window
+    reaper that armed against one session must not SIGTERM the session that
+    replaced it (close a doc, immediately open the next -- a very common flow).
+    When ``expected_pid`` is given and the current marker no longer holds it, a
+    newer session owns the slot, so we leave it alone and report no-kill.
+    """
     pid_file = runtime_dir() / f"{app_name}.cproc"
     if not pid_file.exists():
         return False
@@ -144,6 +152,11 @@ def kill_session(app_name: str) -> bool:
         pid = int(pid_file.read_text().strip())
     except (ValueError, OSError):
         pid_file.unlink(missing_ok=True)
+        return False
+
+    if expected_pid is not None and pid != expected_pid:
+        # A fresh session replaced the one the caller armed against; don't reap
+        # the newcomer (and don't touch its .cproc).
         return False
 
     if not _pid_alive(pid):

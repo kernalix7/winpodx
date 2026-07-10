@@ -339,13 +339,20 @@ def _rail_window_classes(wmctrl: str) -> set[str] | None:
     app_name slug, so ``wmctrl -lx`` column 3 is ``RAIL.<app_name>``.
     """
     try:
-        out = subprocess.run(
+        proc = subprocess.run(
             [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
-        ).stdout
+        )
     except (OSError, subprocess.SubprocessError):
         return None
+    # A non-zero exit means the scan failed (e.g. wmctrl "Cannot get client list
+    # properties" while the WM is transitioning), NOT that there are zero
+    # windows. Treating an empty stdout as "no windows" here would arm every
+    # live session for reaping and, after the debounce, kill them all on two
+    # transient failures. Return None so callers hold their state instead.
+    if proc.returncode != 0:
+        return None
     classes: set[str] = set()
-    for line in out.splitlines():
+    for line in proc.stdout.splitlines():
         parts = line.split(None, 4)  # id, desktop, wm_class, host, title
         if len(parts) >= 3 and parts[2].startswith("RAIL."):
             classes.add(parts[2][len("RAIL.") :])
@@ -380,10 +387,15 @@ def run_session_window_reaper(
         return
     log.info("Session window-reaper started")
     seen: set[str] = set()  # app_names whose RAIL window has appeared at least once
-    gone_since: dict[str, float] = {}
+    # name -> (armed_at, pid): the monotonic time the window went away AND the
+    # session PID that owned it. Binding to a PID stops a relaunch race -- if the
+    # user closes a doc and immediately reopens (the .cproc is overwritten with a
+    # fresh session's PID), we must reap the OLD session, not the newcomer.
+    gone_since: dict[str, tuple[float, int]] = {}
     while not stop_event.is_set():
         try:
-            live = {s.app_name for s in list_active_sessions()}
+            live_pids = {s.app_name: s.pid for s in list_active_sessions()}
+            live = set(live_pids)
             # Forget state for sessions that have ended.
             seen.intersection_update(live)
             for name in list(gone_since):
@@ -398,14 +410,22 @@ def run_session_window_reaper(
                         seen.add(name)
                         gone_since.pop(name, None)
                     elif name in seen:
-                        first_gone = gone_since.setdefault(name, now)
-                        if now - first_gone >= _WINDOW_REAP_DEBOUNCE_SECS:
+                        armed_at, armed_pid = gone_since.setdefault(
+                            name, (now, live_pids[name])
+                        )
+                        if armed_pid != live_pids[name]:
+                            # A fresh session replaced the one we armed against
+                            # (its window just hasn't mapped yet). Re-arm on the
+                            # new PID instead of reaping the newcomer.
+                            gone_since[name] = (now, live_pids[name])
+                            continue
+                        if now - armed_at >= _WINDOW_REAP_DEBOUNCE_SECS:
                             log.info(
                                 "session %r windows gone %.0fs after close; reaping",
                                 name,
                                 _WINDOW_REAP_DEBOUNCE_SECS,
                             )
-                            kill_session(name)
+                            kill_session(name, expected_pid=armed_pid)
                             seen.discard(name)
                             gone_since.pop(name, None)
         except Exception as e:  # noqa: BLE001 -- never kill the monitor

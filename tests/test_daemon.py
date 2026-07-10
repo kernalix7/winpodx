@@ -17,6 +17,35 @@ from winpodx.core.daemon import (
 )
 
 
+def test_rail_window_classes_none_on_nonzero_exit(monkeypatch):
+    """Security/robustness: a non-zero wmctrl exit (WM transitioning) must return
+    None, not an empty set -- an empty set would arm every live session for
+    reaping and kill them all on two transient scan failures."""
+    from winpodx.core.daemon import _rail_window_classes
+
+    class _R:
+        returncode = 1
+        stdout = ""  # wmctrl printed nothing because it failed
+
+    monkeypatch.setattr("winpodx.core.daemon.subprocess.run", lambda *a, **k: _R())
+    assert _rail_window_classes("wmctrl") is None
+
+
+def test_rail_window_classes_parses_on_success(monkeypatch):
+    from winpodx.core.daemon import _rail_window_classes
+
+    class _R:
+        returncode = 0
+        stdout = (
+            "0x01 0 RAIL.winword host Doc\n"
+            "0x02 0 RAIL.excel host Sheet\n"
+            "0x03 0 Navigator.firefox host Web\n"
+        )
+
+    monkeypatch.setattr("winpodx.core.daemon.subprocess.run", lambda *a, **k: _R())
+    assert _rail_window_classes("wmctrl") == {"winword", "excel"}
+
+
 def test_cleanup_lock_files(tmp_path):
     # Lock files should be removed, normal files preserved.
     lock = tmp_path / "~$test.docx"
@@ -283,7 +312,11 @@ def test_rail_window_classes_parses_res_class(monkeypatch):
         "0x02 0 RAIL.winword host Doc\n"
         "0x03 0 firefox.Firefox host web\n"
     )
-    monkeypatch.setattr(daemon.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out})())
+    monkeypatch.setattr(
+        daemon.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": out, "returncode": 0})(),
+    )
     assert daemon._rail_window_classes("wmctrl") == {"excel", "winword"}
 
 
@@ -311,7 +344,7 @@ def _reaper_env(monkeypatch, scans):
     stop = threading.Event()
     killed: list[str] = []
 
-    def _kill(name):
+    def _kill(name, expected_pid=None):
         killed.append(name)
         stop.set()  # one reap is enough for the test
 
@@ -348,7 +381,9 @@ def test_session_window_reaper_never_reaps_unseen_window(monkeypatch):
 
     monkeypatch.setattr(daemon, "_rail_window_classes", _scan)
     killed: list[str] = []
-    monkeypatch.setattr(daemon, "kill_session", lambda name: killed.append(name))
+    monkeypatch.setattr(
+        daemon, "kill_session", lambda name, expected_pid=None: killed.append(name)
+    )
 
     daemon.run_session_window_reaper(Config(), stop)
     assert killed == []

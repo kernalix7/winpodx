@@ -44,6 +44,20 @@ def test_is_safe_scheme_rejects_malformed(bad: str) -> None:
 def test_url_scheme_of_routes_urls_not_paths() -> None:
     assert url_scheme_of("mailto:a@b.com") == "mailto"
     assert url_scheme_of("https://example.com/x") == "https"
+
+
+def test_never_auto_default_covers_web_schemes_only() -> None:
+    # http/https stay routable (is_safe_scheme True) but must be flagged so the
+    # host never auto-seizes their system default from a guest app; mailto and
+    # vendor schemes are intentionally NOT flagged (the #421 auto-route goal).
+    from winpodx.core.url_schemes import NEVER_AUTO_DEFAULT_SCHEMES
+
+    assert "http" in NEVER_AUTO_DEFAULT_SCHEMES
+    assert "https" in NEVER_AUTO_DEFAULT_SCHEMES
+    assert "mailto" not in NEVER_AUTO_DEFAULT_SCHEMES
+    assert "slack" not in NEVER_AUTO_DEFAULT_SCHEMES
+    # still routable -- this is a default-grab policy, not a routing denylist
+    assert is_safe_scheme("http") and is_safe_scheme("https")
     assert url_scheme_of("SLACK://team") == "slack"
     # file paths + file: URIs are NOT routed (file: is denylisted -> UNC path)
     assert url_scheme_of("/home/me/doc.txt") is None

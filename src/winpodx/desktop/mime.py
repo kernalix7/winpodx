@@ -25,7 +25,20 @@ def register_mime_types(app: AppInfo) -> None:
     # File MIME types + URL scheme handlers (#421/#694): making the Windows app
     # the default handler for its declared schemes (e.g. x-scheme-handler/mailto
     # -> Outlook) so a host mailto: link opens in it.
-    scheme_mimes = [f"x-scheme-handler/{s}" for s in (app.url_schemes or [])]
+    #
+    # NEVER_AUTO_DEFAULT_SCHEMES (http/https) are deliberately excluded here: a
+    # discovered guest app must not silently seize the host's web-link default
+    # (it would receive every URL the user clicks, tokens included). They still
+    # get their x-scheme-handler entry in the .desktop (candidate + "Open with"),
+    # so the user can opt in manually; we just never run `xdg-mime default` for
+    # them. mailto / vendor schemes still auto-default (the #421 use case).
+    from winpodx.core.url_schemes import NEVER_AUTO_DEFAULT_SCHEMES
+
+    scheme_mimes = [
+        f"x-scheme-handler/{s}"
+        for s in (app.url_schemes or [])
+        if s not in NEVER_AUTO_DEFAULT_SCHEMES
+    ]
     for mime in list(app.mime_types) + scheme_mimes:
         try:
             result = subprocess.run(

@@ -51,6 +51,19 @@ DANGEROUS_SCHEMES: frozenset[str] = frozenset(
     }
 )
 
+# Schemes that stay routable + registerable as *candidate* handlers, but that we
+# must never seize the SYSTEM DEFAULT for from a discovered (semi-trusted) guest
+# app. http/https carry session tokens / password-reset links, so a guest app
+# silently becoming the host's web-link handler is a trust-boundary hole: every
+# link the user clicks on Linux would be handed to a Windows app that may be
+# malware. `winpodx app run <browser> https://…` and the "Open with" menu still
+# work (the .desktop keeps the x-scheme-handler entry) -- the user just has to
+# opt in explicitly to make a Windows browser their default. Distinct from
+# DANGEROUS_SCHEMES (which blocks routing entirely); these route fine, they just
+# never become the auto-default. mailto / vendor schemes (slack, zoommtg, …) are
+# intentionally NOT here -- routing a mailto: link to Outlook is the #421 goal.
+NEVER_AUTO_DEFAULT_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
 
 def is_safe_scheme(scheme: str) -> bool:
     """True if ``scheme`` is routable (syntactically valid + not dangerous).

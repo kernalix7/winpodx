@@ -184,6 +184,40 @@ class TestKillSession:
         assert signal.SIGKILL in sigs  # escalated
         assert not cproc.exists()
 
+    def test_expected_pid_mismatch_not_signalled(self, tmp_path, monkeypatch):
+        # Relaunch race: a reaper armed against PID 4242, but the .cproc now
+        # holds 5555 (a fresh session of the same app overwrote it). With
+        # expected_pid=4242 we must NOT reap the newcomer, and must leave its
+        # marker intact.
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        calls = []
+        monkeypatch.setattr("winpodx.core.process.os.kill", lambda pid, sig: calls.append(pid))
+        monkeypatch.setattr("winpodx.core.process.os.killpg", lambda pgid, sig: calls.append(pgid))
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("5555")
+        assert kill_session("app", expected_pid=4242) is False
+        assert calls == []
+        assert cproc.exists()  # newcomer's marker left untouched
+        assert cproc.read_text() == "5555"
+
+    def test_expected_pid_match_signals(self, tmp_path, monkeypatch):
+        # Same PID the reaper armed against is still in the marker -> reap it.
+        monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+        monkeypatch.setattr("winpodx.core.process.is_freerdp_pid", lambda pid: True)
+        monkeypatch.setattr("winpodx.core.process.os.getpgid", lambda pid: pid)
+        monkeypatch.setattr("winpodx.core.process.time.sleep", lambda s: None)
+        alive = iter([True, False, False])
+        monkeypatch.setattr("winpodx.core.process._pid_alive", lambda pid: next(alive, False))
+        sigs = []
+        monkeypatch.setattr("winpodx.core.process.os.killpg", lambda pgid, sig: sigs.append(pgid))
+        cproc = tmp_path / "app.cproc"
+        cproc.write_text("4242")
+        assert kill_session("app", expected_pid=4242) is True
+        assert sigs == [4242]
+        assert not cproc.exists()
+
     def test_reused_pid_not_signalled(self, tmp_path, monkeypatch):
         # PID-reuse guard: a live PID that is NOT our FreeRDP client must never
         # be signalled (we'd kill an innocent process). Just drop the stale file.

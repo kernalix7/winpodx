@@ -1121,7 +1121,11 @@ def test_count_rail_windows_matches_res_class(monkeypatch):
         "0x03 0 RAIL.winword host Doc\n"
         "0x04 0 firefox.Firefox host web\n"
     )
-    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out})())
+    monkeypatch.setattr(
+        rdp_mod.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": out, "returncode": 0})(),
+    )
     assert rdp_mod._count_rail_windows("wmctrl", "RAIL.excel") == 2
     assert rdp_mod._count_rail_windows("wmctrl", "RAIL.winword") == 1
     assert rdp_mod._count_rail_windows("wmctrl", "RAIL.none") == 0
@@ -1138,6 +1142,8 @@ def test_count_rail_windows_none_on_scan_error(monkeypatch):
 
 
 class _AliveProc:
+    pid = 4242  # the reaper passes this as expected_pid to kill_session
+
     def poll(self):
         return None  # never exits on its own -- the watcher must reap it
 
@@ -1162,7 +1168,10 @@ def test_window_reaper_reaps_after_windows_close(monkeypatch):
     monkeypatch.setattr(rdp_mod, "_count_rail_windows", lambda *a: next(seq, 0))
 
     killed: list[str] = []
-    monkeypatch.setattr("winpodx.core.process.kill_session", lambda name: killed.append(name))
+    monkeypatch.setattr(
+        "winpodx.core.process.kill_session",
+        lambda name, expected_pid=None: killed.append(name),
+    )
 
     session = RDPSession(app_name="excel")
     session.process = _AliveProc()
@@ -1181,7 +1190,10 @@ def test_window_reaper_never_reaps_if_no_window_appears(monkeypatch):
     monkeypatch.setattr(rdp_mod, "_count_rail_windows", lambda *a: 0)  # never appears
 
     killed: list[str] = []
-    monkeypatch.setattr("winpodx.core.process.kill_session", lambda name: killed.append(name))
+    monkeypatch.setattr(
+        "winpodx.core.process.kill_session",
+        lambda name, expected_pid=None: killed.append(name),
+    )
 
     session = RDPSession(app_name="excel")
     session.process = _AliveProc()
@@ -1198,7 +1210,10 @@ def test_window_reaper_noop_without_wmctrl(monkeypatch):
     scanned: list = []
     monkeypatch.setattr(rdp_mod, "_count_rail_windows", lambda *a: scanned.append(a))
     killed: list[str] = []
-    monkeypatch.setattr("winpodx.core.process.kill_session", lambda name: killed.append(name))
+    monkeypatch.setattr(
+        "winpodx.core.process.kill_session",
+        lambda name, expected_pid=None: killed.append(name),
+    )
 
     session = RDPSession(app_name="excel")
     session.process = _AliveProc()

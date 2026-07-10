@@ -12,7 +12,7 @@ from winpodx.core.app import AppInfo
 from winpodx.desktop import entry as entry_mod
 from winpodx.desktop.entry import DESKTOP_TEMPLATE, install_desktop_entry
 from winpodx.desktop.icons import bundled_data_path
-from winpodx.desktop.mime import unregister_mime_types
+from winpodx.desktop.mime import register_mime_types, unregister_mime_types
 
 
 def test_desktop_template():
@@ -43,6 +43,46 @@ def test_desktop_template():
     assert "Categories=Office;WordProcessor;" in content
     assert "MimeType=application/msword;" in content
     assert "StartupWMClass=winword" in content
+
+
+def test_register_mime_excludes_http_https_from_default_grab(tmp_path, monkeypatch):
+    """Security: a discovered (semi-trusted) guest app must never seize the host
+    http/https default handler. register_mime_types runs `xdg-mime default` for
+    file mimes + mailto/vendor schemes, but NOT for http/https (#421/#694
+    trust-boundary hardening)."""
+    apps_dir = tmp_path / "applications"
+    apps_dir.mkdir()
+    monkeypatch.setattr("winpodx.desktop.mime.applications_dir", lambda: apps_dir)
+    (apps_dir / "winpodx-edge.desktop").write_text("[Desktop Entry]\n", encoding="utf-8")
+
+    registered: list[str] = []
+
+    class _R:
+        returncode = 0
+        stderr = ""
+
+    def _fake_run(argv, **kw):
+        # argv = ["xdg-mime", "default", "<desktop>", "<mime>"]
+        registered.append(argv[-1])
+        return _R()
+
+    monkeypatch.setattr("winpodx.desktop.mime.subprocess.run", _fake_run)
+
+    app = AppInfo(
+        name="edge",
+        full_name="Microsoft Edge",
+        executable="C:\\edge.exe",
+        mime_types=["text/html"],
+        url_schemes=["http", "https", "mailto", "webcal"],
+    )
+    register_mime_types(app)
+
+    assert "x-scheme-handler/http" not in registered
+    assert "x-scheme-handler/https" not in registered
+    # mailto + vendor schemes still auto-default (the #421 use case); file mimes too.
+    assert "x-scheme-handler/mailto" in registered
+    assert "x-scheme-handler/webcal" in registered
+    assert "text/html" in registered
 
 
 # D1: unregister_mime_types must not destroy mimeapps.list structure
