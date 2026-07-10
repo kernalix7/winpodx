@@ -20,5 +20,5 @@
 # Format: <key>=<value>
 dockur=v5.16
 dockur-digest=sha256:3633f055f31aadf76bb650b1ca86897ab45b76ad8eb2cf81e86389ace5eb45ac
-dockur-arm=v5.15
-dockur-arm-digest=sha256:7c28ddbbe69eb02900bef3b7ab3ad60fbd5fb409524a307a60a3c934f80a9dd5
+dockur-arm=v5.16
+dockur-arm-digest=sha256:ece93263254567c6cd4ce420b1fff793d2326f4535555bdf592f40ab173a7bed
