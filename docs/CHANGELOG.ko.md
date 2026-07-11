@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **최소 데스크톱에서 GUI의 `libxcb-cursor0` 의존성을 자동 설치** (#712, @numericOverflow 기여 감사). Qt 6.5+ (PySide6)는 `libxcb-cursor.so.0` 없이는 `xcb` 플랫폼 플러그인을 시작하지 못하는데("could not load the Qt platform plugin 'xcb'"), 새 최소 설치(예: Linux Mint 22)에선 전이 의존성으로 딸려오지 않습니다. 이제 `install.sh`가 GUI가 켜져 있고 런타임 lib가 없을 때 이를 설치합니다(배포판 매핑: Debian/Ubuntu/openSUSE는 `libxcb-cursor0`, Fedora/Arch는 `xcb-util-cursor`).
+
 ## [0.9.0] - 2026-07-11
 
 ### Added

@@ -430,6 +430,7 @@ pkg_name() {
                 docker)         echo "docker" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
+                xcb-cursor)     echo "libxcb-cursor0" ;;
             esac ;;
         fedora|rhel|centos|rocky|alma)
             case "$dep" in
@@ -439,6 +440,7 @@ pkg_name() {
                 docker)         echo "docker" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
+                xcb-cursor)     echo "xcb-util-cursor" ;;
             esac ;;
         ubuntu|debian|linuxmint|pop)
             case "$dep" in
@@ -500,6 +502,7 @@ pkg_name() {
                         echo "$kvm_first"
                     fi
                     ;;
+                xcb-cursor)     echo "libxcb-cursor0" ;;
             esac ;;
         arch|manjaro|endeavouros)
             case "$dep" in
@@ -509,6 +512,7 @@ pkg_name() {
                 docker)         echo "docker" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-full" ;;
+                xcb-cursor)     echo "xcb-util-cursor" ;;
             esac ;;
         *)
             echo "$dep" ;;
@@ -1024,6 +1028,19 @@ esac
 
 # python3 is mandatory (venv host interpreter).
 [ "$PYTHON3_PRESENT" = false ] && MISSING+=("python3")
+
+# The Qt6 GUI (PySide6) needs the xcb-cursor platform-plugin runtime library
+# (libxcb-cursor.so.0). Qt 6.5+ refuses to start its xcb platform plugin
+# without it -- "could not load the Qt platform plugin 'xcb'" -- and it isn't
+# pulled in transitively on a minimal desktop (e.g. fresh Linux Mint 22, #712).
+# Only when the GUI is enabled and the lib isn't already present; keyed off the
+# runtime .so via ldconfig so it's distro-agnostic and stays out of the install
+# plan when it's already there.
+if [ -z "$WINPODX_NO_GUI" ]; then
+    if ! ldconfig -p 2>/dev/null | grep -q 'libxcb-cursor\.so\.0'; then
+        MISSING+=("xcb-cursor")
+    fi
+fi
 
 if [ "$KVM_PRESENT" = false ]; then
     # Pre-install hint. A surprising fraction of user bug reports start
