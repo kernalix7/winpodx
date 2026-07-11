@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-11
+
 ### Added
 
 - **Windows 앱을 Linux에서 URL-scheme 핸들러로 등록 가능** (#421, #694 — 호스트측 기반). 앱이 URL 스킴(`mailto`, `https`, `slack`, `vnc`, …)을 가지면 `.desktop`에 `x-scheme-handler/<scheme>` 항목이 붙고 `Exec`가 URL을 받아, 호스트에서 그런 링크를 클릭하면 Windows 앱에서 열립니다 — URL은 `$HOME` 파일 경로로 매핑하지 않고 앱에 그대로 전달됩니다. 공유 정책 모듈(denylist + 엄격한 스킴 정규식 + `/app`-cmd sanitizer)이 위험 스킴(`file:`, `javascript:`, `data:`, …)을 차단하고 등록·실행 양쪽에서 커맨드라인 인젝션을 무력화합니다. discovery가 이제 게스트에서 각 앱의 스킴을 자동 수확하므로(스킴별 `UrlAssociations` 기본값, 앱별 `Capabilities\URLAssociations`, UWP 매니페스트의 `windows.protocol`), `mailto`/`https` 등을 처리하는 앱이 수동 `app.toml` 편집 없이 자동 등록됩니다.
@@ -30,6 +32,10 @@
 - **Office 2016(MSI) 앱들이 더 이상 "Microsoft Office 2016 component" 하나의 깨진 엔트리로 뭉치지 않음** (#680 regression, @mdshahalam3 기여 감사). 0.8.0의 Start-Menu-only discovery가 각 바로가기의 raw `.TargetPath`를 읽었는데, MSI 설치는 *advertised shortcut*(Windows Installer "Darwin descriptor")를 써서 그 타깃이 `C:\WINDOWS\Installer\{ProductCode}\` 아래 제품별 아이콘 스텁(예: `xlicons.exe`)으로 해석됩니다. 그 스텁들은 파일 설명 "Microsoft Office 2016 component"를 공유해 Word/Excel/PowerPoint/Outlook이 전부 동일해 보였고 dedup으로 실행 불가 엔트리 하나로 뭉쳐 `winpodx app list`에서 사라졌습니다. 이제 advertised shortcut은 타깃 기록 전에 `MsiGetShortcutTarget` + `MsiGetComponentPath`로 실제 설치 실행파일로 해석됩니다; 일반(Click-to-Run/직접) 바로가기는 영향 없음.
 - **이미 실행 중인 Windows 앱에 "연결 프로그램으로 열기"가 이제 새 창으로 안정적으로 파일을 엶** (#675 @ajeshchrist, #680 @mdshahalam3 기여 감사). 예전엔 조용히 아무것도 안 하거나(실행-중 경로가 모든 에러를 삼킴), 게스트 agent로 전달한 경우 "Access denied", 또는 ~30초 멈춘 뒤 crash처럼 재실행됐습니다. 원인: 게스트가 멀티세션 RDP라 *이미 보이는* 앱에 파일을 넘기려는 시도가 **다른 세션**에 착지합니다(agent는 아예 autologon 콘솔 세션에서 돌아 세션별 `\\tsclient\home` 리다이렉트가 없음). 그래서 winpodx는 더 이상 "warm" 전달을 시도하지 않고 — 실행 중 앱에 파일 열기는 **파일을 실은 새 RemoteApp 창**으로 곧장 가며(자격증명 접속이 세션 잠금도 해제/재로그온). 공유 `$HOME`/미디어 밖의 파일은 사라지지 않고 눈에 보이는 에러를 냅니다. 조용한-실패 표면도 강화: `.desktop`의 `Exec`가 `%f`, `notify-send`·`file://` URI를 절대경로로 해석해 stripped-PATH 실행에서도 살아남습니다.
 - **게스트 잠금화면 체크가 세션-스코프로 바뀌고, cold 실행이 느린 게스트를 더 오래 대기** (#680/#675, @mdshahalam3·@ajeshchrist 기여 감사). winpodx는 RemoteApp 창을 만들기 전 게스트 데스크톱이 interactive인지 기다리는데, 체크가 머신전역 `Get-Process LogonUI`라 *다른* 세션(콘솔이나 멈춘 disconnected RAIL 세션)의 잠금화면이 앱 세션을 잠긴 걸로 오탐해 full timeout까지 대기시켰습니다. 이제 LogonUI/explorer를 세션 ID로 매칭합니다. cold 실행도 느린 게스트의 자동로그온 완료를 위해 최대 45초(기존 20초) 대기해 앱 위에 stale 로그온 화면을 그리지 않습니다.
+
+### Contributors
+
+이번 릴리스를 이끈 리포트와 기여에 감사드립니다 — @notnotno (#694, #691, #690), @twkirk161 (#697), @mdshahalam3 (#680), @ajeshchrist (#675), @numericOverflow (#705), @GameSoul7Eugene (#669, #684).
 
 ## [0.8.0] - 2026-06-30
 

@@ -1,3 +1,19 @@
+winpodx (0.9.0) unstable; urgency=medium
+
+  * Feature + hardening release: Windows apps can now be registered as URL-scheme
+    handlers on Linux — clicking a `mailto:` (or app-scheme like `slack:` /
+    `vnc:`) link opens it in the Windows app, auto-harvested during discovery
+    (#421, #694). Security hardening: a discovered guest app can no longer
+    silently seize the host's default `http`/`https` handler (opt-in only), and
+    the session window-reaper no longer mis-kills a just-relaunched app nor
+    mass-kills sessions on a transient scan failure (#680 follow-up). Fixes:
+    kio-fuse detection on multiarch/KF6 layouts (#697), the reverse-open listener
+    autostarting with the tray (#691), the PrepareForSleep D-Bus subscription
+    (#690), and the install one-liner auto-installing `git` (#705). The optional
+    debloat pass opts out of more ads/telemetry (#669, #684). See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sat, 11 Jul 2026 09:00:00 +0000
+
 winpodx (0.8.0) unstable; urgency=medium
 
   * Feature + bug-fix release: app discovery now defaults to Start-Menu-only
