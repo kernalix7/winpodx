@@ -1,0 +1,30 @@
+PySide6 / Qt for Python — third-party redistribution notice
+===========================================================
+
+The WinPodX "fat" AppImage bundles the PySide6 (Qt for Python) runtime so the
+Qt6 GUI works without a system Qt install. This directory ships the license
+texts that PySide6's own wheels do not carry, to satisfy the LGPL-3.0
+redistribution obligation.
+
+Bundled components and their licenses:
+
+  - PySide6 (Qt for Python bindings)         LGPL-3.0-or-later
+    incl. PySide6-Essentials, PySide6-Addons  (with the Qt for Python
+                                               exceptions — see qt.io/qt-for-python)
+  - shiboken6 (PySide6's binding generator     LGPL-3.0-or-later
+    runtime)
+  - Qt 6 libraries loaded by PySide6           LGPL-3.0-only / -or-later
+    (QtCore, QtGui, QtWidgets, QtSvg, QtDBus)  (parts also available under GPL-3.0)
+
+License texts in this directory:
+
+  - LGPL-3.0-only.txt   GNU Lesser General Public License v3.0
+  - GPL-3.0-only.txt    GNU General Public License v3.0
+                        (the LGPL v3 incorporates the GPL v3 by reference)
+
+LGPL relinking: WinPodX does not statically link or modify the Qt/PySide6
+binaries. The AppImage is a self-contained SquashFS that is user-extractable
+via `--appimage-extract`, so an end user can replace the bundled PySide6/Qt
+shared objects with their own build — satisfying the LGPL's relinking right.
+
+Upstream: https://www.qt.io/qt-for-python  ·  https://pypi.org/project/PySide6/
