@@ -39,8 +39,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Where the host's reverse-open listener watches for request files.
 /// Reachable from the guest via the FreeRDP `+home-drive` redirect.
-const INCOMING_DIR_UNC: &str =
-    r"\\tsclient\home\.local\share\winpodx\reverse-open\incoming";
+const INCOMING_DIR_UNC: &str = r"\\tsclient\home\.local\share\winpodx\reverse-open\incoming";
 
 /// Filename prefix and suffix the slug-from-filename parser expects.
 const SLUG_FILENAME_PREFIX: &str = "winpodx-";
@@ -58,12 +57,15 @@ fn main() {
     };
 
     let args: Vec<String> = env::args().collect();
-    let file_arg = match args.get(1) {
-        Some(s) if !s.is_empty() => s.clone(),
-        _ => process::exit(EXIT_BAD_ARGS),
+    let (path, origin) = match args.get(1) {
+        Some(s) if !s.is_empty() => classify_path(s),
+        // No file argument: the user launched the app directly from its
+        // "Linux Apps" Start-Menu / Desktop shortcut rather than via the
+        // "Open with…" menu on a file. Emit a launch-only request (empty
+        // path, origin "launch") so the host runs the Linux app with no
+        // file argument instead of the shim silently exiting (#616).
+        _ => (String::new(), "launch"),
     };
-
-    let (path, origin) = classify_path(&file_arg);
 
     let uid = new_uuid();
     let ts = format!(
@@ -166,8 +168,9 @@ fn new_uuid() -> String {
 /// `winpodx.reverse_open.listener._validate_schema`):
 ///   version: 2
 ///   app:     <slug>      (^[a-z0-9-]+$)
-///   path:    <path>      (string, ≤ 4 KB, NUL-free)
-///   origin:  "host"|"guest"  (host = \\tsclient\… redirect; guest = guest disk)
+///   path:    <path>      (string, ≤ 4 KB, NUL-free; empty for origin "launch")
+///   origin:  "host"|"guest"|"launch"  (host = \\tsclient\… redirect;
+///            guest = guest disk; launch = run the app with no file)
 ///   ts:      <ts>        (string, non-empty)
 ///   pod_id:  null
 fn build_request_json(slug: &str, path: &str, origin: &str, ts: &str) -> String {
@@ -240,6 +243,16 @@ mod tests {
         assert!(j.contains(r#""app":"sublime""#));
         // Backslashes are JSON-escaped.
         assert!(j.contains(r#""path":"C:\\a\\b.txt""#));
+    }
+
+    #[test]
+    fn build_request_json_launch_only_empty_path() {
+        // #616: launching an app with no file emits origin "launch" and an
+        // empty path; the host runs the app with no file argument.
+        let j = build_request_json("sublime", "", "launch", "123");
+        assert!(j.contains(r#""origin":"launch""#));
+        assert!(j.contains(r#""app":"sublime""#));
+        assert!(j.contains(r#""path":"""#));
     }
 
     #[test]

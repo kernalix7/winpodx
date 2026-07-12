@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Windows의 "Linux Apps" 바로가기에서 Linux 앱을 파일 없이 직접 실행 가능** (#616, @notnotno 기여 감사). Windows 시작 메뉴/바탕화면 "Linux Apps" 폴더의 reverse-open shim은 주로 "연결 프로그램" 선택 항목인데, 파일 없이 직접 클릭하면 게스트 shim이 파일 인자를 요구해서 조용히 종료돼 아무 일도 안 일어났습니다. 이제 launch-only 요청(`origin: "launch"`, 빈 경로)을 보내 호스트가 파일 없이 Linux 앱을 실행하므로(`%f`/`%u` placeholder를 채우지 않고 제거), 그 바로가기가 일반 앱 런처로도 동작합니다. 갱신된 게스트 shim 필요(다음 `winpodx guest sync` / `apply-fixes` 때 재프로비저닝).
+
 ### Fixed
 
 - **최소 데스크톱에서 GUI의 `libxcb-cursor0` 의존성을 자동 설치** (#712, @numericOverflow 기여 감사). Qt 6.5+ (PySide6)는 `libxcb-cursor.so.0` 없이는 `xcb` 플랫폼 플러그인을 시작하지 못하는데("could not load the Qt platform plugin 'xcb'"), 새 최소 설치(예: Linux Mint 22)에선 전이 의존성으로 딸려오지 않습니다. 이제 `install.sh`가 GUI가 켜져 있고 런타임 lib가 없을 때 이를 설치합니다(배포판 매핑: Debian/Ubuntu/openSUSE는 `libxcb-cursor0`, Fedora/Arch는 `xcb-util-cursor`).

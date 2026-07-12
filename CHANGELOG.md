@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Launching a Linux app directly from its "Linux Apps" shortcut on Windows now runs it** (#616, thanks @notnotno). The reverse-open shims placed under Windows' Start Menu / Desktop "Linux Apps" folder are primarily "Open with…" chooser entries, but clicking one directly (with no file) used to do nothing — the guest shim silently exited because it required a file argument. It now emits a launch-only request (`origin: "launch"`, empty path) and the host runs the Linux app with no file (the `%f`/`%u` placeholder is stripped rather than filled), so the shortcuts double as plain app launchers. Requires the updated guest shim (re-provisions on the next `winpodx guest sync` / `apply-fixes`).
+
 ### Fixed
 
 - **The GUI's `libxcb-cursor0` dependency is now auto-installed on a minimal desktop** (#712, thanks @numericOverflow). Qt 6.5+ (PySide6) refuses to start its `xcb` platform plugin without `libxcb-cursor.so.0` — "could not load the Qt platform plugin 'xcb'" — and it isn't pulled in transitively on a fresh minimal install (e.g. Linux Mint 22). `install.sh` now installs it (distro-mapped: `libxcb-cursor0` on Debian/Ubuntu/openSUSE, `xcb-util-cursor` on Fedora/Arch) when the GUI is enabled and the runtime lib isn't already present.

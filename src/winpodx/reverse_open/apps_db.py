@@ -171,6 +171,17 @@ def _validate_entry(raw: object) -> AppEntry | None:
     )
 
 
+def strip_path_placeholders(exec_argv: list[str]) -> list[str]:
+    """Drop every path placeholder (``%f``/``%u``/``%F``/``%U``) from argv.
+
+    Used for a launch-only request (run the app with no file): unlike
+    :func:`substitute_path`, it never appends a path — it returns the argv
+    with the placeholder tokens removed so the app starts on its own. Apps
+    with no placeholder are returned unchanged. Returns a fresh list.
+    """
+    return [tok for tok in exec_argv if tok not in _PATH_PLACEHOLDERS]
+
+
 def substitute_path(exec_argv: list[str], path: str) -> list[str]:
     """Substitute the first path placeholder in argv with ``path``.
 

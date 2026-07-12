@@ -167,6 +167,35 @@ def test_validate_schema_rejects_guest_origin_with_unc_path() -> None:
     assert err and "guest path" in err
 
 
+def test_validate_schema_accepts_launch_origin_empty_path() -> None:
+    # #616: a launch-only request (run the app with no file) carries an
+    # empty path and origin "launch".
+    err = _validate_schema(
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "",
+            "origin": "launch",
+            "ts": "t",
+        }
+    )
+    assert err is None
+
+
+def test_validate_schema_rejects_launch_origin_with_path() -> None:
+    # A launch request must not carry a path — there's no file to open.
+    err = _validate_schema(
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "C:\\Users\\me\\x.txt",
+            "origin": "launch",
+            "ts": "t",
+        }
+    )
+    assert err and "launch" in err
+
+
 def test_validate_schema_rejects_bad_origin() -> None:
     err = _validate_schema(
         {
@@ -426,6 +455,40 @@ def test_process_pending_spawns_on_happy_path(
     # No FD inheritance needed any more — popen_kwargs is empty.
     assert popen_kwargs == {}
     # Request file is deleted after the accepted spawn.
+    assert not (inc / f"{uid}.json").exists()
+
+
+def test_process_pending_spawns_launch_only_without_file(
+    tmp_path: Path, spawn_capture: tuple
+) -> None:
+    # #616: a launch-only request runs the app with NO file — the %f/%u
+    # placeholder is stripped, not filled, so the app starts on its own.
+    captured, spawn = spawn_capture
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    uid = _write_request(
+        inc,
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "",
+            "origin": "launch",
+            "ts": "t",
+            "pod_id": None,
+        },
+    )
+
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={})
+    apps_db = _apps_db_with("kate", ["/usr/bin/kate", "%F"])
+    listener = Listener(cfg, apps_db, _seen(tmp_path), spawn=spawn)
+    listener.process_pending()
+
+    stats = listener.stats_snapshot()
+    assert stats.accepted == 1
+    assert len(captured) == 1
+    argv, _ = captured[0]
+    # No file, no placeholder — just the app.
+    assert argv == ["/usr/bin/kate"]
     assert not (inc / f"{uid}.json").exists()
 
 

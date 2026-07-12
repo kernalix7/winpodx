@@ -59,7 +59,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from winpodx.reverse_open.apps_db import AppsDatabase, substitute_path
+from winpodx.reverse_open.apps_db import (
+    AppsDatabase,
+    strip_path_placeholders,
+    substitute_path,
+)
 from winpodx.reverse_open.paths import ReversePathError, safe_open_unc
 from winpodx.reverse_open.seen_uuids import SeenUUIDs
 
@@ -290,6 +294,14 @@ class Listener:
             _safe_unlink(path)
             return
 
+        # Launch-only (origin="launch"): no file — run the app on its own
+        # (the user clicked the app's "Linux Apps" shortcut directly instead
+        # of Open-with on a file). Strip the file placeholders from the
+        # app's exec argv and spawn (#616 app launcher).
+        if data.get("origin", "host") == "launch":
+            self._handle_launch_request(path, slug, app)
+            return
+
         # Guest-local files (origin="guest") live on the guest's own disk,
         # reached through the host SMB mount of the guest C: (see
         # guest_disk.ensure_guest_mount). Resolve + spawn here; the
@@ -341,6 +353,31 @@ class Listener:
         # spawn-error path above leaves the UUID unrecorded so the
         # guest can retry without hitting the replay reject. The
         # path-reject branch DOES record nothing for the same reason.
+        self._seen.add(uuid)
+        self._stats.accepted += 1
+        _safe_unlink(path)
+
+    def _handle_launch_request(self, path: Path, slug: str, app: object) -> None:
+        """Run a Linux app with no file (origin="launch").
+
+        The user launched the app directly from its "Linux Apps" shortcut
+        on the guest rather than opening a file with it. There is no path to
+        resolve or validate; strip the file placeholders (``%f``/``%u``/…)
+        from the app's exec argv so the app starts on its own instead of
+        being handed a stray argument. The UUID is recorded only after the
+        spawn fires so the guest can retry a failed launch. (#616)
+        """
+        uuid = path.stem
+        argv = strip_path_placeholders(app.exec_argv)  # type: ignore[attr-defined]
+        log.info("listener: spawning (launch) slug=%s argv=%r", slug, argv)
+        try:
+            self._spawn(argv, {})
+        except OSError as exc:
+            self._stats.spawn_errors += 1
+            log.warning("listener: launch spawn failed for %s: %s", slug, exc)
+            _safe_unlink(path)
+            return
+
         self._seen.add(uuid)
         self._stats.accepted += 1
         _safe_unlink(path)
@@ -481,8 +518,8 @@ def _validate_schema(data: object) -> str | None:
         return "app field invalid"
     # origin defaults to "host" for v1 requests (no origin field).
     origin = data.get("origin", "host")
-    if origin not in ("host", "guest"):
-        return "origin must be 'host' or 'guest'"
+    if origin not in ("host", "guest", "launch"):
+        return "origin must be 'host', 'guest', or 'launch'"
     path = data.get("path")
     if not isinstance(path, str):
         return "path field not a string"
@@ -490,7 +527,13 @@ def _validate_schema(data: object) -> str | None:
         return "path field contains NUL"
     if len(path.encode("utf-8")) > 4096:
         return "path field exceeds 4096 bytes"
-    if origin == "guest":
+    if origin == "launch":
+        # Launch-only: run the app with no file (the user clicked the app's
+        # "Linux Apps" shortcut directly, not Open-with on a file). Path must
+        # be empty — there is no file to resolve (#616 app launcher).
+        if path != "":
+            return "launch request must carry an empty path"
+    elif origin == "guest":
         # Guest-local file: a Windows drive path (C:\…), resolved later
         # against the guest-disk mount rather than a \\tsclient\ share.
         if not _GUEST_PATH_RE.match(path):

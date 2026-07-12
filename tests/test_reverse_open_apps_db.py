@@ -130,3 +130,28 @@ def test_substitute_path_does_not_mutate_input() -> None:
 @pytest.mark.parametrize("token", ["%f", "%u", "%F", "%U"])
 def test_substitute_path_all_four_placeholders(token: str) -> None:
     assert substitute_path(["app", token], "/x") == ["app", "/x"]
+
+
+# --- strip_path_placeholders (launch-only, #616) -----------------------------
+
+
+def test_strip_path_placeholders_removes_all() -> None:
+    from winpodx.reverse_open.apps_db import strip_path_placeholders
+
+    # Launch-only: drop the placeholder(s), never append a path.
+    assert strip_path_placeholders(["kate", "%F", "--new"]) == ["kate", "--new"]
+    assert strip_path_placeholders(["app", "%f", "%U"]) == ["app"]
+
+
+def test_strip_path_placeholders_no_placeholder_unchanged() -> None:
+    from winpodx.reverse_open.apps_db import strip_path_placeholders
+
+    assert strip_path_placeholders(["gimp"]) == ["gimp"]
+
+
+def test_strip_path_placeholders_does_not_mutate_input() -> None:
+    from winpodx.reverse_open.apps_db import strip_path_placeholders
+
+    argv = ["kate", "%f"]
+    strip_path_placeholders(argv)
+    assert argv == ["kate", "%f"]
