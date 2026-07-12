@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- **최소 데스크톱에서 GUI의 `libxcb-cursor0` 의존성을 자동 설치** (#712, @numericOverflow 기여 감사). Qt 6.5+ (PySide6)는 `libxcb-cursor.so.0` 없이는 `xcb` 플랫폼 플러그인을 시작하지 못하는데("could not load the Qt platform plugin 'xcb'"), 새 최소 설치(예: Linux Mint 22)에선 전이 의존성으로 딸려오지 않습니다. 이제 `install.sh`가 GUI가 켜져 있고 런타임 lib가 없을 때 이를 설치합니다(배포판 매핑: Debian/Ubuntu/openSUSE는 `libxcb-cursor0`, Fedora/Arch는 `xcb-util-cursor`).
+- **최소 데스크톱에서 GUI의 `libxcb-cursor0` 의존성을 자동 설치** (#712, @numericOverflow 기여 감사). Qt 6.5+ (PySide6)는 `libxcb-cursor.so.0` 없이는 `xcb` 플랫폼 플러그인을 시작하지 못하는데("could not load the Qt platform plugin 'xcb'"), 새 최소 설치(예: Linux Mint 22)에선 전이 의존성으로 딸려오지 않습니다. 이제 `install.sh`가 GUI가 켜져 있고 런타임 lib가 없을 때 이를 설치합니다(배포판 매핑: Debian/Ubuntu/openSUSE는 `libxcb-cursor0`, Fedora/Arch는 `xcb-util-cursor`). 존재 여부는 `ldconfig -p`가 아니라 표준 lib 디렉토리의 실제 `.so` 파일로 감지합니다 — openSUSE에선 라이브러리가 `/usr/lib64`에 있지만 ld.so 캐시엔 없어서, `ldconfig` 프로브가 패키지 설치 후에도 매번 다시 프롬프트를 띄웠습니다.
 
 ## [0.9.0] - 2026-07-11
 
