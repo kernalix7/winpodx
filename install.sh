@@ -1033,13 +1033,24 @@ esac
 # (libxcb-cursor.so.0). Qt 6.5+ refuses to start its xcb platform plugin
 # without it -- "could not load the Qt platform plugin 'xcb'" -- and it isn't
 # pulled in transitively on a minimal desktop (e.g. fresh Linux Mint 22, #712).
-# Only when the GUI is enabled and the lib isn't already present; keyed off the
-# runtime .so via ldconfig so it's distro-agnostic and stays out of the install
-# plan when it's already there.
-if [ -z "$WINPODX_NO_GUI" ]; then
-    if ! ldconfig -p 2>/dev/null | grep -q 'libxcb-cursor\.so\.0'; then
-        MISSING+=("xcb-cursor")
-    fi
+# Only add it when the GUI is enabled and the lib isn't already present.
+#
+# Detection probes the real .so on disk, NOT `ldconfig -p`: on openSUSE the
+# library exists at /usr/lib64/libxcb-cursor.so.0 but is absent from the ld.so
+# cache, so the ldconfig probe false-negatived and re-prompted every run even
+# with libxcb-cursor0 installed (#712 follow-up). Check the standard lib dirs
+# (incl. Debian/Ubuntu multiarch) directly, then fall back to ldconfig for any
+# non-standard prefix.
+_has_libxcb_cursor() {
+    local d
+    for d in /usr/lib64 /usr/lib /lib64 /lib \
+             /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+        [ -e "$d/libxcb-cursor.so.0" ] && return 0
+    done
+    ldconfig -p 2>/dev/null | grep -q 'libxcb-cursor\.so\.0'
+}
+if [ -z "$WINPODX_NO_GUI" ] && ! _has_libxcb_cursor; then
+    MISSING+=("xcb-cursor")
 fi
 
 if [ "$KVM_PRESENT" = false ]; then
