@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **non-purge `uninstall.sh`가 Windows VM 디스크를 삭제하지 않도록 수정** (#716, @munir-abbasi 데이터 손실 리포트 감사). 기본 VM 저장소가 앱 데이터 디렉토리 하위에 있는데(`~/.local/share/winpodx/storage/data.img`), "앱 정의 제거" 단계가 `rm -rf ~/.local/share/winpodx`를 그냥 실행해서 — VM 데이터를 *보존*한다고 문서화된 non-purge 언인스톨이, 특히 무인 실행되는 패키지 매니저 `postrm` 재진입 경로에서 `storage/` 아래 Windows VM을 통째로 지웠습니다. 이제 두 경로를 정규화해서, 저장소 디렉토리가 `DATA_DIR` 자신이거나 그 하위이고 `--purge`가 **없으면** 저장소 서브트리를 보존하고 나머지 앱 데이터 항목만 삭제합니다. 앱 데이터 디렉토리 밖의 커스텀 `WINPODX_STORAGE_PATH`는 기존대로 손대지 않으며, `--purge`는 여전히 전부 삭제합니다. 언인스톨 스모크 하네스로 회귀 테스트(중첩 저장소·외부 저장소·purge 케이스).
+
 ### Added
 
 - **Windows의 "Linux Apps" 바로가기에서 Linux 앱을 파일 없이 직접 실행 가능** (#616, @notnotno 기여 감사). Windows 시작 메뉴/바탕화면 "Linux Apps" 폴더의 reverse-open shim은 주로 "연결 프로그램" 선택 항목인데, 파일 없이 직접 클릭하면 게스트 shim이 파일 인자를 요구해서 조용히 종료돼 아무 일도 안 일어났습니다. 이제 launch-only 요청(`origin: "launch"`, 빈 경로)을 보내 호스트가 파일 없이 Linux 앱을 실행하므로(`%f`/`%u` placeholder를 채우지 않고 제거), 그 바로가기가 일반 앱 런처로도 동작합니다. 갱신된 게스트 shim 필요(다음 `winpodx guest sync` / `apply-fixes` 때 재프로비저닝).

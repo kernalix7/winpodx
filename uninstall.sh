@@ -424,9 +424,35 @@ fi
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/winpodx"
 if [[ -d "$DATA_DIR" ]]; then
     if ask "Remove app definitions ($DATA_DIR)?"; then
-        rm -rf "$DATA_DIR"
-        log "Removed $DATA_DIR"
-        REMOVED=$((REMOVED + 1))
+        # DATA-LOSS GUARD (#716): the default VM storage lives *under* DATA_DIR
+        # (~/.local/share/winpodx/storage/data.img). A non-purge uninstall is
+        # documented to KEEP the Windows VM data, so it must never rm -rf the
+        # parent DATA_DIR out from under the storage subtree. When STORAGE_PATH
+        # is DATA_DIR itself or nested beneath it and we are NOT purging,
+        # preserve the top-level storage component and remove only the rest.
+        _canon() { readlink -f "$1" 2>/dev/null || echo "${1%/}"; }
+        _dd="$(_canon "$DATA_DIR")"
+        _sp="$(_canon "$STORAGE_PATH")"
+        if [[ "$PURGE" != true ]] && { [[ "$_sp" == "$_dd" ]] || [[ "$_sp" == "$_dd"/* ]]; }; then
+            # First path component of STORAGE_PATH relative to DATA_DIR (e.g.
+            # "storage"). Keep that whole top-level entry; delete DATA_DIR's
+            # other top-level children (apps/, run/, icons cache, …).
+            _rel="${_sp#"$_dd"/}"
+            _keep="${_rel%%/*}"
+            if [[ "$_sp" == "$_dd" ]] || [[ -z "$_keep" ]]; then
+                # STORAGE_PATH == DATA_DIR: nothing safe to delete recursively.
+                log "Kept $DATA_DIR (holds the Windows VM storage; use --purge to wipe)"
+            else
+                find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name "$_keep" \
+                    -exec rm -rf {} + 2>/dev/null || true
+                log "Removed $DATA_DIR contents (preserved VM storage: $STORAGE_PATH)"
+                REMOVED=$((REMOVED + 1))
+            fi
+        else
+            rm -rf "$DATA_DIR"
+            log "Removed $DATA_DIR"
+            REMOVED=$((REMOVED + 1))
+        fi
     fi
 fi
 

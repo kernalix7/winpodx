@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **A non-purge `uninstall.sh` no longer deletes the Windows VM disk** (#716, thanks @munir-abbasi — data-loss report). The default VM storage lives under the app-data dir (`~/.local/share/winpodx/storage/data.img`), and the "remove app definitions" step did a plain `rm -rf ~/.local/share/winpodx` — so a non-purge uninstall (documented as *keeping* the VM data), especially via the package-manager `postrm` re-entry where it runs unattended, recursively wiped the Windows VM out from under `storage/`. Uninstall now canonicalizes both paths and, when the storage dir is `DATA_DIR` itself or nested beneath it and `--purge` was **not** given, preserves the storage subtree and removes only the other app-data entries. A custom `WINPODX_STORAGE_PATH` outside the app-data dir is untouched as before, and `--purge` still wipes everything. Regression-tested via the uninstall smoke harness (nested-storage, external-storage, and purge cases).
+
 ### Added
 
 - **Launching a Linux app directly from its "Linux Apps" shortcut on Windows now runs it** (#616, thanks @notnotno). The reverse-open shims placed under Windows' Start Menu / Desktop "Linux Apps" folder are primarily "Open with…" chooser entries, but clicking one directly (with no file) used to do nothing — the guest shim silently exited because it required a file argument. It now emits a launch-only request (`origin: "launch"`, empty path) and the host runs the Linux app with no file (the `%f`/`%u` placeholder is stripped rather than filled), so the shortcuts double as plain app launchers. Requires the updated guest shim (re-provisions on the next `winpodx guest sync` / `apply-fixes`).
