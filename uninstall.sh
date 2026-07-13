@@ -236,14 +236,27 @@ if [[ "$FROM_POSTRM" != true ]]; then
             echo "   2. Its post-remove hook will re-run this script for user-side cleanup."
             echo ""
             if ask "Run now: $SRC_CMD ?"; then
-                # Forward purge intent so postrm-common.sh re-invokes
-                # uninstall.sh with --purge.
                 if [[ "$PURGE" == true ]]; then
-                    export WINPODX_PURGE_REQUESTED=1
+                    # PURGE must NOT exec the package manager here: exec replaces
+                    # this process, so every user-side purge step below (container,
+                    # volumes, storage/data.img — the Windows VM disk — and the
+                    # config holding the RDP password) would be SKIPPED while the
+                    # "Mode: FULL PURGE" banner already claimed a full wipe. The
+                    # package post-remove hook can't be relied on to finish the
+                    # purge either (it runs after its own files are deleted). So
+                    # defer the package removal to the very end, AFTER our own
+                    # purge has actually run. On apt, upgrade `remove` -> `purge`
+                    # so dpkg also drops its conffiles.
+                    DEFERRED_PKG_CMD="$SRC_CMD"
+                    if [[ "$SRC_KIND" == "apt" ]]; then
+                        DEFERRED_PKG_CMD="${DEFERRED_PKG_CMD/ remove / purge }"
+                    fi
+                    log "Will purge user-side state first, then remove the package."
+                else
+                    log "Handing off to package manager: $SRC_CMD"
+                    # shellcheck disable=SC2086
+                    exec $SRC_CMD
                 fi
-                log "Handing off to package manager: $SRC_CMD"
-                # shellcheck disable=SC2086
-                exec $SRC_CMD
             else
                 warn "Package not removed. Continuing with user-side cleanup only."
                 warn "  (You can run '$SRC_CMD' later to remove the package itself.)"
@@ -574,6 +587,16 @@ done
 # normal and noisy logging would distract from the summary below.
 pkill -f 'python.*winpodx' 2>/dev/null || true
 pkill -f 'winpodx-app' 2>/dev/null || true
+
+# Deferred package removal (--purge on a package-managed install): run now, AFTER
+# every user-side purge step above has actually removed the container, storage,
+# and config — so the VM disk and RDP password are gone before the package is.
+if [[ -n "${DEFERRED_PKG_CMD:-}" ]]; then
+    echo ""
+    log "Removing the package now: $DEFERRED_PKG_CMD"
+    # shellcheck disable=SC2086
+    $DEFERRED_PKG_CMD || warn "Package removal failed; run it manually: $DEFERRED_PKG_CMD"
+fi
 
 # --- Summary ---
 echo ""
