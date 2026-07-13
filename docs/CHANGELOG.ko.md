@@ -11,7 +11,10 @@
 
 ### Fixed
 
-- **non-purge `uninstall.sh`가 Windows VM 디스크를 삭제하지 않도록 수정** (#716, @munir-abbasi 데이터 손실 리포트 감사). 기본 VM 저장소가 앱 데이터 디렉토리 하위에 있는데(`~/.local/share/winpodx/storage/data.img`), "앱 정의 제거" 단계가 `rm -rf ~/.local/share/winpodx`를 그냥 실행해서 — VM 데이터를 *보존*한다고 문서화된 non-purge 언인스톨이, 특히 무인 실행되는 패키지 매니저 `postrm` 재진입 경로에서 `storage/` 아래 Windows VM을 통째로 지웠습니다. 이제 두 경로를 정규화해서, 저장소 디렉토리가 `DATA_DIR` 자신이거나 그 하위이고 `--purge`가 **없으면** 저장소 서브트리를 보존하고 나머지 앱 데이터 항목만 삭제합니다. 앱 데이터 디렉토리 밖의 커스텀 `WINPODX_STORAGE_PATH`는 기존대로 손대지 않으며, `--purge`는 여전히 전부 삭제합니다. 언인스톨 스모크 하네스로 회귀 테스트(중첩 저장소·외부 저장소·purge 케이스).
+- **non-purge `uninstall.sh`가 Windows VM 디스크를 삭제하지 않도록 수정** (#716, @munir-abbasi 데이터 손실 리포트 감사). 기본 VM 저장소가 앱 데이터 디렉토리 하위에 있는데(`~/.local/share/winpodx/storage/data.img`), "앱 정의 제거" 단계가 `rm -rf ~/.local/share/winpodx`를 그냥 실행해서 — VM 데이터를 *보존*한다고 문서화된 non-purge 언인스톨이, 특히 무인 실행되는 패키지 매니저 `postrm` 재진입 경로에서 `storage/` 아래 Windows VM을 통째로 지웠습니다. 이제 두 경로를 정규화해서, 저장소 디렉토리가 `DATA_DIR` 자신이거나 그 하위이고 `--purge`가 **없으면** 저장소 서브트리를 보존하고 나머지 앱 데이터 항목만 삭제합니다. 앱 데이터 디렉토리 밖의 커스텀 `WINPODX_STORAGE_PATH`는 기존대로 손대지 않으며, `--purge`는 여전히 전부 삭제합니다. 또한 `winpodx.toml`의 실제 `storage_path`를 읽어(`--storage-dir`로 옮긴 디스크를 기본값이 아닌 실제 위치에서 보호), 절대경로를 요구하고, top-level `storage` 항목을 항상 보존합니다. 언인스톨 스모크 하네스로 회귀 테스트(중첩 저장소·외부 저장소·purge 케이스).
+- **패키지 설치본에서 `uninstall.sh --purge`가 실제로 purge하도록 수정** (#716 감사). 기존엔 "Mode: FULL PURGE"를 출력하고 패키지 매니저로 `exec`해서 프로세스가 교체돼 자체 purge 스텝이 하나도 안 돌았습니다 — 컨테이너·볼륨·`storage/data.img`·RDP 비밀번호가 든 config가 전부 남는데 배너는 완전 삭제를 주장했죠. 이제 `--purge`가 user-side purge 스텝을 먼저 다 실행하고 패키지를 마지막에 제거합니다(`apt remove` → `purge`로 dpkg conffile까지). non-purge는 기존대로 handoff.
+- **패키지 제거(deb/rpm/AUR)가 실제로 정리되도록 수정** (#716 감사). 모든 post-remove hook이 이미 패키지 매니저가 삭제한 `/usr/share/winpodx/` 하위 helper 스크립트에 위임해서, `apt`/`dnf`/`pacman` 제거 후 컨테이너·VM 디스크·config·바탕화면 항목·autostart·트레이 listener가 남았습니다. 정리를 pre-remove 단계로 이동(Debian `prerm` + purge 와이프용 staged copy, RPM `%preun` erase 게이트, pacman `pre_remove`); 인플레이스 패키지 **업그레이드**는 사용자 데이터/VM을 건드리지 않습니다. 사용자별 정리는 스크럽된 환경에서 실행(root `XDG_*`/D-Bus 누출 방지).
+- **`install.sh` 업그레이드가 원자적이고 실패에 정직하도록 수정** (#716 감사). 업그레이드는 새 트리+venv를 스테이징 경로에 빌드하고 성공 후에만 스왑하므로, 중간 실패가 아무것도 안 남기지 않습니다(롤백 메시지도 "안 건드림"을 무조건 주장하지 않고 실제 상태를 반영). 또한 `XDG_CONFIG_HOME`을 존중하고, 심링크 전에 기존 pip/pipx `winpodx` 진입점을 백업(삭제 아님)하며, 실패한 `winpodx setup`을 성공 배너 대신 보고합니다.
 
 ### Added
 
