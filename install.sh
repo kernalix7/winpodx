@@ -1544,12 +1544,18 @@ if [ "$WORK_DIR" != "$INSTALL_DIR" ]; then
     log "Swapping in the upgraded install..."
     INSTALL_DIR_ASIDE="$INSTALL_DIR.old"
     rm -rf "$INSTALL_DIR_ASIDE" 2>/dev/null || true
-    mv "$INSTALL_DIR" "$INSTALL_DIR_ASIDE"
-    SWAP_IN_PROGRESS=1
+    # The upgrade flag is keyed off the config, which a non-purge uninstall
+    # KEEPS while removing the install dir — so we can be on the "upgrade" path
+    # with no INSTALL_DIR to move aside. Only stash it (and arm the mid-swap
+    # rollback) when it actually exists; otherwise this is a fresh drop-in.
+    if [ -d "$INSTALL_DIR" ]; then
+        mv "$INSTALL_DIR" "$INSTALL_DIR_ASIDE"
+        SWAP_IN_PROGRESS=1
+    fi
     mv "$WORK_DIR" "$INSTALL_DIR"
     SWAP_IN_PROGRESS=0
     UPGRADE_SWAP_DONE=1
-    rm -rf "$INSTALL_DIR_ASIDE"
+    rm -rf "$INSTALL_DIR_ASIDE" 2>/dev/null || true
     log "Upgrade swapped in; previous install removed."
 fi
 
