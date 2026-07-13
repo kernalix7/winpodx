@@ -1,0 +1,87 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Pre-remove hook for the winpodx debian package (#255 packaging
+# audit fix).
+#
+# $1 is the action: remove, upgrade, failed-upgrade, deconfigure.
+# (dpkg never calls prerm with "purge" -- purge is a postrm-only
+# action, see debian/postrm.)
+#
+# prerm runs BEFORE dpkg removes any package files -- this is the
+# only maintainer-script stage where /usr/share/winpodx/uninstall.sh
+# and /usr/share/winpodx/packaging/postrm-common.sh are guaranteed to
+# still be on disk. The old design delegated this same cleanup from
+# postrm, which runs AFTER file removal; by then the helper scripts
+# were already gone and the delegation was silently dead code on
+# every remove/purge (#255 packaging audit).
+#
+# On a real "remove" this does two things:
+#   1. Runs the shared helper now, while it's still present. This
+#      does the full non-destructive cleanup (kill stray winpodx
+#      processes, stop the reverse-open listener, drop desktop
+#      entries/icons/MIME associations/app definitions/autostart) --
+#      everything except the container, podman volume, config, and
+#      VM storage, which stay intact on a plain remove.
+#   2. Stages a copy of uninstall.sh + postrm-common.sh to
+#      /var/lib/winpodx/pkg-cleanup/ -- NOT part of the package's
+#      file list, so dpkg leaves it alone -- so that postrm's purge
+#      stage (which always runs after the files are gone, possibly in
+#      a completely separate dpkg invocation) has something to call.
+#
+# "upgrade" / "failed-upgrade" / "deconfigure" mean the package isn't
+# actually going away: do nothing, so an in-place version bump never
+# touches the container, VM, or config.
+
+set -e
+
+ACTION="$1"
+STAGE_DIR="/var/lib/winpodx/pkg-cleanup"
+HELPER="/usr/share/winpodx/packaging/postrm-common.sh"
+UNINSTALL_SH="/usr/share/winpodx/uninstall.sh"
+
+case "$ACTION" in
+    remove)
+        if [ -x "$HELPER" ]; then
+            "$HELPER" remove || true
+        else
+            # Paranoid fallback: helper missing (corrupted install).
+            # Scrubbed-env pkill so we don't leave processes pointing
+            # at a binary that's about to disappear.
+            for home in /home/*; do
+                [ -d "$home" ] || continue
+                user=$(basename "$home")
+                uid=$(id -u "$user" 2>/dev/null || echo 0)
+                env -i HOME="$home" USER="$user" LOGNAME="$user" \
+                    XDG_RUNTIME_DIR="/run/user/$uid" \
+                    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+                    runuser -u "$user" -- pkill -f 'python.*winpodx' >/dev/null 2>&1 || true
+                env -i HOME="$home" USER="$user" LOGNAME="$user" \
+                    XDG_RUNTIME_DIR="/run/user/$uid" \
+                    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+                    runuser -u "$user" -- pkill -f 'winpodx-app' >/dev/null 2>&1 || true
+            done
+        fi
+
+        # Stage 2 prep: copy the helper + uninstaller somewhere that
+        # survives file removal, so a later "purge" -- same
+        # transaction or a separate one -- can still do the full
+        # user-data wipe. Best-effort: if this fails, debian/postrm's
+        # purge stage falls back to a pkill-only cleanup.
+        if [ -x "$UNINSTALL_SH" ]; then
+            mkdir -p "$STAGE_DIR" 2>/dev/null || true
+            if [ -d "$STAGE_DIR" ]; then
+                cp -f "$UNINSTALL_SH" "$STAGE_DIR/uninstall.sh" 2>/dev/null || true
+                if [ -x "$HELPER" ]; then
+                    cp -f "$HELPER" "$STAGE_DIR/postrm-common.sh" 2>/dev/null || true
+                fi
+                chmod 755 "$STAGE_DIR"/*.sh 2>/dev/null || true
+            fi
+        fi
+        ;;
+    upgrade|failed-upgrade|deconfigure)
+        # Package isn't going away -- never touch user state here.
+        ;;
+esac
+
+exit 0

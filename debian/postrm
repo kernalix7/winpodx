@@ -4,38 +4,76 @@
 # Post-remove hook for the winpodx debian package (#255 PR 4).
 #
 # $1 is the action: remove, purge, upgrade, failed-upgrade, abort-
-# install, abort-upgrade, disappear. We hand the value off to the
-# shared packaging/scripts/postrm-common.sh which normalises across
-# debian / rpm / aur and runs the two-stage cleanup (process kill on
-# remove, full user-cleanup on purge).
+# install, abort-upgrade, disappear.
 #
-# The script lives at /usr/share/winpodx/packaging/postrm-common.sh
-# after install (see debian/winpodx.docs + dh_install rule).
+# postrm runs AFTER dpkg has already deleted the package's files, so
+# it can no longer call /usr/share/winpodx/{uninstall.sh,packaging/
+# postrm-common.sh} directly -- those are gone by the time ANY of
+# postrm's actions fire. Stage-1 cleanup (the process kill / listener
+# stop / desktop-entry-icons-etc user-state cleanup that keeps the
+# container, config, and VM disk intact) already ran in debian/prerm,
+# while the files still existed.
+#
+# The only thing left for postrm to do is the purge-time full wipe
+# (container, volumes, storage/VM disk, config). It does that via the
+# staged copy debian/prerm drops at /var/lib/winpodx/pkg-cleanup/ --
+# a path dpkg does not own, so it survives file removal even across
+# separate dpkg invocations (e.g. `apt remove` today, `dpkg --purge`
+# next week).
 
 set -e
 
 ACTION="$1"
+STAGE_DIR="/var/lib/winpodx/pkg-cleanup"
+STAGED_HELPER="$STAGE_DIR/postrm-common.sh"
 
-# Bail on failed-upgrade / abort-* paths -- the package isn't actually
-# going away, leave user state alone.
+# Scrubbed-env per-user runner, mirroring packaging/postrm-common.sh's
+# run_as_user(): root's XDG_*/DBUS_*/etc must never leak into per-user
+# cleanup.
+run_as_user() {
+    _user="$1"; _home="$2"; shift 2
+    _uid=$(id -u "$_user" 2>/dev/null || echo 0)
+    env -i \
+        HOME="$_home" \
+        USER="$_user" \
+        LOGNAME="$_user" \
+        XDG_RUNTIME_DIR="/run/user/$_uid" \
+        PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        runuser -u "$_user" -- "$@" >/dev/null 2>&1 || true
+}
+
 case "$ACTION" in
-    remove|purge)
-        # Run the common hook. Fall back to in-line minimal cleanup
-        # if the helper isn't installed (paranoid: should always be
-        # present alongside this script).
-        if [ -x /usr/share/winpodx/packaging/postrm-common.sh ]; then
-            /usr/share/winpodx/packaging/postrm-common.sh "$ACTION" || true
+    purge)
+        if [ -x "$STAGED_HELPER" ]; then
+            "$STAGED_HELPER" purge || true
         else
-            # Inline fallback: kill processes for each user. Skip the
-            # full cleanup -- we don't want to do that without the
-            # canonical 'winpodx uninstall --purge' path.
+            # Staged copy missing -- most likely the package was
+            # removed by a version predating this fix (so prerm never
+            # staged anything) and is only being purged now. Best
+            # effort: kill anything left pointing at the deleted
+            # binary. A full user-data wipe isn't possible without the
+            # helper; the user can still run the canonical curl
+            # uninstaller with --purge.
             for home in /home/*; do
                 [ -d "$home" ] || continue
                 user=$(basename "$home")
-                runuser -u "$user" -- pkill -f 'python.*winpodx' >/dev/null 2>&1 || true
-                runuser -u "$user" -- pkill -f 'winpodx-app' >/dev/null 2>&1 || true
+                run_as_user "$user" "$home" pkill -f 'python.*winpodx'
+                run_as_user "$user" "$home" pkill -f 'winpodx-app'
             done
         fi
+        rm -rf "$STAGE_DIR"
+        ;;
+    remove)
+        # Stage-1 cleanup already ran in debian/prerm while the
+        # package files still existed. Nothing left to do here --
+        # deliberately leave the staged copy under $STAGE_DIR in
+        # place, since a later 'dpkg --purge' (a separate invocation)
+        # still needs it.
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Package isn't going away (or never finished installing) --
+        # never touch user state here. This is what protects an
+        # in-place version upgrade from wiping the container/VM.
         ;;
 esac
 

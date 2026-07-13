@@ -107,20 +107,33 @@ EOF
 fi
 exit 0
 
-%postun
-# #255 PR 4: post-remove cleanup. rpm passes $1 = number of remaining
-# installs (0 = uninstall, >=1 = upgrade). Delegate to the shared
-# helper which iterates /home/* users and pkill's tray/GUI/listener.
-# rpm has no purge concept; tell the user how to do the full wipe.
-if [ -x %{_datadir}/winpodx/packaging/postrm-common.sh ]; then
-    %{_datadir}/winpodx/packaging/postrm-common.sh "$1" || true
+%preun
+# #255 packaging audit fix: rpm passes $1 = number of remaining
+# installs (0 = erase, >=1 = upgrade). %preun runs BEFORE rpm removes
+# the package's files -- this is the only scriptlet stage where
+# %{_datadir}/winpodx/packaging/postrm-common.sh is guaranteed to
+# still be on disk. Calling it from %postun (as this used to) is dead
+# code on erase, since rpm has already deleted it by the time %postun
+# runs. Only run on a real erase ($1 == 0); an upgrade ($1 >= 1) must
+# never touch the container/VM/config, so skip entirely.
+if [ "$1" -eq 0 ]; then
+    if [ -x %{_datadir}/winpodx/packaging/postrm-common.sh ]; then
+        %{_datadir}/winpodx/packaging/postrm-common.sh remove || true
+    fi
 fi
+exit 0
+
+%postun
+# #255 packaging audit fix: runs AFTER rpm has already removed the
+# package's files, so it can no longer call the (now-deleted) helper
+# script -- self-contained banner only. rpm has no purge concept:
+# point the user at the canonical curl uninstaller for a full wipe.
 if [ "$1" -eq 0 ]; then
     cat <<'EOF'
 
 [WinPodX] Package removed. User-side state (containers, configs,
 reverse-open daemon, autostart) was NOT touched. To wipe everything:
-  winpodx uninstall --purge --yes
+  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
 
 EOF
 fi

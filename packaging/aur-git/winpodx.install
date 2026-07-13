@@ -28,19 +28,29 @@ post_upgrade() {
 }
 
 # Pacman has no purge concept; both pacman -R and pacman -Rns drop the
-# package files but leave user state. We still run the stage-1 cleanup
-# (kill processes + stop listener) so the user isn't left with stale
-# tray pointing at a deleted binary, and we tell them how to do the
-# full wipe themselves.
-post_remove() {
+# package files but leave user state. pre_remove() runs BEFORE pacman
+# removes the package's files, so it's the only scriptlet stage where
+# /usr/share/winpodx/packaging/postrm-common.sh is guaranteed to still
+# be on disk -- calling it from post_remove() (as this used to) is
+# dead code, since pacman has already deleted it by then (#255
+# packaging audit). We run the stage-1 cleanup (kill processes + stop
+# listener) here so the user isn't left with a stale tray pointing at
+# a deleted binary.
+pre_remove() {
     if [ -x /usr/share/winpodx/packaging/postrm-common.sh ]; then
         /usr/share/winpodx/packaging/postrm-common.sh remove || true
     fi
+}
+
+post_remove() {
+    # Files are already gone at this point -- self-contained banner
+    # only. `winpodx uninstall` no longer exists on disk, so point at
+    # the canonical curl one-liner instead.
     cat <<'EOF'
 
 [WinPodX] Package removed. User-side state (containers, configs,
 reverse-open daemon, autostart) was NOT touched. To wipe everything:
-  winpodx uninstall --purge --yes
+  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge
 
 EOF
 }
