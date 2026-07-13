@@ -66,7 +66,27 @@ done
 # in src/winpodx/core/config.py so the common case Just Works without
 # parsing the user's winpodx.toml from bash.
 CONTAINER_NAME="${WINPODX_CONTAINER_NAME:-winpodx-windows}"
-STORAGE_PATH="${WINPODX_STORAGE_PATH:-$HOME/.local/share/winpodx/storage}"
+STORAGE_PATH="${WINPODX_STORAGE_PATH:-}"
+if [[ -z "$STORAGE_PATH" ]]; then
+    # Resolve the ACTUAL configured storage path, not just the default: a user
+    # who relocated the VM with `--storage-dir` has their disk elsewhere, and
+    # both the #716 non-purge guard and the --purge wipe must act on the real
+    # location. Best-effort TOML parse of pod.storage_path; fall back to default.
+    _cfg="${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/winpodx.toml"
+    if [[ -f "$_cfg" ]]; then
+        STORAGE_PATH="$(sed -n \
+            's/^[[:space:]]*storage_path[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' \
+            "$_cfg" 2>/dev/null | head -n1)"
+    fi
+    STORAGE_PATH="${STORAGE_PATH:-$HOME/.local/share/winpodx/storage}"
+fi
+# Harden against a bogus STORAGE_PATH defeating the #716 nesting guard: a
+# relative path or a literal "~/..." (env-set, unexpanded) would not match the
+# DATA_DIR-prefix test and could re-enable rm -rf of the VM disk. Require an
+# absolute path; otherwise ignore it and use the safe default.
+if [[ "$STORAGE_PATH" != /* ]]; then
+    STORAGE_PATH="$HOME/.local/share/winpodx/storage"
+fi
 BACKEND_OVERRIDE="${WINPODX_BACKEND:-}"
 
 ask() {
@@ -357,8 +377,14 @@ if [[ -f "$DESKTOP_DIR/winpodx.desktop" ]]; then
     log "Removed WinPodX GUI launcher"
     REMOVED=$((REMOVED + 1))
 fi
-# Remove app desktop entries
-DESKTOP_COUNT=$(find "$DESKTOP_DIR" -maxdepth 1 -name "winpodx-*.desktop" 2>/dev/null | wc -l)
+# Remove app desktop entries. Guard the dir: under `set -euo pipefail` a find
+# over a missing DESKTOP_DIR exits non-zero and, via pipefail, aborts the whole
+# uninstall mid-cleanup (leaving a half-removed state) — seen in the #716 smoke.
+if [[ -d "$DESKTOP_DIR" ]]; then
+    DESKTOP_COUNT=$(find "$DESKTOP_DIR" -maxdepth 1 -name "winpodx-*.desktop" 2>/dev/null | wc -l)
+else
+    DESKTOP_COUNT=0
+fi
 if [[ "$DESKTOP_COUNT" -gt 0 ]]; then
     if ask "Remove $DESKTOP_COUNT app desktop entries?"; then
         rm -f "$DESKTOP_DIR"/winpodx-*.desktop
@@ -443,7 +469,12 @@ if [[ -d "$DATA_DIR" ]]; then
                 # STORAGE_PATH == DATA_DIR: nothing safe to delete recursively.
                 log "Kept $DATA_DIR (holds the Windows VM storage; use --purge to wipe)"
             else
-                find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name "$_keep" \
+                # Belt-and-braces: always also preserve a top-level "storage"
+                # entry, not just the computed $_keep — if STORAGE_PATH ever
+                # resolves wrong, the conventional default VM disk still survives
+                # a non-purge uninstall.
+                find "$DATA_DIR" -mindepth 1 -maxdepth 1 \
+                    ! -name "$_keep" ! -name "storage" \
                     -exec rm -rf {} + 2>/dev/null || true
                 log "Removed $DATA_DIR contents (preserved VM storage: $STORAGE_PATH)"
                 REMOVED=$((REMOVED + 1))
