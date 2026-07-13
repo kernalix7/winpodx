@@ -92,6 +92,11 @@ LAUNCHER="$HOME/.local/bin/winpodx-run"
 SYMLINK="$HOME/.local/bin/winpodx"
 REPO_URL="https://github.com/kernalix7/winpodx.git"
 REPO_API="https://api.github.com/repos/kernalix7/winpodx"
+# #716-audit follow-up: single source of truth for winpodx's config dir, so
+# a custom XDG_CONFIG_HOME is honoured everywhere (matches the install
+# marker below and src/winpodx's own XDG handling) instead of some spots
+# hardcoding "$HOME/.config".
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 # Local-path overrides (env or flag). Flags take precedence over env.
 WINPODX_SOURCE="${WINPODX_SOURCE:-}"
@@ -356,7 +361,7 @@ esac
 # prior venv exists) a failure must NOT delete the working install. We
 # snapshot this BEFORE creating any artifacts this run.
 # =====================================================================
-PRIOR_CONFIG="$HOME/.config/winpodx/winpodx.toml"
+PRIOR_CONFIG="$CONFIG_HOME/winpodx/winpodx.toml"
 IS_FRESH_INSTALL=1
 if [ -f "$PRIOR_CONFIG" ] || [ -e "$VENV_DIR" ]; then
     IS_FRESH_INSTALL=0
@@ -371,13 +376,34 @@ fi
 # marker. Never uninstall system packages; never touch a pre-existing
 # ~/.config/winpodx config. On an upgrade, leave everything intact.
 # =====================================================================
-WINPODX_INSTALL_MARKER="${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/.install_in_progress"
+WINPODX_INSTALL_MARKER="$CONFIG_HOME/winpodx/.install_in_progress"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICON_BASE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 ICON_DIR="$ICON_BASE/scalable/apps"
 
 # Disarmed on success.
 ROLLBACK_ARMED=1
+
+# --- Upgrade-atomicity staging state (#716-audit follow-up) ---
+# Populated once the clone/copy + venv-build phase runs (see below); declared
+# here with unset-safe defaults so rollback() can reference them even if a
+# failure happens earlier (dependency install, etc.) under `set -u`.
+WORK_DIR=""
+INSTALL_DIR_ASIDE=""
+SWAP_IN_PROGRESS=0
+UPGRADE_SWAP_DONE=0
+
+# --- Pre-existing $SYMLINK backup state (#716-audit follow-up) ---
+# Populated just before `ln -sfn ... $SYMLINK` if that path already existed
+# and wasn't already our own launcher symlink (e.g. a pip/pipx install).
+SYMLINK_BACKED_UP=0
+SYMLINK_BACKUP=""
+
+# `winpodx setup` result (#716-audit follow-up), used by the closing banner
+# below. Defaults to 1 (success) -- manual-mode installs skip setup entirely
+# and exit before the banner, so this default is never actually shown as a
+# false success; it only matters once the setup call below runs.
+SETUP_OK=1
 
 cleanup_install_marker() {
     rm -f "$WINPODX_INSTALL_MARKER"
@@ -389,8 +415,34 @@ rollback() {
         return 0
     fi
     if [ "$IS_FRESH_INSTALL" -ne 1 ]; then
-        warn "Install failed during an upgrade — leaving the existing WinPodX install intact."
-        warn "Your previous venv, launcher, and config were not touched."
+        # #716-audit follow-up: the venv/source tree for an upgrade is now
+        # built at a staging path ($WORK_DIR) and only swapped into
+        # $INSTALL_DIR after the build succeeds (see the staging section
+        # below) -- so the message here must reflect which of those three
+        # states we're actually in, instead of always claiming "not touched".
+        if [ "$SWAP_IN_PROGRESS" -eq 1 ]; then
+            warn "Install failed mid-swap while upgrading -- restoring your previous WinPodX install."
+            rm -rf "$INSTALL_DIR" 2>/dev/null || true
+            if [ -n "$INSTALL_DIR_ASIDE" ] && [ -d "$INSTALL_DIR_ASIDE" ]; then
+                # Guard with `|| warn ...` (not a bare command): a failure here
+                # runs under `set -e` INSIDE the ERR trap itself, and an
+                # unguarded failing command in a trap aborts the script before
+                # the rest of this handler (incl. the warn below) can run.
+                mv "$INSTALL_DIR_ASIDE" "$INSTALL_DIR" 2>/dev/null \
+                    || warn "Could not restore $INSTALL_DIR_ASIDE -> $INSTALL_DIR automatically -- restore it by hand."
+            fi
+            warn "Previous install restored -- you are still on the pre-upgrade version."
+        elif [ "$UPGRADE_SWAP_DONE" -eq 1 ]; then
+            warn "Install failed AFTER the upgraded venv/launcher were swapped into place --"
+            warn "they are already updated; only a later step failed (see the error above)."
+            warn "Re-run install.sh, or finish the failed step manually."
+        else
+            warn "Install failed during an upgrade — leaving the existing WinPodX install intact."
+            warn "Your previous venv, launcher, and config were not touched."
+            if [ -n "$WORK_DIR" ] && [ "$WORK_DIR" != "$INSTALL_DIR" ] && [ -e "$WORK_DIR" ]; then
+                rm -rf "$WORK_DIR" 2>/dev/null || true
+            fi
+        fi
         return 0
     fi
     warn "Rolling back WinPodX install artifacts..."
@@ -399,6 +451,18 @@ rollback() {
     rm -rf "$INSTALL_DIR" 2>/dev/null || true
     rm -f "$LAUNCHER" 2>/dev/null || true
     rm -f "$SYMLINK" 2>/dev/null || true
+    if [ "$SYMLINK_BACKED_UP" -eq 1 ] && [ -e "$SYMLINK_BACKUP" ]; then
+        # #716-audit follow-up: restore the pre-existing (e.g. pip/pipx)
+        # winpodx entry point we backed up before overwriting -- never leave
+        # the user without the binary they had before running install.sh.
+        # Guarded with `|| warn ...` for the same reason as the mv above: an
+        # unguarded failure here would abort the rest of this ERR-trap handler.
+        if mv "$SYMLINK_BACKUP" "$SYMLINK" 2>/dev/null; then
+            warn "Restored your previous $SYMLINK (backed up before this run)."
+        else
+            warn "Could not restore $SYMLINK_BACKUP -> $SYMLINK automatically -- restore it by hand."
+        fi
+    fi
     rm -f "$DESKTOP_DIR/winpodx.desktop" 2>/dev/null || true
     rm -f "$ICON_DIR/winpodx.svg" 2>/dev/null || true
     # Do NOT remove ~/.config/winpodx itself — only our own marker, which
@@ -1264,18 +1328,39 @@ if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]; };
 fi
 log "Python $PY_VERSION OK"
 
+# =====================================================================
+# Upgrade atomicity (#716-audit follow-up).
+#
+# On a FRESH install we build directly at $INSTALL_DIR / $VENV_DIR, exactly
+# as before. On an UPGRADE (IS_FRESH_INSTALL=0) we build the new source tree
+# + venv at a staging path ($WORK_DIR / $WORK_DIR/.venv) instead, and only
+# swap it into $INSTALL_DIR once the whole build succeeds (see the atomic
+# swap block after the venv/pip-install section below). This way a
+# mid-install failure -- a bad git ref, a pip install failure, a disk-full
+# venv creation -- leaves the previous working install completely untouched
+# instead of half-replaced. rollback() (above) mirrors this staging state.
+# =====================================================================
+if [ "$IS_FRESH_INSTALL" -eq 1 ]; then
+    WORK_DIR="$INSTALL_DIR"
+else
+    WORK_DIR="$INSTALL_DIR.new"
+    rm -rf "$WORK_DIR" 2>/dev/null || true
+fi
+WORK_VENV_DIR="$WORK_DIR/.venv"
+WORK_VENV_PY="$WORK_VENV_DIR/bin/python"
+
 # --- Clone, update, or copy winpodx source ---
-mkdir -p "$(dirname "$INSTALL_DIR")"
+mkdir -p "$(dirname "$WORK_DIR")"
 
 copy_from_local() {
     local src="$1"
-    if [ -d "$INSTALL_DIR" ]; then
-        rm -rf "$INSTALL_DIR"
+    if [ -d "$WORK_DIR" ]; then
+        rm -rf "$WORK_DIR"
     fi
-    mkdir -p "$INSTALL_DIR"
+    mkdir -p "$WORK_DIR"
     for item in src data config scripts install.sh uninstall.sh pyproject.toml README.md LICENSE; do
         if [ -e "$src/$item" ]; then
-            cp -r "$src/$item" "$INSTALL_DIR/"
+            cp -r "$src/$item" "$WORK_DIR/"
         fi
     done
 }
@@ -1316,17 +1401,35 @@ else
     fi
 
     if [ -d "$INSTALL_DIR/.git" ]; then
-        log "Updating existing installation to $INSTALL_REF..."
-        git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
-        # Check out the freshly-fetched ref. Prefer origin/<ref> so a BRANCH
-        # advances to its latest remote tip — `git fetch` updates origin/<ref>
-        # but NOT the stale local branch, so a plain `checkout <branch>` would
-        # pin the install to whatever commit was first cloned (#616: every
-        # re-run reinstalled the same old commit). Fall back to <ref> for tags
-        # / commits, which aren't origin/-prefixed.
-        git -C "$INSTALL_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
-            || git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
-            || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
+        if [ "$IS_FRESH_INSTALL" -eq 1 ]; then
+            log "Updating existing installation to $INSTALL_REF..."
+            git -C "$WORK_DIR" fetch --quiet --tags --prune origin
+            # Check out the freshly-fetched ref. Prefer origin/<ref> so a BRANCH
+            # advances to its latest remote tip — `git fetch` updates origin/<ref>
+            # but NOT the stale local branch, so a plain `checkout <branch>` would
+            # pin the install to whatever commit was first cloned (#616: every
+            # re-run reinstalled the same old commit). Fall back to <ref> for tags
+            # / commits, which aren't origin/-prefixed.
+            git -C "$WORK_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
+                || git -C "$WORK_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
+                || git -C "$WORK_DIR" checkout --quiet "$INSTALL_REF"
+        else
+            # Upgrade (#716-audit): stage the update via a local clone of the
+            # existing checkout instead of fetching/checking out $INSTALL_DIR
+            # in place. A local-path clone hardlinks git objects (fast, no
+            # re-download) and only reproduces tracked/checked-out content
+            # (the untracked .venv is never copied), leaving the live install
+            # untouched until the atomic swap below. Re-point origin at the
+            # real repo before fetching, since a local clone's origin is the
+            # source path, not GitHub.
+            log "Updating existing installation to $INSTALL_REF (staged)..."
+            git clone --quiet "$INSTALL_DIR" "$WORK_DIR"
+            git -C "$WORK_DIR" remote set-url origin "$REPO_URL"
+            git -C "$WORK_DIR" fetch --quiet --tags --prune origin
+            git -C "$WORK_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
+                || git -C "$WORK_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
+                || git -C "$WORK_DIR" checkout --quiet "$INSTALL_REF"
+        fi
     else
         # If running from repo, copy only needed files (skip .venv, .git, etc.).
         # When piped via `curl ... | bash`, bash reads from stdin and
@@ -1356,16 +1459,16 @@ else
                 fi
             fi
             log "Cloning from GitHub..."
-            if [ -d "$INSTALL_DIR" ]; then
-                rm -rf "$INSTALL_DIR"
+            if [ -d "$WORK_DIR" ]; then
+                rm -rf "$WORK_DIR"
             fi
-            git clone --quiet "$REPO_URL" "$INSTALL_DIR"
-            git -C "$INSTALL_DIR" fetch --quiet --tags --prune origin
+            git clone --quiet "$REPO_URL" "$WORK_DIR"
+            git -C "$WORK_DIR" fetch --quiet --tags --prune origin
             # origin/<ref> first so a branch lands on its latest tip; fall
             # back to <ref> for tags / commits (see the update path above).
-            git -C "$INSTALL_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
-                || git -C "$INSTALL_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
-                || git -C "$INSTALL_DIR" checkout --quiet "$INSTALL_REF"
+            git -C "$WORK_DIR" checkout --quiet --detach "origin/$INSTALL_REF" 2>/dev/null \
+                || git -C "$WORK_DIR" checkout --quiet --detach "$INSTALL_REF" 2>/dev/null \
+                || git -C "$WORK_DIR" checkout --quiet "$INSTALL_REF"
         fi
     fi
 fi
@@ -1379,11 +1482,11 @@ fi
 # error out (the ERR trap rolls back on a fresh install).
 # =====================================================================
 create_venv() {
-    rm -rf "$VENV_DIR"
-    python3 -m venv "$VENV_DIR"
+    rm -rf "$WORK_VENV_DIR"
+    python3 -m venv "$WORK_VENV_DIR"
 }
 
-log "Creating private virtualenv at $VENV_DIR ..."
+log "Creating private virtualenv at $WORK_VENV_DIR ..."
 if ! create_venv 2>/dev/null; then
     if [ -n "$WINPODX_SKIP_DEPS" ]; then
         err "python3 -m venv failed and --skip-deps is set."
@@ -1400,7 +1503,7 @@ if ! create_venv 2>/dev/null; then
 fi
 
 # Upgrade pip/setuptools/wheel in the venv (quiet; non-fatal cosmetics).
-"$VENV_PY" -m pip install --quiet --upgrade pip setuptools wheel || \
+"$WORK_VENV_PY" -m pip install --quiet --upgrade pip setuptools wheel || \
     warn "pip self-upgrade failed; continuing with the bundled pip."
 
 # Install winpodx itself from the in-place source tree. This resolves
@@ -1408,23 +1511,46 @@ fi
 # python_version marker) from pyproject. We then add the reverse-open
 # icon deps (cairosvg + pyxdg) and, unless --no-gui, PySide6 — pinned to
 # the same ranges pyproject declares so we don't invent versions.
-log "Installing WinPodX into the venv (pip install '$INSTALL_DIR')..."
+log "Installing WinPodX into the venv (pip install '$WORK_DIR')..."
 if [ -n "$WINPODX_NO_GUI" ]; then
     # Headless: winpodx core + reverse-open icon quality, no PySide6.
-    "$VENV_PY" -m pip install --quiet "${INSTALL_DIR}[reverse-open]"
+    "$WORK_VENV_PY" -m pip install --quiet "${WORK_DIR}[reverse-open]"
     log "Headless install (--no-gui): PySide6 skipped."
 else
     # Full: winpodx core + reverse-open + GUI.
-    "$VENV_PY" -m pip install --quiet "${INSTALL_DIR}[gui,reverse-open]"
+    "$WORK_VENV_PY" -m pip install --quiet "${WORK_DIR}[gui,reverse-open]"
 fi
 
 # Belt-and-suspenders: ensure cairosvg + pyxdg are present even if a
 # future pyproject reshuffle moves them out of the reverse-open extra.
 # These two drive SVG / themed app-icon conversion for reverse-open.
-if ! "$VENV_PY" -c "import cairosvg, xdg" >/dev/null 2>&1; then
+if ! "$WORK_VENV_PY" -c "import cairosvg, xdg" >/dev/null 2>&1; then
     log "Ensuring reverse-open icon deps (cairosvg + pyxdg) in the venv..."
-    "$VENV_PY" -m pip install --quiet "cairosvg>=2.7,<3.0" "pyxdg>=0.27,<1.0" || \
+    "$WORK_VENV_PY" -m pip install --quiet "cairosvg>=2.7,<3.0" "pyxdg>=0.27,<1.0" || \
         warn "cairosvg/pyxdg install into venv failed; SVG/themed icons will use a placeholder."
+fi
+
+# =====================================================================
+# Atomic swap-in (#716-audit follow-up, upgrade only).
+#
+# The staged tree + venv at $WORK_DIR built successfully above. Move the
+# live install aside, move the staged one into place, then drop the aside
+# copy. SWAP_IN_PROGRESS marks the narrow window between those two moves so
+# rollback() (above) can restore the aside copy if something interrupts us
+# right there; UPGRADE_SWAP_DONE marks the swap as complete so a LATER
+# failure doesn't also claim the previous install was "not touched".
+# =====================================================================
+if [ "$WORK_DIR" != "$INSTALL_DIR" ]; then
+    log "Swapping in the upgraded install..."
+    INSTALL_DIR_ASIDE="$INSTALL_DIR.old"
+    rm -rf "$INSTALL_DIR_ASIDE" 2>/dev/null || true
+    mv "$INSTALL_DIR" "$INSTALL_DIR_ASIDE"
+    SWAP_IN_PROGRESS=1
+    mv "$WORK_DIR" "$INSTALL_DIR"
+    SWAP_IN_PROGRESS=0
+    UPGRADE_SWAP_DONE=1
+    rm -rf "$INSTALL_DIR_ASIDE"
+    log "Upgrade swapped in; previous install removed."
 fi
 
 # --- Load Windows container image from local tar (--image-tar) ---
@@ -1453,6 +1579,25 @@ LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
 # --- Create 'winpodx' command (symlink to launcher) ---
+# #716-audit follow-up: don't blindly clobber a pre-existing `winpodx` entry
+# point at $SYMLINK -- e.g. `pip install --user winpodx` / pipx would put a
+# real launcher script there, and `ln -sfn` overwriting it destroys that
+# install with no way back. Back up anything that isn't already our own
+# launcher symlink before replacing it; a fresh-install rollback restores the
+# backup (see rollback() above). If this was a pip/pipx install, the user can
+# instead remove it with `pip uninstall winpodx` and re-run.
+if [ -e "$SYMLINK" ] || [ -L "$SYMLINK" ]; then
+    if ! { [ -L "$SYMLINK" ] && [ "$(readlink "$SYMLINK" 2>/dev/null || true)" = "$LAUNCHER" ]; }; then
+        SYMLINK_BACKUP="$SYMLINK.pre-install"
+        warn "$SYMLINK already exists and isn't WinPodX's own launcher symlink"
+        warn "(looks like a pip/pipx 'winpodx' install?). Backing it up to"
+        warn "$SYMLINK_BACKUP before installing WinPodX's launcher there."
+        warn "To remove the pip install instead: pip uninstall winpodx"
+        rm -f "$SYMLINK_BACKUP" 2>/dev/null || true
+        mv "$SYMLINK" "$SYMLINK_BACKUP"
+        SYMLINK_BACKED_UP=1
+    fi
+fi
 ln -sfn "$LAUNCHER" "$SYMLINK"
 
 # Ensure ~/.local/bin is in PATH
@@ -1507,7 +1652,23 @@ else
     # WINPODX_NO_PROVISION=1: setup creates the container but skips its own
     # full-provision tail; install.sh runs the chain once via the explicit
     # `winpodx provision` call below (0.6.0 item B, replaces --create-only).
-    WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>/dev/null || true
+    #
+    # #716-audit follow-up: this used to redirect all output to /dev/null and
+    # swallow the exit code with `|| true`, so a failed `winpodx setup` (bad
+    # backend, compose error, ...) was completely silent and the unconditional
+    # "installed" banner at the bottom still claimed everything worked. Capture
+    # the output instead and check the exit code so a failure is visible and
+    # the closing banner reflects reality.
+    SETUP_OUT="$(mktemp)"
+    if WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" >"$SETUP_OUT" 2>&1; then
+        SETUP_OK=1
+    else
+        SETUP_OK=0
+        err "winpodx setup failed. Last output:"
+        tail -n 20 "$SETUP_OUT" | sed 's/^/    /' >&2
+        warn "Setup did not finish -- run \`winpodx setup\` manually to retry (or see the full error above)."
+    fi
+    rm -f "$SETUP_OUT"
 fi
 
 # NOTE: --win-iso staging now happens INSIDE `winpodx setup` (passed via
@@ -1608,9 +1769,12 @@ fi
 # 4 and 5 are non-fatal: the .pending_setup machinery (utils/pending.py) is the
 # safety net — the next `winpodx` CLI / GUI launch resumes the chain.
 # Skip the whole step with WINPODX_NO_WAIT=1 (CI / non-interactive setups).
-PENDING_FILE="$HOME/.config/winpodx/.pending_setup"
+# #716-audit follow-up: use CONFIG_HOME (honours XDG_CONFIG_HOME) instead of
+# hardcoding "$HOME/.config" -- otherwise resume/detection breaks for anyone
+# with a custom XDG_CONFIG_HOME.
+PENDING_FILE="$CONFIG_HOME/winpodx/.pending_setup"
 
-if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
+if [ -f "$CONFIG_HOME/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1" ]; then
     PROVISION_OUT="$(mktemp)"
     if [ "$IS_FRESH_INSTALL" = "1" ]; then
         log "Finishing Windows provisioning (wait-ready + apply-fixes + discovery + reverse-open)..."
@@ -1665,7 +1829,7 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
         warn "after the first-boot reboot). This is not a failure — it finishes"
         warn "automatically on your next \`winpodx\` run, or force it now with:"
         warn "  winpodx app refresh"
-        mkdir -p "$HOME/.config/winpodx"
+        mkdir -p "$CONFIG_HOME/winpodx"
         printf 'wait_ready\nmigrate\ndiscovery\n' > "$PENDING_FILE"
         warn "Pending steps recorded at $PENDING_FILE."
     elif [ "$PROVISION_RC" -ne 0 ]; then
@@ -1678,7 +1842,7 @@ if [ -f "$HOME/.config/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1
             warn "Provisioning didn't complete in time (Windows first-boot can run long"
             warn "on slow links -- see #126). Marking remaining steps as pending — they"
             warn "auto-resume on the next \`winpodx\` CLI invocation or when you open the GUI."
-            mkdir -p "$HOME/.config/winpodx"
+            mkdir -p "$CONFIG_HOME/winpodx"
             # wait_ready first so pending.resume re-runs the full chain.
             printf 'wait_ready\nmigrate\ndiscovery\n' > "$PENDING_FILE"
             warn "Pending steps recorded at $PENDING_FILE."
@@ -1730,23 +1894,34 @@ if command -v pgrep >/dev/null 2>&1; then
 fi
 
 echo ""
-echo -e "${GREEN}  ┌─ WinPodX installed ──────────────────────────────────────${NC}"
-printf "  │  version   %s\n" "$INSTALLED_VER"
-printf "  │  backend   %s\n" "${WINPODX_BACKEND:-podman}"
-printf "  │  GUI       %s\n" "$GUI_LABEL"
-printf "  │  location  %s\n" "$INSTALL_DIR  (private venv)"
-echo -e "${GREEN}  └──────────────────────────────────────────────────────────${NC}"
-echo ""
-echo "  Next steps:"
-if [ -z "$WINPODX_NO_GUI" ]; then
-    echo "    winpodx gui                # open the GUI — system tray + app manager"
+# #716-audit follow-up: only show the all-good banner when `winpodx setup`
+# actually succeeded (SETUP_OK, set above) -- a failure already printed the
+# error + a "run winpodx setup manually" hint at the point it happened.
+if [ "$SETUP_OK" -eq 1 ]; then
+    echo -e "${GREEN}  ┌─ WinPodX installed ──────────────────────────────────────${NC}"
+    printf "  │  version   %s\n" "$INSTALLED_VER"
+    printf "  │  backend   %s\n" "${WINPODX_BACKEND:-podman}"
+    printf "  │  GUI       %s\n" "$GUI_LABEL"
+    printf "  │  location  %s\n" "$INSTALL_DIR  (private venv)"
+    echo -e "${GREEN}  └──────────────────────────────────────────────────────────${NC}"
+    echo ""
+    echo "  Next steps:"
+    if [ -z "$WINPODX_NO_GUI" ]; then
+        echo "    winpodx gui                # open the GUI — system tray + app manager"
+    fi
+    echo "    winpodx app run desktop    # the full Windows desktop"
+    echo "    winpodx app refresh        # rescan the apps installed in Windows"
+    echo "    winpodx doctor             # health check if something looks off"
+    echo "    winpodx --help             # every command"
+    echo ""
+    echo "  Your Windows apps are already in the application menu — click any one"
+    echo "  and WinPodX handles the pod, the RDP session, and the window for you."
+    echo ""
+    log "Installation complete!"
+else
+    echo "  WinPodX binary + venv installed at: $INSTALL_DIR  (private venv)"
+    echo "  But \`winpodx setup\` did not finish — see the error output above."
+    echo "  Fix the underlying issue, then run: winpodx setup"
+    echo ""
+    warn "Installation finished with a setup error — run \`winpodx setup\` manually."
 fi
-echo "    winpodx app run desktop    # the full Windows desktop"
-echo "    winpodx app refresh        # rescan the apps installed in Windows"
-echo "    winpodx doctor             # health check if something looks off"
-echo "    winpodx --help             # every command"
-echo ""
-echo "  Your Windows apps are already in the application menu — click any one"
-echo "  and WinPodX handles the pod, the RDP session, and the window for you."
-echo ""
-log "Installation complete!"
