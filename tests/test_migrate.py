@@ -70,6 +70,18 @@ def test_read_installed_version_missing_returns_none(tmp_path, monkeypatch):
     assert _read_installed_version() is None
 
 
+def test_apps_registered_empty_vs_present(tmp_path, monkeypatch):
+    # Reinstall-after-uninstall repopulation guard: a non-purge uninstall wipes
+    # the .desktop entries, and _apps_registered() must report that empty state
+    # so the "already current" migrate path can re-queue discovery.
+    from winpodx.cli.migrate import _apps_registered
+
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: tmp_path)
+    assert _apps_registered() is False
+    (tmp_path / "winpodx-notepad.desktop").write_text("[Desktop Entry]\n", encoding="utf-8")
+    assert _apps_registered() is True
+
+
 def test_read_installed_version_empty_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
     (tmp_path / "installed_version.txt").write_text("\n", encoding="utf-8")

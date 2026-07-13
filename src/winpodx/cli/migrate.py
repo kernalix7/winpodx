@@ -181,6 +181,23 @@ _VERSION_FILE = "installed_version.txt"
 _PRETRACKER_BASELINE = "0.1.7"
 
 
+def _apps_registered() -> bool:
+    """True if any winpodx app ``.desktop`` entry is installed.
+
+    A non-purge uninstall removes the ``.desktop`` entries but keeps the config,
+    so a reinstall can land on the "already current" migrate path with an empty
+    app menu. This lets that path detect the empty menu and re-queue discovery.
+    Conservative on error (returns True) so a probe failure never forces an
+    unnecessary discovery.
+    """
+    from winpodx.utils.paths import applications_dir
+
+    try:
+        return any(applications_dir().glob("winpodx-*.desktop"))
+    except OSError:
+        return True
+
+
 def run_migrate(args: argparse.Namespace) -> int:
     """Entry point for ``winpodx migrate``. Returns the process exit code."""
     current = __version__
@@ -217,6 +234,24 @@ def run_migrate(args: argparse.Namespace) -> int:
         _ensure_canonical_image_pin(non_interactive)
         _apply_runtime_fixes_to_existing_guest(non_interactive, verbose=verbose)
         _maybe_auto_migrate_storage(non_interactive)
+        # Repopulate the app menu if it was wiped. A non-purge uninstall removes
+        # the .desktop entries but keeps the config, so a reinstall lands here as
+        # "already current" and would otherwise never re-run discovery — the GUI
+        # then opens to an empty menu / first-run prompt. When nothing is
+        # registered, queue discovery (same pending mechanism the cross-version
+        # upgrade path uses); the next launch resumes it once the guest is ready.
+        # A normal re-run with apps present stays a no-op.
+        skip_refresh = bool(getattr(args, "no_refresh", False))
+        if non_interactive and not skip_refresh and not _apps_registered():
+            from winpodx.utils import pending
+
+            pending.add_step("discovery")
+            print(
+                tr(
+                    "\nApp menu is empty — discovery queued, runs automatically on "
+                    "next launch to re-register your Windows apps."
+                )
+            )
         return 0
 
     print(
