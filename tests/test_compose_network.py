@@ -54,29 +54,10 @@ def test_compose_ballooning_off_unconditional():
     assert 'BALLOONING: "N"' in content
 
 
-def test_compose_disk_io_absent_when_tuning_off():
-    # With tuning_profile "off" the profile never asks for io_uring, so no
-    # DISK_IO env is written (dockur keeps its own default).
+def test_compose_never_sets_disk_io_iouring():
+    # DISK_IO: "io_uring" is deliberately NOT wired: the container backend's
+    # default seccomp blocks io_uring_setup (ENOSYS), so QEMU falls back to
+    # the thread pool and only logs an error. Keep the guest on dockur's
+    # default DISK_IO. (See the v6.00 roll-forward follow-up.)
     content = _build_compose_content(_cfg())
     assert "DISK_IO:" not in content
-
-
-def test_compose_disk_io_iouring_when_profile_enables_it(monkeypatch):
-    # When the host tuning profile enables io_uring, it is wired through to
-    # the guest as the v6.00 dedicated DISK_IO env (not a raw QEMU flag).
-    from winpodx.utils import specs
-
-    # A real TuningProfile so every other tuning consumer (virtio-rng, etc.)
-    # still finds its fields; only io_uring is turned on.
-    prof = specs.TuningProfile(
-        name="manual",
-        apply_invtsc=False,
-        apply_io_uring=True,
-        apply_hugepages=False,
-        apply_cpu_pinning=False,
-        apply_platform_tick=False,
-        apply_no_balloon=False,
-    )
-    monkeypatch.setattr(specs, "recommend_tuning_profile", lambda *a, **k: prof)
-    content = _build_compose_content(_cfg())
-    assert 'DISK_IO: "io_uring"' in content

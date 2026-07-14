@@ -71,7 +71,7 @@ name: "winpodx"
       VMX: "{vmx}"
       HV: "{hv}"
       BALLOONING: "N"
-{disk_io_env}      ARGUMENTS: "{qemu_arguments}"
+      ARGUMENTS: "{qemu_arguments}"
       USER_PORTS: "{user_ports}"
     volumes:
       - {storage_mount}
@@ -225,28 +225,6 @@ def _vmx_env_for_host(cfg: Config | None = None) -> str:
     cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
     profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
     return "Y" if profile.apply_nested_virt else "N"
-
-
-def _disk_io_env_for_host(cfg: Config | None) -> str:
-    """Compose ``DISK_IO:`` env block when the tuning profile wants io_uring.
-
-    winpodx's tuning profile detects io_uring support (kernel >= 5.6) but until
-    dockur v6.00 there was no way to actually apply it — the recommendation was
-    surfaced by ``winpodx info`` yet never reached QEMU. v6.00 exposes a
-    dedicated ``DISK_IO`` env, so wire the profile flag to it (same pattern as
-    the #287 CPU_FLAGS migration). Returns an empty string when the profile
-    doesn't want it, leaving dockur's default (``native``).
-    """
-    if cfg is None:
-        return ""
-
-    from winpodx.utils.specs import detect_tuning_capability, recommend_tuning_profile
-
-    cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
-    profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
-    if getattr(profile, "apply_io_uring", False):
-        return '      DISK_IO: "io_uring"\n'
-    return ""
 
 
 def _qemu_arguments_for_host(cfg: Config | None = None) -> str:
@@ -880,7 +858,6 @@ def _build_compose_content(cfg: Config) -> str:
         adapter=adapter,
         mtu=mtu,
         usb_env=usb_env,
-        disk_io_env=_disk_io_env_for_host(cfg),
         vga=vga,
         hv=hv,
         user=_yaml_escape(cfg.rdp.user),
