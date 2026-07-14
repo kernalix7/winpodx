@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **고정된 dockur/windows 이미지를 v6.00으로 롤포워드** (#721, dockur/windows 메인테이너 @kroese 요청). v6.00은 Podman 네트워킹을 사용자 모드 **passt** 백엔드로 전환하여, 이전 이미지에서 문제가 되던 rootless 포트 포워딩 이슈를 해결합니다. winpodx의 compose는 이미 `NETWORK: "user"`를 요청하고(v6.00에서 dockur가 passt를 자동 선택), 에이전트(`8765`)와 게스트 SMB(`445`→`4445`) 포트를 `USER_PORTS`로 포워딩합니다. 부팅 스모크 결과 컨테이너가 `Mode: User (passt)`로 기동되고 세 포트(RDP `3390`, 에이전트 `8765`, SMB `4445`)가 모두 도달 가능하며 베어메탈 위장(SMBIOS/ACPI)도 그대로 적용됨을 확인했습니다. 이번 릴리즈에서는 기존의 raw-QEMU 우회 대신 v6.00 전용 env 노브 두 가지를 "새로운 방식"으로 채택합니다: `BALLOONING: "N"`(winpodx는 안정성을 위해 메모리 벌루닝을 의도적으로 **끈** 상태로 VM을 실행 — v6.00이 벌루닝을 1급 토글로 승격)과, 호스트 튜닝 프로파일이 요구할 때의 `DISK_IO: "io_uring"`(프로파일은 io_uring 지원을 이미 감지했으나 게스트까지 전달한 적이 없었음). x86_64 전용이며, ARM 이미지(`dockur/windows-arm`) 핀은 롤포워드를 스모크 테스트할 ARM 하드웨어가 없어 변경하지 않았습니다.
+
 ## [0.9.1] - 2026-07-14
 
 ### Fixed

@@ -44,3 +44,39 @@ def test_compose_user_ports_present_alongside_network():
     # user-mode, so both lines together are what forwards the agent port.
     assert 'NETWORK: "user"' in content
     assert "USER_PORTS:" in content
+
+
+def test_compose_ballooning_off_unconditional():
+    # dockur v6.00 promotes memory ballooning to a first-class env. winpodx
+    # deliberately runs the VM with ballooning OFF for stability, so
+    # BALLOONING: "N" is emitted unconditionally (independent of tuning).
+    content = _build_compose_content(_cfg())
+    assert 'BALLOONING: "N"' in content
+
+
+def test_compose_disk_io_absent_when_tuning_off():
+    # With tuning_profile "off" the profile never asks for io_uring, so no
+    # DISK_IO env is written (dockur keeps its own default).
+    content = _build_compose_content(_cfg())
+    assert "DISK_IO:" not in content
+
+
+def test_compose_disk_io_iouring_when_profile_enables_it(monkeypatch):
+    # When the host tuning profile enables io_uring, it is wired through to
+    # the guest as the v6.00 dedicated DISK_IO env (not a raw QEMU flag).
+    from winpodx.utils import specs
+
+    # A real TuningProfile so every other tuning consumer (virtio-rng, etc.)
+    # still finds its fields; only io_uring is turned on.
+    prof = specs.TuningProfile(
+        name="manual",
+        apply_invtsc=False,
+        apply_io_uring=True,
+        apply_hugepages=False,
+        apply_cpu_pinning=False,
+        apply_platform_tick=False,
+        apply_no_balloon=False,
+    )
+    monkeypatch.setattr(specs, "recommend_tuning_profile", lambda *a, **k: prof)
+    content = _build_compose_content(_cfg())
+    assert 'DISK_IO: "io_uring"' in content

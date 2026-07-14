@@ -158,10 +158,10 @@ def _validate_device_entry(entry: object) -> str | None:
 # current ``:latest`` digest, paste below. See ``winpodx setup --update
 # -image`` for the runtime equivalent users invoke explicitly.
 #
-# As of 2026-06-10 (dockur/windows v5.16):
+# As of 2026-07-14 (dockur/windows v6.00 — Podman networking fixes, #721):
 DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
-    "3633f055f31aadf76bb650b1ca86897ab45b76ad8eb2cf81e86389ace5eb45ac"
+    "5f8b87b0d135cb19834f052e8bf6479d1596f4cca1b5eb33937dad9b6fa0e06c"
 )
 
 # Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``

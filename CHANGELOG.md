@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- **Rolled the pinned dockur/windows image forward to v6.00** (#721, requested by @kroese — the dockur/windows maintainer). v6.00 moves Podman networking to the user-mode **passt** backend, which fixes the rootless port-forwarding problems that affected earlier images. winpodx's compose already asks for `NETWORK: "user"` (dockur auto-selects passt on v6.00) and forwards the agent (`8765`) and guest-SMB (`445`→`4445`) ports through `USER_PORTS`; a boot smoke confirmed the container comes up in `Mode: User (passt)` with all three ports (RDP `3390`, agent `8765`, SMB `4445`) reachable and the bare-metal disguise (SMBIOS/ACPI) still applied. This release also adopts two v6.00 dedicated env knobs the "new way" instead of the old raw-QEMU workarounds: `BALLOONING: "N"` (winpodx deliberately runs the VM with memory ballooning **off** for stability — v6.00 promotes ballooning to a first-class toggle) and `DISK_IO: "io_uring"` when the host tuning profile calls for it (the profile already detected io_uring support but never wired it through to the guest). x86_64 only — the ARM image (`dockur/windows-arm`) pin is unchanged, since there is no ARM hardware to smoke-test the roll-forward.
+
 ## [0.9.1] - 2026-07-14
 
 ### Fixed
