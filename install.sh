@@ -406,7 +406,12 @@ SYMLINK_BACKUP=""
 SETUP_OK=1
 
 cleanup_install_marker() {
-    rm -f "$WINPODX_INSTALL_MARKER"
+    # Must never fail: rollback() calls this as its FIRST line, and under
+    # `set -euo pipefail` a non-zero rm inside the ERR trap (e.g. an
+    # unwritable/immutable config dir) would abort the handler before the
+    # mid-swap restore below runs — stranding the user with no install AND no
+    # restore. Guard it so the restore path always executes (#716 gate).
+    rm -f "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
 }
 
 rollback() {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! winpodx reverse-open shim — Windows-side stub.
 //!
 //! Invoked by Windows Explorer when the user picks a Linux app from
