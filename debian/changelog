@@ -1,3 +1,16 @@
+winpodx (0.9.1) unstable; urgency=medium
+
+  * Bug-fix + hardening release. Fixes a data-loss bug where a non-purge
+    uninstall could delete the Windows VM disk (#716), makes `uninstall --purge`
+    actually purge on package installs, moves package cleanup to pre-remove
+    hooks so `apt`/`dnf`/`pacman` removal works (new debian/prerm), and makes
+    install.sh upgrades atomic. The reverse-open "Linux Apps" shortcuts now
+    launch an app directly, not just open a file (#616); install.sh auto-installs
+    libxcb-cursor for the Qt GUI (#712); a reinstall after a non-purge uninstall
+    repopulates the app menu (#723). See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 14 Jul 2026 09:00:00 +0000
+
 winpodx (0.9.0) unstable; urgency=medium
 
   * Feature + hardening release: Windows apps can now be registered as URL-scheme

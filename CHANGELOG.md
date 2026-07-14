@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-14
+
 ### Fixed
 
 - **Reinstalling after a non-purge uninstall now repopulates the app menu instead of opening to an empty first-run screen.** A non-purge uninstall removes the app `.desktop` entries but keeps the config, so a reinstall was detected as an "already current" migration and only re-applied the guest fixes — it never re-ran discovery, leaving the menu empty until the GUI self-healed. The migrate path now detects an empty app menu on the "already current" branch and queues discovery (the same mechanism a cross-version upgrade uses), so the apps come back automatically on the next launch.
@@ -25,6 +27,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Fixed
 
 - **The GUI's `libxcb-cursor0` dependency is now auto-installed on a minimal desktop** (#712, thanks @numericOverflow). Qt 6.5+ (PySide6) refuses to start its `xcb` platform plugin without `libxcb-cursor.so.0` — "could not load the Qt platform plugin 'xcb'" — and it isn't pulled in transitively on a fresh minimal install (e.g. Linux Mint 22). `install.sh` now installs it (distro-mapped: `libxcb-cursor0` on Debian/Ubuntu/openSUSE, `xcb-util-cursor` on Fedora/Arch) when the GUI is enabled and the runtime lib isn't already present. Presence is detected by probing the real `.so` on disk across the standard lib dirs rather than `ldconfig -p` — on openSUSE the library lives in `/usr/lib64` but is absent from the ld.so cache, so an `ldconfig` probe re-prompted every run even with the package installed.
+
+### Contributors
+
+Thanks to everyone who reported issues or contributed to this release: @notnotno (#616), @numericOverflow (#712), and @munir-abbasi (#716 — the data-loss report).
 
 ## [0.9.0] - 2026-07-11
 
