@@ -9,9 +9,15 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-15
+
 ### Changed
 
 - **Rolled the pinned dockur/windows image forward to v6.00** (#721, requested by @kroese — the dockur/windows maintainer). v6.00 improves Podman networking — it can use bridge NAT in more situations instead of falling back to user-mode passt — along with a batch of upstream QEMU / driver updates. winpodx continues to pin `NETWORK: "user"` (passt) and forward the agent (`8765`) and guest-SMB (`445`→`4445`) ports through `USER_PORTS`; that's the loopback path our agent + reverse-open rely on. A boot smoke on rootless Podman confirmed the container comes up in `Mode: User (passt)` with all three ports (RDP `3390`, agent `8765`, SMB `4445`) reachable and the bare-metal disguise (SMBIOS/ACPI) still applied. (Whether v6.00's broader NAT support lets us drop the forced `NETWORK: "user"` on rootful / privileged hosts is being evaluated as a follow-up — see #735.) This release also sets `BALLOONING: "N"` explicitly so the VM runs with memory ballooning **off** for stability. (These knobs aren't new in v6.00 — v6.00 documents dockur's existing env vars better; io_uring disk I/O was evaluated but left at dockur's default, because the container backend's default seccomp blocks `io_uring_setup` with ENOSYS, so QEMU would only fall back to the thread pool and log an error — no benefit inside the container.) x86_64 only — the ARM image (`dockur/windows-arm`) pin is unchanged, since there is no ARM hardware to smoke-test the roll-forward.
+
+### Contributors
+
+Thanks to everyone who reported issues or contributed to this release: @kroese (#721 — the dockur/windows maintainer, who requested the v6.00 roll-forward and reviewed the networking / env-var details).
 
 ## [0.9.1] - 2026-07-14
 

@@ -9,9 +9,15 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-15
+
 ### Changed
 
 - **고정된 dockur/windows 이미지를 v6.00으로 롤포워드** (#721, dockur/windows 메인테이너 @kroese 요청). v6.00은 Podman 네트워킹을 개선하여 — 사용자 모드 passt로 폴백하는 대신 더 많은 상황에서 브리지 NAT를 쓸 수 있게 됐고 — 여기에 업스트림 QEMU/드라이버 업데이트가 함께 들어왔습니다. winpodx는 계속 `NETWORK: "user"`(passt)를 고정하고 에이전트(`8765`)와 게스트 SMB(`445`→`4445`) 포트를 `USER_PORTS`로 포워딩합니다 — 에이전트와 reverse-open이 의존하는 loopback 경로이기 때문입니다. rootless Podman 부팅 스모크 결과 컨테이너가 `Mode: User (passt)`로 기동되고 세 포트(RDP `3390`, 에이전트 `8765`, SMB `4445`)가 모두 도달 가능하며 베어메탈 위장(SMBIOS/ACPI)도 그대로 적용됨을 확인했습니다. (v6.00의 확대된 NAT 지원 덕에 rootful/privileged 호스트에서 강제 `NETWORK: "user"`를 제거할 수 있을지는 후속 과제로 검토 중 — #735 참조.) 이번 릴리즈에서는 안정성을 위해 `BALLOONING: "N"`을 명시적으로 설정하여 VM을 메모리 벌루닝 **끈** 상태로 실행합니다. (이 노브들은 v6.00 신규가 아니며 — v6.00은 dockur의 기존 env 변수를 더 잘 문서화한 것입니다. io_uring 디스크 I/O는 검토했으나 dockur 기본값으로 남겨둡니다: 컨테이너 백엔드의 기본 seccomp가 `io_uring_setup`을 ENOSYS로 차단하므로 QEMU가 스레드 풀로 폴백하며 에러만 로깅할 뿐 — 컨테이너 안에서는 이득이 없습니다.) x86_64 전용이며, ARM 이미지(`dockur/windows-arm`) 핀은 롤포워드를 스모크 테스트할 ARM 하드웨어가 없어 변경하지 않았습니다.
+
+### Contributors
+
+이번 릴리즈에 이슈를 제보하거나 기여해 주신 모든 분께 감사드립니다: @kroese (#721 — v6.00 롤포워드를 요청하고 네트워킹/env 변수 세부 사항을 리뷰해 준 dockur/windows 메인테이너).
 
 ## [0.9.1] - 2026-07-14
 
