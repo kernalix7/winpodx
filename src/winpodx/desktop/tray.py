@@ -105,23 +105,23 @@ def run_tray() -> None:
 
     menu = QMenu()
 
-    dashboard_action = QAction(tr("Open Dashboard"))
+    dashboard_action = QAction(tr("Open Dashboard"), menu)
     menu.addAction(dashboard_action)
     menu.addSeparator()
 
-    status_action = QAction(tr("Status: checking..."))
+    status_action = QAction(tr("Status: checking..."), menu)
     status_action.setEnabled(False)
     menu.addAction(status_action)
 
-    sessions_action = QAction(tr("Sessions: 0"))
+    sessions_action = QAction(tr("Sessions: 0"), menu)
     sessions_action.setEnabled(False)
     menu.addAction(sessions_action)
 
     menu.addSeparator()
 
-    start_action = QAction(tr("Start Pod"))
-    stop_action = QAction(tr("Stop Pod"))
-    restart_action = QAction(tr("Restart Pod"))
+    start_action = QAction(tr("Start Pod"), menu)
+    stop_action = QAction(tr("Stop Pod"), menu)
+    restart_action = QAction(tr("Restart Pod"), menu)
 
     def _open_dashboard() -> None:
         """Launch the main GUI window as a detached subprocess.
@@ -385,17 +385,17 @@ def run_tray() -> None:
         return launcher
 
     for app_info in available_apps[:20]:
-        action = QAction(app_info.full_name)
+        action = QAction(app_info.full_name, apps_menu)
         action.triggered.connect(make_launcher(app_info.executable, app_info.full_name))
         apps_menu.addAction(action)
 
     if not available_apps:
-        no_apps = QAction(tr("(no apps - run 'winpodx setup')"))
+        no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
         no_apps.setEnabled(False)
         apps_menu.addAction(no_apps)
 
     apps_menu.addSeparator()
-    desktop_action = QAction(tr("Full Desktop"))
+    desktop_action = QAction(tr("Full Desktop"), apps_menu)
 
     def on_desktop() -> None:
         try:
@@ -555,7 +555,8 @@ def run_tray() -> None:
     info_action = QAction(
         tr("Display: {session} / {de}").format(
             session=info["session_type"], de=info["desktop_environment"]
-        )
+        ),
+        menu,
     )
     info_action.setEnabled(False)
     menu.addAction(info_action)
@@ -564,7 +565,7 @@ def run_tray() -> None:
 
     maint_menu = QMenu(tr("Maintenance"))
 
-    cleanup_action = QAction(tr("Clean Lock Files"))
+    cleanup_action = QAction(tr("Clean Lock Files"), maint_menu)
 
     def on_cleanup() -> None:
         from winpodx.core.daemon import cleanup_lock_files
@@ -580,7 +581,7 @@ def run_tray() -> None:
     cleanup_action.triggered.connect(on_cleanup)
     maint_menu.addAction(cleanup_action)
 
-    timesync_action = QAction(tr("Sync Windows Time"))
+    timesync_action = QAction(tr("Sync Windows Time"), maint_menu)
 
     def on_timesync() -> None:
         from winpodx.core.daemon import sync_windows_time
@@ -592,7 +593,7 @@ def run_tray() -> None:
     timesync_action.triggered.connect(on_timesync)
     maint_menu.addAction(timesync_action)
 
-    suspend_action = QAction(tr("Suspend Pod"))
+    suspend_action = QAction(tr("Suspend Pod"), maint_menu)
 
     def on_suspend() -> None:
         from winpodx.core.daemon import suspend_pod
@@ -608,7 +609,7 @@ def run_tray() -> None:
 
     menu.addSeparator()
 
-    quit_action = QAction(tr("Quit WinPodX"))
+    quit_action = QAction(tr("Quit WinPodX"), menu)
 
     def _confirmed_quit() -> None:
         """Tear down GUI + pod before closing the tray.
