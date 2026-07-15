@@ -240,6 +240,16 @@ def run_in_windows(
         "+home-drive",
         "/sec:tls",
         "/cert:ignore",
+        # #694 (notnotno, Fedora Kinoite / FreeRDP 3.27 / KDE XWayland): this
+        # exec/discovery RemoteApp is headless — it runs a PowerShell script and
+        # writes a result file, the window is never shown. But FreeRDP's default
+        # GFX pipeline still tries to map a RAIL surface, and on XWayland that
+        # fails ("xf_MapWindowForSurface: function not implemented"), aborting
+        # the session with no result file (surfaces as "Discovery channel
+        # failure ... FreeRDP rc=12"). GFX buys nothing on a headless exec, so
+        # disable it and fall back to the legacy GDI path — same class of
+        # workaround as #393/#661, applied unconditionally to this channel.
+        "-gfx",
         app_arg,
     ]
     if cfg.rdp.domain:
