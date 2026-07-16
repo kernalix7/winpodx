@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **고정 dockur/windows 이미지를 v6.01로 롤포워드하고 `NETWORK=user` 강제를 중단** (#735, @kroese 감사). 0.10.0이 v6.00을 담은 뒤, @kroese(dockur 메인테이너)가 기존 #269/#387 hang의 근본 원인을 추적했습니다: rootless Podman에서 dockur가 브리지 NAT는 셋업했지만 published 포트를 VM으로 포워딩하지 않던 것 — winpodx가 이를 우회하려고 `NETWORK: "user"`(passt)를 고정했던 이유입니다. 그가 rootless-Podman NAT 포트 포워딩을 다시 작성하고(명시적 VM DNAT, Podman은 nftables/Docker는 iptables, MSS clamping 등) **v6.01**을 냈습니다. 그래서 winpodx는 더 이상 네트워크 모드를 강제하지 않습니다: 컨테이너가 가능한 경우 브리지 NAT를 고르고, 안 되면 스스로 passt로 폴백합니다. `USER_PORTS`는 passt 폴백 경로용으로 유지됩니다(NAT는 설계상 이를 무시하고 `HOST_PORTS`를 제외한 모든 포트를 VM으로 포워딩). v6.01 rootless 부팅 스모크에서 컨테이너가 `Mode: User (passt)`로 폴백하며 모든 포트(RDP `3390`, 에이전트 `8765`, SMB `4445`, 웹 뷰어 `8007`)에 도달함을 확인 — 일반적인 rootless 케이스에 회귀 없음. NAT 경로는 rootful/privileged 호스트에 이득이며 해당 사용자 확인 대기 중입니다. x86_64 전용(ARM 핀 변경 없음).
+
 ## [0.10.0] - 2026-07-15
 
 ### Changed

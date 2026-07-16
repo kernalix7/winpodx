@@ -3,15 +3,16 @@
 
 winpodx reaches the Windows guest only over forwarded ports (RDP 3389,
 the web viewer 8006, and the agent 8765) -- it never needs the guest on
-the host LAN. So the compose always pins ``NETWORK: "user"`` (dockur's
-user-mode / passt networking), which forwards every entry in ``USER_PORTS``.
+the host LAN.
 
-This closes #269 / #387: on hosts where dockur's default bridge-NAT path
-succeeds (typically rootful), that path silently ignores ``USER_PORTS``,
-so the agent port 8765 is never forwarded to the guest and ``pod
-wait-ready`` hangs forever. Pinning user-mode routes around the bridge
-path so ``USER_PORTS`` is always honoured. (On rootless hosts dockur
-already falls back to passt, so this is a no-op there.)
+Historically the compose pinned ``NETWORK: "user"`` to force user-mode
+(passt), a workaround for #269 / #387 where dockur's bridge-NAT path set up
+NAT but never forwarded the published ports on to the VM (so the agent port
+hung ``pod wait-ready``). dockur **v6.01** (@kroese) rewrote the rootless-Podman
+NAT port-forwarding to fix exactly that, so we no longer force the mode (#735):
+the container picks NAT when it can and falls back to passt itself. ``USER_PORTS``
+stays as the passt-fallback path (NAT ignores it by design, forwarding every
+non-``HOST_PORTS`` port to the VM).
 """
 
 from __future__ import annotations
@@ -32,17 +33,16 @@ def _cfg() -> Config:
     return cfg
 
 
-def test_compose_pins_user_mode_networking():
+def test_compose_does_not_force_network_mode():
+    # #735: don't force NETWORK=user -- let dockur v6.01 pick NAT (with its
+    # rootless port-forwarding fix) and fall back to passt on its own.
     content = _build_compose_content(_cfg())
-    # user-mode networking is what makes USER_PORTS (the agent port) forward.
-    assert 'NETWORK: "user"' in content
+    assert "NETWORK:" not in content
 
 
-def test_compose_user_ports_present_alongside_network():
+def test_compose_user_ports_present():
+    # USER_PORTS stays as the passt-fallback path (ignored under NAT by design).
     content = _build_compose_content(_cfg())
-    # NETWORK + USER_PORTS must coexist: USER_PORTS is only honoured under
-    # user-mode, so both lines together are what forwards the agent port.
-    assert 'NETWORK: "user"' in content
     assert "USER_PORTS:" in content
 
 

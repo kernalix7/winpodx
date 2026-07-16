@@ -573,11 +573,11 @@ class TestComposeBackendSpecificKeys:
 
 
 class TestComposeNetworkKey:
-    def test_network_pins_user_mode_not_slirp(self, tmp_path, monkeypatch):
-        # The compose pins dockur user-mode networking (#269 / #387) so
-        # USER_PORTS (the agent port) is always forwarded. It must be the
-        # "user" mode, never "slirp" (slirp is dockur's fallback-of-last-resort
-        # if passt fails to start, not something we should request directly).
+    def test_network_mode_not_forced_and_never_slirp(self, tmp_path, monkeypatch):
+        # #735: dockur v6.01 fixed rootless-Podman NAT port-forwarding, so the
+        # compose no longer forces NETWORK=user -- the container picks NAT and
+        # falls back to passt itself. We must never request "slirp" (dockur's
+        # last-resort fallback), and must not pin a NETWORK mode at all.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         from winpodx.core.config import Config
 
@@ -590,7 +590,7 @@ class TestComposeNetworkKey:
 
         _generate_compose(cfg)
         content = (tmp_path / "winpodx" / "compose.yaml").read_text()
-        assert 'NETWORK: "user"' in content
+        assert "NETWORK:" not in content
         assert "slirp" not in content
 
 

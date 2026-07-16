@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- **Rolled the pinned dockur/windows image forward to v6.01 and stopped forcing `NETWORK=user`** (#735, thanks @kroese). After 0.10.0 shipped v6.00, @kroese (the dockur maintainer) traced the old #269 / #387 hang to its root: on rootless Podman, dockur set up bridge NAT but never forwarded the published ports on to the VM — which is why winpodx had pinned `NETWORK: "user"` (passt) to route around it. He rewrote the rootless-Podman NAT port-forwarding (explicit VM DNAT, nftables under Podman / iptables under Docker, MSS clamping, …) and cut **v6.01**. So winpodx no longer forces a network mode: the container now picks bridge NAT where it works and falls back to passt on its own. `USER_PORTS` stays as the passt-fallback path (NAT ignores it by design, forwarding every non-`HOST_PORTS` port to the VM). A rootless boot smoke on v6.01 confirmed the container falls back to `Mode: User (passt)` with all ports (RDP `3390`, agent `8765`, SMB `4445`, web viewer `8007`) reachable — i.e. no regression for the common rootless case; the NAT path benefits rootful / privileged hosts and is pending their confirmation. x86_64 only (ARM pin unchanged).
+
 ## [0.10.0] - 2026-07-15
 
 ### Changed

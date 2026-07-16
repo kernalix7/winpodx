@@ -158,10 +158,12 @@ def _validate_device_entry(entry: object) -> str | None:
 # current ``:latest`` digest, paste below. See ``winpodx setup --update
 # -image`` for the runtime equivalent users invoke explicitly.
 #
-# As of 2026-07-14 (dockur/windows v6.00 — Podman networking fixes, #721):
+# As of 2026-07-16 (dockur/windows v6.01 — @kroese's rootless-Podman NAT
+# port-forwarding rewrite; fixes the #269/#387 "NAT set up but ports never
+# reach the VM" case that forced NETWORK=user, #735):
 DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
-    "5f8b87b0d135cb19834f052e8bf6479d1596f4cca1b5eb33937dad9b6fa0e06c"
+    "7886c2e1a37074220b213732de3574df2664a13fedac751fc69ef4130c5f83e0"
 )
 
 # Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``
