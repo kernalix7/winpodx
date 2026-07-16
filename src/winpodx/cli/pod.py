@@ -1413,7 +1413,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                         if verbose:
                             now = _time.monotonic()
                             if now - last_verbose[0] >= 15:
-                                print(f"       [container] (downloading Windows ISO... {clock})")
+                                print(f"       (downloading Windows ISO... {clock})")
                                 last_verbose[0] = now
                         elif _live.usable:
                             _live.set(f"  Downloading Windows ISO...  ({clock})")
