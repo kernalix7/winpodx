@@ -9,9 +9,21 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-16
+
+### Fixed
+
+- **RAIL app windows now show the app's own icon instead of FreeRDP's on X11** (#702, thanks @twkirk161 and @MirzaAyBaig12). FreeRDP RAIL windows use a fixed `res_name` of `"RAIL"` and set no `_NET_WM_ICON`, so panels that match by `StartupWMClass` (Cinnamon, GNOME-X11) fell back to FreeRDP's own icon (Wayland matches `res_class`, so it only showed on X11). A detached `winpodx.desktop.window_setup` helper now stamps the app icon as `_NET_WM_ICON` directly. It runs as its own process so it also works when the app is launched from its menu entry, and it carries the UWP taskbar re-list (#472) on that path too.
+- **Tray Start / Stop / Restart Pod entries work again on KDE Plasma** (#725, thanks @realahmed7777). The top-level tray `QAction`s were parentless, so the DBusMenu export could garbage-collect them and the buttons became silent no-ops while the CLI still worked. They are now parented to their menu, matching the earlier #573 fix for the submenus.
+- **`winpodx app refresh` / discovery no longer aborts with `FreeRDP rc=12` on XWayland** (#694, thanks @notnotno). The headless exec channel left FreeRDP's GFX pipeline on, which failed to map a RAIL surface on XWayland (`xf_MapWindowForSurface: function not implemented`) and wrote no result file. It now disables GFX (`-gfx`) so the channel uses the legacy GDI path.
+
 ### Changed
 
-- **Rolled the pinned dockur/windows image forward to v6.01 and stopped forcing `NETWORK=user`** (#735, thanks @kroese). After 0.10.0 shipped v6.00, @kroese (the dockur maintainer) traced the old #269 / #387 hang to its root: on rootless Podman, dockur set up bridge NAT but never forwarded the published ports on to the VM — which is why winpodx had pinned `NETWORK: "user"` (passt) to route around it. He rewrote the rootless-Podman NAT port-forwarding (explicit VM DNAT, nftables under Podman / iptables under Docker, MSS clamping, …) and cut **v6.01**. So winpodx no longer forces a network mode: the container now picks bridge NAT where it works and falls back to passt on its own. `USER_PORTS` stays as the passt-fallback path (NAT ignores it by design, forwarding every non-`HOST_PORTS` port to the VM). A rootless boot smoke on v6.01 confirmed the container falls back to `Mode: User (passt)` with all ports (RDP `3390`, agent `8765`, SMB `4445`, web viewer `8007`) reachable — i.e. no regression for the common rootless case; the NAT path benefits rootful / privileged hosts and is pending their confirmation. x86_64 only (ARM pin unchanged).
+- **Rolled the pinned dockur/windows image forward to v6.01 and stopped forcing `NETWORK=user`** (#735, thanks @kroese). After 0.10.0 shipped v6.00, @kroese (the dockur maintainer) traced the old #269 / #387 hang to its root: on rootless Podman, dockur set up bridge NAT but never forwarded the published ports on to the VM, which is why winpodx had pinned `NETWORK: "user"` (passt) to route around it. He rewrote the rootless-Podman NAT port-forwarding (explicit VM DNAT, nftables under Podman / iptables under Docker, MSS clamping, …) and cut **v6.01**. So winpodx no longer forces a network mode: the container now picks bridge NAT where it works and falls back to passt on its own. `USER_PORTS` stays as the passt-fallback path (NAT ignores it by design, forwarding every non-`HOST_PORTS` port to the VM). A rootless boot smoke on v6.01 confirmed the container falls back to `Mode: User (passt)` with all ports (RDP `3390`, agent `8765`, SMB `4445`, web viewer `8007`) reachable, i.e. no regression for the common rootless case; the NAT path benefits rootful / privileged hosts and is pending their confirmation. x86_64 only (ARM pin unchanged).
+
+### Contributors
+
+Thanks to everyone who reported issues or contributed to this release: @notnotno (#694), @realahmed7777 (#725), @twkirk161 and @MirzaAyBaig12 (#702), and @kroese (#735, the dockur/windows maintainer).
 
 ## [0.10.0] - 2026-07-15
 

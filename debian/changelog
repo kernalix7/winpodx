@@ -1,3 +1,14 @@
+winpodx (0.10.1) unstable; urgency=medium
+
+  * Bug-fix release. RAIL app windows now show the app's own icon on X11
+    instead of FreeRDP's (#702); tray Start/Stop/Restart Pod work again on
+    KDE Plasma (#725); discovery / app refresh no longer aborts with FreeRDP
+    rc=12 on XWayland (#694); and the pinned dockur image is rolled to v6.01
+    with the forced NETWORK=user dropped, per the dockur maintainer's rootless
+    NAT port-forwarding fix (#735). See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 16 Jul 2026 09:00:00 +0000
+
 winpodx (0.10.0) unstable; urgency=medium
 
   * Rolls the pinned dockur/windows image forward to v6.00 (#721, requested by
