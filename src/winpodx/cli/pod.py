@@ -1041,6 +1041,15 @@ _WGET_PROGRESS_RE = re.compile(r"(\d{1,3})%\s+(\d+\.?\d*[KMG]?)(=)?\s*(\S*)\s*$"
 # actionable -- suppressed in the clean (non-verbose) drain.
 _CONTAINER_NOISE = ("BdsDxe:", "mknod: /dev/net/tun")
 
+# dockur v6.01's ISO download prints dots-only lines with no percent / speed /
+# ETA (older images printed "6488064K ........ 78% 4.55M 21m22s", which the wget
+# regexes above parse). We can't recover a real percentage from bare dots, but
+# each such line means the download is still alive -- so we use them as a
+# liveness tick to keep the deadline ahead (slow links) and show a spinner
+# instead of a percentage bar.
+_WGET_DOTS_RE = re.compile(r"^[.\s]*\.[.\s]*$")
+_SPINNER = "|/-\\"
+
 
 def _format_wget_progress(line: str) -> tuple[int, str] | None:
     """Parse a dockur/wget progress line into ``(percent, clean_text)``.
@@ -1238,6 +1247,17 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             )
             deadline_state["last_announced"] = new_deadline
 
+    def _maybe_extend_deadline_liveness() -> None:
+        """v6.01: dockur's dots-only download lines carry no ETA, so treat each
+        as a liveness tick and keep the deadline a fixed grace ahead. A slow ISO
+        download can't hit the wall while it's visibly progressing, and the
+        deadline stops advancing the moment the dots stop (download finished)."""
+        if deadline_state["container_running"]:
+            return
+        new_deadline = _time.monotonic() + 900  # 15 min past the last activity
+        if new_deadline > deadline_state["value"]:
+            deadline_state["value"] = new_deadline
+
     def elapsed() -> str:
         s = int(_time.monotonic() - start)
         return f"{s // 60:02d}:{s % 60:02d}"
@@ -1310,6 +1330,8 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             # progress line only every few percent instead of on every wget
             # tick. Shared list so the closure can mutate it.
             _last_pct: list[int] = [-100]
+            # v6.01 dots-only download: spinner frame index (no percentage).
+            _spin: list[int] = [0]
 
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
@@ -1330,6 +1352,17 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                     eta_secs = _parse_wget_eta_secs(line)
                     if eta_secs is not None:
                         _maybe_extend_deadline(eta_secs)
+
+                    # v6.01: dots-only ISO-download lines carry no %/speed/ETA.
+                    # Keep the deadline alive off them (slow links) and render a
+                    # spinner; never let the flood of dots scroll the clean view.
+                    if _WGET_DOTS_RE.match(line):
+                        _maybe_extend_deadline_liveness()
+                        if not verbose:
+                            if _live.usable:
+                                _spin[0] = (_spin[0] + 1) % len(_SPINNER)
+                                _live.set(f"  Downloading Windows ISO...  {_SPINNER[_spin[0]]}")
+                            continue
 
                     if verbose:
                         # --verbose: raw, every container line, permanent.
