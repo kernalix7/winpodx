@@ -1041,15 +1041,6 @@ _WGET_PROGRESS_RE = re.compile(r"(\d{1,3})%\s+(\d+\.?\d*[KMG]?)(=)?\s*(\S*)\s*$"
 # actionable -- suppressed in the clean (non-verbose) drain.
 _CONTAINER_NOISE = ("BdsDxe:", "mknod: /dev/net/tun")
 
-# dockur v6.01's ISO download prints dots-only lines with no percent / speed /
-# ETA (older images printed "6488064K ........ 78% 4.55M 21m22s", which the wget
-# regexes above parse). We can't recover a real percentage from bare dots, but
-# each such line means the download is still alive -- so we use them as a
-# liveness tick to keep the deadline ahead (slow links) and show a spinner
-# instead of a percentage bar.
-_WGET_DOTS_RE = re.compile(r"^[.\s]*\.[.\s]*$")
-_SPINNER = "|/-\\"
-
 
 def _format_wget_progress(line: str) -> tuple[int, str] | None:
     """Parse a dockur/wget progress line into ``(percent, clean_text)``.
@@ -1248,10 +1239,10 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             deadline_state["last_announced"] = new_deadline
 
     def _maybe_extend_deadline_liveness() -> None:
-        """v6.01: dockur's dots-only download lines carry no ETA, so treat each
-        as a liveness tick and keep the deadline a fixed grace ahead. A slow ISO
-        download can't hit the wall while it's visibly progressing, and the
-        deadline stops advancing the moment the dots stop (download finished)."""
+        """dockur v6.01 buffers the download (no per-tick ETA), so the download
+        heartbeat calls this each second while the ISO is downloading to keep the
+        deadline a fixed grace ahead. A slow download can't hit the wall while
+        it's still going; the deadline stops advancing once the download ends."""
         if deadline_state["container_running"]:
             return
         new_deadline = _time.monotonic() + 900  # 15 min past the last activity
@@ -1330,35 +1321,18 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             # progress line only every few percent instead of on every wget
             # tick. Shared list so the closure can mutate it.
             _last_pct: list[int] = [-100]
-            # v6.01 dots-only download: spinner frame index (no percentage).
-            _spin: list[int] = [0]
-
-            def _iter_cr_lines(stream):  # type: ignore[no-untyped-def]
-                # Yield lines split on \r OR \n. dockur v6.01 redraws the ISO
-                # download progress line with a bare \r (no \n until the whole
-                # download ends), so a plain `for line in stream` (\n-terminated)
-                # buffers the entire download and dumps it in one burst at the
-                # end. Reading char-by-char and breaking on either control code
-                # surfaces each redraw live -- the spinner + deadline liveness
-                # then work as intended.
-                buf = ""
-                while not log_stop.is_set():
-                    ch = stream.read(1)
-                    if not ch:
-                        break
-                    if ch in ("\r", "\n"):
-                        if buf:
-                            yield buf
-                            buf = ""
-                    else:
-                        buf += ch
-                if buf:
-                    yield buf
+            # dockur v6.01 buffers the ISO-download progress inside the container
+            # (wget's output only reaches us when the whole download finishes), so
+            # winpodx can't stream a live percentage. Instead the drain sets this
+            # to a monotonic start when "Downloading Windows" appears and clears it
+            # on the next build milestone; the heartbeat below turns it into a
+            # ticking elapsed clock + deadline liveness.
+            dl_state: dict[str, float | None] = {"start": None}
 
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
                     return
-                for line in _iter_cr_lines(stream):
+                for line in stream:
                     if log_stop.is_set():
                         break
                     line = line.rstrip()
@@ -1375,16 +1349,18 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                     if eta_secs is not None:
                         _maybe_extend_deadline(eta_secs)
 
-                    # v6.01: dots-only ISO-download lines carry no %/speed/ETA.
-                    # Keep the deadline alive off them (slow links) and render a
-                    # spinner; never let the flood of dots scroll the clean view.
-                    if _WGET_DOTS_RE.match(line):
-                        _maybe_extend_deadline_liveness()
-                        if not verbose:
-                            if _live.usable:
-                                _spin[0] = (_spin[0] + 1) % len(_SPINNER)
-                                _live.set(f"  Downloading Windows ISO...  {_SPINNER[_spin[0]]}")
-                            continue
+                    # dockur v6.01 buffers the ISO-download progress, so we can't
+                    # stream a live percentage. Mark the download window off the
+                    # "Downloading Windows" milestone (the next build line ends
+                    # it); the heartbeat thread times it and keeps the deadline
+                    # alive so a slow download can't false-timeout.
+                    if "Downloading Windows" in line:
+                        dl_state["start"] = _time.monotonic()
+                    elif dl_state["start"] is not None and any(
+                        m in line
+                        for m in ("Extracting", "Adding", "Building", "Creating", "Booting")
+                    ):
+                        dl_state["start"] = None
 
                     if verbose:
                         # --verbose: raw, every container line, permanent.
@@ -1417,6 +1393,23 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
 
             threading.Thread(target=_drain, args=(log_proc.stdout,), daemon=True).start()
             threading.Thread(target=_drain, args=(log_proc.stderr,), daemon=True).start()
+
+            def _download_heartbeat() -> None:
+                # dockur buffers the ISO-download bytes, so winpodx times the
+                # download itself: a ticking elapsed clock proves it's alive, and
+                # extending the deadline each tick means a slow download can't hit
+                # the wall while it's still going. Active only between the
+                # "Downloading Windows" milestone and the first build line.
+                while not log_stop.is_set():
+                    dl = dl_state["start"]
+                    if dl is not None:
+                        _maybe_extend_deadline_liveness()
+                        if _live.usable:
+                            el = int(_time.monotonic() - dl)
+                            _live.set(f"  Downloading Windows ISO...  ({el // 60}m {el % 60:02d}s)")
+                    log_stop.wait(1.0)
+
+            threading.Thread(target=_download_heartbeat, daemon=True).start()
         except (FileNotFoundError, OSError) as e:
             print(tr("       (could not tail container logs: {error})").format(error=e))
             log_proc = None

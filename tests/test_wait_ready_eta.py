@@ -6,23 +6,7 @@ by ``winpodx pod wait-ready`` to extend its deadline on slow links
 
 from __future__ import annotations
 
-from winpodx.cli.pod import _WGET_DOTS_RE, _parse_wget_eta_secs
-
-
-def test_dots_line_matches_v601_download() -> None:
-    # dockur v6.01 prints dots-only ISO-download lines (no %/speed/ETA).
-    assert _WGET_DOTS_RE.match(" ........ ........ ........ ........")
-    assert _WGET_DOTS_RE.match("........")
-
-
-def test_dots_re_rejects_wget_percent_and_text_lines() -> None:
-    # Must not swallow v6.00 wget progress (carries %) or real dockur
-    # milestones -- those keep their existing handling.
-    done = "8257536K ........ .......                   100% 34.0M=4m27s"
-    assert _WGET_DOTS_RE.match("6488064K ........ ........ 78% 4.55M 21m22s") is None
-    assert _WGET_DOTS_RE.match(done) is None
-    assert _WGET_DOTS_RE.match("❯ Extracting Windows 11 image...") is None
-    assert _WGET_DOTS_RE.match("") is None
+from winpodx.cli.pod import _parse_wget_eta_secs
 
 
 def test_eta_parser_minutes_seconds_form() -> None:
