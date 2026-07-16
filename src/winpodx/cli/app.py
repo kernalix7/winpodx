@@ -342,6 +342,7 @@ def _run_app(name: str, file: str | None, wait: bool, *, extra_args: str = "") -
             wm_class_hint=app_info.wm_class_hint or None,
             default_args=app_info.args or None,
             extra_args=extra_args,
+            app_icon=app_info.icon_path or None,
         )
         print(
             tr("Launching {app_name}... (stderr log: {log})").format(

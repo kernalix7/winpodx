@@ -77,6 +77,7 @@ class PodStatusMixin:
                     launch_uri=app.launch_uri or None,
                     wm_class_hint=app.wm_class_hint or None,
                     default_args=app.args or None,
+                    app_icon=app.icon_path or None,
                 )
             except Exception:  # noqa: BLE001
                 import traceback

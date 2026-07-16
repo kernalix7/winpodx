@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1218,6 +1219,122 @@ def _relist_uwp_taskbar(wm_class: str) -> None:
         time.sleep(0.8)
 
 
+def _window_icon_cardinals(icon_path: str) -> list[int] | None:
+    """Decode an icon file into the ``_NET_WM_ICON`` layout ``[w, h, ARGB...]``.
+
+    Uses Qt (already an optional GUI dependency) to read PNG/SVG. Best-effort:
+    returns ``None`` when Qt is missing, the file can't be read, or the icon is
+    absurdly large. ``0xAARRGGBB`` pixels are exactly what ``_NET_WM_ICON`` wants.
+    """
+    try:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtGui import QImage
+    except Exception:  # noqa: BLE001 -- Qt optional; icon injection is best-effort
+        return None
+    try:
+        img = QImage(icon_path)
+        if img.isNull():
+            return None
+        img = img.convertToFormat(QImage.Format.Format_ARGB32)
+        w, h = img.width(), img.height()
+        if w <= 0 or h <= 0 or w * h > 256 * 256:
+            return None
+        data = [w, h]
+        for y in range(h):
+            for x in range(w):
+                data.append(img.pixel(x, y) & 0xFFFFFFFF)
+        return data
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _set_net_wm_icon(win_id: int, cardinals: list[int]) -> bool:
+    """Set ``_NET_WM_ICON`` on an X11 window via libX11 (ctypes). Best-effort.
+
+    No new dependency: libX11 is present wherever an X server / XWayland runs
+    (FreeRDP is an X11 client, so it's always there for a live RAIL window).
+    ``argtypes`` MUST be declared or ctypes mis-marshals the pointer args on
+    64-bit and the call silently no-ops (or crashes).
+    """
+    import ctypes as c
+
+    try:
+        x11 = c.CDLL("libX11.so.6")
+    except OSError:
+        return False
+    x11.XOpenDisplay.restype = c.c_void_p
+    x11.XOpenDisplay.argtypes = [c.c_char_p]
+    x11.XInternAtom.restype = c.c_ulong
+    x11.XInternAtom.argtypes = [c.c_void_p, c.c_char_p, c.c_int]
+    x11.XChangeProperty.argtypes = [
+        c.c_void_p,
+        c.c_ulong,
+        c.c_ulong,
+        c.c_ulong,
+        c.c_int,
+        c.c_int,
+        c.c_void_p,
+        c.c_int,
+    ]
+    x11.XFlush.argtypes = [c.c_void_p]
+    x11.XCloseDisplay.argtypes = [c.c_void_p]
+    dpy = x11.XOpenDisplay(None)
+    if not dpy:
+        return False
+    try:
+        atom = x11.XInternAtom(dpy, b"_NET_WM_ICON", False)
+        arr = (c.c_long * len(cardinals))(*cardinals)
+        # type=XA_CARDINAL(6), format=32, mode=PropModeReplace(0)
+        x11.XChangeProperty(dpy, win_id, atom, 6, 32, 0, c.cast(arr, c.c_void_p), len(cardinals))
+        x11.XFlush(dpy)
+    except Exception:  # noqa: BLE001
+        return False
+    finally:
+        x11.XCloseDisplay(dpy)
+    return True
+
+
+def _apply_window_icon(wm_class: str, icon_path: str) -> None:
+    """Best-effort: stamp the app's icon onto its RAIL window as ``_NET_WM_ICON``.
+
+    X11 panels match a RAIL window to its ``.desktop`` (hence its icon) by
+    ``res_class == StartupWMClass``. Some X11 DEs (Cinnamon, GNOME-X11) fail that
+    match for FreeRDP RAIL windows -- ``res_name`` is the fixed ``"RAIL"`` and no
+    ``_NET_WM_ICON`` is set -- so they fall back to FreeRDP's own icon (#702).
+    Setting ``_NET_WM_ICON`` directly makes the correct icon show regardless of
+    DE matching. X11 / XWayland only; a clean no-op when Qt / libX11 / wmctrl are
+    absent or no window matches. FreeRDP maps the window late and may re-map, so
+    retry over a short window and re-apply per new window id.
+    """
+    import time
+
+    wmctrl = shutil.which("wmctrl")
+    if not wmctrl or not icon_path or not Path(icon_path).exists():
+        return
+    cardinals = _window_icon_cardinals(icon_path)
+    if not cardinals:
+        return
+    target = f"RAIL.{wm_class}"
+    applied: set[int] = set()
+    for _ in range(12):  # ~10s at 0.8s cadence -- covers a late window map
+        try:
+            out = subprocess.run(
+                [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return
+        for line in out.splitlines():
+            parts = line.split(None, 4)  # id, desktop, wm_class, host, title
+            if len(parts) >= 3 and parts[2] == target:
+                try:
+                    win_id = int(parts[0], 16)
+                except ValueError:
+                    continue
+                if win_id not in applied and _set_net_wm_icon(win_id, cardinals):
+                    applied.add(win_id)
+        time.sleep(0.8)
+
+
 # _window_reaper tuning (#680): reap a RAIL session when its windows close even
 # though xfreerdp stays connected (Office keeps the process + RemoteApp session
 # resident after the document window closes, so `_reaper_thread`'s proc.wait()
@@ -1332,6 +1449,7 @@ def launch_app(
     wm_class_hint: str | None = None,
     default_args: str | None = None,
     extra_args: str = "",
+    app_icon: str | None = None,
 ) -> RDPSession:
     """Launch a Windows app via RDP and return the session handle.
 
@@ -1505,12 +1623,28 @@ def launch_app(
             args=(session, session.app_name),
             daemon=True,
         ).start()
-    if launch_uri is not None:
-        threading.Thread(
-            target=_relist_uwp_taskbar,
-            args=(session.app_name,),
-            daemon=True,
-        ).start()
+    # #472 / #702: post-launch window setup -- clear a UWP window's SKIP_TASKBAR
+    # and stamp the app's icon as _NET_WM_ICON -- runs in a DETACHED helper
+    # process, not a daemon thread. An app launched from its .desktop entry is a
+    # short-lived `winpodx app run` that exits before the RAIL window maps, which
+    # would kill a daemon thread (that's why #680's reaper moved to the tray).
+    # The helper outlives us and does both jobs. RemoteApp only (a full desktop
+    # has no RAIL.<wm_class> window to touch).
+    if is_remoteapp:
+        setup_args = [sys.executable, "-m", "winpodx.desktop.window_setup", session.app_name]
+        if app_icon:
+            setup_args += ["--icon", app_icon]
+        if launch_uri is not None:
+            setup_args += ["--uwp"]
+        try:
+            subprocess.Popen(
+                setup_args,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as e:
+            log.debug("window_setup helper spawn failed: %s", e)
 
     return session
 
