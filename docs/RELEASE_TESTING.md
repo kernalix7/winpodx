@@ -57,16 +57,25 @@ Run on a real install. `winpodx doctor` after each step is a quick health gate.
       logon/lock screen, no `Invalid appWindow` corruption.
 - [ ] `winpodx app refresh` — completes without `/exec timed out` (slow/cold guest too).
 - [ ] Multiple app windows / multi-session (rdprrap) work.
+- [ ] RAIL window shows the app's own icon in the taskbar, not FreeRDP's, on X11 too (#702).
+- [ ] UWP apps (Calculator, Settings, Terminal) show in the taskbar, not hidden (#472).
+- [ ] Multi-monitor: same-scale monitors span; mixed-scale pins the app to the primary without freezing when a window is dragged across (#574 / #544).
+- [ ] Discovery / `app refresh` completes on XWayland with no FreeRDP `rc=12` / `xf_MapWindowForSurface` failure (#694).
 
 ### Reverse-open (#616) — KDE host
 - [ ] Host file under `\\tsclient\home` → *Open with* a Linux app → opens.
 - [ ] **Guest-local file** (Windows Desktop `C:\Users\…`) → *Open with* a Linux app →
       opens on the host; edits save back. (Requires kio-fuse; `winpodx doctor` `guest_mount`.)
 
+### Networking (#735 / #737)
+- [ ] Ports reachable while the pod runs: agent `8765`, RDP `3390`, guest SMB `4445`, web viewer `8007` (rootless falls back to passt; rootful / privileged uses NAT).
+- [ ] Host DNS is unaffected: with the pod up, the host still resolves names (`curl`), and `/etc/resolv.conf` is not overwritten. Watch the Docker backend, where the guest DHCP/DNS can leak onto the host resolver (#737).
+
 ### Dashboard / GUI / tray
 - [ ] Dashboard Pod / CPU / **RAM** / **Disk** gauges all show numbers (not `n/a`).
 - [ ] Settings → **UI Language** switches the interface; **Idle Action** (Pause/Stop) present.
 - [ ] Tray icon appears; submenus (sessions / USB) open on KDE Plasma.
+- [ ] GUI header + tray right-click Start / Stop / Restart Pod buttons actually act, not a no-op (KDE Plasma DBusMenu, #725).
 
 ### Power / idle / devices / disguise / debloat
 - [ ] Idle **Pause** (default) suspends + auto-resumes on launch.
