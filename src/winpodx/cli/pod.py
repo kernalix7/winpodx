@@ -1400,13 +1400,25 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 # extending the deadline each tick means a slow download can't hit
                 # the wall while it's still going. Active only between the
                 # "Downloading Windows" milestone and the first build line.
+                # Clean mode updates a self-erasing line every second; --verbose
+                # (no self-erasing line) prints a sparse heartbeat every 15s so
+                # the download isn't a silent multi-minute gap there either.
+                last_verbose = [0.0]
                 while not log_stop.is_set():
                     dl = dl_state["start"]
                     if dl is not None:
                         _maybe_extend_deadline_liveness()
-                        if _live.usable:
-                            el = int(_time.monotonic() - dl)
-                            _live.set(f"  Downloading Windows ISO...  ({el // 60}m {el % 60:02d}s)")
+                        el = int(_time.monotonic() - dl)
+                        clock = f"{el // 60}m {el % 60:02d}s"
+                        if verbose:
+                            now = _time.monotonic()
+                            if now - last_verbose[0] >= 15:
+                                print(f"       [container] (downloading Windows ISO... {clock})")
+                                last_verbose[0] = now
+                        elif _live.usable:
+                            _live.set(f"  Downloading Windows ISO...  ({clock})")
+                    else:
+                        last_verbose[0] = 0.0
                     log_stop.wait(1.0)
 
             threading.Thread(target=_download_heartbeat, daemon=True).start()
