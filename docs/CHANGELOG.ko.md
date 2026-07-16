@@ -16,7 +16,7 @@
 - **X11에서 RAIL 앱 창이 FreeRDP 아이콘 대신 앱 자체 아이콘을 표시** (#702, @twkirk161·@MirzaAyBaig12 감사). FreeRDP RAIL 창은 `res_name`을 고정된 `"RAIL"`로 두고 `_NET_WM_ICON`을 설정하지 않아서, `StartupWMClass`로 매칭하는 패널(Cinnamon, GNOME-X11)이 FreeRDP 자체 아이콘으로 폴백했습니다(Wayland는 `res_class`를 매칭하므로 X11에서만 발생). 이제 분리된 `winpodx.desktop.window_setup` 헬퍼가 앱 아이콘을 `_NET_WM_ICON`으로 직접 스탬프합니다. 별도 프로세스로 실행되어 메뉴 항목에서 앱을 실행할 때도 동작하며, 해당 경로에서 UWP 작업 표시줄 재등록(#472)도 함께 처리합니다.
 - **KDE Plasma에서 트레이 Start/Stop/Restart Pod 항목이 다시 동작** (#725, @realahmed7777 감사). 최상위 트레이 `QAction`이 parent가 없어서 DBusMenu export가 이를 가비지 컬렉션할 수 있었고, CLI는 되는데 버튼은 무반응이 됐습니다. 이제 각 메뉴에 parent를 지정합니다(서브메뉴에 대한 기존 #573 수정과 동일).
 - **`winpodx app refresh`/discovery가 XWayland에서 `FreeRDP rc=12`로 중단되지 않음** (#694, @notnotno 감사). 헤드리스 exec 채널이 FreeRDP GFX 파이프라인을 켜둬서 XWayland에서 RAIL surface 매핑에 실패하고(`xf_MapWindowForSurface: function not implemented`) 결과 파일을 쓰지 못했습니다. 이제 GFX를 끄고(`-gfx`) 레거시 GDI 경로를 사용합니다.
-- **dockur v6.01에서 Windows ISO 다운로드 진행 표시가 사라지지 않고, 느린 링크에서 잘못된 timeout 위험도 없어짐** (#735 후속). v6.01은 퍼센트/속도/ETA 없이 dots만 출력하여(구 이미지는 `78% 4.55M 21m22s` 출력) winpodx의 wget 기반 진행률 바와 느린 링크 deadline 연장이 모두 동작하지 않았습니다. 이제 `winpodx pod wait-ready`가 dots 형식을 인식해 deadline을 유지하고, 퍼센트 바 대신 스피너를 표시합니다.
+- **dockur v6.01에서 Windows ISO 다운로드 진행 표시가 사라지지 않고, 느린 링크에서 잘못된 timeout 위험도 없어짐** (#735 후속). v6.01은 퍼센트/속도/ETA 없이 dots만 출력하여(구 이미지는 `78% 4.55M 21m22s` 출력) winpodx의 wget 기반 진행률 바와 느린 링크 deadline 연장이 모두 동작하지 않았습니다. 이제 `winpodx pod wait-ready`가 dots 형식을 인식해 deadline을 유지하고, 퍼센트 바 대신 스피너를 표시합니다. 또한 컨테이너 로그를 문자 단위로 읽고 개행뿐 아니라 캐리지리턴(`\r`)에서도 줄을 끊습니다. v6.01이 진행 라인을 `\r`만으로 다시 그리기 때문으로, 이 처리가 없으면 다운로드 전체가 버퍼링됐다가 마지막에 한꺼번에 쏟아집니다.
 
 ### Changed
 

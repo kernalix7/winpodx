@@ -1333,10 +1333,32 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             # v6.01 dots-only download: spinner frame index (no percentage).
             _spin: list[int] = [0]
 
+            def _iter_cr_lines(stream):  # type: ignore[no-untyped-def]
+                # Yield lines split on \r OR \n. dockur v6.01 redraws the ISO
+                # download progress line with a bare \r (no \n until the whole
+                # download ends), so a plain `for line in stream` (\n-terminated)
+                # buffers the entire download and dumps it in one burst at the
+                # end. Reading char-by-char and breaking on either control code
+                # surfaces each redraw live -- the spinner + deadline liveness
+                # then work as intended.
+                buf = ""
+                while not log_stop.is_set():
+                    ch = stream.read(1)
+                    if not ch:
+                        break
+                    if ch in ("\r", "\n"):
+                        if buf:
+                            yield buf
+                            buf = ""
+                    else:
+                        buf += ch
+                if buf:
+                    yield buf
+
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
                     return
-                for line in stream:
+                for line in _iter_cr_lines(stream):
                     if log_stop.is_set():
                         break
                     line = line.rstrip()
