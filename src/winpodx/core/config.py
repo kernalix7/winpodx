@@ -158,12 +158,13 @@ def _validate_device_entry(entry: object) -> str | None:
 # current ``:latest`` digest, paste below. See ``winpodx setup --update
 # -image`` for the runtime equivalent users invoke explicitly.
 #
-# As of 2026-07-16 (dockur/windows v6.01 — @kroese's rootless-Podman NAT
-# port-forwarding rewrite; fixes the #269/#387 "NAT set up but ports never
-# reach the VM" case that forced NETWORK=user, #735):
+# As of 2026-07-18 (dockur/windows v6.02 — QEMU base v7.37, improved
+# download-progress output in the container log (upstream follow-up to the
+# v6.01 buffered-download saga), Windows reinstall detection, QEMU errors
+# surfaced on unexpected exit; requested by @kroese in #735):
 DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
-    "7886c2e1a37074220b213732de3574df2664a13fedac751fc69ef4130c5f83e0"
+    "8cc6f8bc4a60c078141fd3bcf7d2df69ae063a11d98be31a57429afe0dca66da"
 )
 
 # Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``
