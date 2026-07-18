@@ -41,7 +41,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$script:AgentVersion = '0.2.2-rev4'
+$script:AgentVersion = '0.2.3'
 $script:StartedAt    = (Get-Date).ToUniversalTime().ToString('o')
 $script:OemDir       = 'C:\OEM'
 $script:TokenPath    = 'C:\OEM\agent_token.txt'
@@ -282,10 +282,77 @@ if (-not $bound) {
     throw "HttpListener.Start() failed after $bindAttempts attempts on $($script:Prefix)"
 }
 
+# --- exec worker pool (#751) -----------------------------------------
+# The accept loop below is single-threaded; before 0.2.3 a long /exec
+# (WaitForExit up to 300s) blocked it entirely, so /health went
+# unanswered, the host's 5s HEALTH_TIMEOUT expired, and dispatch
+# declared "agent unavailable" on an agent that was merely busy --
+# reported as the agent "repeatedly dying" in #751. Run each /exec in a
+# background runspace instead: the worker owns the HttpListenerResponse
+# (responding from another thread is supported) and the main loop keeps
+# serving /health. Pool max 4 bounds concurrent guest PowerShell spawns;
+# excess execs queue inside the pool, which still never blocks /health.
+$iss = [initialsessionstate]::CreateDefault()
+foreach ($fnName in @('Get-BytesHash', 'Write-Log', 'Send-Json', 'Invoke-ExecScript')) {
+    $fnBody = (Get-Content -Path ("function:" + $fnName)).ToString()
+    $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($fnName, $fnBody)))
+}
+# The functions above read these as $script:<name>; at a runspace's top
+# level script scope IS global scope, so plain global entries satisfy them.
+foreach ($varName in @('LogPath', 'RunsDir', 'ExecMaxTimeoutSec')) {
+    $iss.Variables.Add((New-Object System.Management.Automation.Runspaces.SessionStateVariableEntry(
+        $varName, (Get-Variable -Name $varName -Scope Script -ValueOnly), $null)))
+}
+$script:ExecPool = [runspacefactory]::CreateRunspacePool(1, 4, $iss, $Host)
+$script:ExecPool.Open()
+$script:ExecWorkers = [System.Collections.ArrayList]::new()
+
+# Worker body: run the script, send the response, write the log line.
+# Owns the response object end-to-end so the main loop never touches it
+# again after handoff.
+$script:ExecWorkerBody = {
+    param($resp, $scriptB64, $timeoutSec)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $code = 500
+    $extraLog = ''
+    try {
+        $result = Invoke-ExecScript -scriptB64 $scriptB64 -timeoutSec $timeoutSec
+        if ($result.ContainsKey('error')) {
+            Send-Json $resp 500 @{ error = 'exec_failed'; detail = $result.error }
+            $code = 500
+            if ($result.ContainsKey('hash')) { $extraLog = "hash=$($result.hash)" }
+        } else {
+            Send-Json $resp 200 @{
+                rc     = $result.rc
+                stdout = $result.stdout
+                stderr = $result.stderr
+            }
+            $code = 200
+            $extraLog = "hash=$($result.hash) rc=$($result.rc) timeout=$($result.timedOut)"
+        }
+    } catch {
+        try { Send-Json $resp 500 @{ error = 'internal_error' } } catch { }
+        $code = 500
+    }
+    $sw.Stop()
+    Write-Log 'POST' '/exec' 'ok' $code ([int]$sw.ElapsedMilliseconds) $extraLog
+}
+
 try {
     while ($listener.IsListening) {
         $ctx = $null
         try { $ctx = $listener.GetContext() } catch { continue }
+        # Reap finished exec workers (EndInvoke + Dispose). Runs on every
+        # request; the host polls /health continuously, so completed
+        # workers never linger long.
+        if ($script:ExecWorkers.Count -gt 0) {
+            $done = @($script:ExecWorkers | Where-Object { $_.handle.IsCompleted })
+            foreach ($w in $done) {
+                try { [void]$w.ps.EndInvoke($w.handle) } catch { }
+                try { $w.ps.Dispose() } catch { }
+                $script:ExecWorkers.Remove($w)
+            }
+        }
         $sw = [Diagnostics.Stopwatch]::StartNew()
         $req = $ctx.Request
         $resp = $ctx.Response
@@ -322,20 +389,16 @@ try {
                         if ($timeout -le 0) { $timeout = $script:ExecDefaultTimeoutSec }
                         if ($timeout -gt $script:ExecMaxTimeoutSec) { $timeout = $script:ExecMaxTimeoutSec }
                     }
-                    $result = Invoke-ExecScript -scriptB64 ([string]$parsed.script) -timeoutSec $timeout
-                    if ($result.ContainsKey('error')) {
-                        Send-Json $resp 500 @{ error = 'exec_failed'; detail = $result.error }
-                        $code = 500
-                        if ($result.ContainsKey('hash')) { $extraLog = "hash=$($result.hash)" }
-                    } else {
-                        Send-Json $resp 200 @{
-                            rc     = $result.rc
-                            stdout = $result.stdout
-                            stderr = $result.stderr
-                        }
-                        $code = 200
-                        $extraLog = "hash=$($result.hash) rc=$($result.rc) timeout=$($result.timedOut)"
-                    }
+                    # Hand off to a pool runspace (#751): the worker sends
+                    # the response and writes the /exec log line; this loop
+                    # goes straight back to GetContext so /health stays
+                    # answerable during long execs. code -1 = skip the
+                    # main-loop Write-Log below (worker owns it).
+                    $ps = [powershell]::Create()
+                    $ps.RunspacePool = $script:ExecPool
+                    [void]$ps.AddScript($script:ExecWorkerBody).AddArgument($resp).AddArgument([string]$parsed.script).AddArgument($timeout)
+                    [void]$script:ExecWorkers.Add(@{ ps = $ps; handle = $ps.BeginInvoke() })
+                    $code = -1
                 }
             } else {
                 $authTag = 'ok'
@@ -349,9 +412,13 @@ try {
             } catch { }
         }
         $sw.Stop()
-        Write-Log $method $path $authTag $code ([int]$sw.ElapsedMilliseconds) $extraLog
+        if ($code -ne -1) {
+            Write-Log $method $path $authTag $code ([int]$sw.ElapsedMilliseconds) $extraLog
+        }
     }
 } finally {
     try { $listener.Stop() } catch { }
     try { $listener.Close() } catch { }
+    try { $script:ExecPool.Close() } catch { }
+    try { $script:ExecPool.Dispose() } catch { }
 }

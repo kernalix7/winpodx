@@ -59,20 +59,21 @@ $port        = 8765
 #    agent-respawn.ps1 does (classic powershell.exe + pwsh.exe), and
 #    exclude this keep-alive script + the respawn helper so we never
 #    treat our own process tree as "the agent".
-$agentRunning = $false
-try {
-    $procs = @(
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.CommandLine -and
-                $_.CommandLine -like '*agent.ps1*' -and
-                $_.CommandLine -notlike '*agent-keepalive*' -and
-                $_.CommandLine -notlike '*agent-respawn*' -and
-                ($_.Name -ieq 'powershell.exe' -or $_.Name -ieq 'pwsh.exe')
-            }
-    )
-    if ($procs.Count -gt 0) { $agentRunning = $true }
-} catch { }
+function Test-AgentProcess {
+    try {
+        $procs = @(
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.CommandLine -and
+                    $_.CommandLine -like '*agent.ps1*' -and
+                    $_.CommandLine -notlike '*agent-keepalive*' -and
+                    $_.CommandLine -notlike '*agent-respawn*' -and
+                    ($_.Name -ieq 'powershell.exe' -or $_.Name -ieq 'pwsh.exe')
+                }
+        )
+        return ($procs.Count -gt 0)
+    } catch { return $false }
+}
 
 # 2. Is the listener actually up? A process can be alive but wedged before
 #    HttpListener.Start() (e.g. mid Wait-Token); treat "process present
@@ -81,17 +82,21 @@ try {
 #    when there is NO agent process at all, OR the port is dead with no
 #    owning agent process. The conservative rule: launch only when no
 #    agent.ps1 process is running.
-$portListening = $false
-try {
-    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    if ($conn) { $portListening = $true }
-} catch {
+function Test-AgentPort {
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+        if ($conn) { return $true }
+    } catch { }
     # Get-NetTCPConnection missing on very old builds -- fall back to netstat.
     try {
         $ns = netstat -ano | Select-String -Pattern (":" + $port + "\s.*LISTENING")
-        if ($ns) { $portListening = $true }
+        if ($ns) { return $true }
     } catch { }
+    return $false
 }
+
+$agentRunning = Test-AgentProcess
+$portListening = Test-AgentPort
 
 # Healthy: an agent process exists AND the port is listening. No-op.
 if ($agentRunning -and $portListening) {
@@ -102,6 +107,18 @@ if ($agentRunning -and $portListening) {
 # its own bind-retry loop / agent-respawn; we don't double-launch on top
 # of a live process (that would race two HttpListener binds on :8765).
 if ($agentRunning) {
+    exit 0
+}
+
+# 3. (#751) Double-launch guard. At logon this task's AtLogOn trigger
+#    races HKCU\Run's own agent launch: the wscript -> powershell spawn
+#    can take several seconds on a cold guest, so both can observe "no
+#    agent" and each start one. The loser then fails HttpListener bind
+#    5x against the winner and logs a FATAL that reads like the agent
+#    crashed (seen verbatim in #751's agent.log). Wait out the spawn
+#    window and re-check; only launch if the agent is still absent.
+Start-Sleep -Seconds 10
+if ((Test-AgentProcess) -or (Test-AgentPort)) {
     exit 0
 }
 

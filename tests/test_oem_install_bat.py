@@ -43,7 +43,7 @@ def test_install_bat_does_not_self_lock_setup_log() -> None:
 
 def test_install_bat_oem_version_matches_expected_setup_contract() -> None:
     text = INSTALL_BAT.read_text(encoding="utf-8")
-    assert "set WINPODX_OEM_VERSION=28" in text
+    assert "set WINPODX_OEM_VERSION=29" in text
     assert "(echo %WINPODX_OEM_VERSION%)>C:\\winpodx\\oem_version.txt" in text
 
 
