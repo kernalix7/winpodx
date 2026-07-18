@@ -131,3 +131,112 @@ def test_format_wget_progress_rejects_non_progress() -> None:
     assert _format_wget_progress("BdsDxe: starting Boot0004") is None
     assert _format_wget_progress("Sysprep specialize") is None
     assert _format_wget_progress("") is None
+
+
+# dockur v6.02 (#735) writes the ISO-download percentage as ONE line that
+# grows byte-by-byte with no trailing newline until the download finishes
+# (qemus/qemu src/progress.sh printPercentProgress: "10%" -> "10% -> 20%" ->
+# ...), unlike v6.01's discrete wget lines above. Plain `for line in stream`
+# buffers those bytes invisibly for the whole download, so the drain now
+# reads raw chunks via `_LineSplitter` / `_iter_container_lines` instead.
+
+
+def test_line_splitter_yields_complete_lines_across_chunk_boundaries() -> None:
+    """Ordinary complete lines split across arbitrary chunk boundaries must
+    still reassemble intact, in order, exactly once -- the incremental
+    reader must not change behavior for lines that already had a newline."""
+    from winpodx.cli.pod import _LineSplitter
+
+    splitter = _LineSplitter()
+    assert splitter.feed(b"hel") == []
+    assert splitter.feed(b"lo wor") == []
+    assert splitter.feed(b"ld\nsecond line\n") == ["hello world", "second line"]
+
+
+def test_line_splitter_partial_tail_visible_but_not_emitted() -> None:
+    """A no-newline-yet tail (dockur's still-growing download percentage)
+    must not be emitted as a line -- it has to survive to be completed
+    later -- but it IS visible via ``partial`` so the drain can scrape a
+    live percentage out of it via ``_DOWNLOAD_PCT_RE``."""
+    from winpodx.cli.pod import _DOWNLOAD_PCT_RE, _LineSplitter
+
+    splitter = _LineSplitter()
+    lines = splitter.feed("Downloading Windows ISO\n10% → 20%".encode())
+    assert lines == ["Downloading Windows ISO"]
+    assert splitter.partial == "10% → 20%"
+    matches = _DOWNLOAD_PCT_RE.findall(splitter.partial)
+    assert min(int(matches[-1]), 100) == 20
+
+
+def test_line_splitter_completes_pending_line_exactly_once() -> None:
+    """Once the newline finally arrives, the whole accumulated tail is
+    emitted as ONE line -- not re-emitted on any later feed()."""
+    from winpodx.cli.pod import _LineSplitter
+
+    splitter = _LineSplitter()
+    splitter.feed("10% → 20%".encode())
+    completed = splitter.feed(" → 30%\nExtracting Windows image\n".encode())
+    assert completed == ["10% → 20% → 30%", "Extracting Windows image"]
+    assert splitter.feed(b"more\n") == ["more"]
+
+
+def test_line_splitter_flush_returns_trailing_remainder_once() -> None:
+    """At EOF (container process exited mid-line), the leftover tail must
+    still surface as one final line -- mirroring how iterating a file
+    object yields a last newline-less line before returning "" -- and only
+    once."""
+    from winpodx.cli.pod import _LineSplitter
+
+    splitter = _LineSplitter()
+    splitter.feed(b"unterminated tail")
+    assert splitter.flush() == "unterminated tail"
+    assert splitter.flush() is None
+
+
+def test_download_pct_regex_last_match_wins_and_clamps_at_100() -> None:
+    """``_DOWNLOAD_PCT_RE`` must pick the LAST "NN%" in dockur's chained
+    growing line, and the caller clamps it to 100 -- dockur can't actually
+    emit over 100%, but the parser must never store an out-of-range value."""
+    from winpodx.cli.pod import _DOWNLOAD_PCT_RE
+
+    matches = _DOWNLOAD_PCT_RE.findall("10% → 20% → 150%")
+    assert matches[-1] == "150"
+    assert min(int(matches[-1]), 100) == 100
+
+
+def test_iter_container_lines_tracks_pct_and_yields_lines_end_to_end() -> None:
+    """Full lifecycle through ``_iter_container_lines``: a milestone line,
+    then a growing no-newline percentage tail (scraped into
+    ``dl_state["pct"]``, clamped, last-match-wins), then the newline that
+    finally completes it alongside the next milestone, then EOF. The
+    percentage must never be lost, never double-counted, and the
+    previously-partial text must reappear verbatim once completed."""
+    import threading
+
+    from winpodx.cli.pod import _iter_container_lines
+
+    class _FakeStream:
+        """Hands out one scripted chunk per ``read()`` call, then EOF."""
+
+        def __init__(self, chunks: list[bytes]) -> None:
+            self._chunks = list(chunks)
+
+        def read(self, _size: int) -> bytes:
+            return self._chunks.pop(0) if self._chunks else b""
+
+    stream = _FakeStream(
+        [
+            b"Downloading Windows ISO\n",
+            "10% → 20% → 150%".encode(),  # still growing: no "\n" yet
+            b"\nExtracting Windows image\n",
+            b"",
+        ]
+    )
+    dl_state: dict[str, float | int | None] = {"start": 0.0, "pct": None}
+    lines = list(_iter_container_lines(stream, dl_state, threading.Event()))
+    assert lines == [
+        "Downloading Windows ISO",
+        "10% → 20% → 150%",
+        "Extracting Windows image",
+    ]
+    assert dl_state["pct"] == 100

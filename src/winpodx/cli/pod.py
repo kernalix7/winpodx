@@ -1142,6 +1142,98 @@ class _LiveLine:
             self._tty = None
 
 
+# dockur v6.02's progress.sh (qemus/qemu src/progress.sh
+# printPercentProgress) writes the ISO-download percentage as ONE line that
+# grows byte-by-byte with NO trailing newline until the download finishes:
+# "10%" -> "10% → 20%" -> "10% → 20% → 30%" ... (#735). Only the bare
+# percentage is needed -- unlike v6.01's wget meter there's no speed/ETA
+# mid-line, just the running chain of milestones.
+_DOWNLOAD_PCT_RE = re.compile(r"([0-9]{1,3})%")
+
+
+class _LineSplitter:
+    """Splits incrementally-arriving bytes into decoded, right-stripped
+    lines without blocking until a newline shows up the way iterating a
+    file object (``for line in stream``) does.
+
+    Needed for dockur v6.02 (#735): its no-newline-until-done download
+    percentage line would otherwise sit invisibly in Python's line-buffering
+    for the entire download. Feeding raw chunks here lets a caller inspect
+    the still-growing ``partial`` tail for progress while every complete
+    line is still produced exactly once, in the same order, with the same
+    trailing-newline/whitespace stripped as the old ``line.rstrip()`` did.
+    """
+
+    def __init__(self, encoding: str = "utf-8") -> None:
+        # utf-8 matches what podman/docker container logs are in practice --
+        # the same assumption ``Popen(..., text=True)`` made via the locale
+        # default on any modern Linux host.
+        self._encoding = encoding
+        self._buf = b""
+
+    def feed(self, chunk: bytes) -> list[str]:
+        """Add *chunk* and return any newly-completed lines. Splitting on
+        ``b"\\n"`` first (before decoding) is always UTF-8-safe: the 0x0A
+        byte never appears inside a multi-byte codepoint's encoding, so a
+        split can never land mid-character."""
+        if not chunk:
+            return []
+        self._buf += chunk
+        *complete, self._buf = self._buf.split(b"\n")
+        return [piece.decode(self._encoding, errors="replace").rstrip() for piece in complete]
+
+    @property
+    def partial(self) -> str:
+        """The current newline-less tail (best-effort decode -- a chunk
+        boundary can land mid-character here, unlike in ``feed``)."""
+        return self._buf.decode(self._encoding, errors="ignore")
+
+    def flush(self) -> str | None:
+        """Return + clear the trailing remainder as a final line, mirroring
+        how ``for line in stream`` yields one last newline-less line before
+        EOF. Returns ``None`` when nothing is buffered."""
+        if not self._buf:
+            return None
+        line = self._buf.decode(self._encoding, errors="replace").rstrip()
+        self._buf = b""
+        return line
+
+
+def _iter_container_lines(stream, dl_state: dict, stop: threading.Event):  # type: ignore[no-untyped-def]
+    """Read *stream* (an unbuffered binary subprocess pipe) incrementally and
+    yield decoded, right-stripped lines as they complete.
+
+    Replaces plain ``for line in stream`` so dockur v6.02's no-newline-until-
+    done download percentage (see ``_DOWNLOAD_PCT_RE`` above, #735) doesn't
+    sit hidden in the pipe for the whole download: while *dl_state* shows a
+    download in progress, the still-growing partial tail is scanned each
+    read for its latest ``NN%`` and stashed on ``dl_state["pct"]`` for
+    ``_download_heartbeat`` to render. The partial tail itself is never
+    consumed here -- it still becomes a normal yielded line once its
+    newline arrives.
+    """
+    splitter = _LineSplitter()
+    while not stop.is_set():
+        try:
+            # bufsize=0 on the Popen call below makes *stream* a raw
+            # io.FileIO, so .read(n) is a single non-looping syscall (i.e.
+            # read1 semantics) instead of blocking to fill the buffer.
+            chunk = stream.read(65536)
+        except (OSError, ValueError):
+            break
+        if not chunk:
+            break  # EOF: container process exited or closed the pipe.
+        for line in splitter.feed(chunk):
+            yield line
+        if dl_state.get("start") is not None:
+            matches = _DOWNLOAD_PCT_RE.findall(splitter.partial)
+            if matches:
+                dl_state["pct"] = min(int(matches[-1]), 100)
+    tail = splitter.flush()
+    if tail:
+        yield tail
+
+
 def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
     """v0.2.0.5: multi-phase wait for the Windows VM to finish first-boot.
 
@@ -1282,12 +1374,15 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             # stale first-boot history. Both stdout and stderr are drained
             # because dockur splits progress across both (download bytes/sec on
             # one, boot phase on the other).
+            # bufsize=0 (binary, unbuffered): _iter_container_lines needs raw,
+            # non-looping reads off the pipe to see dockur v6.02's growing
+            # download-percentage line before its newline arrives (#735). A
+            # text-mode or buffered pipe would only expose complete lines.
             log_proc = Popen(
                 [cfg.pod.backend, "logs", "-f", "--tail", _log_tail, cfg.pod.container_name],
                 stdout=PIPE,
                 stderr=PIPE,
-                text=True,
-                bufsize=1,
+                bufsize=0,
             )
 
             # Rewrite dockur's container-internal VNC web URL to the host
@@ -1321,21 +1416,24 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             # progress line only every few percent instead of on every wget
             # tick. Shared list so the closure can mutate it.
             _last_pct: list[int] = [-100]
-            # dockur v6.01 buffers the ISO-download progress inside the container
-            # (wget's output only reaches us when the whole download finishes), so
-            # winpodx can't stream a live percentage. Instead the drain sets this
-            # to a monotonic start when "Downloading Windows" appears and clears it
-            # on the next build milestone; the heartbeat below turns it into a
-            # ticking elapsed clock + deadline liveness.
-            dl_state: dict[str, float | None] = {"start": None}
+            # dockur v6.01 buffered the ISO-download progress inside the container
+            # (wget's output only reached us when the whole download finished), so
+            # winpodx couldn't stream a live percentage -- the drain set "start" to
+            # a monotonic clock when "Downloading Windows" appears and cleared it on
+            # the next build milestone, and the heartbeat below turned that into a
+            # ticking elapsed clock + deadline liveness. dockur v6.02 (#735) writes
+            # a real percentage again, just as one no-newline-until-done line
+            # (_DOWNLOAD_PCT_RE / _iter_container_lines above), so "pct" carries the
+            # latest value scraped off that growing line; it's cleared alongside
+            # "start" so a stale percentage from a prior download can't linger.
+            dl_state: dict[str, float | int | None] = {"start": None, "pct": None}
 
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
                     return
-                for line in stream:
+                for line in _iter_container_lines(stream, dl_state, log_stop):
                     if log_stop.is_set():
                         break
-                    line = line.rstrip()
                     if not line:
                         continue
                     if (
@@ -1349,18 +1447,21 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                     if eta_secs is not None:
                         _maybe_extend_deadline(eta_secs)
 
-                    # dockur v6.01 buffers the ISO-download progress, so we can't
-                    # stream a live percentage. Mark the download window off the
-                    # "Downloading Windows" milestone (the next build line ends
-                    # it); the heartbeat thread times it and keeps the deadline
-                    # alive so a slow download can't false-timeout.
+                    # Mark the download window off the "Downloading Windows"
+                    # milestone (the next build line ends it); the heartbeat
+                    # thread times it and keeps the deadline alive so a slow
+                    # download can't false-timeout. "pct" is reset on both
+                    # edges so a stale percentage never bleeds from one
+                    # download window into the next (#735).
                     if "Downloading Windows" in line:
                         dl_state["start"] = _time.monotonic()
+                        dl_state["pct"] = None
                     elif dl_state["start"] is not None and any(
                         m in line
                         for m in ("Extracting", "Adding", "Building", "Creating", "Booting")
                     ):
                         dl_state["start"] = None
+                        dl_state["pct"] = None
 
                     if verbose:
                         # --verbose: raw, every container line, permanent.
@@ -1395,14 +1496,18 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             threading.Thread(target=_drain, args=(log_proc.stderr,), daemon=True).start()
 
             def _download_heartbeat() -> None:
-                # dockur buffers the ISO-download bytes, so winpodx times the
-                # download itself: a ticking elapsed clock proves it's alive, and
-                # extending the deadline each tick means a slow download can't hit
-                # the wall while it's still going. Active only between the
-                # "Downloading Windows" milestone and the first build line.
-                # Clean mode updates a self-erasing line every second; --verbose
-                # (no self-erasing line) prints a sparse heartbeat every 15s so
-                # the download isn't a silent multi-minute gap there either.
+                # winpodx times the download itself: a ticking elapsed clock
+                # proves it's alive, and extending the deadline each tick means
+                # a slow download can't hit the wall while it's still going.
+                # Active only between the "Downloading Windows" milestone and
+                # the first build line. Clean mode updates a self-erasing line
+                # every second; --verbose (no self-erasing line) prints a
+                # sparse heartbeat every 15s so the download isn't a silent
+                # multi-minute gap there either. dockur v6.02 (#735) reports a
+                # real percentage (dl_state["pct"], scraped by
+                # _iter_container_lines); when it's known both modes fold it
+                # into the message, falling back to the bare clock when it
+                # isn't (older dockur, or before the first "%" line arrives).
                 last_verbose = [0.0]
                 while not log_stop.is_set():
                     dl = dl_state["start"]
@@ -1410,13 +1515,20 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                         _maybe_extend_deadline_liveness()
                         el = int(_time.monotonic() - dl)
                         clock = f"{el // 60}m {el % 60:02d}s"
+                        pct = dl_state.get("pct")
                         if verbose:
                             now = _time.monotonic()
                             if now - last_verbose[0] >= 15:
-                                print(f"       (downloading Windows ISO... {clock})")
+                                if pct is not None:
+                                    print(f"       (downloading Windows ISO... {pct}%, {clock})")
+                                else:
+                                    print(f"       (downloading Windows ISO... {clock})")
                                 last_verbose[0] = now
                         elif _live.usable:
-                            _live.set(f"  Downloading Windows ISO...  ({clock})")
+                            if pct is not None:
+                                _live.set(f"  Downloading Windows ISO... {pct}% ({clock})")
+                            else:
+                                _live.set(f"  Downloading Windows ISO...  ({clock})")
                     else:
                         last_verbose[0] = 0.0
                     log_stop.wait(1.0)

@@ -12,6 +12,7 @@
 ### Changed
 
 - **dockur/windows 이미지 pin을 v6.02로 롤포워드** (#735, @kroese 요청). QEMU base 이미지 v7.37, 컨테이너 로그의 다운로드 진행 출력 개선(v6.01 버퍼링 다운로드에 대한 upstream 후속), Windows 재설치 감지 개선, 예기치 않은 종료 시 QEMU 오류 표시가 포함됩니다. 기존 pod는 다음 recreate 때 새 이미지를 사용하며, `winpodx setup --update-image`로 즉시 적용할 수 있습니다.
+- **dockur v6.02에서 다운로드 라인에 실제 퍼센트를 다시 표시** (#735 후속). v6.02는 ISO 다운로드 진행률을 개행 없이 자라는 한 줄로 컨테이너 로그에 기록해서, 라인 단위 리더는 다운로드 중에 이를 볼 수 없습니다. 이제 `winpodx pod wait-ready`가 로그를 바이트 단위로 읽어 최신 `NN%`를 경과 시계에 합쳐 표시합니다: `Downloading Windows ISO... 42% (5m 12s)` (clean/`--verbose` 모두, 구버전 이미지에서는 기존 시계로 폴백).
 
 ### Fixed
 

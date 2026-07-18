@@ -12,6 +12,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Changed
 
 - **dockur/windows image pin rolled forward to v6.02** (#735, requested by @kroese). Brings the QEMU base image v7.37, improved download-progress output in the container log (the upstream follow-up to v6.01's buffered download), better Windows reinstall detection, and QEMU errors surfaced on unexpected exit. Existing pods pick the new image up on the next recreate; `winpodx setup --update-image` applies it explicitly.
+- **The download line now shows a real percentage again on dockur v6.02** (#735 follow-up). v6.02 writes the ISO-download progress to the container log as one line that grows without a newline until the download finishes, so a line-based reader never sees it mid-download. `winpodx pod wait-ready` now reads the log byte-wise and folds the latest `NN%` into the elapsed clock: `Downloading Windows ISO... 42% (5m 12s)` (clean and `--verbose` modes both; falls back to the bare clock on older images).
 
 ### Fixed
 
