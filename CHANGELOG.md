@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- **dockur/windows image pin rolled forward to v6.02** (#735, requested by @kroese). Brings the QEMU base image v7.37, improved download-progress output in the container log (the upstream follow-up to v6.01's buffered download), better Windows reinstall detection, and QEMU errors surfaced on unexpected exit. Existing pods pick the new image up on the next recreate; `winpodx setup --update-image` applies it explicitly.
+
 ### Fixed
 
 - **The guest agent could look like it kept dying under load, even though `agent.log` showed it running the whole time** (#751, thanks @notnotno). `agent.ps1`'s HTTP listener ran a single-threaded accept loop, so a long `POST /exec` (up to the 300s `WaitForExit`) blocked the next `GET /health` request until it finished; the host's 5s health-check timeout then declared the agent unavailable and fell back to the slow FreeRDP path mid-session. `/exec` now runs on a background runspace pool (max 4 concurrent), so `/health` keeps answering instantly while a long exec is still in flight. The host-side protocol is unchanged.

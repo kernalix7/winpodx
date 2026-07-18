@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **dockur/windows 이미지 pin을 v6.02로 롤포워드** (#735, @kroese 요청). QEMU base 이미지 v7.37, 컨테이너 로그의 다운로드 진행 출력 개선(v6.01 버퍼링 다운로드에 대한 upstream 후속), Windows 재설치 감지 개선, 예기치 않은 종료 시 QEMU 오류 표시가 포함됩니다. 기존 pod는 다음 recreate 때 새 이미지를 사용하며, `winpodx setup --update-image`로 즉시 적용할 수 있습니다.
+
 ### Fixed
 
 - **부하가 걸리면 게스트 에이전트가 계속 죽는 것처럼 보였지만, `agent.log`에는 계속 살아있는 것으로 기록됨** (#751, @notnotno 감사). `agent.ps1`의 HTTP 리스너가 단일 스레드 accept 루프로 동작해서, 오래 걸리는 `POST /exec`(최대 300초 `WaitForExit`)이 완료될 때까지 다음 `GET /health` 요청을 막았습니다. 호스트의 5초 헬스체크 timeout이 이를 에이전트 사용 불가로 판단해 세션 도중 느린 FreeRDP 경로로 폴백했습니다. 이제 `/exec`는 백그라운드 runspace pool(최대 4개 동시 실행)에서 돌아가므로, 긴 exec가 진행 중이어도 `/health`가 즉시 응답합니다. 호스트측 프로토콜은 변경되지 않았습니다.
