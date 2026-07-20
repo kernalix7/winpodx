@@ -202,6 +202,44 @@ class TestCheckRootlessSubid:
         assert "setup-host" in f.suggestion
 
 
+class TestCheckHostPorts:
+    """#754: winpodx's required host ports already held by something else."""
+
+    def _run(self, monkeypatch, *, backend="podman", running=False, conflicts=None):
+        from winpodx.cli.doctor import _check_host_ports
+
+        monkeypatch.setattr(
+            "winpodx.core.config.Config.load",
+            classmethod(lambda cls: SimpleNamespace(pod=SimpleNamespace(backend=backend))),
+        )
+        monkeypatch.setattr(doctor, "_pod_running", lambda cfg: running)
+        if conflicts is not None:
+            monkeypatch.setattr("winpodx.core.pod.ports.check_host_ports", lambda cfg: conflicts)
+        return _check_host_ports()
+
+    def test_skipped_for_manual_backend(self, monkeypatch):
+        assert self._run(monkeypatch, backend="manual") is None
+
+    def test_ok_when_pod_already_running(self, monkeypatch):
+        f = self._run(monkeypatch, running=True)
+        assert f.severity == "ok"
+        assert "held by winpodx itself" in f.title
+
+    def test_ok_when_no_conflicts(self, monkeypatch):
+        f = self._run(monkeypatch, running=False, conflicts=[])
+        assert f.severity == "ok"
+
+    def test_warn_on_conflicts(self, monkeypatch):
+        from winpodx.core.pod.ports import PortConflict
+
+        conflicts = [PortConflict(port=3390, label="RDP", owner="gnome-remote-desktop")]
+        f = self._run(monkeypatch, running=False, conflicts=conflicts)
+        assert f.severity == "warn"
+        assert f.fix_id is None
+        assert "3390" in f.detail
+        assert f.suggestion
+
+
 class TestHandleDoctor:
     def test_exits_zero_on_no_fail(self, tmp_path, monkeypatch, capsys):
         """All checks return OK or WARN -> exit 0."""
@@ -214,6 +252,7 @@ class TestHandleDoctor:
             "_check_freerdp",
             "_check_kvm",
             "_check_rootless_subid",
+            "_check_host_ports",
             "_check_config_state",
             "_check_pending_setup",
             "_check_autostart_entry",
@@ -237,6 +276,7 @@ class TestHandleDoctor:
             "_check_freerdp",
             "_check_kvm",
             "_check_rootless_subid",
+            "_check_host_ports",
             "_check_config_state",
             "_check_pending_setup",
             "_check_autostart_entry",
@@ -469,6 +509,7 @@ def _all_ok_legacy(monkeypatch):
     # no UID/GID mappings, so the real probe returns FAIL there -> handle_doctor
     # sys.exit(1) -> these tests spuriously error and block the build.
     monkeypatch.setattr(doctor, "_check_rootless_subid", lambda: Finding("ok", "subid"))
+    monkeypatch.setattr(doctor, "_check_host_ports", lambda: Finding("ok", "ports"))
     monkeypatch.setattr(doctor, "_check_config_state", lambda: Finding("ok", "cfg"))
     monkeypatch.setattr(doctor, "_check_pending_setup", lambda: Finding("ok", "pending"))
     monkeypatch.setattr(doctor, "_check_autostart_entry", lambda: Finding("ok", "auto"))

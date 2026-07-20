@@ -76,6 +76,47 @@ def test_start_pod_start_failure_returns_error():
     assert "boom" in status.error
 
 
+def test_start_pod_returns_error_on_port_conflict():
+    """#754: a host port conflict must short-circuit before backend.start()."""
+    from winpodx.core.pod.ports import PortConflict
+
+    cfg = Config()
+    fake_backend = MagicMock()
+    fake_backend.is_running.return_value = False
+
+    conflict = PortConflict(port=3390, label="RDP", owner="gnome-remote-desktop")
+
+    with (
+        patch("winpodx.core.pod.lifecycle.get_backend", return_value=fake_backend),
+        patch("winpodx.core.pod.lifecycle.check_host_ports", return_value=[conflict]),
+    ):
+        status = start_pod(cfg)
+
+    fake_backend.start.assert_not_called()
+    fake_backend.wait_for_ready.assert_not_called()
+    assert status.state == PodState.ERROR
+    assert "3390" in status.error
+    assert "RDP" in status.error
+
+
+def test_start_pod_skips_port_check_when_pod_already_running():
+    """A running/paused pod holds its own ports -- preflight must not run."""
+    cfg = Config()
+    fake_backend = MagicMock()
+    fake_backend.is_running.return_value = True
+    fake_backend.wait_for_ready.return_value = True
+
+    with (
+        patch("winpodx.core.pod.lifecycle.get_backend", return_value=fake_backend),
+        patch("winpodx.core.pod.lifecycle.check_host_ports") as mock_check,
+    ):
+        status = start_pod(cfg)
+
+    mock_check.assert_not_called()
+    fake_backend.start.assert_called_once()
+    assert status.state == PodState.RUNNING
+
+
 def test_podman_backend_is_running_uses_configured_container_name():
     from winpodx.backend.podman import PodmanBackend
 
