@@ -84,3 +84,53 @@ def test_full_provision_noop_for_non_container_backend() -> None:
     # If it tried to import/run _wait_ready it'd need a real pod; the
     # early return keeps it a pure no-op. No exception = pass.
     _run_full_provision(cfg)
+
+
+def _fake_results(**overrides) -> dict:
+    base = {
+        "wait_ready": "ok",
+        "apply_fixes": {},
+        "discovery": "5 apps",
+        "reverse_open": "skipped",
+    }
+    base.update(overrides)
+    return base
+
+
+class TestFullProvisionDiscoveryWarning:
+    """#753: finish_provisioning can "succeed" while discovery finds zero
+    apps (or fails outright) -- best-effort by design. Without a warning,
+    setup prints the generic "complete" banner even though the Windows app
+    menu will be empty, and the user has no idea why."""
+
+    def test_warns_when_discovery_finds_zero_apps(self, capsys) -> None:
+        cfg = _cfg()
+        with patch(
+            "winpodx.core.provisioner.finish_provisioning",
+            return_value=_fake_results(discovery="0 apps"),
+        ):
+            _run_full_provision(cfg)
+        out = capsys.readouterr().out
+        assert "WARNING" in out
+        assert "app menu may be empty" in out
+        assert "app refresh" in out
+
+    def test_warns_when_discovery_fails(self, capsys) -> None:
+        cfg = _cfg()
+        with patch(
+            "winpodx.core.provisioner.finish_provisioning",
+            return_value=_fake_results(discovery="failed: agent unreachable"),
+        ):
+            _run_full_provision(cfg)
+        out = capsys.readouterr().out
+        assert "WARNING" in out
+
+    def test_no_warning_when_discovery_finds_apps(self, capsys) -> None:
+        cfg = _cfg()
+        with patch(
+            "winpodx.core.provisioner.finish_provisioning",
+            return_value=_fake_results(discovery="5 apps"),
+        ):
+            _run_full_provision(cfg)
+        out = capsys.readouterr().out
+        assert "WARNING" not in out

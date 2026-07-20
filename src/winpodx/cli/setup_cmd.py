@@ -678,6 +678,21 @@ def _run_full_provision(cfg: Config) -> None:
             )
         )
 
+    # #753: discovery can complete "successfully" while finding zero apps (or
+    # fail outright) without the overall provisioning chain reporting a
+    # failure -- finish_provisioning treats it as best-effort. Without this,
+    # setup prints the generic "complete" banner even when the Windows app
+    # menu is going to be empty, and the user has no idea why.
+    discovery_result = results.get("discovery", "")
+    if discovery_result.startswith("failed:") or discovery_result == "0 apps":
+        print(
+            tr(
+                "\n  WARNING: Windows app discovery did not find any applications "
+                "({detail}). The Windows app menu may be empty. Run "
+                "`winpodx app refresh` once the guest has fully settled to retry."
+            ).format(detail=discovery_result)
+        )
+
 
 def handle_setup(args: argparse.Namespace) -> None:
     """Run the setup wizard."""
@@ -1115,31 +1130,36 @@ def _recreate_container(cfg: Config) -> None:
     if not compose_cmd:
         # No compose provider → the container is never created, and setup later
         # fails with the cryptic `no such container "winpodx-windows"` (#644).
-        # Say so loudly + actionably instead of silently skipping.
+        # Say so loudly + actionably instead of silently skipping. #753: this
+        # used to just print + `return`, which the caller (handle_setup)
+        # ignores -- `winpodx setup` exited 0 as if it had succeeded, and the
+        # real failure only surfaced minutes later as a cryptic "no such
+        # container" from `pod wait-ready`. Raise so the CLI exits nonzero and
+        # install.sh's captured-output path (SETUP_OK=0) shows this message
+        # instead of a false "installed" banner.
         if backend == "podman":
-            print(
-                tr(
-                    "ERROR: no compose provider found. winpodx creates the Windows "
-                    "container via compose, but neither `podman-compose` nor the "
-                    "`podman compose` plugin is installed, so the container can't be "
-                    "created (this is what later surfaces as "
-                    "'no such container \"winpodx-windows\"', #644).\n"
-                    "  Install it, then re-run `winpodx setup`:\n"
-                    "    Debian/Ubuntu:  sudo apt install podman-compose\n"
-                    "    Fedora:         sudo dnf install podman-compose\n"
-                    "    openSUSE:       sudo zypper install podman-compose\n"
-                    "    (fallback:      pipx install podman-compose)"
-                )
+            msg = (
+                "ERROR: no compose provider found. winpodx creates the Windows "
+                "container via compose, but neither `podman-compose` nor the "
+                "`podman compose` plugin is installed, so the container can't be "
+                "created (this is what later surfaces as "
+                "'no such container \"winpodx-windows\"', #644).\n"
+                "  Install it, then re-run `winpodx setup`:\n"
+                "    Debian/Ubuntu:  sudo apt install podman-compose\n"
+                "    Fedora:         sudo dnf install podman-compose\n"
+                "    openSUSE:       sudo zypper install podman-compose\n"
+                "    (fallback:      pipx install podman-compose)"
             )
+            print(tr(msg))
+            raise RuntimeError("no compose provider found for the podman backend")
         else:
-            print(
-                tr(
-                    "ERROR: no compose provider found for the docker backend. Install "
-                    "Docker Compose (the `docker compose` plugin or `docker-compose`), "
-                    "then re-run `winpodx setup`."
-                )
+            msg = (
+                "ERROR: no compose provider found for the docker backend. Install "
+                "Docker Compose (the `docker compose` plugin or `docker-compose`), "
+                "then re-run `winpodx setup`."
             )
-        return
+            print(tr(msg))
+            raise RuntimeError("no compose provider found for the docker backend")
 
     print(tr("\nRecreating container with new settings..."))
     compose_timeout = _compose_timeout_secs()

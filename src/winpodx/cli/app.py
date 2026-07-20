@@ -80,7 +80,12 @@ def _list_apps() -> None:
 
     apps = list_available_apps()
     if not apps:
-        print(tr("No applications found. Run 'winpodx setup' first."))
+        print(
+            tr(
+                "No applications found. Run 'winpodx app refresh' (or 'winpodx "
+                "setup' on a fresh install) first."
+            )
+        )
         return
 
     print(f"{'Name':<20} {'Full Name':<30} {'Categories':<20}")

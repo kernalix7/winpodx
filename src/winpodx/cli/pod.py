@@ -1276,6 +1276,24 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
         )
         sys.exit(2)
 
+    # #753: if the container was never created (e.g. no compose provider was
+    # installed -- see setup_cmd.py's _recreate_container), the `podman logs
+    # -f` Popen below would immediately hit podman's own "no such container"
+    # stderr and stream it through the `[container]` prefix as if it were
+    # boot progress, while phase [1/4] then spins for the full timeout before
+    # finally failing -- burying the real cause. Fail fast instead, reusing
+    # the same existence probe setup_cmd's half-uninstalled-guard uses.
+    from winpodx.cli.setup_cmd import _container_exists_on_backend
+
+    if not _container_exists_on_backend(cfg):
+        print(
+            tr(
+                "Error: container '{container}' does not exist — container creation "
+                "failed earlier (is a compose provider installed? try `winpodx setup`)."
+            ).format(container=cfg.pod.container_name)
+        )
+        sys.exit(3)
+
     timeout = max(60, min(7200, int(timeout)))
     start = _time.monotonic()
 

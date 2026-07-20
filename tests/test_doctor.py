@@ -202,6 +202,57 @@ class TestCheckRootlessSubid:
         assert "setup-host" in f.suggestion
 
 
+class TestCheckComposeProvider:
+    """#753: podman needs a compose provider (podman-compose or the `podman
+    compose` plugin) to create the Windows container. Without one, container
+    creation silently no-ops and only surfaces later as a cryptic 'no such
+    container' from `pod wait-ready`."""
+
+    def _run(self, monkeypatch, *, backend="podman"):
+        from winpodx.cli.doctor import _check_compose_provider
+
+        monkeypatch.setattr(
+            "winpodx.core.config.Config.load",
+            classmethod(lambda cls: SimpleNamespace(pod=SimpleNamespace(backend=backend))),
+        )
+        return _check_compose_provider()
+
+    def test_skipped_for_docker_backend(self, monkeypatch):
+        # No subprocess/shutil probe at all for non-podman backends.
+        assert self._run(monkeypatch, backend="docker") is None
+
+    def test_skipped_for_manual_backend(self, monkeypatch):
+        assert self._run(monkeypatch, backend="manual") is None
+
+    def test_ok_when_podman_compose_on_path(self, monkeypatch):
+        def _which(name):
+            return "/usr/bin/podman-compose" if name == "podman-compose" else None
+
+        monkeypatch.setattr("shutil.which", _which)
+        f = self._run(monkeypatch)
+        assert f.severity == "ok"
+        assert "podman-compose" in f.title
+
+    def test_ok_when_podman_compose_plugin_available(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+        monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(returncode=0))
+        f = self._run(monkeypatch)
+        assert f.severity == "ok"
+        assert "plugin" in f.title
+
+    def test_warns_when_no_compose_provider(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+
+        def _boom(*a, **k):
+            raise FileNotFoundError("podman not found")
+
+        monkeypatch.setattr("subprocess.run", _boom)
+        f = self._run(monkeypatch)
+        assert f.severity == "warn"
+        assert "compose provider" in f.title
+        assert "podman-compose" in f.suggestion
+
+
 class TestCheckHostPorts:
     """#754: winpodx's required host ports already held by something else."""
 
@@ -252,6 +303,7 @@ class TestHandleDoctor:
             "_check_freerdp",
             "_check_kvm",
             "_check_rootless_subid",
+            "_check_compose_provider",
             "_check_host_ports",
             "_check_config_state",
             "_check_pending_setup",
@@ -276,6 +328,7 @@ class TestHandleDoctor:
             "_check_freerdp",
             "_check_kvm",
             "_check_rootless_subid",
+            "_check_compose_provider",
             "_check_host_ports",
             "_check_config_state",
             "_check_pending_setup",
@@ -509,6 +562,7 @@ def _all_ok_legacy(monkeypatch):
     # no UID/GID mappings, so the real probe returns FAIL there -> handle_doctor
     # sys.exit(1) -> these tests spuriously error and block the build.
     monkeypatch.setattr(doctor, "_check_rootless_subid", lambda: Finding("ok", "subid"))
+    monkeypatch.setattr(doctor, "_check_compose_provider", lambda: Finding("ok", "compose"))
     monkeypatch.setattr(doctor, "_check_host_ports", lambda: Finding("ok", "ports"))
     monkeypatch.setattr(doctor, "_check_config_state", lambda: Finding("ok", "cfg"))
     monkeypatch.setattr(doctor, "_check_pending_setup", lambda: Finding("ok", "pending"))
