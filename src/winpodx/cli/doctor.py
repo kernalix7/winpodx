@@ -165,6 +165,7 @@ def _collect_findings(*, quick: bool, do_fix: bool) -> list[Finding]:
     findings.append(_check_freerdp())
     findings.append(_check_kvm())
     findings.append(_check_rootless_subid())
+    findings.append(_check_compose_provider())
     findings.extend(_check_container_backend())
     findings.append(_check_config_state())
     findings.append(_check_pending_setup())
@@ -329,6 +330,59 @@ def _check_rootless_subid() -> Finding | None:
             "Common after renaming your account (the entries keep the old name)."
         ),
         suggestion="Run `winpodx setup-host --apply` to add the entries via one pkexec prompt.",
+    )
+
+
+def _check_compose_provider() -> Finding | None:
+    """Podman needs a compose provider to create the Windows container.
+
+    winpodx creates the container via compose (never a bare ``podman run``),
+    but the standalone ``podman-compose`` binary (or the ``podman compose``
+    plugin) ships separately from ``podman`` itself. Without one, container
+    creation silently no-ops and the failure only surfaces later as a cryptic
+    ``no such container "winpodx-windows"`` from `pod wait-ready` (#753).
+    Mirrors the exact probe ``setup_cmd._recreate_container`` uses so
+    doctor's verdict matches what setup will actually do. Only relevant for
+    the podman backend; the docker backend's ``docker compose`` plugin ships
+    with the docker CLI and isn't separately probed by setup_cmd either, so
+    it's skipped (``None``) here too.
+    """
+    try:
+        from winpodx.core.config import Config
+
+        if Config.load().pod.backend != "podman":
+            return None
+    except Exception:  # noqa: BLE001 — config issues are reported by their own check
+        return None
+
+    if shutil.which("podman-compose"):
+        return Finding("ok", "compose provider: podman-compose")
+
+    try:
+        subprocess.run(
+            ["podman", "compose", "version"],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        return Finding("ok", "compose provider: podman compose (plugin)")
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+
+    return Finding(
+        "warn",
+        "no compose provider found for podman",
+        detail=(
+            "winpodx creates the Windows container via compose; without "
+            "podman-compose or the `podman compose` plugin, container creation "
+            "silently fails and later surfaces as 'no such container ...' (#753)."
+        ),
+        suggestion=(
+            "Debian/Ubuntu: sudo apt install podman-compose | "
+            "Fedora: sudo dnf install podman-compose | "
+            "openSUSE: sudo zypper install podman-compose | "
+            "fallback: pipx install podman-compose"
+        ),
     )
 
 

@@ -208,6 +208,13 @@ class TestWaitReady:
         from winpodx.core.pod import PodState
 
         self._patch_cfg(monkeypatch)
+        # #753 existence guard: pretend the container exists so it doesn't
+        # short-circuit before phase 1 (this is a real, unmocked-by-default
+        # subprocess probe -- see TestWaitReadyContainerExistsGuard below).
+        monkeypatch.setattr(
+            "winpodx.cli.setup_cmd._container_exists_on_backend",
+            lambda cfg: True,
+        )
         # Phase 1: container running immediately.
         monkeypatch.setattr(
             "winpodx.core.pod.pod_status",
@@ -239,6 +246,43 @@ class TestWaitReady:
         assert "[4/4]" in out
         assert "Windows ready" in out
         assert "OEM reboot pass complete" in out
+
+
+class TestWaitReadyContainerExistsGuard:
+    """#753: if the container was never created (e.g. no compose provider
+    was installed -- see setup_cmd.py's _recreate_container), fail fast with
+    a clear message instead of letting podman's own "no such container"
+    stderr leak through the [container] log-tail prefix while phase [1/4]
+    spins for the whole timeout before finally failing."""
+
+    def _patch_cfg(self, monkeypatch):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.container_name = "winpodx-windows"
+        cfg.rdp.ip = "127.0.0.1"
+        cfg.rdp.port = 3389
+        monkeypatch.setattr("winpodx.core.config.Config.load", classmethod(lambda cls: cfg))
+        return cfg
+
+    def test_fails_fast_when_container_does_not_exist(self, monkeypatch, capsys):
+        import pytest
+
+        from winpodx.cli.pod import _wait_ready
+
+        self._patch_cfg(monkeypatch)
+        monkeypatch.setattr(
+            "winpodx.cli.setup_cmd._container_exists_on_backend",
+            lambda cfg: False,
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            _wait_ready(timeout=10, show_logs=False)
+        assert excinfo.value.code == 3
+        out = capsys.readouterr().out
+        assert "does not exist" in out
+        assert "winpodx-windows" in out
 
 
 # -- pod recreate --keep-iso (storage wipe that preserves the cached ISO) ----

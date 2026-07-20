@@ -496,6 +496,7 @@ pkg_name() {
                 python3)        echo "python3" ;;
                 python3-venv)   echo "python3" ;;
                 podman)         echo "podman" ;;
+                podman-compose) echo "podman-compose" ;;
                 docker)         echo "docker" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
@@ -506,6 +507,7 @@ pkg_name() {
                 python3)        echo "python3" ;;
                 python3-venv)   echo "python3" ;;
                 podman)         echo "podman" ;;
+                podman-compose) echo "podman-compose" ;;
                 docker)         echo "docker" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-kvm" ;;
@@ -520,6 +522,7 @@ pkg_name() {
                 # step may need to install before the venv can be created.
                 python3-venv)   echo "python3-venv" ;;
                 podman)         echo "podman" ;;
+                podman-compose) echo "podman-compose" ;;
                 docker)         echo "docker.io" ;;
                 freerdp)
                     # Debian 13+ (Trixie) and recent Ubuntu (24.10+, 25.04, 25.10)
@@ -578,6 +581,7 @@ pkg_name() {
                 python3)        echo "python" ;;
                 python3-venv)   echo "python" ;;
                 podman)         echo "podman" ;;
+                podman-compose) echo "podman-compose" ;;
                 docker)         echo "docker" ;;
                 freerdp)        echo "freerdp" ;;
                 kvm)            echo "qemu-full" ;;
@@ -1845,8 +1849,13 @@ if [ -f "$CONFIG_HOME/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1"
         warn "Pending steps recorded at $PENDING_FILE."
     elif [ "$PROVISION_RC" -ne 0 ]; then
         if grep -q "no such container" "$PROVISION_OUT"; then
-            warn "Container is missing — likely from a partial uninstall."
-            warn "Recover with a full reinstall:"
+            warn "Container is missing. This usually means the container was never"
+            warn "created in the first place -- most often a missing compose provider"
+            warn "(podman-compose / the \`podman compose\` plugin). Check for one and"
+            warn "re-run setup first:"
+            warn "  command -v podman-compose || sudo apt install podman-compose   # or dnf/zypper"
+            warn "  winpodx setup"
+            warn "If that's not it (e.g. a partial uninstall), recover with a full reinstall:"
             warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --purge'
             warn '  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main'
         else

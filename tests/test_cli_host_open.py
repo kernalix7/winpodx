@@ -183,7 +183,9 @@ def test_refresh_writes_manifest_and_icons(
 
     cli_main(["host-open", "refresh"])
     out = capsys.readouterr().out
-    assert "Discovered 2 apps" in out
+    # #753: the message names the direction explicitly (host apps -> Windows
+    # "Open with") so it isn't mistaken for Windows-app discovery.
+    assert "Discovered 2 host (Linux) apps" in out
 
     manifest_path = Path(os.environ["XDG_DATA_HOME"]) / "winpodx" / "reverse-open" / "apps.json"
     assert manifest_path.is_file()

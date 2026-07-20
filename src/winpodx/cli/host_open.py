@@ -325,9 +325,10 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         # provision just above.
         print(tr("Reverse-open (host apps -> Windows 'Open with'):"))
         print(
-            tr("Discovered {count} apps; staged {kept} after filters.").format(
-                count=len(apps), kept=len(kept)
-            )
+            tr(
+                "Discovered {count} host (Linux) apps for Windows 'Open with'; "
+                "staged {kept} after filters."
+            ).format(count=len(apps), kept=len(kept))
         )
         if skipped:
             print(

@@ -343,6 +343,35 @@ class TestHealHelperDirect:
         assert ensure_ready_mock.call_count == 0
 
 
+class TestRecreateContainerNoComposeProvider:
+    """#753: no compose provider (podman-compose / `podman compose` plugin)
+    means the podman branch of `_recreate_container` can never create the
+    container. It used to print an ERROR block and silently `return`; the
+    caller (handle_setup) ignores the return value, so `winpodx setup`
+    exited 0 as if it had succeeded, and the real failure only surfaced
+    minutes later as a cryptic 'no such container' from `pod wait-ready`.
+    It must now raise so the CLI exits nonzero and install.sh's
+    captured-output path shows the real cause instead of a false success.
+    """
+
+    def test_podman_raises_when_no_compose_provider(self, tmp_path, monkeypatch, capsys):
+        from winpodx.cli.setup_cmd import _recreate_container
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.backend = "podman"
+
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+        with patch("subprocess.run", side_effect=FileNotFoundError("podman not found")):
+            with pytest.raises(RuntimeError, match="compose provider"):
+                _recreate_container(cfg)
+
+        out = capsys.readouterr().out
+        assert "ERROR: no compose provider found" in out
+        assert "podman-compose" in out
+
+
 class TestResolveCredentials:
     """`_resolve_credentials` decides whether to prompt, generate, or preserve.
 
