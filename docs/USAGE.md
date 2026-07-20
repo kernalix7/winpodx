@@ -92,7 +92,7 @@ winpodx provision                 # Post-pod-running chain (wait-ready → apply
 winpodx provision --retries N     # Override discovery retry count (default 2 — see 0.6.0 item M)
 winpodx provision --require-agent # Hard-gate on the in-guest agent (used by fresh installs, #271)
 winpodx migrate                   # Upgrade an existing guest in place (refresh agent.ps1 + scripts, re-apply fixes, re-discover, refresh reverse-open)
-winpodx doctor                    # Read-only health diagnostic with per-check fix hints (deps / pod / RDP / agent / disk / config / install state)
+winpodx doctor                    # Read-only health diagnostic with per-check fix hints (deps / compose provider / pod / host ports / RDP / agent / disk / config / install state)
 winpodx doctor --json             # Same checks, machine-readable JSON array of findings
 winpodx doctor --quick            # Skip slow probes (container-health, guest exec) — cheap local checks only (< 1 s)
 winpodx doctor --fix              # Idempotent auto-remediation for warn/fail findings that carry a fixer (dead agent, stale locks, missing desktop entries, OEM-version drift)
@@ -191,7 +191,9 @@ Change it with `winpodx config set rdp.multimon off` or via the GUI Settings pag
 ```
 === WinPodX doctor ===
 
+  [OK  ] compose_provider   podman-compose  (2ms)
   [OK  ] pod_running        running (ip=127.0.0.1)  (58ms)
+  [OK  ] host_ports         RDP/agent/SMB ports free  (4ms)
   [OK  ] rdp_port           127.0.0.1:3390 reachable  (0ms)
   [OK  ] agent_health       version=0.2.2-rev4  (63ms)
   [OK  ] agent_auth_ready   bearer token available  (1ms)

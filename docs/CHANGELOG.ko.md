@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-20
+
 ### Changed
 
 - **dockur/windows 이미지 pin을 v6.02로 롤포워드** (#735, @kroese 요청). QEMU base 이미지 v7.37, 컨테이너 로그의 다운로드 진행 출력 개선(v6.01 버퍼링 다운로드에 대한 upstream 후속), Windows 재설치 감지 개선, 예기치 않은 종료 시 QEMU 오류 표시가 포함됩니다. 기존 pod는 다음 recreate 때 새 이미지를 사용하며, `winpodx setup --update-image`로 즉시 적용할 수 있습니다.
@@ -18,6 +20,13 @@
 
 - **부하가 걸리면 게스트 에이전트가 계속 죽는 것처럼 보였지만, `agent.log`에는 계속 살아있는 것으로 기록됨** (#751, @notnotno 감사). `agent.ps1`의 HTTP 리스너가 단일 스레드 accept 루프로 동작해서, 오래 걸리는 `POST /exec`(최대 300초 `WaitForExit`)이 완료될 때까지 다음 `GET /health` 요청을 막았습니다. 호스트의 5초 헬스체크 timeout이 이를 에이전트 사용 불가로 판단해 세션 도중 느린 FreeRDP 경로로 폴백했습니다. 이제 `/exec`는 백그라운드 runspace pool(최대 4개 동시 실행)에서 돌아가므로, 긴 exec가 진행 중이어도 `/health`가 즉시 응답합니다. 호스트측 프로토콜은 변경되지 않았습니다.
 - **로그온 시 중복 에이전트가 실제 에이전트와 경쟁하지 않음** (#751 후속). keep-alive 예약 작업의 `AtLogOn` 트리거가 `HKCU\Run`의 자체 에이전트 실행과 같은 순간에 발동할 수 있어서, 두 번째 `agent.ps1`이 시작되어 `HttpListener` 포트 바인딩에 5회 실패하고 실제 에이전트는 정상인데도 무서운 `FATAL` 로그를 남기는 경우가 있었습니다. 이제 keep-alive 스크립트가 10초 대기 후 살아있는 프로세스와 바인딩된 포트를 다시 확인하고 나서 실행하므로, 에이전트가 실제로 없을 때만 시작합니다. 에이전트 버전 `0.2.2-rev4` → `0.2.3`, OEM 번들 `v28` → `v29`(기존 게스트는 다음 `winpodx guest sync` / `apply-fixes` 때 적용).
+- **rpm-ostree 호스트에서 설치 스크립트를 다시 실행해도 기존 venv 설치를 가리지 않도록 수정** (#752, @realahmed7777 감사). Bazzite(및 다른 Atomic Fedora 계열)에서는 `curl | bash`만 실행해도 항상 OBS-RPM layering 경로를 타고 종료되어, 기존 `~/.local/bin/winpodx-app` 설치는 건드리지 않았습니다. `~/.local/bin`이 `PATH`에서 `/usr/bin`보다 앞서기 때문에 layered RPM 사본은 실제로 실행되지 않았고, 몇 번을 재설치해도 `winpodx`는 이전 버전에 고정된 채로 남았습니다. 이제 설치 스크립트가 기존 venv 설치를 제자리에서 업그레이드하며, `PATH`상의 `winpodx`가 방금 설치한 사본과 다른 곳을 가리키면 경고합니다.
+- **compose provider가 없을 때 알 수 없는 `no such container` 대신 명확하게 실패하도록 수정** (#753, @kubycsolutions 감사). 신규 설치에서 `podman-compose`가 빠진 문제가 원인 불명으로 보였던 건 세 가지 결함이 겹친 결과였습니다: `install.sh`에 해당 패키지 이름 항목이 없어 아무 것도 안 하고 '설치됨'으로 표시됐고, setup은 문제를 진단해 놓고도 성공으로 종료하며 메시지를 버렸으며, 이후 `pod wait-ready`가 podman의 `no such container` 오류를 그대로 `[container]` 로그 prefix로 흘려보냈습니다. 이제 provider가 올바르게 설치되고, setup은 실제 원인과 함께 실패하며, `winpodx doctor`가 provider 유무를 확인하고, Windows 앱 discovery가 아무것도 못 찾으면 무조건 '완료' 배너를 찍는 대신 경고합니다.
+- **`pod start`가 한 시간 동안 멈추는 대신 호스트 포트 충돌을 사전에 확인** (#754, @jltorres60 감사). Ubuntu 기본 내장 GNOME Remote Desktop이 기본값으로 `127.0.0.1:3390`을 바인딩하는데, 이는 winpodx가 RDP를 포워딩하는 것과 같은 loopback 포트라, compose 내부의 바인딩 실패가 몇 분짜리 조용한 부팅 timeout으로만 드러났습니다. 이제 `pod start`(및 `winpodx doctor`)가 필요한 네 개의 호스트 포트를 미리 확인해, 포트 번호·점유 중인 프로세스·해결 방법과 함께 밀리초 단위로 실패합니다.
+
+### Contributors
+
+이번 릴리스에 이슈를 제보하거나 기여해 주신 모든 분께 감사드립니다: @notnotno (#751), @realahmed7777 (#752), @kubycsolutions (#753), @jltorres60 (#754), @kroese (#735, dockur/windows 메인테이너).
 
 ## [0.10.1] - 2026-07-16
 

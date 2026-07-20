@@ -295,7 +295,7 @@ cd winpodx
 
 The source installer automatically:
 1. Detects your distro (openSUSE, Fedora, Ubuntu, Arch, ...)
-2. Installs missing dependencies (Podman, FreeRDP, KVM), asks before installing
+2. Installs missing dependencies (Podman, podman-compose, FreeRDP, KVM), asks before installing
 3. Copies winpodx to `~/.local/bin/winpodx-app/`
 4. Creates config and `compose.yaml`
 5. Auto-discovery (`winpodx app refresh`) fires on first pod boot to populate the menu

@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-20
+
 ### Changed
 
 - **dockur/windows image pin rolled forward to v6.02** (#735, requested by @kroese). Brings the QEMU base image v7.37, improved download-progress output in the container log (the upstream follow-up to v6.01's buffered download), better Windows reinstall detection, and QEMU errors surfaced on unexpected exit. Existing pods pick the new image up on the next recreate; `winpodx setup --update-image` applies it explicitly.
@@ -18,6 +20,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 - **The guest agent could look like it kept dying under load, even though `agent.log` showed it running the whole time** (#751, thanks @notnotno). `agent.ps1`'s HTTP listener ran a single-threaded accept loop, so a long `POST /exec` (up to the 300s `WaitForExit`) blocked the next `GET /health` request until it finished; the host's 5s health-check timeout then declared the agent unavailable and fell back to the slow FreeRDP path mid-session. `/exec` now runs on a background runspace pool (max 4 concurrent), so `/health` keeps answering instantly while a long exec is still in flight. The host-side protocol is unchanged.
 - **A duplicate agent no longer races the real one at logon** (#751 follow-up). The keep-alive scheduled task's `AtLogOn` trigger could fire at the same moment as `HKCU\Run`'s own agent launch, so a second `agent.ps1` sometimes started, failed to bind the `HttpListener` port after 5 retries, and logged a scary `FATAL`, even though the real agent was healthy. The keep-alive script now waits 10s and re-checks for a live process and bound port before launching, so it only starts an agent when one is actually missing. Agent version `0.2.2-rev4` → `0.2.3`, OEM bundle `v28` → `v29` (existing guests pick it up on the next `winpodx guest sync` / `apply-fixes`).
+- **A re-run of the installer on an rpm-ostree host no longer shadows an existing venv install** (#752, thanks @realahmed7777). On Bazzite (and other Atomic Fedora variants), a bare `curl | bash` always took the OBS-RPM layering path and exited, never touching an existing `~/.local/bin/winpodx-app` install. Since `~/.local/bin` precedes `/usr/bin` on `PATH`, the layered RPM copy never actually ran, so `winpodx` stayed pinned to the old version no matter how many times it was reinstalled. The installer now upgrades an existing venv install in place, and warns whenever `winpodx` on `PATH` resolves to a different copy than the one it just installed.
+- **A missing compose provider now fails loudly instead of surfacing as a cryptic `no such container`** (#753, thanks @kubycsolutions). Three stacked defects made a missing `podman-compose` on a fresh install look unexplained: `install.sh` had no package-name entry for it (so it was 'installed' as a no-op), setup diagnosed the problem but exited as success and discarded the message, and `pod wait-ready` then streamed podman's own `no such container` error through the `[container]` log prefix. The provider is now installed correctly, setup fails with the real cause, `winpodx doctor` checks for a provider, and setup warns when Windows-app discovery finds nothing rather than printing an unconditional 'complete' banner.
+- **`pod start` now preflights host-port conflicts instead of hanging for an hour** (#754, thanks @jltorres60). Ubuntu's built-in GNOME Remote Desktop binds `127.0.0.1:3390` by default, the same loopback port winpodx forwards RDP on, and the bind failure inside compose surfaced only as a silent multi-minute boot timeout. `pod start` (and `winpodx doctor`) now check the four required host ports up front and fail in milliseconds with the port, the owning process, and how to fix it.
+
+### Contributors
+
+Thanks to everyone who reported issues or contributed to this release: @notnotno (#751), @realahmed7777 (#752), @kubycsolutions (#753), @jltorres60 (#754), and @kroese (#735, the dockur/windows maintainer).
 
 ## [0.10.1] - 2026-07-16
 

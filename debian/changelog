@@ -1,3 +1,15 @@
+winpodx (0.10.2) unstable; urgency=medium
+
+  * Bug-fix release. Guest agent stays responsive during long execs and no
+    longer looks like it repeatedly dies (#751); the installer no longer
+    shadows an existing venv install on rpm-ostree hosts (#752); a missing
+    compose provider now fails loudly instead of a cryptic "no such container"
+    (#753); pod start preflights host-port conflicts instead of hanging for an
+    hour (#754); and the pinned dockur image is rolled to v6.02 with live
+    download progress in the wait-ready output (#735). See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 20 Jul 2026 09:00:00 +0000
+
 winpodx (0.10.1) unstable; urgency=medium
 
   * Bug-fix release. RAIL app windows now show the app's own icon on X11
