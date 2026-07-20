@@ -287,3 +287,28 @@ def test_percent_wins_over_size_tokens() -> None:
     list(_iter_container_lines(stream, dl_state, threading.Event()))
     assert dl_state["pct"] == 20
     assert dl_state["size"] is None
+
+
+def test_complete_line_tokens_scraped_during_download() -> None:
+    """podman logs -f only ever delivers COMPLETE lines (partial writes are
+    withheld until their newline arrives), so the scraper must also read
+    tokens off completed lines -- this is the only path that can work on the
+    podman backend once upstream newline-flushes its progress milestones."""
+    import threading
+
+    from winpodx.cli.pod import _iter_container_lines
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    dl_state = {"start": 1.0, "pct": None, "size": None}
+    stream = _FakeStream([b"45%\n", b"3.5GiB \xe2\x86\x92 4GiB\n"])
+    lines = list(_iter_container_lines(stream, dl_state, threading.Event()))
+    assert lines == ["45%", "3.5GiB → 4GiB"]
+    # Percent seen on a complete line sticks; the later size-only line does
+    # not clear it (percent wins).
+    assert dl_state["pct"] == 45

@@ -1205,18 +1205,35 @@ class _LineSplitter:
         return line
 
 
+def _scrape_download_progress(text: str, dl_state: dict) -> None:
+    """Pull the latest ``NN%`` (or size-chain ``5.5GiB``) token out of *text*
+    onto *dl_state* for ``_download_heartbeat`` to render. Percent wins when
+    both ever match."""
+    matches = _DOWNLOAD_PCT_RE.findall(text)
+    if matches:
+        dl_state["pct"] = min(int(matches[-1]), 100)
+        return
+    sizes = _DOWNLOAD_SIZE_RE.findall(text)
+    if sizes:
+        dl_state["size"] = sizes[-1]
+
+
 def _iter_container_lines(stream, dl_state: dict, stop: threading.Event):  # type: ignore[no-untyped-def]
     """Read *stream* (an unbuffered binary subprocess pipe) incrementally and
     yield decoded, right-stripped lines as they complete.
 
     Replaces plain ``for line in stream`` so dockur v6.02's no-newline-until-
-    done download percentage (see ``_DOWNLOAD_PCT_RE`` above, #735) doesn't
+    done download progress (see ``_DOWNLOAD_PCT_RE`` above, #735) doesn't
     sit hidden in the pipe for the whole download: while *dl_state* shows a
-    download in progress, the still-growing partial tail is scanned each
-    read for its latest ``NN%`` and stashed on ``dl_state["pct"]`` for
-    ``_download_heartbeat`` to render. The partial tail itself is never
-    consumed here -- it still becomes a normal yielded line once its
-    newline arrives.
+    download in progress, both completed lines and the still-growing partial
+    tail are scanned for the latest progress token. Scanning BOTH matters:
+    `podman logs -f` withholds partial (newline-less) writes entirely -- a
+    live experiment showed zero bytes reach this pipe until the growing
+    progress line is finally newline-terminated at download end -- so on
+    podman the token can only ever be seen if/once upstream flushes it as a
+    complete line, while docker's log streaming can deliver the raw partial
+    bytes the tail-scan picks up. The partial tail itself is never consumed
+    here -- it still becomes a normal yielded line once its newline arrives.
     """
     splitter = _LineSplitter()
     while not stop.is_set():
@@ -1230,17 +1247,11 @@ def _iter_container_lines(stream, dl_state: dict, stop: threading.Event):  # typ
         if not chunk:
             break  # EOF: container process exited or closed the pipe.
         for line in splitter.feed(chunk):
+            if dl_state.get("start") is not None:
+                _scrape_download_progress(line, dl_state)
             yield line
         if dl_state.get("start") is not None:
-            matches = _DOWNLOAD_PCT_RE.findall(splitter.partial)
-            if matches:
-                dl_state["pct"] = min(int(matches[-1]), 100)
-            else:
-                # Size-mode chain (no total known upstream): keep the latest
-                # "5.5GiB"-style token instead. pct wins when both ever match.
-                sizes = _DOWNLOAD_SIZE_RE.findall(splitter.partial)
-                if sizes:
-                    dl_state["size"] = sizes[-1]
+            _scrape_download_progress(splitter.partial, dl_state)
     tail = splitter.flush()
     if tail:
         yield tail
