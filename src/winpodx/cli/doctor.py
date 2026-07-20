@@ -167,6 +167,7 @@ def _collect_findings(*, quick: bool, do_fix: bool) -> list[Finding]:
     findings.append(_check_rootless_subid())
     findings.append(_check_compose_provider())
     findings.extend(_check_container_backend())
+    findings.append(_check_host_ports())
     findings.append(_check_config_state())
     findings.append(_check_pending_setup())
     findings.append(_check_autostart_entry())
@@ -410,6 +411,43 @@ def _check_container_backend() -> list[Finding]:
             )
         ]
     return [Finding("ok", f"backend {backend!r} at {path}")]
+
+
+def _check_host_ports() -> Finding | None:
+    """#754: winpodx's required host ports (RDP/VNC/agent/SMB) held by something else.
+
+    Common on Ubuntu, where GNOME's built-in Remote Desktop defaults to
+    ``127.0.0.1:3390`` -- the same port winpodx's RDP config defaults to.
+    Only relevant for the podman/docker backends (manual publishes no ports
+    of its own). Short-circuits to ok when winpodx's own pod is already
+    running: it's the thing holding those ports, not a conflict.
+    """
+    try:
+        from winpodx.core.config import Config
+
+        cfg = Config.load()
+    except Exception:  # noqa: BLE001 — config issues are reported by their own check
+        return None
+    if cfg.pod.backend not in ("podman", "docker"):
+        return None
+    if _pod_running(cfg):
+        return Finding("ok", "pod running — ports held by winpodx itself")
+
+    try:
+        from winpodx.core.pod.ports import check_host_ports, format_port_conflict_error
+
+        conflicts = check_host_ports(cfg)
+    except Exception as e:  # noqa: BLE001 — never let a probe crash doctor
+        return Finding("warn", "could not probe host ports", detail=str(e))
+
+    if not conflicts:
+        return Finding("ok", "required host ports are free")
+    return Finding(
+        "warn",
+        f"{len(conflicts)} required host port(s) already in use",
+        detail=format_port_conflict_error(conflicts),
+        suggestion="Free the port(s), or reconfigure winpodx to use different ones.",
+    )
 
 
 def _check_config_state() -> Finding:

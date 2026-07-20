@@ -633,8 +633,21 @@ install_pkg() {
 # wins: the OBS RPM only ships tagged releases, so honouring those flags means
 # falling through to the git/venv flow even on Atomic (#548 — custom-image
 # builders layer winpodx from main like any other Fedora package).
+#
+# Also gated on there being no existing venv install (#752): this branch
+# used to fire on `command -v rpm-ostree` alone, so a bare `curl | bash`
+# re-run on a host that already has a curl/venv install (e.g. Bazzite,
+# installed before the OBS repo existed) would layer a SECOND winpodx
+# binary at /usr/bin/winpodx instead of upgrading the one actually in use.
+# Since ~/.local/bin precedes /usr/bin on PATH, that layered copy never
+# runs — the user's `winpodx` stayed pinned to whatever version the venv
+# install last had, forever. The gate is VENV presence, NOT
+# IS_FRESH_INSTALL: an RPM-only host has a prior config too (which zeroes
+# IS_FRESH_INSTALL), and re-running the installer there should keep
+# updating the RPM, not silently switch topology to a venv install.
 if command -v rpm-ostree >/dev/null 2>&1 \
-   && [ -z "$WINPODX_REF" ] && [ -z "$WINPODX_SOURCE" ] && [ -z "$WINPODX_IMAGE_TAR" ]; then
+   && [ -z "$WINPODX_REF" ] && [ -z "$WINPODX_SOURCE" ] && [ -z "$WINPODX_IMAGE_TAR" ] \
+   && [ ! -e "$VENV_DIR" ]; then
     ROLLBACK_ARMED=0
     log "Detected rpm-ostree — Atomic Fedora install path."
     if [ ! -f /etc/os-release ]; then
@@ -667,6 +680,15 @@ if command -v rpm-ostree >/dev/null 2>&1 \
         fi
     fi
     exit 0
+elif command -v rpm-ostree >/dev/null 2>&1 \
+   && [ -z "$WINPODX_REF" ] && [ -z "$WINPODX_SOURCE" ] && [ -z "$WINPODX_IMAGE_TAR" ]; then
+    # #752: same condition as the branch above, minus the venv check — so
+    # getting here means rpm-ostree is present, no explicit source
+    # override was given, and $VENV_DIR already exists (a prior curl/venv
+    # install). Don't layer a second binary that PATH order would never
+    # actually run; upgrade the install that's already in use via the
+    # git/venv flow below instead.
+    warn "rpm-ostree detected, but an existing venv install was found at $INSTALL_DIR — upgrading that install in place (avoids a PATH-shadowed dual install)."
 elif command -v rpm-ostree >/dev/null 2>&1; then
     # rpm-ostree present, but the user asked for a specific source above — note
     # the bypass (the OBS RPM only ships tagged releases) and fall through to
@@ -1620,6 +1642,21 @@ if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
     warn "$HOME/.local/bin is not in PATH"
     warn "Add this to your ~/.bashrc or ~/.zshrc:"
     warn '  export PATH="$HOME/.local/bin:$PATH"'
+fi
+
+# --- PATH-shadow check (#752) ---
+# A distro package (OBS RPM, AUR, .deb) can drop its own `winpodx` at
+# /usr/bin, and this curl/venv install always lives at $SYMLINK
+# ($HOME/.local/bin/winpodx). Only one of them is what the shell actually
+# runs, decided purely by PATH order -- so if `command -v winpodx` doesn't
+# resolve to the copy this run just installed/updated, tell the user which
+# copy is shadowing which instead of leaving them to discover it via a
+# version that silently never changes (see uninstall.sh's find_winpodx_bin
+# for the same PATH-precedence concern on the removal side).
+RESOLVED_WINPODX="$(command -v winpodx 2>/dev/null || true)"
+if [ -n "$RESOLVED_WINPODX" ] && [ "$RESOLVED_WINPODX" != "$SYMLINK" ]; then
+    warn "PATH resolves 'winpodx' to $RESOLVED_WINPODX, not $SYMLINK (the copy this run just installed/updated)."
+    warn "That other copy is what actually runs. Remove it, or reorder PATH so $HOME/.local/bin comes first, for this install to take effect."
 fi
 
 # --- Run setup ---
