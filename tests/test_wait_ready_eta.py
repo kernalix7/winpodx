@@ -240,3 +240,50 @@ def test_iter_container_lines_tracks_pct_and_yields_lines_end_to_end() -> None:
         "Extracting Windows image",
     ]
     assert dl_state["pct"] == 100
+
+
+def test_size_chain_scraped_when_no_percent() -> None:
+    """dockur v6.02 size-mode chain (server sent no total): the partial tail
+    has GiB/MiB tokens but no percents -- latest size lands on dl_state."""
+    import threading
+
+    from winpodx.cli.pod import _iter_container_lines
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    dl_state = {"start": 1.0, "pct": None, "size": None}
+    stream = _FakeStream(
+        [
+            "❯ Downloading Windows 11...\n512MiB → 1GiB".encode(),
+            " → 1.5GiB → 2GiB".encode(),
+        ]
+    )
+    lines = list(_iter_container_lines(stream, dl_state, threading.Event()))
+    assert dl_state["pct"] is None
+    assert dl_state["size"] == "2GiB"
+    # The completed milestone line still came through; the tail flushed at EOF.
+    assert lines[0].startswith("❯ Downloading Windows 11")
+
+
+def test_percent_wins_over_size_tokens() -> None:
+    import threading
+
+    from winpodx.cli.pod import _iter_container_lines
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    dl_state = {"start": 1.0, "pct": None, "size": None}
+    stream = _FakeStream([b"header\n10% \xe2\x86\x92 20%"])
+    list(_iter_container_lines(stream, dl_state, threading.Event()))
+    assert dl_state["pct"] == 20
+    assert dl_state["size"] is None

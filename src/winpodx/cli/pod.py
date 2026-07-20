@@ -1149,6 +1149,12 @@ class _LiveLine:
 # percentage is needed -- unlike v6.01's wget meter there's no speed/ETA
 # mid-line, just the running chain of milestones.
 _DOWNLOAD_PCT_RE = re.compile(r"([0-9]{1,3})%")
+# ...but when the download server doesn't report a total size (the smoke run
+# against the Microsoft CDN hit exactly this), progress.sh falls back to
+# printSizeProgress and the growing line is a SIZE chain instead:
+# "512MiB → 1GiB → 1.5GiB → ..." -- no percent tokens at all. Scrape those
+# too so the heartbeat can show "5.5GiB" rather than nothing.
+_DOWNLOAD_SIZE_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?[MG]iB)")
 
 
 class _LineSplitter:
@@ -1229,6 +1235,12 @@ def _iter_container_lines(stream, dl_state: dict, stop: threading.Event):  # typ
             matches = _DOWNLOAD_PCT_RE.findall(splitter.partial)
             if matches:
                 dl_state["pct"] = min(int(matches[-1]), 100)
+            else:
+                # Size-mode chain (no total known upstream): keep the latest
+                # "5.5GiB"-style token instead. pct wins when both ever match.
+                sizes = _DOWNLOAD_SIZE_RE.findall(splitter.partial)
+                if sizes:
+                    dl_state["size"] = sizes[-1]
     tail = splitter.flush()
     if tail:
         yield tail
@@ -1444,7 +1456,11 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             # (_DOWNLOAD_PCT_RE / _iter_container_lines above), so "pct" carries the
             # latest value scraped off that growing line; it's cleared alongside
             # "start" so a stale percentage from a prior download can't linger.
-            dl_state: dict[str, float | int | None] = {"start": None, "pct": None}
+            dl_state: dict[str, float | int | str | None] = {
+                "start": None,
+                "pct": None,
+                "size": None,
+            }
 
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
@@ -1474,12 +1490,14 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                     if "Downloading Windows" in line:
                         dl_state["start"] = _time.monotonic()
                         dl_state["pct"] = None
+                        dl_state["size"] = None
                     elif dl_state["start"] is not None and any(
                         m in line
                         for m in ("Extracting", "Adding", "Building", "Creating", "Booting")
                     ):
                         dl_state["start"] = None
                         dl_state["pct"] = None
+                        dl_state["size"] = None
 
                     if verbose:
                         # --verbose: raw, every container line, permanent.
@@ -1534,17 +1552,23 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                         el = int(_time.monotonic() - dl)
                         clock = f"{el // 60}m {el % 60:02d}s"
                         pct = dl_state.get("pct")
+                        size = dl_state.get("size")
+                        # Percent when the server reported a total, size chain
+                        # when it didn't, bare clock before either arrives.
+                        progress = f"{pct}%" if pct is not None else size
                         if verbose:
                             now = _time.monotonic()
                             if now - last_verbose[0] >= 15:
-                                if pct is not None:
-                                    print(f"       (downloading Windows ISO... {pct}%, {clock})")
+                                if progress is not None:
+                                    print(
+                                        f"       (downloading Windows ISO... {progress}, {clock})"
+                                    )
                                 else:
                                     print(f"       (downloading Windows ISO... {clock})")
                                 last_verbose[0] = now
                         elif _live.usable:
-                            if pct is not None:
-                                _live.set(f"  Downloading Windows ISO... {pct}% ({clock})")
+                            if progress is not None:
+                                _live.set(f"  Downloading Windows ISO... {progress} ({clock})")
                             else:
                                 _live.set(f"  Downloading Windows ISO...  ({clock})")
                     else:

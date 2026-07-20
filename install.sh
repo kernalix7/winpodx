@@ -1654,7 +1654,14 @@ fi
 # version that silently never changes (see uninstall.sh's find_winpodx_bin
 # for the same PATH-precedence concern on the removal side).
 RESOLVED_WINPODX="$(command -v winpodx 2>/dev/null || true)"
-if [ -n "$RESOLVED_WINPODX" ] && [ "$RESOLVED_WINPODX" != "$SYMLINK" ]; then
+# Normalize both sides before comparing: PATH entries like
+# ~/.local/share/../bin make `command -v` return an unnormalized string
+# for the SAME file, which false-positived this warning on the first
+# smoke run (#752 follow-up). realpath also resolves the symlink itself,
+# so compare the symlink's own resolved path too.
+if [ -n "$RESOLVED_WINPODX" ] \
+   && [ "$(realpath -m "$RESOLVED_WINPODX" 2>/dev/null || echo "$RESOLVED_WINPODX")" \
+        != "$(realpath -m "$SYMLINK" 2>/dev/null || echo "$SYMLINK")" ]; then
     warn "PATH resolves 'winpodx' to $RESOLVED_WINPODX, not $SYMLINK (the copy this run just installed/updated)."
     warn "That other copy is what actually runs. Remove it, or reorder PATH so $HOME/.local/bin comes first, for this install to take effect."
 fi
