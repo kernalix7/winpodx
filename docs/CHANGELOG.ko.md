@@ -12,7 +12,7 @@
 ### Changed
 
 - **dockur/windows 이미지 pin을 v6.02로 롤포워드** (#735, @kroese 요청). QEMU base 이미지 v7.37, 컨테이너 로그의 다운로드 진행 출력 개선(v6.01 버퍼링 다운로드에 대한 upstream 후속), Windows 재설치 감지 개선, 예기치 않은 종료 시 QEMU 오류 표시가 포함됩니다. 기존 pod는 다음 recreate 때 새 이미지를 사용하며, `winpodx setup --update-image`로 즉시 적용할 수 있습니다.
-- **컨테이너 로그가 진행 정보를 전달하는 경우 다운로드 라인에 실제 진행률을 경과 시계와 함께 표시** (#735 후속). dockur v6.02는 ISO 다운로드 진행률(퍼센트 체인, 또는 서버가 총 크기를 안 주면 `512MiB -> 1GiB -> ...` 크기 체인)을 개행 없이 자라는 한 줄로 기록합니다. 이제 `winpodx pod wait-ready`가 완성된 라인과 미완성 partial 꼬리를 모두 스캔해 최신 토큰을 `Downloading Windows ISO... 42% (5m 12s)` / `... 5.5GiB (3m 10s)` 형태로 표시합니다. 실측으로 확인된 제약: `podman logs -f`는 개행 없는 partial 쓰기를 아예 내보내지 않으므로, podman 백엔드에서는 upstream이 완성 라인으로 flush해야 토큰이 보입니다(dockur에 제안함). 자체 타이머 경과 시계는 언제나 동작합니다.
+- **컨테이너 로그가 진행 정보를 전달하는 경우 다운로드 라인에 실제 진행률을 경과 시계와 함께 표시** (#735 후속). dockur v6.02는 ISO 다운로드 진행률(퍼센트 체인, 또는 서버가 총 크기를 안 주면 `512MiB -> 1GiB -> ...` 크기 체인)을 개행 없이 자라는 한 줄로 기록합니다. 이제 `winpodx pod wait-ready`가 완성된 라인과 미완성 partial 꼬리를 모두 스캔해 최신 토큰을 `Downloading Windows ISO... 42% (5m 12s)` / `... 5.5GiB (3m 10s)` 형태로 표시합니다. 실측으로 확인된 제약: `podman logs -f`는 개행 없는 partial 쓰기를 아예 내보내지 않으므로, podman 백엔드에서는 향후 dockur 빌드가 완성 라인으로 flush해야 토큰이 보입니다. 자체 타이머 경과 시계는 언제나 동작합니다.
 
 ### Fixed
 
