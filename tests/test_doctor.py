@@ -233,6 +233,20 @@ class TestCheckComposeProvider:
         assert f.severity == "ok"
         assert "podman-compose" in f.title
 
+    def test_ok_and_notes_location_when_found_off_path(self, monkeypatch):
+        # #765/#725: a Homebrew-installed podman-compose off $PATH must still
+        # be an "ok" Finding, and must say *where* it was found so a user
+        # debugging the tray Pod>Start no-op sees it wasn't a plain PATH hit.
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+        monkeypatch.setattr(
+            "winpodx.utils.deps.find_podman_compose",
+            lambda: "/home/linuxbrew/.linuxbrew/bin/podman-compose",
+        )
+        f = self._run(monkeypatch)
+        assert f.severity == "ok"
+        assert "podman-compose" in f.title
+        assert "/home/linuxbrew/.linuxbrew/bin" in f.title
+
     def test_ok_when_podman_compose_plugin_available(self, monkeypatch):
         monkeypatch.setattr("shutil.which", lambda _name: None)
         monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(returncode=0))

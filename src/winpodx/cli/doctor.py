@@ -33,6 +33,7 @@ probe has a short timeout, and the network never gets touched.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -342,8 +343,10 @@ def _check_compose_provider() -> Finding | None:
     plugin) ships separately from ``podman`` itself. Without one, container
     creation silently no-ops and the failure only surfaces later as a cryptic
     ``no such container "winpodx-windows"`` from `pod wait-ready` (#753).
-    Mirrors the exact probe ``setup_cmd._recreate_container`` uses so
-    doctor's verdict matches what setup will actually do. Only relevant for
+    Shares ``utils.deps.find_podman_compose`` with ``setup_cmd``'s and
+    ``backend.podman``'s probes so doctor's verdict matches what setup and
+    pod start will actually do -- including finding a Homebrew-installed
+    ``podman-compose`` that's off ``$PATH`` (#765, #725). Only relevant for
     the podman backend; the docker backend's ``docker compose`` plugin ships
     with the docker CLI and isn't separately probed by setup_cmd either, so
     it's skipped (``None``) here too.
@@ -356,8 +359,19 @@ def _check_compose_provider() -> Finding | None:
     except Exception:  # noqa: BLE001 — config issues are reported by their own check
         return None
 
-    if shutil.which("podman-compose"):
-        return Finding("ok", "compose provider: podman-compose")
+    from winpodx.utils.deps import find_podman_compose
+
+    podman_compose = find_podman_compose()
+    if podman_compose:
+        if shutil.which("podman-compose"):
+            return Finding("ok", "compose provider: podman-compose")
+        # Found off PATH (e.g. a Homebrew install on an immutable distro like
+        # Bazzite) -- say where, so a user debugging the tray Pod>Start
+        # no-op (#725) can see it was found via a non-PATH probe (#765).
+        return Finding(
+            "ok",
+            f"compose provider: podman-compose ({os.path.dirname(podman_compose)})",
+        )
 
     try:
         subprocess.run(
@@ -382,6 +396,8 @@ def _check_compose_provider() -> Finding | None:
             "Debian/Ubuntu: sudo apt install podman-compose | "
             "Fedora: sudo dnf install podman-compose | "
             "openSUSE: sudo zypper install podman-compose | "
+            "already installed via Homebrew? put its bin dir on PATH "
+            '(`eval "$(brew shellenv)"`) | '
             "fallback: pipx install podman-compose"
         ),
     )

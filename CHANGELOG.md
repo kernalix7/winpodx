@@ -9,6 +9,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **Rootless Podman re-forces dockur's user-mode (passt) networking, fixing RDP that never connected on some hosts after 0.10.1** (#770, thanks @vrvy-live). Dropping the forced `NETWORK=user` in 0.10.1 (#735) let the container auto-pick bridge NAT, but on rootless Podman hosts the NAT rewrite did not fully cover, the guest then landed on a NAT-internal `172.x` address that the host's forwarded RDP port (`127.0.0.1:3390`) could never reach — the container booted and QEMU came up on the web viewer, but RDP never connected. winpodx now re-forces `NETWORK: "user"` on rootless Podman only, restoring the known-good passt path (#269/#387 class); rootful Podman and Docker, where dockur's NAT port-forwarding is validated, keep dockur's auto-selection. `USER_PORTS` is unchanged.
+- **`podman-compose` installed via Homebrew is now detected even when brew's bin is off the session PATH** (#765, #725, thanks @realahmed7777). On immutable distros like Bazzite, Homebrew is the usual way to install `podman-compose`, but winpodx probed for it with `shutil.which`, which only searches `$PATH` -- and a desktop/tray session's `$PATH` often omits brew's bin. So `winpodx setup`, `winpodx doctor`, and the tray Pod > Start (a separate path in `PodmanBackend`) all reported "podman-compose not found" and silently no-oped even though it was installed. The probe now also checks the known Homebrew bin dirs (`/home/linuxbrew/.linuxbrew/bin`, `~/.linuxbrew/bin`, `/opt/homebrew/bin`) and `~/.local/bin`, and uses the resolved absolute path so the pod-start subprocess finds it regardless of the inherited `PATH`.
+
 ## [0.10.2] - 2026-07-20
 
 ### Changed

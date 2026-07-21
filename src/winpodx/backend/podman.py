@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import os
 import subprocess
 import time
 
@@ -12,6 +14,43 @@ from winpodx.backend.base import Backend, _container_uptime_secs
 from winpodx.utils.paths import config_dir
 
 log = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1)
+def is_rootless_podman() -> bool:
+    """Return True when the host runs Podman in rootless mode.
+
+    Rootless Podman is the case that still needs winpodx to force dockur's
+    ``NETWORK: "user"`` (passt) path. Dropping that force in 0.10.1 (#735)
+    let the container pick bridge NAT, which on rootless hosts lands the
+    guest on a NAT-internal ``172.x`` address that the host's forwarded RDP
+    port never reaches -- the #269/#387 class the forced user-mode used to
+    route around, resurfaced in the field as #770. dockur v6.01's rootless
+    NAT port-forwarding rewrite covers some hosts but not all, so winpodx
+    re-forces user-mode on rootless Podman only.
+
+    Primary signal is ``podman info``'s ``Host.Security.Rootless`` field
+    ("true"/"false"). If that call fails (podman missing or erroring) we
+    fall back to the effective-UID heuristic: a non-zero euid means the
+    daemonless podman is running rootless. The result cannot change within
+    a single winpodx run, so it is cached.
+    """
+    try:
+        result = subprocess.run(
+            ["podman", "info", "--format", "{{.Host.Security.Rootless}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=host_env(),
+        )
+        out = result.stdout.strip().lower()
+        if result.returncode == 0 and out in ("true", "false"):
+            return out == "true"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    # Fallback when `podman info` is unavailable: on POSIX a non-root
+    # effective UID means the daemonless podman runs rootless.
+    return getattr(os, "geteuid", lambda: 1)() != 0
 
 
 class PodmanBackend(Backend):
@@ -32,19 +71,33 @@ class PodmanBackend(Backend):
         # Thin AppImage (#357 root-cause fix, 0.6.0 item A): podman-
         # compose is no longer bundled, so the standard ``shutil.which``
         # finds the host copy directly -- no host-first dance needed.
-        import shutil
+        #
+        # #765 / #725: this is the code path `start()`/`stop()` use, which
+        # is what the tray's Pod>Start button calls via
+        # `core.pod.start_pod` -- so a PATH-only probe here is what made
+        # a Homebrew-installed podman-compose (off PATH by default on
+        # immutable distros like Bazzite) silently no-op the tray button.
+        # `find_podman_compose` also probes known Homebrew bin dirs and
+        # returns an absolute path, which we must use verbatim: this
+        # subprocess only inherits *our* PATH, not whatever shell found
+        # brew's shim.
+        from winpodx.utils.deps import find_podman_compose
 
-        if shutil.which("podman-compose"):
-            return ["podman-compose", "-f", self._compose_file()]
+        podman_compose = find_podman_compose()
+        if podman_compose:
+            return [podman_compose, "-f", self._compose_file()]
         raise RuntimeError(
-            "podman-compose not found on PATH. WinPodX requires podman-compose "
+            "podman-compose not found. WinPodX requires podman-compose "
             "(not the `podman compose` subcommand, which delegates to "
             "docker-compose and breaks our keep-groups extension -- see #288). "
             "Install it with your package manager: "
             "Fedora/Nobara: `sudo dnf install podman-compose`, "
             "Debian/Ubuntu: `sudo apt install podman-compose`, "
             "Arch: `sudo pacman -S podman-compose`, "
-            "openSUSE: `sudo zypper install podman-compose`."
+            "openSUSE: `sudo zypper install podman-compose`. "
+            "Homebrew installs are auto-detected even off PATH; if you already "
+            'installed it via brew and still see this, run `eval "$(brew shellenv)"` '
+            "before launching winpodx."
         )
 
     def start(self) -> None:

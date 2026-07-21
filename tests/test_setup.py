@@ -12,7 +12,9 @@ and the user would have to do a ``--purge`` reinstall to recover.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -363,6 +365,9 @@ class TestRecreateContainerNoComposeProvider:
         cfg.pod.backend = "podman"
 
         monkeypatch.setattr("shutil.which", lambda _name: None)
+        # Hermetic against a real Homebrew install on the runner (#765): point
+        # the off-PATH probe dirs at a directory that can't contain one.
+        monkeypatch.setattr("winpodx.utils.deps._BREW_COMPOSE_DIRS", (str(tmp_path / "nowhere"),))
         with patch("subprocess.run", side_effect=FileNotFoundError("podman not found")):
             with pytest.raises(RuntimeError, match="compose provider"):
                 _recreate_container(cfg)
@@ -370,6 +375,45 @@ class TestRecreateContainerNoComposeProvider:
         out = capsys.readouterr().out
         assert "ERROR: no compose provider found" in out
         assert "podman-compose" in out
+        assert "Homebrew" in out
+
+
+class TestRecreateContainerBrewComposeOffPath:
+    """#765/#725: a Homebrew-installed podman-compose off $PATH must still be
+    used to create the container -- and via its ABSOLUTE path, since the
+    compose subprocess only inherits this process's own (possibly brew-less)
+    PATH, not whatever found the binary here."""
+
+    def test_uses_absolute_path_from_brew_dir(self, tmp_path, monkeypatch):
+        from winpodx.cli.setup_cmd import _recreate_container
+        from winpodx.core.config import Config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.backend = "podman"
+
+        brew_dir = tmp_path / "linuxbrew" / "bin"
+        brew_dir.mkdir(parents=True)
+        compose_bin = brew_dir / "podman-compose"
+        compose_bin.write_text("#!/bin/sh\n")
+        compose_bin.chmod(0o755)
+
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+        monkeypatch.setattr("winpodx.utils.deps._BREW_COMPOSE_DIRS", (str(brew_dir),))
+
+        calls: list[list[str]] = []
+
+        def _fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=_fake_run):
+            _recreate_container(cfg)
+
+        assert calls, "expected at least one compose subprocess call"
+        for cmd in calls:
+            assert cmd[0] == str(compose_bin)
+            assert os.path.isabs(cmd[0])
 
 
 class TestResolveCredentials:

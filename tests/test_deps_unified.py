@@ -14,6 +14,7 @@ for these tests.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -236,3 +237,60 @@ def test_check_all_default_does_not_probe(monkeypatch):
     deps = D.check_all()
     assert deps["docker"].daemon_reachable is None
     assert deps["podman"].daemon_reachable is None
+
+
+# ---- find_podman_compose (#765, #725: Homebrew off-PATH detection) -------
+
+
+def test_find_podman_compose_on_path(monkeypatch):
+    import winpodx.utils.deps as D
+
+    monkeypatch.setattr(D.shutil, "which", lambda name: "/usr/bin/podman-compose")
+    assert D.find_podman_compose() == "/usr/bin/podman-compose"
+
+
+def test_find_podman_compose_found_in_brew_dir_when_path_misses(monkeypatch, tmp_path):
+    # Simulate a Homebrew install whose bin dir isn't on $PATH (the tray/GUI
+    # session PATH case, #765/#725): shutil.which misses, but the binary
+    # exists (and is executable) under one of the known brew prefixes.
+    import winpodx.utils.deps as D
+
+    brew_dir = tmp_path / "linuxbrew" / "bin"
+    brew_dir.mkdir(parents=True)
+    compose_bin = brew_dir / "podman-compose"
+    compose_bin.write_text("#!/bin/sh\n")
+    compose_bin.chmod(0o755)
+
+    monkeypatch.setattr(D.shutil, "which", lambda name: None)
+    monkeypatch.setattr(D, "_BREW_COMPOSE_DIRS", (str(brew_dir),))
+
+    found = D.find_podman_compose()
+    assert found == str(compose_bin)
+    assert os.path.isabs(found)
+
+
+def test_find_podman_compose_none_when_truly_absent(monkeypatch, tmp_path):
+    import winpodx.utils.deps as D
+
+    missing_dir = tmp_path / "nowhere"
+    monkeypatch.setattr(D.shutil, "which", lambda name: None)
+    monkeypatch.setattr(D, "_BREW_COMPOSE_DIRS", (str(missing_dir),))
+
+    assert D.find_podman_compose() is None
+
+
+def test_find_podman_compose_skips_non_executable_brew_candidate(monkeypatch, tmp_path):
+    # A file that exists but isn't executable (e.g. a stray non-executable
+    # download) must not be reported as found.
+    import winpodx.utils.deps as D
+
+    brew_dir = tmp_path / "brew_bin"
+    brew_dir.mkdir()
+    compose_bin = brew_dir / "podman-compose"
+    compose_bin.write_text("not executable")
+    compose_bin.chmod(0o644)
+
+    monkeypatch.setattr(D.shutil, "which", lambda name: None)
+    monkeypatch.setattr(D, "_BREW_COMPOSE_DIRS", (str(brew_dir),))
+
+    assert D.find_podman_compose() is None

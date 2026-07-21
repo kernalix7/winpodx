@@ -573,11 +573,12 @@ class TestComposeBackendSpecificKeys:
 
 
 class TestComposeNetworkKey:
-    def test_network_mode_not_forced_and_never_slirp(self, tmp_path, monkeypatch):
-        # #735: dockur v6.01 fixed rootless-Podman NAT port-forwarding, so the
-        # compose no longer forces NETWORK=user -- the container picks NAT and
-        # falls back to passt itself. We must never request "slirp" (dockur's
-        # last-resort fallback), and must not pin a NETWORK mode at all.
+    def test_rootful_podman_not_forced_and_never_slirp(self, tmp_path, monkeypatch):
+        # #770: NETWORK=user is re-forced on ROOTLESS Podman only (dropping it in
+        # 0.10.1 let the container pick NAT, whose 172.x guest IP was unreachable
+        # for host-forwarded RDP). On rootful Podman (and Docker) winpodx leaves
+        # NETWORK unset so dockur auto-picks bridge NAT. It must never request
+        # "slirp" (dockur's last-resort fallback) in either case.
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         from winpodx.core.config import Config
 
@@ -588,7 +589,8 @@ class TestComposeNetworkKey:
 
         from winpodx.cli.setup_cmd import _generate_compose
 
-        _generate_compose(cfg)
+        with patch("winpodx.backend.podman.is_rootless_podman", return_value=False):
+            _generate_compose(cfg)
         content = (tmp_path / "winpodx" / "compose.yaml").read_text()
         assert "NETWORK:" not in content
         assert "slirp" not in content

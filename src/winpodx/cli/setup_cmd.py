@@ -21,7 +21,7 @@ from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.utils.agent_token import ensure_agent_token, stage_token_to_oem
 from winpodx.utils.compat import import_winapps_config
-from winpodx.utils.deps import check_all
+from winpodx.utils.deps import check_all, find_podman_compose
 from winpodx.utils.paths import config_dir
 
 COMPOSE_TIMEOUT_DEFAULT_SECS = 1800
@@ -1108,8 +1108,12 @@ def _recreate_container(cfg: Config) -> None:
 
     compose_cmd: list[str] | None = None
     if backend == "podman":
-        if shutil.which("podman-compose"):
-            compose_cmd = ["podman-compose"]
+        podman_compose = find_podman_compose()
+        if podman_compose:
+            # Absolute path when resolved off-PATH (e.g. Homebrew) -- a bare
+            # "podman-compose" would fail to exec once this subprocess's own
+            # (minimal) PATH is used (#765, #725).
+            compose_cmd = [podman_compose]
         else:
             try:
                 sp.run(
@@ -1148,7 +1152,11 @@ def _recreate_container(cfg: Config) -> None:
                 "    Debian/Ubuntu:  sudo apt install podman-compose\n"
                 "    Fedora:         sudo dnf install podman-compose\n"
                 "    openSUSE:       sudo zypper install podman-compose\n"
-                "    (fallback:      pipx install podman-compose)"
+                "    (fallback:      pipx install podman-compose)\n"
+                "  Homebrew installs (common on immutable distros like Bazzite) "
+                "are auto-detected even off PATH; if you already installed it via "
+                "`brew install podman-compose` and still see this, make sure "
+                'brew\'s bin dir is on PATH (`eval "$(brew shellenv)"`).'
             )
             print(tr(msg))
             raise RuntimeError("no compose provider found for the podman backend")

@@ -63,7 +63,7 @@ name: "winpodx"
       REGION: "{region}"
       KEYBOARD: "{keyboard}"
       TZ: "{timezone}"
-      ADAPTER: "{adapter}"
+{network_env}      ADAPTER: "{adapter}"
       MTU: "{mtu}"
 {usb_env}      VGA: "{vga}"
       CPU_FLAGS: "{cpu_flags}"
@@ -836,6 +836,21 @@ def _build_compose_content(cfg: Config) -> str:
     # ("Property 'e1000.host_mtu' not found"). Pinning MTU=1500 makes dockur emit
     # a plain ``-device e1000`` (no host_mtu). Empty MTU for off/balanced keeps
     # dockur's virtio auto-MTU.
+    # Network mode (#770 regression fix): rootless Podman must force dockur's
+    # user-mode (passt) path. Bridge NAT -- what the container auto-picks when
+    # NETWORK is unset -- lands the guest on a NAT-internal 172.x address that
+    # the host's forwarded RDP port never reaches on rootless hosts (the
+    # #269/#387 class). Rootful Podman and Docker keep auto-selection: NAT is
+    # validated there and forwards published ports correctly. USER_PORTS stays
+    # emitted unconditionally -- it is the passt-fallback port list, ignored
+    # under NAT by design, so it is harmless when we don't force user-mode.
+    network_env = ""
+    if cfg.pod.backend == "podman":
+        from winpodx.backend.podman import is_rootless_podman
+
+        if is_rootless_podman():
+            network_env = '      NETWORK: "user"\n'
+
     if cfg.pod.disguise_max:
         disk_type, adapter, vga, mtu = "sata", "e1000", "std", "1500"
         # Swap dockur's default qemu-xhci (VEN_1B36, Red Hat) for nec-usb-xhci
@@ -857,6 +872,7 @@ def _build_compose_content(cfg: Config) -> str:
         adapter=adapter,
         mtu=mtu,
         usb_env=usb_env,
+        network_env=network_env,
         vga=vga,
         hv=hv,
         user=_yaml_escape(cfg.rdp.user),

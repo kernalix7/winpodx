@@ -117,6 +117,52 @@ def test_start_pod_skips_port_check_when_pod_already_running():
     assert status.state == PodState.RUNNING
 
 
+class TestPodmanComposeCmdBrewOffPath:
+    """#765/#725: `_compose_cmd` is the code path `start()`/`stop()` use --
+    i.e. what the tray's Pod>Start button actually calls via
+    `core.pod.start_pod`. A PATH-only `podman-compose` probe here silently
+    no-ops the tray button for a Homebrew install (common on immutable
+    distros like Bazzite) whose bin dir isn't on the desktop session's
+    $PATH."""
+
+    def test_on_path_unchanged(self, monkeypatch):
+        from winpodx.backend.podman import PodmanBackend
+
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/podman-compose")
+        backend = PodmanBackend(Config())
+        cmd = backend._compose_cmd()
+        assert cmd[0] == "/usr/bin/podman-compose"
+
+    def test_found_via_brew_dir_uses_absolute_path(self, monkeypatch, tmp_path):
+        from winpodx.backend.podman import PodmanBackend
+
+        brew_dir = tmp_path / "linuxbrew" / "bin"
+        brew_dir.mkdir(parents=True)
+        compose_bin = brew_dir / "podman-compose"
+        compose_bin.write_text("#!/bin/sh\n")
+        compose_bin.chmod(0o755)
+
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        monkeypatch.setattr("winpodx.utils.deps._BREW_COMPOSE_DIRS", (str(brew_dir),))
+
+        backend = PodmanBackend(Config())
+        cmd = backend._compose_cmd()
+        assert cmd[0] == str(compose_bin)
+
+    def test_raises_when_truly_absent(self, monkeypatch, tmp_path):
+        from winpodx.backend.podman import PodmanBackend
+
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        monkeypatch.setattr("winpodx.utils.deps._BREW_COMPOSE_DIRS", (str(tmp_path / "nowhere"),))
+
+        backend = PodmanBackend(Config())
+        try:
+            backend._compose_cmd()
+            raise AssertionError("expected RuntimeError")
+        except RuntimeError as e:
+            assert "podman-compose" in str(e)
+
+
 def test_podman_backend_is_running_uses_configured_container_name():
     from winpodx.backend.podman import PodmanBackend
 

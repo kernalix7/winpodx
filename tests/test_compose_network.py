@@ -9,13 +9,21 @@ Historically the compose pinned ``NETWORK: "user"`` to force user-mode
 (passt), a workaround for #269 / #387 where dockur's bridge-NAT path set up
 NAT but never forwarded the published ports on to the VM (so the agent port
 hung ``pod wait-ready``). dockur **v6.01** (@kroese) rewrote the rootless-Podman
-NAT port-forwarding to fix exactly that, so we no longer force the mode (#735):
-the container picks NAT when it can and falls back to passt itself. ``USER_PORTS``
-stays as the passt-fallback path (NAT ignores it by design, forwarding every
-non-``HOST_PORTS`` port to the VM).
+NAT port-forwarding, so 0.10.1 stopped forcing the mode (#735).
+
+That regressed rootless hosts the rewrite did not fully cover: the container
+picked bridge NAT, the guest got a NAT-internal ``172.x`` IP, and the host's
+forwarded RDP port never reached it (#770). So winpodx now re-forces
+``NETWORK: "user"`` on **rootless Podman only** -- rootful Podman and Docker,
+where NAT is validated, keep dockur's auto-selection. ``USER_PORTS`` stays
+emitted unconditionally as the passt-fallback path (NAT ignores it by design,
+forwarding every non-``HOST_PORTS`` port to the VM), so it is harmless when we
+do not force user-mode.
 """
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 from winpodx.core.config import Config
 from winpodx.core.pod.compose import _build_compose_content
@@ -33,17 +41,34 @@ def _cfg() -> Config:
     return cfg
 
 
-def test_compose_does_not_force_network_mode():
-    # #735: don't force NETWORK=user -- let dockur v6.01 pick NAT (with its
-    # rootless port-forwarding fix) and fall back to passt on its own.
-    content = _build_compose_content(_cfg())
-    assert "NETWORK:" not in content
-
-
-def test_compose_user_ports_present():
-    # USER_PORTS stays as the passt-fallback path (ignored under NAT by design).
-    content = _build_compose_content(_cfg())
+def test_rootless_podman_forces_network_user():
+    # #770: on rootless Podman re-force user-mode (passt); NAT's 172.x guest IP
+    # is unreachable for host-forwarded RDP there.
+    with patch("winpodx.backend.podman.is_rootless_podman", return_value=True):
+        content = _build_compose_content(_cfg())
+    assert 'NETWORK: "user"' in content
+    assert "slirp" not in content
     assert "USER_PORTS:" in content
+
+
+def test_rootful_podman_does_not_force_network():
+    # Rootful Podman keeps dockur's auto-selection (NAT is validated there).
+    with patch("winpodx.backend.podman.is_rootless_podman", return_value=False):
+        content = _build_compose_content(_cfg())
+    assert "NETWORK:" not in content
+    assert "USER_PORTS:" in content
+
+
+def test_docker_backend_never_forces_network():
+    # Docker is excluded entirely -- the rootless detector is podman-specific
+    # and must not even be consulted on the docker path.
+    cfg = _cfg()
+    cfg.pod.backend = "docker"
+    with patch("winpodx.backend.podman.is_rootless_podman", return_value=True) as detector:
+        content = _build_compose_content(cfg)
+    assert "NETWORK:" not in content
+    assert "USER_PORTS:" in content
+    detector.assert_not_called()
 
 
 def test_compose_ballooning_off_unconditional():

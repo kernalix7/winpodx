@@ -15,6 +15,7 @@ duplicate. Every other surface in the project consumes this module.
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,6 +154,47 @@ def check_all(probe_daemons: bool = False) -> dict[str, DepCheck]:
         checks[cmd] = dep
     checks["kvm"] = check_kvm()
     return checks
+
+
+# Homebrew-on-Linux install prefixes for `podman-compose` (#765, #725).
+# Homebrew is the standard way to get CLI tools on immutable distros
+# (Bazzite, Fedora Silverblue) where there's no system package manager to
+# `apt`/`dnf install` into. None of these are reliably on `$PATH`: brew only
+# adds itself via `eval "$(brew shellenv)"` in the user's shell rc, which an
+# interactive terminal sources but a desktop-session-launched process (the
+# tray / GUI autostart entry in particular) never does — so `shutil.which`
+# alone false-negatives even though the binary is genuinely installed.
+_BREW_COMPOSE_DIRS = (
+    "/home/linuxbrew/.linuxbrew/bin",
+    "~/.linuxbrew/bin",
+    "/opt/homebrew/bin",
+    "~/.local/bin",
+)
+
+
+def find_podman_compose() -> str | None:
+    """Locate the ``podman-compose`` binary: PATH first, then known off-PATH dirs.
+
+    Falls back to probing Homebrew's install prefixes (see
+    ``_BREW_COMPOSE_DIRS``) when ``shutil.which`` misses, so a
+    Homebrew-installed ``podman-compose`` is still found even when brew's
+    bin dir isn't on the caller's ``$PATH`` (#765, #725).
+
+    Always returns an ABSOLUTE path (never the bare ``"podman-compose"``
+    string). Callers MUST use that absolute path in subprocess argv rather
+    than re-deriving the name — a spawned subprocess only inherits the
+    *current* process's ``$PATH``, not whatever this function used to find
+    the binary, so a bare name would fail at exec time even after being
+    "found" here.
+    """
+    found = shutil.which("podman-compose")
+    if found:
+        return found
+    for raw_dir in _BREW_COMPOSE_DIRS:
+        candidate = Path(raw_dir).expanduser() / "podman-compose"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def podman_major_version() -> int | None:
