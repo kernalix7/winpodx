@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **이전 시도에서 남은 podman 볼륨이 그대로 있을 때 `winpodx setup --storage-path` / `--win-iso`가 조용히 무시되던 문제를 수정** (#767, @realahmed7777 감사). `winpodx.toml`을 지워도 named 볼륨은 제거되지 않으므로, setup이 기존 설치를 발견해 VM을 이전 디스크에 그대로 두고 커스텀 ISO 스테이징도 건너뛰었습니다 — 게다가 유일한 신호는 "Setup Complete" 배너 전에 스크롤로 밀려 사라지는 한 줄짜리 안내뿐이었습니다(그 결과 dockur는 사용자가 더 넓은 ext4 경로로 기대한 위치에 "BTRFS filesystem for /storage" 경고를 남기고, Windows는 그대로 다운로드했습니다). 이제 setup은 요청한 경로, 여전히 사용 중인 위치, 그리고 재배치 방법(`winpodx setup --migrate-storage --migrate-storage-target <path>`) 또는 완전히 새로 시작하는 방법(이전 볼륨 제거 / `winpodx uninstall --purge`)을 명시한 눈에 띄는 프레임 경고를 표시하고, 스크롤로 사라지지 않도록 최종 배너 직전에 다시 출력합니다. 스토리지 결정 동작 자체는 그대로입니다 — 기존 설치를 재배치하려면 여전히 `--migrate-storage`가 필요하며, 이번 변경은 무시 사실을 놓칠 수 없게 만들 뿐입니다.
+
 ## [0.10.3] - 2026-07-21
 
 ### Fixed

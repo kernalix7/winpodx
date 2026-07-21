@@ -195,6 +195,58 @@ class TestHalfUninstalledGuard:
 
         assert Config.load().rdp.freerdp_source == "flatpak"
 
+    def test_storage_flag_note_on_existing_config_skip(self, tmp_path, monkeypatch, capsys):
+        """#767: --storage-path / --win-iso on the existing-config skip path used to
+        be fully silent. It must now surface a prominent, actionable note."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+        _make_existing_config(tmp_path)
+
+        args = _setup_args(non_interactive=True)
+        args.storage_path = str(tmp_path / "roomy")
+        args.win_iso = str(tmp_path / "win.iso")
+
+        with (
+            patch("winpodx.cli.setup_cmd.check_all", return_value=_mock_freerdp_ok()),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"),
+            patch(
+                "winpodx.cli.setup_cmd._container_exists_on_backend",
+                return_value=True,
+            ),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(args)
+
+        out = capsys.readouterr().out
+        assert "an existing winpodx config was found" in out
+        assert str(tmp_path / "roomy") in out  # names the requested storage path
+        assert "--win-iso" in out  # notes the ignored ISO too
+        assert "--migrate-storage" in out  # points at the actual relocate path
+
+    def test_no_storage_note_when_flags_absent(self, tmp_path, monkeypatch, capsys):
+        """No false positive: the plain existing-config skip stays quiet about storage."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+        _make_existing_config(tmp_path)
+
+        with (
+            patch("winpodx.cli.setup_cmd.check_all", return_value=_mock_freerdp_ok()),
+            patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+            patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"),
+            patch(
+                "winpodx.cli.setup_cmd._container_exists_on_backend",
+                return_value=True,
+            ),
+        ):
+            from winpodx.cli.setup_cmd import handle_setup
+
+            handle_setup(_setup_args(non_interactive=True))
+
+        out = capsys.readouterr().out
+        assert "WARNING: an existing winpodx config was found" not in out
+
     def test_calls_ensure_ready_when_container_missing(self, tmp_path, monkeypatch):
         """Half-uninstalled: config present, container gone → ensure_ready
         is called to recreate the container from compose.yaml."""
@@ -559,6 +611,89 @@ class TestDecideStorageModeExplicitTarget:
         # An already-configured install isn't relocated here (that's --migrate-storage).
         assert cfg.pod.storage_path == "/existing/storage"
 
+    def test_case2_named_volume_explicit_target_warns(self, tmp_path, capsys):
+        """#767: a leftover named volume + explicit --storage-path must surface a
+        framed, hard-to-miss warning (not a mid-stream note) and NOT relocate."""
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = ""  # legacy named-volume layout
+        with patch(
+            "winpodx.core.storage_migration.resolve_named_volume",
+            return_value="winpodx-data",
+        ):
+            result = _decide_storage_mode(
+                cfg, non_interactive=True, explicit_target=Path(tmp_path / "roomy")
+            )
+        out = capsys.readouterr().out
+        assert "WARNING: --storage-path was NOT applied." in out
+        assert "!" * 64 in out  # framed banner marker
+        assert "winpodx-data" in out
+        assert "--migrate-storage" in out
+        # semantics unchanged: still named-volume (storage_path stays empty)
+        assert cfg.pod.storage_path == ""
+        assert result is not None  # returned so handle_setup re-prints before banner
+
+    def test_case1_configured_explicit_differs_warns(self, tmp_path, capsys):
+        """#767: --storage-path differing from an already-configured location warns."""
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = "/existing/storage"
+        result = _decide_storage_mode(
+            cfg, non_interactive=True, explicit_target=Path(tmp_path / "other")
+        )
+        out = capsys.readouterr().out
+        assert "WARNING: --storage-path was NOT applied." in out
+        assert cfg.pod.storage_path == "/existing/storage"  # not relocated
+        assert result is not None
+
+    def test_case1_configured_same_path_no_warning(self, tmp_path, capsys):
+        """No false positive: passing the path already in use is a no-op, no warning."""
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        storage = tmp_path / "storage"
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = str(storage)
+        result = _decide_storage_mode(cfg, non_interactive=True, explicit_target=Path(storage))
+        out = capsys.readouterr().out
+        assert "WARNING" not in out
+        assert result is None
+
+    def test_fresh_install_explicit_target_no_warning(self, tmp_path, capsys):
+        """No false positive: a genuinely fresh install honors --storage-path silently."""
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        target = tmp_path / "roomy" / "winpodx"
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.pod.storage_path = ""
+        with (
+            patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+            patch("winpodx.utils.btrfs.detect_path_fs", return_value="ext4"),
+            patch("winpodx.utils.btrfs.host_storage_is_ssd", return_value=False),
+        ):
+            result = _decide_storage_mode(cfg, non_interactive=True, explicit_target=Path(target))
+        out = capsys.readouterr().out
+        assert "WARNING" not in out
+        assert cfg.pod.storage_path == str(target)  # honored
+        assert result is None
+
 
 class TestStageWinIso:
     """`_stage_win_iso` — #647: stage <storage>/custom.iso before compose-up."""
@@ -602,6 +737,22 @@ class TestStageWinIso:
         cfg.pod.storage_path = ""  # legacy named-volume → no host dir
         _stage_win_iso(cfg, str(iso))  # must not raise
         # nothing to assert beyond "no crash"; named-volume has no host dir
+
+    def test_no_storage_path_emits_prominent_warning(self, tmp_path, capsys):
+        """#767: an explicit --win-iso on the legacy named-volume layout can't be
+        staged — surface a framed warning (not a mid-stream note) and don't stage."""
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        iso = self._iso(tmp_path)
+        cfg = Config()
+        cfg.pod.storage_path = ""  # legacy named-volume → no host dir
+        result = _stage_win_iso(cfg, str(iso))
+        out = capsys.readouterr().out
+        assert "WARNING: --win-iso was NOT staged" in out
+        assert "!" * 64 in out  # framed banner marker
+        assert "--migrate-storage" in out
+        assert result is not None  # returned so handle_setup re-prints before banner
 
     def test_missing_iso_skips(self, tmp_path):
         from winpodx.cli.setup_cmd import _stage_win_iso

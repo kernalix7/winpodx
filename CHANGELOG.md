@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **`winpodx setup --storage-path` / `--win-iso` were silently ignored when a leftover podman volume from an earlier attempt still existed** (#767, thanks @realahmed7777). Deleting `winpodx.toml` does not remove the named volume, so setup found an existing install, kept the VM on the old disk, and skipped staging the custom ISO — and the only signal was a one-line note that scrolled off before the "Setup Complete" banner (dockur then logged a "BTRFS filesystem for /storage" warning on what the user expected to be their roomier ext4 path, and Windows downloaded anyway). Setup now surfaces a prominent, framed warning that names the requested path, the location still in use, and how to relocate (`winpodx setup --migrate-storage --migrate-storage-target <path>`) or start fresh (remove the old volume / `winpodx uninstall --purge`), and re-prints it right before the final banner so it survives scrollback. The storage-decision behaviour is unchanged — relocating an existing install still requires `--migrate-storage`; this only makes the ignore impossible to miss.
+
 ## [0.10.3] - 2026-07-21
 
 ### Fixed

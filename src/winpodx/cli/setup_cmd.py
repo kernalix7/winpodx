@@ -207,9 +207,66 @@ def _update_image_pin() -> int:
     return 0
 
 
+# --- #767: make an ignored --storage-path / --win-iso impossible to miss ------
+#
+# Root cause of #767: a user who deletes winpodx.toml but leaves the leftover
+# podman named volume from an earlier attempt lands in Case 2 below, where the
+# explicit --storage-path can't be honoured (relocating an existing install is
+# --migrate-storage's job). The old one-line note scrolled off before the
+# "Setup Complete" banner, so the VM silently stayed on the old disk and a
+# custom --win-iso was ignored. These helpers escalate the ignore to a framed
+# banner; handle_setup also re-prints it right before the final banner so it
+# survives scrollback. They change VISIBILITY only -- the storage-decision
+# semantics (relocation still needs --migrate-storage) are unchanged.
+
+
+def _print_prominent_warning(lines: list[str]) -> None:
+    """Print a framed, hard-to-miss warning block (blank line + '!' bars)."""
+    bar = "!" * 64
+    print()
+    print(bar)
+    for line in lines:
+        print(line)
+    print(bar)
+    print()
+
+
+def _storage_ignored_warning(requested: Path | str, current: str) -> list[str]:
+    """Warning body for an explicit --storage-path that could not be applied (#767)."""
+    return [
+        tr("WARNING: --storage-path was NOT applied."),
+        tr("  Requested:    {path}").format(path=requested),
+        tr("  Still in use: {current}").format(current=current),
+        tr(
+            "  An existing winpodx install was found. Deleting winpodx.toml does "
+            "not move existing storage or remove a leftover podman volume."
+        ),
+        tr(
+            "  To relocate it, run: winpodx setup --migrate-storage --migrate-storage-target {path}"
+        ).format(path=requested),
+        tr(
+            "  For a genuinely fresh start, remove the old volume first "
+            "(or `winpodx uninstall --purge`)."
+        ),
+    ]
+
+
+def _win_iso_skipped_warning(iso_path: Path | str) -> list[str]:
+    """Warning body for an explicit --win-iso that could not be staged (#767)."""
+    return [
+        tr("WARNING: --win-iso was NOT staged; Windows will download instead."),
+        tr("  ISO: {path}").format(path=iso_path),
+        tr(
+            "  Staging needs the bind-mount storage layout, but this install is "
+            "on the legacy named volume (no host directory to copy the ISO into)."
+        ),
+        tr("  Run `winpodx setup --migrate-storage` first, then re-pass --win-iso."),
+    ]
+
+
 def _decide_storage_mode(
     cfg: Config, *, non_interactive: bool, explicit_target: Path | None = None
-) -> None:
+) -> list[str] | None:
     """Resolve ``cfg.pod.storage_path`` for the about-to-be-generated compose.
 
     See the call site in ``handle_setup`` for the three-case decision.
@@ -220,21 +277,33 @@ def _decide_storage_mode(
     install — e.g. a roomier partition. It gets the same fresh-target prep
     (mkdir + btrfs NoCoW + SSD emulation) as the default path. Relocating an
     *existing* install is out of scope here — that's ``--migrate-storage``.
+
+    ``non_interactive`` is accepted for call-site symmetry with the rest of the
+    setup helpers but is not consulted here; the decision is the same batch or
+    interactive. Returns the framed-warning body (for handle_setup to re-print
+    before the final banner, #767) when an explicit target had to be ignored,
+    else ``None``.
     """
     if cfg.pod.backend not in ("podman", "docker"):
-        return
+        return None
 
-    # Case 1: already set explicitly. Trust the user.
+    # Case 1: already set explicitly. Trust the user. If they passed a
+    # --storage-path that differs from the configured location, it can't be
+    # honoured here (that's --migrate-storage) -- surface it loudly (#767).
     if cfg.pod.storage_path:
         if explicit_target is not None:
-            print(
-                tr(
-                    "  Note: storage is already configured ({path}); ignoring "
-                    "--storage-path. To relocate an existing install, use "
-                    "`winpodx setup --migrate-storage --migrate-storage-target`."
-                ).format(path=cfg.pod.storage_path)
-            )
-        return
+            try:
+                same = (
+                    Path(cfg.pod.storage_path).expanduser().resolve()
+                    == explicit_target.expanduser().resolve()
+                )
+            except OSError:
+                same = str(explicit_target) == cfg.pod.storage_path
+            if not same:
+                warning = _storage_ignored_warning(explicit_target, cfg.pod.storage_path)
+                _print_prominent_warning(warning)
+                return warning
+        return None
 
     from winpodx.core.storage_migration import (
         default_target_path,
@@ -252,14 +321,13 @@ def _decide_storage_mode(
     resolved = resolve_named_volume(cfg.pod.backend)
     if resolved is not None:
         if explicit_target is not None:
-            print(
-                tr(
-                    "  Note: an existing {volume} volume was found; ignoring "
-                    "--storage-path. To move the install to {target}, use "
-                    "`winpodx setup --migrate-storage --migrate-storage-target {target}`."
-                ).format(volume=repr(resolved), target=explicit_target)
+            # The existing location IS the named volume, so any explicit target
+            # "differs" -- always surface the ignore prominently (#767).
+            warning = _storage_ignored_warning(
+                explicit_target, tr("existing {volume} volume").format(volume=repr(resolved))
             )
-            return
+            _print_prominent_warning(warning)
+            return warning
         mp = get_volume_mountpoint(cfg.pod.backend, resolved)
         if mp is not None and detect_path_fs(mp) == "btrfs":
             print()
@@ -273,7 +341,7 @@ def _decide_storage_mode(
             print("        winpodx setup --migrate-storage")
             print(tr("    (~5-10 min, preserves the Windows install)"))
             print()
-        return
+        return None
 
     # Case 3: fresh install. Pick the bind-mount path (the user's
     # --storage-path if given, else the per-user default), create the
@@ -290,7 +358,7 @@ def _decide_storage_mode(
                 path=target, error=e
             )
         )
-        return
+        return None
 
     fs = detect_path_fs(target)
     if fs == "btrfs":
@@ -318,8 +386,10 @@ def _decide_storage_mode(
         cfg.pod.ssd = True
         print(tr("  Host storage is an SSD — the Windows disk will emulate SSD (TRIM, no defrag)."))
 
+    return None
 
-def _stage_win_iso(cfg: Config, iso_path: str | None) -> None:
+
+def _stage_win_iso(cfg: Config, iso_path: str | None) -> list[str] | None:
     """Stage a user-provided Windows ISO as dockur's ``<storage>/custom.iso`` (#647).
 
     MUST run after :func:`_decide_storage_mode` (so ``storage_path`` is
@@ -329,33 +399,34 @@ def _stage_win_iso(cfg: Config, iso_path: str | None) -> None:
     (the #647 bug: install.sh staged it *after* the container had started).
 
     Reflink-copies where the filesystem supports it (btrfs/xfs → instant, no
-    extra space). No-op on the legacy named-volume layout (no host storage dir).
+    extra space). No-op on the legacy named-volume layout (no host storage dir);
+    when the user *explicitly* passed ``--win-iso`` on that layout the skip is
+    surfaced as a framed warning (#767) and returned so handle_setup can
+    re-print it before the final banner.
     """
     if not iso_path:
-        return
+        return None
     import shutil
     import subprocess
 
     src = Path(iso_path).expanduser()
     if not src.is_file():
         print(tr("--win-iso: no such file: {path}").format(path=src))
-        return
+        return None
     storage = (cfg.pod.storage_path or "").strip()
     if not storage:
-        print(
-            tr(
-                "--win-iso: needs the bind-mount storage layout — the legacy named "
-                "volume has no host directory to stage into. Run "
-                "`winpodx setup --migrate-storage` first. Skipping (Windows will download)."
-            )
-        )
-        return
+        # #767: --win-iso was explicitly passed (iso_path is truthy) but staging
+        # can't happen without the bind-mount layout. Make it impossible to miss
+        # rather than a one-line note that scrolls off before the banner.
+        warning = _win_iso_skipped_warning(src)
+        _print_prominent_warning(warning)
+        return warning
     storage_dir = Path(storage).expanduser()
     storage_dir.mkdir(parents=True, exist_ok=True)
     dst = storage_dir / "custom.iso"
     if src.resolve() == dst.resolve():
         print(tr("--win-iso: already staged at {dst}").format(dst=dst))
-        return
+        return None
     print(tr("Staging local ISO → {dst} (dockur installs from it; no download)…").format(dst=dst))
     try:
         # reflink where supported (btrfs/xfs); falls back to a full copy.
@@ -364,6 +435,7 @@ def _stage_win_iso(cfg: Config, iso_path: str | None) -> None:
         shutil.copyfile(src, dst)
     gib = dst.stat().st_size / (1024**3)
     print(tr("  Local ISO staged ({gib:.1f} GB).").format(gib=gib))
+    return None
 
 
 def _handle_migrate_storage(args: argparse.Namespace) -> int:
@@ -784,6 +856,35 @@ def handle_setup(args: argparse.Namespace) -> None:
                 changed = True
             if changed:
                 cfg.save()
+            # #767: unlike --freerdp-source / --multimon (applied just above),
+            # --storage-path / --win-iso can't take effect on this existing-
+            # config skip path -- they only apply to a fresh install / compose
+            # regen. Passing them here used to be fully silent, leaving the VM
+            # on the old disk with no signal. Surface it prominently.
+            _storage_arg = getattr(args, "storage_path", None)
+            _iso_arg = getattr(args, "win_iso", None)
+            if _storage_arg or _iso_arg:
+                lines = [tr("WARNING: an existing winpodx config was found; setup was skipped.")]
+                if _storage_arg:
+                    lines.append(
+                        tr("  --storage-path {path} was NOT applied.").format(path=_storage_arg)
+                    )
+                    lines.append(
+                        tr("  Deleting winpodx.toml does not move existing storage. To relocate:")
+                    )
+                    lines.append(
+                        tr(
+                            "    winpodx setup --migrate-storage --migrate-storage-target {path}"
+                        ).format(path=_storage_arg)
+                    )
+                if _iso_arg:
+                    lines.append(
+                        tr(
+                            "  --win-iso {path} was NOT staged; the existing install keeps "
+                            "its disk."
+                        ).format(path=_iso_arg)
+                    )
+                _print_prominent_warning(lines)
             _ensure_oem_token_staged()
             # Half-uninstalled detection. If cfg points at a podman/docker
             # pod but the container is gone (user did `uninstall.sh`
@@ -856,6 +957,12 @@ def handle_setup(args: argparse.Namespace) -> None:
         cfg.rdp.__post_init__()
 
     _resolve_credentials(cfg, non_interactive=non_interactive, config_existed=config_existed)
+
+    # #767: framed warnings for an explicitly-passed --storage-path / --win-iso
+    # that had to be ignored. Collected from the storage/ISO helpers below and
+    # re-printed right before the "Setup Complete" banner so they survive
+    # scrollback (the mid-stream note used to be the only signal).
+    _deferred_ignore_warnings: list[list[str]] = []
 
     if cfg.pod.backend in ("podman", "docker"):
         # v0.2.1: detect host specs and pick a tier preset (low/mid/high)
@@ -946,15 +1053,19 @@ def handle_setup(args: argparse.Namespace) -> None:
         #      Windows raw disk image inherits NoCoW from day one.
         _storage_path_arg = getattr(args, "storage_path", None)
         _explicit_storage = Path(_storage_path_arg).expanduser() if _storage_path_arg else None
-        _decide_storage_mode(
+        _w = _decide_storage_mode(
             cfg, non_interactive=non_interactive, explicit_target=_explicit_storage
         )
+        if _w:
+            _deferred_ignore_warnings.append(_w)
 
         # Stage a user-provided ISO into <storage>/custom.iso BEFORE compose up
         # so dockur picks it up instead of downloading Windows (#647). Must come
         # after _decide_storage_mode (storage_path resolved) + before
         # _recreate_container below.
-        _stage_win_iso(cfg, getattr(args, "win_iso", None))
+        _w = _stage_win_iso(cfg, getattr(args, "win_iso", None))
+        if _w:
+            _deferred_ignore_warnings.append(_w)
 
         # #395: bail out with an actionable message if the selected backend's
         # daemon isn't reachable, rather than letting compose fail with a
@@ -1038,6 +1149,12 @@ def handle_setup(args: argparse.Namespace) -> None:
     # provisioner.ensure_ready). Until the user's first launch, only the
     # winpodx GUI itself appears in the menu.
     _register_all_desktop_entries()
+
+    # #767: re-surface any ignored --storage-path / --win-iso right before the
+    # final banner so it doesn't scroll off. Already printed once at the
+    # decision point; this repeat is the one that survives a long install log.
+    for _warn in _deferred_ignore_warnings:
+        _print_prominent_warning(_warn)
 
     print("\n" + "=" * 40)
     print(tr(" Setup Complete"))
