@@ -9,10 +9,16 @@
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-07-21
+
 ### Fixed
 
 - **rootless Podman에서 dockur의 user-mode(passt) 네트워킹을 다시 강제하여, 0.10.1 이후 일부 호스트에서 RDP가 연결되지 않던 문제를 수정** (#770, @vrvy-live 감사). 0.10.1(#735)에서 강제 `NETWORK=user`를 제거하면서 컨테이너가 bridge NAT를 자동 선택하게 됐는데, NAT 재작성이 완전히 커버하지 못한 rootless Podman 호스트에서는 게스트가 NAT 내부 `172.x` 주소를 받아 호스트가 포워딩한 RDP 포트(`127.0.0.1:3390`)로는 절대 도달할 수 없었습니다 — 컨테이너는 부팅되고 QEMU도 웹 뷰어에 떴지만 RDP만 연결되지 않았습니다. 이제 winpodx는 rootless Podman에서만 `NETWORK: "user"`를 다시 강제해 검증된 passt 경로(#269/#387 계열)를 복원하며, dockur의 NAT 포트 포워딩이 검증된 rootful Podman과 Docker는 dockur의 자동 선택을 그대로 둡니다. `USER_PORTS`는 변경 없습니다.
 - **Homebrew로 설치한 `podman-compose`를 brew의 bin이 세션 PATH에 없어도 감지** (#765, #725, @realahmed7777 감사). Bazzite 같은 불변 배포판에서는 Homebrew가 `podman-compose` 설치의 일반적인 방법인데, winpodx는 `shutil.which`로만 탐색해서 `$PATH`만 검색했고 데스크톱/트레이 세션의 `$PATH`에는 brew의 bin이 빠져 있는 경우가 많았습니다. 그래서 `winpodx setup`, `winpodx doctor`, 트레이 Pod > Start(`PodmanBackend`의 별도 경로) 모두 설치돼 있는데도 "podman-compose not found"로 조용히 no-op이 됐습니다. 이제 알려진 Homebrew bin 디렉토리(`/home/linuxbrew/.linuxbrew/bin`, `~/.linuxbrew/bin`, `/opt/homebrew/bin`)와 `~/.local/bin`도 확인하고, 상속된 `PATH`와 무관하게 pod-start 서브프로세스가 찾을 수 있도록 해석된 절대 경로를 사용합니다.
+
+### Contributors
+
+이번 릴리스에 이슈를 제보해 주신 모든 분께 감사드립니다: @vrvy-live (#770), @realahmed7777 (#765, #725).
 
 ## [0.10.2] - 2026-07-20
 

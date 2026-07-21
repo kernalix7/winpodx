@@ -1,3 +1,16 @@
+winpodx (0.10.3) unstable; urgency=medium
+
+  * Hotfix release. Rootless Podman re-forces dockur's NETWORK=user (passt)
+    networking: dropping the forced value in 0.10.1 (#735) let the container
+    pick bridge NAT, whose NAT-internal 172.x guest IP was unreachable for the
+    host-forwarded RDP port, so RDP never connected on some rootless hosts
+    (#770); rootful Podman and Docker keep auto-selection. podman-compose
+    installed via Homebrew (common on immutable distros like Bazzite) is now
+    detected even when brew's bin is off the session PATH, fixing setup,
+    doctor, and the tray Pod > Start no-op (#765, #725). See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 21 Jul 2026 09:00:00 +0000
+
 winpodx (0.10.2) unstable; urgency=medium
 
   * Bug-fix release. Guest agent stays responsive during long execs and no
