@@ -120,6 +120,7 @@
  "gs.pkg.rhel": "AlmaLinux / Rocky / RHEL (.rpm)",
  "gs.pkg.title": "或通过包管理器安装",
  "gs.pkg.uninstall": "卸载",
+ "gs.pkg.update": "<b>更新</b> — 重新运行上面相同的安装命令；它会检测现有的 WinPodX 安装并原地升级，保留你的配置和 Windows 虚拟机。这也适用于 Bazzite 等 rpm-ostree 主机（Silverblue / Kinoite）— 同样的裸命令在那里也会原地升级现有安装，不需要 <code>--main</code>，也不会清空虚拟机。通过包管理器或 AppImage 安装的？按安装时的方式更新 — 通过你的包管理器，或从<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://github.com/kernalix7/winpodx/releases/latest\">最新发行版</a>获取更新的 <code>.deb</code> / <code>.rpm</code> / AppImage。随时用 <code>winpodx --version</code> 查看当前版本。",
  "gs.req.docs_btn": "完整安装文档 →",
  "gs.req.mem.body": "8 GB+ RAM（建议 12 GB+），以及约 30 GB 可用磁盘用于 Windows 镜像。",
  "gs.req.mem.title": "内存与磁盘",

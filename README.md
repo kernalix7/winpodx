@@ -109,8 +109,10 @@ chmod +x winpodx-*-x86_64.AppImage
 > **After a package-manager / AppImage install:** run `winpodx setup` once to generate `~/.config/winpodx/winpodx.toml` + compose.yaml. The curl one-liner does this for you (and waits ~5–10 min for the Windows first boot); package installs ship the binary only so `apt install` / `dnf install` / `yay -S` / first AppImage launch don't trigger a 10-minute Windows ISO download out of the blue. After setup, just launching an app (`winpodx app run desktop`) auto-provisions the pod the first time.
 >
 > The Thin AppImage (0.6.0) bundles Python + Qt + winpodx + FreeRDP only — the container runtime lives on the host (`podman` ≥ 4 recommended, `docker` also supported) so the AppImage no longer fights a host stack you already have (#357, #363). Pre-0.6.0 fat AppImages bundled the whole podman stack and shadowed the host's. Host-side requirements left: a container runtime via your package manager, `/dev/kvm`, `kvm` group membership, and `/etc/subuid` / `/etc/subgid` for rootless Podman. `winpodx setup-host` fixes the kvm / subuid bits via a single `pkexec` prompt; `winpodx doctor` surfaces anything still missing.
+>
+> **Updating.** Re-run the same one-liner to pick up the latest release — it detects the existing install and upgrades it in place, keeping your config and Windows VM; a running tray / GUI restarts itself so the new version takes effect. This works unmodified on Bazzite and other rpm-ostree hosts too (no `--main`, no VM wipe). Installed via a package manager or the AppImage instead? Update it the same way you installed it — through your package manager, or by grabbing the newer `.deb` / `.rpm` / AppImage from the [latest release](https://github.com/kernalix7/winpodx/releases/latest).
 
-See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, and uninstall.
+See [docs/INSTALL.md](docs/INSTALL.md) for offline / air-gapped builds, source installs, version pinning, updating, and uninstall.
 
 ## First-time setup
 

@@ -120,6 +120,7 @@
  "gs.pkg.rhel": "AlmaLinux / Rocky / RHEL (.rpm)",
  "gs.pkg.title": "Ou via un gestionnaire de paquets",
  "gs.pkg.uninstall": "Désinstaller",
+ "gs.pkg.update": "<b>Mise à jour</b> — relancez la même commande d'installation ci-dessus ; elle détecte une installation WinPodX existante et la met à jour sur place, en conservant votre configuration et votre VM Windows. Cela vaut aussi pour Bazzite et les autres hôtes rpm-ostree (Silverblue / Kinoite) — la même commande, sans argument, met à jour une installation existante là aussi, sans <code>--main</code> et sans effacer la VM. Installé via un gestionnaire de paquets ou l'AppImage ? Mettez à jour de la même façon que vous avez installé — via votre gestionnaire de paquets, ou en récupérant le <code>.deb</code> / <code>.rpm</code> / AppImage plus récent depuis la <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://github.com/kernalix7/winpodx/releases/latest\">dernière version</a>. Vérifiez votre version avec <code>winpodx --version</code>.",
  "gs.req.docs_btn": "Documentation d'installation complète →",
  "gs.req.mem.body": "8 Go de RAM minimum (12 Go ou plus recommandés) et ~30 Go d'espace disque libre pour l'image Windows.",
  "gs.req.mem.title": "Mémoire & disque",

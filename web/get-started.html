@@ -90,6 +90,9 @@ sudo dnf install winpodx</div></div>
       config + compose and confirm host deps — package installs ship the binary only, so they don't
       kick off a 10-minute Windows download out of the blue. The curl one-liner does this for you.
     </div>
+    <div class="note" style="border-left-color:var(--blue)" data-i18n-html="gs.pkg.update">
+      <b>Updating</b> — re-run the same install command above; it detects an existing WinPodX install and upgrades it in place, keeping your config and Windows VM. That includes Bazzite and other rpm-ostree (Silverblue / Kinoite) hosts — the bare command upgrades an existing install there too, no <code>--main</code> and no VM wipe. Installed via a package manager or the AppImage? Update the same way you installed it — through your package manager, or by grabbing the newer <code>.deb</code> / <code>.rpm</code> / AppImage from the <a target="_blank" rel="noopener noreferrer" href="https://github.com/kernalix7/winpodx/releases/latest">latest release</a>. Check what you're on with <code>winpodx --version</code>.
+    </div>
   </section>
 
   <section class="alt"><div class="wrap">
