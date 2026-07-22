@@ -106,7 +106,7 @@
  "gs.hero.eyebrow": "시작하기",
  "gs.hero.h1": "한 줄이면 바로 실행 준비",
  "gs.hero.sub": "curl 설치 스크립트는 지원되는 모든 배포판에서 동작하며 setup까지 자동으로 실행합니다. 또는 익숙한 패키지 매니저로 설치한 뒤 <code>winpodx setup</code>을 한 번만 실행하세요.",
- "gs.install.flags": "<b>선택 설치 플래그</b>(<code>install.sh</code>를 내려받아 전달하거나 로컬에서 실행): <code>--storage-dir &lt;경로&gt;</code>는 Windows VM 디스크를 <code>~/.local/share/winpodx/storage</code> 대신 여유 있는 파티션에 두고, <code>--win-iso &lt;경로&gt;</code>는 이미 갖고 있는 Windows ISO로 설치해 약 5–8&nbsp;GB 다운로드를 건너뜁니다. 둘 다 새 설치에만 적용됩니다.",
+ "gs.install.flags": "<b>선택 설치 플래그</b>(<code>install.sh</code>를 내려받아 전달하거나 로컬에서 실행): <code>--storage-dir &lt;경로&gt;</code>는 Windows VM 디스크를 <code>~/.local/share/winpodx/storage</code> 대신 여유 있는 파티션에 두고, <code>--win-iso &lt;경로&gt;</code>는 이미 갖고 있는 Windows ISO로 설치해 약 5–8&nbsp;GB 다운로드를 건너뜁니다. 둘 다 새 설치에만 적용됩니다. 이는 <code>install.sh</code>의 플래그입니다. 대신 <code>winpodx setup</code>을 직접 실행하면 해당 플래그는 <code>--storage-path</code>이며(<code>--win-iso</code>는 거기서도 동일합니다).",
  "gs.install.label": "지원되는 모든 배포판",
  "gs.install.lead": "이 한 줄 명령이 WinPodX 설치, setup 실행, 첫 Windows 부팅 대기(약 5~10분)까지 처리합니다.",
  "gs.install.note": "<b>package / AppImage 설치 후에는</b> <code>winpodx setup</code>을 한 번 실행해\n      config + compose를 만들고 호스트 의존성을 확인하세요 — package install은 바이너리만 제공하므로\n      갑자기 10분짜리 Windows 다운로드를 시작하지 않습니다. curl 한 줄 명령은 이 과정을 대신 실행합니다.",

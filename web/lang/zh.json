@@ -106,7 +106,7 @@
  "gs.hero.eyebrow": "快速开始",
  "gs.hero.h1": "一行命令，直接跑起来",
  "gs.hero.sub": "curl 安装器适用于所有受支持发行版，并会替你完成 setup。也可以用原生包管理器安装，再运行一次 <code>winpodx setup</code>。",
- "gs.install.flags": "<b>可选安装器参数</b>（下载 <code>install.sh</code> 后传入，或在本地运行）：<code>--storage-dir &lt;路径&gt;</code> 把 Windows VM 磁盘放到更宽裕的分区，而不是 <code>~/.local/share/winpodx/storage</code>；<code>--win-iso &lt;路径&gt;</code> 用你已有的 Windows ISO 安装，省去约 5–8&nbsp;GB 的下载。两者都只作用于全新安装。",
+ "gs.install.flags": "<b>可选安装器参数</b>（下载 <code>install.sh</code> 后传入，或在本地运行）：<code>--storage-dir &lt;路径&gt;</code> 把 Windows VM 磁盘放到更宽裕的分区，而不是 <code>~/.local/share/winpodx/storage</code>；<code>--win-iso &lt;路径&gt;</code> 用你已有的 Windows ISO 安装，省去约 5–8&nbsp;GB 的下载。两者都只作用于全新安装。这些是 <code>install.sh</code> 的参数；如果改为直接运行 <code>winpodx setup</code>，对应的参数是 <code>--storage-path</code>（<code>--win-iso</code> 在那里名称相同）。",
  "gs.install.label": "任意受支持发行版",
  "gs.install.lead": "这一行会安装 WinPodX、运行 setup，并等待 Windows 首次启动完成（约 5–10 分钟）。",
  "gs.install.note": "<b>通过包 / AppImage 安装后</b>，请运行一次 <code>winpodx setup</code> 来生成\n      config + compose，并确认主机依赖 — 包安装只提供二进制文件，所以不会\n      突然触发 10 分钟的 Windows 下载。curl 一行命令会自动完成这一步。",

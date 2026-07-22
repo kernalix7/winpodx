@@ -106,7 +106,7 @@
  "gs.hero.eyebrow": "はじめに",
  "gs.hero.h1": "1 行で使い始める",
  "gs.hero.sub": "curl インストーラーは対応するすべてのディストリで動作し、セットアップまで自動で実行します。ネイティブのパッケージマネージャーを使う場合は、インストール後に <code>winpodx setup</code> を一度だけ実行してください。",
- "gs.install.flags": "<b>インストーラーの任意フラグ</b>（<code>install.sh</code> をダウンロードして渡すか、ローカルで実行）: <code>--storage-dir &lt;path&gt;</code> は Windows VM のディスクを <code>~/.local/share/winpodx/storage</code> ではなく空きの大きいパーティションに置き、<code>--win-iso &lt;path&gt;</code> は手元の Windows ISO からインストールして約 5–8&nbsp;GB のダウンロードを省きます。どちらも新規インストールに適用されます。",
+ "gs.install.flags": "<b>インストーラーの任意フラグ</b>（<code>install.sh</code> をダウンロードして渡すか、ローカルで実行）: <code>--storage-dir &lt;path&gt;</code> は Windows VM のディスクを <code>~/.local/share/winpodx/storage</code> ではなく空きの大きいパーティションに置き、<code>--win-iso &lt;path&gt;</code> は手元の Windows ISO からインストールして約 5–8&nbsp;GB のダウンロードを省きます。どちらも新規インストールに適用されます。これらは <code>install.sh</code> のフラグです。代わりに <code>winpodx setup</code> を直接実行する場合、相当するのは <code>--storage-path</code> です（<code>--win-iso</code> はそちらも同じです）。",
  "gs.install.label": "対応ディストリならどれでも",
  "gs.install.lead": "この 1 行で WinPodX をインストールし、セットアップを実行し、初回 Windows 起動（~5–10 分）まで待機します。",
  "gs.install.note": "<b>パッケージ / AppImage でインストールした後</b>は、<code>winpodx setup</code> を一度実行して\n      config + compose を生成し、ホスト側の依存関係を確認してください — パッケージ版はバイナリだけを配布するため、\n      予告なく 10 分の Windows ダウンロードを始めることはありません。curl の 1 行インストーラーなら、この手順まで自動で行います。",

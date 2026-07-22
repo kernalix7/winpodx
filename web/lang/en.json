@@ -106,7 +106,7 @@
  "gs.hero.eyebrow": "Get started",
  "gs.hero.h1": "Up and running in one line",
  "gs.hero.sub": "The curl installer works on every supported distro and runs setup for you. Or use your native package manager and run <code>winpodx setup</code> once.",
- "gs.install.flags": "<b>Optional installer flags</b> (download <code>install.sh</code> and pass them, or run it locally): <code>--storage-dir &lt;path&gt;</code> puts the Windows VM disk on a roomier partition instead of <code>~/.local/share/winpodx/storage</code>, and <code>--win-iso &lt;path&gt;</code> installs from a Windows ISO you already have so it skips the ~5–8&nbsp;GB download. Both apply to fresh installs.",
+ "gs.install.flags": "<b>Optional installer flags</b> (download <code>install.sh</code> and pass them, or run it locally): <code>--storage-dir &lt;path&gt;</code> puts the Windows VM disk on a roomier partition instead of <code>~/.local/share/winpodx/storage</code>, and <code>--win-iso &lt;path&gt;</code> installs from a Windows ISO you already have so it skips the ~5–8&nbsp;GB download. Both apply to fresh installs. These are <code>install.sh</code> flags; if you run <code>winpodx setup</code> directly instead, the equivalent is <code>--storage-path</code> (and <code>--win-iso</code> is the same there).",
  "gs.install.label": "Any supported distro",
  "gs.install.lead": "The one-liner installs WinPodX, runs setup, and waits for the first Windows boot (~5–10 min).",
  "gs.install.note": "<b>After a package / AppImage install</b>, run <code>winpodx setup</code> once to generate the\n      config + compose and confirm host deps — package installs ship the binary only, so they don't\n      kick off a 10-minute Windows download out of the blue. The curl one-liner does this for you.",
