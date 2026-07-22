@@ -206,7 +206,12 @@ def _register_desktop_entries(discovered) -> None:
     entries (under ~/.local/share/winpodx/apps/) are preserved.
     """
     from winpodx.core.app import list_available_apps
-    from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
+    from winpodx.desktop.entry import (
+        DESKTOP_SHORTCUT_STEM,
+        install_desktop_entry,
+        install_desktop_shortcut,
+        remove_desktop_entry,
+    )
     from winpodx.desktop.icons import update_icon_cache
     from winpodx.utils.paths import applications_dir
 
@@ -231,19 +236,32 @@ def _register_desktop_entries(discovered) -> None:
                 file=sys.stderr,
             )
 
+    # #769: keep the "Windows Desktop" launcher shortcut present across
+    # refreshes too -- it isn't tied to any discovered app, so nothing else
+    # would re-create it if a user (or a stale profile) deleted it.
+    try:
+        install_desktop_shortcut()
+    except Exception as e:  # noqa: BLE001
+        print(
+            tr("  warning: could not install desktop shortcut: {error}").format(error=e),
+            file=sys.stderr,
+        )
+
     # v0.2.0.9: prune any winpodx-*.desktop file whose slug is not in the
     # current AppInfo set (covers both vanished discoveries and old
     # bundled / removed entries).
     removed = 0
     apps_dir = applications_dir()
+    shortcut_slug = DESKTOP_SHORTCUT_STEM[len("winpodx-") :]
     if apps_dir.exists():
         for entry in apps_dir.glob("winpodx-*.desktop"):
             stem = entry.stem  # winpodx-<slug>
             if not stem.startswith("winpodx-"):
                 continue
             slug = stem[len("winpodx-") :]
-            # Don't touch the GUI launcher itself or any winpodx-internal entry.
-            if slug in {"", "gui", "launcher"}:
+            # Don't touch the GUI launcher, the full-desktop shortcut (#769),
+            # or any other winpodx-internal entry.
+            if slug in {"", "gui", "launcher", shortcut_slug}:
                 continue
             if slug in available_slugs:
                 continue

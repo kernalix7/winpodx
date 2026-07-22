@@ -1387,7 +1387,7 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
 def _register_all_desktop_entries() -> None:
     """Register all app definitions as .desktop entries."""
     from winpodx.core.app import list_available_apps
-    from winpodx.desktop.entry import install_desktop_entry
+    from winpodx.desktop.entry import install_desktop_entry, install_desktop_shortcut
     from winpodx.desktop.icons import (
         install_gui_launcher_desktop,
         install_winpodx_icon,
@@ -1407,6 +1407,11 @@ def _register_all_desktop_entries() -> None:
     apps = list_available_apps()
     for app_info in apps:
         install_desktop_entry(app_info)
+
+    # #769: "Windows Desktop" launcher, independent of whether any apps have
+    # been discovered yet -- always available so users aren't stuck needing a
+    # terminal for `winpodx app run desktop`.
+    install_desktop_shortcut()
 
     if apps:
         update_icon_cache()

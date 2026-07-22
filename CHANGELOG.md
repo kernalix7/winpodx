@@ -11,6 +11,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **A "Windows Desktop" launcher entry now appears alongside your Windows apps** (#769, thanks @jltorres60). It opens the full Windows desktop (the equivalent of `winpodx app run desktop`), so it's one click from the app menu instead of a terminal command. The entry lands in the same winpodx menu group as the per-app shortcuts, is installed by `winpodx setup` and `winpodx app refresh`, and is re-created by `winpodx doctor --fix` if it goes missing.
 - **The telemetry / ads / widgets debloat presets cover more privacy surface** (#696, thanks @GameSoul7Eugene). The three registry-tweak scripts pick up additional opt-outs, each with a matching restore in its undo sibling: activity history / timeline upload, handwriting and inking error/data collection, online speech recognition, typing-insights (implicit ink & text) collection, Windows feedback frequency (Siuf), cloud-search history (MSA / AAD / device), the "let websites access my language list" opt-out, and the Windows-10 taskbar Feeds (News and interests) keys alongside the existing Windows-11 widgets policy. The more aggressive entries from the original PR were intentionally left out of this subset — a `CompatTelRunner.exe` image-file-execution hijack, turning SafeSearch off, blocking Store app auto-updates, disabling the location sensor and the Connected Devices Platform service, and the cloud settings-sync toggles — as out of scope or an app-compat risk for a throwaway VM.
 
 ### Fixed

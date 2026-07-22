@@ -698,8 +698,17 @@ def _apps_missing_desktop_entries() -> list:
     return missing
 
 
+def _desktop_shortcut_missing() -> bool:
+    """True if the "Windows Desktop" launcher shortcut (#769) isn't installed."""
+    from winpodx.desktop.entry import DESKTOP_SHORTCUT_STEM
+    from winpodx.utils.paths import applications_dir
+
+    return not (applications_dir() / f"{DESKTOP_SHORTCUT_STEM}.desktop").exists()
+
+
 def _check_missing_desktop_entries() -> Finding:
-    """Apps in the index with no installed ``.desktop`` file.
+    """Apps in the index with no installed ``.desktop`` file, plus the
+    "Windows Desktop" launcher shortcut (#769) if it's missing.
 
     Host-only -- unit-testable. Auto-fixable via ``missing_desktop_entries``.
     """
@@ -707,11 +716,17 @@ def _check_missing_desktop_entries() -> Finding:
         missing = _apps_missing_desktop_entries()
     except Exception as e:  # noqa: BLE001
         return Finding("warn", "could not enumerate apps", detail=str(e))
-    if not missing:
+    shortcut_missing = _desktop_shortcut_missing()
+    if not missing and not shortcut_missing:
         return Finding("ok", "all registered apps have desktop entries")
+    parts = []
+    if missing:
+        parts.append(f"{len(missing)} app(s) missing a desktop entry")
+    if shortcut_missing:
+        parts.append("desktop shortcut missing")
     return Finding(
         "warn",
-        f"{len(missing)} app(s) missing a desktop entry",
+        ", ".join(parts),
         detail=", ".join(a.name for a in missing),
         suggestion="Run `winpodx doctor --fix` (or `winpodx app install <name>`) to re-register.",
         fix_id="missing_desktop_entries",
@@ -840,7 +855,9 @@ def _fix_stale_locks() -> tuple[bool, str]:
 
 
 def _fix_missing_desktop_entries() -> tuple[bool, str]:
-    """Re-register desktop entries for apps that are missing one. Host-only.
+    """Re-register desktop entries for apps that are missing one, and
+    re-install the "Windows Desktop" launcher shortcut (#769) if it's
+    missing too. Host-only.
 
     Reuses the existing desktop-entry install path
     (``desktop.entry.install_desktop_entry`` + icon + MIME), the same one
@@ -852,10 +869,11 @@ def _fix_missing_desktop_entries() -> tuple[bool, str]:
         missing = _apps_missing_desktop_entries()
     except Exception as e:  # noqa: BLE001
         return False, f"could not enumerate apps: {e}"
-    if not missing:
+    shortcut_missing = _desktop_shortcut_missing()
+    if not missing and not shortcut_missing:
         return True, "no missing desktop entries"
 
-    from winpodx.desktop.entry import install_desktop_entry
+    from winpodx.desktop.entry import install_desktop_entry, install_desktop_shortcut
     from winpodx.desktop.icons import update_icon_cache
     from winpodx.desktop.mime import register_mime_types
 
@@ -869,6 +887,11 @@ def _fix_missing_desktop_entries() -> tuple[bool, str]:
             registered += 1
         except Exception as e:  # noqa: BLE001
             failed.append(f"{app.name} ({e})")
+    if shortcut_missing:
+        try:
+            install_desktop_shortcut()
+        except Exception as e:  # noqa: BLE001
+            failed.append(f"desktop shortcut ({e})")
     # Refresh the icon cache once after the batch (cheap, idempotent).
     try:
         update_icon_cache()
@@ -876,7 +899,8 @@ def _fix_missing_desktop_entries() -> tuple[bool, str]:
         pass
     if failed:
         return False, f"re-registered {registered}, failed: {', '.join(failed)}"
-    return True, f"re-registered {registered} desktop entry(ies)"
+    suffix = " + desktop shortcut" if shortcut_missing else ""
+    return True, f"re-registered {registered} desktop entry(ies){suffix}"
 
 
 # PowerShell: start the keep-alive watchdog task now. The task itself is
