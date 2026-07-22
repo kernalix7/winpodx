@@ -40,6 +40,33 @@ def test_linux_to_unc_media_path(monkeypatch, tmp_path):
     assert result == "\\\\tsclient\\media\\USB\\report.docx"
 
 
+def test_linux_to_unc_home_share_maps_relative_to_shared_dir(tmp_path):
+    # #758: with home_share set, \\tsclient\home maps to that directory, so a
+    # file under it converts relative to the share root (NOT $HOME).
+    share = tmp_path / "WinShare"
+    doc = share / "Docs" / "report.docx"
+    doc.parent.mkdir(parents=True)
+    doc.touch()
+    result = linux_to_unc(str(doc), str(share))
+    assert result == "\\\\tsclient\\home\\Docs\\report.docx"
+
+
+def test_linux_to_unc_home_share_file_outside_share_raises(monkeypatch, tmp_path):
+    # #758: a file NOT under home_share can't be reached via \\tsclient\home;
+    # it must raise (caller falls back / surfaces an error) rather than emit a
+    # broken UNC. Even a file under the *real* $HOME is rejected once a narrower
+    # share is configured.
+    monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
+    monkeypatch.setattr("winpodx.core.rdp._find_media_base", lambda: None)
+    share = tmp_path / "WinShare"
+    share.mkdir()
+    outside = tmp_path / "Secrets" / "id_rsa"
+    outside.parent.mkdir()
+    outside.touch()
+    with pytest.raises(ValueError, match="outside shared locations"):
+        linux_to_unc(str(outside), str(share))
+
+
 def test_find_media_base_prefers_user_then_persistent_parent(monkeypatch):
     # A live media parent is preferred over the placeholder so a USB inserted
     # AFTER the session starts shows on refresh. Per-user dir wins; the
@@ -551,6 +578,71 @@ class TestBuildRdpCommand:
         assert "/sound:sys:alsa" in cmd
         assert "/exec:evil" not in cmd
 
+    def test_home_share_empty_uses_home_drive(self, cfg, monkeypatch):
+        # #758 default: empty home_share keeps the whole $HOME via +home-drive,
+        # with NO explicit /drive:home,<path> — byte-for-byte the old behaviour.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        cfg.pod.home_share = ""
+        cmd, _ = build_rdp_command(cfg)
+        assert "+home-drive" in cmd
+        assert not any(c.startswith("/drive:home,") for c in cmd)
+
+    def test_home_share_set_under_home_uses_drive_home(self, cfg, monkeypatch, tmp_path):
+        # #758: a set home_share maps \\tsclient\home to that dir via an
+        # explicit /drive:home,<path> and drops +home-drive. Native client → no
+        # sandbox → no --filesystem injection regardless of location.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
+        share = str(tmp_path / "WinShare")
+        cfg.pod.home_share = share
+        cmd, _ = build_rdp_command(cfg)
+        assert f"/drive:home,{share}" in cmd
+        assert "+home-drive" not in cmd
+        assert not any(c.startswith("--filesystem") for c in cmd)
+
+    def test_home_share_outside_home_flatpak_adds_filesystem(self, cfg, monkeypatch):
+        # #758: sharing a dir OUTSIDE $HOME via the Flatpak FreeRDP needs a
+        # matching --filesystem hole or the sandbox blocks it. It must be a
+        # flatpak *run* option (before the app id), not an xfreerdp arg.
+        from winpodx.core.rdp import _FLATPAK_FREERDP_CMD
+
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: (_FLATPAK_FREERDP_CMD, "flatpak"),
+        )
+        cfg.pod.home_share = "/data/windows-share"
+        cmd, _ = build_rdp_command(cfg)
+        assert "--filesystem=/data/windows-share" in cmd
+        assert "/drive:home,/data/windows-share" in cmd
+        assert cmd.index("--filesystem=/data/windows-share") < cmd.index("com.freerdp.FreeRDP")
+
+    def test_home_share_under_home_flatpak_no_extra_filesystem(self, cfg, monkeypatch, tmp_path):
+        # #758: a share UNDER $HOME is already covered by the baked-in
+        # --filesystem=home, so no extra hole is punched.
+        from winpodx.core.rdp import _FLATPAK_FREERDP_CMD
+
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: (_FLATPAK_FREERDP_CMD, "flatpak"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
+        cfg.pod.home_share = str(tmp_path / "Share")
+        cmd, _ = build_rdp_command(cfg)
+        baked_in = {
+            "--filesystem=home",
+            "--filesystem=/run/media",
+            "--filesystem=/media",
+            "--filesystem=/mnt",
+        }
+        extra = [c for c in cmd if c.startswith("--filesystem=") and c not in baked_in]
+        assert extra == []
+
     def test_optional_codec_flags_rejected_as_bare(self, cfg, monkeypatch):
         """Regression for the v0.4.3 → #126 follow-up: FreeRDP 3.x flags
         of type ``COMMAND_LINE_VALUE_OPTIONAL`` (gfx-h264, rfx, nsc,
@@ -979,7 +1071,7 @@ def test_launch_app_existing_session_with_file_spawns_fresh_window(monkeypatch, 
     live = RDPSession(app_name="winword")
     monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
-    monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p: "\\\\tsclient\\home\\2.docx")
+    monkeypatch.setattr(rdp_mod, "linux_to_unc", lambda _p, _hs="": "\\\\tsclient\\home\\2.docx")
 
     class _ReachedCold(RuntimeError):
         pass
@@ -1030,7 +1122,7 @@ def test_launch_app_warm_session_unmappable_file_notifies_not_silent(monkeypatch
     monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: live)
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
 
-    def _raise_value(_p):
+    def _raise_value(_p, _hs=""):
         raise ValueError("Cannot open file: outside shared locations")
 
     monkeypatch.setattr(rdp_mod, "linux_to_unc", _raise_value)

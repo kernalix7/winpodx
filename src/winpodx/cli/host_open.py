@@ -97,12 +97,16 @@ def _share_roots(cfg: Config) -> dict[str, Path]:
 
     Built from the same flags ``core/rdp.py`` passes to xfreerdp3:
 
-    - ``+home-drive`` makes ``\\\\tsclient\\home`` map to ``$HOME``.
+    - ``+home-drive`` makes ``\\\\tsclient\\home`` map to ``$HOME``,
+      OR ``/drive:home,<dir>`` maps it to ``cfg.pod.home_share`` when the
+      user shares only a chosen directory (#758). This mirror MUST use the
+      same effective root so a reverse-open request under the shared dir
+      still validates (and one outside it is correctly rejected).
     - ``/drive:media,<path>`` makes ``\\\\tsclient\\media`` map to the
       detected media base (when a USB stick / external mount is
       present at session-start time).
 
-    Phase 2a stages the manifest under ``$HOME``, so listing
+    Phase 2a stages the manifest under the shared home root, so listing
     ``home`` is the only mapping that has to be present for the
     feature to work; ``media`` is opportunistic.
 
@@ -110,9 +114,12 @@ def _share_roots(cfg: Config) -> dict[str, Path]:
     guest-supplied UNC path that doesn't resolve under one of these
     roots is rejected at the open boundary.
     """
-    from winpodx.core.rdp import _find_media_base  # local import — heavy
+    from winpodx.core.rdp import _find_media_base, _resolve_home_share  # local — heavy
 
-    roots: dict[str, Path] = {"home": Path.home()}
+    # #758: the guest's \\tsclient\home is cfg.pod.home_share when set, else
+    # the whole $HOME. Match core/rdp.py's mapping exactly.
+    home_share = _resolve_home_share(cfg)
+    roots: dict[str, Path] = {"home": Path(home_share) if home_share else Path.home()}
     try:
         media = _find_media_base()
     except Exception:  # noqa: BLE001 — never let a probe failure block startup

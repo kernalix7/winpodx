@@ -724,3 +724,93 @@ class TestStoragePathValidation:
     def test_tmp_subpath_accepted_for_tests(self):
         # Used by pytest fixtures (tmp_path under /tmp/pytest-of-*).
         assert self._cfg("/tmp/winpodx-test/storage") == "/tmp/winpodx-test/storage"
+
+
+# --- home_share validation (#758) ---
+
+
+class TestHomeShareValidation:
+    """`PodConfig.__post_init__` sanitises pod.home_share (#758).
+
+    Empty = share the whole $HOME (default). A set value must be an absolute
+    path outside the system-root denylist; unlike storage_path there is no
+    allowlist (the share may live anywhere the user can read, e.g. /data).
+    """
+
+    def _cfg(self, raw):
+        from winpodx.core.config import PodConfig
+
+        cfg = PodConfig()
+        cfg.home_share = raw
+        cfg.__post_init__()
+        return cfg.home_share
+
+    def test_default_is_empty(self):
+        from winpodx.core.config import PodConfig
+
+        assert PodConfig().home_share == ""
+
+    def test_empty_string_passes_through(self):
+        assert self._cfg("") == ""
+
+    def test_whitespace_becomes_empty(self):
+        assert self._cfg("   ") == ""
+
+    def test_non_string_becomes_empty(self):
+        assert self._cfg(123) == ""
+        assert self._cfg(None) == ""
+
+    def test_relative_path_rejected(self):
+        assert self._cfg("./share") == ""
+        assert self._cfg("share") == ""
+        assert self._cfg("../foo") == ""
+
+    def test_system_root_rejected(self):
+        assert self._cfg("/") == ""
+        assert self._cfg("/etc") == ""
+        assert self._cfg("/etc/ssh") == ""
+        assert self._cfg("/usr/local") == ""
+        assert self._cfg("/var") == ""
+        assert self._cfg("/proc/1") == ""
+        assert self._cfg("/dev/null") == ""
+        assert self._cfg("/root") == ""
+
+    def test_yaml_breaking_chars_rejected(self):
+        for bad in (
+            "/home/u/share\nfoo",
+            '/home/u/x"foo',
+            "/home/u/${HOME}",
+            "/home/u/`whoami`",
+            "/home/u/{a}",
+        ):
+            assert self._cfg(bad) == "", f"{bad!r} should have been rejected"
+
+    def test_absolute_path_outside_home_accepted(self):
+        # The whole point of #758: a share may live anywhere readable, so an
+        # arbitrary non-system absolute path (no allowlist) round-trips.
+        assert self._cfg("/data/windows-share") == "/data/windows-share"
+        assert self._cfg("/mnt/share") == "/mnt/share"
+
+    def test_home_subdirectory_accepted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        accepted = str(tmp_path / "WinShare")
+        assert self._cfg(accepted) == accepted
+
+    def test_tilde_kept_unexpanded(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        # Original (unexpanded) string round-trips; expansion is only used for
+        # the safety check and happens at use time.
+        assert self._cfg("~/WinShare") == "~/WinShare"
+
+
+def test_config_save_load_home_share_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    cfg = Config()
+    share = str(tmp_path / "WinShare")
+    cfg.pod.home_share = share
+    cfg.save()
+
+    loaded = Config.load()
+    assert loaded.pod.home_share == share

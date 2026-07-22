@@ -345,6 +345,18 @@ class PodConfig:
     # users keep the named volume until they explicitly run
     # `winpodx setup --migrate-storage`.
     storage_path: str = ""
+    # #758: which host directory the guest sees as ``\\tsclient\home``.
+    # Empty (default) → the whole ``$HOME`` (the historical behaviour,
+    # via FreeRDP ``+home-drive``) so upgrades are unchanged. A non-empty
+    # absolute path → share ONLY that directory instead (mapped as
+    # ``/drive:home,<path>``), so a user can expose e.g. ``~/WinShare``
+    # or ``/data/windows-share`` without handing the guest their SSH
+    # keys / browser profiles / the rest of ``$HOME``. Sanitised to an
+    # absolute path in ``__post_init__`` (relative paths + system roots
+    # are rejected back to ""); ``~`` is kept un-expanded here and
+    # expanded at use time. Only files under the shared directory are
+    # reachable from the guest afterwards (see ``core/rdp.linux_to_unc``).
+    home_share: str = ""
     # v0.5.x: Windows installation language/region/keyboard settings.
     # Passed through to dockur's LANGUAGE, REGION, KEYBOARD env vars.
     # Defaults to English (US). Common values for Spanish:
@@ -561,6 +573,25 @@ class PodConfig:
         # Anything outside the allowlist or matching a denylist is
         # silently coerced to "" — back to named-volume mode.
         self.storage_path = _sanitise_storage_path(self.storage_path)
+        # home_share (#758): keep empty (share the whole $HOME) or coerce to a
+        # safe absolute string. Unlike storage_path this is a DENYLIST, not an
+        # allowlist — the whole point is to pick an arbitrary readable folder
+        # (~/WinShare, /data/share, ...) to expose instead of $HOME, so only
+        # system roots are refused. We do NOT require the directory to exist at
+        # config-set time (the user may create it later); note it if missing so
+        # a typo doesn't silently hand the guest an empty \\tsclient\home.
+        self.home_share = _sanitise_home_share(self.home_share)
+        if self.home_share:
+            try:
+                _hs_missing = not Path(self.home_share).expanduser().exists()
+            except (RuntimeError, OSError):
+                _hs_missing = False
+            if _hs_missing:
+                logging.getLogger(__name__).info(
+                    "pod.home_share=%s does not exist yet; create it before "
+                    "launching an app or the guest's \\\\tsclient\\home will be empty",
+                    self.home_share,
+                )
         # language, region, keyboard: sanitize to prevent YAML injection.
         # Default to English (US) if the value contains dangerous chars.
         for field_name, default_val in [
@@ -908,6 +939,7 @@ class Config:
                 "guest_autosync": self.pod.guest_autosync,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
+                "home_share": self.pod.home_share,
                 "language": self.pod.language,
                 "region": self.pod.region,
                 "keyboard": self.pod.keyboard,
@@ -1105,6 +1137,95 @@ def _sanitise_storage_path(value: Any) -> str:
         return raw
 
     return ""
+
+
+# System roots that must never be shared into the guest as \\tsclient\home
+# (#758). Sharing any of these would expose the whole host, the opposite of
+# what this privacy feature is for. Mirrors the denylist _sanitise_storage_path
+# refuses, minus the winpodx-managed carve-outs (a home share never lives under
+# /var/lib/winpodx).
+_HOME_SHARE_DENY_ROOTS = (
+    "/etc",
+    "/usr",
+    "/boot",
+    "/proc",
+    "/sys",
+    "/dev",
+    "/var",
+    "/lib",
+    "/lib64",
+    "/sbin",
+    "/bin",
+    "/root",
+    "/run",
+)
+
+
+def _sanitise_home_share(value: Any) -> str:
+    """Coerce an untrusted ``cfg.pod.home_share`` value to a safe string (#758).
+
+    Returns either the original string (when it passes all checks) or
+    ``""`` — and ``""`` means "share the whole ``$HOME``", the default /
+    legacy behaviour, NOT "disabled".
+
+    Unlike :func:`_sanitise_storage_path`, the shared directory may live
+    anywhere the user can read: the feature exists precisely so someone can
+    pick an arbitrary folder (``~/WinShare``, ``/data/windows-share``) to
+    expose instead of their entire home. So this is a **denylist**, not an
+    allowlist — we reject only paths that are obviously wrong (relative, or a
+    system root) rather than requiring a specific parent.
+
+    Layered checks, all silent on rejection so a hand-edited TOML can't brick
+    startup:
+
+    1. Type — non-string values become ``""``.
+    2. Trim + emptiness — pure whitespace becomes ``""`` (whole ``$HOME``).
+    3. YAML / shell-injection characters — rejected (defence-in-depth; the
+       value never reaches a shell today but might feed a compose field later).
+    4. Absolute path — relative paths (``./foo``, ``foo/bar``, bare names) are
+       rejected; a bind / drive-redirect of a relative path is ambiguous.
+    5. Denylist of system roots (:data:`_HOME_SHARE_DENY_ROOTS` + ``/``) — a
+       hand-edited TOML pointing this at ``/`` or ``/etc`` would expose the
+       whole host to the guest.
+
+    Existence is deliberately NOT checked here (the caller may create the
+    directory later; ``__post_init__`` logs a note if it's missing). The
+    expanded path is used only for the safety check; the original, un-expanded
+    string is stored so ``~/WinShare`` round-trips and expansion happens at use
+    time (:func:`Path.expanduser`).
+    """
+    if not isinstance(value, str):
+        return ""
+    raw = value.strip()
+    if not raw:
+        return ""
+
+    if any(c in raw for c in "\n\r\"'`$") or "{" in raw or "}" in raw:
+        return ""
+
+    try:
+        expanded = Path(raw).expanduser()
+    except (RuntimeError, OSError):
+        return ""
+
+    if not expanded.is_absolute():
+        return ""
+
+    # Resolve `..` and symlinks so the denylist sees the final target.
+    # strict=False so a not-yet-created directory still validates.
+    try:
+        resolved = expanded.resolve(strict=False)
+    except (RuntimeError, OSError):
+        return ""
+
+    resolved_str = str(resolved)
+    if resolved_str == "/":
+        return ""
+    for deny in _HOME_SHARE_DENY_ROOTS:
+        if resolved_str == deny or resolved_str.startswith(deny + "/"):
+            return ""
+
+    return raw
 
 
 def _migrate_config(data: dict[str, Any], from_version: int) -> dict[str, Any]:

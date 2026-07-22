@@ -377,6 +377,35 @@ def _resolve_password(cfg: Config) -> str:
     return cfg.rdp.password
 
 
+def _resolve_home_share(cfg: Config) -> str | None:
+    """Host directory to expose to the guest as ``\\tsclient\\home``, or None.
+
+    ``None`` means "share the whole ``$HOME``" — the default / legacy
+    behaviour, driven by FreeRDP's ``+home-drive``. A non-empty
+    ``cfg.pod.home_share`` (already sanitised to an absolute path by
+    ``PodConfig.__post_init__``) means share only that directory instead,
+    so ``\\tsclient\\home`` maps to the chosen folder rather than ``$HOME``
+    (#758). The returned path is ``expanduser()``-expanded and ready to hand
+    to FreeRDP's ``/drive:home,<path>``.
+    """
+    raw = (getattr(cfg.pod, "home_share", "") or "").strip()
+    if not raw:
+        return None
+    return str(Path(raw).expanduser())
+
+
+def _is_under_home(path: str) -> bool:
+    """Whether ``path`` lives under ``$HOME`` (either as-is or resolved)."""
+    p = Path(path)
+    for home in {Path.home(), Path.home().resolve()}:
+        try:
+            p.relative_to(home)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def build_rdp_command(
     cfg: Config,
     app_executable: str | None = None,
@@ -429,6 +458,10 @@ def build_rdp_command(
 
     binary, variant = found
 
+    # #758: which host dir the guest sees as \\tsclient\home. None = the whole
+    # $HOME (default). A set value shares only that directory instead.
+    home_share = _resolve_home_share(cfg)
+
     # FreeRDP runs directly on the host. Rootless podman publishes the
     # container's 3389 to the host's 127.0.0.1:<rdp_port> via pasta /
     # slirp4netns, which is reachable from the host loopback without
@@ -438,6 +471,17 @@ def build_rdp_command(
     # on modern podman + pasta (Ubuntu/Kubuntu 26.04 default). See #214.
     cmd: list[str] = shlex.split(binary)
 
+    # #758: the Flatpak FreeRDP sandbox only exposes $HOME (--filesystem=home).
+    # A home_share OUTSIDE $HOME (e.g. /data/windows-share) would be invisible
+    # to the sandboxed client, so punch a matching --filesystem=<dir> hole. A
+    # share UNDER $HOME is already covered by --filesystem=home (no extra
+    # needed); the native client has no sandbox so this is flatpak-only.
+    if variant == "flatpak" and home_share is not None and not _is_under_home(home_share):
+        # Flatpak run options must precede the app id — insert before it.
+        _app_id = "com.freerdp.FreeRDP"
+        _insert_at = cmd.index(_app_id) if _app_id in cmd else len(cmd)
+        cmd.insert(_insert_at, f"--filesystem={home_share}")
+
     cmd += [
         f"/v:{cfg.rdp.ip}:{cfg.rdp.port}",
         f"/u:{cfg.rdp.user}",
@@ -446,8 +490,10 @@ def build_rdp_command(
     if cfg.rdp.domain:
         cmd.append(f"/d:{cfg.rdp.domain}")
 
+    # \\tsclient\home mapping (#758): the whole $HOME via +home-drive (default,
+    # unchanged) or only cfg.pod.home_share via an explicit /drive:home,<path>.
+    cmd.append("+home-drive" if home_share is None else f"/drive:home,{home_share}")
     cmd += [
-        "+home-drive",
         "+clipboard",
         "-wallpaper",
         "/sound:sys:alsa",
@@ -583,7 +629,7 @@ def build_rdp_command(
                 app_arg += f',cmd:"{sanitize_url_arg(file_path)}"'
             elif file_path:
                 try:
-                    unc_path = linux_to_unc(file_path)
+                    unc_path = linux_to_unc(file_path, cfg.pod.home_share)
                 except ValueError as e:
                     raise RuntimeError(f"Cannot open file: {e}") from e
                 # Quote the UNC path so the guest doesn't split it on spaces
@@ -607,7 +653,7 @@ def build_rdp_command(
                 cmd.append(f'/app-cmd:"{sanitize_url_arg(file_path)}"')
             elif file_path:
                 try:
-                    unc_path = linux_to_unc(file_path)
+                    unc_path = linux_to_unc(file_path, cfg.pod.home_share)
                 except ValueError as e:
                     raise RuntimeError(f"Cannot open file: {e}") from e
                 # Quote the UNC path so a space in it isn't split into separate
@@ -1499,7 +1545,7 @@ def launch_app(
         # rejected as "outside home"; build_rdp_command routes it as a URL.
         try:
             if not url_scheme_of(file_path):
-                linux_to_unc(file_path)
+                linux_to_unc(file_path, cfg.pod.home_share)
         except (ValueError, RuntimeError) as exc:
             from winpodx.desktop.notify import notify_error
 
@@ -1654,8 +1700,17 @@ def launch_desktop(cfg: Config, *, extra_args: str = "") -> RDPSession:
     return launch_app(cfg, app_executable=None, file_path=None, extra_args=extra_args)
 
 
-def linux_to_unc(path: str) -> str:
-    """Convert a Linux file path to a Windows UNC path via tsclient."""
+def linux_to_unc(path: str, home_share: str = "") -> str:
+    """Convert a Linux file path to a Windows UNC path via tsclient.
+
+    ``home_share`` (#758): when non-empty, the guest's ``\\tsclient\\home``
+    maps to this directory instead of ``$HOME`` (see ``cfg.pod.home_share``),
+    so ONLY files under it are reachable through the share. A path outside the
+    shared directory can't be opened via ``\\tsclient\\home`` and raises
+    ``ValueError`` (callers surface a friendly "outside shared locations"
+    error and fall back rather than emit a broken UNC). Empty (default) keeps
+    the whole ``$HOME`` shared — byte-for-byte the historical behaviour.
+    """
     # A launcher / desktop portal may hand us a ``file://`` URI instead of a
     # bare path (some file managers do this even for a ``%f`` field); decode it
     # to a plain path first, else the "file:" prefix makes it non-absolute and
@@ -1680,12 +1735,21 @@ def linux_to_unc(path: str) -> str:
         raise ValueError(f"Path contains characters invalid for Windows: {posix_str}")
 
     sep = "\\"
-    # Compare against $HOME both as-is and resolved: on Fedora Atomic /home is a
-    # symlink to /var/home, so the file may arrive as /var/home/me/... while
-    # Path.home() stays /home/me (#418). Resolving only the home *prefix* (not
-    # the file) keeps that fix without re-introducing the #547 content-symlink
-    # rejection.
-    for home in {Path.home(), Path.home().resolve()}:
+    # The effective \\tsclient\home root: cfg.pod.home_share when set (#758),
+    # else the whole $HOME. When a subset is shared, only files UNDER that
+    # directory are reachable from the guest — anything else falls through to
+    # the media check and then the "outside shared locations" raise below.
+    if home_share.strip():
+        share_root = Path(home_share).expanduser()
+        home_roots = {share_root, share_root.resolve()}
+    else:
+        home_roots = {Path.home(), Path.home().resolve()}
+    # Compare against the share root both as-is and resolved: on Fedora Atomic
+    # /home is a symlink to /var/home, so the file may arrive as /var/home/me/...
+    # while Path.home() stays /home/me (#418). Resolving only the root *prefix*
+    # (not the file) keeps that fix without re-introducing the #547
+    # content-symlink rejection.
+    for home in home_roots:
         try:
             relative = p.relative_to(home)
             win_path = str(relative).replace("/", sep)
@@ -1704,8 +1768,9 @@ def linux_to_unc(path: str) -> str:
             except ValueError:
                 continue
 
+    share_desc = f"home_share={home_share}" if home_share.strip() else f"home={Path.home()}"
     raise ValueError(
-        f"Path is outside shared locations (home={Path.home()}"
+        f"Path is outside shared locations ({share_desc}"
         f"{', media=' + str(media_base) if media_base else ''}): {posix_str}. "
-        "Move the file under your home directory or a mounted media volume."
+        "Move the file under your shared directory or a mounted media volume."
     )
