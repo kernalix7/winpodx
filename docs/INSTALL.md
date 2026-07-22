@@ -35,7 +35,7 @@ WINPODX_REF=main  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx
 WINPODX_REF=vX.Y.Z curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-> **Upgrading.** Re-running `install.sh` (or upgrading the package) installs the new version in place. A running system tray / GUI restarts itself automatically so the new version applies — no manual restart needed. The Windows pod keeps running throughout.
+> **Upgrading.** Re-running `install.sh` (or upgrading the package) installs the new version in place. A running system tray / GUI restarts itself automatically so the new version applies — no manual restart needed. The Windows pod keeps running throughout. See [Updating winpodx](#updating-winpodx) below for the full breakdown per install method, including Bazzite / rpm-ostree hosts.
 
 ## Manual install (skip provisioning)
 
@@ -308,6 +308,63 @@ cd winpodx
 export PYTHONPATH="$PWD/src"
 python3 -m winpodx app run word
 ```
+
+## Updating winpodx
+
+There's no separate update command — you update the same way you installed.
+
+**curl one-liner / source install** (`~/.local/bin/winpodx-app/`): re-run the exact command you used to install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
+It detects the existing install and upgrades it in place — venv swap, same config, same Windows VM disk. On the first launch after upgrading, winpodx runs its `migrate` chain automatically: it pushes the refreshed guest scripts (agent, rdprrap, OEM fixes) into the running guest and shows release notes before continuing on to your app, so the guest doesn't keep running stale scripts after a host upgrade. A running system tray / GUI restarts itself so the new version takes effect — no manual restart needed, and the Windows pod keeps running throughout.
+
+This also covers **Bazzite and other rpm-ostree (Atomic Fedora) hosts whose install came from the curl one-liner** rather than the OBS RPM below (common if you installed before the OBS repo existed, or just ran the one-liner instead of layering the package): the same bare command upgrades that install in place too — no `--main` or other flag needed, and it never touches the Windows VM.
+
+Cloned the repo instead of using curl? `git pull && ./install.sh` does the same thing from your local checkout.
+
+**openSUSE / Fedora (OBS RPM repo already added):**
+
+```bash
+sudo zypper refresh && sudo zypper update winpodx      # openSUSE
+sudo dnf update winpodx                                  # Fedora
+```
+
+**Fedora Atomic Desktops (rpm-ostree, layered from the OBS repo):**
+
+```bash
+sudo rpm-ostree upgrade
+```
+
+Reboot only if the output says the update was staged rather than live-applied.
+
+**Debian / Ubuntu (`.deb`):** download the newer `.deb` from the [latest release](https://github.com/kernalix7/winpodx/releases/latest) and install it over the existing package:
+
+```bash
+sudo apt install ./winpodx_<version>_all_debian13.deb
+```
+
+**AlmaLinux / Rocky / RHEL (`.rpm`):** same idea — download the newer `.rpm` and install it over the existing package:
+
+```bash
+sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm
+```
+
+**Arch (AUR):**
+
+```bash
+yay -S winpodx        # or: paru -S winpodx
+```
+
+`winpodx-git` tracks `main` — `yay -Syu --devel` pulls the newest commit.
+
+**AppImage:** download the newer AppImage from the [latest release](https://github.com/kernalix7/winpodx/releases/latest) and replace the old file. There's no in-place self-update.
+
+**Nix:** `nix profile upgrade winpodx` for a profile install, or just re-run `nix run github:kernalix7/winpodx` — it always fetches the flake's current `main`.
+
+Whichever path you used, check what you're running with `winpodx --version`. If the guest ever falls behind the host (e.g. a package-manager upgrade that hasn't started the pod since), `winpodx doctor` flags the version drift and `winpodx guest sync --force` re-pushes the guest-side scripts — though this normally happens on its own the next time the pod starts.
 
 ## Uninstall
 
