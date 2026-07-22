@@ -476,6 +476,7 @@ class TestMissingDesktopEntryFixer:
         apps = [_FakeApp("beta", mime_types=["text/plain"])]
         monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: apps)
         monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: _ExistsPath(False))
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: False)
         installed = []
         monkeypatch.setattr(
             "winpodx.desktop.entry.install_desktop_entry",
@@ -491,6 +492,7 @@ class TestMissingDesktopEntryFixer:
     def test_fix_noop_when_all_present(self, monkeypatch):
         monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [_FakeApp("alpha")])
         monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: _ExistsPath(True))
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: False)
         called = []
         monkeypatch.setattr(
             "winpodx.desktop.entry.install_desktop_entry",
@@ -503,9 +505,44 @@ class TestMissingDesktopEntryFixer:
 
     def test_check_flags_with_fix_id(self, monkeypatch):
         monkeypatch.setattr(doctor, "_apps_missing_desktop_entries", lambda: [_FakeApp("beta")])
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: False)
         f = doctor._check_missing_desktop_entries()
         assert f.severity == "warn"
         assert f.fix_id == "missing_desktop_entries"
+
+    # #769: the "Windows Desktop" launcher shortcut is tracked by the same
+    # check/fixer pair, independent of per-app entries.
+
+    def test_check_flags_shortcut_missing_alone(self, monkeypatch):
+        # No apps missing, but the shortcut itself is gone -> still a warn.
+        monkeypatch.setattr(doctor, "_apps_missing_desktop_entries", lambda: [])
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: True)
+        f = doctor._check_missing_desktop_entries()
+        assert f.severity == "warn"
+        assert f.fix_id == "missing_desktop_entries"
+        assert "shortcut" in f.title
+
+    def test_check_ok_when_apps_and_shortcut_present(self, monkeypatch):
+        monkeypatch.setattr(doctor, "_apps_missing_desktop_entries", lambda: [])
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: False)
+        f = doctor._check_missing_desktop_entries()
+        assert f.severity == "ok"
+
+    def test_fix_installs_missing_shortcut(self, monkeypatch):
+        # All app entries present, only the shortcut needs re-installing.
+        monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [_FakeApp("alpha")])
+        monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: _ExistsPath(True))
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: True)
+        shortcut_calls = []
+        monkeypatch.setattr(
+            "winpodx.desktop.entry.install_desktop_shortcut",
+            lambda: shortcut_calls.append(1),
+        )
+        monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+        ok, msg = doctor._fix_missing_desktop_entries()
+        assert ok
+        assert shortcut_calls == [1]
+        assert "desktop shortcut" in msg
 
 
 class TestDeadAgentFixer:

@@ -106,7 +106,12 @@ class InfoWorker(QObject):
 def sync_desktop_entries(discovered) -> None:
     """Bidirectionally sync .desktop entries after GUI discovery."""
     from winpodx.core.app import list_available_apps
-    from winpodx.desktop.entry import install_desktop_entry, remove_desktop_entry
+    from winpodx.desktop.entry import (
+        DESKTOP_SHORTCUT_STEM,
+        install_desktop_entry,
+        install_desktop_shortcut,
+        remove_desktop_entry,
+    )
     from winpodx.utils.paths import applications_dir
 
     discovered_slugs = {d.slug or d.name for d in discovered}
@@ -119,14 +124,22 @@ def sync_desktop_entries(discovered) -> None:
             except Exception:  # noqa: BLE001
                 log.debug("install_desktop_entry failed for %s", slug, exc_info=True)
 
+    # #769: keep the "Windows Desktop" launcher shortcut present across GUI
+    # refreshes too, same as the CLI's _register_desktop_entries.
+    try:
+        install_desktop_shortcut()
+    except Exception:  # noqa: BLE001
+        log.debug("install_desktop_shortcut failed", exc_info=True)
+
     apps_dir = applications_dir()
+    shortcut_slug = DESKTOP_SHORTCUT_STEM[len("winpodx-") :]
     if apps_dir.exists():
         for entry in apps_dir.glob("winpodx-*.desktop"):
             stem = entry.stem
             if not stem.startswith("winpodx-"):
                 continue
             slug = stem[len("winpodx-") :]
-            if slug in {"", "gui", "launcher"}:
+            if slug in {"", "gui", "launcher", shortcut_slug}:
                 continue
             if slug in available:
                 continue

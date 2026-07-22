@@ -918,3 +918,68 @@ def test_top_level_windows_folder_does_not_clobber_root(tmp_path, monkeypatch):
     # The "Windows" subfolder lives under the namespaced name with its own label.
     sub = (dirs / "winpodx-folder-windows.directory").read_text(encoding="utf-8")
     assert "Name=Windows" in sub
+
+
+# #769: "Windows Desktop" launcher shortcut (equivalent to
+# `winpodx app run desktop`), installed alongside the per-app entries.
+
+
+def test_install_desktop_shortcut_writes_expected_fields(tmp_path, monkeypatch):
+    from winpodx.desktop.entry import DESKTOP_SHORTCUT_STEM, install_desktop_shortcut
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
+
+    desktop_path = install_desktop_shortcut()
+
+    assert desktop_path == tmp_path / "applications" / f"{DESKTOP_SHORTCUT_STEM}.desktop"
+    content = desktop_path.read_text(encoding="utf-8")
+    assert "Name=Windows Desktop" in content
+    exec_lines = [ln for ln in content.splitlines() if ln.startswith("Exec=")]
+    # No %u -- the full desktop session takes no file argument.
+    assert exec_lines == ["Exec=winpodx app run desktop"]
+    assert "Icon=winpodx" in content
+    assert "Categories=X-winpodx;" in content
+
+
+def test_install_desktop_shortcut_joins_winpodx_menu_folder(tmp_path, monkeypatch):
+    # It must land in the same nested menu tree as the per-app entries, not
+    # some separate ungrouped location.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
+
+    from winpodx.desktop.entry import install_desktop_shortcut
+
+    install_desktop_shortcut()
+
+    directory, fragment = _menu_paths(tmp_path)
+    assert directory.exists()
+    assert fragment.exists()
+    assert "<Category>X-winpodx</Category>" in fragment.read_text(encoding="utf-8")
+
+
+def test_remove_desktop_shortcut_unlinks_file(tmp_path, monkeypatch):
+    from winpodx.desktop.entry import install_desktop_shortcut, remove_desktop_shortcut
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
+
+    desktop_path = install_desktop_shortcut()
+    assert desktop_path.exists()
+
+    remove_desktop_shortcut()
+
+    assert not desktop_path.exists()
+
+
+def test_remove_desktop_shortcut_missing_file_is_noop(tmp_path, monkeypatch):
+    # Uninstall cleanup must not raise if it was already removed / never installed.
+    from winpodx.desktop.entry import remove_desktop_shortcut
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    remove_desktop_shortcut()  # must not raise

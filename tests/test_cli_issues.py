@@ -742,3 +742,33 @@ class TestRefreshAppsCli:
         assert data[0]["slug"] == "myapp"
         assert data[0]["icon_path"].endswith("winpodx-myapp.png")
         assert "discovered 1 app" in captured.err
+
+
+class TestDesktopShortcutSurvivesRefreshPrune:
+    """#769: `_register_desktop_entries` prunes stale winpodx-*.desktop files
+    whose slug isn't a discovered/available app. The "Windows Desktop"
+    launcher shortcut isn't tied to any app slug and must survive that prune,
+    while genuinely stale per-app entries still get removed."""
+
+    def test_shortcut_survives_prune_stale_app_removed(self, tmp_path, monkeypatch):
+        from winpodx.cli.app import _register_desktop_entries
+        from winpodx.desktop.entry import DESKTOP_SHORTCUT_STEM
+
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [])
+
+        apps_dir = tmp_path / "applications"
+        apps_dir.mkdir(parents=True)
+        shortcut_path = apps_dir / f"{DESKTOP_SHORTCUT_STEM}.desktop"
+        shortcut_path.write_text("[Desktop Entry]\nName=stale placeholder\n", encoding="utf-8")
+        stale_app = apps_dir / "winpodx-vanished.desktop"
+        stale_app.write_text("[Desktop Entry]\nName=Vanished\n", encoding="utf-8")
+
+        _register_desktop_entries([])  # nothing discovered this refresh
+
+        assert shortcut_path.exists(), "shortcut must survive the slug-based prune"
+        assert "Windows Desktop" in shortcut_path.read_text(encoding="utf-8"), (
+            "refresh must also re-create it with real content, not leave the stale stub"
+        )
+        assert not stale_app.exists(), "a genuinely stale per-app entry must still be pruned"

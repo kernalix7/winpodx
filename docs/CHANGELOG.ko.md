@@ -11,6 +11,7 @@
 
 ### Added
 
+- **Windows 앱 목록 옆에 "Windows 데스크톱" 실행 항목이 추가됩니다** (#769, @jltorres60 감사). `winpodx app run desktop`과 동일하게 전체 Windows 데스크톱을 엽니다 — 터미널 명령 대신 앱 메뉴에서 클릭 한 번으로 실행할 수 있습니다. 이 항목은 개별 앱 바로가기와 같은 winpodx 메뉴 그룹에 위치하며, `winpodx setup`과 `winpodx app refresh`에서 함께 설치되고, 사라진 경우 `winpodx doctor --fix`로 다시 생성됩니다.
 - **telemetry / ads / widgets 디블로트 프리셋의 개인정보 대응 범위를 확장** (#696, @GameSoul7Eugene 감사). 세 개의 레지스트리 조정 스크립트에 추가 옵트아웃 항목이 더해졌고, 각 항목은 undo 스크립트에 대응되는 복원 항목을 함께 갖습니다: 활동 기록 / 타임라인 업로드, 손글씨·잉킹 오류/데이터 수집, 온라인 음성 인식, 입력 인사이트(암묵적 잉크·텍스트) 수집, Windows 피드백 빈도(Siuf), 클라우드 검색 기록(MSA / AAD / 장치), "웹사이트의 언어 목록 접근" 옵트아웃, 그리고 기존 Windows 11 위젯 정책과 함께 Windows 10 작업 표시줄 Feeds(뉴스 및 관심 콘텐츠) 키가 포함됩니다. 원본 PR의 더 공격적인 항목들 — `CompatTelRunner.exe` 이미지 파일 실행(IFEO) 하이재킹, SafeSearch 끄기, Store 앱 자동 업데이트 차단, 위치 센서 및 Connected Devices Platform 서비스 비활성화, 클라우드 설정 동기화 토글 — 은 일회용 VM에서 범위를 벗어나거나 앱 호환성 위험이 있어 이 서브셋에서 의도적으로 제외했습니다.
 
 ### Fixed

@@ -39,6 +39,29 @@ StartupWMClass={wm_class}
 # Comment field non-empty for menu tooltips and file managers.
 _DEFAULT_COMMENT = "Windows application via WinPodX"
 
+# #769: reserved filename stem for the "full Windows desktop" launcher
+# shortcut (equivalent to `winpodx app run desktop`). It lives alongside the
+# per-app winpodx-<slug>.desktop entries (same "winpodx-" prefix, same menu
+# folder) so it shows up in the same DE menu group -- but it is NOT an app
+# entry, and slug is never a discovered AppInfo.name. Callers that prune
+# stale winpodx-*.desktop files by slug (cli/app.py, gui/workers.py) must
+# skip this stem explicitly.
+DESKTOP_SHORTCUT_STEM = "winpodx-full-desktop"
+
+_DESKTOP_SHORTCUT_TEMPLATE = """\
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Windows Desktop
+Comment=Full Windows desktop session via WinPodX
+Exec={winpodx_exe} app run desktop
+Icon=winpodx
+Categories={categories}
+Keywords=windows;winpodx;rdp;desktop;
+Terminal=false
+StartupNotify=true
+"""
+
 
 def update_desktop_database() -> None:
     """Rebuild the applications ``mimeinfo.cache`` so ``MimeType=`` lines take
@@ -161,6 +184,56 @@ def install_desktop_entry(app: AppInfo) -> Path:
         update_desktop_database()
 
     return desktop_path
+
+
+def install_desktop_shortcut() -> Path:
+    """Create and install the "Windows Desktop" launcher .desktop file (#769).
+
+    Equivalent to ``winpodx app run desktop`` -- opens the full Windows
+    desktop (no RemoteApp), so users don't need a terminal for it. Lands
+    under the same winpodx menu folder as the per-app entries, reusing the
+    shared winpodx icon (no per-entry icon to install/clean up).
+    """
+    dest_dir = applications_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    content = _DESKTOP_SHORTCUT_TEMPLATE.format(
+        winpodx_exe=_winpodx_exe(),
+        categories=f"{category_for_folder('')};",
+    )
+
+    desktop_path = dest_dir / f"{DESKTOP_SHORTCUT_STEM}.desktop"
+    desktop_path.write_text(content, encoding="utf-8")
+    desktop_path.chmod(0o644)
+
+    # Same best-effort folder bootstrap as install_desktop_entry: guarantees
+    # the winpodx menu category resolves even if this is the very first
+    # winpodx entry ever installed (e.g. before any app has been discovered).
+    try:
+        install_menu_folder()
+    except OSError as e:
+        log.warning("Could not write winpodx menu folder definition: %s", e)
+
+    return desktop_path
+
+
+def remove_desktop_shortcut() -> None:
+    """Remove the "Windows Desktop" launcher .desktop file (#769).
+
+    No per-entry icon to clean up -- it uses the shared winpodx icon. Mirrors
+    remove_desktop_entry's rebuild-or-tear-down of the menu folder so an
+    emptied folder is still pruned correctly.
+    """
+    apps_dir = applications_dir()
+    (apps_dir / f"{DESKTOP_SHORTCUT_STEM}.desktop").unlink(missing_ok=True)
+
+    try:
+        if apps_dir.exists() and any(apps_dir.glob("winpodx-*.desktop")):
+            install_menu_folder()
+        else:
+            remove_menu_folder()
+    except OSError as e:  # pragma: no cover - defensive, never blocks removal
+        log.warning("Could not update winpodx menu folder definition: %s", e)
 
 
 def remove_desktop_entry(app_name: str) -> None:
