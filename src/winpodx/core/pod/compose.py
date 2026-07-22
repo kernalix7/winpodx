@@ -162,8 +162,38 @@ def _cpu_flags_for_host(cfg: Config | None = None) -> str:
     cap = detect_tuning_capability(vm_cpu_cores=cfg.pod.cpu_cores, vm_ram_gb=cfg.pod.ram_gb)
     profile = recommend_tuning_profile(cap, user_pref=cfg.pod.tuning_profile)
 
-    if profile.apply_invtsc:
-        sub_flags.append("+invtsc")
+    if cap.invtsc:
+        # Host capability (incl. our clocksource cross-check) says invtsc is
+        # genuinely safe here. Whether *we* emit `+invtsc` is still gated on
+        # the user's tuning_profile (`profile.apply_invtsc`) -- but if the
+        # user profile suppresses it (e.g. "off"), we deliberately do NOT
+        # override dockur's own `+invtsc` (see below): the host is fine, so
+        # there's nothing to correct.
+        if profile.apply_invtsc:
+            sub_flags.append("+invtsc")
+    else:
+        # cap.invtsc is False -- either the CPU genuinely lacks invariant
+        # TSC, or (the dangerous case this guards against) the kernel's own
+        # boot-time cross-core sync check already rejected the TSC despite
+        # CPUID reporting constant_tsc/nonstop_tsc (see
+        # detect_tuning_capability's clocksource cross-check). Either way,
+        # profile.apply_invtsc is always False too here (recommend_tuning_profile
+        # gates it on cap.invtsc), so this is unconditional, not profile-gated.
+        #
+        # dockur's base image (qemus/qemu's proc.sh, configureKvmAmdFeatures /
+        # configureKvmIntelFeatures) independently adds its own `+invtsc` to
+        # CPU_FEATURES whenever the host reports `tsc_scale` (AMD) /
+        # `tsc_scaling` (Intel) -- a check that never cross-checks the
+        # kernel's clocksource verdict either, so it can (and on the host
+        # that motivated this fix, does) add `+invtsc` regardless of our own
+        # verdict. dockur assembles `-cpu $CPU_MODEL,$CPU_FEATURES,$CPU_FLAGS`,
+        # so our CPU_FLAGS always lands after dockur's own CPU_FEATURES in the
+        # final string, and QEMU applies `-cpu` sub-flags left-to-right with
+        # the last occurrence of a feature winning -- so merely omitting our
+        # own `+invtsc` is not enough to stop the guest from getting one
+        # anyway. Explicitly emitting `-invtsc` overrides it. Harmless no-op
+        # on hosts where dockur didn't add it either.
+        sub_flags.append("-invtsc")
 
     # Bare-metal compatibility mode (#246): hide the KVM/QEMU hypervisor
     # signature from the guest so software that refuses to run under a detected
