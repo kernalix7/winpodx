@@ -159,7 +159,7 @@ def resume(printer=print) -> None:
             require_agent=False,
             with_reverse_open=False,
             with_discovery=True,
-            retries=3,
+            retries=5,
             on_progress=_on_progress,
         )
     except Exception as e:  # noqa: BLE001 — resume is best-effort, never raises

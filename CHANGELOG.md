@@ -11,6 +11,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 
+- **Discovery retries up to 5 times on a slow first boot instead of 2.** The guest's Start Menu enumeration can exceed the 180s-per-attempt timeout right after Sysprep (Defender scanning, heavy first-boot load), and two attempts weren't always enough, leaving the app menu empty until a manual `winpodx app refresh`. Each retry lands on a progressively idler guest, so more attempts turn a first-boot timeout into a populated menu; a normal boot still succeeds on the first attempt and never waits.
+
 - **The winpodx.org homepage now actually shows its non-English translations.** The site loads a generated `web/lang/translations.js` bundle (not the per-language JSON), and there was no committed generator, so catalog edits (the recent `--storage-dir`/`--storage-path` clarification and this release's update note) never reached the live site in German/French/Italian/Japanese/Korean/Chinese. Added `scripts/gen_web_i18n.py` (run it after any `web/lang/*.json` edit) and regenerated the bundle.
 
 ### Added

@@ -737,7 +737,7 @@ def _run_full_provision(cfg: Config) -> None:
         require_agent=False,
         with_reverse_open=getattr(cfg.reverse_open, "enabled", False),
         with_discovery=True,
-        retries=2,
+        retries=5,
         on_progress=_on_progress,
         wait_fn=_rich_wait,
     )

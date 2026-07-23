@@ -406,7 +406,7 @@ def finish_provisioning(
     require_agent: bool = False,
     with_reverse_open: bool = True,
     with_discovery: bool = True,
-    retries: int = 2,
+    retries: int = 5,
     on_progress: Callable[[str, str], None] | None = None,
     wait_fn: Callable[[Config, int], bool] | None = None,
 ) -> dict[str, Any]:
@@ -435,10 +435,14 @@ def finish_provisioning(
       first boot.
     * ``with_discovery`` — run the shared discovery path (discover_apps +
       persist_discovered + _register_desktop_entries) with ``retries``
-      attempts and exponential backoff. Defaults to 2 (0.6.0 item M): the
-      agent keep-alive (#359) keeps the guest agent reliably up, so the old
-      fixed 6× loop install.sh used is overkill — 1-2 attempts suffice and
-      a fresh install finishes faster.
+      attempts and exponential backoff. Defaults to 5: the guest's Start
+      Menu enumeration can blow the 180s-per-attempt budget on a heavily
+      loaded first boot (Sysprep just finished, Defender scanning), and
+      each retry lands on a progressively idler guest — so a few extra
+      attempts turn a first-boot timeout into a populated menu instead of
+      an empty one the user has to fix with ``app refresh``. Each attempt
+      only costs its 180s budget when it actually times out; a normal boot
+      succeeds on attempt 1 and never waits.
     * ``with_reverse_open`` — run the host-open listener-start + manifest
       refresh, gated additionally on ``cfg.reverse_open.enabled``.
     * ``on_progress(stage, detail)`` — optional callback so a GUI can mirror

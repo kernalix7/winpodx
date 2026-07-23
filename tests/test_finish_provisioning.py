@@ -824,3 +824,15 @@ def test_discovery_with_retry_reraises_other_errors_even_with_require_agent(monk
     # Non-agent error: re-raised as-is, NOT escalated to ProvisionAgentUnavailable.
     with pytest.raises(DiscoveryError):
         provisioner._run_discovery_with_retry(_cfg(), retries=2, require_agent=True)
+
+
+def test_discovery_default_retries_is_five() -> None:
+    """First-boot discovery can time out on the 180s/attempt budget under a
+    loaded guest; the default retry count is 5 so a slow first boot ends with a
+    populated menu instead of an empty one (regression guard against a revert
+    to the old 2)."""
+    import inspect
+
+    from winpodx.core.provisioner import finish_provisioning
+
+    assert inspect.signature(finish_provisioning).parameters["retries"].default == 5
