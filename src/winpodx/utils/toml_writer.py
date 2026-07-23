@@ -7,16 +7,25 @@ from typing import Any
 
 
 def dumps(data: dict[str, Any]) -> str:
-    """Serialize a dict to TOML string."""
+    """Serialize a dict to TOML string.
+
+    Top-level scalars / arrays are emitted BEFORE any ``[table]`` regardless of
+    the dict's insertion order: in TOML every bare key after a ``[table]``
+    header belongs to that table, so a scalar appended after a nested dict (e.g.
+    ``set_app_hidden`` adding ``hidden`` to an app.toml that already carries an
+    ``[rdp]`` override table) would otherwise be silently reparented into it.
+    Relative order within each group is preserved.
+    """
     lines: list[str] = []
+    for section, values in data.items():
+        if not isinstance(values, dict):
+            lines.append(f"{section} = {_format_value(values)}")
     for section, values in data.items():
         if isinstance(values, dict):
             lines.append(f"[{section}]")
             for key, val in values.items():
                 lines.append(f"{key} = {_format_value(val)}")
             lines.append("")
-        else:
-            lines.append(f"{section} = {_format_value(values)}")
     return "\n".join(lines) + "\n"
 
 

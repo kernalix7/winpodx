@@ -786,6 +786,131 @@ class TestBuildRdpCommand:
         cmd, _ = build_rdp_command(cfg)
         assert "/kbd:layout:us" in cmd
 
+    # --- #692: per-app scale / multimon overrides ------------------------
+
+    def test_scale_override_replaces_global(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.display.layout.has_mixed_scale", lambda: False)
+        base, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        over, _ = build_rdp_command(cfg, app_executable="notepad.exe", scale_override=140)
+        assert "/scale:100" in base
+        assert "/scale:140" in over
+        assert "/scale:100" not in over
+        # ONLY the /scale token changes; every other flag is identical.
+        assert [c for c in base if not c.startswith("/scale:")] == [
+            c for c in over if not c.startswith("/scale:")
+        ]
+
+    def test_scale_and_multimon_none_is_byte_for_byte_unchanged(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.display.layout.has_mixed_scale", lambda: False)
+        a, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        b, _ = build_rdp_command(
+            cfg, app_executable="notepad.exe", scale_override=None, multimon_override=None
+        )
+        assert a == b
+
+    def test_multimon_override_wins_over_global(self, cfg, monkeypatch):
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.display.layout.has_mixed_scale", lambda: False)
+        # cfg.rdp.multimon defaults to "span".
+        span, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        off, _ = build_rdp_command(cfg, app_executable="notepad.exe", multimon_override="off")
+        multi, _ = build_rdp_command(
+            cfg, app_executable="notepad.exe", multimon_override="multimon"
+        )
+        assert "/span" in span
+        assert "/span" not in off and "/multimon" not in off
+        assert "/multimon" in multi and "/span" not in multi
+
+    def test_app_extra_flags_reach_argv_and_win_over_global_on_dup(self, cfg, monkeypatch):
+        # launch_app folds an app's extra_flags into build_rdp_command's
+        # extra_args, appended AFTER the global cfg.rdp.extra_flags. On a dup
+        # (-gfx vs +gfx) the later token wins on FreeRDP's tie-break, so the
+        # app/per-launch flag must appear after the global one.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.display.layout.has_mixed_scale", lambda: False)
+        cfg.rdp.extra_flags = "+gfx"  # global
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe", extra_args="-gfx")
+        assert "+gfx" in cmd and "-gfx" in cmd
+        assert cmd.index("-gfx") > cmd.index("+gfx")
+
+
+class _Sentinel(Exception):
+    """Stop launch_app right after build_rdp_command so nothing spawns."""
+
+
+def test_launch_app_folds_rdp_overrides_into_build_command(monkeypatch, tmp_path):
+    # #692: the app's rdp_overrides reach build_rdp_command — scale/multimon as
+    # override params, extra_flags folded into extra_args with the app flags
+    # BEFORE the caller's per-launch extra_args (so the per-launch flag wins).
+    from winpodx.core import rdp as rdp_mod
+
+    captured: dict = {}
+
+    def fake_build(cfg, **kw):
+        captured.update(kw)
+        raise _Sentinel
+
+    monkeypatch.setattr(rdp_mod, "build_rdp_command", fake_build)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+
+    cfg = Config()
+    cfg.rdp.user = "u"
+    cfg.rdp.password = "p"
+    cfg.pod.backend = "manual"
+
+    with pytest.raises(_Sentinel):
+        rdp_mod.launch_app(
+            cfg,
+            app_executable="notepad.exe",
+            extra_args="+gfx",
+            rdp_overrides={"scale": 140, "multimon": "off", "extra_flags": "-gfx /gdi:sw"},
+        )
+    assert captured["scale_override"] == 140
+    assert captured["multimon_override"] == "off"
+    assert captured["extra_args"] == "-gfx /gdi:sw +gfx"
+
+
+def test_launch_app_no_rdp_overrides_passes_none(monkeypatch, tmp_path):
+    # Without overrides, build_rdp_command gets scale/multimon None and the
+    # caller's extra_args untouched — the byte-for-byte-unchanged contract.
+    from winpodx.core import rdp as rdp_mod
+
+    captured: dict = {}
+
+    def fake_build(cfg, **kw):
+        captured.update(kw)
+        raise _Sentinel
+
+    monkeypatch.setattr(rdp_mod, "build_rdp_command", fake_build)
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+
+    cfg = Config()
+    cfg.rdp.user = "u"
+    cfg.rdp.password = "p"
+    cfg.pod.backend = "manual"
+
+    with pytest.raises(_Sentinel):
+        rdp_mod.launch_app(cfg, app_executable="notepad.exe", extra_args="+gfx")
+    assert captured["scale_override"] is None
+    assert captured["multimon_override"] is None
+    assert captured["extra_args"] == "+gfx"
+
 
 def test_linux_to_unc_home_symlink_atomic(monkeypatch, tmp_path):
     # Fedora Atomic / Silverblue / Kinoite: /home is a symlink to /var/home.

@@ -78,6 +78,7 @@ class PodStatusMixin:
                     wm_class_hint=app.wm_class_hint or None,
                     default_args=app.args or None,
                     app_icon=app.icon_path or None,
+                    rdp_overrides=app.rdp_overrides or None,
                 )
             except Exception:  # noqa: BLE001
                 import traceback
