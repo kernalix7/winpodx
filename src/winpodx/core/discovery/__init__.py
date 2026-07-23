@@ -295,6 +295,11 @@ class DiscoveredApp:
     # slack, ...), filtered through the shared url_schemes policy. Emitted as
     # x-scheme-handler/<scheme> in the .desktop MimeType.
     url_schemes: list[str] = field(default_factory=list)
+    # #692: a prior app.toml's ``[rdp]`` override table, carried across a rescan.
+    # Discovery never SETS this (it's a user choice) — persist_discovered reads it
+    # off disk before the rewrite and re-emits it, exactly like the ``hidden``
+    # override, so a per-app RDP setting survives re-discovery.
+    rdp_override: dict[str, Any] = field(default_factory=dict)
 
 
 # --- Hybrid filter: essentials allowlist + noise denylist -----------------
@@ -408,6 +413,28 @@ def _existing_hidden_override(app_dir: Path) -> bool | None:
         return None
     val = data.get("hidden")
     return bool(val) if isinstance(val, bool) else None
+
+
+def _existing_rdp_override(app_dir: Path) -> dict[str, Any]:
+    """Return the user's prior ``[rdp]`` override table if app.toml has one (#692).
+
+    Mirrors ``_existing_hidden_override``: read + validate the prior per-app RDP
+    override BEFORE persist_discovered's rmtree wipes it, so the rewritten
+    app.toml can re-emit it and the user's per-app setting survives a rescan. The
+    table is run through the same allowlist ``load_app`` uses, so only the safe
+    ``{scale, extra_flags, multimon}`` subset is carried over. ``{}`` means "no
+    override" (nothing to preserve).
+    """
+    from winpodx.core.app import parse_rdp_overrides
+
+    toml_path = app_dir / "app.toml"
+    if not toml_path.exists():
+        return {}
+    try:
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+        return {}
+    return parse_rdp_overrides(data.get("rdp"))
 
 
 def _unchanged_on_disk(app_dir: Path, exe_hash: str) -> bool:
@@ -1261,6 +1288,9 @@ def persist_discovered(
         # stamped into the new app.toml so the user's choice is sticky
         # across rediscovery sweeps.
         prior_override = _existing_hidden_override(app_dir)
+        # #692: likewise carry the prior per-app [rdp] override table across the
+        # rewrite so a user's per-app RDP setting survives re-discovery.
+        app.rdp_override = _existing_rdp_override(app_dir)
 
         if replace and app_dir.exists():
             _safe_rmtree(app_dir, root)
@@ -1423,6 +1453,11 @@ def _render_app_toml(app: DiscoveredApp, mime_enabled: bool = True) -> str:
         data["hidden"] = True
     if app.essential:
         data["essential"] = True
+    # #692: re-emit a preserved per-app [rdp] override table. Kept LAST so the
+    # nested table follows every top-level scalar (the toml_writer also enforces
+    # scalars-before-tables, but keeping order here makes the intent explicit).
+    if app.rdp_override:
+        data["rdp"] = dict(app.rdp_override)
     return toml_dumps(data)
 
 

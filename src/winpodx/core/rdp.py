@@ -415,6 +415,8 @@ def build_rdp_command(
     wm_class_hint: str | None = None,
     default_args: str | None = None,
     extra_args: str = "",
+    scale_override: int | None = None,
+    multimon_override: str | None = None,
 ) -> tuple[list[str], str]:
     """Build the xfreerdp command line for launching an app.
 
@@ -425,6 +427,11 @@ def build_rdp_command(
     the RemoteApp program. ``wm_class_hint`` overrides the default
     ``/wm-class`` (exe stem) so the Linux window lines up with the
     discovered app's desktop entry rather than ``explorer``.
+
+    ``scale_override`` / ``multimon_override`` are per-app RDP overrides (#692):
+    when set (not ``None``) they take precedence over ``cfg.rdp.scale`` /
+    ``cfg.rdp.multimon`` for this launch WITHOUT mutating the shared ``cfg``.
+    With both left ``None`` the emitted argv is byte-for-byte unchanged.
     """
     found = find_freerdp(prefer=getattr(cfg.rdp, "freerdp_source", "auto"))
     if not found:
@@ -524,7 +531,12 @@ def build_rdp_command(
     # the session to a single monitor: the app is stable on the primary, and
     # the only real fix for using both is to set them to the same scale.
     if app_executable or launch_uri:
-        _multimon = getattr(cfg.rdp, "multimon", "span")
+        # #692: a per-app multimon override wins over the global cfg value.
+        _multimon = (
+            multimon_override
+            if multimon_override is not None
+            else getattr(cfg.rdp, "multimon", "span")
+        )
         if _multimon == "span":
             from winpodx.display.layout import has_mixed_scale
 
@@ -548,7 +560,8 @@ def build_rdp_command(
     # opens an empty folder instead of erroring "invalid address").
     cmd.append(f"/drive:media,{_media_redirect_base()}")
 
-    cmd.append(f"/scale:{cfg.rdp.scale}")
+    # #692: a per-app scale override wins over the global cfg value.
+    cmd.append(f"/scale:{scale_override if scale_override is not None else cfg.rdp.scale}")
 
     # Windows DPI scaling (0 = let Windows decide)
     if cfg.rdp.dpi > 0:
@@ -1496,6 +1509,7 @@ def launch_app(
     default_args: str | None = None,
     extra_args: str = "",
     app_icon: str | None = None,
+    rdp_overrides: dict[str, object] | None = None,
 ) -> RDPSession:
     """Launch a Windows app via RDP and return the session handle.
 
@@ -1503,8 +1517,33 @@ def launch_app(
     ``app_executable``) and ``wm_class_hint`` to override the default
     ``/wm-class`` token (needed for UWP so the Linux window doesn't
     come up labelled ``explorer``).
+
+    ``rdp_overrides`` is the launched app's ``AppInfo.rdp_overrides`` (#692) — a
+    validated ``{scale, extra_flags, multimon}`` subset that overrides the global
+    ``cfg.rdp`` for this launch only. The app's ``extra_flags`` are combined with
+    the caller's ``extra_args`` (app first, so a per-launch ``--extra-args`` still
+    wins on FreeRDP duplicate-flag ties); ``scale`` / ``multimon`` are forwarded
+    to :func:`build_rdp_command` as overrides. ``None`` / empty leaves every
+    launch byte-for-byte unchanged.
     """
     import threading
+
+    # #692: fold the per-app RDP overrides in. The dict is already validated by
+    # app.parse_rdp_overrides, but keep light type guards so a direct caller
+    # passing a raw dict can't inject a bad type into the command builder.
+    scale_override: int | None = None
+    multimon_override: str | None = None
+    if rdp_overrides:
+        _sc = rdp_overrides.get("scale")
+        if isinstance(_sc, int) and not isinstance(_sc, bool):
+            scale_override = _sc
+        _mm = rdp_overrides.get("multimon")
+        if isinstance(_mm, str):
+            multimon_override = _mm
+        _ef = rdp_overrides.get("extra_flags")
+        if isinstance(_ef, str) and _ef:
+            # App flags first so a per-launch extra_args still wins on dup ties.
+            extra_args = f"{_ef} {extra_args}".strip() if extra_args else _ef
 
     if launch_uri:
         hint = (wm_class_hint or "").strip().lower()
@@ -1565,6 +1604,8 @@ def launch_app(
         wm_class_hint=wm_class_hint,
         default_args=default_args,
         extra_args=extra_args,
+        scale_override=scale_override,
+        multimon_override=multimon_override,
     )
 
     # See find_freerdp(): only xfreerdp has working RAIL, and it needs $DISPLAY.

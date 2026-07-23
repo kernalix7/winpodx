@@ -348,6 +348,21 @@ class TestTomlWriterEscaping:
         assert "\\u0000" in result
         assert "\\u007F" in result
 
+    def test_scalars_emitted_before_tables(self):
+        # A bare key appended AFTER a nested-dict table (e.g. set_app_hidden
+        # adding `hidden` to an app.toml that already carries an [rdp] override)
+        # must still round-trip: TOML reparents any bare key after a [table]
+        # header into that table, so dumps has to emit scalars first (#692).
+        import tomllib
+
+        from winpodx.utils.toml_writer import dumps
+
+        data = {"name": "app", "rdp": {"scale": 140}, "hidden": True}
+        parsed = tomllib.loads(dumps(data))
+        assert parsed["hidden"] is True  # not swallowed into [rdp]
+        assert parsed["name"] == "app"
+        assert parsed["rdp"] == {"scale": 140}
+
 
 class TestYamlEscape:
     def test_yaml_escape_newlines(self, tmp_path, monkeypatch):

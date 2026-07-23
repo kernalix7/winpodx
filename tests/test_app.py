@@ -65,6 +65,117 @@ def test_load_app_missing(tmp_path):
     assert app is None
 
 
+# --- #692: per-app RDP overrides ([rdp] table in app.toml) ----------------
+
+
+def test_load_app_parses_rdp_overrides(tmp_path):
+    app_dir = tmp_path / "heavy-app"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "heavy-app"\n'
+        'full_name = "Heavy App"\n'
+        'executable = "C:\\\\h.exe"\n'
+        "\n"
+        "[rdp]\n"
+        "scale = 140\n"
+        'extra_flags = "-gfx /gdi:sw"\n'
+        'multimon = "off"\n'
+    )
+    app = load_app(app_dir)
+    assert app is not None
+    assert app.rdp_overrides == {
+        "scale": 140,
+        "extra_flags": "-gfx /gdi:sw",
+        "multimon": "off",
+    }
+
+
+def test_load_app_rdp_overrides_absent_is_empty(tmp_path):
+    app_dir = tmp_path / "plain"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "plain"\nfull_name = "Plain"\nexecutable = "C:\\\\p.exe"\n'
+    )
+    app = load_app(app_dir)
+    assert app is not None
+    assert app.rdp_overrides == {}
+
+
+def test_load_app_rdp_overrides_drops_unknown_and_invalid(tmp_path):
+    app_dir = tmp_path / "messy"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "messy"\nfull_name = "Messy"\nexecutable = "C:\\\\m.exe"\n'
+        "\n"
+        "[rdp]\n"
+        "scale = 9999\n"  # clamped to 500
+        'multimon = "sideways"\n'  # invalid -> dropped
+        "port = 1\n"  # unknown key -> dropped
+        "dpi = 200\n"  # unknown key -> dropped
+    )
+    app = load_app(app_dir)
+    assert app is not None
+    assert app.rdp_overrides == {"scale": 500}
+
+
+def test_load_app_rdp_scale_clamped_low(tmp_path):
+    app_dir = tmp_path / "tiny"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "tiny"\nfull_name = "Tiny"\nexecutable = "C:\\\\t.exe"\n'
+        "\n[rdp]\nscale = 10\n"  # clamped up to 100
+    )
+    app = load_app(app_dir)
+    assert app is not None
+    assert app.rdp_overrides == {"scale": 100}
+
+
+def test_load_app_rdp_garbage_does_not_raise(tmp_path):
+    # A hostile / malformed [rdp] table must never crash load_app: wrong types
+    # everywhere, a bool for scale, a list for extra_flags.
+    app_dir = tmp_path / "hostile"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "hostile"\nfull_name = "Hostile"\nexecutable = "C:\\\\x.exe"\n'
+        "\n[rdp]\nscale = true\nextra_flags = [1, 2, 3]\nmultimon = 5\n"
+    )
+    app = load_app(app_dir)
+    assert app is not None
+    assert app.rdp_overrides == {}
+
+
+def test_parse_rdp_overrides_non_dict_is_empty():
+    from winpodx.core.app import parse_rdp_overrides
+
+    assert parse_rdp_overrides(None) == {}
+    assert parse_rdp_overrides("not a table") == {}
+    assert parse_rdp_overrides(42) == {}
+
+
+def test_set_app_rdp_override_roundtrip(monkeypatch, tmp_path):
+    import winpodx.core.app as app_mod
+    from winpodx.core.app import set_app_rdp_override
+
+    monkeypatch.setattr(app_mod, "user_apps_dir", lambda: tmp_path / "apps")
+    monkeypatch.setattr(app_mod, "discovered_apps_dir", lambda: tmp_path / "discovered")
+    app_dir = tmp_path / "apps" / "word"
+    app_dir.mkdir(parents=True)
+    (app_dir / "app.toml").write_text(
+        'name = "word"\nfull_name = "Word"\nexecutable = "C:\\\\w.exe"\n'
+    )
+
+    app = set_app_rdp_override("word", "scale", 140)
+    assert app is not None
+    assert app.rdp_overrides == {"scale": 140}
+    # A rejected value (out-of-type) is a no-op error, not a silent write.
+    assert set_app_rdp_override("word", "multimon", "nope") is None
+    # Clearing the last key drops the [rdp] table entirely.
+    app = set_app_rdp_override("word", "scale", None)
+    assert app is not None
+    assert app.rdp_overrides == {}
+    assert "[rdp]" not in (app_dir / "app.toml").read_text()
+
+
 def test_user_and_discovered_dirs_under_xdg_data_home(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     user = user_apps_dir()

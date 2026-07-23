@@ -67,6 +67,13 @@ class AppInfo:
     # (mailto, https, slack, ...). Emitted as x-scheme-handler/<scheme> in the
     # .desktop MimeType so clicking a host URL opens it in this Windows app.
     url_schemes: list[str] = field(default_factory=list)
+    # #692: per-app RDP overrides parsed from an app.toml ``[rdp]`` table. A
+    # validated subset — only ``scale`` (int, clamped to RDPConfig's range),
+    # ``extra_flags`` (str, filtered through the launch allowlist), and
+    # ``multimon`` ("span"/"off"/"multimon") are honoured; everything else is
+    # dropped. Merged over the global ``cfg.rdp`` at launch (the app wins) and
+    # preserved across discovery rescans.
+    rdp_overrides: dict[str, object] = field(default_factory=dict)
 
 
 def user_apps_dir() -> Path:
@@ -154,6 +161,59 @@ def clear_suppressed_slugs() -> int:
 
 _VALID_APP_SOURCES = frozenset({"discovered", "user"})
 
+# #692: the only keys honoured in an app's ``[rdp]`` override table, and the
+# valid values for ``multimon``. Kept in sync with RDPConfig (config.py): the
+# scale range mirrors ``RDPConfig.__post_init__``'s clamp and the multimon set
+# mirrors its choices.
+_RDP_OVERRIDE_KEYS = frozenset({"scale", "extra_flags", "multimon"})
+_RDP_OVERRIDE_MULTIMON = frozenset({"span", "off", "multimon"})
+_RDP_OVERRIDE_SCALE_MIN = 100
+_RDP_OVERRIDE_SCALE_MAX = 500
+
+
+def parse_rdp_overrides(table: object) -> dict[str, object]:
+    """Validate an app.toml ``[rdp]`` table into a safe overrides subset (#692).
+
+    Honours only:
+      * ``scale`` — int, clamped to RDPConfig's 100..500 range. Bools (an int
+        subclass) and non-ints are dropped.
+      * ``extra_flags`` — str, NOT pre-filtered here; it flows through
+        ``build_rdp_command``'s ``_filter_extra_flags`` allowlist at launch,
+        exactly like the global ``cfg.rdp.extra_flags``.
+      * ``multimon`` — one of "span" / "off" / "multimon".
+
+    Unknown keys and invalid values are silently dropped (logged at debug) so a
+    hostile or garbage app.toml can never raise out of :func:`load_app`. Returns
+    a fresh dict containing only the accepted keys (empty when nothing is valid).
+    """
+    if not isinstance(table, dict):
+        return {}
+    out: dict[str, object] = {}
+
+    if "scale" in table:
+        raw = table["scale"]
+        # bool is a subclass of int — reject it explicitly (scale = true).
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            log.debug("Dropping non-int rdp.scale override: %r", raw)
+        else:
+            out["scale"] = max(_RDP_OVERRIDE_SCALE_MIN, min(_RDP_OVERRIDE_SCALE_MAX, raw))
+
+    if "extra_flags" in table:
+        raw = table["extra_flags"]
+        if isinstance(raw, str):
+            out["extra_flags"] = raw
+        else:
+            log.debug("Dropping non-str rdp.extra_flags override: %r", raw)
+
+    if "multimon" in table:
+        raw = table["multimon"]
+        if isinstance(raw, str) and raw in _RDP_OVERRIDE_MULTIMON:
+            out["multimon"] = raw
+        else:
+            log.debug("Dropping invalid rdp.multimon override: %r", raw)
+
+    return out
+
 
 def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
     """Load an app definition from a directory containing app.toml.
@@ -209,6 +269,7 @@ def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
         exe_hash=str(data.get("exe_hash", "") or ""),
         start_menu_folder=str(data.get("start_menu_folder", "") or ""),
         url_schemes=data.get("url_schemes", []) or [],
+        rdp_overrides=parse_rdp_overrides(data.get("rdp")),
     )
 
 
@@ -336,6 +397,53 @@ def set_app_hidden(name: str, hidden: bool) -> AppInfo | None:
     except Exception as e:  # noqa: BLE001 — menu sync is best-effort
         log.warning("desktop entry sync for %s failed: %s", name, e)
     return app
+
+
+def set_app_rdp_override(name: str, key: str, value: object) -> AppInfo | None:
+    """Set one per-app RDP override in an app's app.toml ``[rdp]`` table (#692).
+
+    ``key`` must be one of the safe overrides (``scale`` / ``extra_flags`` /
+    ``multimon``); ``value`` is run through :func:`parse_rdp_overrides` so an
+    invalid type / out-of-range value is rejected (returns ``None`` without
+    writing). Passing ``value=None`` clears the key, dropping the whole ``[rdp]``
+    table when it becomes empty. The choice is persisted so it survives the next
+    discovery sweep (``persist_discovered`` carries the ``[rdp]`` table across a
+    rescan, exactly like ``hidden``). Returns the updated :class:`AppInfo`, or
+    ``None`` when the app isn't found or the value was rejected.
+
+    Provided for a future GUI/CLI; the equivalent is editing app.toml by hand.
+    """
+    from winpodx.utils.toml_writer import dumps as toml_dumps
+
+    if key not in _RDP_OVERRIDE_KEYS:
+        return None
+    app_dir = _find_app_dir(name)
+    if app_dir is None:
+        return None
+    toml_path = app_dir / "app.toml"
+    try:
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+        return None
+
+    existing = data.get("rdp")
+    table: dict[str, object] = dict(existing) if isinstance(existing, dict) else {}
+    if value is None:
+        table.pop(key, None)
+    else:
+        table[key] = value
+    validated = parse_rdp_overrides(table)
+    # A set whose value didn't survive validation (bad type / out of range) is a
+    # no-op error, not a silent clear — reject it so the caller can report it.
+    if value is not None and key not in validated:
+        return None
+
+    if validated:
+        data["rdp"] = validated
+    else:
+        data.pop("rdp", None)
+    toml_path.write_text(toml_dumps(data), encoding="utf-8")
+    return load_app(app_dir)
 
 
 def discovered_profile_exists(name: str) -> bool:

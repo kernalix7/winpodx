@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from winpodx.core.app import load_app
 from winpodx.core.config import Config
 from winpodx.core.discovery import (
     DiscoveredApp,
@@ -1195,6 +1196,65 @@ def test_user_override_survives_rediscovery(tmp_path):
     persist_discovered([rerun], target_dir=tmp_path, add_essentials=False)
     toml_text = (tmp_path / "microsoft-store-server" / "app.toml").read_text()
     assert "hidden = true" not in toml_text
+
+
+def test_rdp_override_survives_rediscovery(tmp_path):
+    """#692: a user's per-app [rdp] override table must survive a rescan, exactly
+    like the hidden override — persist reads it off disk before the rewrite and
+    re-emits the safe subset."""
+    app_dir = tmp_path / "heavy-app"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "heavy-app"\n'
+        'full_name = "Heavy App"\n'
+        'executable = "C:\\\\h.exe"\n'
+        "\n"
+        "[rdp]\n"
+        "scale = 140\n"
+        'extra_flags = "-gfx /gdi:sw"\n'
+        'multimon = "off"\n',
+        encoding="utf-8",
+    )
+    rerun = DiscoveredApp(name="heavy-app", full_name="Heavy App", executable="C:\\h.exe")
+    persist_discovered([rerun], target_dir=tmp_path, add_essentials=False)
+
+    reloaded = load_app(tmp_path / "heavy-app")
+    assert reloaded is not None
+    assert reloaded.rdp_overrides == {
+        "scale": 140,
+        "extra_flags": "-gfx /gdi:sw",
+        "multimon": "off",
+    }
+
+
+def test_rdp_override_absent_stays_absent_on_rediscovery(tmp_path):
+    """An app with no [rdp] override must not gain one after a rescan."""
+    app_dir = tmp_path / "plain-app"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "plain-app"\nfull_name = "Plain"\nexecutable = "C:\\\\p.exe"\n',
+        encoding="utf-8",
+    )
+    rerun = DiscoveredApp(name="plain-app", full_name="Plain", executable="C:\\p.exe")
+    persist_discovered([rerun], target_dir=tmp_path, add_essentials=False)
+    assert "[rdp]" not in (tmp_path / "plain-app" / "app.toml").read_text()
+
+
+def test_rdp_override_invalid_subset_dropped_on_rediscovery(tmp_path):
+    """Only the safe {scale, extra_flags, multimon} subset is carried over; a
+    garbage/unknown key in the prior [rdp] table is dropped by the rewrite."""
+    app_dir = tmp_path / "messy-app"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "messy-app"\nfull_name = "Messy"\nexecutable = "C:\\\\m.exe"\n'
+        '\n[rdp]\nscale = 200\ndpi = 300\nmultimon = "bogus"\n',
+        encoding="utf-8",
+    )
+    rerun = DiscoveredApp(name="messy-app", full_name="Messy", executable="C:\\m.exe")
+    persist_discovered([rerun], target_dir=tmp_path, add_essentials=False)
+    reloaded = load_app(tmp_path / "messy-app")
+    assert reloaded is not None
+    assert reloaded.rdp_overrides == {"scale": 200}
 
 
 def test_noise_pattern_yields_to_essential(tmp_path):
