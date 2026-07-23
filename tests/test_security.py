@@ -353,7 +353,10 @@ class TestTomlWriterEscaping:
         # adding `hidden` to an app.toml that already carries an [rdp] override)
         # must still round-trip: TOML reparents any bare key after a [table]
         # header into that table, so dumps has to emit scalars first (#692).
-        import tomllib
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # Python 3.9 / 3.10
+            import tomli as tomllib
 
         from winpodx.utils.toml_writer import dumps
 
