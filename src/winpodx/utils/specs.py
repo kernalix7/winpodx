@@ -190,6 +190,33 @@ def _read_cpuinfo_flags() -> set[str]:
     return set()
 
 
+def _host_clocksource_is_tsc() -> bool:
+    """Whether the host kernel's own boot-time TSC sync check passed.
+
+    `constant_tsc`/`nonstop_tsc` in /proc/cpuinfo are static CPUID bits --
+    they say the hardware is *capable* of an invariant TSC, not that this
+    kernel's cross-core synchronization check at boot actually accepted it.
+    On boards where that check fails, the kernel falls back its own
+    clocksource away from "tsc" (typically to "hpet"/"acpi_pm") while the
+    CPUID bits stay set regardless. Handing the guest `+invtsc` in that case
+    tells it to trust a clock the host itself just rejected -- observed to
+    produce a UEFI/DXE-stage boot hang (RDTSC-calibrated delay loop never
+    converges, vCPU spins at 100% host/kernel time, 0% guest time).
+
+    Missing/unreadable sysfs (e.g. inside some container/chroot setups)
+    reports True so we don't punish hosts where the check itself can't run.
+    """
+    try:
+        val = (
+            Path("/sys/devices/system/clocksource/clocksource0/current_clocksource")
+            .read_text()
+            .strip()
+        )
+    except OSError:
+        return True
+    return val == "tsc"
+
+
 def _read_cpu_vendor() -> str:
     try:
         text = Path("/proc/cpuinfo").read_text()
@@ -281,7 +308,7 @@ def detect_tuning_capability(*, vm_cpu_cores: int, vm_ram_gb: int) -> TuningCapa
     (`dedicated_host`). Other fields are pure host-side facts.
     """
     flags = _read_cpuinfo_flags()
-    invtsc = ("constant_tsc" in flags) and ("nonstop_tsc" in flags)
+    invtsc = ("constant_tsc" in flags) and ("nonstop_tsc" in flags) and _host_clocksource_is_tsc()
     kernel = _read_kernel_version()
     io_uring = kernel is not None and (kernel[0], kernel[1]) >= (5, 6)
     hugepages = _read_hugepages_total() > 0
