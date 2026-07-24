@@ -1542,14 +1542,23 @@ fi
 # python_version marker) from pyproject. We then add the reverse-open
 # icon deps (cairosvg + pyxdg) and, unless --no-gui, PySide6 — pinned to
 # the same ranges pyproject declares so we don't invent versions.
+#
+# --no-cache-dir on the winpodx source install: the version string only
+# bumps at release, so a `--main` / same-version reinstall keeps building
+# winpodx-<same-version>. pip's wheel cache (~/.cache/pip/wheels) is keyed
+# by name+version and SURVIVES an `uninstall.sh --purge` (purge clears the
+# install, not pip's cache), so pip would silently reuse a stale cached
+# wheel from an earlier build and the freshly-cloned source never reaches
+# the venv -- a `--main` upgrade or a purge+reinstall would run OLD code.
+# Building without the cache forces a fresh build from the cloned WORK_DIR.
 log "Installing WinPodX into the venv (pip install '$WORK_DIR')..."
 if [ -n "$WINPODX_NO_GUI" ]; then
     # Headless: winpodx core + reverse-open icon quality, no PySide6.
-    "$WORK_VENV_PY" -m pip install --quiet "${WORK_DIR}[reverse-open]"
+    "$WORK_VENV_PY" -m pip install --quiet --no-cache-dir "${WORK_DIR}[reverse-open]"
     log "Headless install (--no-gui): PySide6 skipped."
 else
     # Full: winpodx core + reverse-open + GUI.
-    "$WORK_VENV_PY" -m pip install --quiet "${WORK_DIR}[gui,reverse-open]"
+    "$WORK_VENV_PY" -m pip install --quiet --no-cache-dir "${WORK_DIR}[gui,reverse-open]"
 fi
 
 # Belt-and-suspenders: ensure cairosvg + pyxdg are present even if a

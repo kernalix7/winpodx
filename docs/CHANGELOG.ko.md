@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- **`--main` 업그레이드나 purge 후 재설치가 옛 코드를 조용히 유지하지 않도록 수정.** winpodx 버전 문자열은 릴리스 때만 바뀌므로 설치 프로그램이 계속 `winpodx-<같은 버전>`을 빌드했는데, pip의 wheel 캐시(`~/.cache/pip/wheels`)는 name+version으로 키가 잡히고 `uninstall.sh --purge`에도 살아남습니다(purge는 설치를 지우지 pip 캐시를 안 지웁니다). 그래서 pip이 캐시된 옛 wheel을 재사용하고 새로 clone한 소스가 venv에 도달하지 못했습니다. 이제 설치 프로그램이 winpodx를 `--no-cache-dir`로 빌드해 매번 clone한 소스에서 새로 빌드합니다.
+
 - **느린 첫 부팅에서 discovery를 2회가 아니라 최대 5회 재시도.** Sysprep 직후(Defender 스캔, 첫 부팅 부하) 게스트의 시작 메뉴 열거가 attempt당 180초 타임아웃을 넘길 수 있는데 2회로는 부족해서 앱 메뉴가 빈 채로 남고 수동 `winpodx app refresh`가 필요했습니다. 재시도할수록 게스트가 더 안정되므로, 시도를 늘리면 첫 부팅 타임아웃이 채워진 메뉴로 바뀝니다. 정상 부팅은 여전히 첫 시도에 성공하며 기다리지 않습니다.
 
 ### Added
