@@ -836,3 +836,32 @@ def test_discovery_default_retries_is_five() -> None:
     from winpodx.core.provisioner import finish_provisioning
 
     assert inspect.signature(finish_provisioning).parameters["retries"].default == 5
+
+
+def test_provision_cli_retries_default_is_five(monkeypatch) -> None:
+    """install.sh drives a fresh install via `winpodx provision` (not setup),
+    so the provision command's own retries default is the one that matters for
+    first-boot discovery. With no --retries on the args, _cmd_provision must
+    pass 5 to finish_provisioning (a slow first boot blows the 180s/attempt
+    budget; #784 bumped setup + the finish_provisioning default but the
+    provision CLI path defaulted to 2 until this)."""
+    import argparse
+    from types import SimpleNamespace
+
+    from winpodx.cli import main as cli_main
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        "winpodx.core.config.Config.load",
+        classmethod(lambda cls: SimpleNamespace(pod=SimpleNamespace(backend="podman"))),
+    )
+
+    def _fake_finish(cfg, **kwargs):  # noqa: ANN001, ANN003
+        captured.update(kwargs)
+        return {"wait_ready": "ok", "discovery": "3 apps", "reverse_open": "ok"}
+
+    monkeypatch.setattr("winpodx.core.provisioner.finish_provisioning", _fake_finish)
+    # Bare namespace: no `retries` attr -> the getattr fallback / argparse
+    # default is what applies, which must be 5.
+    cli_main._cmd_provision(argparse.Namespace())
+    assert captured["retries"] == 5

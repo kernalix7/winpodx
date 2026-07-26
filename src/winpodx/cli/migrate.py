@@ -840,8 +840,8 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bo
     #     is purely additive on a fresh install (OEM v22+ already applied
     #     everything), so skipping is strictly safer than racing.
     #
-    #   * with_discovery=True, retries=3 — migrate now folds discovery into
-    #     the chain (previously a separate interactive prompt). retries=3
+    #   * with_discovery=True, retries=5 — migrate now folds discovery into
+    #     the chain (previously a separate interactive prompt). retries=5
     #     rather than install.sh's 6× because migrate runs against an
     #     already-settled agent more often than not.
     #
@@ -879,7 +879,7 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bo
             require_agent=True,
             with_reverse_open=getattr(cfg.reverse_open, "enabled", False),
             with_discovery=True,
-            retries=3,
+            retries=5,
             wait_fn=_rich_wait,
         )
     except ProvisionAgentUnavailable:

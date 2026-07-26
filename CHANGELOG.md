@@ -11,6 +11,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 
+- **The `winpodx provision` path (what a fresh `install.sh` actually runs) now also defaults to 5 discovery retries.** The earlier bump covered `winpodx setup` and the `finish_provisioning` default, but the `provision` CLI command kept its own `--retries` default of 2, so a fresh install still gave up after 2 attempts on a slow first boot. All the provisioning entrypoints (setup / provision / migrate / resume) are now consistent at 5.
+
 - **A `--main` upgrade or a purge + reinstall no longer silently keeps old code.** winpodx's version string only changes at release, so the installer kept building `winpodx-<same-version>`; pip's wheel cache (`~/.cache/pip/wheels`) is keyed by name+version and survives `uninstall.sh --purge` (purge clears the install, not pip's cache), so pip would reuse a stale cached wheel and the freshly-cloned source never reached the venv. The installer now builds winpodx with `--no-cache-dir`, forcing a fresh build from the cloned source every time.
 
 - **Discovery retries up to 5 times on a slow first boot instead of 2.** The guest's Start Menu enumeration can exceed the 180s-per-attempt timeout right after Sysprep (Defender scanning, heavy first-boot load), and two attempts weren't always enough, leaving the app menu empty until a manual `winpodx app refresh`. Each retry lands on a progressively idler guest, so more attempts turn a first-boot timeout into a populated menu; a normal boot still succeeds on the first attempt and never waits.
