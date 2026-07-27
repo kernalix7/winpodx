@@ -270,6 +270,34 @@ def test_size_chain_scraped_when_no_percent() -> None:
     assert lines[0].startswith("❯ Downloading Windows 11")
 
 
+def test_size_chain_scraped_in_v603_format() -> None:
+    """dockur v6.03 renders the same chain as "512 MB -> 1.5 GB": progress.sh
+    swapped `numfmt --to=iec-i` for `--to=iec` piped through a sed that inserts
+    a space. The old MiB/GiB-only pattern stopped matching entirely, so the
+    heartbeat showed nothing on the new image."""
+    import threading
+
+    from winpodx.cli.pod import _iter_container_lines
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    dl_state = {"start": 1.0, "pct": None, "size": None}
+    stream = _FakeStream(
+        [
+            "\u276f Downloading Windows 11...\n512 MB \u2192 1 GB".encode(),
+            " \u2192 1.5 GB \u2192 2 GB".encode(),
+        ]
+    )
+    list(_iter_container_lines(stream, dl_state, threading.Event()))
+    assert dl_state["pct"] is None
+    assert dl_state["size"] == "2 GB"
+
+
 def test_percent_wins_over_size_tokens() -> None:
     import threading
 

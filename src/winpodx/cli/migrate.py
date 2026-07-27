@@ -703,18 +703,22 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
     Idempotent: re-running migrate on an already-pinned config is a
     no-op (string equality check returns False before any rewrite).
     """
-    from winpodx.core.config import DOCKUR_IMAGE_PIN, Config
+    from winpodx.core.config import Config, _default_pod_image
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
         return  # the manual backend doesn't use the dockur image / compose
 
-    pin_changed = cfg.pod.image != DOCKUR_IMAGE_PIN
+    # Architecture-aware, like a fresh install: aarch64 hosts get the ARM pin.
+    # This used to hard-code DOCKUR_IMAGE_PIN, so every migrate on an ARM host
+    # silently rewrote the config to the x86 image.
+    canonical_pin = _default_pod_image()
+    pin_changed = cfg.pod.image != canonical_pin
     if pin_changed:
         print("\nAligning container image with this WinPodX version...")
         print(f"  was: {cfg.pod.image}")
-        print(f"  now: {DOCKUR_IMAGE_PIN}")
-        cfg.pod.image = DOCKUR_IMAGE_PIN
+        print(f"  now: {canonical_pin}")
+        cfg.pod.image = canonical_pin
         cfg.save()
 
     # Always regenerate compose.yaml on upgrade — NOT just when the image pin

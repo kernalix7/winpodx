@@ -158,13 +158,22 @@ def _validate_device_entry(entry: object) -> str | None:
 # current ``:latest`` digest, paste below. See ``winpodx setup --update
 # -image`` for the runtime equivalent users invoke explicitly.
 #
-# As of 2026-07-18 (dockur/windows v6.02 — QEMU base v7.37, improved
-# download-progress output in the container log (upstream follow-up to the
-# v6.01 buffered-download saga), Windows reinstall detection, QEMU errors
-# surfaced on unexpected exit; requested by @kroese in #735):
+# As of 2026-07-27: the dockur/windows v6.03 release build (dockur revision
+# f6fcb469, QEMU base v7.40). The v6.02 and v6.03 tags point at the same
+# commit — v6.03 is a re-tag — so the version label is cosmetic between them.
+#
+# What matters is that the PREVIOUS pin (sha256:8cc6f8bc…) was not the v6.02
+# release build at all: it was a rolling master build created 2026-07-17
+# 21:26 UTC on QEMU base 7.37. kroese's rootless fix — an OUTPUT-chain DNAT
+# rule so podman's rootlessport, which dials the published port from inside
+# the container's netns and therefore misses PREROUTING, still reaches the
+# guest — landed in the QEMU base at 2026-07-18 13:16 UTC (qemus/qemu
+# ceed7b05c8, first shipped in base v7.37). The old pin predates it by
+# ~16 hours, so #770's root cause was still live in what winpodx shipped.
+# This bump is what actually delivers that fix (#735, #770).
 DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
-    "8cc6f8bc4a60c078141fd3bcf7d2df69ae063a11d98be31a57429afe0dca66da"
+    "743847e75b776790c059f33ac6654f84727ba36a6d458a61e37cb2b2f043d168"
 )
 
 # Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``
@@ -174,7 +183,14 @@ DOCKUR_IMAGE_PIN = (
 # OCI index, so container runtimes pick the right platform manifest
 # (amd64 or arm64) automatically.
 #
-# As of 2026-06-10 (dockur/windows-arm v5.15, :latest security rebuild):
+# Left where it is deliberately. ARM is exploratory (#141 phase 4/7 open, #140
+# unresolved): nothing here can boot an ARM guest, so rolling this pin forward
+# four minors would ship an unverified image to the users least able to
+# diagnose it. The VERSIONS.txt baseline tracks upstream separately.
+#
+# As of 2026-06-06 — a 5.16-labelled build of dockur/windows-arm (revision
+# 97861800) on QEMU base 7.32. The comment previously said "v5.15", which the
+# image's own OCI metadata contradicts:
 DOCKUR_IMAGE_ARM_PIN = (
     "docker.io/dockurr/windows-arm@sha256:"
     "7c28ddbbe69eb02900bef3b7ab3ad60fbd5fb409524a307a60a3c934f80a9dd5"
@@ -357,6 +373,24 @@ class PodConfig:
     # expanded at use time. Only files under the shared directory are
     # reachable from the guest afterwards (see ``core/rdp.linux_to_unc``).
     home_share: str = ""
+    # #735/#770: how the container reaches the network. Empty (the default)
+    # leaves the choice to dockur, which picks bridge NAT where it works and
+    # falls back to user-mode (passt) otherwise.
+    #
+    # ``"user"`` forces user-mode. That was hard-coded for rootless Podman in
+    # 0.10.3 because rootlessport dials the published port from inside the
+    # container's netns, missing the PREROUTING DNAT rule, so the guest's
+    # NAT-internal address was unreachable and RDP never connected. dockur's
+    # QEMU base ≥ 7.37 adds a matching OUTPUT-chain rule, which the image
+    # pinned from 0.10.5 carries, so the force is no longer applied by
+    # default — but the escape hatch stays: a host where that rule does not
+    # match (rootlessport dialling 127.0.0.1 inside the netns, say) can set
+    # ``network = "user"`` and get the 0.10.3 behaviour back in one command,
+    # rather than being stuck with a pod whose RDP never comes up.
+    #
+    # Sanitised to "" or "user" in ``__post_init__`` -- the value reaches
+    # compose.yaml, so it is never free-form.
+    network: str = ""
     # v0.5.x: Windows installation language/region/keyboard settings.
     # Passed through to dockur's LANGUAGE, REGION, KEYBOARD env vars.
     # Defaults to English (US). Common values for Spanish:
@@ -581,6 +615,12 @@ class PodConfig:
         # config-set time (the user may create it later); note it if missing so
         # a typo doesn't silently hand the guest an empty \\tsclient\home.
         self.home_share = _sanitise_home_share(self.home_share)
+        # network (#735/#770): "" (let dockur choose) or "user" (force passt).
+        # The value is interpolated into compose.yaml, so anything else -- a
+        # hand-edited TOML, a typo -- coerces back to "" rather than reaching
+        # the container as an unknown NETWORK value.
+        _net = self.network.strip().lower() if isinstance(self.network, str) else ""
+        self.network = _net if _net in ("", "user") else ""
         if self.home_share:
             try:
                 _hs_missing = not Path(self.home_share).expanduser().exists()
@@ -940,6 +980,7 @@ class Config:
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
                 "home_share": self.pod.home_share,
+                "network": self.pod.network,
                 "language": self.pod.language,
                 "region": self.pod.region,
                 "keyboard": self.pod.keyboard,

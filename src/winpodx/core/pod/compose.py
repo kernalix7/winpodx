@@ -836,20 +836,23 @@ def _build_compose_content(cfg: Config) -> str:
     # ("Property 'e1000.host_mtu' not found"). Pinning MTU=1500 makes dockur emit
     # a plain ``-device e1000`` (no host_mtu). Empty MTU for off/balanced keeps
     # dockur's virtio auto-MTU.
-    # Network mode (#770 regression fix): rootless Podman must force dockur's
-    # user-mode (passt) path. Bridge NAT -- what the container auto-picks when
-    # NETWORK is unset -- lands the guest on a NAT-internal 172.x address that
-    # the host's forwarded RDP port never reaches on rootless hosts (the
-    # #269/#387 class). Rootful Podman and Docker keep auto-selection: NAT is
-    # validated there and forwards published ports correctly. USER_PORTS stays
-    # emitted unconditionally -- it is the passt-fallback port list, ignored
-    # under NAT by design, so it is harmless when we don't force user-mode.
+    # Network mode (#735, #770). 0.10.3 forced dockur's user-mode (passt) path
+    # on rootless Podman: bridge NAT put the guest on a NAT-internal address
+    # that the host's forwarded RDP port never reached, because rootlessport
+    # dials the published port from INSIDE the container's netns and so takes
+    # the OUTPUT chain rather than PREROUTING, which dockur's DNAT rule did not
+    # cover. QEMU base >= 7.37 adds the matching OUTPUT rule, and the image
+    # pinned from 0.10.5 carries it, so the force is gone and dockur picks the
+    # mode again.
+    #
+    # ``pod.network`` remains as the escape hatch for a host the upstream fix
+    # misses -- setting it to "user" restores the 0.10.3 behaviour. Already
+    # sanitised to "" or "user" by PodConfig, so it is safe to interpolate.
+    # USER_PORTS stays emitted unconditionally: it is the passt-fallback port
+    # list, ignored under NAT by design.
     network_env = ""
-    if cfg.pod.backend == "podman":
-        from winpodx.backend.podman import is_rootless_podman
-
-        if is_rootless_podman():
-            network_env = '      NETWORK: "user"\n'
+    if cfg.pod.network:
+        network_env = f'      NETWORK: "{cfg.pod.network}"\n'
 
     if cfg.pod.disguise_max:
         disk_type, adapter, vga, mtu = "sata", "e1000", "std", "1500"

@@ -1154,7 +1154,14 @@ _DOWNLOAD_PCT_RE = re.compile(r"([0-9]{1,3})%")
 # printSizeProgress and the growing line is a SIZE chain instead:
 # "512MiB → 1GiB → 1.5GiB → ..." -- no percent tokens at all. Scrape those
 # too so the heartbeat can show "5.5GiB" rather than nothing.
-_DOWNLOAD_SIZE_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?[MG]iB)")
+#
+# dockur v6.03 changed the rendering: progress.sh swapped
+# ``numfmt --to=iec-i --suffix=B`` for ``numfmt --to=iec --suffix=B`` piped
+# through a sed that inserts a space, so the same chain now reads
+# "512 MB -> 1.5 GB". Match both spellings (optional space, optional "i") so
+# the heartbeat keeps working across the pin bump and for anyone still on an
+# older image.
+_DOWNLOAD_SIZE_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?\s?[KMGT]i?B)")
 
 
 class _LineSplitter:
