@@ -9,15 +9,7 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- **`winpodx provision` 경로(fresh `install.sh`가 실제로 실행)도 discovery 재시도 기본값을 5로.** 앞선 상향은 `winpodx setup`과 `finish_provisioning` 기본값만 커버했고 `provision` CLI 명령의 `--retries` 기본값은 2로 남아 있어서, fresh 설치는 여전히 느린 첫 부팅에서 2회 만에 포기했습니다. 이제 모든 provisioning 진입점(setup / provision / migrate / resume)이 5로 일관됩니다.
-
-- **The `winpodx provision` path (what a fresh `install.sh` actually runs) now also defaults to 5 discovery retries.** The earlier bump covered `winpodx setup` and the `finish_provisioning` default, but the `provision` CLI command kept its own `--retries` default of 2, so a fresh install still gave up after 2 attempts on a slow first boot. All the provisioning entrypoints (setup / provision / migrate / resume) are now consistent at 5.
-
-- **`--main` 업그레이드나 purge 후 재설치가 옛 코드를 조용히 유지하지 않도록 수정.** winpodx 버전 문자열은 릴리스 때만 바뀌므로 설치 프로그램이 계속 `winpodx-<같은 버전>`을 빌드했는데, pip의 wheel 캐시(`~/.cache/pip/wheels`)는 name+version으로 키가 잡히고 `uninstall.sh --purge`에도 살아남습니다(purge는 설치를 지우지 pip 캐시를 안 지웁니다). 그래서 pip이 캐시된 옛 wheel을 재사용하고 새로 clone한 소스가 venv에 도달하지 못했습니다. 이제 설치 프로그램이 winpodx를 `--no-cache-dir`로 빌드해 매번 clone한 소스에서 새로 빌드합니다.
-
-- **느린 첫 부팅에서 discovery를 2회가 아니라 최대 5회 재시도.** Sysprep 직후(Defender 스캔, 첫 부팅 부하) 게스트의 시작 메뉴 열거가 attempt당 180초 타임아웃을 넘길 수 있는데 2회로는 부족해서 앱 메뉴가 빈 채로 남고 수동 `winpodx app refresh`가 필요했습니다. 재시도할수록 게스트가 더 안정되므로, 시도를 늘리면 첫 부팅 타임아웃이 채워진 메뉴로 바뀝니다. 정상 부팅은 여전히 첫 시도에 성공하며 기다리지 않습니다.
+## [0.10.4] - 2026-07-27
 
 ### Added
 
@@ -29,7 +21,18 @@
 
 ### Fixed
 
+- **`winpodx provision` 경로(fresh `install.sh`가 실제로 실행)도 discovery 재시도 기본값을 5로.** 앞선 상향은 `winpodx setup`과 `finish_provisioning` 기본값만 커버했고 `provision` CLI 명령의 `--retries` 기본값은 2로 남아 있어서, fresh 설치는 여전히 느린 첫 부팅에서 2회 만에 포기했습니다. 이제 모든 provisioning 진입점(setup / provision / migrate / resume)이 5로 일관됩니다.
+
+- **`--main` 업그레이드나 purge 후 재설치가 옛 코드를 조용히 유지하지 않도록 수정.** winpodx 버전 문자열은 릴리스 때만 바뀌므로 설치 프로그램이 계속 `winpodx-<같은 버전>`을 빌드했는데, pip의 wheel 캐시(`~/.cache/pip/wheels`)는 name+version으로 키가 잡히고 `uninstall.sh --purge`에도 살아남습니다(purge는 설치를 지우지 pip 캐시를 안 지웁니다). 그래서 pip이 캐시된 옛 wheel을 재사용하고 새로 clone한 소스가 venv에 도달하지 못했습니다. 이제 설치 프로그램이 winpodx를 `--no-cache-dir`로 빌드해 매번 clone한 소스에서 새로 빌드합니다.
+
+- **느린 첫 부팅에서 discovery를 2회가 아니라 최대 5회 재시도.** Sysprep 직후(Defender 스캔, 첫 부팅 부하) 게스트의 시작 메뉴 열거가 attempt당 180초 타임아웃을 넘길 수 있는데 2회로는 부족해서 앱 메뉴가 빈 채로 남고 수동 `winpodx app refresh`가 필요했습니다. 재시도할수록 게스트가 더 안정되므로, 시도를 늘리면 첫 부팅 타임아웃이 채워진 메뉴로 바뀝니다. 정상 부팅은 여전히 첫 시도에 성공하며 기다리지 않습니다.
+
+- **winpodx.org 홈페이지가 비영어 번역을 실제로 표시하도록 수정.** 사이트는 언어별 JSON이 아니라 생성된 `web/lang/translations.js` 번들을 로드하는데, 커밋된 생성기가 없어서 카탈로그 편집(최근 `--storage-dir`/`--storage-path` 명확화, 이번 릴리스의 업데이트 안내)이 독일어/프랑스어/이탈리아어/일본어/한국어/중국어 라이브 사이트에 도달하지 못했습니다. `scripts/gen_web_i18n.py` 생성기를 추가하고(웹 카탈로그 편집 후 실행) 번들을 재생성했습니다.
 - **이전 시도에서 남은 podman 볼륨이 그대로 있을 때 `winpodx setup --storage-path` / `--win-iso`가 조용히 무시되던 문제를 수정** (#767, @realahmed7777 감사). `winpodx.toml`을 지워도 named 볼륨은 제거되지 않으므로, setup이 기존 설치를 발견해 VM을 이전 디스크에 그대로 두고 커스텀 ISO 스테이징도 건너뛰었습니다 — 게다가 유일한 신호는 "Setup Complete" 배너 전에 스크롤로 밀려 사라지는 한 줄짜리 안내뿐이었습니다(그 결과 dockur는 사용자가 더 넓은 ext4 경로로 기대한 위치에 "BTRFS filesystem for /storage" 경고를 남기고, Windows는 그대로 다운로드했습니다). 이제 setup은 요청한 경로, 여전히 사용 중인 위치, 그리고 재배치 방법(`winpodx setup --migrate-storage --migrate-storage-target <path>`) 또는 완전히 새로 시작하는 방법(이전 볼륨 제거 / `winpodx uninstall --purge`)을 명시한 눈에 띄는 프레임 경고를 표시하고, 스크롤로 사라지지 않도록 최종 배너 직전에 다시 출력합니다. 스토리지 결정 동작 자체는 그대로입니다 — 기존 설치를 재배치하려면 여전히 `--migrate-storage`가 필요하며, 이번 변경은 무시 사실을 놓칠 수 없게 만들 뿐입니다.
+
+### Contributors
+
+이번 릴리스에 이슈를 제보하거나 기여해 주신 모든 분께 감사드립니다: @realahmed7777 (#767, #734), @Graf-source (#758), @jltorres60 (#769), @notnotno (#692), @GameSoul7Eugene (#696).
 
 ## [0.10.3] - 2026-07-21
 

@@ -9,15 +9,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-### Fixed
-
-- **The `winpodx provision` path (what a fresh `install.sh` actually runs) now also defaults to 5 discovery retries.** The earlier bump covered `winpodx setup` and the `finish_provisioning` default, but the `provision` CLI command kept its own `--retries` default of 2, so a fresh install still gave up after 2 attempts on a slow first boot. All the provisioning entrypoints (setup / provision / migrate / resume) are now consistent at 5.
-
-- **A `--main` upgrade or a purge + reinstall no longer silently keeps old code.** winpodx's version string only changes at release, so the installer kept building `winpodx-<same-version>`; pip's wheel cache (`~/.cache/pip/wheels`) is keyed by name+version and survives `uninstall.sh --purge` (purge clears the install, not pip's cache), so pip would reuse a stale cached wheel and the freshly-cloned source never reached the venv. The installer now builds winpodx with `--no-cache-dir`, forcing a fresh build from the cloned source every time.
-
-- **Discovery retries up to 5 times on a slow first boot instead of 2.** The guest's Start Menu enumeration can exceed the 180s-per-attempt timeout right after Sysprep (Defender scanning, heavy first-boot load), and two attempts weren't always enough, leaving the app menu empty until a manual `winpodx app refresh`. Each retry lands on a progressively idler guest, so more attempts turn a first-boot timeout into a populated menu; a normal boot still succeeds on the first attempt and never waits.
-
-- **The winpodx.org homepage now actually shows its non-English translations.** The site loads a generated `web/lang/translations.js` bundle (not the per-language JSON), and there was no committed generator, so catalog edits (the recent `--storage-dir`/`--storage-path` clarification and this release's update note) never reached the live site in German/French/Italian/Japanese/Korean/Chinese. Added `scripts/gen_web_i18n.py` (run it after any `web/lang/*.json` edit) and regenerated the bundle.
+## [0.10.4] - 2026-07-27
 
 ### Added
 
@@ -29,7 +21,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 
+- **The `winpodx provision` path (what a fresh `install.sh` actually runs) now also defaults to 5 discovery retries.** The earlier bump covered `winpodx setup` and the `finish_provisioning` default, but the `provision` CLI command kept its own `--retries` default of 2, so a fresh install still gave up after 2 attempts on a slow first boot. All the provisioning entrypoints (setup / provision / migrate / resume) are now consistent at 5.
+
+- **A `--main` upgrade or a purge + reinstall no longer silently keeps old code.** winpodx's version string only changes at release, so the installer kept building `winpodx-<same-version>`; pip's wheel cache (`~/.cache/pip/wheels`) is keyed by name+version and survives `uninstall.sh --purge` (purge clears the install, not pip's cache), so pip would reuse a stale cached wheel and the freshly-cloned source never reached the venv. The installer now builds winpodx with `--no-cache-dir`, forcing a fresh build from the cloned source every time.
+
+- **Discovery retries up to 5 times on a slow first boot instead of 2.** The guest's Start Menu enumeration can exceed the 180s-per-attempt timeout right after Sysprep (Defender scanning, heavy first-boot load), and two attempts weren't always enough, leaving the app menu empty until a manual `winpodx app refresh`. Each retry lands on a progressively idler guest, so more attempts turn a first-boot timeout into a populated menu; a normal boot still succeeds on the first attempt and never waits.
+
+- **The winpodx.org homepage now actually shows its non-English translations.** The site loads a generated `web/lang/translations.js` bundle (not the per-language JSON), and there was no committed generator, so catalog edits (the recent `--storage-dir`/`--storage-path` clarification and this release's update note) never reached the live site in German/French/Italian/Japanese/Korean/Chinese. Added `scripts/gen_web_i18n.py` (run it after any `web/lang/*.json` edit) and regenerated the bundle.
+
 - **`winpodx setup --storage-path` / `--win-iso` were silently ignored when a leftover podman volume from an earlier attempt still existed** (#767, thanks @realahmed7777). Deleting `winpodx.toml` does not remove the named volume, so setup found an existing install, kept the VM on the old disk, and skipped staging the custom ISO — and the only signal was a one-line note that scrolled off before the "Setup Complete" banner (dockur then logged a "BTRFS filesystem for /storage" warning on what the user expected to be their roomier ext4 path, and Windows downloaded anyway). Setup now surfaces a prominent, framed warning that names the requested path, the location still in use, and how to relocate (`winpodx setup --migrate-storage --migrate-storage-target <path>`) or start fresh (remove the old volume / `winpodx uninstall --purge`), and re-prints it right before the final banner so it survives scrollback. The storage-decision behaviour is unchanged — relocating an existing install still requires `--migrate-storage`; this only makes the ignore impossible to miss.
+
+### Contributors
+
+Thanks to everyone who reported issues or contributed to this release: @realahmed7777 (#767, #734), @Graf-source (#758), @jltorres60 (#769), @notnotno (#692), and @GameSoul7Eugene (#696).
 
 ## [0.10.3] - 2026-07-21
 

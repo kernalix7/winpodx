@@ -1,3 +1,18 @@
+winpodx (0.10.4) unstable; urgency=medium
+
+  * Feature + fix release. New: expose only a chosen directory to the guest
+    via pod.home_share (#758); a "Windows Desktop" launcher entry (#769);
+    per-app RDP overrides via an [rdp] table in app.toml (#692); expanded
+    privacy debloat presets (#696); documented how to update winpodx (#734).
+    Fixed: setup now surfaces an ignored --storage-path/--win-iso instead of
+    silently keeping the old disk (#767); discovery retries up to 5 times on
+    a slow first boot across all provisioning entrypoints (#784 completion);
+    the installer builds with --no-cache-dir so a --main / purge+reinstall
+    always gets fresh code; and the winpodx.org homepage ships its
+    non-English translations again. See CHANGELOG.md.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 27 Jul 2026 09:00:00 +0000
+
 winpodx (0.10.3) unstable; urgency=medium
 
   * Hotfix release. Rootless Podman re-forces dockur's NETWORK=user (passt)
