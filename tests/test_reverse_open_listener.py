@@ -674,3 +674,138 @@ def test_filemode_permission_helper() -> None:
     # Self-check: stat.filemode formatting matches what we expect to
     # surface in the PermissionError message.
     assert stat.filemode(0o775).endswith("xrwxr-x")
+
+
+# --- #694: URLs clicked in the guest ----------------------------------------
+
+
+def _apps_db_with_schemes(slug: str, exec_argv: list[str], schemes: list[str]) -> AppsDatabase:
+    entry = AppEntry(
+        slug=slug,
+        name="Browser",
+        comment="",
+        exec_argv=exec_argv,
+        icon_name="",
+        mime_types=["text/html"] + [f"x-scheme-handler/{s}" for s in schemes],
+        desktop_file="/browser.desktop",
+    )
+    return AppsDatabase({slug: entry}, "2026-07-27T00:00:00Z")
+
+
+def _url_request(url: str, app: str = "brave") -> dict:
+    # The guest shim classifies anything that is neither \\… nor a drive path
+    # as origin "host", so a clicked link arrives with the URL in `path`.
+    return {
+        "version": 2,
+        "app": app,
+        "path": url,
+        "origin": "host",
+        "ts": "2026-07-27T00:00:00Z",
+        "pod_id": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/a?b=1,2&c=%20d",
+        "http://example.com/",
+        "mailto:someone@example.com?subject=hi",
+        "slack://channel?id=C123",
+    ],
+)
+def test_schema_accepts_routable_urls(url: str) -> None:
+    assert _validate_schema(_url_request(url)) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/shadow",
+        "javascript:alert(1)",
+        "data:text/html;base64,PHNjcmlwdD4=",
+        "vbscript:msgbox",
+    ],
+)
+def test_schema_rejects_dangerous_url_schemes(url: str) -> None:
+    # file: in particular would walk straight around the share-root
+    # confinement that safe_open_unc exists to enforce.
+    assert _validate_schema(_url_request(url)) is not None
+
+
+@pytest.mark.parametrize("url", ["ssh://host", "vnc://host:1", "smb://host/share"])
+def test_schema_rejects_remote_session_schemes_from_guest(url: str) -> None:
+    # Routable in general, but a guest must not be able to make the host open
+    # an authenticated outbound session.
+    assert _validate_schema(_url_request(url)) is not None
+
+
+def test_schema_rejects_url_with_control_characters() -> None:
+    assert _validate_schema(_url_request("https://example.com/\x1b[2Kfake")) is not None
+
+
+def test_schema_still_rejects_non_url_host_path() -> None:
+    # A bare relative path is neither a UNC path nor a URL.
+    assert _validate_schema(_url_request("some/relative/path")) is not None
+
+
+def test_unc_path_is_not_reinterpreted_as_url() -> None:
+    # UNC is checked first; a share named like a scheme must not change that.
+    body = _url_request("\\\\tsclient\\home\\notes.txt")
+    assert _validate_schema(body) is None
+
+
+def test_listener_spawns_app_with_url(tmp_path: Path, spawn_capture) -> None:
+    captured, spawn = spawn_capture
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={})
+    db = _apps_db_with_schemes("brave", ["/usr/bin/brave", "%u"], ["http", "https"])
+    listener = Listener(cfg, db, _seen(tmp_path), spawn=spawn)
+
+    url = "https://example.com/a?b=1,2"
+    _write_request(inc, _url_request(url))
+    listener.process_pending()
+
+    assert len(captured) == 1
+    argv, popen_kwargs = captured[0]
+    # The URL occupies exactly one argv slot, verbatim -- no shell, no split.
+    assert argv == ["/usr/bin/brave", url]
+    assert popen_kwargs == {}
+    assert listener.stats_snapshot().accepted == 1
+    assert list(inc.iterdir()) == []
+
+
+def test_listener_refuses_url_scheme_the_app_does_not_declare(
+    tmp_path: Path, spawn_capture
+) -> None:
+    captured, spawn = spawn_capture
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={})
+    # Declares http/https only -- a zoommtg: link must not be handed to it.
+    db = _apps_db_with_schemes("brave", ["/usr/bin/brave", "%u"], ["http", "https"])
+    listener = Listener(cfg, db, _seen(tmp_path), spawn=spawn)
+
+    _write_request(inc, _url_request("zoommtg://zoom.us/join?confno=1"))
+    listener.process_pending()
+
+    assert captured == []
+    assert listener.stats_snapshot().rejected_url_scheme == 1
+    assert list(inc.iterdir()) == []
+
+
+def test_listener_drops_request_for_dangerous_url(tmp_path: Path, spawn_capture) -> None:
+    captured, spawn = spawn_capture
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={})
+    db = _apps_db_with_schemes("brave", ["/usr/bin/brave", "%u"], ["http", "https", "file"])
+    listener = Listener(cfg, db, _seen(tmp_path), spawn=spawn)
+
+    _write_request(inc, _url_request("file:///etc/shadow"))
+    listener.process_pending()
+
+    assert captured == []
+    assert listener.stats_snapshot().rejected_schema == 1
+    assert list(inc.iterdir()) == []
