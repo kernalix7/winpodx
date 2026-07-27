@@ -138,12 +138,10 @@ class TestCheckFreerdp:
             "winpodx.utils.deps.check_freerdp",
             lambda: DepCheck(name="xfreerdp", found=found, path="/usr/bin/xfreerdp3"),
         )
-
-        class _Res:
-            stdout = f"This is FreeRDP version {version} (...)\n" if version else ""
-            stderr = ""
-
-        monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _Res())
+        # doctor consumes the launcher's single shared probe (#785), so stub
+        # that rather than re-stubbing subprocess here.
+        parsed = tuple(int(p) for p in version.split(".")) if version else None
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_version", lambda: parsed)
 
     def test_old_3x_warns(self, monkeypatch):
         self._patch(monkeypatch, version="3.5.1")

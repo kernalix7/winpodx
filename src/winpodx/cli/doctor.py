@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -46,7 +45,9 @@ from winpodx.core.i18n import tr
 # Oldest FreeRDP 3.x without the RemoteApp/RAIL window-mapping bugs that leave
 # an app connected but its window never shown (#546). 3.5.x and earlier are
 # affected; warn (not fail) below this, since the binary still works otherwise.
-_FREERDP_RAIL_FLOOR = (3, 6, 0)
+# The value itself lives in ``winpodx.core.rdp`` (imported lazily at the check,
+# matching this module's style) so the launcher warning (#785) and this check
+# can never disagree about where the floor sits.
 
 
 @dataclass(frozen=True)
@@ -220,23 +221,15 @@ def _check_freerdp() -> Finding:
         # Best-effort version string for the human reader; a failure to run
         # --version doesn't downgrade the finding (binary exists, that's the
         # signal we care about for doctor).
-        version_line = ""
-        ver: tuple[int, int, int] | None = None
-        try:
-            result = subprocess.run(
-                [dep.path, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            blob = (result.stdout or "") + (result.stderr or "")
-            version_line = result.stdout.splitlines()[0] if result.stdout else ""
-            m = re.search(r"FreeRDP version\s+(\d+)\.(\d+)\.(\d+)", blob)
-            if m:
-                ver = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            pass
+        # Shared with the launcher (winpodx.core.rdp) so both agree and the
+        # probe runs once. Doing it here meant splitting a Flatpak launcher
+        # string wrong, so no version was ever detected on Flatpak hosts and
+        # the RAIL warning below never fired (#785).
+        from winpodx.core.rdp import FREERDP_RAIL_FLOOR as _FREERDP_RAIL_FLOOR
+        from winpodx.core.rdp import freerdp_version
+
+        ver = freerdp_version()
+        version_line = f"FreeRDP version {'.'.join(str(p) for p in ver)}" if ver else ""
         # Old FreeRDP 3.x RAIL: 3.5.x and earlier have window-ordering bugs that
         # leave a RemoteApp connected but its window never mapped (only
         # "xf_Pointer: Invalid appWindow" spam) -- see #546 (Ubuntu/Budgie 24.04

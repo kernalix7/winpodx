@@ -191,13 +191,88 @@ def _media_redirect_base() -> Path:
 # Success-only cache, keyed by preference; a miss is not cached so a
 # mid-session install is picked up.
 _FREERDP_CACHE: dict[str, tuple[str, str]] = {}
-_FREERDP_MAJOR_CACHE: int | None = None
+# Sentinel distinguishes "not probed yet" from "probed, no version found":
+# a failed probe must not re-run --version on every call.
+_UNPROBED = object()
+_FREERDP_VERSION_CACHE: object = _UNPROBED
+
+# FreeRDP 3.5.x and earlier have RAIL window-ordering bugs that leave a
+# RemoteApp connected with its window never mapped, or painted with the stale
+# logon framebuffer (#546, #332, #733, #785). Advisory only: the same binary
+# drives full-desktop sessions and plenty of apps fine.
+FREERDP_RAIL_FLOOR = (3, 6, 0)
+
+
+def freerdp_version() -> tuple[int, int, int] | None:
+    """Return the installed FreeRDP version, or ``None`` if undetectable.
+
+    One probe for the whole process, shared by the launcher and ``doctor``:
+    the launcher path must know the major version to pick the right ``/app:``
+    syntax, and doctor reports the full triple. Probing twice meant doctor
+    re-implemented the lookup and got the Flatpak case wrong — ``find_freerdp``
+    can return a whole ``flatpak run … com.freerdp.FreeRDP`` command line, and
+    running that as a single argv element raises ``FileNotFoundError``, so no
+    version was ever detected on Flatpak hosts and the RAIL warning silently
+    never fired.
+    """
+    global _FREERDP_VERSION_CACHE
+    if _FREERDP_VERSION_CACHE is not _UNPROBED:
+        return _FREERDP_VERSION_CACHE  # type: ignore[return-value]
+
+    _FREERDP_VERSION_CACHE = None
+    found = find_freerdp()
+    if found is None:
+        return None
+
+    path, _kind = found
+    # The launcher string may be a full command ("flatpak run …"), so split it
+    # rather than treating it as one executable path.
+    cmd = shlex.split(path) + ["--version"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+
+    # FreeRDP --version prints "This is FreeRDP version <major>.<minor>.<patch>".
+    # Be forgiving about which stream it lands on and what surrounds it.
+    blob = (result.stdout or "") + (result.stderr or "")
+    match = re.search(r"FreeRDP version\s+(\d+)\.(\d+)\.(\d+)", blob)
+    if match is None:
+        # Some builds print only "<major>.<minor>"; the major is what the
+        # launcher gates on, so accept that shape too.
+        match = re.search(r"FreeRDP version\s+(\d+)\.(\d+)", blob)
+        if match is None:
+            return None
+        _FREERDP_VERSION_CACHE = (int(match.group(1)), int(match.group(2)), 0)
+        return _FREERDP_VERSION_CACHE  # type: ignore[return-value]
+
+    _FREERDP_VERSION_CACHE = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    return _FREERDP_VERSION_CACHE  # type: ignore[return-value]
+
+
+def freerdp_rail_warning() -> str | None:
+    """Human-readable warning when the installed FreeRDP predates working RAIL.
+
+    ``None`` when the version is fine, undetectable, or not FreeRDP 3 — an
+    unknown version must not produce a scary message on a working setup.
+    """
+    ver = freerdp_version()
+    if ver is None or ver[0] != 3 or ver >= FREERDP_RAIL_FLOOR:
+        return None
+    shown = ".".join(str(p) for p in ver)
+    floor = ".".join(str(p) for p in FREERDP_RAIL_FLOOR)
+    return (
+        f"FreeRDP {shown} is older than {floor} and has known RemoteApp window bugs: "
+        "the app may connect without ever showing a window, or show one still painted "
+        "with the Windows logon screen. Upgrading FreeRDP (newer distro package, or the "
+        "winpodx AppImage, which bundles its own) is the fix."
+    )
 
 
 def freerdp_major_version() -> int:
     """Return the FreeRDP major version (2 or 3), or 3 on detection failure.
 
-    Result is cached in ``_FREERDP_MAJOR_CACHE``. We default to 3 when
+    Thin wrapper over :func:`freerdp_version` (one shared probe). Defaults to 3 when
     the version probe can't run cleanly because: (a) winpodx targets
     FreeRDP 3+ anyway, (b) the combined ``/app:program:X,name:Y,cmd:Z``
     syntax is FreeRDP 3-only and is what most users hit, (c) on
@@ -212,36 +287,10 @@ def freerdp_major_version() -> int:
     parses the entire combined string as a literal path and lands on
     the Store fallback (#158).
     """
-    global _FREERDP_MAJOR_CACHE
-    if _FREERDP_MAJOR_CACHE is not None:
-        return _FREERDP_MAJOR_CACHE
-
-    found = find_freerdp()
-    if found is None:
-        _FREERDP_MAJOR_CACHE = 3  # safest default; later code paths gate on this
-        return _FREERDP_MAJOR_CACHE
-
-    path, _kind = found
-    # ``flatpak run ...`` returns the inner FreeRDP version too; the
-    # caller passes the whole launcher string so shlex it.
-    cmd = shlex.split(path) + ["--version"]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-        _FREERDP_MAJOR_CACHE = 3
-        return _FREERDP_MAJOR_CACHE
-    # FreeRDP --version prints "This is FreeRDP version <major>.<minor>.<patch>"
-    # on stdout. Be forgiving about stream choice and surrounding text.
-    blob = (result.stdout or "") + (result.stderr or "")
-    match = re.search(r"FreeRDP version\s+(\d+)\.", blob)
-    if not match:
-        _FREERDP_MAJOR_CACHE = 3
-        return _FREERDP_MAJOR_CACHE
-    try:
-        _FREERDP_MAJOR_CACHE = int(match.group(1))
-    except ValueError:
-        _FREERDP_MAJOR_CACHE = 3
-    return _FREERDP_MAJOR_CACHE
+    ver = freerdp_version()
+    # 3 is the safest default: winpodx targets FreeRDP 3+, and the combined
+    # ``/app:`` syntax the launcher builds is FreeRDP-3-only.
+    return ver[0] if ver is not None else 3
 
 
 def _find_native_freerdp() -> tuple[str, str] | None:
@@ -1629,6 +1678,16 @@ def launch_app(
     # spam. Wait (best-effort, agent-only) until the desktop is interactive.
     if is_remoteapp and cfg.pod.backend in ("podman", "docker"):
         _wait_session_interactive(cfg, timeout=_INTERACTIVE_WAIT_TIMEOUT)
+
+    # Same advisory `winpodx doctor` gives, surfaced where the symptom appears
+    # (#785). The wait above only helps when the guest agent answers; on an old
+    # FreeRDP the window can still come up blank or painted with the logon
+    # screen, and users hit that long before they think to run doctor.
+    if is_remoteapp:
+        rail_warning = freerdp_rail_warning()
+        if rail_warning:
+            log.warning("%s", rail_warning)
+            print(f"warning: {rail_warning}", file=sys.stderr)
 
     log.info("Launching RDP: %s", _redact_cmd_for_log(cmd))
 
