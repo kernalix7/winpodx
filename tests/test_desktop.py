@@ -703,9 +703,12 @@ def test_install_desktop_entry_uses_absolute_exec_path(tmp_path, monkeypatch):
 
 def test_winpodx_exe_falls_back_to_bare_name(monkeypatch):
     # shutil.which returns None when winpodx isn't on PATH (e.g. running from a
-    # checkout); the bare name keeps the .desktop entry valid for PATH-based
-    # launchers rather than emitting ``Exec=None``.
+    # checkout). Once the known install locations come up empty too (#779), the
+    # bare name keeps the .desktop entry valid for PATH-based launchers rather
+    # than emitting ``Exec=None``.
     monkeypatch.setattr(entry_mod.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(entry_mod, "_is_executable_file", lambda _p: False)
+    monkeypatch.delenv("APPIMAGE", raising=False)
     assert entry_mod._winpodx_exe() == "winpodx"
 
 
@@ -983,3 +986,61 @@ def test_remove_desktop_shortcut_missing_file_is_noop(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     remove_desktop_shortcut()  # must not raise
+
+
+# --- #779: desktop entries must carry an absolute Exec path ------------------
+
+
+def _make_exe(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_winpodx_exe_prefers_path_lookup(tmp_path, monkeypatch):
+    found = _make_exe(tmp_path / "somewhere" / "winpodx")
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: str(found))
+    monkeypatch.delenv("APPIMAGE", raising=False)
+
+    assert entry_mod._winpodx_exe() == str(found)
+
+
+def test_winpodx_exe_falls_back_to_local_bin_when_path_is_stripped(tmp_path, monkeypatch):
+    # install.sh drops the launcher in ~/.local/bin, but the process writing
+    # the entry may have a PATH that doesn't include it yet (#779).
+    home = tmp_path / "home"
+    launcher = _make_exe(home / ".local" / "bin" / "winpodx")
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(entry_mod.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(entry_mod.sys, "executable", str(tmp_path / "nonexistent" / "python3"))
+    monkeypatch.delenv("APPIMAGE", raising=False)
+
+    assert entry_mod._winpodx_exe() == str(launcher)
+
+
+def test_winpodx_exe_prefers_appimage_over_ephemeral_mount(tmp_path, monkeypatch):
+    # Inside an AppImage the console script lives on a mount that vanishes at
+    # exit, so $APPIMAGE (the stable path) must win over which().
+    appimage = _make_exe(tmp_path / "WinPodX.AppImage")
+    monkeypatch.setenv("APPIMAGE", str(appimage))
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: "/tmp/.mount_abc/usr/bin/winpodx")
+
+    assert entry_mod._winpodx_exe() == str(appimage)
+
+
+def test_installed_entry_has_absolute_exec(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    launcher = _make_exe(home / ".local" / "bin" / "winpodx")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(entry_mod.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(entry_mod.sys, "executable", str(tmp_path / "nonexistent" / "python3"))
+    monkeypatch.delenv("APPIMAGE", raising=False)
+
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+    written = install_desktop_entry(app)
+
+    exec_line = next(line for line in written.read_text().splitlines() if line.startswith("Exec="))
+    assert exec_line == f"Exec={launcher} app run notepad %u"

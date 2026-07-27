@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import sys
 from pathlib import Path
 
 from winpodx.core.app import AppInfo
@@ -90,10 +92,51 @@ def _winpodx_exe() -> str:
 
     Desktop entries must use an absolute path so they work when launched by
     desktop environments that run apps as systemd transient units with a
-    stripped PATH (e.g. Deepin's dde-application-manager).  Falls back to the
-    bare name when shutil.which() can't resolve it (e.g. during tests).
+    stripped PATH (e.g. Deepin's dde-application-manager, KDE on Fedora
+    Kinoite).  A bare ``winpodx`` there fails with "Could not find the program
+    'winpodx'" (#779).
+
+    ``shutil.which`` only sees the PATH of whatever process writes the entry,
+    and that is not always the user's interactive PATH: ``install.sh`` runs
+    provisioning through the absolute ``~/.local/bin/winpodx`` symlink, so a
+    shell that has not picked up ``~/.local/bin`` yet resolves nothing.  Fall
+    back through the locations we actually install launchers to before giving
+    up on the bare name (still the last resort, e.g. during tests).
     """
-    return shutil.which("winpodx") or "winpodx"
+    # Inside an AppImage the console script lives on an ephemeral mount
+    # (/tmp/.mount_*) that disappears when the process exits, so writing it
+    # into Exec= yields entries that break on the next boot. $APPIMAGE is the
+    # stable path to the image itself and forwards argv to the entrypoint.
+    appimage = os.environ.get("APPIMAGE", "")
+    if appimage and _is_executable_file(Path(appimage)):
+        return appimage
+
+    found = shutil.which("winpodx")
+    if found:
+        return found
+
+    for candidate in (
+        # Same prefix as the running interpreter — a pip/venv install puts the
+        # console script next to python (covers `python -m winpodx` in a venv).
+        Path(sys.executable).parent / "winpodx",
+        # The symlink install.sh creates; the usual answer on #779 hosts.
+        Path.home() / ".local" / "bin" / "winpodx",
+        # Distro / system-wide installs (RPM, DEB, AUR).
+        Path("/usr/local/bin/winpodx"),
+        Path("/usr/bin/winpodx"),
+    ):
+        if _is_executable_file(candidate):
+            return str(candidate)
+
+    return "winpodx"
+
+
+def _is_executable_file(path: Path) -> bool:
+    """True when ``path`` is an existing file we are allowed to execute."""
+    try:
+        return path.is_file() and os.access(path, os.X_OK)
+    except OSError:
+        return False
 
 
 def install_desktop_entry(app: AppInfo) -> Path:
