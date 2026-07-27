@@ -112,6 +112,70 @@ foreach ($appName in $apps) {
     }
 }
 
+# --- URL-scheme registration (#694) ---------------------------------------
+# Mirrors register-apps.ps1: the Capabilities keys that make a Linux app
+# selectable as a Windows protocol handler, and the RegisteredApplications
+# values pointing at them. The per-slug ProgID (which carries the "URL
+# Protocol" marker) is already removed above.
+$removedSchemeReg = 0
+$regAppsKey = 'HKCU:\Software\RegisteredApplications'
+if (Test-Path -LiteralPath $regAppsKey) {
+    try {
+        $props = Get-ItemProperty -LiteralPath $regAppsKey -ErrorAction Stop
+        foreach ($prop in $props.PSObject.Properties) {
+            if ($prop.Name -notlike 'winpodx-*') { continue }
+            if ($DryRun) {
+                Write-LogLine 'INFO' "[dry-run] would remove RegisteredApplications\$($prop.Name)"
+                $removedSchemeReg++
+                continue
+            }
+            try {
+                Remove-ItemProperty -LiteralPath $regAppsKey -Name $prop.Name -Force -ErrorAction Stop
+                Write-LogLine 'INFO' "removed RegisteredApplications\$($prop.Name)"
+                $removedSchemeReg++
+            } catch {
+                Write-LogLine 'WARN' "could not remove RegisteredApplications\$($prop.Name): $($_.Exception.Message)"
+            }
+        }
+    } catch {
+        Write-LogLine 'WARN' "enumerate RegisteredApplications failed: $($_.Exception.Message)"
+    }
+}
+
+# Capabilities live in one of two places depending on whether the app claimed
+# http/https (browsers must sit under StartMenuInternet to show up in
+# Settings -> Default apps -> Web browser).
+$capRoots = @()
+$smiRoot = 'HKCU:\Software\Clients\StartMenuInternet'
+if (Test-Path -LiteralPath $smiRoot) {
+    try {
+        $capRoots += Get-ChildItem -LiteralPath $smiRoot -ErrorAction Stop |
+            Where-Object { $_.PSChildName -like 'winpodx-*' } |
+            Select-Object -ExpandProperty PSPath
+    } catch {
+        Write-LogLine 'WARN' "enumerate StartMenuInternet failed: $($_.Exception.Message)"
+    }
+}
+# Non-browser apps get HKCU\Software\winpodx\<slug>; the whole subtree is ours.
+$winpodxCapRoot = 'HKCU:\Software\winpodx'
+if (Test-Path -LiteralPath $winpodxCapRoot) {
+    $capRoots += $winpodxCapRoot
+}
+foreach ($capPath in $capRoots) {
+    if ($DryRun) {
+        Write-LogLine 'INFO' "[dry-run] would remove $capPath"
+        $removedSchemeReg++
+        continue
+    }
+    try {
+        Remove-Item -LiteralPath $capPath -Recurse -Force -ErrorAction Stop
+        Write-LogLine 'INFO' "removed $capPath"
+        $removedSchemeReg++
+    } catch {
+        Write-LogLine 'WARN' "could not remove ${capPath}: $($_.Exception.Message)"
+    }
+}
+
 # --- per-ext OpenWithList sub-keys + legacy values + OpenWithProgids ---
 # Current scheme: OpenWithList\winpodx-<slug>.exe SUB-KEYS (this is the
 # Windows convention). Pre-fix builds wrote VALUES under OpenWithList
