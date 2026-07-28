@@ -44,26 +44,22 @@ def test_wizard_prompts_set_all_locale_edition_tuning_fields() -> None:
 
 
 def test_wizard_prompts_enter_keeps_defaults() -> None:
-    """Empty input (Enter) keeps the existing cfg defaults."""
+    """Empty input (Enter) keeps whatever the prompt displayed as the default."""
+    from winpodx.utils.locale import detect_install_locale
+
     cfg = _cfg()
-    before = (
-        cfg.pod.win_version,
-        cfg.pod.language,
-        cfg.pod.region,
-        cfg.pod.keyboard,
-        cfg.pod.tuning_profile,
-    )
+    before_edition = cfg.pod.win_version
+    before_tuning = cfg.pod.tuning_profile
+
     with patch("builtins.input", lambda _prompt: ""):
         _prompt_edition_locale_tuning(cfg)
 
-    after = (
-        cfg.pod.win_version,
-        cfg.pod.language,
-        cfg.pod.region,
-        cfg.pod.keyboard,
-        cfg.pod.tuning_profile,
-    )
-    assert before == after
+    assert cfg.pod.win_version == before_edition
+    assert cfg.pod.tuning_profile == before_tuning
+    # The locale fields default to empty meaning "detect from the host", so
+    # what Enter accepts is the detected value the prompt showed -- and it is
+    # stored, so it cannot change later under a different host locale (#791).
+    assert (cfg.pod.language, cfg.pod.region, cfg.pod.keyboard) == detect_install_locale()
 
 
 def test_wizard_rejects_unknown_tuning_profile_keeps_default() -> None:

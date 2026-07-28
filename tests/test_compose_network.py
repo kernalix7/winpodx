@@ -121,6 +121,32 @@ def test_compose_never_sets_disk_io_iouring():
 # --- #791: install locale detected from the host -----------------------------
 
 
+def test_default_config_detects_locale_from_the_host(monkeypatch):
+    # Goes through PodConfig() rather than assigning after construction: the
+    # sanitiser in __post_init__ used to coerce the empty default back to
+    # English, which made the autodetect branch unreachable in real use while
+    # a test that set the attribute afterwards still passed.
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+
+    assert cfg.pod.language == ""  # empty survives __post_init__
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "Korean"' in content
+    assert 'REGION: "ko-KR"' in content
+    assert 'KEYBOARD: "ko-KR"' in content
+
+
+def test_yaml_dangerous_locale_falls_back_to_detection(monkeypatch):
+    monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = 'English"\ninjected: "x'
+    cfg.pod.__post_init__()
+
+    assert cfg.pod.language == ""
+    assert 'LANGUAGE: "German"' in _build_compose_content(cfg)
+
+
 def test_empty_locale_fields_are_detected_from_the_host(monkeypatch):
     monkeypatch.setenv("LANG", "ko_KR.UTF-8")
     cfg = _cfg()

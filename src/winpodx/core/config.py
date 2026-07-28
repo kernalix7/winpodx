@@ -644,23 +644,29 @@ class PodConfig:
                     self.home_share,
                 )
         # language, region, keyboard: sanitize to prevent YAML injection.
-        # Default to English (US) if the value contains dangerous chars.
-        for field_name, default_val in [
-            ("language", "English"),
-            ("region", "en-001"),
-            ("keyboard", "en-US"),
-        ]:
-            val = getattr(self, field_name, default_val)
+        #
+        # Empty is a meaningful value here, not a missing one: it means "detect
+        # from the host at compose time" (#791). This used to coerce empty back
+        # to English / en-001 / en-US, which made the field unreachable — the
+        # autodetect branch in compose could never run because the value was
+        # never empty by the time it looked.
+        #
+        # A value carrying YAML-reserved characters still gets rejected, and
+        # rejecting it to empty rather than to English means a hand-edited
+        # config falls back to the user's own locale. Detection only ever
+        # returns values from winpodx's own tables, so that stays injection-safe.
+        for field_name in ("language", "region", "keyboard"):
+            val = getattr(self, field_name, "")
             if not isinstance(val, str) or not val.strip():
-                setattr(self, field_name, default_val)
+                setattr(self, field_name, "")
             elif any(ch in _DANGEROUS_YAML_CHARS for ch in val):
                 logging.getLogger(__name__).warning(
-                    "%s=%r contains characters reserved by YAML / shell; coercing to default %r",
+                    "%s=%r contains characters reserved by YAML / shell; "
+                    "falling back to the host-detected locale",
                     field_name,
                     val,
-                    default_val,
                 )
-                setattr(self, field_name, default_val)
+                setattr(self, field_name, "")
             else:
                 setattr(self, field_name, val.strip())
         # timezone (#254): free-form string with the same YAML-injection
