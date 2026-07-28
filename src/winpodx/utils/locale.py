@@ -183,3 +183,151 @@ def resolve_timezone_for_oem(configured: str) -> str:
         return iana_to_windows(raw)
     # Already a Windows TZ ID (no slash, e.g. "Korea Standard Time").
     return raw
+
+
+# Windows installation locale, detected from the host (#791, #790).
+#
+# dockur takes three separate values and bakes them into the Sysprep answer
+# file at FIRST BOOT: LANGUAGE (the UI language pack), REGION (the BCP 47 tag
+# behind date/number/currency formatting) and KEYBOARD (the input layout).
+# They are not applied again afterwards, so the defaults matter more than most
+# — a guest installed as English/en-001 stays that way until it is reinstalled.
+#
+# The names on the left of _DOCKUR_LANGUAGE_BY_TAG are what dockur's own
+# language list accepts; they are not BCP 47 and not interchangeable with the
+# region tags. Kept in sync with the picker in gui/_main_window_settings.py.
+_DOCKUR_LANGUAGE_BY_TAG: dict[str, str] = {
+    "ar": "Arabic",
+    "bg": "Bulgarian",
+    "cs": "Czech",
+    "da": "Danish",
+    "de": "German",
+    "el": "Greek",
+    "en": "English",
+    "es": "Spanish",
+    "et": "Estonian",
+    "fi": "Finnish",
+    "fr": "French",
+    "he": "Hebrew",
+    "hr": "Croatian",
+    "hu": "Hungarian",
+    "it": "Italian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "lt": "Lithuanian",
+    "lv": "Latvian",
+    "nb": "Norwegian",
+    "nl": "Dutch",
+    "no": "Norwegian",
+    "pl": "Polish",
+    "pt": "Portuguese",
+    "ro": "Romanian",
+    "ru": "Russian",
+    "sk": "Slovak",
+    "sl": "Slovenian",
+    "sr": "Serbian",
+    "sv": "Swedish",
+    "th": "Thai",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+    "zh": "Chinese",
+}
+
+# Territory changes which language pack dockur installs, not just the region:
+# Traditional and Simplified Chinese are different packs, and so are the two
+# Portuguese and two Spanish variants.
+_DOCKUR_LANGUAGE_BY_LOCALE: dict[str, str] = {
+    "zh-TW": "Traditional Chinese",
+    "zh-HK": "Traditional Chinese",
+    "zh-MO": "Traditional Chinese",
+    "pt-BR": "Brazilian Portuguese",
+    "es-MX": "Mexican Spanish",
+}
+
+# Region / keyboard tags dockur accepts. A host locale outside this set keeps
+# the English default rather than handing dockur a tag it will reject at
+# install time, which would be a much worse failure than the wrong language.
+_DOCKUR_REGION_TAGS: frozenset[str] = frozenset(
+    {
+        "ar-SA",
+        "cs-CZ",
+        "da-DK",
+        "de-DE",
+        "el-GR",
+        "en-001",
+        "en-GB",
+        "en-US",
+        "es-ES",
+        "es-MX",
+        "fi-FI",
+        "fr-FR",
+        "he-IL",
+        "hu-HU",
+        "it-IT",
+        "ja-JP",
+        "ko-KR",
+        "nb-NO",
+        "nl-NL",
+        "pl-PL",
+        "pt-BR",
+        "pt-PT",
+        "ru-RU",
+        "sv-SE",
+        "th-TH",
+        "tr-TR",
+        "uk-UA",
+        "zh-CN",
+        "zh-TW",
+    }
+)
+
+DEFAULT_INSTALL_LOCALE = ("English", "en-001", "en-US")
+
+
+def _posix_locale_from_env() -> str | None:
+    """Return the host's ``ll_CC`` locale from the environment, or None.
+
+    Reads the POSIX precedence order. ``C`` and ``POSIX`` mean "no locale
+    configured" and give None, so a stripped-down shell environment falls back
+    to the English default rather than being read as a preference.
+    """
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        raw = (os.environ.get(var) or "").strip()
+        if not raw:
+            continue
+        # Strip the codeset and any @modifier: "sr_RS.UTF-8@latin" -> "sr_RS".
+        value = raw.split(".", 1)[0].split("@", 1)[0]
+        if value.upper() in ("C", "POSIX", ""):
+            continue
+        return value
+    return None
+
+
+def detect_install_locale() -> tuple[str, str, str]:
+    """Detect ``(language, region, keyboard)`` for the Windows install.
+
+    Falls back to :data:`DEFAULT_INSTALL_LOCALE` whenever the host locale is
+    absent, malformed, or outside the set dockur accepts — a wrong-language
+    guest is recoverable, an install that aborts on a rejected tag is not.
+
+    Never raises.
+    """
+    posix = _posix_locale_from_env()
+    if not posix or "_" not in posix:
+        return DEFAULT_INSTALL_LOCALE
+
+    lang, _, territory = posix.partition("_")
+    lang = lang.lower()
+    tag = f"{lang}-{territory.upper()}"
+
+    if tag not in _DOCKUR_REGION_TAGS:
+        return DEFAULT_INSTALL_LOCALE
+
+    language = _DOCKUR_LANGUAGE_BY_LOCALE.get(tag) or _DOCKUR_LANGUAGE_BY_TAG.get(lang)
+    if language is None:
+        return DEFAULT_INSTALL_LOCALE
+
+    # Keyboard follows the region: dockur's keyboard list is the same set of
+    # tags, and a layout that does not match the language is rarely what
+    # someone wants from an autodetected default.
+    return language, tag, tag

@@ -589,6 +589,34 @@ def _resolve_timezone_for_compose(cfg: Config) -> str:
     return detect_timezone()
 
 
+def _resolve_install_locale(cfg: Config) -> tuple[str, str, str]:
+    """Resolve the LANGUAGE / REGION / KEYBOARD values dockur installs with.
+
+    Each field is independent: an empty one is detected from the host, a set
+    one passes through. That matters for the common half-configured case —
+    someone who picked a keyboard layout but never touched the language should
+    keep their layout and still get a guest in their own language (#791).
+
+    Detection is all-or-nothing per :func:`utils.locale.detect_install_locale`,
+    which falls back to English when the host locale is missing or outside the
+    set dockur accepts.
+    """
+    from winpodx.utils.locale import detect_install_locale
+
+    language = (cfg.pod.language or "").strip()
+    region = (cfg.pod.region or "").strip()
+    keyboard = (cfg.pod.keyboard or "").strip()
+    if language and region and keyboard:
+        return language, region, keyboard
+
+    detected_language, detected_region, detected_keyboard = detect_install_locale()
+    return (
+        language or detected_language,
+        region or detected_region,
+        keyboard or detected_keyboard,
+    )
+
+
 def _device_nodes_block(cfg: Config) -> str:
     """Build the indented YAML ``devices:`` list body.
 
@@ -854,6 +882,8 @@ def _build_compose_content(cfg: Config) -> str:
     if cfg.pod.network:
         network_env = f'      NETWORK: "{cfg.pod.network}"\n'
 
+    install_language, install_region, install_keyboard = _resolve_install_locale(cfg)
+
     if cfg.pod.disguise_max:
         disk_type, adapter, vga, mtu = "sata", "e1000", "std", "1500"
         # Swap dockur's default qemu-xhci (VEN_1B36, Red Hat) for nec-usb-xhci
@@ -882,9 +912,9 @@ def _build_compose_content(cfg: Config) -> str:
         password=_yaml_escape(password),
         home=str(Path.home()),
         win_version=_yaml_escape(cfg.pod.win_version),
-        language=_yaml_escape(cfg.pod.language),
-        region=_yaml_escape(cfg.pod.region),
-        keyboard=_yaml_escape(cfg.pod.keyboard),
+        language=_yaml_escape(install_language),
+        region=_yaml_escape(install_region),
+        keyboard=_yaml_escape(install_keyboard),
         timezone=_yaml_escape(_resolve_timezone_for_compose(cfg)),
         rdp_port=cfg.rdp.port,
         vnc_port=cfg.pod.vnc_port,

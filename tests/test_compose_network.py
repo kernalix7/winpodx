@@ -116,3 +116,49 @@ def test_compose_never_sets_disk_io_iouring():
     # default DISK_IO. (See the v6.00 roll-forward follow-up.)
     content = _build_compose_content(_cfg())
     assert "DISK_IO:" not in content
+
+
+# --- #791: install locale detected from the host -----------------------------
+
+
+def test_empty_locale_fields_are_detected_from_the_host(monkeypatch):
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = ""
+    cfg.pod.region = ""
+    cfg.pod.keyboard = ""
+
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "Korean"' in content
+    assert 'REGION: "ko-KR"' in content
+    assert 'KEYBOARD: "ko-KR"' in content
+
+
+def test_configured_locale_is_not_overridden(monkeypatch):
+    # Someone who set these explicitly keeps them whatever the host says.
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = "German"
+    cfg.pod.region = "de-DE"
+    cfg.pod.keyboard = "de-DE"
+
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "German"' in content
+    assert 'REGION: "de-DE"' in content
+
+
+def test_partially_configured_locale_fills_only_the_gaps(monkeypatch):
+    # A user who picked a keyboard but never touched the language should keep
+    # the layout and still get a guest in their own language.
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = ""
+    cfg.pod.region = ""
+    cfg.pod.keyboard = "en-US"
+
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "Korean"' in content
+    assert 'KEYBOARD: "en-US"' in content

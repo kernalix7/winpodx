@@ -393,11 +393,22 @@ class PodConfig:
     network: str = ""
     # v0.5.x: Windows installation language/region/keyboard settings.
     # Passed through to dockur's LANGUAGE, REGION, KEYBOARD env vars.
-    # Defaults to English (US). Common values for Spanish:
-    # language="Spanish", region="es-ES", keyboard="es-ES"
-    language: str = "English"
-    region: str = "en-001"
-    keyboard: str = "en-US"
+    #
+    # Empty (the default since #791) means "detect from the host at compose
+    # time", the same convention ``timezone`` already uses — someone on a
+    # Korean or Chinese desktop should not have to know these fields exist to
+    # avoid an English Windows. A non-empty value is passed through verbatim.
+    #
+    # These only take effect at FIRST BOOT: dockur bakes them into the Sysprep
+    # answer file, so changing them later does not re-language an installed
+    # guest. Existing installs are unaffected either way, since their config
+    # already has the explicit values that were written when they were set up.
+    #
+    # Common values for Spanish: language="Spanish", region="es-ES",
+    # keyboard="es-ES".
+    language: str = ""
+    region: str = ""
+    keyboard: str = ""
     # v0.5.7+: Windows guest timezone (#254). Empty string = autodetect
     # from the host at compose time (timedatectl / /etc/localtime /
     # /etc/timezone fallback chain in ``utils/locale.py``). IANA name
