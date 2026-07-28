@@ -42,7 +42,7 @@ REM container recreate) just re-asserts the exclusion silently.
 REM C:\Users\Public\winpodx is where register-apps.ps1 stages the
 REM reverse-open shim + its per-slug .exe copies (#425). That tiny,
 REM stripped, unsigned Rust binary trips Defender's ML heuristic
-REM (Trojan:Win32/Rafvartar!rfn -- a false positive), so it gets
+REM (a Trojan:Win32/Rafvartar variant -- a false positive), so it gets
 REM quarantined and reverse-open silently breaks. Exclude the path (and
 REM the shim process) here, first-step, so the exclusion is in place
 REM before per-user logon stages the files. Add-MpPreference accepts a

@@ -340,3 +340,41 @@ def test_complete_line_tokens_scraped_during_download() -> None:
     # Percent seen on a complete line sticks; the later size-only line does
     # not clear it (percent wins).
     assert dl_state["pct"] == 45
+
+
+# --- dockur v6.03 install.bat lint report ------------------------------------
+
+
+def test_lint_block_markers_bound_the_report() -> None:
+    """The collapse relies on two things: the start marker appearing in the
+    image's report, and the block ending at the next milestone glyph. Guard
+    both so a reworded marker upstream shows up as a test failure rather than
+    a wall of text in the installer output."""
+    from winpodx.cli.pod import _LINT_BLOCK_START, _LINT_BLOCK_SUMMARY
+
+    report_first_line = "❯ Warning: possible issues were detected in your install.bat file:"
+    assert _LINT_BLOCK_START in report_first_line
+    # The summary must not itself look like a dockur milestone, or the block
+    # would re-open on its own output.
+    assert not _LINT_BLOCK_SUMMARY.lstrip().startswith("❯")
+
+
+def test_install_bat_has_no_bare_delayed_expansion_marker() -> None:
+    """A lone `!` makes the image's static checker report a critical error
+    mid-install, which reads like the install is broken. The script never
+    enables delayed expansion, so the `!` is literal and the fix is textual --
+    but keep it out so the banner stays gone."""
+    from pathlib import Path
+
+    install_bat = Path(__file__).resolve().parent.parent / "config" / "oem" / "install.bat"
+    source = install_bat.read_text(encoding="utf-8", errors="replace")
+    assert "setlocal enabledelayedexpansion" not in source.lower(), (
+        "delayed expansion is now on -- a bare ! is no longer literal, "
+        "so every ! in the script needs auditing"
+    )
+    offenders = [
+        (n, line)
+        for n, line in enumerate(source.splitlines(), 1)
+        if line.lstrip().upper().startswith("REM") and "!" in line
+    ]
+    assert offenders == [], f"bare ! in a REM comment trips the image linter: {offenders}"
