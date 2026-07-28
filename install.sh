@@ -1558,6 +1558,12 @@ if [ -n "$WINPODX_NO_GUI" ]; then
     log "Headless install (--no-gui): PySide6 skipped."
 else
     # Full: winpodx core + reverse-open + GUI.
+    #
+    # PySide6 is a ~100 MB wheel and pip is running --quiet, so this is a
+    # multi-minute stretch with nothing on screen. People read that as a hang
+    # and Ctrl-C out of it, which is how half-installed states get created
+    # (#789).
+    log "  Downloading the Qt GUI toolkit (PySide6, ~100 MB) — this can take a few minutes."
     "$WORK_VENV_PY" -m pip install --quiet --no-cache-dir "${WORK_DIR}[gui,reverse-open]"
 fi
 
@@ -1727,11 +1733,22 @@ else
     # "installed" banner at the bottom still claimed everything worked. Capture
     # the output instead and check the exit code so a failure is visible and
     # the closing banner reflects reality.
+    # #789: setup pulls the ~2 GB container image on a fresh host. Redirecting
+    # its output to a file made that a silent multi-minute stretch, so tee it:
+    # the user sees the pull progress live, and the file is still there to
+    # quote from if setup fails.
     SETUP_OUT="$(mktemp)"
-    if WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" >"$SETUP_OUT" 2>&1; then
+    log "  Preparing the Windows container (first run pulls a ~2 GB image)..."
+    # `set -o pipefail` is on (line 3), so the pipeline's status is setup's
+    # status even though tee and sed run after it -- the exit-code check that
+    # #716 added keeps working unchanged.
+    if WINPODX_NO_PROVISION=1 "$VENV_PY" -m winpodx setup "${SETUP_ARGS[@]}" 2>&1 |
+        tee "$SETUP_OUT" | sed 's/^/    /'; then
         SETUP_OK=1
     else
         SETUP_OK=0
+    fi
+    if [ "$SETUP_OK" -eq 0 ]; then
         err "winpodx setup failed. Last output:"
         tail -n 20 "$SETUP_OUT" | sed 's/^/    /' >&2
         warn "Setup did not finish -- run \`winpodx setup\` manually to retry (or see the full error above)."

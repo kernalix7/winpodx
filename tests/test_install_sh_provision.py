@@ -241,3 +241,33 @@ def test_no_inline_chain_steps_survive(script: str) -> None:
     )
     for cmd in forbidden:
         assert cmd not in script, f"inline bash chain step still present: {cmd!r}"
+
+
+# --- #789: the two multi-minute stretches that used to be silent -------------
+
+
+def test_pyside6_download_is_announced(script: str) -> None:
+    """A ~100 MB wheel under `pip --quiet` looks like a hang, and people
+    Ctrl-C out of it — which is how half-installed states get created."""
+    active = _strip_comments(script)
+    assert "PySide6, ~100 MB" in active
+
+
+def test_setup_output_is_teed_not_swallowed(script: str) -> None:
+    """Redirecting setup straight to a file hid the container image pull.
+    It must reach the terminal as well as the capture file."""
+    active = _strip_comments(script)
+
+    assert 'tee "$SETUP_OUT"' in active
+    # The old form sent everything to the file and showed nothing.
+    assert '-m winpodx setup "${SETUP_ARGS[@]}" >"$SETUP_OUT" 2>&1' not in active
+
+
+def test_setup_failure_detection_survives_the_pipe(script: str) -> None:
+    """Piping through tee would report tee's status instead of setup's without
+    pipefail, silently turning a failed setup into a successful install."""
+    assert "set -euo pipefail" in script
+
+    active = _strip_comments(script)
+    assert "SETUP_OK=0" in active
+    assert 'tail -n 20 "$SETUP_OUT"' in active
