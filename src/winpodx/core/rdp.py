@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1136,6 +1137,31 @@ def _redact_cmd_for_log(cmd: list[str]) -> str:
     return " ".join(out)
 
 
+def _drain_window_setup_log(helper: subprocess.Popen) -> None:
+    """Forward the detached window-setup helper's output into our log (#702).
+
+    The helper injects ``_NET_WM_ICON`` onto the RAIL window and re-lists UWP
+    windows in the taskbar. It outlives the launcher, so its output used to go
+    to DEVNULL — which meant a failure left no trace anywhere and the reporter
+    and I had nothing to compare. A non-zero exit is a warning; everything else
+    is debug, since this runs on every RemoteApp launch.
+    """
+    try:
+        output, _ = helper.communicate(timeout=120)
+    except subprocess.TimeoutExpired:
+        log.debug("window_setup helper still running after 120s; leaving it")
+        return
+    except OSError as e:  # pragma: no cover - defensive
+        log.debug("window_setup helper output unreadable: %s", e)
+        return
+
+    text = (output or "").strip()
+    if helper.returncode:
+        log.warning("window_setup helper exited %s: %s", helper.returncode, text or "(no output)")
+    elif text:
+        log.debug("window_setup helper: %s", text)
+
+
 def _spawn_detached(session: RDPSession, cmd: list[str]) -> RDPSession:
     """Acquire the PID lock and spawn a detached FreeRDP client for ``session``.
 
@@ -1575,7 +1601,6 @@ def launch_app(
     to :func:`build_rdp_command` as overrides. ``None`` / empty leaves every
     launch byte-for-byte unchanged.
     """
-    import threading
 
     # #692: fold the per-app RDP overrides in. The dict is already validated by
     # app.parse_rdp_overrides, but keep light type guards so a direct caller
@@ -1782,15 +1807,23 @@ def launch_app(
             setup_args += ["--icon", app_icon]
         if launch_uri is not None:
             setup_args += ["--uwp"]
+        # Route the helper's output into our log rather than DEVNULL: when the
+        # icon injection does not take, there was previously nothing at all to
+        # look at, which is how #702 stayed undiagnosable across two releases.
+        # A separate thread drains it so the short-lived launcher can still
+        # exit immediately.
         try:
-            subprocess.Popen(
+            helper = subprocess.Popen(
                 setup_args,
                 start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
         except OSError as e:
             log.debug("window_setup helper spawn failed: %s", e)
+        else:
+            threading.Thread(target=_drain_window_setup_log, args=(helper,), daemon=True).start()
 
     return session
 

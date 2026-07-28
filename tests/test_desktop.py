@@ -1044,3 +1044,87 @@ def test_installed_entry_has_absolute_exec(tmp_path, monkeypatch):
 
     exec_line = next(line for line in written.read_text().splitlines() if line.startswith("Exec="))
     assert exec_line == f"Exec={launcher} app run notepad %u"
+
+
+# --- #702: a PNG belongs in the hicolor directory matching its real size -----
+
+
+def _write_png(path: Path, width: int, height: int) -> Path:
+    # Minimal PNG: signature + IHDR header. Only the first 24 bytes are read.
+    import struct as _struct
+    import zlib
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ihdr = _struct.pack(">II", width, height) + bytes([8, 6, 0, 0, 0])
+    chunk = _struct.pack(">I", len(ihdr)) + b"IHDR" + ihdr
+    chunk += _struct.pack(">I", zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    [
+        (16, 16),
+        (32, 32),
+        (48, 48),
+        (256, 256),
+        (44, 48),  # UWP small logo -> nearest bucket
+        (88, 64),  # UWP large logo, closer to 64 than 128
+    ],
+)
+def test_png_lands_in_matching_hicolor_bucket(tmp_path, monkeypatch, size, expected):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    icon = _write_png(tmp_path / "src" / "icon.png", size, size)
+
+    app = AppInfo(
+        name=f"sized{size}", full_name="Sized", executable="C:\\x.exe", icon_path=str(icon)
+    )
+    install_desktop_entry(app)
+
+    landed = tmp_path / "data" / "icons" / "hicolor" / f"{expected}x{expected}" / "apps"
+    assert (landed / f"winpodx-sized{size}.png").exists()
+
+
+def test_non_square_png_uses_its_larger_edge(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    icon = _write_png(tmp_path / "src" / "wide.png", 128, 32)
+
+    app = AppInfo(name="wide", full_name="Wide", executable="C:\\x.exe", icon_path=str(icon))
+    install_desktop_entry(app)
+
+    hicolor = tmp_path / "data" / "icons" / "hicolor"
+    assert (hicolor / "128x128" / "apps" / "winpodx-wide.png").exists()
+    assert not (hicolor / "32x32" / "apps" / "winpodx-wide.png").exists()
+
+
+def test_unreadable_png_falls_back_to_32(tmp_path, monkeypatch):
+    # A truncated / non-PNG file keeps the historical destination rather than
+    # vanishing into an unexpected directory.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    bogus = tmp_path / "src" / "bogus.png"
+    bogus.parent.mkdir(parents=True, exist_ok=True)
+    bogus.write_bytes(b"not a png at all")
+
+    app = AppInfo(name="bogus", full_name="Bogus", executable="C:\\x.exe", icon_path=str(bogus))
+    install_desktop_entry(app)
+
+    landed = tmp_path / "data" / "icons" / "hicolor" / "32x32" / "apps"
+    assert (landed / "winpodx-bogus.png").exists()
+
+
+def test_rebucketing_removes_the_stale_copy(tmp_path, monkeypatch):
+    # Upgrade path: every PNG used to land in 32x32, so an icon that now
+    # belongs elsewhere must not be served from both places.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    hicolor = tmp_path / "data" / "icons" / "hicolor"
+    old = hicolor / "32x32" / "apps" / "winpodx-moved.png"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_bytes(b"stale")
+
+    icon = _write_png(tmp_path / "src" / "moved.png", 88, 88)
+    app = AppInfo(name="moved", full_name="Moved", executable="C:\\x.exe", icon_path=str(icon))
+    install_desktop_entry(app)
+
+    assert (hicolor / "64x64" / "apps" / "winpodx-moved.png").exists()
+    assert not old.exists()
