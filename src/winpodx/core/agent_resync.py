@@ -20,6 +20,7 @@ and so still works while the agent is 401. It rewrites
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -69,6 +70,65 @@ def _resync_payload(token: str) -> str:
             "}",
         ]
     )
+
+
+# Shared heal state (#730). A 401 means the guest's baked token drifted from
+# the host's, which never clears on its own, so several independent callers can
+# hit it at the same moment: the tray keepalive, the reverse-open sync, a
+# foreground command, `winpodx doctor`. resync_token drives a real FreeRDP
+# session and takes tens of seconds, so they must not each push their own.
+#
+# ``generation`` lets a caller that lost the race skip straight to its retry:
+# it captures the value before its call and, if the value moved while it waited
+# on the lock, somebody else already healed. ``failed_at`` stops a permanently
+# broken setup from spending a FreeRDP session on every single exec.
+_HEAL_LOCK = threading.Lock()
+_HEAL_GENERATION = 0
+_HEAL_FAILED_AT = 0.0
+HEAL_FAILURE_COOLDOWN = 300.0
+
+
+def heal_generation() -> int:
+    """Current token-heal generation, to be captured before an agent call."""
+    return _HEAL_GENERATION
+
+
+def heal_token_once(cfg, *, seen_generation: int) -> tuple[bool, str]:
+    """Resync the guest token at most once across all callers (#730).
+
+    ``seen_generation`` is the value :func:`heal_generation` returned before
+    the call that got the 401. Returns ``(ok, detail)``; ``ok`` means the
+    caller should retry, either because this call healed or because another
+    one did while this caller waited for the lock.
+
+    Never raises — :func:`resync_token` is already best-effort, and a failure
+    to heal has to surface as the original auth error, not as a new one.
+    """
+    global _HEAL_GENERATION, _HEAL_FAILED_AT
+
+    with _HEAL_LOCK:
+        if _HEAL_GENERATION != seen_generation:
+            return True, "already healed by another caller"
+
+        now = time.monotonic()
+        if _HEAL_FAILED_AT and now - _HEAL_FAILED_AT < HEAL_FAILURE_COOLDOWN:
+            waited = int(now - _HEAL_FAILED_AT)
+            return False, f"resync failed {waited}s ago; in cooldown"
+
+        try:
+            ok, detail = resync_token(cfg)
+        except Exception as e:  # noqa: BLE001 -- healing must not add a new failure mode
+            _HEAL_FAILED_AT = now
+            log.warning("agent token heal raised unexpectedly: %s", e)
+            return False, f"resync raised: {e}"
+
+        if not ok:
+            _HEAL_FAILED_AT = now
+            return False, detail
+
+        _HEAL_GENERATION += 1
+        _HEAL_FAILED_AT = 0.0
+        return True, detail
 
 
 def resync_token(cfg, *, verify_timeout: float = 25.0) -> tuple[bool, str]:
