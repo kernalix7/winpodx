@@ -154,8 +154,26 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
             return @{ error = 'bad_base64'; detail = $_.Exception.Message }
         }
         $hash = Get-BytesHash $bytes
+        # Hash the caller's bytes BEFORE the preamble, so the value the host
+        # compares against stays the hash of what it sent.
+        #
+        # The preamble forces the child to write UTF-8. Without it the child
+        # encodes stdout with the console's OEM code page, and any character
+        # that code page lacks goes through Windows' best-fit mapping on the
+        # way out -- which silently turned "Microsoft(R) Drive Optimizer" into
+        # "Microsoftr Drive Optimizer" in discovery output. The characters are
+        # gone by the time the bytes reach the pipe, so nothing downstream can
+        # recover them.
+        #
+        # Assigning [Console]::OutputEncoding throws on some hosts when stdout
+        # is redirected, hence the try/catch: a child that cannot set it is no
+        # worse off than before this preamble existed.
+        $preamble = [Text.Encoding]::UTF8.GetBytes(
+            "try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding `$false } catch { }`r`n" +
+            "`$OutputEncoding = New-Object Text.UTF8Encoding `$false`r`n"
+        )
         try {
-            [IO.File]::WriteAllBytes($tempFile, $bytes)
+            [IO.File]::WriteAllBytes($tempFile, ($preamble + $bytes))
         } catch {
             return @{ error = 'temp_write_failed'; detail = $_.Exception.Message; hash = $hash }
         }
@@ -174,6 +192,11 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
             $psi.CreateNoWindow         = $true
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError  = $true
+            # Decode the child's bytes as UTF-8, matching the preamble written
+            # into its script. Left unset, .NET decodes with the console's OEM
+            # code page and mangles anything outside it.
+            $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false
+            $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding $false
             $proc = New-Object System.Diagnostics.Process
             $proc.StartInfo = $psi
             [void]$proc.Start()

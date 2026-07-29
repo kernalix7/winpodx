@@ -266,3 +266,32 @@ def test_agent_ps1_braces_balanced(agent_source: str):
     opens = body.count("{")
     closes = body.count("}")
     assert opens == closes, f"unbalanced braces: {opens} '{{' vs {closes} '}}'"
+
+
+# --- guest /exec must not lose characters to the console code page ----------
+
+
+def test_exec_child_stdio_is_decoded_as_utf8(agent_source: str):
+    """Left unset, .NET decodes a redirected child's output with the console's
+    OEM code page, which mangles anything that page lacks."""
+    assert "$psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false" in agent_source
+    assert "$psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding $false" in agent_source
+
+
+def test_exec_child_is_told_to_emit_utf8(agent_source: str):
+    """Decoding as UTF-8 only helps if the child encodes as UTF-8. Otherwise
+    Windows' best-fit mapping has already replaced the characters -- that is
+    how "Microsoft(R) Drive Optimizer" reached the host as "Microsoftr ...".
+    """
+    assert "[Console]::OutputEncoding = New-Object Text.UTF8Encoding" in agent_source
+    assert "$OutputEncoding = New-Object Text.UTF8Encoding" in agent_source
+
+
+def test_exec_hashes_the_callers_bytes_not_the_preamble(agent_source: str):
+    """The host compares the returned hash against what it sent, so the
+    preamble must be added after hashing."""
+    hash_at = agent_source.index("$hash = Get-BytesHash $bytes")
+    preamble_at = agent_source.index("$preamble = [Text.Encoding]::UTF8.GetBytes(")
+    write_at = agent_source.index("[IO.File]::WriteAllBytes($tempFile, ($preamble + $bytes))")
+
+    assert hash_at < preamble_at < write_at
