@@ -281,6 +281,54 @@ class TestFormatTuningSummary:
         assert "hv-evmcs" in out
 
 
+class TestHostClocksourceGatesInvtsc:
+    """`invtsc` must not be granted on CPUID bits alone when the host
+    kernel's own boot-time TSC sync check already rejected the TSC
+    clocksource (see .temp investigation notes / upstream issue #780).
+
+    ``constant_tsc``/``nonstop_tsc`` only report hardware capability; a
+    kernel-level cross-core sync failure is a different, more specific
+    fact the kernel surfaces via ``current_clocksource`` and CPUID can't
+    see.
+    """
+
+    def test_tsc_clocksource_reports_true(self):
+        from winpodx.utils.specs import _host_clocksource_is_tsc
+
+        with patch("pathlib.Path.read_text", return_value="tsc\n"):
+            assert _host_clocksource_is_tsc() is True
+
+    def test_non_tsc_clocksource_reports_false(self):
+        from winpodx.utils.specs import _host_clocksource_is_tsc
+
+        with patch("pathlib.Path.read_text", return_value="hpet\n"):
+            assert _host_clocksource_is_tsc() is False
+
+    def test_unreadable_sysfs_defaults_true(self):
+        # Missing/unreadable sysfs shouldn't punish hosts where the check
+        # itself can't run (e.g. some container/chroot setups).
+        from winpodx.utils.specs import _host_clocksource_is_tsc
+
+        with patch("pathlib.Path.read_text", side_effect=OSError):
+            assert _host_clocksource_is_tsc() is True
+
+    def test_invtsc_capability_false_when_kernel_rejected_tsc(self, monkeypatch):
+        from winpodx.utils import specs
+
+        monkeypatch.setattr(specs, "_read_cpuinfo_flags", lambda: {"constant_tsc", "nonstop_tsc"})
+        monkeypatch.setattr(specs, "_host_clocksource_is_tsc", lambda: False)
+        cap = specs.detect_tuning_capability(vm_cpu_cores=4, vm_ram_gb=6)
+        assert cap.invtsc is False
+
+    def test_invtsc_capability_true_when_kernel_confirms_tsc(self, monkeypatch):
+        from winpodx.utils import specs
+
+        monkeypatch.setattr(specs, "_read_cpuinfo_flags", lambda: {"constant_tsc", "nonstop_tsc"})
+        monkeypatch.setattr(specs, "_host_clocksource_is_tsc", lambda: True)
+        cap = specs.detect_tuning_capability(vm_cpu_cores=4, vm_ram_gb=6)
+        assert cap.invtsc is True
+
+
 class TestDetectTuningCapabilityIntegration:
     """`detect_tuning_capability` reads /proc + os.uname; smoke-test that it
     runs to completion on the actual test host without raising."""
