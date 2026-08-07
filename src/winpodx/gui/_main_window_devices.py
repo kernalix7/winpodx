@@ -238,6 +238,10 @@ class DevicesMixin:
         self._clear_column(self._dev_guest_col)
 
         # Left: host devices not currently assigned.
+        # Keep the list deterministic and human-friendly: USB first, then PCI,
+        # with devices ordered by their displayed name and stable hardware ID.
+        hosts = D.sort_host_devices(hosts)
+
         n_host = 0
         for h in hosts:
             if h.to_device_config().key in assigned:
@@ -252,8 +256,13 @@ class DevicesMixin:
         # safety badge + label stay accurate, else reconstruct from config).
         if not assigned:
             self._dev_guest_col.addWidget(self._empty_label(tr("Nothing assigned yet.")))
-        for key, dc in assigned.items():
-            host = host_by_key.get(key) or D.HostDevice(dtype=dc.dtype, did=dc.did, label=dc.label)
+        guest_hosts = [
+            host_by_key.get(key)
+            or D.HostDevice(dtype=dc.dtype, did=dc.did, label=dc.label)
+            for key, dc in assigned.items()
+        ]
+        guest_hosts = D.sort_host_devices(guest_hosts)
+        for host in guest_hosts:
             self._dev_guest_col.addWidget(self._device_row(host, assigned=True))
         self._dev_guest_col.addStretch(1)
 
@@ -287,22 +296,33 @@ class DevicesMixin:
         h.addWidget(badge, 0, Qt.AlignTop)
 
         full_label = host.label or tr("(unknown)")
-        # Device id reads as the primary line; the (often long) label sits
-        # below as calmer secondary text. Both elide to the available width so a
-        # narrow column shrinks the text instead of pushing the Attach button
-        # off the right edge.
-        did_lbl = ElidingLabel(host.did)
-        did_lbl.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_BODY}px; font-weight: 500;")
+
+        # Human-readable device name is primary; the stable hardware ID and
+        # passthrough-relevant metadata are shown as secondary information.
         label_lbl = ElidingLabel(full_label)
-        label_lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
+        label_lbl.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_BODY}px; font-weight: 500;")
+
+        meta_parts = [host.did]
+        if host.dtype == "usb":
+            if host.bus:
+                meta_parts.append(tr("Bus {bus}").format(bus=host.bus))
+        else:
+            if host.iommu_group is not None:
+                meta_parts.append(tr("IOMMU {group}").format(group=host.iommu_group))
+            if host.pci_class:
+                meta_parts.append(D.pci_class_name(host.pci_class))
+
+        metadata = "  •  ".join(meta_parts)
+        meta_lbl = ElidingLabel(metadata)
+        meta_lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
 
         text_host = QWidget()
         text_l = QVBoxLayout(text_host)
         text_l.setContentsMargins(0, 0, 0, 0)
         text_l.setSpacing(2)
-        text_l.addWidget(did_lbl)
         text_l.addWidget(label_lbl)
-        text_host.setToolTip(f"{host.did}\n{full_label}")
+        text_l.addWidget(meta_lbl)
+        text_host.setToolTip(f"{full_label}\n{metadata}")
         h.addWidget(text_host, 1)
 
         if assigned:
