@@ -630,9 +630,7 @@ def _device_nodes_block(cfg: Config) -> str:
     """
     nodes = ["/dev/kvm", "/dev/net/tun"]
     nodes.extend(
-        node
-        for node in host_device_nodes(parse_entries(cfg.pod.devices))
-        if node != "/dev/bus/usb"
+        node for node in host_device_nodes(parse_entries(cfg.pod.devices)) if node != "/dev/bus/usb"
     )
     return "".join(f"      - {node}\n" for node in nodes)
 

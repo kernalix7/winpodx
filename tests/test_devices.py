@@ -106,9 +106,7 @@ def test_qemu_device_args():
 def test_host_device_nodes(monkeypatch):
     monkeypatch.setattr(D, "_iommu_group_for", lambda addr: "14")
 
-    assert D.host_device_nodes([D.DeviceConfig("usb", "1234:5678")]) == [
-        "/dev/bus/usb"
-    ]
+    assert D.host_device_nodes([D.DeviceConfig("usb", "1234:5678")]) == ["/dev/bus/usb"]
     assert D.host_device_nodes([D.DeviceConfig("pci", "01:00.0")]) == [
         "/dev/vfio/vfio",
         "/dev/vfio/14",
@@ -290,7 +288,7 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live(monkeypatch):
 
 def test_compose_pci_only_still_lifts_selinux():
     # Even with usb_live off, an assigned PCI device exposes VFIO device nodes,
-# which container_t can't open on SELinux hosts -> label=disable applies.
+    # which container_t can't open on SELinux hosts -> label=disable applies.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
