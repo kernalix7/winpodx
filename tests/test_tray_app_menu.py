@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 TRAY = Path(__file__).resolve().parent.parent / "src" / "winpodx" / "desktop" / "tray.py"
 
 

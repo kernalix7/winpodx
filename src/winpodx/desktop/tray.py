@@ -365,6 +365,7 @@ def run_tray() -> None:
 
     def make_launcher(app_info):
         """Build a tray handler preserving the full AppInfo launch contract."""
+
         def launcher() -> None:
             cfg = Config.load()
             try:
@@ -486,11 +487,7 @@ def run_tray() -> None:
         # needs them for Hide/Show management. The tray is a launcher, so it
         # must honour the persisted visibility policy.
         available_apps = sorted(
-            (
-                app_info
-                for app_info in list_available_apps()
-                if not app_info.hidden
-            ),
+            (app_info for app_info in list_available_apps() if not app_info.hidden),
             key=_tray_app_sort_key,
         )
 
