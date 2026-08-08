@@ -14,6 +14,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **PCI passthrough now exposes the assigned device's VFIO IOMMU-group node to the container.** The generated compose configuration previously exposed only `/dev/vfio/vfio`; QEMU also needs `/dev/vfio/<group>` to open an assigned PCI device, so passthrough could fail even when the device was correctly bound to `vfio-pci`. WinPodX now resolves every assigned PCI device's IOMMU group, exposes the corresponding group nodes alongside the VFIO control node, and de-duplicates nodes when multiple PCI functions share a group.
 
 
+### Contributors
+
+Thanks to @silentone12725 for this contribution.
 ## [0.10.4] - 2026-07-27
 
 ### Added
