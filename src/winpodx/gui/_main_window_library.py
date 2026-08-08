@@ -318,7 +318,7 @@ class LibraryPageMixin:
         all_apps_layout = QVBoxLayout(all_apps_header)
         all_apps_layout.setContentsMargins(0, 0, 0, 0)
         all_apps_layout.setSpacing(SPACE_M)
-        all_apps_layout.addWidget(make_section_label(tr("All apps")))
+        all_apps_layout.addWidget(make_section_label(tr("Applications")))
 
         category_wrap = QWidget()
         self._category_row = QHBoxLayout(category_wrap)
@@ -541,7 +541,7 @@ class LibraryPageMixin:
         Reuses existing tr() labels + handlers from sibling mixins."""
         return [
             # Page indices match the QStackedWidget order in main_window._build_ui
-            # (Dashboard=0, All apps=1, then these). Keep in sync with the nav.
+            # (Dashboard=0, Applications=1, then these). Keep in sync with the nav.
             (tr("Settings"), "gear", lambda: self._switch_page(2)),
             (tr("Tools"), "clean", lambda: self._switch_page(3)),
             (tr("Terminal / Logs"), "prompt", lambda: self._switch_page(4)),
@@ -682,7 +682,7 @@ class LibraryPageMixin:
             body = tr("Clear the search or pick 'All' to see every app.")
         # (c) Everything is hidden and the Hidden toggle is off.
         elif all_hidden and not self._show_hidden:
-            title = tr("All apps are hidden")
+            title = tr("Applications are hidden")
             body = tr("Toggle 'Hidden' in the toolbar to show them.")
         # (d) Genuinely nothing registered yet.
         else:

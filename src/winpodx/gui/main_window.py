@@ -215,7 +215,7 @@ class WinpodxWindow(
 
         # Page order == nav order (the _switch_page nav-index == page-index
         # invariant). Dashboard is the home (index 0); the app launcher moves
-        # to "All apps" (index 1). License stays last.
+        # to "Applications" (index 1). License stays last.
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_dashboard_page())
         self.pages.addWidget(self._build_library_page())
