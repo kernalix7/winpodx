@@ -257,8 +257,7 @@ class DevicesMixin:
         if not assigned:
             self._dev_guest_col.addWidget(self._empty_label(tr("Nothing assigned yet.")))
         guest_hosts = [
-            host_by_key.get(key)
-            or D.HostDevice(dtype=dc.dtype, did=dc.did, label=dc.label)
+            host_by_key.get(key) or D.HostDevice(dtype=dc.dtype, did=dc.did, label=dc.label)
             for key, dc in assigned.items()
         ]
         guest_hosts = D.sort_host_devices(guest_hosts)
