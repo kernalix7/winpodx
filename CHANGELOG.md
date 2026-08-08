@@ -9,6 +9,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **GUI resource colors and Windows app naming are now handled correctly.** Fixed resource-related color handling in the GUI and corrected Windows application naming so discovered applications are presented consistently and accurately.
+
+### Contributors
+
+Thanks to @silentone12725 for this contribution.
+
 ## [0.10.4] - 2026-07-27
 
 ### Added

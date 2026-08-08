@@ -123,10 +123,20 @@ class RingGauge(QWidget):
 class StatBar(QWidget):
     """Horizontal usage bar with a label above and 'used / total' text."""
 
-    def __init__(self, caption: str, color: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        caption: str,
+        color: str,
+        parent: QWidget | None = None,
+        *,
+        critical_color: str | None = None,
+        critical_pct: float | None = None,
+    ) -> None:
         super().__init__(parent)
         self._caption = caption
         self._color = color
+        self._critical_color = critical_color
+        self._critical_pct = critical_pct
         self._pct: float | None = None
         self._detail = "--"
         self.setMinimumWidth(_BAR_MIN_W)
@@ -180,9 +190,17 @@ class StatBar(QWidget):
             fill_w = max(_BAR_HEIGHT, w * self._pct / 100.0)
             fill_rect = QRectF(track_rect)
             fill_rect.setWidth(fill_w)
+            fill_color = self._color
+            if (
+                self._critical_color is not None
+                and self._critical_pct is not None
+                and self._pct >= self._critical_pct
+            ):
+                fill_color = self._critical_color
+
             gradient = QLinearGradient(fill_rect.topLeft(), fill_rect.topRight())
-            gradient.setColorAt(0.0, _qcolor(self._color, 0.85))
-            gradient.setColorAt(1.0, _qcolor(self._color))
+            gradient.setColorAt(0.0, _qcolor(fill_color, 0.85))
+            gradient.setColorAt(1.0, _qcolor(fill_color))
             painter.setBrush(gradient)
             painter.drawRoundedRect(fill_rect, RADIUS_XS, RADIUS_XS)
         painter.end()

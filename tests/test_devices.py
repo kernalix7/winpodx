@@ -69,6 +69,128 @@ def test_parse_lspci_class_and_iommu():
     assert out[1].pci_class == "01" and out[1].iommu_group == "7"
 
 
+def test_parse_lspci_names():
+    output = chr(10).join(
+        [
+            (
+                '0000:01:00.0 "VGA compatible controller" '
+                '"Example Vendor" "Example Graphics Adapter" -r01 -p00'
+            ),
+            ('0000:01:00.1 "Audio device" "Example Vendor" "Example Audio Function" -r01 -p00'),
+        ]
+    )
+    out = D.parse_lspci_names(output)
+
+    assert out["0000:01:00.0"] == "Example Vendor Example Graphics Adapter"
+    assert out["0000:01:00.1"] == "Example Vendor Example Audio Function"
+
+
+def test_sort_host_devices_usb_first():
+    devices = [
+        D.HostDevice(
+            dtype="pci",
+            did="0000:01:00.0",
+            label="GPU",
+            pci_class="03",
+            iommu_group="14",
+        ),
+        D.HostDevice(dtype="usb", did="1234:5678", label="Dongle"),
+    ]
+
+    out = D.sort_host_devices(devices)
+
+    assert [d.dtype for d in out] == ["usb", "pci"]
+
+
+def test_sort_host_devices_keeps_iommu_group_together():
+    devices = [
+        D.HostDevice(
+            dtype="pci",
+            did="0000:04:00.0",
+            label="Network",
+            pci_class="02",
+            iommu_group="17",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:01:00.1",
+            label="GPU Audio",
+            pci_class="04",
+            iommu_group="14",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:01:00.0",
+            label="GPU",
+            pci_class="03",
+            iommu_group="14",
+        ),
+    ]
+
+    out = D.sort_host_devices(devices)
+
+    assert [d.did for d in out] == [
+        "0000:01:00.0",
+        "0000:01:00.1",
+        "0000:04:00.0",
+    ]
+
+
+def test_sort_host_devices_secondary_function_does_not_promote_chipset_group():
+    devices = [
+        D.HostDevice(
+            dtype="pci",
+            did="0000:00:1f.3",
+            label="PCH Audio",
+            pci_class="04",
+            iommu_group="13",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:00:1f.0",
+            label="PCH eSPI",
+            pci_class="06",
+            iommu_group="13",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:04:00.0",
+            label="Network",
+            pci_class="02",
+            iommu_group="17",
+        ),
+    ]
+
+    out = D.sort_host_devices(devices)
+
+    assert [d.did for d in out] == [
+        "0000:04:00.0",
+        "0000:00:1f.0",
+        "0000:00:1f.3",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("pci_class", "name"),
+    [
+        ("01", "Storage"),
+        ("02", "Network"),
+        ("03", "Graphics"),
+        ("04", "Multimedia"),
+        ("06", "Bridge"),
+        ("0c", "Serial bus"),
+        ("11", "Signal processing"),
+    ],
+)
+def test_pci_class_name(pci_class, name):
+    assert D.pci_class_name(pci_class) == name
+
+
+def test_pci_class_name_unknown():
+    assert D.pci_class_name("ff") == "PCI device"
+    assert D.pci_class_name("") == "PCI device"
+
+
 # --- safety classifier ---------------------------------------------------
 
 
