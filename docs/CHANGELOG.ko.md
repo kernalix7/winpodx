@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **트레이 앱 실행 메뉴의 정렬과 실행 lifecycle을 안정적으로 개선했습니다.** 표시 가능한 Windows 앱을 launcher tier와 이름을 기준으로 일관되게 정렬하고, 숨겨진 앱은 트레이 실행 메뉴에서 제외하며, 임의의 앱 개수 제한을 제거했습니다. 앱 실행 동작은 launch URI, window-class 힌트, 기본 인자, 앱 아이콘, 앱별 RDP override를 포함한 전체 `AppInfo` 실행 계약을 유지합니다. launcher 정렬, 숨김 앱 필터링, 메뉴 재구성 및 실행 lifecycle 동작에 대한 회귀 테스트도 추가했습니다.
+
+### Contributors
+
+이번 변경에 기여해 주신 @silentone12725에게 감사드립니다.
+
 ## [0.10.4] - 2026-07-27
 
 ### Added

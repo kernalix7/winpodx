@@ -362,16 +362,25 @@ def run_tray() -> None:
     menu.addSeparator()
 
     apps_menu = QMenu(tr("Launch App"))
-    available_apps = list_available_apps()
 
-    def make_launcher(executable: str, full_name: str):
+    def make_launcher(app_info):
+        """Build a tray handler preserving the full AppInfo launch contract."""
+
         def launcher() -> None:
             cfg = Config.load()
             try:
-                launch_app(cfg, executable)
+                launch_app(
+                    cfg,
+                    app_info.executable,
+                    launch_uri=app_info.launch_uri or None,
+                    wm_class_hint=app_info.wm_class_hint or None,
+                    default_args=app_info.args or None,
+                    app_icon=app_info.icon_path or None,
+                    rdp_overrides=app_info.rdp_overrides or None,
+                )
                 tray.showMessage(
                     "WinPodX",
-                    tr("Launching {name}...").format(name=full_name),
+                    tr("Launching {name}...").format(name=app_info.full_name),
                     QSystemTrayIcon.MessageIcon.Information,
                 )
             except RuntimeError as e:
@@ -384,19 +393,6 @@ def run_tray() -> None:
 
         return launcher
 
-    for app_info in available_apps[:20]:
-        action = QAction(app_info.full_name, apps_menu)
-        action.triggered.connect(make_launcher(app_info.executable, app_info.full_name))
-        apps_menu.addAction(action)
-
-    if not available_apps:
-        no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
-        no_apps.setEnabled(False)
-        apps_menu.addAction(no_apps)
-
-    apps_menu.addSeparator()
-    desktop_action = QAction(tr("Full Desktop"), apps_menu)
-
     def on_desktop() -> None:
         try:
             launch_app(Config.load())
@@ -406,8 +402,117 @@ def run_tray() -> None:
         except RuntimeError as e:
             tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
 
-    desktop_action.triggered.connect(on_desktop)
-    apps_menu.addAction(desktop_action)
+    # The tray is a quick-launch surface, so order applications by semantic
+    # utility rather than discovery order or an exhaustive app-name allowlist:
+    #
+    #   0 — essentials
+    #   1 — user-facing applications
+    #   2 — Windows applications / utilities
+    #   3 — administrative / technical utilities
+    #
+    # Application-name hints are deliberately limited to ambiguous cases.
+    # Keep this policy local to the tray so list_available_apps() retains its
+    # ordering contract for the GUI and other callers.
+    _TRAY_ADMIN_HINTS = (
+        "control-panel",
+        "task-manager",
+        "command-processor",
+        "powershell",
+        "system-",
+        "configuration",
+        "diagnostic",
+        "administrative",
+        "registry-editor",
+        "event-viewer",
+        "services",
+        "odbc",
+        "iscsi",
+        "memory-diagnostic",
+        "drive-optimizer",
+        "disk-cleanup",
+    )
+
+    _TRAY_USER_WINDOWS_HINTS = (
+        "calculator",
+        "media-player",
+        "microsoft-store",
+        "notepad",
+        "paint",
+        "photos",
+        "snipping-tool",
+        "terminal",
+    )
+
+    def _tray_app_sort_key(app_info):
+        """Rank tray apps semantically, with an alphabetical tie-breaker."""
+        slug = app_info.name.lower()
+        executable = (app_info.executable or "").replace(chr(92), "/").lower()
+
+        if app_info.essential:
+            tier = 0
+        elif any(hint in slug for hint in _TRAY_ADMIN_HINTS):
+            tier = 3
+        elif any(hint in slug for hint in _TRAY_USER_WINDOWS_HINTS):
+            tier = 1
+        elif (
+            "/program files/" in executable
+            or "/program files (x86)/" in executable
+            or "/users/" in executable
+        ):
+            # Installed desktop applications and per-user applications are
+            # normally user-facing even when discovery cannot classify them.
+            tier = 1
+        elif "/windowsapps/" in executable:
+            # Store/MSIX applications are generally user-facing. Known
+            # background components should already be hidden by discovery.
+            tier = 1
+        elif (
+            "/windows/system32/" in executable
+            or "/windows/syswow64/" in executable
+            or "/windows/" in executable
+        ):
+            tier = 2
+        else:
+            # Unknown applications remain reachable without being promoted
+            # above entries we can confidently identify as user-facing.
+            tier = 2
+
+        return (tier, app_info.full_name.casefold())
+
+    def _rebuild_apps_menu() -> None:
+        """Rebuild the launcher menu from the current discovered app state."""
+        apps_menu.clear()
+
+        # list_available_apps() also returns hidden entries because the GUI
+        # needs them for Hide/Show management. The tray is a launcher, so it
+        # must honour the persisted visibility policy.
+        available_apps = sorted(
+            (app_info for app_info in list_available_apps() if not app_info.hidden),
+            key=_tray_app_sort_key,
+        )
+
+        # Do not impose an arbitrary item cap. Hidden entries must not consume
+        # slots and make legitimate visible applications unreachable.
+        for app_info in available_apps:
+            action = QAction(app_info.full_name, apps_menu)
+            action.triggered.connect(make_launcher(app_info))
+            apps_menu.addAction(action)
+
+        if not available_apps:
+            no_apps = QAction(tr("(no apps - run 'winpodx app refresh')"), apps_menu)
+            no_apps.setEnabled(False)
+            apps_menu.addAction(no_apps)
+
+        apps_menu.addSeparator()
+
+        desktop_action = QAction(tr("Full Desktop"), apps_menu)
+        desktop_action.triggered.connect(on_desktop)
+        apps_menu.addAction(desktop_action)
+
+    # Discovery, Hide/Show, installs and removals can change the app set while
+    # the long-lived tray is running. Refresh immediately before it is opened.
+    apps_menu.aboutToShow.connect(_rebuild_apps_menu)
+    _rebuild_apps_menu()
 
     menu.addMenu(apps_menu)
 
