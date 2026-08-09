@@ -142,6 +142,9 @@ def probe_guest_exec(cfg: Config) -> Probe:
         except Exception:  # noqa: BLE001
             return "skip", "pod state unknown"
 
+        from winpodx.core.agent_resync import heal_generation, heal_token_once
+
+        generation = heal_generation()
         client = AgentClient(cfg)
         healed = False
         try:
@@ -149,10 +152,11 @@ def probe_guest_exec(cfg: Config) -> Probe:
         except AgentAuthError:
             # 401 = the guest's baked token drifted from the host's (#615).
             # This is config drift, not a transient blip, so it never clears
-            # on its own — auto-heal once over FreeRDP, then re-probe.
-            from winpodx.core.agent_resync import resync_token
-
-            ok, detail = resync_token(cfg)
+            # on its own — auto-heal once over FreeRDP, then re-probe. Shared
+            # with the agent transport (#730) so a doctor run and a background
+            # keepalive that both hit the 401 push once between them, not
+            # twice: each resync drives a real FreeRDP session.
+            ok, detail = heal_token_once(cfg, seen_generation=generation)
             if not ok:
                 return "fail", f"auth 401 (token drift); auto-resync failed: {detail}"
             healed = True

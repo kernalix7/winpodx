@@ -93,6 +93,39 @@ _POD_ID_RE = re.compile(r"^[a-z0-9-]+$")
 # ``\\tsclient\…`` prefix check.
 _GUEST_PATH_RE = re.compile(r"^[A-Za-z]:\\")
 
+# Schemes refused specifically on the guest → host direction, on top of the
+# shared ``DANGEROUS_SCHEMES`` denylist (#694). These open an authenticated
+# outbound session from the host rather than displaying a document, so a
+# compromised guest could use one to make the host connect somewhere and
+# offer up the user's stored credentials. The host→guest direction is
+# unaffected: routing ``ssh://`` to a Windows client is the user's own
+# explicit action, whereas here the request originates in the guest.
+#
+# Deliberately narrow. Everything else a browser or mail client understands
+# — http/https, mailto, and vendor deep links (slack, zoommtg, spotify, …) —
+# still routes, because displaying a link is the entire point of #694.
+_GUEST_ORIGIN_DENIED_SCHEMES: frozenset[str] = frozenset(
+    {
+        "ssh",
+        "sftp",
+        "telnet",
+        "rdp",
+        "vnc",
+        "spice",
+        "spice+tls",
+        "spice+unix",
+        "smb",
+        "cifs",
+        "nfs",
+        "afp",
+    }
+)
+
+# Control characters are rejected outright in a URL: a CR/ESC payload in a
+# request would otherwise reach the daemon log (and any terminal tailing it)
+# verbatim. NUL is already refused for every path shape.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
 
 @dataclass
 class ListenerStats:
@@ -105,6 +138,7 @@ class ListenerStats:
     rejected_unknown_app: int = 0
     rejected_path: int = 0
     rejected_guest_unsupported: int = 0
+    rejected_url_scheme: int = 0
     rejected_replay: int = 0
     rejected_in_flight: int = 0
     janitor_removed: int = 0
@@ -310,6 +344,15 @@ class Listener:
             self._handle_guest_request(path, slug, app, data["path"])
             return
 
+        # A link clicked in the guest (#694). The shim can't tell a URL from a
+        # host path, so both arrive as origin "host"; the schema check already
+        # confirmed this one is a routable URL. Handled before safe_open_unc,
+        # which would reject it a second time for not resolving under a share
+        # root.
+        if _url_reject_reason(data["path"]) is None:
+            self._handle_url_request(path, slug, app, data["path"])
+            return
+
         unc = data["path"]
         try:
             with safe_open_unc(unc, self._cfg.share_roots) as safe:
@@ -375,6 +418,60 @@ class Listener:
         except OSError as exc:
             self._stats.spawn_errors += 1
             log.warning("listener: launch spawn failed for %s: %s", slug, exc)
+            _safe_unlink(path)
+            return
+
+        self._seen.add(uuid)
+        self._stats.accepted += 1
+        _safe_unlink(path)
+
+    def _handle_url_request(self, path: Path, slug: str, app: object, url: str) -> None:
+        """Open a URL the guest handed us in a host app (origin="host", #694).
+
+        The user clicked a link inside Windows — in Outlook, say — and the
+        per-app shim registered as that scheme's handler forwarded it. There
+        is no filesystem path to resolve, so this skips ``safe_open_unc``
+        entirely and substitutes the URL into the app's argv as a single slot.
+
+        Two guards beyond the scheme policy already applied in
+        ``_url_reject_reason``:
+
+        * the target app must itself declare the scheme (an
+          ``x-scheme-handler/<scheme>`` entry in its ``.desktop``). That stops
+          scheme confusion — handing ``zoommtg://…`` to an app that treats
+          argv as a filename — though it is not an allowlist in its own
+          right, since a remote-desktop client legitimately declares plenty of
+          schemes. The direction-specific denylist is what covers that case;
+        * the spawn is ``shell=False`` with the URL in exactly one argv slot,
+          so nothing in the string can become a separate word or a shell
+          token.
+
+        The UUID is recorded only after the spawn fires, so a failed launch
+        can be retried from the guest.
+        """
+        uuid = path.stem
+        from winpodx.core.url_schemes import url_scheme_of
+
+        scheme = url_scheme_of(url)
+        declared = f"x-scheme-handler/{scheme}"
+        if declared not in getattr(app, "mime_types", []):
+            self._stats.rejected_url_scheme += 1
+            log.warning(
+                "listener: app %s does not declare %s — refusing url request %s",
+                slug,
+                declared,
+                path.name,
+            )
+            _safe_unlink(path)
+            return
+
+        argv = substitute_path(app.exec_argv, url)  # type: ignore[attr-defined]
+        log.info("listener: spawning (url) slug=%s scheme=%s argv=%r", slug, scheme, argv)
+        try:
+            self._spawn(argv, {})
+        except OSError as exc:
+            self._stats.spawn_errors += 1
+            log.warning("listener: url spawn failed for %s: %s", slug, exc)
             _safe_unlink(path)
             return
 
@@ -542,7 +639,15 @@ def _validate_schema(data: object) -> str | None:
         # Accept both Windows backslash form and forward-slash form
         # (Go's filepath.ToSlash leaves the latter when the shim
         # rendering pipeline doubles back through cross-platform Path).
-        return "path must start with \\\\tsclient\\"
+        #
+        # Not a UNC path — it may still be a URL. The guest shim classifies
+        # anything that is neither ``\\…`` nor a drive path as origin "host"
+        # (config/oem/reverse-open/shim/src/main.rs), so a browser link
+        # clicked in the guest arrives here verbatim. Checking UNC first
+        # means a real UNC path can never be reinterpreted as a URL (#694).
+        url_problem = _url_reject_reason(path)
+        if url_problem is not None:
+            return url_problem
     ts = data.get("ts")
     if not isinstance(ts, str) or not ts:
         return "ts field missing or not a string"
@@ -550,6 +655,37 @@ def _validate_schema(data: object) -> str | None:
     if pod_id is not None:
         if not isinstance(pod_id, str) or not _POD_ID_RE.fullmatch(pod_id):
             return "pod_id must be null or a slug"
+    return None
+
+
+def _url_reject_reason(path: str) -> str | None:
+    """Return why ``path`` is unacceptable as a guest-originated URL, or None.
+
+    ``None`` means the string is a URL this listener is willing to hand to a
+    host app (#694). The checks, in order:
+
+    * a routable scheme — ``winpodx.core.url_schemes.url_scheme_of`` applies
+      the shared syntax rule and the ``DANGEROUS_SCHEMES`` denylist, so
+      ``file:``, ``javascript:``, ``data:`` and friends never get here. That
+      matters most for ``file:``: it would otherwise walk straight around the
+      share-root confinement that ``safe_open_unc`` exists to enforce;
+    * no control characters, so nothing in the request can rewrite a log line;
+    * not a remote-session scheme (see ``_GUEST_ORIGIN_DENIED_SCHEMES``).
+
+    The syntax rule also guarantees the URL starts with a letter, so the
+    string can never be mistaken for an option when it lands in the app's
+    argv.
+    """
+    from winpodx.core.url_schemes import url_scheme_of
+
+    scheme = url_scheme_of(path)
+    if scheme is None:
+        # Neither a UNC path (checked first by the caller) nor a URL we route.
+        return "path must start with \\\\tsclient\\ or be a routable URL"
+    if _CONTROL_CHARS_RE.search(path):
+        return "url contains control characters"
+    if scheme in _GUEST_ORIGIN_DENIED_SCHEMES:
+        return f"url scheme {scheme!r} is not routable from the guest"
     return None
 
 

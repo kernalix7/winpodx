@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -46,7 +45,9 @@ from winpodx.core.i18n import tr
 # Oldest FreeRDP 3.x without the RemoteApp/RAIL window-mapping bugs that leave
 # an app connected but its window never shown (#546). 3.5.x and earlier are
 # affected; warn (not fail) below this, since the binary still works otherwise.
-_FREERDP_RAIL_FLOOR = (3, 6, 0)
+# The value itself lives in ``winpodx.core.rdp`` (imported lazily at the check,
+# matching this module's style) so the launcher warning (#785) and this check
+# can never disagree about where the floor sits.
 
 
 @dataclass(frozen=True)
@@ -220,23 +221,15 @@ def _check_freerdp() -> Finding:
         # Best-effort version string for the human reader; a failure to run
         # --version doesn't downgrade the finding (binary exists, that's the
         # signal we care about for doctor).
-        version_line = ""
-        ver: tuple[int, int, int] | None = None
-        try:
-            result = subprocess.run(
-                [dep.path, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            blob = (result.stdout or "") + (result.stderr or "")
-            version_line = result.stdout.splitlines()[0] if result.stdout else ""
-            m = re.search(r"FreeRDP version\s+(\d+)\.(\d+)\.(\d+)", blob)
-            if m:
-                ver = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            pass
+        # Shared with the launcher (winpodx.core.rdp) so both agree and the
+        # probe runs once. Doing it here meant splitting a Flatpak launcher
+        # string wrong, so no version was ever detected on Flatpak hosts and
+        # the RAIL warning below never fired (#785).
+        from winpodx.core.rdp import FREERDP_RAIL_FLOOR as _FREERDP_RAIL_FLOOR
+        from winpodx.core.rdp import freerdp_version
+
+        ver = freerdp_version()
+        version_line = f"FreeRDP version {'.'.join(str(p) for p in ver)}" if ver else ""
         # Old FreeRDP 3.x RAIL: 3.5.x and earlier have window-ordering bugs that
         # leave a RemoteApp connected but its window never mapped (only
         # "xf_Pointer: Invalid appWindow" spam) -- see #546 (Ubuntu/Budgie 24.04
@@ -699,16 +692,67 @@ def _apps_missing_desktop_entries() -> list:
 
 
 def _desktop_shortcut_missing() -> bool:
-    """True if the "Windows Desktop" launcher shortcut (#769) isn't installed."""
-    from winpodx.desktop.entry import DESKTOP_SHORTCUT_STEM
+    """True if the "Windows Desktop" launcher shortcut (#769) needs installing.
+
+    Either it isn't there, or it carries a bare ``Exec=winpodx …`` a
+    stripped-PATH launcher can't resolve (#779) — re-installing fixes both.
+    """
+    from winpodx.desktop.entry import DESKTOP_SHORTCUT_STEM, _winpodx_exe
     from winpodx.utils.paths import applications_dir
 
-    return not (applications_dir() / f"{DESKTOP_SHORTCUT_STEM}.desktop").exists()
+    shortcut = applications_dir() / f"{DESKTOP_SHORTCUT_STEM}.desktop"
+    if not shortcut.exists():
+        return True
+    if not _winpodx_exe().startswith("/"):
+        return False
+    program = _entry_exec_program(shortcut)
+    return bool(program) and not program.startswith("/")
+
+
+def _entry_exec_program(entry_path) -> str:
+    """First token of an installed entry's ``Exec=`` line ("" when unreadable)."""
+    try:
+        for line in entry_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("Exec="):
+                parts = line[len("Exec=") :].strip().split()
+                return parts[0] if parts else ""
+    except OSError:
+        return ""
+    return ""
+
+
+def _apps_with_bare_exec() -> list:
+    """Return apps whose installed entry launches a bare, non-absolute command.
+
+    A DE that runs launchers as systemd transient units strips PATH, so an
+    ``Exec=winpodx …`` entry dies with "Could not find the program 'winpodx'"
+    (#779). Entries written before the fix carry that bare name; re-installing
+    them stamps the absolute path in. Only reported when we can actually
+    resolve an absolute path now, so there is nothing to churn otherwise.
+    """
+    from winpodx.core.app import list_available_apps
+    from winpodx.desktop.entry import _winpodx_exe
+
+    if not _winpodx_exe().startswith("/"):
+        return []
+    stale = []
+    for app in list_available_apps():
+        if getattr(app, "hidden", False):
+            continue
+        entry = _desktop_entry_path(app)
+        if not entry.exists():
+            continue  # counted by _apps_missing_desktop_entries instead
+        program = _entry_exec_program(entry)
+        if program and not program.startswith("/"):
+            stale.append(app)
+    return stale
 
 
 def _check_missing_desktop_entries() -> Finding:
     """Apps in the index with no installed ``.desktop`` file, plus the
-    "Windows Desktop" launcher shortcut (#769) if it's missing.
+    "Windows Desktop" launcher shortcut (#769) if it's missing, plus entries
+    whose ``Exec=`` is a bare command a stripped-PATH launcher can't find
+    (#779).
 
     Host-only -- unit-testable. Auto-fixable via ``missing_desktop_entries``.
     """
@@ -716,18 +760,24 @@ def _check_missing_desktop_entries() -> Finding:
         missing = _apps_missing_desktop_entries()
     except Exception as e:  # noqa: BLE001
         return Finding("warn", "could not enumerate apps", detail=str(e))
+    try:
+        stale = _apps_with_bare_exec()
+    except Exception:  # noqa: BLE001 -- advisory only, never fail the check
+        stale = []
     shortcut_missing = _desktop_shortcut_missing()
-    if not missing and not shortcut_missing:
+    if not missing and not stale and not shortcut_missing:
         return Finding("ok", "all registered apps have desktop entries")
     parts = []
     if missing:
         parts.append(f"{len(missing)} app(s) missing a desktop entry")
+    if stale:
+        parts.append(f"{len(stale)} entry(s) with a non-absolute Exec")
     if shortcut_missing:
         parts.append("desktop shortcut missing")
     return Finding(
         "warn",
         ", ".join(parts),
-        detail=", ".join(a.name for a in missing),
+        detail=", ".join(a.name for a in (missing + stale)),
         suggestion="Run `winpodx doctor --fix` (or `winpodx app install <name>`) to re-register.",
         fix_id="missing_desktop_entries",
     )
@@ -869,8 +919,12 @@ def _fix_missing_desktop_entries() -> tuple[bool, str]:
         missing = _apps_missing_desktop_entries()
     except Exception as e:  # noqa: BLE001
         return False, f"could not enumerate apps: {e}"
+    try:
+        stale = _apps_with_bare_exec()
+    except Exception:  # noqa: BLE001 -- best-effort repair, never block the fix
+        stale = []
     shortcut_missing = _desktop_shortcut_missing()
-    if not missing and not shortcut_missing:
+    if not missing and not stale and not shortcut_missing:
         return True, "no missing desktop entries"
 
     from winpodx.desktop.entry import install_desktop_entry, install_desktop_shortcut
@@ -879,7 +933,7 @@ def _fix_missing_desktop_entries() -> tuple[bool, str]:
 
     registered = 0
     failed: list[str] = []
-    for app in missing:
+    for app in missing + stale:
         try:
             install_desktop_entry(app)
             if app.mime_types:

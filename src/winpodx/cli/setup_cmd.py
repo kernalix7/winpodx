@@ -639,25 +639,37 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     )
     cfg.pod.win_version = edition
 
+    # These three default to empty in the config, meaning "detect from the
+    # host at compose time" (#791). Show what that detection produces rather
+    # than an empty bracket, so the user confirms a real value — and store it,
+    # since a value they were shown and accepted should not later change
+    # because they logged in under a different locale.
+    from winpodx.utils.locale import detect_install_locale
+
+    detected_language, detected_region, detected_keyboard = detect_install_locale()
+
     # UI language (dockur LANGUAGE env). Full English name, e.g. "English",
     # "German", "Korean". dockur maps it to the matching ISO at download.
+    language_default = cfg.pod.language or detected_language
     cfg.pod.language = _ask(
-        tr("Windows UI language [{default}]: ").format(default=cfg.pod.language),
-        default=cfg.pod.language,
+        tr("Windows UI language [{default}]: ").format(default=language_default),
+        default=language_default,
     )
 
     # Regional format (dockur REGION env). BCP-47, e.g. en-US, en-GB,
-    # ko-KR. Default en-001 = "English (World)"; suggest the more common
-    # en-US for US date / number formatting (#293).
+    # ko-KR. en-001 = "English (World)", the fallback when the host locale
+    # is not one dockur accepts.
+    region_default = cfg.pod.region or detected_region
     cfg.pod.region = _ask(
-        tr("Regional format (BCP-47, e.g. en-US) [{default}]: ").format(default=cfg.pod.region),
-        default=cfg.pod.region,
+        tr("Regional format (BCP-47, e.g. en-US) [{default}]: ").format(default=region_default),
+        default=region_default,
     )
 
     # Keyboard layout (dockur KEYBOARD env). BCP-47, e.g. en-US, de-DE.
+    keyboard_default = cfg.pod.keyboard or detected_keyboard
     cfg.pod.keyboard = _ask(
-        tr("Keyboard layout (BCP-47, e.g. en-US) [{default}]: ").format(default=cfg.pod.keyboard),
-        default=cfg.pod.keyboard,
+        tr("Keyboard layout (BCP-47, e.g. en-US) [{default}]: ").format(default=keyboard_default),
+        default=keyboard_default,
     )
 
     # Host tuning profile (#215 / #245). auto = detect + apply every safe

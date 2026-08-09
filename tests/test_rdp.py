@@ -478,6 +478,28 @@ class TestBuildRdpCommand:
         assert any(c.startswith("/app:") for c in cmd)
         assert "/dynamic-resolution" not in cmd
 
+    def test_remoteapp_masks_unimplemented_ime_sync_capability(self, cfg, monkeypatch):
+        # #815 / FreeRDP #8126: advertising RAIL IME sync (bit 0x08) on X11
+        # leaves Chinese IME candidate windows stuck after committing text.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
+        monkeypatch.setattr("winpodx.display.layout.has_mixed_scale", lambda: False)
+        tune = "/tune:FreeRDP_RemoteApplicationSupportMask:0xf7"
+
+        win32, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+        uwp, _ = build_rdp_command(
+            cfg,
+            launch_uri="Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        )
+        desktop, _ = build_rdp_command(cfg)
+
+        assert tune in win32
+        assert tune in uwp
+        assert tune not in desktop
+
     def test_span_added_to_app_launch_uniform_scale(self, cfg, monkeypatch):
         # multimon defaults to "span": with uniform monitor scales a RAIL app
         # launch spans the host monitor bounding box so a window dragged to a
@@ -1607,3 +1629,92 @@ class TestKeyboardLayoutPropagation:
         cmd, _ = build_rdp_command(cfg)
         kbd_flags = [c for c in cmd if c.startswith("/kbd")]
         assert kbd_flags == ["/kbd:layout:0x00000409"]  # only the user's, no auto
+
+
+# --- #785: one shared FreeRDP version probe + RAIL warning -------------------
+
+
+class TestFreerdpVersionProbe:
+    """The launcher and doctor must share one probe, and it must handle the
+    Flatpak launcher string (a whole command, not a single executable)."""
+
+    def _reset(self, monkeypatch):
+        import winpodx.core.rdp as rdp_mod
+
+        monkeypatch.setattr(rdp_mod, "_FREERDP_VERSION_CACHE", rdp_mod._UNPROBED)
+        return rdp_mod
+
+    def test_parses_version_triple(self, monkeypatch):
+        rdp_mod = self._reset(monkeypatch)
+        monkeypatch.setattr(
+            rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp")
+        )
+
+        class _Res:
+            stdout = "This is FreeRDP version 3.5.1 (release)\n"
+            stderr = ""
+
+        monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: _Res())
+        assert rdp_mod.freerdp_version() == (3, 5, 1)
+
+    def test_flatpak_launcher_string_is_split(self, monkeypatch):
+        # Regression: running the whole "flatpak run ..." string as one argv
+        # element raised FileNotFoundError, so no version was ever detected on
+        # Flatpak hosts and the RAIL warning silently never fired.
+        rdp_mod = self._reset(monkeypatch)
+        launcher = "flatpak run --branch=stable com.freerdp.FreeRDP"
+        monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: (launcher, "flatpak"))
+        seen: list[list[str]] = []
+
+        class _Res:
+            stdout = "This is FreeRDP version 3.7.0\n"
+            stderr = ""
+
+        def _run(cmd, *a, **k):
+            seen.append(cmd)
+            return _Res()
+
+        monkeypatch.setattr(rdp_mod.subprocess, "run", _run)
+        assert rdp_mod.freerdp_version() == (3, 7, 0)
+        assert seen[0] == ["flatpak", "run", "--branch=stable", "com.freerdp.FreeRDP", "--version"]
+
+    def test_failed_probe_is_cached(self, monkeypatch):
+        rdp_mod = self._reset(monkeypatch)
+        monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: None)
+        calls = []
+        monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: (calls.append(1), None)[1])
+        assert rdp_mod.freerdp_version() is None
+        assert rdp_mod.freerdp_version() is None
+        assert len(calls) == 1  # not re-probed
+
+    def test_major_version_delegates(self, monkeypatch):
+        rdp_mod = self._reset(monkeypatch)
+        monkeypatch.setattr(rdp_mod, "freerdp_version", lambda: (3, 9, 2))
+        assert rdp_mod.freerdp_major_version() == 3
+
+    def test_major_version_defaults_to_3_when_unknown(self, monkeypatch):
+        rdp_mod = self._reset(monkeypatch)
+        monkeypatch.setattr(rdp_mod, "freerdp_version", lambda: None)
+        assert rdp_mod.freerdp_major_version() == 3
+
+
+class TestFreerdpRailWarning:
+    def test_warns_below_floor(self, monkeypatch):
+        import winpodx.core.rdp as rdp_mod
+
+        monkeypatch.setattr(rdp_mod, "freerdp_version", lambda: (3, 5, 1))
+        msg = rdp_mod.freerdp_rail_warning()
+        assert msg is not None and "3.5.1" in msg and "3.6.0" in msg
+
+    def test_silent_at_floor(self, monkeypatch):
+        import winpodx.core.rdp as rdp_mod
+
+        monkeypatch.setattr(rdp_mod, "freerdp_version", lambda: (3, 6, 0))
+        assert rdp_mod.freerdp_rail_warning() is None
+
+    def test_silent_when_version_unknown(self, monkeypatch):
+        # An undetectable version must not produce a scary message.
+        import winpodx.core.rdp as rdp_mod
+
+        monkeypatch.setattr(rdp_mod, "freerdp_version", lambda: None)
+        assert rdp_mod.freerdp_rail_warning() is None

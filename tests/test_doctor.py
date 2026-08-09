@@ -138,12 +138,10 @@ class TestCheckFreerdp:
             "winpodx.utils.deps.check_freerdp",
             lambda: DepCheck(name="xfreerdp", found=found, path="/usr/bin/xfreerdp3"),
         )
-
-        class _Res:
-            stdout = f"This is FreeRDP version {version} (...)\n" if version else ""
-            stderr = ""
-
-        monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _Res())
+        # doctor consumes the launcher's single shared probe (#785), so stub
+        # that rather than re-stubbing subprocess here.
+        parsed = tuple(int(p) for p in version.split(".")) if version else None
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_version", lambda: parsed)
 
     def test_old_3x_warns(self, monkeypatch):
         self._patch(monkeypatch, version="3.5.1")
@@ -512,6 +510,63 @@ class TestMissingDesktopEntryFixer:
 
     # #769: the "Windows Desktop" launcher shortcut is tracked by the same
     # check/fixer pair, independent of per-app entries.
+
+    # #779: an entry written before the fix carries a bare ``Exec=winpodx``
+    # that stripped-PATH launchers can't resolve. Same check/fixer repairs it.
+
+    def test_detects_bare_exec_entry(self, tmp_path, monkeypatch):
+        entries = {}
+        for name, program in (("alpha", "/home/u/.local/bin/winpodx"), ("beta", "winpodx")):
+            f = tmp_path / f"winpodx-{name}.desktop"
+            f.write_text(f"[Desktop Entry]\nExec={program} app run {name} %u\n")
+            entries[name] = f
+        monkeypatch.setattr(
+            "winpodx.core.app.list_available_apps", lambda: [_FakeApp("alpha"), _FakeApp("beta")]
+        )
+        monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: entries[app.name])
+        monkeypatch.setattr("winpodx.desktop.entry._winpodx_exe", lambda: "/usr/bin/winpodx")
+
+        stale = doctor._apps_with_bare_exec()
+        assert [a.name for a in stale] == ["beta"]
+
+    def test_bare_exec_not_flagged_when_no_absolute_path_available(self, tmp_path, monkeypatch):
+        # Nothing to upgrade to -> don't nag about an entry we can't improve.
+        f = tmp_path / "winpodx-beta.desktop"
+        f.write_text("[Desktop Entry]\nExec=winpodx app run beta %u\n")
+        monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [_FakeApp("beta")])
+        monkeypatch.setattr(doctor, "_desktop_entry_path", lambda app: f)
+        monkeypatch.setattr("winpodx.desktop.entry._winpodx_exe", lambda: "winpodx")
+
+        assert doctor._apps_with_bare_exec() == []
+
+    def test_fix_rewrites_bare_exec_entry(self, monkeypatch):
+        monkeypatch.setattr(doctor, "_apps_missing_desktop_entries", lambda: [])
+        monkeypatch.setattr(doctor, "_apps_with_bare_exec", lambda: [_FakeApp("beta")])
+        monkeypatch.setattr(doctor, "_desktop_shortcut_missing", lambda: False)
+        installed = []
+        monkeypatch.setattr(
+            "winpodx.desktop.entry.install_desktop_entry",
+            lambda app: installed.append(app.name),
+        )
+        monkeypatch.setattr("winpodx.desktop.mime.register_mime_types", lambda app: None)
+        monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+
+        ok, msg = doctor._fix_missing_desktop_entries()
+        assert ok
+        assert installed == ["beta"]
+
+    def test_shortcut_with_bare_exec_needs_install(self, tmp_path, monkeypatch):
+        from winpodx.desktop.entry import DESKTOP_SHORTCUT_STEM
+
+        apps_dir = tmp_path / "applications"
+        apps_dir.mkdir()
+        (apps_dir / f"{DESKTOP_SHORTCUT_STEM}.desktop").write_text(
+            "[Desktop Entry]\nExec=winpodx app run desktop\n"
+        )
+        monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: apps_dir)
+        monkeypatch.setattr("winpodx.desktop.entry._winpodx_exe", lambda: "/usr/bin/winpodx")
+
+        assert doctor._desktop_shortcut_missing() is True
 
     def test_check_flags_shortcut_missing_alone(self, monkeypatch):
         # No apps missing, but the shortcut itself is gone -> still a warn.

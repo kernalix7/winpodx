@@ -118,10 +118,18 @@ class TestExec:
         assert result.ok
 
     def test_auth_error_maps_to_transport_auth_error(self, transport):
-        with patch.object(
-            type(transport._client),
-            "exec",
-            side_effect=AgentAuthError("/exec auth failed (401)"),
+        # Heal stubbed out so this stays a pure mapping test; the heal path
+        # has its own cases below.
+        with (
+            patch(
+                "winpodx.core.agent_resync.heal_token_once",
+                return_value=(False, "stubbed"),
+            ),
+            patch.object(
+                type(transport._client),
+                "exec",
+                side_effect=AgentAuthError("/exec auth failed (401)"),
+            ),
         ):
             with pytest.raises(TransportAuthError):
                 transport.exec("anything")
@@ -166,3 +174,92 @@ class TestStream:
     def test_stream_raises_transport_unavailable(self, transport):
         with pytest.raises(TransportUnavailable):
             transport.stream("Get-Process", lambda _line: None)
+
+
+class TestExecTokenSelfHeal:
+    """#730: a 401 is token drift and never clears on its own, so exec heals
+    once and retries instead of leaving every agent-backed feature dead until
+    someone runs `winpodx doctor`."""
+
+    def test_heals_once_then_succeeds_on_retry(self, transport):
+        attempts = []
+
+        def _exec(_self, script, timeout=None):
+            attempts.append(script)
+            if len(attempts) == 1:
+                raise AgentAuthError("/exec returned 401")
+            return AgentExecResult(rc=0, stdout="healed", stderr="")
+
+        with (
+            patch("winpodx.core.agent_resync.heal_token_once", return_value=(True, "ok")) as heal,
+            patch.object(type(transport._client), "exec", _exec),
+        ):
+            result = transport.exec("Write-Output hi")
+
+        assert result == ExecResult(rc=0, stdout="healed", stderr="")
+        assert len(attempts) == 2
+        heal.assert_called_once()
+
+    def test_raises_without_retry_when_heal_fails(self, transport):
+        attempts = []
+
+        def _exec(_self, script, timeout=None):
+            attempts.append(script)
+            raise AgentAuthError("/exec returned 401")
+
+        with (
+            patch(
+                "winpodx.core.agent_resync.heal_token_once",
+                return_value=(False, "no freerdp"),
+            ),
+            patch.object(type(transport._client), "exec", _exec),
+        ):
+            with pytest.raises(TransportAuthError):
+                transport.exec("Write-Output hi")
+
+        assert len(attempts) == 1
+
+    def test_second_401_after_heal_does_not_loop(self, transport):
+        attempts = []
+
+        def _exec(_self, script, timeout=None):
+            attempts.append(script)
+            raise AgentAuthError("/exec returned 401")
+
+        with (
+            patch("winpodx.core.agent_resync.heal_token_once", return_value=(True, "ok")) as heal,
+            patch.object(type(transport._client), "exec", _exec),
+        ):
+            with pytest.raises(TransportAuthError):
+                transport.exec("Write-Output hi")
+
+        # Healed once, retried once, then gave up — no third attempt.
+        assert len(attempts) == 2
+        heal.assert_called_once()
+
+    def test_successful_call_never_heals(self, transport):
+        with (
+            patch("winpodx.core.agent_resync.heal_token_once") as heal,
+            patch.object(
+                type(transport._client),
+                "exec",
+                return_value=AgentExecResult(rc=0, stdout="ok", stderr=""),
+            ),
+        ):
+            transport.exec("Write-Output hi")
+
+        heal.assert_not_called()
+
+    def test_non_auth_errors_do_not_heal(self, transport):
+        with (
+            patch("winpodx.core.agent_resync.heal_token_once") as heal,
+            patch.object(
+                type(transport._client),
+                "exec",
+                side_effect=AgentTimeoutError("timed out"),
+            ),
+        ):
+            with pytest.raises(TransportTimeoutError):
+                transport.exec("Write-Output hi")
+
+        heal.assert_not_called()

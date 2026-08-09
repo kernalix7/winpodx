@@ -145,8 +145,9 @@ function Send-Json($resp, [int]$code, $obj) {
 # because Start-Process does not support -EncodedCommand cleanly with
 # stdout/stderr redirection; the temp file is cleaned up after the run.
 function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
-    $tempBase  = Join-Path $script:RunsDir ([Guid]::NewGuid().ToString('N'))
-    $tempFile  = "$tempBase.ps1"
+    $tempBase   = Join-Path $script:RunsDir ([Guid]::NewGuid().ToString('N'))
+    $tempFile   = "$tempBase.ps1"
+    $launchFile = "$tempBase.launch.ps1"
     try {
         try {
             $bytes = [Convert]::FromBase64String($scriptB64)
@@ -156,6 +157,37 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
         $hash = Get-BytesHash $bytes
         try {
             [IO.File]::WriteAllBytes($tempFile, $bytes)
+        } catch {
+            return @{ error = 'temp_write_failed'; detail = $_.Exception.Message; hash = $hash }
+        }
+        # Run the caller's script through a launcher that sets UTF-8 first.
+        #
+        # Without it the child encodes stdout with the console's OEM code page,
+        # and any character that page lacks goes through Windows' best-fit
+        # mapping on the way out -- which turned "Microsoft(R) Drive Optimizer"
+        # into "Microsoftr Drive Optimizer" in discovery output. The characters
+        # are gone by the time the bytes reach the pipe, so nothing downstream
+        # can recover them.
+        #
+        # It has to be a separate FILE, not a preamble prepended to the
+        # caller's script: PowerShell requires param() and [CmdletBinding()] to
+        # be the first statement in their file, and discover_apps.ps1 opens
+        # with both. Prepending anything executable makes it unparseable
+        # ("Unexpected attribute 'CmdletBinding'").
+        #
+        # `exit $rc` keeps -File's exit-code semantics: & leaves the called
+        # script's exit code in $LASTEXITCODE, which is $null when the script
+        # returns without ever running a native command.
+        $launcher = @"
+try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding `$false } catch { }
+`$OutputEncoding = New-Object Text.UTF8Encoding `$false
+& '$tempFile'
+`$rc = `$LASTEXITCODE
+if (`$null -eq `$rc) { `$rc = 0 }
+exit `$rc
+"@
+        try {
+            [IO.File]::WriteAllText($launchFile, $launcher, (New-Object Text.UTF8Encoding $false))
         } catch {
             return @{ error = 'temp_write_failed'; detail = $_.Exception.Message; hash = $hash }
         }
@@ -169,11 +201,16 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
         try {
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName               = 'powershell.exe'
-            $psi.Arguments              = '-NoProfile -ExecutionPolicy Bypass -File "' + $tempFile + '"'
+            $psi.Arguments              = '-NoProfile -ExecutionPolicy Bypass -File "' + $launchFile + '"'
             $psi.UseShellExecute        = $false
             $psi.CreateNoWindow         = $true
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError  = $true
+            # Decode the child's bytes as UTF-8, matching what the launcher
+            # tells it to emit. Left unset, .NET decodes with the console's OEM
+            # code page and undoes the launcher's work.
+            $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false
+            $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding $false
             $proc = New-Object System.Diagnostics.Process
             $proc.StartInfo = $psi
             [void]$proc.Start()
@@ -216,8 +253,10 @@ function Invoke-ExecScript([string]$scriptB64, [int]$timeoutSec) {
             timedOut = $timedOut
         }
     } finally {
-        if ($tempFile -and (Test-Path $tempFile)) {
-            try { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue } catch { }
+        foreach ($f in @($tempFile, $launchFile)) {
+            if ($f -and (Test-Path $f)) {
+                try { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } catch { }
+            }
         }
     }
 }

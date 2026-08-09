@@ -779,8 +779,10 @@ def cli(argv: list[str] | None = None) -> None:
     provision_p.add_argument(
         "--retries",
         type=int,
-        default=2,
-        help="Discovery retry attempts with exponential backoff (default 2).",
+        default=5,
+        help="Discovery retry attempts with exponential backoff (default 5). "
+        "A loaded first boot can blow the 180s/attempt budget; each retry "
+        "lands on an idler guest.",
     )
     provision_p.add_argument(
         "--verbose",
@@ -1093,7 +1095,7 @@ def _cmd_provision(args: argparse.Namespace) -> int:
 
     Flags map 1:1 onto the helper parameters. Run with no flags it
     reproduces install.sh's post-create defaults (wait 3600s, soft agent
-    settle, discovery on with 6× retry, reverse-open on when enabled), so
+    settle, discovery on with 5× retry, reverse-open on when enabled), so
     an AppImage first run can simply ``winpodx provision`` for the
     install.sh UX without re-implementing it (item I AppImage parity).
     """
@@ -1146,7 +1148,7 @@ def _cmd_provision(args: argparse.Namespace) -> int:
             require_agent=bool(getattr(args, "require_agent", False)),
             with_reverse_open=with_reverse_open,
             with_discovery=with_discovery,
-            retries=int(getattr(args, "retries", 2)),
+            retries=int(getattr(args, "retries", 5)),
             on_progress=_on_progress,
             wait_fn=_rich_wait,
         )

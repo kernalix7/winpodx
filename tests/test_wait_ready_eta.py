@@ -270,6 +270,34 @@ def test_size_chain_scraped_when_no_percent() -> None:
     assert lines[0].startswith("❯ Downloading Windows 11")
 
 
+def test_size_chain_scraped_in_v603_format() -> None:
+    """dockur v6.03 renders the same chain as "512 MB -> 1.5 GB": progress.sh
+    swapped `numfmt --to=iec-i` for `--to=iec` piped through a sed that inserts
+    a space. The old MiB/GiB-only pattern stopped matching entirely, so the
+    heartbeat showed nothing on the new image."""
+    import threading
+
+    from winpodx.cli.pod import _iter_container_lines
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    dl_state = {"start": 1.0, "pct": None, "size": None}
+    stream = _FakeStream(
+        [
+            "\u276f Downloading Windows 11...\n512 MB \u2192 1 GB".encode(),
+            " \u2192 1.5 GB \u2192 2 GB".encode(),
+        ]
+    )
+    list(_iter_container_lines(stream, dl_state, threading.Event()))
+    assert dl_state["pct"] is None
+    assert dl_state["size"] == "2 GB"
+
+
 def test_percent_wins_over_size_tokens() -> None:
     import threading
 
@@ -312,3 +340,41 @@ def test_complete_line_tokens_scraped_during_download() -> None:
     # Percent seen on a complete line sticks; the later size-only line does
     # not clear it (percent wins).
     assert dl_state["pct"] == 45
+
+
+# --- dockur v6.03 install.bat lint report ------------------------------------
+
+
+def test_lint_block_markers_bound_the_report() -> None:
+    """The collapse relies on two things: the start marker appearing in the
+    image's report, and the block ending at the next milestone glyph. Guard
+    both so a reworded marker upstream shows up as a test failure rather than
+    a wall of text in the installer output."""
+    from winpodx.cli.pod import _LINT_BLOCK_START, _LINT_BLOCK_SUMMARY
+
+    report_first_line = "❯ Warning: possible issues were detected in your install.bat file:"
+    assert _LINT_BLOCK_START in report_first_line
+    # The summary must not itself look like a dockur milestone, or the block
+    # would re-open on its own output.
+    assert not _LINT_BLOCK_SUMMARY.lstrip().startswith("❯")
+
+
+def test_install_bat_has_no_bare_delayed_expansion_marker() -> None:
+    """A lone `!` makes the image's static checker report a critical error
+    mid-install, which reads like the install is broken. The script never
+    enables delayed expansion, so the `!` is literal and the fix is textual --
+    but keep it out so the banner stays gone."""
+    from pathlib import Path
+
+    install_bat = Path(__file__).resolve().parent.parent / "config" / "oem" / "install.bat"
+    source = install_bat.read_text(encoding="utf-8", errors="replace")
+    assert "setlocal enabledelayedexpansion" not in source.lower(), (
+        "delayed expansion is now on -- a bare ! is no longer literal, "
+        "so every ! in the script needs auditing"
+    )
+    offenders = [
+        (n, line)
+        for n, line in enumerate(source.splitlines(), 1)
+        if line.lstrip().upper().startswith("REM") and "!" in line
+    ]
+    assert offenders == [], f"bare ! in a REM comment trips the image linter: {offenders}"

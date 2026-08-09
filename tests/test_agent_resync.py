@@ -172,3 +172,78 @@ def test_doctor_guest_exec_reports_failed_resync(monkeypatch):
     probe = checks.probe_guest_exec(SimpleNamespace())
     assert probe.status == "fail"
     assert "auto-resync failed" in probe.detail
+
+
+# --- #730: the heal must run once across all callers, not once per caller ----
+
+
+@pytest.fixture(autouse=True)
+def _reset_heal_state(monkeypatch):
+    # Module-level generation/cooldown would otherwise leak between tests.
+    monkeypatch.setattr(agent_resync, "_HEAL_GENERATION", 0, raising=False)
+    monkeypatch.setattr(agent_resync, "_HEAL_FAILED_AT", 0.0, raising=False)
+
+
+def test_heal_runs_resync_and_bumps_generation(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        agent_resync, "resync_token", lambda cfg: (calls.append(1), (True, "ok"))[1]
+    )
+    gen = agent_resync.heal_generation()
+
+    ok, _ = agent_resync.heal_token_once(object(), seen_generation=gen)
+
+    assert ok
+    assert calls == [1]
+    assert agent_resync.heal_generation() == gen + 1
+
+
+def test_heal_skips_when_another_caller_already_healed(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        agent_resync, "resync_token", lambda cfg: (calls.append(1), (True, "ok"))[1]
+    )
+    stale_generation = agent_resync.heal_generation()
+    agent_resync.heal_token_once(object(), seen_generation=stale_generation)
+
+    # A second caller that captured the pre-heal generation must not push again.
+    ok, detail = agent_resync.heal_token_once(object(), seen_generation=stale_generation)
+
+    assert ok
+    assert "another caller" in detail
+    assert calls == [1]
+
+
+def test_failed_heal_enters_cooldown(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        agent_resync, "resync_token", lambda cfg: (calls.append(1), (False, "no freerdp"))[1]
+    )
+    now = [1000.0]
+    monkeypatch.setattr(agent_resync.time, "monotonic", lambda: now[0])
+
+    ok, detail = agent_resync.heal_token_once(object(), seen_generation=0)
+    assert not ok and "no freerdp" in detail
+
+    # A broken setup must not spend a FreeRDP session on every exec.
+    now[0] += 10.0
+    ok, detail = agent_resync.heal_token_once(object(), seen_generation=0)
+    assert not ok and "cooldown" in detail
+    assert calls == [1]
+
+    # ...but it must recover once the cooldown lapses.
+    now[0] += agent_resync.HEAL_FAILURE_COOLDOWN
+    agent_resync.heal_token_once(object(), seen_generation=0)
+    assert calls == [1, 1]
+
+
+def test_heal_never_raises(monkeypatch):
+    def _boom(cfg):
+        raise RuntimeError("freerdp exploded")
+
+    monkeypatch.setattr(agent_resync, "resync_token", _boom)
+
+    ok, detail = agent_resync.heal_token_once(object(), seen_generation=0)
+
+    assert not ok
+    assert "freerdp exploded" in detail

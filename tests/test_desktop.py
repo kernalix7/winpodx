@@ -703,9 +703,12 @@ def test_install_desktop_entry_uses_absolute_exec_path(tmp_path, monkeypatch):
 
 def test_winpodx_exe_falls_back_to_bare_name(monkeypatch):
     # shutil.which returns None when winpodx isn't on PATH (e.g. running from a
-    # checkout); the bare name keeps the .desktop entry valid for PATH-based
-    # launchers rather than emitting ``Exec=None``.
+    # checkout). Once the known install locations come up empty too (#779), the
+    # bare name keeps the .desktop entry valid for PATH-based launchers rather
+    # than emitting ``Exec=None``.
     monkeypatch.setattr(entry_mod.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(entry_mod, "_is_executable_file", lambda _p: False)
+    monkeypatch.delenv("APPIMAGE", raising=False)
     assert entry_mod._winpodx_exe() == "winpodx"
 
 
@@ -983,3 +986,145 @@ def test_remove_desktop_shortcut_missing_file_is_noop(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     remove_desktop_shortcut()  # must not raise
+
+
+# --- #779: desktop entries must carry an absolute Exec path ------------------
+
+
+def _make_exe(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_winpodx_exe_prefers_path_lookup(tmp_path, monkeypatch):
+    found = _make_exe(tmp_path / "somewhere" / "winpodx")
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: str(found))
+    monkeypatch.delenv("APPIMAGE", raising=False)
+
+    assert entry_mod._winpodx_exe() == str(found)
+
+
+def test_winpodx_exe_falls_back_to_local_bin_when_path_is_stripped(tmp_path, monkeypatch):
+    # install.sh drops the launcher in ~/.local/bin, but the process writing
+    # the entry may have a PATH that doesn't include it yet (#779).
+    home = tmp_path / "home"
+    launcher = _make_exe(home / ".local" / "bin" / "winpodx")
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(entry_mod.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(entry_mod.sys, "executable", str(tmp_path / "nonexistent" / "python3"))
+    monkeypatch.delenv("APPIMAGE", raising=False)
+
+    assert entry_mod._winpodx_exe() == str(launcher)
+
+
+def test_winpodx_exe_prefers_appimage_over_ephemeral_mount(tmp_path, monkeypatch):
+    # Inside an AppImage the console script lives on a mount that vanishes at
+    # exit, so $APPIMAGE (the stable path) must win over which().
+    appimage = _make_exe(tmp_path / "WinPodX.AppImage")
+    monkeypatch.setenv("APPIMAGE", str(appimage))
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: "/tmp/.mount_abc/usr/bin/winpodx")
+
+    assert entry_mod._winpodx_exe() == str(appimage)
+
+
+def test_installed_entry_has_absolute_exec(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    launcher = _make_exe(home / ".local" / "bin" / "winpodx")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(entry_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(entry_mod.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(entry_mod.sys, "executable", str(tmp_path / "nonexistent" / "python3"))
+    monkeypatch.delenv("APPIMAGE", raising=False)
+
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+    written = install_desktop_entry(app)
+
+    exec_line = next(line for line in written.read_text().splitlines() if line.startswith("Exec="))
+    assert exec_line == f"Exec={launcher} app run notepad %u"
+
+
+# --- #702: a PNG belongs in the hicolor directory matching its real size -----
+
+
+def _write_png(path: Path, width: int, height: int) -> Path:
+    # Minimal PNG: signature + IHDR header. Only the first 24 bytes are read.
+    import struct as _struct
+    import zlib
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ihdr = _struct.pack(">II", width, height) + bytes([8, 6, 0, 0, 0])
+    chunk = _struct.pack(">I", len(ihdr)) + b"IHDR" + ihdr
+    chunk += _struct.pack(">I", zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    [
+        (16, 16),
+        (32, 32),
+        (48, 48),
+        (256, 256),
+        (44, 48),  # UWP small logo -> nearest bucket
+        (88, 64),  # UWP large logo, closer to 64 than 128
+    ],
+)
+def test_png_lands_in_matching_hicolor_bucket(tmp_path, monkeypatch, size, expected):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    icon = _write_png(tmp_path / "src" / "icon.png", size, size)
+
+    app = AppInfo(
+        name=f"sized{size}", full_name="Sized", executable="C:\\x.exe", icon_path=str(icon)
+    )
+    install_desktop_entry(app)
+
+    landed = tmp_path / "data" / "icons" / "hicolor" / f"{expected}x{expected}" / "apps"
+    assert (landed / f"winpodx-sized{size}.png").exists()
+
+
+def test_non_square_png_uses_its_larger_edge(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    icon = _write_png(tmp_path / "src" / "wide.png", 128, 32)
+
+    app = AppInfo(name="wide", full_name="Wide", executable="C:\\x.exe", icon_path=str(icon))
+    install_desktop_entry(app)
+
+    hicolor = tmp_path / "data" / "icons" / "hicolor"
+    assert (hicolor / "128x128" / "apps" / "winpodx-wide.png").exists()
+    assert not (hicolor / "32x32" / "apps" / "winpodx-wide.png").exists()
+
+
+def test_unreadable_png_falls_back_to_32(tmp_path, monkeypatch):
+    # A truncated / non-PNG file keeps the historical destination rather than
+    # vanishing into an unexpected directory.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    bogus = tmp_path / "src" / "bogus.png"
+    bogus.parent.mkdir(parents=True, exist_ok=True)
+    bogus.write_bytes(b"not a png at all")
+
+    app = AppInfo(name="bogus", full_name="Bogus", executable="C:\\x.exe", icon_path=str(bogus))
+    install_desktop_entry(app)
+
+    landed = tmp_path / "data" / "icons" / "hicolor" / "32x32" / "apps"
+    assert (landed / "winpodx-bogus.png").exists()
+
+
+def test_rebucketing_removes_the_stale_copy(tmp_path, monkeypatch):
+    # Upgrade path: every PNG used to land in 32x32, so an icon that now
+    # belongs elsewhere must not be served from both places.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    hicolor = tmp_path / "data" / "icons" / "hicolor"
+    old = hicolor / "32x32" / "apps" / "winpodx-moved.png"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_bytes(b"stale")
+
+    icon = _write_png(tmp_path / "src" / "moved.png", 88, 88)
+    app = AppInfo(name="moved", full_name="Moved", executable="C:\\x.exe", icon_path=str(icon))
+    install_desktop_entry(app)
+
+    assert (hicolor / "64x64" / "apps" / "winpodx-moved.png").exists()
+    assert not old.exists()

@@ -150,6 +150,33 @@ function Resolve-MimeExtensions([string]$Mime) {
     return @()
 }
 
+# Schemes we never register a Linux app as a Windows handler for: code-exec,
+# local-file and settings vectors. Coarse guest-side guard mirroring
+# discover_apps.ps1; core/url_schemes.py owns the authoritative denylist --
+# keep the three in lockstep.
+$script:SchemeDeny = [System.Collections.Generic.HashSet[string]]::new(
+    [string[]]@('file', 'javascript', 'vbscript', 'data', 'about', 'shell', 'res',
+        'chrome', 'chrome-extension', 'ms-settings', 'ms-msdt', 'ms-search',
+        'search-ms', 'hcp', 'its', 'mk', 'ldap', 'help', 'wscript', 'cscript',
+        'view-source'))
+
+function Resolve-MimeScheme([string]$Mime) {
+    <#
+        Return the URL scheme an `x-scheme-handler/<scheme>` MIME names, or ''.
+
+        Resolve-MimeExtensions cannot do this: its `^[a-z]+/(.+)$` pattern does
+        not match `x-scheme-handler` (the dashes), so scheme MIME entries used
+        to fall through and be silently dropped. Users then had to hand-write
+        the registry keys to make a Linux browser handle guest links (#694).
+    #>
+    if ($Mime -notmatch '^x-scheme-handler/(.+)$') { return '' }
+    $s = $matches[1].ToLower().Trim().TrimEnd(':')
+    # RFC 3986 scheme syntax, length-bounded (mirrors core/url_schemes.py).
+    if ($s -notmatch '^[a-z][a-z0-9+.\-]{0,31}$') { return '' }
+    if ($script:SchemeDeny.Contains($s)) { return '' }
+    return $s
+}
+
 # --- main -----------------------------------------------------------------
 
 Write-LogLine 'INFO' "reading apps from $AppsJson"
@@ -329,6 +356,68 @@ foreach ($app in $manifest.apps) {
             }
         }
     }
+    # --- URL schemes (#694) ----------------------------------------------
+    # A Linux app that declares x-scheme-handler/<scheme> should be reachable
+    # when a guest app opens a link of that scheme -- clicking an http link in
+    # Outlook and having it land in the Linux browser is the whole point.
+    #
+    # Two pieces are needed. The ProgID becomes a legal protocol-handler target
+    # by carrying an empty "URL Protocol" value (its shell\open\command is
+    # already `"<exe>" "%1"`, which is exactly what a protocol handler needs).
+    # Then a Capabilities block plus a RegisteredApplications entry makes
+    # Windows list the app in Settings -> Default apps.
+    #
+    # Everything is under HKCU, so no elevation, matching the rest of this
+    # script. Note Windows protects the UserChoice default with a hash: we can
+    # only make the app a SELECTABLE candidate, and the user confirms it in
+    # Settings. That happens to match winpodx's own rule of never silently
+    # seizing a default handler.
+    $schemes = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($mime in $mimes) {
+        $s = Resolve-MimeScheme $mime
+        if ($s) { [void]$schemes.Add($s) }
+    }
+
+    if ($schemes.Count -gt 0) {
+        # Marks the existing ProgID as a protocol handler. Empty string value
+        # is the documented convention.
+        Set-NamedValue $progIdRoot 'URL Protocol' ''
+
+        # Apps claiming http/https must live under StartMenuInternet to appear
+        # in Settings -> Default apps -> Web browser. Anything else (mailto,
+        # vendor schemes) only needs a plain Capabilities key.
+        $isBrowser = $schemes.Contains('http') -or $schemes.Contains('https')
+        if ($isBrowser) {
+            $appCapRoot = "HKCU:\Software\Clients\StartMenuInternet\winpodx-$slug"
+            Set-DefaultValue $appCapRoot $friendly
+            Set-DefaultValue (Join-Path $appCapRoot 'shell\open\command') "`"$exePath`""
+        }
+        else {
+            $appCapRoot = "HKCU:\Software\winpodx\$slug"
+        }
+
+        $capKey = Join-Path $appCapRoot 'Capabilities'
+        Set-NamedValue $capKey 'ApplicationName' $friendly
+        Set-NamedValue $capKey 'ApplicationDescription' $friendly
+
+        $urlAssoc = Join-Path $capKey 'URLAssociations'
+        if (-not (Test-Path -LiteralPath $urlAssoc)) {
+            New-Item -Path $urlAssoc -Force | Out-Null
+        }
+        foreach ($s in $schemes) {
+            New-ItemProperty -Path $urlAssoc -Name $s -Value "winpodx-$slug" `
+                -PropertyType String -Force | Out-Null
+        }
+
+        # RegisteredApplications points Windows at the Capabilities key. The
+        # value data is a registry path relative to HKCU\Software.
+        $capRelative = $appCapRoot -replace '^HKCU:\\Software\\', ''
+        Set-NamedValue 'HKCU:\Software\RegisteredApplications' "winpodx-$slug" `
+            "$capRelative\Capabilities"
+
+        Write-LogLine 'INFO' "registered $slug for scheme(s): $($schemes -join ', ')"
+    }
+
     Write-LogLine 'INFO' "registered $slug (exe=$exeName) for $($exts.Count) extension(s)"
     $registered++
 }

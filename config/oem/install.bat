@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent - there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=29
+set WINPODX_OEM_VERSION=31
 
 echo [WinPodX] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -42,7 +42,7 @@ REM container recreate) just re-asserts the exclusion silently.
 REM C:\Users\Public\winpodx is where register-apps.ps1 stages the
 REM reverse-open shim + its per-slug .exe copies (#425). That tiny,
 REM stripped, unsigned Rust binary trips Defender's ML heuristic
-REM (Trojan:Win32/Rafvartar!rfn -- a false positive), so it gets
+REM (a Trojan:Win32/Rafvartar variant -- a false positive), so it gets
 REM quarantined and reverse-open silently breaks. Exclude the path (and
 REM the shim process) here, first-step, so the exclusion is in place
 REM before per-user logon stages the files. Add-MpPreference accepts a
@@ -150,8 +150,15 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search" /v AllowCortan
 
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f
 
-sc config WSearch start= disabled
-net stop WSearch 2>nul
+REM WSearch is deliberately NOT disabled here (#570). Turning it off is the
+REM `search_indexing` debloat item, which the catalogue marks risk=high and
+REM describes as making Start-menu search fall back to a file-system walk.
+REM Doing it unconditionally at install time applied a high-risk opt-in to
+REM everyone, and the visible result was the Start-menu / Explorer search bar
+REM spinning forever in a full-desktop session. Users who want the indexer
+REM off can choose it in `winpodx debloat`; guests that already had it
+REM disabled by an earlier OEM version are re-enabled by that item's undo
+REM script (scripts/windows/debloat/undo/search_indexing.ps1).
 
 sc config SysMain start= disabled
 net stop SysMain 2>nul

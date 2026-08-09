@@ -703,18 +703,22 @@ def _ensure_canonical_image_pin(non_interactive: bool) -> None:
     Idempotent: re-running migrate on an already-pinned config is a
     no-op (string equality check returns False before any rewrite).
     """
-    from winpodx.core.config import DOCKUR_IMAGE_PIN, Config
+    from winpodx.core.config import Config, _default_pod_image
 
     cfg = Config.load()
     if cfg.pod.backend not in ("podman", "docker"):
         return  # the manual backend doesn't use the dockur image / compose
 
-    pin_changed = cfg.pod.image != DOCKUR_IMAGE_PIN
+    # Architecture-aware, like a fresh install: aarch64 hosts get the ARM pin.
+    # This used to hard-code DOCKUR_IMAGE_PIN, so every migrate on an ARM host
+    # silently rewrote the config to the x86 image.
+    canonical_pin = _default_pod_image()
+    pin_changed = cfg.pod.image != canonical_pin
     if pin_changed:
         print("\nAligning container image with this WinPodX version...")
         print(f"  was: {cfg.pod.image}")
-        print(f"  now: {DOCKUR_IMAGE_PIN}")
-        cfg.pod.image = DOCKUR_IMAGE_PIN
+        print(f"  now: {canonical_pin}")
+        cfg.pod.image = canonical_pin
         cfg.save()
 
     # Always regenerate compose.yaml on upgrade — NOT just when the image pin
@@ -840,8 +844,8 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bo
     #     is purely additive on a fresh install (OEM v22+ already applied
     #     everything), so skipping is strictly safer than racing.
     #
-    #   * with_discovery=True, retries=3 — migrate now folds discovery into
-    #     the chain (previously a separate interactive prompt). retries=3
+    #   * with_discovery=True, retries=5 — migrate now folds discovery into
+    #     the chain (previously a separate interactive prompt). retries=5
     #     rather than install.sh's 6× because migrate runs against an
     #     already-settled agent more often than not.
     #
@@ -879,7 +883,7 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool, *, verbose: bo
             require_agent=True,
             with_reverse_open=getattr(cfg.reverse_open, "enabled", False),
             with_discovery=True,
-            retries=3,
+            retries=5,
             wait_fn=_rich_wait,
         )
     except ProvisionAgentUnavailable:

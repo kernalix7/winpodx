@@ -1041,6 +1041,20 @@ _WGET_PROGRESS_RE = re.compile(r"(\d{1,3})%\s+(\d+\.?\d*[KMG]?)(=)?\s*(\S*)\s*$"
 # actionable -- suppressed in the clean (non-verbose) drain.
 _CONTAINER_NOISE = ("BdsDxe:", "mknod: /dev/net/tun")
 
+# dockur v6.03 runs a static checker over the OEM install.bat and prints a
+# multi-screen report — severity headings, a "SECURITY LEVEL ISSUES" section,
+# and a "Found N critical error" banner. It is advisory (the install proceeds
+# either way) and its findings are about deliberate choices in our own script:
+# `-ExecutionPolicy Bypass` on scripts we ship, %VAR% used in commands, mkdir
+# without an errorlevel check. Printed verbatim mid-install it reads like the
+# install is failing, so the clean drain collapses it to one line. `--verbose`
+# still shows every line.
+_LINT_BLOCK_START = "possible issues were detected in your install.bat"
+_LINT_BLOCK_SUMMARY = (
+    "install.bat lint notices from the container image (advisory) "
+    "— re-run with --verbose to read them"
+)
+
 
 def _format_wget_progress(line: str) -> tuple[int, str] | None:
     """Parse a dockur/wget progress line into ``(percent, clean_text)``.
@@ -1154,7 +1168,14 @@ _DOWNLOAD_PCT_RE = re.compile(r"([0-9]{1,3})%")
 # printSizeProgress and the growing line is a SIZE chain instead:
 # "512MiB → 1GiB → 1.5GiB → ..." -- no percent tokens at all. Scrape those
 # too so the heartbeat can show "5.5GiB" rather than nothing.
-_DOWNLOAD_SIZE_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?[MG]iB)")
+#
+# dockur v6.03 changed the rendering: progress.sh swapped
+# ``numfmt --to=iec-i --suffix=B`` for ``numfmt --to=iec --suffix=B`` piped
+# through a sed that inserts a space, so the same chain now reads
+# "512 MB -> 1.5 GB". Match both spellings (optional space, optional "i") so
+# the heartbeat keeps working across the pin bump and for anyone still on an
+# older image.
+_DOWNLOAD_SIZE_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?\s?[KMGT]i?B)")
 
 
 class _LineSplitter:
@@ -1472,6 +1493,10 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 "pct": None,
                 "size": None,
             }
+            # Whether the clean drain is inside the image's install.bat lint
+            # report (see _LINT_BLOCK_START). A list so the nested drain can
+            # mutate it, matching _last_pct below.
+            _in_lint_block = [False]
 
             def _drain(stream) -> None:  # type: ignore[no-untyped-def]
                 if stream is None:
@@ -1528,6 +1553,19 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                             if pct >= _last_pct[0] + 3 or pct >= 100:
                                 print(text)
                                 _last_pct[0] = pct
+                        continue
+                    # Collapse the image's install.bat lint report (v6.03+).
+                    # The block is bounded by the next real dockur milestone,
+                    # which is the only thing that starts with the marker glyph.
+                    if _in_lint_block[0]:
+                        if line.lstrip().startswith("❯"):
+                            _in_lint_block[0] = False
+                        else:
+                            continue
+                    if _LINT_BLOCK_START in line:
+                        _in_lint_block[0] = True
+                        _live.clear()
+                        print(f"       [container] {_LINT_BLOCK_SUMMARY}")
                         continue
                     if any(noise in line for noise in _CONTAINER_NOISE):
                         # UEFI boot-loader / tun spam: keep a transient

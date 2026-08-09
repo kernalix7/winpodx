@@ -958,3 +958,52 @@ def test_canonical_pin_no_recreate_when_compose_unchanged(tmp_path):
         _ensure_canonical_image_pin(non_interactive=True)
     stop.assert_not_called()
     start.assert_not_called()
+
+
+def test_canonical_pin_is_architecture_aware(tmp_path):
+    """On aarch64 the canonical pin is the ARM image. This used to hard-code
+    DOCKUR_IMAGE_PIN, so every migrate on an ARM host silently rewrote the
+    config to the x86 image."""
+    from winpodx.cli.migrate import _ensure_canonical_image_pin
+    from winpodx.core.config import DOCKUR_IMAGE_ARM_PIN
+    from winpodx.core.pod import PodState
+
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("OLD", encoding="utf-8")
+    cfg = MagicMock()
+    cfg.pod.backend = "podman"
+    cfg.pod.image = "docker.io/dockurr/windows@sha256:something-stale"
+
+    with (
+        patch("winpodx.core.config.Config.load", return_value=cfg),
+        patch("platform.machine", return_value="aarch64"),
+        patch("winpodx.utils.paths.config_dir", return_value=tmp_path),
+        patch("winpodx.core.compose.generate_compose"),
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.STOPPED)),
+    ):
+        _ensure_canonical_image_pin(non_interactive=True)
+
+    assert cfg.pod.image == DOCKUR_IMAGE_ARM_PIN
+
+
+def test_canonical_pin_uses_x86_image_on_x86(tmp_path):
+    from winpodx.cli.migrate import _ensure_canonical_image_pin
+    from winpodx.core.config import DOCKUR_IMAGE_PIN
+    from winpodx.core.pod import PodState
+
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("OLD", encoding="utf-8")
+    cfg = MagicMock()
+    cfg.pod.backend = "podman"
+    cfg.pod.image = "docker.io/dockurr/windows@sha256:something-stale"
+
+    with (
+        patch("winpodx.core.config.Config.load", return_value=cfg),
+        patch("platform.machine", return_value="x86_64"),
+        patch("winpodx.utils.paths.config_dir", return_value=tmp_path),
+        patch("winpodx.core.compose.generate_compose"),
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.STOPPED)),
+    ):
+        _ensure_canonical_image_pin(non_interactive=True)
+
+    assert cfg.pod.image == DOCKUR_IMAGE_PIN

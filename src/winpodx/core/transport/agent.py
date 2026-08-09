@@ -15,6 +15,7 @@ agent yet (Phase 4 of the agent-v2 spec); ``stream()`` raises
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from winpodx.core.agent import (
@@ -37,6 +38,8 @@ from winpodx.core.transport.base import (
 )
 
 assert SPEC_VERSION == 1, "AgentTransport built against Transport spec v1"
+
+log = logging.getLogger(__name__)
 
 
 class AgentTransport(Transport):
@@ -96,6 +99,34 @@ class AgentTransport(Transport):
         with FreerdpTransport.
         """
         del description  # unused — agent /exec has no task-name field
+        from winpodx.core.agent_resync import heal_generation, heal_token_once
+
+        generation = heal_generation()
+        try:
+            return self._exec_once(script, timeout)
+        except TransportAuthError:
+            # A 401 here is token drift, not a transient blip: a non-purge
+            # reinstall regenerates the host token while the guest disk (and
+            # its baked copy) survives. /health is unauthenticated so it keeps
+            # returning OK, which is why this used to look like a dead feature
+            # rather than an auth problem — apply-fixes, discovery,
+            # reverse-open sync and the keepalive all stayed broken until
+            # someone happened to run `winpodx doctor`, the one caller that
+            # healed (#730). Heal here instead, once, then retry.
+            ok, detail = heal_token_once(self.cfg, seen_generation=generation)
+            if not ok:
+                log.warning("agent auth failed and token heal did not run: %s", detail)
+                raise
+            # resync_token may have minted a fresh host token, so drop the
+            # client holding the old cached bearer.
+            self._client = AgentClient(self.cfg)
+
+        # Outside the handler on purpose: a second 401 propagates as-is
+        # instead of re-entering the heal path.
+        return self._exec_once(script, timeout)
+
+    def _exec_once(self, script: str, timeout: int) -> ExecResult:
+        """One /exec round trip with the Agent -> Transport exception mapping."""
         try:
             agent_result = self._client.exec(script, timeout=float(timeout))
         except AgentAuthError as e:

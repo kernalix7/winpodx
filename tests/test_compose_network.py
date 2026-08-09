@@ -11,14 +11,15 @@ NAT but never forwarded the published ports on to the VM (so the agent port
 hung ``pod wait-ready``). dockur **v6.01** (@kroese) rewrote the rootless-Podman
 NAT port-forwarding, so 0.10.1 stopped forcing the mode (#735).
 
-That regressed rootless hosts the rewrite did not fully cover: the container
-picked bridge NAT, the guest got a NAT-internal ``172.x`` IP, and the host's
-forwarded RDP port never reached it (#770). So winpodx now re-forces
-``NETWORK: "user"`` on **rootless Podman only** -- rootful Podman and Docker,
-where NAT is validated, keep dockur's auto-selection. ``USER_PORTS`` stays
-emitted unconditionally as the passt-fallback path (NAT ignores it by design,
-forwarding every non-``HOST_PORTS`` port to the VM), so it is harmless when we
-do not force user-mode.
+That regressed rootless hosts the rewrite did not fully cover, and 0.10.3
+re-forced user-mode there (#770). The real cause turned out to be that
+podman's rootlessport dials the published port from inside the container's
+netns, so it traverses OUTPUT rather than PREROUTING and dockur's DNAT rule
+never matched. QEMU base >= 7.37 adds the matching OUTPUT rule, and the image
+pinned from 0.10.5 carries it, so the force is gone again -- dockur picks the
+mode, and ``pod.network`` is the escape hatch for a host the upstream fix
+misses. ``USER_PORTS`` stays emitted unconditionally as the passt-fallback
+path (NAT ignores it by design), so it is harmless either way.
 """
 
 from __future__ import annotations
@@ -41,34 +42,63 @@ def _cfg() -> Config:
     return cfg
 
 
-def test_rootless_podman_forces_network_user():
-    # #770: on rootless Podman re-force user-mode (passt); NAT's 172.x guest IP
-    # is unreachable for host-forwarded RDP there.
+def test_no_network_forced_by_default():
+    # 0.10.5: the pinned image carries the OUTPUT-chain DNAT fix, so dockur
+    # picks the mode again on every backend -- rootless included.
     with patch("winpodx.backend.podman.is_rootless_podman", return_value=True):
         content = _build_compose_content(_cfg())
-    assert 'NETWORK: "user"' in content
-    assert "slirp" not in content
+    assert "NETWORK:" not in content
     assert "USER_PORTS:" in content
 
 
 def test_rootful_podman_does_not_force_network():
-    # Rootful Podman keeps dockur's auto-selection (NAT is validated there).
     with patch("winpodx.backend.podman.is_rootless_podman", return_value=False):
         content = _build_compose_content(_cfg())
     assert "NETWORK:" not in content
     assert "USER_PORTS:" in content
 
 
-def test_docker_backend_never_forces_network():
-    # Docker is excluded entirely -- the rootless detector is podman-specific
-    # and must not even be consulted on the docker path.
+def test_docker_backend_does_not_force_network():
     cfg = _cfg()
     cfg.pod.backend = "docker"
-    with patch("winpodx.backend.podman.is_rootless_podman", return_value=True) as detector:
-        content = _build_compose_content(cfg)
+    content = _build_compose_content(cfg)
     assert "NETWORK:" not in content
     assert "USER_PORTS:" in content
-    detector.assert_not_called()
+
+
+def test_pod_network_user_is_the_escape_hatch():
+    # A host the upstream fix misses sets this and gets 0.10.3 behaviour back,
+    # instead of a pod whose RDP never comes up and no way to change it.
+    cfg = _cfg()
+    cfg.pod.network = "user"
+    content = _build_compose_content(cfg)
+    assert 'NETWORK: "user"' in content
+    assert "USER_PORTS:" in content
+
+
+def test_pod_network_applies_on_docker_too():
+    cfg = _cfg()
+    cfg.pod.backend = "docker"
+    cfg.pod.network = "user"
+    content = _build_compose_content(cfg)
+    assert 'NETWORK: "user"' in content
+
+
+def test_pod_network_rejects_unknown_values():
+    # The value is interpolated into compose.yaml, so a hand-edited TOML must
+    # not be able to put arbitrary text there.
+    cfg = _cfg()
+    cfg.pod.network = "bridge; rm -rf /"
+    cfg.pod.__post_init__()
+    assert cfg.pod.network == ""
+    assert "NETWORK:" not in _build_compose_content(cfg)
+
+
+def test_pod_network_normalises_case_and_space():
+    cfg = _cfg()
+    cfg.pod.network = "  USER  "
+    cfg.pod.__post_init__()
+    assert cfg.pod.network == "user"
 
 
 def test_compose_ballooning_off_unconditional():
@@ -86,3 +116,75 @@ def test_compose_never_sets_disk_io_iouring():
     # default DISK_IO. (See the v6.00 roll-forward follow-up.)
     content = _build_compose_content(_cfg())
     assert "DISK_IO:" not in content
+
+
+# --- #791: install locale detected from the host -----------------------------
+
+
+def test_default_config_detects_locale_from_the_host(monkeypatch):
+    # Goes through PodConfig() rather than assigning after construction: the
+    # sanitiser in __post_init__ used to coerce the empty default back to
+    # English, which made the autodetect branch unreachable in real use while
+    # a test that set the attribute afterwards still passed.
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+
+    assert cfg.pod.language == ""  # empty survives __post_init__
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "Korean"' in content
+    assert 'REGION: "ko-KR"' in content
+    assert 'KEYBOARD: "ko-KR"' in content
+
+
+def test_yaml_dangerous_locale_falls_back_to_detection(monkeypatch):
+    monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = 'English"\ninjected: "x'
+    cfg.pod.__post_init__()
+
+    assert cfg.pod.language == ""
+    assert 'LANGUAGE: "German"' in _build_compose_content(cfg)
+
+
+def test_empty_locale_fields_are_detected_from_the_host(monkeypatch):
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = ""
+    cfg.pod.region = ""
+    cfg.pod.keyboard = ""
+
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "Korean"' in content
+    assert 'REGION: "ko-KR"' in content
+    assert 'KEYBOARD: "ko-KR"' in content
+
+
+def test_configured_locale_is_not_overridden(monkeypatch):
+    # Someone who set these explicitly keeps them whatever the host says.
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = "German"
+    cfg.pod.region = "de-DE"
+    cfg.pod.keyboard = "de-DE"
+
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "German"' in content
+    assert 'REGION: "de-DE"' in content
+
+
+def test_partially_configured_locale_fills_only_the_gaps(monkeypatch):
+    # A user who picked a keyboard but never touched the language should keep
+    # the layout and still get a guest in their own language.
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    cfg = _cfg()
+    cfg.pod.language = ""
+    cfg.pod.region = ""
+    cfg.pod.keyboard = "en-US"
+
+    content = _build_compose_content(cfg)
+
+    assert 'LANGUAGE: "Korean"' in content
+    assert 'KEYBOARD: "en-US"' in content

@@ -43,7 +43,7 @@ def test_install_bat_does_not_self_lock_setup_log() -> None:
 
 def test_install_bat_oem_version_matches_expected_setup_contract() -> None:
     text = INSTALL_BAT.read_text(encoding="utf-8")
-    assert "set WINPODX_OEM_VERSION=29" in text
+    assert "set WINPODX_OEM_VERSION=31" in text
     assert "(echo %WINPODX_OEM_VERSION%)>C:\\winpodx\\oem_version.txt" in text
 
 
@@ -104,3 +104,33 @@ def test_install_bat_defender_excludes_reverse_open_shim_path() -> None:
     assert "Add-MpPreference -ExclusionPath" in text
     assert r"C:\Users\Public\winpodx" in text
     assert "winpodx-reverse-open-shim.exe" in text
+
+
+def test_install_bat_does_not_disable_wsearch_unconditionally() -> None:
+    """#570: turning the indexer off is the `search_indexing` debloat item,
+    which the catalogue marks risk=high. Applying it to every install made the
+    Start-menu search bar spin forever in a full-desktop session."""
+    text = INSTALL_BAT.read_text(encoding="utf-8")
+    active = "\n".join(_active_lines(text)).casefold()
+
+    assert "sc config wsearch" not in active
+    assert "net stop wsearch" not in active
+
+
+def test_search_indexing_is_an_optin_debloat_item() -> None:
+    # The other half of the contract: if the item ever stopped existing, the
+    # removal above would leave no way to disable the indexer at all.
+    import sys
+    from pathlib import Path
+
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:  # pragma: no cover - 3.9 / 3.10 back-fill
+        import tomli as tomllib
+
+    items_toml = Path(__file__).resolve().parent.parent / "data" / "debloat" / "items.toml"
+    data = tomllib.loads(items_toml.read_text(encoding="utf-8"))
+    item = data["items"]["search_indexing"]
+
+    assert item["risk"] == "high"
+    assert item["undo_script"] == "undo/search_indexing.ps1"

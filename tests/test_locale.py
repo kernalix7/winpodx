@@ -173,3 +173,74 @@ class TestResolveTimezoneForOem:
 
     def test_unknown_iana_falls_back_to_utc(self):
         assert resolve_timezone_for_oem("Made/Up/Zone") == "UTC"
+
+
+# --- #791 / #790: Windows install locale detected from the host --------------
+
+
+class TestDetectInstallLocale:
+    def _env(self, monkeypatch, value):
+        for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+            monkeypatch.delenv(var, raising=False)
+        if value is not None:
+            monkeypatch.setenv("LANG", value)
+
+    @pytest.mark.parametrize(
+        ("lang_env", "expected"),
+        [
+            ("ko_KR.UTF-8", ("Korean", "ko-KR", "ko-KR")),
+            ("de_DE.UTF-8", ("German", "de-DE", "de-DE")),
+            ("ja_JP.UTF-8", ("Japanese", "ja-JP", "ja-JP")),
+            ("en_GB.UTF-8", ("English", "en-GB", "en-GB")),
+            ("fr_FR", ("French", "fr-FR", "fr-FR")),
+        ],
+    )
+    def test_maps_common_host_locales(self, monkeypatch, lang_env, expected):
+        from winpodx.utils.locale import detect_install_locale
+
+        self._env(monkeypatch, lang_env)
+        assert detect_install_locale() == expected
+
+    @pytest.mark.parametrize(
+        ("lang_env", "expected_language"),
+        [
+            ("zh_CN.UTF-8", "Chinese"),
+            ("zh_TW.UTF-8", "Traditional Chinese"),
+            ("pt_BR.UTF-8", "Brazilian Portuguese"),
+            ("pt_PT.UTF-8", "Portuguese"),
+            ("es_MX.UTF-8", "Mexican Spanish"),
+            ("es_ES.UTF-8", "Spanish"),
+        ],
+    )
+    def test_territory_picks_the_right_language_pack(
+        self, monkeypatch, lang_env, expected_language
+    ):
+        # Traditional vs Simplified Chinese, and the pt/es variants, are
+        # separate dockur language packs -- the territory decides, not the
+        # language subtag.
+        from winpodx.utils.locale import detect_install_locale
+
+        self._env(monkeypatch, lang_env)
+        assert detect_install_locale()[0] == expected_language
+
+    @pytest.mark.parametrize("lang_env", [None, "C", "POSIX", "", "garbage", "xx_YY.UTF-8"])
+    def test_falls_back_to_english_when_unusable(self, monkeypatch, lang_env):
+        # A tag dockur would reject aborts the install, which is far worse
+        # than the wrong UI language.
+        from winpodx.utils.locale import DEFAULT_INSTALL_LOCALE, detect_install_locale
+
+        self._env(monkeypatch, lang_env)
+        assert detect_install_locale() == DEFAULT_INSTALL_LOCALE
+
+    def test_lc_all_wins_over_lang(self, monkeypatch):
+        from winpodx.utils.locale import detect_install_locale
+
+        monkeypatch.setenv("LANG", "de_DE.UTF-8")
+        monkeypatch.setenv("LC_ALL", "ko_KR.UTF-8")
+        assert detect_install_locale()[1] == "ko-KR"
+
+    def test_modifier_is_stripped(self, monkeypatch):
+        from winpodx.utils.locale import detect_install_locale
+
+        self._env(monkeypatch, "de_DE.UTF-8@euro")
+        assert detect_install_locale() == ("German", "de-DE", "de-DE")

@@ -266,3 +266,114 @@ def test_agent_ps1_braces_balanced(agent_source: str):
     opens = body.count("{")
     closes = body.count("}")
     assert opens == closes, f"unbalanced braces: {opens} '{{' vs {closes} '}}'"
+
+
+# --- guest /exec must not lose characters to the console code page ----------
+#
+# The first attempt at this prepended an encoding preamble to the caller's
+# script. That made every /exec unparseable, because PowerShell requires
+# param() and [CmdletBinding()] to be the first statement in their file and
+# discover_apps.ps1 opens with both. Parsing agent.ps1 alone did not catch it:
+# what breaks is the script agent.ps1 ASSEMBLES at runtime. These tests build
+# that artifact and parse it.
+
+
+def _render_launcher(agent_source: str, script_path: str) -> str:
+    """Reproduce the launcher agent.ps1 writes, for a given inner script."""
+    import re
+
+    m = re.search(r'\$launcher = @"\n(.*?)\n"@', agent_source, re.S)
+    assert m, "launcher here-string not found in agent.ps1"
+    body = m.group(1)
+    # PowerShell here-strings use ` to escape $; the only interpolation left
+    # is the script path.
+    return body.replace("`$", "$").replace("$tempFile", script_path)
+
+
+def test_launcher_is_a_separate_file_not_a_preamble(agent_source: str):
+    assert "$launchFile = " in agent_source
+    assert '-File "' + "' + $launchFile + '" in agent_source
+    # The caller's bytes must reach disk untouched.
+    assert "[IO.File]::WriteAllBytes($tempFile, $bytes)" in agent_source
+
+
+def test_exec_child_stdio_is_decoded_as_utf8(agent_source: str):
+    assert "$psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false" in agent_source
+    assert "$psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding $false" in agent_source
+
+
+def test_both_temp_files_are_cleaned_up(agent_source: str):
+    assert "foreach ($f in @($tempFile, $launchFile))" in agent_source
+
+
+def test_assembled_launcher_parses(agent_source: str, tmp_path):
+    """Parse the launcher agent.ps1 actually writes — the check that would
+    have caught the preamble regression."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("pwsh not installed on this host")
+
+    launcher = tmp_path / "launch.ps1"
+    launcher.write_text(
+        _render_launcher(agent_source, str(tmp_path / "inner.ps1")), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$errors = $null; "
+                f"[void][System.Management.Automation.Language.Parser]::ParseFile('{launcher}', "
+                "[ref]$null, [ref]$errors); "
+                "if ($errors -and $errors.Count -gt 0) { "
+                "  $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 "
+                "}"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"launcher does not parse:\n{result.stderr}"
+
+
+def test_discovery_script_still_parses_when_launched_this_way(agent_source: str, tmp_path):
+    """The real inner script keeps its param()/[CmdletBinding()] first, which
+    is the property the preamble approach destroyed."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("pwsh not installed on this host")
+
+    discover = REPO_ROOT / "scripts" / "windows" / "discover_apps.ps1"
+    inner = tmp_path / "inner.ps1"
+    # agent.ps1 writes the caller's bytes verbatim -- so this is byte-identical
+    # to what the guest would run.
+    inner.write_bytes(discover.read_bytes())
+
+    launcher = tmp_path / "launch.ps1"
+    launcher.write_text(_render_launcher(agent_source, str(inner)), encoding="utf-8")
+
+    for target in (inner, launcher):
+        result = subprocess.run(
+            [
+                pwsh,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "$errors = $null; "
+                    f"[void][System.Management.Automation.Language.Parser]::ParseFile('{target}', "
+                    "[ref]$null, [ref]$errors); "
+                    "if ($errors -and $errors.Count -gt 0) { "
+                    "  $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 "
+                    "}"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, f"{target.name} does not parse:\n{result.stderr}"
