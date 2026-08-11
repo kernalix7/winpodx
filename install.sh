@@ -1939,6 +1939,20 @@ if [ -f "$CONFIG_HOME/winpodx/winpodx.toml" ] && [ "${WINPODX_NO_WAIT:-}" != "1"
         fi
     else
         rm -f "$PENDING_FILE"
+        # #810: dockur removes the installation ISO only after Windows completes
+        # its first full shutdown. The OEM tail reboots Windows, which is not the
+        # same lifecycle event, so Explorer keeps showing the install media until
+        # the user eventually stops the pod. Cold-restart only a fully successful
+        # fresh install; upgrades, deferred provisioning, and setup failures must
+        # not incur another guest restart. This cleanup is best-effort because a
+        # failed final boot must not roll back an otherwise usable Windows disk.
+        if [ "$IS_FRESH_INSTALL" = "1" ] && [ "$SETUP_OK" -eq 1 ]; then
+            log "Finalizing Windows installation (full shutdown removes installation media, then restarts Windows)..."
+            if ! WINPODX_NO_TRAY_SPAWN=1 "$SYMLINK" pod restart; then
+                warn "Windows is installed, but the final stop/start did not complete."
+                warn "Run \`winpodx pod restart\` once to remove the installation media."
+            fi
+        fi
     fi
     rm -f "$PROVISION_OUT"
 fi
