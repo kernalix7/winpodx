@@ -35,7 +35,10 @@ WORK_STATUS.md
 .mcp.json
 AGENTS.md
 CLAUDE.local.md
-demo.png
+# Root-anchored: a bare `demo.png` matches at every depth, which also hid the
+# tracked docs/images/demo.png from the sdist (hatch honours .gitignore), so
+# the README image was missing from the source distribution.
+/demo.png
 
 # Backup toolkit (generic, not project-specific)
 tmp-igbkp/

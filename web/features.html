@@ -131,6 +131,10 @@
         <h3 data-i18n="feat.zeroconf.thinimage.title">Thin AppImage</h3>
         <p data-i18n-html="feat.zeroconf.thinimage.body">The AppImage is a lean build — Python, Qt, and the FreeRDP client only. It uses the host's <code>podman</code> / <code>docker</code> instead of bundling the whole container stack, so it stays small and plays nicely with rootless setups.</p>
       </div>
+      <div class="block">
+        <h3 data-i18n="feat.zeroconf.launcher.title">Quick app launcher</h3>
+        <p data-i18n-html="feat.zeroconf.launcher.body"><code>winpodx launch</code> opens a searchable Start-menu-style app picker that you can bind to a desktop hotkey.</p>
+      </div>
     </div>
   </section>
 
@@ -168,6 +172,10 @@
         <li data-i18n="feat.automation.secure.li2">Windows debloat: telemetry, ads, Cortana off by default</li>
         <li data-i18n-html="feat.automation.secure.li3">FreeRDP <code>extra_flags</code> allowlist (regex-validated)</li>
         <li data-i18n="feat.automation.secure.li4">No WinPodX telemetry — ever</li>
+      </ul></div>
+      <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-hdd"/></svg></span><span data-i18n="feat.automation.disguise.title">Bare-metal disguise</span></h3><ul>
+        <li data-i18n="feat.automation.disguise.li1">Balanced anti-detection is the default; off and max levels are available</li>
+        <li data-i18n-html="feat.automation.disguise.li2">The advanced max level builds a patched-QEMU image locally with <code>winpodx disguise build-image</code></li>
       </ul></div>
       <div class="card"><h3><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span data-i18n="feat.automation.ops.title">Operations</span></h3><ul>
         <li data-i18n-html="feat.automation.ops.li1"><code>winpodx doctor</code> — deps / pod / RDP / agent / disk health</li>
