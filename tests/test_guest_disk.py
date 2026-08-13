@@ -147,6 +147,39 @@ def test_translate_bare_drive_root_is_mount_root() -> None:
     assert guest_win_path_to_host("C:\\", mr) == mr
 
 
+def test_translate_rejects_symlink_escaping_the_mount(tmp_path) -> None:
+    # A compromised guest can plant a symlink in its own C: tree, so a path
+    # that looks contained but RESOLVES outside the mount must be refused.
+    root = tmp_path / "guest_mount"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("SECRET", encoding="utf-8")
+    (root / "escape").symlink_to(outside)
+
+    assert guest_win_path_to_host(r"C:\escape\secret.txt", root) is None
+
+
+def test_translate_rejects_symlinked_leaf_outside_the_mount(tmp_path) -> None:
+    root = tmp_path / "guest_mount"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "secret.txt"
+    target.write_text("SECRET", encoding="utf-8")
+    (root / "leaf.txt").symlink_to(target)
+
+    assert guest_win_path_to_host(r"C:\leaf.txt", root) is None
+
+
+def test_translate_allows_a_real_file_under_the_mount(tmp_path) -> None:
+    root = tmp_path / "guest_mount"
+    (root / "Users" / "me").mkdir(parents=True)
+    (root / "Users" / "me" / "doc.txt").write_text("fine", encoding="utf-8")
+
+    assert guest_win_path_to_host(r"C:\Users\me\doc.txt", root) == root / "Users" / "me" / "doc.txt"
+
+
 def test_kio_fuse_available_from_path_binary(monkeypatch) -> None:
     import winpodx.core.guest_disk as gd
 

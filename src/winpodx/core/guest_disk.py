@@ -235,8 +235,14 @@ def guest_win_path_to_host(win_path: str, mount_root: Path) -> Path | None:
     """Map a guest ``C:\\…`` path onto the host gvfs mount of the guest C:.
 
     Only the ``C:`` drive is shared (``winpodx-c`` → ``C:\\``). Returns
-    ``None`` for any other drive, a non-drive path, or a path containing a
-    ``..`` traversal component.
+    ``None`` for any other drive, a non-drive path, a path containing a
+    ``..`` traversal component, or one that resolves outside ``mount_root``.
+
+    The containment check on the *resolved* path is the security boundary: the
+    guest controls this string and can plant a symlink / reparse point inside
+    its own ``C:`` tree, so a lexically-contained path can still land outside
+    the mount. The sibling ``\\\\tsclient`` route enforces the same rule in
+    ``reverse_open.paths``.
     """
     if len(win_path) < 3 or win_path[1] != ":" or win_path[2] not in ("\\", "/"):
         return None
@@ -246,4 +252,15 @@ def guest_win_path_to_host(win_path: str, mount_root: Path) -> Path | None:
     parts = [p for p in rest.split("/") if p not in ("", ".")]
     if any(p == ".." for p in parts):
         return None
-    return mount_root.joinpath(*parts) if parts else mount_root
+    candidate = mount_root.joinpath(*parts) if parts else mount_root
+
+    from winpodx.reverse_open.paths import is_relative_to
+
+    try:
+        resolved_root = mount_root.resolve(strict=False)
+        resolved = candidate.resolve(strict=False)
+    except OSError:
+        return None
+    if resolved != resolved_root and not is_relative_to(resolved, resolved_root):
+        return None
+    return candidate
