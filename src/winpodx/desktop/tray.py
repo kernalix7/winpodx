@@ -5,13 +5,118 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 from winpodx.core.i18n import tr
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QMenu
+
+    from winpodx.core.app import AppInfo
 
 log = logging.getLogger(__name__)
 
 
 _TRAY_LOCK_FH = None  # held for the lifetime of the tray process
+
+_TRAY_ADMIN_HINTS = (
+    "control-panel",
+    "task-manager",
+    "command-processor",
+    "powershell",
+    "system-",
+    "configuration",
+    "diagnostic",
+    "administrative",
+    "registry-editor",
+    "event-viewer",
+    "services",
+    "odbc",
+    "iscsi",
+    "memory-diagnostic",
+    "drive-optimizer",
+    "disk-cleanup",
+)
+
+_TRAY_USER_WINDOWS_HINTS = (
+    "calculator",
+    "media-player",
+    "microsoft-store",
+    "notepad",
+    "paint",
+    "photos",
+    "snipping-tool",
+    "terminal",
+)
+
+
+def _tray_app_sort_key(app_info: AppInfo) -> tuple[int, str]:
+    slug = app_info.name.lower()
+    executable = (app_info.executable or "").replace("\\", "/").lower()
+
+    if app_info.essential:
+        tier = 0
+    elif any(hint in slug for hint in _TRAY_ADMIN_HINTS):
+        tier = 3
+    elif any(hint in slug for hint in _TRAY_USER_WINDOWS_HINTS):
+        tier = 1
+    elif any(
+        marker in executable
+        for marker in ("/program files/", "/program files (x86)/", "/users/", "/windowsapps/")
+    ):
+        tier = 1
+    else:
+        tier = 2
+
+    return (tier, app_info.full_name.casefold())
+
+
+def _visible_tray_apps(apps: Iterable[AppInfo]) -> list[AppInfo]:
+    return sorted((app for app in apps if not app.hidden), key=_tray_app_sort_key)
+
+
+def _tray_launch_kwargs(app_info: AppInfo) -> dict[str, object]:
+    return {
+        "launch_uri": app_info.launch_uri or None,
+        "wm_class_hint": app_info.wm_class_hint or None,
+        "default_args": app_info.args or None,
+        "app_icon": app_info.icon_path or None,
+        "rdp_overrides": app_info.rdp_overrides or None,
+    }
+
+
+def _refresh_tray_apps_menu(
+    apps_menu: QMenu,
+    make_launcher: Callable[[AppInfo], Callable[[], None]],
+    on_desktop: Callable[[], None],
+) -> bool:
+    from PySide6.QtGui import QAction
+
+    from winpodx.core.app import list_available_apps
+
+    try:
+        available_apps = _visible_tray_apps(list_available_apps())
+    except Exception as e:  # noqa: BLE001 -- preserve the last good tray menu
+        log.warning("tray app menu refresh failed: %s", e)
+        return False
+
+    apps_menu.clear()
+    for app_info in available_apps:
+        action = QAction(app_info.full_name, apps_menu)
+        action.triggered.connect(make_launcher(app_info))
+        apps_menu.addAction(action)
+
+    if not available_apps:
+        no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
+        no_apps.setEnabled(False)
+        apps_menu.addAction(no_apps)
+
+    apps_menu.addSeparator()
+    desktop_action = QAction(tr("Full Desktop"), apps_menu)
+    desktop_action.triggered.connect(on_desktop)
+    apps_menu.addAction(desktop_action)
+    return True
 
 
 def _acquire_tray_lock() -> bool:
@@ -71,7 +176,6 @@ def run_tray() -> None:
         sys.exit(1)
 
     from winpodx.core import devices as D
-    from winpodx.core.app import list_available_apps
     from winpodx.core.config import Config
     from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
     from winpodx.core.process import list_active_sessions
@@ -273,7 +377,7 @@ def run_tray() -> None:
         # Rebuilding them on this always-firing QTimer tick keeps them current
         # regardless of whether aboutToShow fires. Guarded: this is a QTimer slot
         # and must never raise (an uncaught exception aborts app.exec()).
-        for _rebuild in (_rebuild_sessions_menu, _rebuild_devices_menu):
+        for _rebuild in (_rebuild_apps_menu, _rebuild_sessions_menu, _rebuild_devices_menu):
             try:
                 _rebuild()
             except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
@@ -363,20 +467,14 @@ def run_tray() -> None:
 
     apps_menu = QMenu(tr("Launch App"))
 
-    def make_launcher(app_info):
-        """Build a tray handler preserving the full AppInfo launch contract."""
-
+    def make_launcher(app_info: AppInfo) -> Callable[[], None]:
         def launcher() -> None:
             cfg = Config.load()
             try:
                 launch_app(
                     cfg,
                     app_info.executable,
-                    launch_uri=app_info.launch_uri or None,
-                    wm_class_hint=app_info.wm_class_hint or None,
-                    default_args=app_info.args or None,
-                    app_icon=app_info.icon_path or None,
-                    rdp_overrides=app_info.rdp_overrides or None,
+                    **_tray_launch_kwargs(app_info),
                 )
                 tray.showMessage(
                     "WinPodX",
@@ -402,112 +500,8 @@ def run_tray() -> None:
         except RuntimeError as e:
             tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
 
-    # The tray is a quick-launch surface, so order applications by semantic
-    # utility rather than discovery order or an exhaustive app-name allowlist:
-    #
-    #   0 — essentials
-    #   1 — user-facing applications
-    #   2 — Windows applications / utilities
-    #   3 — administrative / technical utilities
-    #
-    # Application-name hints are deliberately limited to ambiguous cases.
-    # Keep this policy local to the tray so list_available_apps() retains its
-    # ordering contract for the GUI and other callers.
-    _TRAY_ADMIN_HINTS = (
-        "control-panel",
-        "task-manager",
-        "command-processor",
-        "powershell",
-        "system-",
-        "configuration",
-        "diagnostic",
-        "administrative",
-        "registry-editor",
-        "event-viewer",
-        "services",
-        "odbc",
-        "iscsi",
-        "memory-diagnostic",
-        "drive-optimizer",
-        "disk-cleanup",
-    )
-
-    _TRAY_USER_WINDOWS_HINTS = (
-        "calculator",
-        "media-player",
-        "microsoft-store",
-        "notepad",
-        "paint",
-        "photos",
-        "snipping-tool",
-        "terminal",
-    )
-
-    def _tray_app_sort_key(app_info):
-        """Rank tray apps semantically, with an alphabetical tie-breaker."""
-        slug = app_info.name.lower()
-        executable = (app_info.executable or "").replace(chr(92), "/").lower()
-
-        if app_info.essential:
-            tier = 0
-        elif any(hint in slug for hint in _TRAY_ADMIN_HINTS):
-            tier = 3
-        elif any(hint in slug for hint in _TRAY_USER_WINDOWS_HINTS):
-            tier = 1
-        elif (
-            "/program files/" in executable
-            or "/program files (x86)/" in executable
-            or "/users/" in executable
-        ):
-            # Installed desktop applications and per-user applications are
-            # normally user-facing even when discovery cannot classify them.
-            tier = 1
-        elif "/windowsapps/" in executable:
-            # Store/MSIX applications are generally user-facing. Known
-            # background components should already be hidden by discovery.
-            tier = 1
-        elif (
-            "/windows/system32/" in executable
-            or "/windows/syswow64/" in executable
-            or "/windows/" in executable
-        ):
-            tier = 2
-        else:
-            # Unknown applications remain reachable without being promoted
-            # above entries we can confidently identify as user-facing.
-            tier = 2
-
-        return (tier, app_info.full_name.casefold())
-
     def _rebuild_apps_menu() -> None:
-        """Rebuild the launcher menu from the current discovered app state."""
-        apps_menu.clear()
-
-        # list_available_apps() also returns hidden entries because the GUI
-        # needs them for Hide/Show management. The tray is a launcher, so it
-        # must honour the persisted visibility policy.
-        available_apps = sorted(
-            (app_info for app_info in list_available_apps() if not app_info.hidden),
-            key=_tray_app_sort_key,
-        )
-
-        # Do not impose an arbitrary item cap. Hidden entries must not consume
-        # slots and make legitimate visible applications unreachable.
-        for app_info in available_apps:
-            action = QAction(app_info.full_name, apps_menu)
-            action.triggered.connect(make_launcher(app_info))
-            apps_menu.addAction(action)
-
-        if not available_apps:
-            no_apps = QAction(tr("(no apps - run 'winpodx app refresh')"), apps_menu)
-            no_apps.setEnabled(False)
-            apps_menu.addAction(no_apps)
-
-        apps_menu.addSeparator()
-
-        desktop_action = QAction(tr("Full Desktop"), apps_menu)
-        desktop_action.triggered.connect(on_desktop)
-        apps_menu.addAction(desktop_action)
+        _refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop)
 
     # Discovery, Hide/Show, installs and removals can change the app set while
     # the long-lived tray is running. Refresh immediately before it is opened.

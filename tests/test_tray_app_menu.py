@@ -1,98 +1,181 @@
 # SPDX-License-Identifier: MIT
 
-"""Regression guards for the tray Launch App submenu.
-
-The tray is long-lived, so its app menu must reflect discovery / Hide-Show
-changes made after tray startup. It must also honour AppInfo.hidden and pass
-the complete AppInfo launch metadata to core.rdp.launch_app.
-
-These are source-shape guards because CI has no display, matching the other
-tray regression tests.
-"""
-
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from collections.abc import Callable
+from inspect import getsource
 
-TRAY = Path(__file__).resolve().parent.parent / "src" / "winpodx" / "desktop" / "tray.py"
+import pytest
 
-
-def _src() -> str:
-    return TRAY.read_text(encoding="utf-8")
-
-
-def _app_menu_block() -> str:
-    src = _src()
-    start = src.index('    apps_menu = QMenu(tr("Launch App"))')
-    end = src.index("    menu.addMenu(apps_menu)", start)
-    return src[start:end]
+from winpodx.core.app import AppInfo
+from winpodx.desktop import tray
 
 
-def test_app_menu_rebuilds_when_opened() -> None:
-    block = _app_menu_block()
-    assert "def _rebuild_apps_menu()" in block
-    assert "apps_menu.aboutToShow.connect(_rebuild_apps_menu)" in block
-    rebuild = block.index("def _rebuild_apps_menu()")
-    listing = block.index("list_available_apps()", rebuild)
-    assert listing > rebuild
+def _app(
+    name: str,
+    *,
+    full_name: str | None = None,
+    executable: str = r"C:\Windows\System32\notepad.exe",
+    hidden: bool = False,
+    essential: bool = False,
+) -> AppInfo:
+    return AppInfo(
+        name=name,
+        full_name=full_name or name,
+        executable=executable,
+        hidden=hidden,
+        essential=essential,
+    )
 
 
-def test_app_menu_filters_hidden_apps() -> None:
-    block = _app_menu_block()
-    assert "if not app_info.hidden" in block
+def test_visible_tray_apps_filters_hidden_entries_without_a_count_cap() -> None:
+    apps = [_app(f"app-{index:02d}") for index in range(30)]
+    apps.insert(5, _app("hidden", hidden=True))
+
+    visible = tray._visible_tray_apps(apps)
+
+    assert len(visible) == 30
+    assert all(app.name != "hidden" for app in visible)
 
 
-def test_app_menu_does_not_arbitrarily_truncate_apps() -> None:
-    block = _app_menu_block()
-    assert "available_apps[:20]" not in block
+@pytest.mark.parametrize(
+    ("app", "tier"),
+    [
+        (_app("essential", essential=True), 0),
+        (_app("notepad"), 1),
+        (_app("third-party", executable=r"C:\Program Files\Vendor\app.exe"), 1),
+        (_app("windows-tool", executable=r"C:\Windows\System32\tool.exe"), 2),
+        (_app("registry-editor"), 3),
+    ],
+)
+def test_tray_app_sort_key_assigns_the_expected_tier(app: AppInfo, tier: int) -> None:
+    assert tray._tray_app_sort_key(app)[0] == tier
 
 
-def test_app_launcher_preserves_full_appinfo_contract() -> None:
-    block = _app_menu_block()
-    assert "app_info.executable" in block
-    assert "launch_uri=app_info.launch_uri or None" in block
-    assert "wm_class_hint=app_info.wm_class_hint or None" in block
-    assert "default_args=app_info.args or None" in block
-    assert "app_icon=app_info.icon_path or None" in block
-    assert "rdp_overrides=app_info.rdp_overrides or None" in block
+def test_visible_tray_apps_uses_casefolded_names_as_the_tiebreaker() -> None:
+    apps = [_app("zulu", full_name="Zulu"), _app("alpha", full_name="alpha")]
+
+    visible = tray._visible_tray_apps(apps)
+
+    assert [app.name for app in visible] == ["alpha", "zulu"]
 
 
-def test_app_actions_capture_appinfo_not_only_executable() -> None:
-    block = _app_menu_block()
-    assert "action.triggered.connect(make_launcher(app_info))" in block
-    assert "make_launcher(app_info.executable" not in block
+def test_tray_launch_kwargs_preserve_the_full_app_contract() -> None:
+    app = _app("calc")
+    app.launch_uri = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
+    app.wm_class_hint = "winpodx-calc"
+    app.args = "/foo"
+    app.icon_path = "/tmp/calc.svg"
+    app.rdp_overrides = {"scale": 140}
+
+    kwargs = tray._tray_launch_kwargs(app)
+
+    assert kwargs == {
+        "launch_uri": "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        "wm_class_hint": "winpodx-calc",
+        "default_args": "/foo",
+        "app_icon": "/tmp/calc.svg",
+        "rdp_overrides": {"scale": 140},
+    }
 
 
-def test_full_desktop_remains_available() -> None:
-    block = _app_menu_block()
-    assert 'desktop_action = QAction(tr("Full Desktop"), apps_menu)' in block
-    assert "desktop_action.triggered.connect(on_desktop)" in block
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QApplication = QtWidgets.QApplication
+QMenu = QtWidgets.QMenu
 
 
-def test_app_menu_sorts_by_semantic_utility() -> None:
-    block = _app_menu_block()
-    assert "def _tray_app_sort_key(app_info)" in block
-    assert "app_info.essential" in block
-    assert "_TRAY_ADMIN_HINTS" in block
-    assert "_TRAY_USER_WINDOWS_HINTS" in block
-    assert "key=_tray_app_sort_key" in block
+@pytest.fixture(scope="module")
+def qt_app() -> QApplication:
+    return QApplication.instance() or QApplication([])
 
 
-def test_app_menu_classifies_installed_apps_as_user_facing() -> None:
-    block = _app_menu_block()
-    assert '"/program files/"' in block
-    assert '"/program files (x86)/"' in block
-    assert '"/users/"' in block
-    assert '"/windowsapps/"' in block
+def _launcher_factory(captured: list[AppInfo]) -> Callable[[AppInfo], Callable[[], None]]:
+    def make_launcher(app_info: AppInfo) -> Callable[[], None]:
+        def launch() -> None:
+            captured.append(app_info)
+
+        return launch
+
+    return make_launcher
 
 
-def test_app_menu_demotes_windows_system_utilities() -> None:
-    block = _app_menu_block()
-    assert '"/windows/system32/"' in block
-    assert '"/windows/syswow64/"' in block
-    assert "_TRAY_ADMIN_HINTS" in block
+def test_refresh_tray_apps_menu_populates_sorted_parented_actions(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apps = [_app("registry-editor"), _app("notepad"), _app("hidden", hidden=True)]
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: apps)
+    menu = QMenu()
+    captured: list[AppInfo] = []
+
+    refreshed = tray._refresh_tray_apps_menu(menu, _launcher_factory(captured), lambda: None)
+    actions = [action for action in menu.actions() if not action.isSeparator()]
+
+    assert refreshed is True
+    assert [action.text() for action in actions] == ["notepad", "registry-editor", "Full Desktop"]
+    assert all(action.parent() is menu for action in actions)
+    actions[0].trigger()
+    assert captured == [apps[1]]
 
 
-def test_app_menu_sort_has_stable_alphabetical_tiebreaker() -> None:
-    block = _app_menu_block()
-    assert "app_info.full_name.casefold()" in block
+def test_refresh_tray_apps_menu_keeps_the_previous_menu_when_listing_fails(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [_app("notepad")])
+    menu = QMenu()
+    launcher = _launcher_factory([])
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is True
+    previous_actions = list(menu.actions())
+
+    def fail_listing() -> list[AppInfo]:
+        raise OSError("catalog unavailable")
+
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", fail_listing)
+
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is False
+    assert menu.actions() == previous_actions
+
+
+def test_refresh_tray_apps_menu_keeps_the_previous_menu_for_invalid_app_metadata(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [_app("notepad")])
+    menu = QMenu()
+    launcher = _launcher_factory([])
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is True
+    previous_actions = list(menu.actions())
+    invalid = _app("invalid")
+    invalid.full_name = 7
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [invalid])
+
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is False
+    assert menu.actions() == previous_actions
+
+
+def test_refresh_tray_apps_menu_keeps_full_desktop_when_no_apps_exist(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [])
+    menu = QMenu()
+
+    assert tray._refresh_tray_apps_menu(menu, _launcher_factory([]), lambda: None) is True
+
+    actions = [action for action in menu.actions() if not action.isSeparator()]
+    assert [action.text() for action in actions] == [
+        "(no apps - run 'winpodx setup')",
+        "Full Desktop",
+    ]
+    assert actions[0].isEnabled() is False
+
+
+def test_run_tray_wires_app_menu_to_open_and_timer_refresh() -> None:
+    source = getsource(tray.run_tray)
+
+    assert "apps_menu.aboutToShow.connect(_rebuild_apps_menu)" in source
+    assert "_refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop)" in source
+    assert "(_rebuild_apps_menu, _rebuild_sessions_menu, _rebuild_devices_menu)" in source
