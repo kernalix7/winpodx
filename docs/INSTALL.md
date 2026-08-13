@@ -2,7 +2,7 @@
 
 **English** | [한국어](INSTALL.ko.md)
 
-Every way to install WinPodX — the one-line installer, distro package managers, Nix, source builds, and offline scenarios.
+Every way to install WinPodX — the one-line installer, distro package managers, Nix, AppImage, wheel, source builds, and offline scenarios.
 
 ## One-line install
 
@@ -10,7 +10,7 @@ Every way to install WinPodX — the one-line installer, distro package managers
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Detects your distro, installs missing system dependencies (Podman, FreeRDP, KVM, Python 3.9+) with your confirmation, drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically the first time the pod boots — discovery scans your running Windows guest and registers every installed app with its real icon. No root required except for the dependency install step. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, and NixOS.
+Detects your distro, installs missing system dependencies (Podman 4+ + podman-compose, FreeRDP 3+, KVM, Python 3.9+) with your confirmation, and drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically during first provisioning — discovery scans the guest's Start Menu and registers each visible app with its real icon (`desktop.full_app_scan = true` opts into Registry App Paths and Chocolatey/Scoop shims too). No root required except for the dependency and host-setup steps. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, and Arch. NixOS uses the flake below.
 
 > **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). WinPodX does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
 
@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Manual mode installs the binary + desktop entry + icon only -- no `winpodx setup`, no `pod wait-ready`, no app discovery, no reverse-open setup. The next time you run `winpodx` (CLI or GUI), the first-run prompt offers three options:
+Manual mode installs the binary + desktop entry + icon only -- no `winpodx setup`, no `winpodx provision`, no app discovery, no reverse-open setup. The next time you run bare `winpodx` or `winpodx gui`, the first-run prompt offers three options:
 
 - **Auto** -- host-detected defaults, non-interactive (= what default `install.sh` would have done)
 - **Customize** -- wizard mode (pick every knob); equivalent to `winpodx setup --customize`
@@ -127,20 +127,20 @@ Common language configurations:
 | Chinese (Simplified) | `Chinese` | `zh-CN` | `zh-CN` |
 
 These settings only apply to **fresh Windows installations**. If you've already run `winpodx setup` and booted Windows once, you'll need to either:
-1. Recreate the container with `winpodx pod stop`, delete the storage volume, edit the config, and run `winpodx setup` again, **or**
+1. Edit the config, then run `winpodx pod recreate --wipe-storage` to reinstall Windows, **or**
 2. Change the language manually inside Windows via Settings → Time & Language → Language & region
 
 For the complete list of supported languages and region codes, see the [dockur/windows documentation](https://github.com/dockur/windows#how-do-i-change-the-language).
 
 ## Native package managers
 
-Prebuilt RPM and `.deb` packages are attached to every [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions. The [`winpodx` AUR package](https://aur.archlinux.org/packages/winpodx) is live as of v0.5.2 — Arch users can install via `yay -S winpodx` or `paru -S winpodx`.
+Prebuilt RPM and `.deb` packages are attached to each published [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) — openSUSE/Fedora RPMs come from the [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx), the rest from GitHub Actions. The [`winpodx` AUR package](https://aur.archlinux.org/packages/winpodx) is live as of v0.5.2 — Arch users can install via `yay -S winpodx` or `paru -S winpodx`.
 
-> **After any package-manager install, run `winpodx setup` once.** The package payload is binary + desktop entry + icon + man page only -- no post-install hook fires the Windows VM provisioning, because (a) `winpodx setup` is interactive (backend / credentials prompts), (b) `winpodx pod start` triggers a ~7.5 GB Windows ISO download + Sysprep + OEM apply (5–10 min on typical connections), and (c) `apt install` / `dnf install` / `yay -S` running as root shouldn't fire user-namespace rootless podman provisioning. The curl one-liner does the same `winpodx setup --non-interactive` + `winpodx pod wait-ready` chain itself, which is why it appears not to need a manual setup step. First-time flow:
+> **After any package-manager install, run `winpodx setup` once.** The package payload installs the application and desktop integration only -- no post-install hook fires the Windows VM provisioning, because `apt install` / `dnf install` / `yay -S` running as root shouldn't start a user-namespace rootless Podman VM or an hours-long first boot. `winpodx setup` is non-interactive auto setup by default (`--customize` opens the wizard) and completes the shared `winpodx provision` chain: wait-ready, guest fixes, discovery, and reverse-open. The curl one-liner invokes that flow itself. First-time flow:
 >
 > ```bash
-> winpodx setup                # interactive: backend / credentials / specs / locale
-> winpodx app run desktop      # auto-provisions the pod on first call (~5–10 min)
+> winpodx setup                # auto defaults + complete first provisioning
+> winpodx app run desktop      # launch the ready Windows desktop
 > ```
 
 ### openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll
@@ -181,7 +181,7 @@ sudo rpm-ostree install winpodx                  # staged; reboot to activate
 
 Replace `Fedora_43` with `Fedora_42` or `Fedora_44` to match your base image.
 
-### Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10
+### Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 / 26.04
 
 Download the matching `.deb` from the [latest release](https://github.com/kernalix7/winpodx/releases/latest) and install:
 
@@ -220,13 +220,13 @@ yay -S winpodx-git
 
 ## AppImage (Thin bundle: Python + Qt + FreeRDP + winpodx; host container runtime required)
 
-A distro-agnostic AppImage of WinPodX ships as a release asset on every tagged release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~296 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. Dropping the container stack alone only reached ~274 MB, though — the real bulk is PySide6, which bundles the whole Qt6 stack (QtWebEngine alone is ~195 MB) while winpodx uses only QtCore/QtGui/QtWidgets/QtSvg/QtDBus — so the unused Qt6 modules are stripped too (`packaging/appimage/slim-pyside6.sh`), bringing the AppImage to **~110 MB**.
+A distro-agnostic x86_64 AppImage of WinPodX ships as a release asset on each published release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~296 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. Dropping the container stack alone only reached ~274 MB, though — the real bulk is PySide6, which bundles the whole Qt6 stack (QtWebEngine alone is ~195 MB) while winpodx uses only QtCore/QtGui/QtWidgets/QtSvg/QtDBus — so the unused Qt6 modules are stripped too (`packaging/appimage/slim-pyside6.sh`), bringing the AppImage to **~110 MB**.
 
 > **FreeRDP client source.** The FreeRDP client source is selectable, and auto-discovery prefers the Flatpak client (`com.freerdp.FreeRDP`) with the native client (`xfreerdp` / `wlfreerdp` / `sdl-freerdp` on `PATH`) as a fallback (#366 / #393).
 
 Host-side requirements:
 
-- A container runtime installed via your distro's package manager: **`podman ≥ 4` recommended**, `docker` also supported (the manual backend uses an existing RDP host instead). Use the same `install.sh` (RPM / DEB / AUR) one-liner installs above if you don't have one yet.
+- A container runtime installed via your distro's package manager: **`podman ≥ 4` + standalone `podman-compose` recommended**, or Docker with its Compose v2 plugin (the manual backend uses an existing RDP host instead). Use `install.sh` if you want these installed for you.
 - `/dev/kvm` exposed by the host kernel (most distros do this by default once VT-x / AMD-V is enabled in BIOS).
 - The current user belongs to the `kvm` group (and `/etc/subuid` + `/etc/subgid` entries exist for rootless Podman — usually preconfigured on modern distros; check with `cat /etc/subuid`).
 
@@ -283,7 +283,7 @@ nix profile install github:kernalix7/winpodx
 inputs.winpodx.url = "github:kernalix7/winpodx";
 ```
 
-The wrapper bundles FreeRDP, podman / podman-compose, iproute2 and libnotify, so the default Podman backend works out of the box. The Docker backend still requires Docker to be present on the host; the manual backend connects to an RDP host you provide.
+The wrapper adds FreeRDP, Podman, podman-compose, iproute2, and libnotify to `PATH`, so the default Podman backend has its runtime tools available. The host still needs working KVM and rootless-container setup. The Docker backend requires Docker to be present on the host; the manual backend connects to an RDP host you provide.
 
 ## From source
 
@@ -298,7 +298,19 @@ The source installer automatically:
 2. Installs missing dependencies (Podman, podman-compose, FreeRDP, KVM), asks before installing
 3. Copies winpodx to `~/.local/bin/winpodx-app/`
 4. Creates config and `compose.yaml`
-5. Auto-discovery (`winpodx app refresh`) fires on first pod boot to populate the menu
+5. Completes provisioning and auto-discovery to populate the menu
+
+## Python wheel (`pip`)
+
+WinPodX is not currently published on PyPI. Each GitHub Release includes a wheel; install the downloaded asset into a virtual environment (add extras as needed):
+
+```bash
+python3 -m venv ~/.local/share/winpodx-venv
+~/.local/share/winpodx-venv/bin/pip install './winpodx-<version>-py3-none-any.whl[gui,docker,reverse-open]'
+~/.local/share/winpodx-venv/bin/winpodx setup
+```
+
+The core wheel only requires `tomli` on Python 3.9/3.10. PySide6, docker-py, and reverse-open icon conversion are optional extras; system requirements such as FreeRDP 3+, a container runtime, and KVM are not installed by pip.
 
 ### Manual run (no install)
 
@@ -368,7 +380,7 @@ Whichever path you used, check what you're running with `winpodx --version`. If 
 
 ## Uninstall
 
-One canonical script -- same behavior regardless of how WinPodX was installed (curl / pip / deb / rpm / aur).
+One canonical script -- same behavior regardless of how WinPodX was installed (curl / wheel / deb / rpm / aur).
 
 Two equivalent entry points:
 
@@ -378,7 +390,7 @@ Two equivalent entry points:
 # OR
 winpodx uninstall
 
-# Full wipe: container, volume, ~50 GB Windows disk, config, launcher (apt-purge semantics)
+# Full wipe: container, Windows disk, config, launcher (apt-purge semantics)
 ./uninstall.sh --purge --yes
 # OR
 winpodx uninstall --purge --yes
@@ -396,7 +408,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 If installed via a package manager (apt/dnf/zypper/pacman), `uninstall.sh` detects this and prompts you to run the package-manager removal first -- that's the correct order: the package manager's post-remove hook re-runs `uninstall.sh` for the user-side cleanup, keeping the package database in sync with disk state.
 
 **Default mode never touches** (use `--purge` to also remove these):
-- Podman container / volumes (Windows VM disk, ~50 GB)
+- Podman container / volumes (Windows VM disk; 64 GB configured by default)
 - `~/.config/winpodx/` config + compose.yaml
 - Storage bind-mount contents
 

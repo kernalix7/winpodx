@@ -48,7 +48,7 @@ Pod 의 명령 채널은 게스트 안에서 `127.0.0.1:8765` 에 listen 하는 
 | 하이퍼바이저 | QEMU / KVM (dockur 컨테이너 내부; 호스트 USB / PCI 장치 패스스루가 이 레이어에 연결됨) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, vendored rcedit 로 슬러그별 아이콘 embed) |
 | i18n | `winpodx.core.i18n` (영어 원문을 key 로, 언어별 flat JSON 카탈로그) |
-| CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
+| CI | GitHub Actions (lint + test on Python 3.9–3.14 + 88% coverage gate + pip-audit) |
 
 ## 프로젝트 구조
 
@@ -69,7 +69,7 @@ winpodx/
 ├── config/oem/
 │   ├── install.bat        # Windows OEM 첫 부팅 오케스트레이션
 │   └── reverse-open/      # register-apps.ps1, unregister-apps.ps1, Rust shim, rcedit
-├── scripts/windows/       # PowerShell 스크립트 (debloat, time sync, USB mapping, 앱 discovery)
+├── scripts/windows/       # PowerShell 스크립트 (debloat, time sync, 앱 discovery)
 ├── packaging/             # OBS / AUR / RHEL spec + 메인테이너 문서
 ├── debian/                # Debian 소스 패키지 레이아웃
 ├── docs/                  # 사용자 문서 (영어 + 한국어 mirror)
@@ -81,7 +81,7 @@ winpodx/
 
 - **앱 실행.** CLI → `provisioner.ensure_ready()` (config + 비밀번호 회전 + compose + resume + pod + bundled apps + desktop 엔트리) → FreeRDP 세션 → `.cproc` 추적 + reaper 스레드 + desktop 알림.
 - **앱 설치 (Linux 측).** AppInfo (TOML) → `.desktop` 파일 생성 → 아이콘 설치 → MIME 등록 → 아이콘 캐시 refresh.
-- **파일 열기 (host → guest).** Linux 경로 → UNC 경로 변환 (`\\tsclient\home\...`) → RDP `/app-cmd`.
+- **파일 열기 (host → guest).** Linux 경로 → UNC 경로 변환 (`\\tsclient\home\...`; `cfg.pod.home_share` 설정 시 선택한 디렉터리만 공유) → RDP `/app-cmd`.
 - **자동 suspend.** `daemon.run_idle_monitor()` → N 초 동안 세션 없으면 `podman pause` → lock 파일 정리.
 - **자동 resume.** `provisioner` → `daemon.ensure_pod_awake()` → `podman unpause` → RDP 대기.
 - **비밀번호 회전.** `ensure_ready()` → `password_max_age` 확인 → 새 비밀번호 생성 → config + compose 저장 → 컨테이너 재생성 → 실패 시 rollback.

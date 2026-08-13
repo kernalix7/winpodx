@@ -21,7 +21,7 @@ Linux 에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 �
 | HiDPI 자동 감지 | 없음 | 없음 | 문서화 안 됨 | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |
 | 사운드 기본 | 없음 | 없음 | 있음 (FreeRDP) | 있음 (FreeRDP) |
 | 프린터 리디렉션 기본 | 없음 | 없음 | 문서화 안 됨 | 있음 (FreeRDP) |
-| USB 드라이브 자동 매핑 | 없음 | 없음 | 스마트카드 패스스루 | **드라이브 서브폴더 → 드라이브 레터, FileSystemWatcher** |
+| USB 드라이브 공유 | 없음 | 없음 | 스마트카드 패스스루 | **`\\tsclient\media` 서브폴더 공유 (불안정했던 드라이브 레터 자동 매핑은 제거)** |
 | 호스트 USB / PCI 장치 패스스루 | 없음 | 없음 | 스마트카드만 | **있음 (`device list / attach / detach`, GUI Devices 페이지, 트레이 USB 스위처; USB live hot-plug, PCI boot-add)** |
 | Discovery (설치된 앱 자동 스캔) | 없음 | 없음 | 있음 | **있음 (Registry + Start Menu + UWP + choco/scoop)** |
 | 멀티세션 RDP | 없음 | 없음 | 문서화 안 됨 | **있음 (bundled rdprrap, 최대 10)** |

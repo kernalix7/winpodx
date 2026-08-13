@@ -32,10 +32,10 @@ winpodx pod start --wait          # Start and wait for RDP readiness
 winpodx pod stop                  # Stop (warns about active sessions)
 winpodx pod status                # Status with session count
 winpodx pod restart
-winpodx pod recreate              # Stop + remove + start (clean container)
+winpodx pod recreate              # Regenerate compose + recreate container (Windows disk preserved)
 winpodx pod wait-ready --logs     # Wait for Windows first-boot with progress + container logs (auto-extends on slow ISO download)
 
-# Guest-side operations (renamed from `pod <x>` in 0.6.0 — old spellings still work through 0.6.x with a deprecation notice)
+# Guest-side operations (renamed from `pod <x>` in 0.6.0 — old spellings still work with a deprecation notice)
 winpodx guest apply-fixes         # Re-apply Windows-side runtime fixes (idempotent)
 winpodx guest sync                # Push host updates (agent / urlacl / rdprrap / fixes) into the guest — no reinstall
 winpodx guest sync --force        # Re-sync even when the guest version stamp already matches
@@ -45,8 +45,8 @@ winpodx guest multi-session status
 winpodx guest recover-oem         # Print noVNC PowerShell steps to download + run install.bat manually when dockur's first-boot OEM copy failed (#287)
 
 # Install / disk operations (renamed from `pod install-* / pod grow-disk / pod disk-usage` in 0.6.0)
-winpodx install status            # Install progress / pending steps (#271 agent-first installs)
-winpodx install resume            # Resume a deferred install step
+winpodx install status            # Reserved install-progress command (implementation pending)
+winpodx install resume            # Reserved install-resume command (implementation pending)
 winpodx install disk-usage        # Show Windows C: size / free / used% + auto-grow status (#318)
 winpodx install grow-disk         # Add the auto-grow increment (default 32G) to the disk + extend C: (#318)
 winpodx install grow-disk 128G    # Grow to an absolute size
@@ -58,7 +58,7 @@ winpodx power --resume            # Resume paused container
 
 # Host device passthrough (USB / PCI → Windows guest, #286)
 winpodx device list               # List host USB / PCI devices + their attach state
-winpodx device attach <id>        # Attach a host device to the guest (USB hot-plugs live; PCI is boot-added)
+winpodx device attach <id>        # Attach a host device (USB redirects live; PCI is boot-added)
 winpodx device detach <id>        # Detach a device from the guest
 winpodx device attach <id> --force   # Skip the guest-restart safety confirmation for a PCI device
 
@@ -89,7 +89,7 @@ winpodx setup                     # Full setup: config + container + wait-ready 
 winpodx setup --customize         # Wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
 winpodx setup-host                # Host prep wizard (kvm group, /etc/subuid, kvm module) via one pkexec prompt — AppImage users
 winpodx provision                 # Post-pod-running chain (wait-ready → apply-fixes → discovery → reverse-open) — the single source of truth used by install.sh, setup, migrate, and the GUI bring-up (0.6.0 item B)
-winpodx provision --retries N     # Override discovery retry count (default 2 — see 0.6.0 item M)
+winpodx provision --retries N     # Override discovery retry count (default 5)
 winpodx provision --require-agent # Hard-gate on the in-guest agent (used by fresh installs, #271)
 winpodx migrate                   # Upgrade an existing guest in place (refresh agent.ps1 + scripts, re-apply fixes, re-discover, refresh reverse-open)
 winpodx doctor                    # Read-only health diagnostic with per-check fix hints (deps / compose provider / pod / host ports / RDP / agent / disk / config / install state)
@@ -99,7 +99,7 @@ winpodx doctor --fix              # Idempotent auto-remediation for warn/fail fi
 winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off by default)
 winpodx language                  # Show the current UI language
 winpodx language ko               # Set UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale)
-# `winpodx info` and `winpodx check` are deprecated aliases of `winpodx doctor` (work through 0.6.x with a notice; removed in 0.7.0).
+# `winpodx info` and `winpodx check` are deprecated aliases of `winpodx doctor` — they still work, printing a one-line deprecation notice on stderr.
 winpodx gui                       # Launch Qt6 main window (Dashboard / All apps / Devices / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config
@@ -113,11 +113,11 @@ Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460
 
 | Page | What it does |
 |------|--------------|
-| **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, a "Running sessions" strip that lists live RDP app sessions with a per-session terminate button, and a reverse-open toggle |
+| **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, and a reverse-open toggle |
 | **All apps** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
-| **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB hot-plugs live; PCI needs a guest restart with a safety confirmation) |
-| **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
-| **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, and a one-click Windows Update **enable / disable** toggle |
+| **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB redirects live; PCI needs a guest restart with a safety confirmation) |
+| **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout / idle action / max sessions), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
+| **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, live RDP sessions with per-session terminate buttons, and a one-click Windows Update **enable / disable** toggle |
 | **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
 | **Info** | Live **Health** card (pod / RDP / agent / OEM / disk / password age / app count) + System / Display / Dependencies / Pod / Config snapshot |
 
@@ -125,7 +125,7 @@ The system tray (`winpodx tray`) is a lighter-weight alternative — pod control
 
 ### Tray auto-spawn + UNRESPONSIVE recovery (v0.5.5)
 
-Since v0.5.5 the tray spawns itself automatically from the GUI window and from every CLI subcommand that touches the pod (everything except `setup` / `gui` / `tray`), so a user who only ever runs `winpodx app run` still gets the system-tray indicator + the UNRESPONSIVE auto-recovery driver. A flock under `$XDG_RUNTIME_DIR/winpodx/tray.lock` prevents stacked instances when the user manually re-launches the tray.
+Since v0.5.5 the tray spawns itself automatically from the GUI window and from CLI subcommands (except `setup` / `gui` / `launch` / `tray`), so a user who only ever runs `winpodx app run` still gets the system-tray indicator + the UNRESPONSIVE auto-recovery driver. A flock under `$XDG_RUNTIME_DIR/winpodx/tray.lock` prevents stacked instances when the user manually re-launches the tray.
 
 The tray context menu now starts with **Open Dashboard** (one-click to the main GUI window). **Quit** confirms via a dialog and on confirmation runs `stop_pod` + `pkill -f 'winpodx gui'` + `app.quit` so a stray click can't cycle the pod's ~30 s restart.
 
@@ -141,7 +141,7 @@ Pass a host USB or (non-GPU) PCI device through to the Windows guest (#286). Thr
 * **GUI Devices page** — a two-column host ↔ guest mover (pick on the left, attach on the right).
 * **System tray** — a USB switcher submenu (#300) for one-click attach / detach of host USB devices.
 
-USB devices hot-plug live (`cfg.pod.usb_live`, default on) — no restart needed. A PCI device is boot-added and only becomes visible after a guest restart, so the attach is guarded by a safety confirmation; pass `--force` on the CLI (or confirm the dialog in the GUI) to proceed.
+USB devices redirect live through usbredir — no restart needed, and a privilege prompt may appear so the host helper can open the device. A PCI device is boot-added and only becomes visible after a guest restart, so the attach is guarded by a safety confirmation; pass `--force` on the CLI (or confirm the dialog in the GUI) to proceed. The legacy `pod.usb_live` key is still accepted but no longer gates usbredir.
 
 ## Bare-metal compatibility mode (hide the hypervisor)
 
@@ -155,20 +155,20 @@ Some software refuses to run under a detected hypervisor — most notably Nvidia
 
 ```bash
 winpodx config set pod.disguise_level off        # honest VM
-winpodx config set pod.disguise_level balanced   # default — free hiding, applied automatically
-winpodx config set pod.disguise_level max        # maximum hiding (emulated HW, slower)
-# off <-> balanced apply automatically. Switching into/out of `max` changes the
+winpodx config set pod.disguise_level balanced   # default — free hiding, auto-applies a container recreate
+winpodx config set pod.disguise_level max        # maximum hiding (emulated HW, slower; saved but not auto-applied)
+# off <-> balanced auto-apply a container recreate. Switching into/out of `max` changes the
 # virtual hardware, so it needs a destructive reinstall — apply it with:
 winpodx pod recreate --wipe-storage              # WIPES Windows, reinstalls on the new hardware
 ```
 
-You can also pick the level in the GUI: **Settings → Bare-metal compatibility**. Either way it takes effect after a `winpodx pod recreate` (it edits the QEMU `-cpu` line, the `HV` env, and the disk size; recreate keeps your Windows disk).
+You can also pick the level in the GUI: **Settings → Bare-metal compatibility**. Switching between `off` and `balanced` recreates the container while preserving the Windows disk; switching into or out of `max` rebuilds the virtual hardware and requires the destructive reinstall above.
 
 **Advanced — patched-QEMU image (`winpodx disguise build-image`):** a couple of VM markers live in QEMU's compiled-in strings (ACPI OEM `BOCHS`, disk model `QEMU HARDDISK`) that command-line args can't reach. Run `winpodx disguise build-image` — it builds a custom dockur image whose QEMU has those strings patched to **your host's real vendor + disk model** (read from `/sys`, no root, nothing committed; ~20–40 min compile, local image only), then sets `cfg.pod.disguise_image` so `max` uses it. winpodx ships only the patch recipe (`packaging/qemu-disguise/`), never a patched binary. PCI vendor IDs are deliberately left alone (spoofing them breaks dockur's virtio-serial). See that directory's README.
 
 **Not an anti-cheat bypass.** This is signature-level VM hiding for casual detectors and VM-hostile apps (code 43, DRM/launch gates). It does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard) — those anchor on hardware attestation (TPM + Secure Boot) and VM-exit timing the guest can't spoof — and bypassing online-game anti-cheat violates the game's ToS.
 
-The disk bump is gated: the dockur disk is sparse, so a larger advertised size costs ~0 host space up front, but winpodx only raises it when the host has enough free space (keeping a 10 GiB / 10 % reserve). On a small host it leaves the disk as-is and logs a warning. The pre-0.6.x `disguise_hypervisor = false` key still works — it maps to `off`.
+The disk bump is gated: the dockur disk is sparse, so a larger advertised size costs ~0 host space up front, but winpodx only raises it when the host has enough free space for the target plus a 10 GiB reserve. On a small host it leaves the disk as-is and logs a warning. The legacy `disguise_hypervisor = false` key still works — it maps to `off`.
 
 > **This is not an anti-cheat bypass.** It is signature-level only and does **not** defeat kernel-mode anti-cheat (EAC / BattlEye / Vanguard). Bypassing anti-cheat in online games violates their terms of service and risks a ban — winpodx does not support that use.
 
@@ -179,33 +179,29 @@ Multi-monitor RAIL is on by default (`cfg.rdp.multimon`, default `"span"`): a re
 | `cfg.rdp.multimon` | Effect |
 |---|---|
 | `span` (default) | Span the RDP session across all monitors so a remote-app window stays interactive on any of them |
-| `multimon` | Use FreeRDP's discrete `/multimon` mode (per-monitor geometry) |
+| `multimon` | Use FreeRDP's discrete `/multimon` mode (diagnostic only; currently breaks RAIL input with rdprrap) |
 | `off` | Single-monitor only |
 
 Change it with `winpodx config set rdp.multimon off` or via the GUI Settings page.
 
 ## Health checks
 
-`winpodx doctor` runs every probe used by the GUI Health card and prints a one-line verdict for each:
+`winpodx doctor` checks the install source, dependencies, KVM / rootless setup, backend and ports, config / pending state, desktop entries, container health, guest agent, and OEM drift. It prints each finding with details and a suggested fix:
 
 ```
 === WinPodX doctor ===
 
-  [OK  ] compose_provider   podman-compose  (2ms)
-  [OK  ] pod_running        running (ip=127.0.0.1)  (58ms)
-  [OK  ] host_ports         RDP/agent/SMB ports free  (4ms)
-  [OK  ] rdp_port           127.0.0.1:3390 reachable  (0ms)
-  [OK  ] agent_health       version=0.2.2-rev4  (63ms)
-  [OK  ] agent_auth_ready   bearer token available  (1ms)
-  [OK  ] oem_version        bundle=24  (3ms)
-  [OK  ] password_age       7d remaining (max_age=7d)  (0ms)
-  [OK  ] apps_discovered    41 app(s) in /home/.../discovered  (3ms)
-  [OK  ] disk_free          401.0/3725 GiB free  (0ms)
+  [OK]   FreeRDP available
+  [OK]   KVM device available
+  [OK]   compose provider available
+  [OK]   container is healthy
+  [OK]   guest agent /health responding
+  [OK]   guest version current
 
-Overall: OK
+Summary: all checks passed.
 ```
 
-Status legend: `OK` (green) / `WARN` (yellow — informational, exit 0) / `FAIL` (red — exit 1) / `SKIP` (grey — disabled by config). Use `--json` for machine-readable output.
+Status legend: `OK` / `WARN` (informational, exit 0) / `FAIL` (exit 1). Use `--json` for a machine-readable array of findings.
 
 ## Changing the Windows password
 
@@ -233,7 +229,7 @@ If you ran `winpodx setup` on an older release and can no longer log in:
 
 ## Performance tuning profile
 
-`cfg.pod.tuning_profile` controls how aggressively WinPodX tunes the dockur compose for the underlying host. It defaults to `"auto"` — WinPodX probes the host once at compose time and turns on the matching subset of safe Windows-on-KVM tweaks. Look at the `[Tuning]` block in `winpodx doctor` to see what was detected and applied:
+`cfg.pod.tuning_profile` controls how aggressively WinPodX resolves Windows-on-KVM tuning for the underlying host. It defaults to `"auto"` — WinPodX probes the host at compose time, applies the supported CPU / nested-virtualization / entropy tweaks, and reports additional host-side recommendations. Look at the `[Tuning]` block in the deprecated `winpodx info` alias (or the GUI Info page) to see what was detected and resolved:
 
 ```
 [Tuning]
@@ -260,8 +256,8 @@ Profiles:
 
 | `tuning_profile` | What it does |
 |---|---|
-| `auto` (default) | Detect host capability + apply every safe tuning the host can support, including the Hyper-V enlightenments, virtio-rng, and nested-virt pass-through when `/sys/module/kvm_*/parameters/nested` is set. CPU pinning + no-balloon gated on `dedicated_host` (idle CPU + free RAM ≥ 2× VM allocation) so we don't starve other host workloads. Recommended for most users. |
-| `performance` | Same as `auto` but bypasses the `dedicated_host` gate: CPU pinning + no-balloon flip on regardless of current host load. Use when the box is mostly dedicated to WinPodX and you want minimum guest latency at the cost of other host workloads. Hard-gated knobs (`+invtsc`, `io_uring`) still respect capability detection -- `performance` can't force a CPU flag QEMU would reject or a kernel feature that crashes. |
+| `auto` (default) | Detect host capability and resolve every safe tuning the host can support, including Hyper-V enlightenments, virtio-rng, and nested-virt pass-through when `/sys/module/kvm_*/parameters/nested` is set. CPU-pinning / no-balloon recommendations are gated on `dedicated_host` (idle CPU + free RAM ≥ 2× VM allocation) so we don't starve other host workloads. Recommended for most users. |
+| `performance` | Same as `auto` but bypasses the `dedicated_host` gate in the resolved profile: CPU pinning + no-balloon are recommended regardless of current host load. Use when the box is mostly dedicated to WinPodX. Hard-gated knobs (`+invtsc`, `io_uring`) still respect capability detection. |
 | `safe` | Apply the Windows-guest-only subset that requires no host configuration: `+invtsc` (when supported), `platform_tick` BCD tweak, Hyper-V enlightenments (`hv-relaxed`, `hv-vapic`, `hv-vpindex`, `hv-runtime`, `hv-synic`, `hv-reset`, `hv-frequencies`, `hv-reenlightenment`, `hv-tlbflush`, `hv-ipi`, `hv-spinlocks=0x1fff`, `hv-stimer`, `hv-stimer-direct`, `-no-hpet`), and `virtio-rng`. Excludes nested-virt + `hv-evmcs` which need explicit host-side opt-in. |
 | `off` | Apply nothing; the dockur defaults stand. Use when troubleshooting suspected tuning interaction. |
 | `manual` | Same shape as `safe`; reserved for future per-knob overrides. |
@@ -275,17 +271,17 @@ Profiles:
 * **`hv-evmcs`** (#245) — Intel-only nested-VMCS optimisation, paired with `+vmx`. Zero overhead when the guest doesn't run nested VMs.
 * **`io_uring` AIO** — kernel ≥ 5.6 disk I/O backend; lower latency than legacy threads.
 * **Hugepages** — backs the QEMU memory with 2 MB pages. Requires `vm.nr_hugepages` reserved on the host (WinPodX does not auto-reserve).
-* **CPU pinning** — WinPodX flags the host as `dedicated` and applies QEMU vCPU pinning when host idle CPU + RAM ≥ 2× VM allocation.
+* **CPU pinning / no-balloon / hugepages / `io_uring`** — detected and shown in the resolved tuning profile, but not currently emitted into `compose.yaml`; apply host-side scheduling and memory setup yourself if desired.
 
 ### One-shot override
 
-`winpodx pod start --tuning {auto,safe,off,manual}` overrides `cfg.pod.tuning_profile` for the lifetime of that container run only. The user's persisted preference in `winpodx.toml` is left untouched. Useful for A/B testing — flip back and forth without `winpodx config set` round-trips.
+`winpodx pod start --tuning {auto,performance,safe,off,manual}` overrides `cfg.pod.tuning_profile` for the lifetime of that container run only. The user's persisted preference in `winpodx.toml` is left untouched. Useful for A/B testing — flip back and forth without `winpodx config set` round-trips.
 
 ### Items that require host-side setup (not auto-applied)
 
-These are standard Windows-on-KVM tweaks that need operator action on the Linux host before WinPodX can take advantage of them. The `[Tuning]` block in `winpodx doctor` will show them as `no` until the host is set up; flipping to `yes` happens automatically the next time `cfg.pod.tuning_profile = auto` runs.
+These are standard Windows-on-KVM tweaks that need operator action on the Linux host. The `[Tuning]` block in `winpodx info` reports their detected / resolved state.
 
-* **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) so the QEMU process can back its memory with hugepages. WinPodX detects `HugePages_Total > 0` in `/proc/meminfo` and skips the auto-apply if hugepages aren't reserved.
+* **Transparent hugepages / explicit hugepages.** Set `vm.nr_hugepages` via `sysctl` (or use `madvise` THP) if you want QEMU backed by hugepages. WinPodX reports `HugePages_Total > 0` in the tuning summary but does not currently emit a hugepages compose setting.
 * **CPU pinning.** WinPodX flags the host as `dedicated` when the current idle CPU + RAM is at least twice the VM's allocation. Pinning the QEMU thread to specific cores via `taskset` (or systemd `CPUAffinity=`) is then up to the operator; WinPodX will not modify host scheduling.
 * **VFIO GPU passthrough.** Out of scope for the RDP-based WinPodX architecture. (Non-GPU USB / PCI device passthrough *is* supported — see "Host device passthrough" below.) If you need bare-metal GPU performance, run your own GPU-passthrough Windows VM (for example with libvirt / virt-manager) and point WinPodX at its RDP endpoint using the `manual` backend.
 
@@ -295,7 +291,7 @@ Config file: `~/.config/winpodx/winpodx.toml` (auto-created, `0600` permissions)
 
 ```toml
 [rdp]
-user = "User"
+user = "WPX-User"
 password = ""                # Auto-generated random password
 password_updated = ""        # ISO 8601 timestamp
 password_max_age = 7         # Days before auto-rotation (0 = disable)
@@ -304,6 +300,7 @@ port = 3390
 scale = 100                  # Auto-detected from your DE
 dpi = 0                      # Windows DPI % (0 = auto)
 multimon = "span"            # Multi-monitor RAIL: span | multimon | off
+freerdp_source = "auto"      # auto | native | flatpak
 extra_flags = ""             # Additional FreeRDP flags (allowlisted); e.g.
                              #   "+multitouch" — touchscreen / stylus / pen
                              #   passthrough into Windows apps (#623)
@@ -312,16 +309,19 @@ extra_flags = ""             # Additional FreeRDP flags (allowlisted); e.g.
 [pod]
 backend = "podman"
 win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016 — see ARCHITECTURE.md for custom ISOs
-keyboard = "en-US"                               # Windows install locale; also mapped to the FreeRDP session layout (/kbd:layout) so non-US keyboards work in RemoteApp windows (#660)
+keyboard = ""                                    # Empty = host-detected; also mapped to the FreeRDP session layout (/kbd:layout)
 cpu_cores = 4
-ram_gb = 4
+ram_gb = 6
 vnc_port = 8007
 auto_start = false                               # Opt-in login auto-start: tray starts the pod on login (toggle via `winpodx autostart on|off|status`)
 idle_timeout = 0                                 # Seconds before auto-suspend (0 = disabled)
+idle_action = "pause"                            # pause = free CPU / keep RAM; stop = free RAM / cold boot next launch
 boot_timeout = 300                               # Seconds to wait for first-boot unattended install
-image = "docker.io/dockurr/windows:latest"       # Container image (override for air-gapped mirror)
-usb_live = true                                  # Hot-plug attached USB devices into the running guest (no restart) — see `winpodx device`
+image = "docker.io/dockurr/windows@sha256:..."   # Release-pinned image (override for an air-gapped mirror)
+usb_live = true                                  # Legacy compatibility key; live USB now uses usbredir — see `winpodx device`
 # disguise_level = "balanced"                    # Bare-metal mode: off | balanced (default, free hiding) | max (Hyper-V off, slower) — Nvidia code-43 / VM-hostile apps; not an anti-cheat bypass (#246)
+home_share = ""                                  # Empty = whole Home; otherwise expose only this directory as \\tsclient\home
+max_sessions = 25                                # Concurrent RemoteApp sessions (clamped to 1-50)
 disk_size = "64G"                                # Virtual disk size passed to dockur (grows via `install grow-disk`)
 disk_autogrow = true                             # Auto-grow C: when it fills past the threshold (idle only)
 disk_autogrow_threshold_pct = 80                 # Used-% that triggers an auto-grow (50-99)
@@ -339,8 +339,8 @@ full_app_scan = false                            # false = Start-Menu-only disco
 
 [reverse_open]
 enabled = true                                   # Default since v0.5.0
-allow = []                                       # Empty = all discovered apps
-deny = []                                        # Apps to exclude from the manifest
+allowlist = []                                   # Empty = all discovered apps
+denylist = []                                    # Apps to exclude from the manifest
 
 [logging]
 level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW — RAW = DEBUG + pod logs (podman logs -f) interleaved in GUI Terminal

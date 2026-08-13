@@ -23,32 +23,33 @@ How WinPodX is put together: the data flow on app launch, the technology stack, 
                      └──────────────┬──────────────┘
                                     │ FreeRDP RemoteApp
                      ┌──────────────▼──────────────┐
-                     │   Windows Container (Podman)│
+                      │ Windows Container (Podman / │
+                      │          Docker)            │
                      │   ┌──────────────────────┐  │
                      │   │  Word  Excel  PPT ...│  │
                      │   │ multi-session/rdprrap│  │
                      │   └──────────────────────┘  │
-                     │   127.0.0.1:3390 (TLS)      │
+                      │ Host publish :3390 (TLS)    │
                      └─────────────────────────────┘
 ```
 
-The pod's command channel is a bearer-authed HTTP agent listening on `127.0.0.1:8765` inside the guest (loopback only). RDP itself runs on `127.0.0.1:3390` with TLS encryption. Reverse-open (Linux apps appearing in the Windows "Open with..." menu) runs through a separate host-side listener daemon that receives requests pushed via the `\\tsclient\home` share.
+The pod's command channel is a bearer-authed HTTP agent listening on `http://+:8765/` inside the guest and published only on the host's `127.0.0.1:8765`. RDP is likewise published on `127.0.0.1:3390` with TLS encryption. Reverse-open (Linux apps appearing in the Windows "Open with..." menu) runs through a separate host-side listener daemon that receives requests pushed via the `\\tsclient\home` share.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.9+ (stdlib only on 3.11+; `tomli` fallback on 3.9/3.10) |
+| Language | Python 3.9-3.14 (stdlib only on 3.11+; `tomli` fallback on 3.9/3.10) |
 | CLI | argparse (stdlib) |
 | GUI (optional) | PySide6 (Qt6) |
 | Config | TOML (stdlib `tomllib` on 3.11+ / `tomli` on 3.9/3.10; built-in writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
-| Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
-| Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
+| Guest agent | PowerShell `HttpListener` on `http://+:8765/`, host-published at `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
+| Container | Podman (default) / Docker ([dockur/windows](https://github.com/dockur/windows)); manual RDP is the containerless backend; libvirt was removed in 0.6.0 |
 | Hypervisor | QEMU / KVM (inside the dockur container; host USB / PCI device passthrough is wired at this layer) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, embedded per-slug icon via vendored rcedit) |
 | i18n | `winpodx.core.i18n` (English-source-as-key, flat JSON catalogs per language) |
-| CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |
+| CI | GitHub Actions (lint + test on Python 3.9-3.14 + informational pip-audit) |
 
 ## Project Structure
 
@@ -58,12 +59,18 @@ winpodx/
 ├── uninstall.sh           # Clean uninstaller
 ├── src/winpodx/
 │   ├── cli/               # argparse commands (app, pod, config, setup, host-open, ...)
-│   ├── core/              # Config, RDP, pod lifecycle, provisioner, daemon
+│   ├── core/              # Config, RDP, provisioner, daemon, guest operations
+│   │   ├── pod/           # Compose generation, lifecycle, health, ports, recovery
+│   │   ├── transport/     # Agent / FreeRDP Transport ABC + dispatch policy
+│   │   ├── discovery/     # Guest app scan, parse, persist (single-file package)
+│   │   └── rotation/      # Password rotation + rollback (single-file package)
 │   ├── backend/           # Podman, Docker, manual
 │   ├── desktop/           # .desktop entries, icons, MIME, tray, notifications
 │   ├── display/           # X11/Wayland detection, DPI scaling
-│   ├── gui/               # Qt6 main window, app dialog, theme, reverse-open Settings card
+│   ├── gui/               # Qt6 window/pages, launcher, dialogs, theme
+│   │   └── icons/         # Bundled SVG icon loader, rendering, recolour, cache
 │   ├── reverse_open/      # Discovery, ICO conversion, listener daemon, sync transport
+│   ├── setup_wizard/      # Privileged host prep (KVM group, subuid/subgid)
 │   └── utils/             # XDG paths, deps, TOML writer, winapps compat
 ├── data/                  # winpodx GUI desktop entry + icon + config example
 ├── config/oem/
@@ -79,12 +86,15 @@ winpodx/
 
 ## Key Data Flows
 
-- **App launch.** CLI → `provisioner.ensure_ready()` (config + password rotation + compose + resume + pod + bundled apps + desktop entries) → FreeRDP session → `.cproc` tracking + reaper thread + desktop notification.
+- **App launch.** `cli.app._run_app()` → `provisioner.ensure_ready()` (config + pending/password rotation; if RDP is not already reachable: dependencies → compose → resume/start → two-stage RDP recovery → desktop entries → reverse-open listener self-heal) → `find_app()` → `rdp.launch_app()` → FreeRDP RemoteApp → `.cproc` tracking + process/window reapers + detached window setup.
+- **Discovery.** `app refresh` / provisioning → `core.discovery.discover_apps()` → wait for agent or RDP readiness → `transport.dispatch()` (HTTP agent first, FreeRDP fallback unless agent-only is required) → guest `discover_apps.ps1` → parse bounded JSON/icon data → persist app TOML, icons, desktop entries, MIME types, and URL schemes. The default scan is Start-Menu-only; `desktop.full_app_scan` enables the legacy five-source scan.
+- **Provisioning.** Fresh install → `winpodx provision --require-agent` → `finish_provisioning()` (`wait-ready → agent settle → apply fixes → discovery → reverse-open`). Existing-install upgrade → `winpodx migrate`, which performs guest sync/image migration before the same post-create chain.
+- **Transport selection.** Host→guest command callers use `core.transport.dispatch()`: a healthy bearer-authenticated HTTP agent wins; otherwise FreeRDP is returned. `prefer="agent"` requires the agent and raises instead of falling back; `prefer="freerdp"` forces FreeRDP. User-facing RemoteApp launches always use FreeRDP directly.
 - **App install (Linux side).** AppInfo (TOML) → `.desktop` file generation → icon install → MIME registration → icon cache refresh.
 - **File open (host → guest).** Linux path → UNC path conversion (`\\tsclient\home\...`) → RDP `/app-cmd`.
-- **Auto suspend.** `daemon.run_idle_monitor()` → no sessions for N seconds → `podman pause` → lock file cleanup.
-- **Auto resume.** `provisioner` → `daemon.ensure_pod_awake()` → `podman unpause` → wait for RDP.
-- **Password rotation.** `ensure_ready()` → check `password_max_age` → generate new password → save config + compose → recreate container → rollback on failure.
+- **Auto suspend.** `daemon.run_idle_monitor()` → no sessions for N seconds → pause the Podman/Docker container → lock file cleanup.
+- **Auto resume.** `provisioner` → `daemon.ensure_pod_awake()` → unpause the Podman/Docker container → continue readiness checks.
+- **Password rotation.** `ensure_ready()` → check `password_max_age` and running-pod state → change the guest password over the transport layer → regenerate compose + save config → rollback on persistence failure.
 - **Reverse-open (guest → host).** Windows Explorer "Open with..." → per-slug `winpodx-<slug>.exe` shim → atomic JSON write to `\\tsclient\home\.local\share\winpodx\reverse-open\incoming\<uuid>.json` → host listener picks it up → `safe_open_unc` TOCTOU-safe path resolution → `xdg-open` invocation on the host.
 - **Device passthrough (host → guest).** `winpodx device list / attach <id> / detach <id>` (also a GUI "Devices" page and a tray USB switcher) → device wired through to the guest at the QEMU (dockur) layer. USB hot-plugs live (`cfg.pod.usb_live`, default on); PCI is boot-added and needs a guest restart plus a safety confirmation (`--force` / dialog).
 
@@ -99,7 +109,7 @@ until the user wipes and reinstalls Windows. Guest sync closes that gap
 without a reinstall.
 
 **Key enabler.** `/oem` is a **live bind mount** of the host's `config/oem`
-(`{oem_dir}:/oem:Z` in `compose.py`), so after a host upgrade the running
+(`{oem_dir}:/oem:Z` in `core/pod/compose.py`), so after a host upgrade the running
 container's `/oem` *already* holds the new files — no image rebuild. Delivery
 into the guest reuses the same channel as `winpodx guest recover-oem`: tar `/oem`
 in the container → serve it over a one-shot HTTP server on `127.0.0.1:8766`
@@ -198,43 +208,13 @@ boot but fail to surface the agent, the multi-session enabler, or
 RemoteApp discovery. Bug reports specific to custom-ISO installs
 fall on you to debug.
 
-With that disclaimer:
+With that disclaimer, pass the ISO during a fresh setup:
 
-1. Place your `.iso` somewhere readable (e.g. `~/winpodx-custom.iso`).
-2. Edit your `winpodx.toml` to set `win_version = "custom"`:
+```bash
+winpodx setup --win-iso ~/winpodx-custom.iso
+```
 
-   ```toml
-   [pod]
-   win_version = "custom"
-   ```
-
-   WinPodX will log a one-line WARNING that the value isn't on its
-   known list, then pass it through to dockur as-is.
-
-3. Edit the generated `~/.config/winpodx/compose.yaml` to mount the
-   ISO at the path dockur looks for:
-
-   ```yaml
-   services:
-     windows:
-       volumes:
-         - ~/winpodx-custom.iso:/storage/custom.iso
-         # ...existing volumes stay
-   ```
-
-4. Recreate the container:
-
-   ```bash
-   winpodx pod stop
-   podman compose -f ~/.config/winpodx/compose.yaml up -d
-   ```
-
-The compose template is regenerated by `winpodx setup` and
-`winpodx pod start` on certain code paths (cpu / ram / port / user
-changes via the GUI Save button, for example) — your manual edit
-will be overwritten there. Re-apply after any such regeneration.
-
-If you find yourself doing this routinely and the upstream dockur
-project doesn't carry your edition, file a feature request: a
-narrow `cfg.pod.custom_iso_path` field is on the table but is not
-shipped today.
+Setup stages it as `<storage_path>/custom.iso` before the container
+boots, so dockur uses it instead of downloading an image. This requires
+the bind-mount storage layout used by fresh installs; existing named-volume
+pods must migrate storage before they can use this path.
