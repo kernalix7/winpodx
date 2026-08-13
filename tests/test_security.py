@@ -12,6 +12,27 @@ from winpodx.core.app import _SAFE_NAME_RE, load_app
 from winpodx.core.config import Config, PodConfig, RDPConfig
 from winpodx.core.rdp import _filter_extra_flags, linux_to_unc
 
+
+@pytest.fixture(autouse=True)
+def _pod_reports_running(monkeypatch):
+    """Short-circuit the half-uninstalled guard's live pod probe.
+
+    ``TestAgentTokenStaging`` drives ``handle_setup``, whose guard probes
+    ``pod_status(cfg)`` then calls ``ensure_ready(cfg)`` when the pod looks
+    absent (setup_cmd.py:553-568) — that escaped into a real pod start plus the
+    RDP wait loop and made one test here take 332 s. RUNNING skips the branch.
+
+    Per-file rather than conftest so tests/test_backend.py keeps exercising the
+    real ``pod_status``.
+    """
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda cfg: PodStatus(state=PodState.RUNNING),
+    )
+
+
 # --- App name injection ---
 
 

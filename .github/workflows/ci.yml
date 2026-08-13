@@ -47,7 +47,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: pytest tests/ -v
+      # Shardable only because tests/conftest.py isolates HOME + XDG_* per test.
+      - run: pytest tests/ -n auto
 
   discover-apps-ps:
     # Smoke test for scripts/windows/discover_apps.ps1 — runs the script
@@ -82,6 +83,21 @@ jobs:
         run: |
           pwsh -NoProfile -File scripts/windows/discover_apps.ps1 -DryRun > /tmp/discover.json
           python3 scripts/ci/validate_discover_dryrun.py /tmp/discover.json
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # `[all]`, not `[dev]`: without PySide6 the Qt-gated tests skip and gui/
+      # coverage reads far below reality.
+      - run: pip install -e ".[all]" || pip install -e ".[dev]"
+      # Ratchet upward only — never lower the floor to green a red build.
+      - run: pytest tests/ -n auto --cov=winpodx --cov-report=term-missing:skip-covered --cov-fail-under=88
+        env:
+          QT_QPA_PLATFORM: offscreen
 
   audit:
     runs-on: ubuntu-latest

@@ -14,6 +14,26 @@ from winpodx.utils.agent_token import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _pod_reports_running(monkeypatch):
+    """Short-circuit the half-uninstalled guard's live pod probe.
+
+    ``TestSetupStagesOemToken`` drives ``handle_setup``, whose guard probes
+    ``pod_status(cfg)`` then calls ``ensure_ready(cfg)`` when the pod looks
+    absent (setup_cmd.py:553-568) — that escaped into a real pod start plus the
+    RDP wait loop and made one test here take 314 s. RUNNING skips the branch.
+
+    Per-file rather than conftest so tests/test_backend.py keeps exercising the
+    real ``pod_status``.
+    """
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda cfg: PodStatus(state=PodState.RUNNING),
+    )
+
+
 class TestEnsureAgentToken:
     def test_creates_file_with_mode_0600(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

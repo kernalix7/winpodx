@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 from winpodx.core.guest_disk import (
     GUEST_SMB_PORT,
@@ -142,3 +145,154 @@ def test_translate_rejects_non_drive_path() -> None:
 def test_translate_bare_drive_root_is_mount_root() -> None:
     mr = Path("/mnt/guest")
     assert guest_win_path_to_host("C:\\", mr) == mr
+
+
+def test_kio_fuse_available_from_path_binary(monkeypatch) -> None:
+    import winpodx.core.guest_disk as gd
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/kio-fuse")
+    assert gd.kio_fuse_available() is True
+
+
+def test_gvfs_root_uses_runtime_environment(monkeypatch, tmp_path) -> None:
+    import winpodx.core.guest_disk as gd
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert gd._gvfs_root() == tmp_path / "gvfs"
+
+
+def test_find_existing_mount_matches_share_and_directory(monkeypatch, tmp_path) -> None:
+    import winpodx.core.guest_disk as gd
+
+    root = tmp_path / "gvfs"
+    mount = root / "smb-share:server=127.0.0.1,share=winpodx-c,user=WPX-User"
+    mount.mkdir(parents=True)
+    monkeypatch.setattr(gd, "_gvfs_root", lambda: root)
+    assert gd._find_existing_mount() == mount
+
+
+def test_find_existing_mount_handles_unreadable_root(monkeypatch, tmp_path) -> None:
+    import winpodx.core.guest_disk as gd
+
+    monkeypatch.setattr(gd, "_gvfs_root", lambda: tmp_path / "missing")
+    assert gd._find_existing_mount() is None
+
+
+@pytest.mark.parametrize(
+    "proc",
+    [
+        MagicMock(returncode=1, stdout="", stderr="denied"),
+        MagicMock(returncode=0, stdout="hostile output without a quoted path", stderr=""),
+    ],
+)
+def test_kio_fuse_mount_rejects_failed_or_malformed_guest_output(monkeypatch, proc) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    monkeypatch.setattr(guest_disk.subprocess, "run", lambda *a, **k: proc)
+    assert guest_disk._kio_fuse_mount(Config()) is None
+
+
+def test_kio_fuse_mount_rejects_non_directory_path(monkeypatch, tmp_path) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    hostile = tmp_path / ".." / "not-a-mount"
+    proc = MagicMock(returncode=0, stdout=f' string "{hostile}"', stderr="")
+    monkeypatch.setattr(guest_disk.subprocess, "run", lambda *a, **k: proc)
+    assert guest_disk._kio_fuse_mount(Config()) is None
+
+
+def test_kio_fuse_mount_handles_missing_dbus_send(monkeypatch) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    monkeypatch.setattr(
+        guest_disk.subprocess, "run", MagicMock(side_effect=FileNotFoundError("dbus-send"))
+    )
+    assert guest_disk._kio_fuse_mount(Config()) is None
+
+
+def test_gvfs_mount_returns_existing_without_command(monkeypatch, tmp_path) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    mount = tmp_path / "mounted"
+    run = MagicMock()
+    monkeypatch.setattr(guest_disk, "_find_existing_mount", lambda: mount)
+    monkeypatch.setattr(guest_disk.subprocess, "run", run)
+    assert guest_disk._gvfs_mount(Config()) == mount
+    run.assert_not_called()
+
+
+def test_gvfs_mount_passes_password_on_stdin_and_finds_mount(monkeypatch, tmp_path) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.rdp.password = "secret"
+    mount = tmp_path / "mounted"
+    existing = iter([None, mount])
+    monkeypatch.setattr(guest_disk, "_find_existing_mount", lambda: next(existing))
+    run = MagicMock(return_value=MagicMock(returncode=0, stderr=""))
+    monkeypatch.setattr(guest_disk.subprocess, "run", run)
+    assert guest_disk._gvfs_mount(cfg) == mount
+    run.assert_called_once_with(
+        ["gio", "mount", guest_disk.smb_uri(cfg)],
+        input="secret\n\n\n",
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+
+def test_gvfs_mount_handles_missing_gio(monkeypatch) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    monkeypatch.setattr(guest_disk, "_find_existing_mount", lambda: None)
+    monkeypatch.setattr(guest_disk.subprocess, "run", MagicMock(side_effect=FileNotFoundError()))
+    assert guest_disk._gvfs_mount(Config()) is None
+
+
+def test_ensure_guest_mount_gates_backend_and_prefers_kio(monkeypatch, tmp_path) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    kio = MagicMock()
+    monkeypatch.setattr(guest_disk, "_kio_fuse_mount", kio)
+    assert guest_disk.ensure_guest_mount(cfg) is None
+    kio.assert_not_called()
+
+    cfg.pod.backend = "podman"
+    mount = tmp_path / "kio"
+    gvfs = MagicMock()
+    monkeypatch.setattr(guest_disk, "_kio_fuse_mount", lambda cfg: mount)
+    monkeypatch.setattr(guest_disk, "_gvfs_mount", gvfs)
+    assert guest_disk.ensure_guest_mount(cfg) == mount
+    gvfs.assert_not_called()
+
+
+def test_ensure_guest_mount_falls_back_to_gvfs(monkeypatch, tmp_path) -> None:
+    from winpodx.core import guest_disk
+    from winpodx.core.config import Config
+
+    mount = tmp_path / "gvfs"
+    monkeypatch.setattr(guest_disk, "_kio_fuse_mount", lambda cfg: None)
+    monkeypatch.setattr(guest_disk, "_gvfs_mount", lambda cfg: mount)
+    assert guest_disk.ensure_guest_mount(Config()) == mount
+
+
+@pytest.mark.parametrize(
+    "win_path",
+    [
+        "C:\\safe\\..\\secret",
+        "c:/../etc/passwd",
+        "C:/safe/../../escape",
+        "C:\\safe\\.\\..\\escape",
+    ],
+)
+def test_translate_rejects_all_traversal_variants(win_path) -> None:
+    assert guest_win_path_to_host(win_path, Path("/mnt/guest")) is None

@@ -130,3 +130,185 @@ class TestFullProvisionDiscoveryWarning:
             _run_full_provision(cfg)
         out = capsys.readouterr().out
         assert "WARNING" not in out
+
+
+def _host_state(*, complete: bool = False, fixable: bool = True):
+    from winpodx.setup_wizard.host_state import HostState
+
+    return HostState(
+        in_kvm_group=complete,
+        kvm_group_exists=fixable,
+        dev_kvm_present=complete,
+        dev_kvm_readable=complete,
+        subuid_configured=complete,
+        subgid_configured=complete,
+        kvm_module_persistent=complete,
+    )
+
+
+def test_setup_host_status_exit_codes(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: _host_state(complete=True))
+    assert wizard_main.main(["--status"]) == 0
+
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: _host_state())
+    assert wizard_main.main(["--status"]) == 1
+
+
+def test_setup_host_without_fixable_items_exits_zero(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+    from winpodx.setup_wizard.host_state import HostState
+
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(
+        wizard_main,
+        "detect_host_state",
+        lambda: HostState(
+            in_kvm_group=True,
+            kvm_group_exists=False,
+            dev_kvm_present=False,
+            dev_kvm_readable=False,
+            subuid_configured=True,
+            subgid_configured=True,
+            kvm_module_persistent=False,
+        ),
+    )
+    monkeypatch.setattr(
+        wizard_main,
+        "apply_via_pkexec",
+        lambda _state: (_ for _ in ()).throw(AssertionError("nothing should be applied")),
+    )
+    assert wizard_main.main([]) == 0
+
+
+def test_setup_host_declined_prompt_exits_one(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: _host_state())
+    monkeypatch.setattr(wizard_main, "_confirm", lambda _prompt: False)
+    monkeypatch.setattr(
+        wizard_main,
+        "apply_via_pkexec",
+        lambda _state: (_ for _ in ()).throw(AssertionError("declined apply must not run")),
+    )
+    assert wizard_main.main([]) == 1
+
+
+def test_setup_host_apply_rechecks_and_returns_new_state(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    before = _host_state()
+    after = _host_state(complete=True)
+    states = iter((before, after))
+    applied = []
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: next(states))
+    monkeypatch.setattr(wizard_main, "apply_via_pkexec", applied.append)
+    assert wizard_main.main(["--apply"]) == 0
+    assert applied == [before]
+
+
+def test_setup_host_maps_pkexec_errors_to_exit_codes(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: _host_state())
+    cases = (
+        (wizard_main.PkexecUnavailable("missing"), 2),
+        (wizard_main.PkexecAuthDenied("denied"), 3),
+        (wizard_main.PkexecScriptFailed("failed"), 4),
+    )
+    for error, expected in cases:
+        monkeypatch.setattr(
+            wizard_main,
+            "apply_via_pkexec",
+            lambda _state, error=error: (_ for _ in ()).throw(error),
+        )
+        assert wizard_main.main(["--apply"]) == expected
+
+
+def test_setup_host_confirm_accepts_yes_and_handles_eof(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: " YES ")
+    assert wizard_main._confirm("apply") is True
+    monkeypatch.setattr("builtins.input", lambda _prompt: (_ for _ in ()).throw(EOFError()))
+    assert wizard_main._confirm("apply") is False
+
+
+def test_setup_host_confirm_handles_keyboard_interrupt(monkeypatch) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    monkeypatch.setattr(
+        "builtins.input", lambda _prompt: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    assert wizard_main._confirm("apply") is False
+
+
+def test_setup_host_print_status_reports_fixable_items(capsys) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    wizard_main._print_status(_host_state())
+
+    output = capsys.readouterr().out
+    assert "[--]  you are in kvm group" in output
+    assert "Fixable via pkexec" in output
+    assert "kvm-group-membership" in output
+
+
+def test_setup_host_print_status_reports_complete_and_unfixable_states(capsys) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+    from winpodx.setup_wizard.host_state import HostState
+
+    wizard_main._print_status(_host_state(complete=True))
+    assert "Host is fully set up." in capsys.readouterr().out
+
+    state = HostState(
+        in_kvm_group=True,
+        kvm_group_exists=False,
+        dev_kvm_present=False,
+        dev_kvm_readable=False,
+        subuid_configured=True,
+        subgid_configured=True,
+        kvm_module_persistent=False,
+    )
+    wizard_main._print_status(state)
+    output = capsys.readouterr().out
+    assert "wizard cannot fix it" in output
+    assert "enable VT-x / AMD-V in BIOS" in output
+
+
+def test_setup_host_apply_prints_logout_note_when_membership_is_pending(
+    monkeypatch, capsys
+) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    before = _host_state()
+    after = _host_state()
+    states = iter((before, after))
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: next(states))
+    monkeypatch.setattr(wizard_main, "apply_via_pkexec", lambda state: None)
+
+    assert wizard_main.main(["--apply"]) == 1
+    assert "log out + back in" in capsys.readouterr().out
+
+
+def test_setup_host_pkexec_errors_are_printed_to_stderr(monkeypatch, capsys) -> None:
+    from winpodx.setup_wizard import __main__ as wizard_main
+
+    monkeypatch.setattr(wizard_main, "_print_status", lambda _state: None)
+    monkeypatch.setattr(wizard_main, "detect_host_state", lambda: _host_state())
+    monkeypatch.setattr(
+        wizard_main,
+        "apply_via_pkexec",
+        lambda _state: (_ for _ in ()).throw(wizard_main.PkexecUnavailable("no pkexec")),
+    )
+
+    assert wizard_main.main(["--apply"]) == 2
+    error = capsys.readouterr().err
+    assert "Error: no pkexec" in error
+    assert "sudo usermod -aG kvm $USER" in error

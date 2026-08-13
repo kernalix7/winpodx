@@ -158,3 +158,143 @@ def test_wayland_fallback_when_everything_missing(monkeypatch):
 
     monkeypatch.setattr(scaling_mod.subprocess, "run", fake_run)
     assert scaling_mod._wayland_compositor_scale() == 1.0
+
+
+def test_scale_factor_thresholds(monkeypatch):
+    from winpodx.display import scaling
+
+    monkeypatch.setattr(scaling, "detect_raw_scale", lambda: 1.3)
+    assert scaling.detect_scale_factor() == 140
+    monkeypatch.setattr(scaling, "detect_raw_scale", lambda: 1.7)
+    assert scaling.detect_scale_factor() == 180
+    monkeypatch.setattr(scaling, "detect_raw_scale", lambda: 1.29)
+    assert scaling.detect_scale_factor() == 100
+
+
+def test_detect_raw_scale_routes_each_desktop(monkeypatch):
+    from winpodx.display import scaling
+
+    probes = {
+        "gnome": ("_gnome_scale", 1.25),
+        "kde": ("_kde_scale", 1.5),
+        "sway": ("_wayland_compositor_scale", 1.75),
+        "hyprland": ("_wayland_compositor_scale", 2.0),
+        "cinnamon": ("_cinnamon_scale", 1.2),
+    }
+    for desktop, (probe, expected) in probes.items():
+        monkeypatch.setattr(scaling, "desktop_environment", lambda value=desktop: value)
+        monkeypatch.setattr(scaling, probe, lambda value=expected: value)
+        assert scaling.detect_raw_scale() == expected
+
+
+def test_detect_raw_scale_unknown_prefers_environment(monkeypatch):
+    from winpodx.display import scaling
+
+    monkeypatch.setattr(scaling, "desktop_environment", lambda: "xfce")
+    monkeypatch.setattr(scaling, "_env_scale", lambda: 1.6)
+    monkeypatch.setattr(
+        scaling,
+        "_xrdb_scale",
+        lambda: (_ for _ in ()).throw(AssertionError("xrdb must be the last fallback")),
+    )
+    assert scaling.detect_raw_scale() == 1.6
+
+
+def test_gnome_combines_integer_and_text_scale(monkeypatch):
+    import subprocess
+
+    from winpodx.display import scaling
+
+    responses = iter(("uint32 2\n", "1.25\n"))
+
+    def fake_run(argv, **_kwargs):
+        return subprocess.CompletedProcess(argv, 0, stdout=next(responses))
+
+    monkeypatch.setattr(scaling.subprocess, "run", fake_run)
+    assert scaling._gnome_scale() == 2.5
+
+
+def test_gnome_invalid_values_fall_back(monkeypatch):
+    import subprocess
+
+    from winpodx.display import scaling
+
+    def fake_run(argv, **_kwargs):
+        if argv[-1] == "scaling-factor":
+            return subprocess.CompletedProcess(argv, 0, stdout="invalid")
+        raise subprocess.TimeoutExpired(argv, 5)
+
+    monkeypatch.setattr(scaling.subprocess, "run", fake_run)
+    assert scaling._gnome_scale() == 1.0
+
+
+def test_kde_tries_plasma_six_then_five(monkeypatch):
+    import subprocess
+
+    from winpodx.display import scaling
+
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv[0])
+        if argv[0] == "kreadconfig6":
+            raise FileNotFoundError(argv[0])
+        return subprocess.CompletedProcess(argv, 0, stdout="1.75\n")
+
+    monkeypatch.setattr(scaling.subprocess, "run", fake_run)
+    assert scaling._kde_scale() == 1.75
+    assert calls == ["kreadconfig6", "kreadconfig5"]
+
+
+def test_kde_uses_qt_environment_after_empty_commands(monkeypatch):
+    import subprocess
+
+    from winpodx.display import scaling
+
+    monkeypatch.setenv("QT_SCALE_FACTOR", "1.4")
+    monkeypatch.setattr(
+        scaling.subprocess,
+        "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, stdout=""),
+    )
+    assert scaling._kde_scale() == 1.4
+
+
+def test_cinnamon_parses_uint32_and_rejects_zero(monkeypatch):
+    import subprocess
+
+    from winpodx.display import scaling
+
+    monkeypatch.setattr(
+        scaling.subprocess,
+        "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, stdout="uint32 2\n"),
+    )
+    assert scaling._cinnamon_scale() == 2.0
+    monkeypatch.setattr(
+        scaling.subprocess,
+        "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, stdout="uint32 0\n"),
+    )
+    assert scaling._cinnamon_scale() == 1.0
+
+
+def test_env_scale_skips_invalid_value_for_next_source(monkeypatch):
+    from winpodx.display import scaling
+
+    monkeypatch.setenv("GDK_SCALE", "not-a-number")
+    monkeypatch.setenv("QT_SCALE_FACTOR", "1.25")
+    assert scaling._env_scale() == 1.25
+
+
+def test_xrdb_missing_or_invalid_dpi_falls_back(monkeypatch):
+    import subprocess
+
+    from winpodx.display import scaling
+
+    monkeypatch.setattr(
+        scaling.subprocess,
+        "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, stdout="Xft.dpi: invalid\n"),
+    )
+    assert scaling._xrdb_scale() == 1.0

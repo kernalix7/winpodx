@@ -94,6 +94,8 @@ AGENTS.md.bak
 WORK_STATUS.md.bak
 .gitignore.bak
 .codex/
+.omo/
+.rtrt/
 .aider*
 .continue/
 .cline/

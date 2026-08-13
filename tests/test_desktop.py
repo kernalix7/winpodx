@@ -1128,3 +1128,542 @@ def test_rebucketing_removes_the_stale_copy(tmp_path, monkeypatch):
 
     assert (hicolor / "64x64" / "apps" / "winpodx-moved.png").exists()
     assert not old.exists()
+
+
+def test_autostart_enable_writes_exact_entry_and_secure_mode(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from winpodx.desktop import autostart as autostart_mod
+
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(autostart_mod.shutil, "which", lambda name: "/opt/winpodx/bin/winpodx")
+    old_umask = os.umask(0)
+    try:
+        target = autostart_mod.enable_tray_autostart()
+    finally:
+        os.umask(old_umask)
+
+    assert target == config_home / "autostart" / "winpodx-tray.desktop"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644
+    assert target.read_text(encoding="utf-8").splitlines() == [
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=WinPodX tray",
+        "Comment=System tray icon + idle-stall auto-recovery for WinPodX",
+        "Exec=/opt/winpodx/bin/winpodx tray",
+        "Icon=winpodx",
+        "Terminal=false",
+        "Categories=Utility;",
+        "X-GNOME-Autostart-enabled=true",
+        "NoDisplay=true",
+        "StartupNotify=false",
+    ]
+    assert autostart_mod.is_tray_autostart_enabled() is True
+
+
+def test_autostart_command_falls_back_to_current_interpreter(monkeypatch):
+    from winpodx.desktop import autostart as autostart_mod
+
+    monkeypatch.setattr(autostart_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(autostart_mod.sys, "executable", "/venv/bin/python")
+
+    assert autostart_mod._resolve_tray_command() == "/venv/bin/python -m winpodx tray"
+
+
+def test_autostart_disable_reports_missing_and_removed(tmp_path, monkeypatch):
+    from winpodx.desktop import autostart as autostart_mod
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert autostart_mod.disable_tray_autostart() is False
+
+    target = autostart_mod.enable_tray_autostart()
+    assert autostart_mod.disable_tray_autostart() is True
+    assert not target.exists()
+
+
+def test_autostart_disable_swallow_unlink_error(tmp_path, monkeypatch):
+    from winpodx.desktop import autostart as autostart_mod
+
+    target = tmp_path / "winpodx-tray.desktop"
+    target.write_text("entry", encoding="utf-8")
+    monkeypatch.setattr(autostart_mod, "autostart_file_path", lambda: target)
+    monkeypatch.setattr(autostart_mod.Path, "unlink", lambda self: (_ for _ in ()).throw(OSError()))
+
+    assert autostart_mod.disable_tray_autostart() is False
+    assert target.exists()
+
+
+def test_set_tray_autostart_routes_both_states(monkeypatch):
+    from winpodx.desktop import autostart as autostart_mod
+
+    calls: list[str] = []
+    monkeypatch.setattr(autostart_mod, "enable_tray_autostart", lambda: calls.append("enable"))
+    monkeypatch.setattr(autostart_mod, "disable_tray_autostart", lambda: calls.append("disable"))
+
+    autostart_mod.set_tray_autostart(True)
+    autostart_mod.set_tray_autostart(False)
+
+    assert calls == ["enable", "disable"]
+
+
+def test_set_autostart_updates_config_only_when_changed(monkeypatch):
+    from winpodx.core import config as config_mod
+    from winpodx.desktop import autostart as autostart_mod
+
+    class _Pod:
+        auto_start = False
+
+    class _Config:
+        pod = _Pod()
+
+        def __init__(self):
+            self.saved = 0
+
+        def save(self):
+            self.saved += 1
+
+    cfg = _Config()
+    tray_states: list[bool] = []
+    monkeypatch.setattr(autostart_mod, "set_tray_autostart", tray_states.append)
+    monkeypatch.setattr(config_mod.Config, "load", classmethod(lambda cls: cfg))
+
+    autostart_mod.set_autostart(True)
+    autostart_mod.set_autostart(True)
+
+    assert tray_states == [True, True]
+    assert cfg.pod.auto_start is True
+    assert cfg.saved == 1
+
+
+def test_is_autostart_enabled_requires_file_and_config(monkeypatch):
+    from winpodx.core import config as config_mod
+    from winpodx.desktop import autostart as autostart_mod
+
+    cfg = type("Cfg", (), {"pod": type("Pod", (), {"auto_start": True})()})()
+    monkeypatch.setattr(config_mod.Config, "load", classmethod(lambda cls: cfg))
+    monkeypatch.setattr(autostart_mod, "is_tray_autostart_enabled", lambda: True)
+    assert autostart_mod.is_autostart_enabled() is True
+
+    monkeypatch.setattr(autostart_mod, "is_tray_autostart_enabled", lambda: False)
+    assert autostart_mod.is_autostart_enabled() is False
+
+
+def test_install_winpodx_icon_copies_regular_source(tmp_path, monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    source = tmp_path / "bundle" / "winpodx-icon.svg"
+    source.parent.mkdir()
+    source.write_text("<svg id='main'/>", encoding="utf-8")
+    icon_root = tmp_path / "hicolor"
+    monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *parts: source)
+    monkeypatch.setattr(icons_mod, "icons_dir", lambda: icon_root)
+
+    assert icons_mod.install_winpodx_icon() is True
+    installed = icon_root / "scalable" / "apps" / "winpodx.svg"
+    assert installed.read_text(encoding="utf-8") == "<svg id='main'/>"
+
+
+def test_install_winpodx_icon_returns_false_when_bundle_missing(monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *parts: None)
+    assert icons_mod.install_winpodx_icon() is False
+
+
+def test_gui_launcher_returns_false_when_bundle_missing(tmp_path, monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    original_is_file = Path.is_file
+    monkeypatch.setattr(
+        icons_mod.Path,
+        "is_file",
+        lambda self: (
+            False
+            if str(self) == "/usr/share/applications/winpodx.desktop"
+            else original_is_file(self)
+        ),
+    )
+    monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *parts: None)
+    monkeypatch.setattr(icons_mod.Path, "home", classmethod(lambda cls: tmp_path))
+
+    assert icons_mod.install_gui_launcher_desktop() is False
+
+
+def test_ensure_index_theme_creates_minimal_fragment(tmp_path, monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    original_exists = Path.exists
+    monkeypatch.setattr(
+        icons_mod.Path,
+        "exists",
+        lambda self: (
+            False if str(self) == "/usr/share/icons/hicolor/index.theme" else original_exists(self)
+        ),
+    )
+    icon_dir = tmp_path / "hicolor"
+
+    icons_mod._ensure_index_theme(icon_dir)
+
+    index = icon_dir / "index.theme"
+    assert "Directories=scalable/apps" in index.read_text(encoding="utf-8")
+    before = index.read_bytes()
+    icons_mod._ensure_index_theme(icon_dir)
+    assert index.read_bytes() == before
+
+
+def test_refresh_icon_cache_runs_exact_commands_and_alias(tmp_path, monkeypatch):
+    import subprocess
+
+    from winpodx.desktop import icons as icons_mod
+
+    monkeypatch.setattr(icons_mod.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(icons_mod.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(icons_mod.subprocess, "run", fake_run)
+    icons_mod.refresh_icon_cache()
+    icons_mod.update_icon_cache()
+
+    assert (
+        calls
+        == [
+            ["gtk-update-icon-cache", "-f", "-t", str(tmp_path / ".local/share/icons/hicolor")],
+            ["xdg-icon-resource", "forceupdate"],
+            ["kbuildsycoca6", "--noincremental"],
+        ]
+        * 2
+    )
+
+
+def test_refresh_icon_cache_handles_missing_tools_and_failures(tmp_path, monkeypatch):
+    import subprocess
+
+    from winpodx.desktop import icons as icons_mod
+
+    monkeypatch.setattr(icons_mod.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        icons_mod.shutil, "which", lambda cmd: cmd if cmd == "kbuildsycoca5" else None
+    )
+    calls = 0
+
+    def fake_run(cmd, **kwargs):
+        nonlocal calls
+        calls += 1
+        if cmd[0] == "gtk-update-icon-cache":
+            raise FileNotFoundError
+        if cmd[0] == "xdg-icon-resource":
+            return subprocess.CompletedProcess(cmd, 3, stdout="", stderr="xdg failed")
+        raise subprocess.TimeoutExpired(cmd, 30)
+
+    monkeypatch.setattr(icons_mod.subprocess, "run", fake_run)
+    icons_mod.refresh_icon_cache()
+
+    assert calls == 3
+
+
+def test_read_app_folders_skips_unreadable_entry(tmp_path, monkeypatch):
+    from winpodx.desktop import menu as menu_mod
+
+    apps = tmp_path / "applications"
+    apps.mkdir()
+    good = apps / "winpodx-good.desktop"
+    good.write_text("X-Winpodx-Folder=Games/Tools\n", encoding="utf-8")
+    bad = apps / "winpodx-bad.desktop"
+    bad.write_text("X-Winpodx-Folder=Bad\n", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def fake_read_text(self, *args, **kwargs):
+        if self == bad:
+            raise OSError("unreadable")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(menu_mod, "applications_dir", lambda: apps)
+    monkeypatch.setattr(menu_mod.Path, "read_text", fake_read_text)
+
+    assert menu_mod._read_app_folders() == ["Games/Tools"]
+
+
+def test_register_mime_uses_exact_argv_and_stops_when_tool_missing(tmp_path, monkeypatch):
+    from winpodx.desktop import mime as mime_mod
+
+    apps = tmp_path / "applications"
+    apps.mkdir()
+    (apps / "winpodx-mail.desktop").write_text("[Desktop Entry]\n", encoding="utf-8")
+    monkeypatch.setattr(mime_mod, "applications_dir", lambda: apps)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        raise FileNotFoundError
+
+    monkeypatch.setattr(mime_mod.subprocess, "run", fake_run)
+    app = AppInfo(
+        name="mail",
+        full_name="Mail",
+        executable="C:\\mail.exe",
+        mime_types=["message/rfc822", "text/calendar"],
+        url_schemes=["mailto"],
+    )
+
+    register_mime_types(app)
+
+    assert calls == [["xdg-mime", "default", "winpodx-mail.desktop", "message/rfc822"]]
+
+
+def test_register_mime_missing_desktop_never_invokes_tool(tmp_path, monkeypatch):
+    from winpodx.desktop import mime as mime_mod
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(mime_mod, "applications_dir", lambda: tmp_path)
+    monkeypatch.setattr(mime_mod.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
+
+    register_mime_types(AppInfo(name="ghost", full_name="Ghost", executable="C:\\ghost.exe"))
+    assert calls == []
+
+
+def test_unregister_mime_preserves_file_when_handler_absent(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    mimeapps = _write_mimeapps(
+        tmp_path, "[Default Applications]\ntext/plain=org.kde.kate.desktop;\n"
+    )
+    before = mimeapps.read_bytes()
+
+    unregister_mime_types(AppInfo(name="word", full_name="Word", executable="C:\\word.exe"))
+
+    assert mimeapps.read_bytes() == before
+
+
+def test_unregister_mime_rejects_malformed_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    mimeapps = _write_mimeapps(tmp_path, "[broken\ntext/plain=winpodx-word.desktop;\n")
+
+    unregister_mime_types(AppInfo(name="word", full_name="Word", executable="C:\\word.exe"))
+
+    assert mimeapps.read_text(encoding="utf-8").startswith("[broken")
+
+
+def test_notification_sanitizes_before_html_escape():
+    from winpodx.desktop.notify import _sanitize
+
+    raw = "A\n<&>" + "x" * 300
+    expected = "A&lt;&amp;&gt;" + "x" * 196
+    assert _sanitize(raw) == expected
+
+
+def test_notification_uses_exact_sanitized_argv(monkeypatch):
+    import subprocess
+
+    from winpodx.desktop import notify as notify_mod
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(notify_mod.shutil, "which", lambda name: "/usr/bin/notify-send")
+    monkeypatch.setattr(
+        notify_mod.subprocess,
+        "run",
+        lambda cmd, **kwargs: calls.append(list(cmd)) or subprocess.CompletedProcess(cmd, 0),
+    )
+
+    notify_mod.send_notification("Bad\n<title>", "body & more", icon="custom", urgency="critical")
+
+    assert calls == [
+        [
+            "/usr/bin/notify-send",
+            "--urgency=critical",
+            "--icon=custom",
+            "--app-name=winpodx",
+            "Bad&lt;title&gt;",
+            "body &amp; more",
+        ]
+    ]
+
+
+def test_notification_missing_binary_is_swallowed(monkeypatch):
+    from winpodx.desktop import notify as notify_mod
+
+    monkeypatch.setattr(notify_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        notify_mod.subprocess,
+        "run",
+        lambda cmd, **kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    notify_mod.send_notification("Title", "Body")
+
+
+def test_notification_helpers_forward_exact_messages(monkeypatch):
+    from winpodx.desktop import notify as notify_mod
+
+    calls: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(notify_mod, "tr", lambda text: text)
+    monkeypatch.setattr(
+        notify_mod, "send_notification", lambda *args, **kwargs: calls.append((args, kwargs))
+    )
+
+    notify_mod.notify_pod_started("10.0.0.2")
+    notify_mod.notify_pod_stopped()
+    notify_mod.notify_error("broken")
+    notify_mod.notify_pod_unresponsive("10.0.0.3")
+    notify_mod.notify_pod_recovered()
+    notify_mod.notify_pod_needs_manual_restart("agent offline")
+
+    assert calls[0] == (("WinPodX", "Windows pod started at 10.0.0.2"), {})
+    assert calls[1] == (("WinPodX", "Windows pod stopped"), {})
+    assert calls[2] == (("WinPodX Error", "broken"), {"urgency": "critical"})
+    assert calls[3][1] == {"urgency": "normal"}
+    assert calls[4][1] == {"urgency": "low"}
+    assert calls[5][0][1].endswith("\n(agent offline)")
+    assert calls[5][1] == {"urgency": "critical"}
+
+
+def test_install_marker_states(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    marker = tmp_path / "winpodx" / ".install_in_progress"
+    marker.parent.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert spawn_mod._install_in_progress() is False
+
+    marker.write_text("not-a-pid", encoding="utf-8")
+    assert spawn_mod._install_in_progress() is True
+
+    marker.write_text("4242", encoding="utf-8")
+    monkeypatch.setattr(spawn_mod.os, "kill", lambda pid, sig: None)
+    assert spawn_mod._install_in_progress() is True
+
+    monkeypatch.setattr(
+        spawn_mod.os,
+        "kill",
+        lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()),
+    )
+    assert spawn_mod._install_in_progress() is False
+
+    stale = time.time() - 7201
+    os.utime(marker, (stale, stale))
+    assert spawn_mod._install_in_progress() is False
+
+
+def test_tray_running_guard_handles_result_timeout_and_missing(monkeypatch):
+    import subprocess
+
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    monkeypatch.setattr(
+        spawn_mod.subprocess,
+        "run",
+        lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, stdout="123 tray", stderr=""),
+    )
+    assert spawn_mod._tray_already_running() is True
+
+    monkeypatch.setattr(
+        spawn_mod.subprocess,
+        "run",
+        lambda argv, **kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired(argv, 2)),
+    )
+    assert spawn_mod._tray_already_running() is False
+
+    monkeypatch.setattr(
+        spawn_mod.subprocess,
+        "run",
+        lambda argv, **kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    assert spawn_mod._tray_already_running() is False
+
+
+@pytest.mark.parametrize("guard", ["env", "install", "running"])
+def test_maybe_spawn_tray_respects_single_instance_guards(monkeypatch, guard):
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    popen_calls: list[list[str]] = []
+    monkeypatch.delenv("WINPODX_NO_TRAY_SPAWN", raising=False)
+    monkeypatch.setattr(spawn_mod, "_install_in_progress", lambda: guard == "install")
+    monkeypatch.setattr(spawn_mod, "_tray_already_running", lambda: guard == "running")
+    monkeypatch.setattr(
+        spawn_mod.subprocess, "Popen", lambda args, **kwargs: popen_calls.append(args)
+    )
+    if guard == "env":
+        monkeypatch.setenv("WINPODX_NO_TRAY_SPAWN", "1")
+
+    assert spawn_mod.maybe_spawn_tray() is False
+    assert popen_calls == []
+
+
+def test_maybe_spawn_tray_uses_installed_command_and_detaches(monkeypatch):
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(spawn_mod, "_install_in_progress", lambda: False)
+    monkeypatch.setattr(spawn_mod, "_tray_already_running", lambda: False)
+    monkeypatch.setattr(spawn_mod.shutil, "which", lambda name: "/opt/bin/winpodx")
+    monkeypatch.setattr(
+        spawn_mod.subprocess,
+        "Popen",
+        lambda args, **kwargs: captured.update(args=args, kwargs=kwargs),
+    )
+
+    assert spawn_mod.maybe_spawn_tray() is True
+    assert captured["args"] == ["/opt/bin/winpodx", "tray"]
+    assert captured["kwargs"]["start_new_session"] is True
+    assert captured["kwargs"]["close_fds"] is True
+
+
+def test_maybe_spawn_tray_uses_python_fallback_and_swallow_error(monkeypatch):
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    seen: list[str] = []
+    monkeypatch.setattr(spawn_mod, "_install_in_progress", lambda: False)
+    monkeypatch.setattr(spawn_mod, "_tray_already_running", lambda: False)
+    monkeypatch.setattr(spawn_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(spawn_mod.sys, "executable", "/venv/bin/python")
+
+    def fake_popen(args, **kwargs):
+        seen.extend(args)
+        raise OSError("spawn failed")
+
+    monkeypatch.setattr(spawn_mod.subprocess, "Popen", fake_popen)
+    assert spawn_mod.maybe_spawn_tray() is False
+    assert seen == ["/venv/bin/python", "-m", "winpodx", "tray"]
+
+
+def test_window_setup_dispatches_requested_workers(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.desktop import window_setup
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(rdp_mod, "_relist_uwp_taskbar", lambda wm: calls.append(("uwp", wm)))
+    monkeypatch.setattr(
+        rdp_mod, "_apply_window_icon", lambda wm, icon: calls.append(("icon", wm, icon))
+    )
+
+    result = window_setup.main(["window_setup", "winpodx-calc", "--icon", "/tmp/calc.png", "--uwp"])
+
+    assert result == 0
+    assert sorted(calls) == [
+        ("icon", "winpodx-calc", "/tmp/calc.png"),
+        ("uwp", "winpodx-calc"),
+    ]
+
+
+def test_window_setup_with_no_options_starts_no_workers(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.desktop import window_setup
+
+    monkeypatch.setattr(
+        rdp_mod,
+        "_relist_uwp_taskbar",
+        lambda wm: (_ for _ in ()).throw(AssertionError("unexpected UWP worker")),
+    )
+    monkeypatch.setattr(
+        rdp_mod,
+        "_apply_window_icon",
+        lambda wm, icon: (_ for _ in ()).throw(AssertionError("unexpected icon worker")),
+    )
+
+    assert window_setup.main(["window_setup", "winpodx-notepad"]) == 0

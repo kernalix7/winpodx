@@ -8,6 +8,21 @@ import pytest
 from winpodx.core.provisioner import ProvisionError
 
 
+@pytest.fixture(autouse=True)
+def _no_retry_backoff(monkeypatch):
+    """Drop the inter-attempt backoff from the transport retry loop.
+
+    ``_apply_via_transport`` retries a failing transport and sleeps ``backoff``
+    between attempts (provisioner.py:92). The failure-path tests force every
+    attempt to fail, so they pay the backoff in real time — 25 s across two
+    tests. The retries still happen and the attempt counts still assert; only
+    the waiting is removed.
+    """
+    import time
+
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+
+
 def test_provision_error():
     err = ProvisionError("test error")
     assert str(err) == "test error"

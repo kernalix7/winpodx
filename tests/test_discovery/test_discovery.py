@@ -45,6 +45,44 @@ from winpodx.core.discovery import (
     persist_discovered,
 )
 
+
+@pytest.fixture(autouse=True)
+def _skip_transport_wait(monkeypatch):
+    """Don't spend the guest-transport grace period in tests.
+
+    ``discover_apps`` calls ``_wait_for_transport_ready(cfg, max_wait_sec=30)``
+    (discovery/__init__.py:729), which polls the agent and the RDP port on a 2 s
+    cycle. These tests stub the guest channel and several deliberately make
+    ``dispatch`` raise, so the poll can never succeed and every affected test
+    pays the full 30 s — 242 s of suite time across seven tests.
+
+    tests/test_migrate.py:612 already patches this helper for the same reason.
+    """
+    monkeypatch.setattr(
+        "winpodx.core.discovery._wait_for_transport_ready",
+        lambda cfg, **kw: None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_backoff(monkeypatch):
+    """Drop the 8 s pause before the "looks suspiciously empty" re-scan.
+
+    ``discover_apps`` sleeps 8 s and scans again when the first pass returns a
+    small, UWP-less set (discovery/__init__.py:838). Fixture app lists are
+    deliberately tiny, so the heuristic fires in most end-to-end tests and each
+    one waits the full 8 s. The retry itself still runs — only the wall-clock
+    pause is removed, so tests asserting the re-scan keep working.
+
+    ``discover_apps`` aliases the module (``import time as _time``) inside the
+    function, so ``time.sleep`` is the only available lookup site; monkeypatch
+    reverts it after each test.
+    """
+    import time
+
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+
+
 # --- Helpers for Popen-based discover_apps mocking -------------------------
 
 
@@ -1398,3 +1436,445 @@ def test_persist_does_not_touch_user_apps_dir(tmp_path, monkeypatch):
     )
     assert user_app.exists()
     assert (user_app / "app.toml").exists()
+
+
+def test_is_junk_entry_rejects_empty_and_unresolved_uwp_but_keeps_allowlisted():
+    assert _is_junk_entry("   ", "C:\\empty.exe", "win32")
+    unresolved_name = "Contoso.Background.Task"
+    allowlisted_name = "Microsoft.WindowsTerminal"
+    unresolved = _is_junk_entry(unresolved_name, "C:\\WindowsApps\\contoso", "uwp")
+    allowlisted = _is_junk_entry(allowlisted_name, "C:\\WindowsApps\\terminal", "uwp")
+    assert unresolved
+    assert not allowlisted
+
+
+def test_entry_normalizes_hostile_optional_fields_and_exact_hash():
+    digest = "A" * 64
+    app = _entry_to_discovered(
+        _valid_entry(
+            args=["--unsafe"],
+            description=123,
+            wm_class_hint="x" * 256,
+            launch_uri=123,
+            exe_hash=digest,
+            extensions=["DOCX", ".docx", "bad/ext", 7, "", "." + "x" * 17],
+        )
+    )
+
+    assert app is not None
+    assert app.args == ""
+    assert app.description == ""
+    assert app.wm_class_hint == ""
+    assert app.launch_uri == ""
+    assert app.exe_hash == digest.lower()
+    assert app.extensions == [".docx"]
+
+
+@pytest.mark.parametrize("bad_hash", ["f" * 63, "g" * 64, 123, None])
+def test_entry_rejects_non_sha256_hashes(bad_hash):
+    app = _entry_to_discovered(_valid_entry(exe_hash=bad_hash))
+    assert app is not None
+    assert app.exe_hash == ""
+
+
+def test_start_menu_folder_bounds_component_and_rejects_hostile_components():
+    long_component = "A" * 80
+    hostile_folder = f"..\\C:\\{long_component}\\Good\x00Name\\four\\five\\six"
+    folder = _sanitize_start_menu_folder(hostile_folder)
+    assert folder == f"{'A' * 48}/GoodName/four/five"
+    assert ".." not in folder
+    assert ":" not in folder
+
+
+def test_runtime_and_path_aliases(monkeypatch, tmp_path):
+    from winpodx.core import discovery
+
+    expected = tmp_path / "discovered"
+    monkeypatch.setattr(discovery, "_app_discovered_apps_dir", lambda: expected)
+    monkeypatch.setattr(discovery, "bundle_dir", lambda: tmp_path)
+
+    assert discovery._runtime_for("docker") == "docker"
+    assert discovery.discovered_apps_dir() == expected
+    assert discovery._ps_script_path() == tmp_path / "scripts/windows/discover_apps.ps1"
+
+
+def test_discover_reports_unreadable_script(monkeypatch):
+    cfg = _make_cfg()
+    script = MagicMock(spec=Path)
+    script.exists.return_value = True
+    script.read_text.side_effect = OSError("permission denied")
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    with pytest.raises(DiscoveryError, match="Cannot read discovery script") as excinfo:
+        discover_apps(cfg)
+
+    assert excinfo.value.kind == "script_missing"
+
+
+def test_full_scan_without_script_sentinel_keeps_original_payload(tmp_path, monkeypatch, caplog):
+    cfg = _make_cfg()
+    cfg.desktop.full_app_scan = True
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# no full-scan assignment")
+    captured = _stub_run_in_windows(monkeypatch, stdout="[]")
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    apps = discover_apps(cfg)
+
+    assert apps == []
+    assert captured["payload"] == "# no full-scan assignment"
+    assert "sentinel not found" in caplog.text
+
+
+def test_discover_agent_transport_returns_apps_and_reports_progress(tmp_path, monkeypatch):
+    cfg = _make_cfg()
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# agent script")
+    entries = [_valid_entry(name=f"App {index}") for index in range(4)]
+    entries.append(
+        _valid_entry(
+            name="Calculator",
+            source="uwp",
+            path="C:\\WindowsApps\\Calculator",
+            launch_uri="Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        )
+    )
+    result = MagicMock(rc=0, stdout=json.dumps(entries), stderr="")
+    transport = MagicMock()
+    transport.name = "agent"
+    transport.exec.return_value = result
+    progress: list[str] = []
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda _cfg: transport)
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    apps = discover_apps(cfg, timeout=17, progress_callback=progress.append)
+
+    assert [app.full_name for app in apps] == ["App 0", "App 1", "App 2", "App 3", "Calculator"]
+    assert progress == ["Connecting to guest agent..."]
+    transport.exec.assert_called_once_with(
+        "# agent script", timeout=17, description="discover-apps"
+    )
+
+
+def test_discover_agent_retry_prefers_equal_size_with_more_uwp(tmp_path, monkeypatch):
+    cfg = _make_cfg()
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# agent script")
+    first = json.dumps([_valid_entry(name="Alpha")])
+    second = json.dumps(
+        [
+            _valid_entry(
+                name="Calculator",
+                source="uwp",
+                path="C:\\WindowsApps\\Calculator",
+                launch_uri="Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+            )
+        ]
+    )
+    transport = MagicMock()
+    transport.name = "agent"
+    transport.exec.side_effect = [
+        MagicMock(rc=0, stdout=first, stderr=""),
+        MagicMock(rc=0, stdout=second, stderr=""),
+    ]
+
+    def broken_progress(_message):
+        raise RuntimeError("decorative callback failed")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda _cfg: transport)
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    apps = discover_apps(cfg, progress_callback=broken_progress)
+
+    assert len(apps) == 1
+    assert apps[0].source == "uwp"
+    assert transport.exec.call_count == 2
+
+
+def test_discover_agent_nonzero_and_transport_failure(tmp_path, monkeypatch):
+    from winpodx.core.transport import TransportError
+
+    cfg = _make_cfg()
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# agent script")
+    transport = MagicMock()
+    transport.name = "agent"
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda _cfg: transport)
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    transport.exec.return_value = MagicMock(rc=9, stdout="", stderr="script exploded")
+    with pytest.raises(DiscoveryError, match="rc=9") as nonzero:
+        discover_apps(cfg)
+    assert nonzero.value.kind == "script_failed"
+
+    transport.exec.side_effect = TransportError("ERRINFO_LOGOFF_BY_USER")
+    with pytest.raises(DiscoveryError, match="channel failure") as disconnected:
+        discover_apps(cfg)
+    assert disconnected.value.kind == "session_disconnected"
+
+
+def test_discover_require_agent_rejects_freerdp_fallback(tmp_path, monkeypatch):
+    cfg = _make_cfg()
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# agent script")
+    monkeypatch.setenv("WINPODX_REQUIRE_AGENT", "1")
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda _cfg: None)
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    with pytest.raises(DiscoveryError, match="agent transport required") as excinfo:
+        discover_apps(cfg)
+
+    assert excinfo.value.kind == "agent_unavailable"
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("connection refused", "pod_not_running"),
+        ("ERRINFO_RPC_INITIATED_DISCONNECT", "session_disconnected"),
+        ("LOGON_FAILURE 0xc000006d", "pod_not_running"),
+        ("PowerShell syntax error", "script_failed"),
+    ],
+)
+def test_classify_channel_error(message, expected):
+    from winpodx.core.discovery import _classify_channel_error
+
+    assert _classify_channel_error(RuntimeError(message)) == expected
+
+
+def test_run_bounded_returns_streams_and_writes_stdin(monkeypatch):
+    from winpodx.core.discovery import _run_bounded
+
+    proc = _fake_popen(stdout=b"guest-json", stderr=b"warning", returncode=7)
+    monkeypatch.setattr("winpodx.core.discovery.subprocess.Popen", lambda *_a, **_kw: proc)
+
+    stdout, stderr, rc = _run_bounded(
+        ["podman", "exec"], timeout=1, runtime="podman", stdin_bytes=b"script"
+    )
+
+    assert (stdout, stderr, rc) == (b"guest-json", b"warning", 7)
+    proc.stdin.write.assert_called_once_with(b"script")
+    proc.stdin.close.assert_called_once_with()
+
+
+def test_run_bounded_reports_missing_runtime(monkeypatch):
+    from winpodx.core.discovery import _run_bounded
+
+    def missing(*_args, **_kwargs):
+        raise FileNotFoundError("gone")
+
+    monkeypatch.setattr("winpodx.core.discovery.subprocess.Popen", missing)
+
+    with pytest.raises(DiscoveryError, match="binary vanished") as excinfo:
+        _run_bounded(["podman"], timeout=1, runtime="podman")
+
+    assert excinfo.value.kind == "pod_not_running"
+
+
+def test_run_bounded_enforces_stdout_cap(monkeypatch):
+    from winpodx.core.discovery import _run_bounded
+
+    proc = _fake_popen(stdout=b"0123456789", returncode=0)
+    proc.poll.return_value = None
+    monkeypatch.setattr("winpodx.core.discovery.HARD_STDOUT_CAP", 8)
+    monkeypatch.setattr("winpodx.core.discovery.subprocess.Popen", lambda *_a, **_kw: proc)
+
+    with pytest.raises(DiscoveryError, match="exceeded 8 bytes") as excinfo:
+        _run_bounded(["podman"], timeout=1, runtime="podman")
+
+    assert excinfo.value.kind == "truncated"
+    proc.kill.assert_called()
+
+
+def test_run_bounded_enforces_timeout_without_sleep(monkeypatch):
+    from winpodx.core.discovery import _run_bounded
+
+    proc = _fake_popen(returncode=0)
+    proc.poll.return_value = None
+    monotonic = iter((0.0, 2.0))
+    monkeypatch.setattr("winpodx.core.discovery.time.monotonic", lambda: next(monotonic))
+    monkeypatch.setattr("winpodx.core.discovery.subprocess.Popen", lambda *_a, **_kw: proc)
+
+    with pytest.raises(DiscoveryError, match="timed out") as excinfo:
+        _run_bounded(["podman"], timeout=1, runtime="podman")
+
+    assert excinfo.value.kind == "timeout"
+    proc.kill.assert_called()
+
+
+def test_validate_png_stdlib_rejects_bad_chunk_shapes():
+    from winpodx.core.discovery import _validate_png_stdlib
+
+    magic = b"\x89PNG\r\n\x1a\n"
+
+    def chunk(kind, payload):
+        crc = zlib.crc32(kind + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", crc)
+
+    wrong_first = magic + chunk(b"IDAT", b"")
+    zero_width = magic + chunk(b"IHDR", struct.pack(">II", 0, 1) + b"\x08\x06\0\0\0")
+    valid_ihdr = chunk(b"IHDR", struct.pack(">II", 1, 1) + b"\x08\x06\0\0\0")
+    nonempty_iend = magic + valid_ihdr + chunk(b"IEND", b"x")
+
+    assert not _validate_png_stdlib(magic)
+    assert not _validate_png_stdlib(wrong_first)
+    assert not _validate_png_stdlib(zero_width)
+    assert not _validate_png_stdlib(nonempty_iend)
+    assert not _validate_png_stdlib(_build_png()[:-2])
+
+
+def test_persist_checksum_match_preserves_icon_and_backfills_mime(tmp_path):
+    digest = "a" * 64
+    app_dir = tmp_path / "word"
+    app_dir.mkdir()
+    icon = app_dir / "icon.png"
+    icon.write_bytes(_build_png())
+    (app_dir / "app.toml").write_text(
+        'name = "word"\nfull_name = "Old Word"\nexecutable = "C:\\\\word.exe"\n'
+        f'exe_hash = "{digest}"\nmime_types = []\n'
+    )
+    app = DiscoveredApp(
+        name="word",
+        full_name="New Word",
+        executable="C:\\word.exe",
+        exe_hash=digest.upper(),
+        extensions=[".docx"],
+    )
+
+    written = persist_discovered([app], target_dir=tmp_path, add_essentials=False)
+
+    assert written == [app_dir / "app.toml"]
+    assert icon.exists()
+    content = (app_dir / "app.toml").read_text()
+    assert "Old Word" in content
+    assert "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in content
+
+
+def test_persist_replace_false_does_not_prune_unseen_directory(tmp_path):
+    stale = tmp_path / "stale"
+    stale.mkdir()
+    (stale / "app.toml").write_text(
+        'name = "stale"\nfull_name = "Stale"\nexecutable = "C:\\\\stale.exe"\n'
+    )
+    app = DiscoveredApp(name="fresh", full_name="Fresh", executable="C:\\fresh.exe")
+
+    persist_discovered([app], target_dir=tmp_path, replace=False, add_essentials=False)
+
+    assert stale.exists()
+    assert (tmp_path / "fresh" / "app.toml").exists()
+
+
+def test_persist_skips_suppressed_app(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.core.app.suppressed_app_slugs", lambda: {"deleted"})
+    app = DiscoveredApp(name="deleted", full_name="Deleted", executable="C:\\deleted.exe")
+
+    written = persist_discovered([app], target_dir=tmp_path, add_essentials=False)
+
+    assert written == []
+    assert not (tmp_path / "deleted").exists()
+
+
+def test_purge_reverse_open_ignores_files_at_root(tmp_path):
+    marker = tmp_path / "marker.txt"
+    marker.write_text("keep")
+
+    _purge_reverse_open_entries(tmp_path)
+
+    assert marker.read_text() == "keep"
+
+
+def test_safe_rmtree_returns_when_root_cannot_resolve(tmp_path, monkeypatch):
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    original_resolve = Path.resolve
+
+    def fail_for_root(path, *args, **kwargs):
+        if path == tmp_path:
+            raise OSError("unreadable root")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", fail_for_root)
+
+    _safe_rmtree(victim, tmp_path)
+
+    assert victim.exists()
+
+
+def test_scan_and_persist_public_wrappers_forward(monkeypatch, tmp_path):
+    from winpodx.core import discovery
+
+    cfg = _make_cfg()
+    app = DiscoveredApp(name="wrapped", full_name="Wrapped", executable="C:\\wrapped.exe")
+    monkeypatch.setattr(discovery, "discover_apps", lambda *_a, **_kw: [app])
+    monkeypatch.setattr(discovery, "persist_discovered", lambda *_a, **_kw: [tmp_path / "app.toml"])
+
+    assert discovery.scan(cfg, timeout=9, progress_callback=lambda _message: None) == [app]
+    assert discovery.persist([app], target_dir=tmp_path, replace=False) == [tmp_path / "app.toml"]
+
+
+def test_run_if_first_boot_skips_populated_tree(tmp_path, monkeypatch):
+    from winpodx.core import discovery
+
+    (tmp_path / "existing").mkdir()
+    scan_mock = MagicMock()
+    monkeypatch.setattr(discovery, "discovered_apps_dir", lambda: tmp_path)
+    monkeypatch.setattr(discovery, "scan", scan_mock)
+
+    discovery.run_if_first_boot(_make_cfg())
+
+    scan_mock.assert_not_called()
+
+
+def test_run_if_first_boot_defers_until_windows_responsive(tmp_path, monkeypatch):
+    from winpodx.core import discovery
+
+    scan_mock = MagicMock()
+    monkeypatch.setattr(discovery, "discovered_apps_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.wait_for_windows_responsive", lambda *_a, **_kw: False
+    )
+    monkeypatch.setattr(discovery, "scan", scan_mock)
+
+    discovery.run_if_first_boot(_make_cfg())
+
+    scan_mock.assert_not_called()
+
+
+def test_run_if_first_boot_scans_and_persists(tmp_path, monkeypatch):
+    from winpodx.core import discovery
+
+    app = DiscoveredApp(name="first", full_name="First", executable="C:\\first.exe")
+    persisted: list[DiscoveredApp] = []
+    monkeypatch.setattr(discovery, "discovered_apps_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.wait_for_windows_responsive", lambda *_a, **_kw: True
+    )
+    monkeypatch.setattr(discovery, "scan", lambda _cfg: [app])
+    monkeypatch.setattr(discovery, "persist", lambda apps: persisted.extend(apps))
+
+    discovery.run_if_first_boot(_make_cfg())
+
+    assert persisted == [app]
+
+
+def test_run_if_first_boot_swallows_discovery_failure(tmp_path, monkeypatch, caplog):
+    from winpodx.core import discovery
+
+    def fail(_cfg):
+        raise DiscoveryError("guest unavailable")
+
+    monkeypatch.setattr(discovery, "discovered_apps_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.wait_for_windows_responsive", lambda *_a, **_kw: True
+    )
+    monkeypatch.setattr(discovery, "scan", fail)
+
+    discovery.run_if_first_boot(_make_cfg())
+
+    assert "guest unavailable" in caplog.text

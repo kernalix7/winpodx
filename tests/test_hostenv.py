@@ -249,3 +249,28 @@ def test_docker_container_state_uses_bare_docker_argv0():
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "docker"
+
+
+def test_strip_path_list_preserves_empty_entries_and_empty_input():
+    appdir = "/opt/app.AppDir"
+    assert _hostenv._strip_appdir_from_path_list("", appdir) == ""
+    assert (
+        _hostenv._strip_appdir_from_path_list(
+            ":/opt/app.AppDir/usr/bin::/usr/bin:",
+            appdir,
+        )
+        == "::/usr/bin:"
+    )
+
+
+def test_host_env_keeps_free_rdp_appimage_environment_untouched():
+    from winpodx.core import rdp
+
+    env = {
+        "APPDIR": "/opt/app.AppDir",
+        "PATH": "/opt/app.AppDir/usr/bin:/usr/bin",
+        "LD_LIBRARY_PATH": "/opt/app.AppDir/usr/lib:/host/lib",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        assert rdp.os.environ["PATH"] == env["PATH"]
+        assert rdp.os.environ["LD_LIBRARY_PATH"] == env["LD_LIBRARY_PATH"]

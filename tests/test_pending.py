@@ -17,6 +17,24 @@ def patched_config_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _agent_settles_immediately(monkeypatch):
+    """Report the guest agent as healthy on the first probe.
+
+    ``pending.resume`` runs ``finish_provisioning``, whose soft agent-settle
+    stage polls ``AgentTransport.health()`` 30 times at 2 s (provisioner.py:
+    556-560). Nothing answers on 127.0.0.1:8765 under test, so each resume test
+    paid the full 60 s. Stubbing only ``health`` keeps the real transport class
+    intact for every other call.
+    """
+    from winpodx.core.transport.base import HealthStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.transport.agent.AgentTransport.health",
+        lambda self: HealthStatus(available=True, detail="stubbed in tests"),
+    )
+
+
 class TestHasPending:
     def test_returns_false_when_file_missing(self, patched_config_dir):
         assert pending.has_pending() is False

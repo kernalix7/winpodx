@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from winpodx.core import checks
 from winpodx.core.checks import Probe
+from winpodx.core.config import Config
 
 
 def test_probe_dataclass_is_immutable():
@@ -346,6 +349,191 @@ def test_probe_apps_discovered_ok_with_app_subdirs(tmp_path, monkeypatch):
     out = checks.probe_apps_discovered(_FakeCfg())
     assert out.status == "ok"
     assert "2 app(s)" in out.detail
+
+
+@pytest.mark.parametrize(
+    ("state", "status", "detail"),
+    [
+        ("RUNNING", "ok", "running"),
+        ("STARTING", "warn", "starting"),
+        ("STOPPED", "fail", "stopped"),
+    ],
+)
+def test_probe_pod_running_verdicts(monkeypatch, state, status, detail):
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: PodStatus(state=getattr(PodState, state), ip="10.0.0.2"),
+    )
+
+    out = checks.probe_pod_running(Config())
+
+    assert out.status == status
+    assert detail in out.detail
+
+
+@pytest.mark.parametrize(
+    ("reachable", "status", "detail"),
+    [(True, "ok", "reachable"), (False, "fail", "not reachable")],
+)
+def test_probe_rdp_port_verdicts(monkeypatch, reachable, status, detail):
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *_a, **_k: reachable)
+
+    out = checks.probe_rdp_port(_FakeCfg())
+
+    assert out.status == status
+    assert "127.0.0.1:3390" in out.detail
+    assert detail in out.detail
+
+
+def test_probe_agent_health_ok_and_error(monkeypatch):
+    from winpodx.core.agent import AgentUnavailableError
+
+    client = type(
+        "Client",
+        (),
+        {
+            "__init__": lambda self, _cfg: None,
+            "health": lambda self: {"version": "1.2.3"},
+        },
+    )
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", client)
+    healthy = checks.probe_agent_health(_FakeCfg())
+    assert healthy.status == "ok"
+    assert healthy.detail == "version=1.2.3"
+
+    def unavailable(_self):
+        raise AgentUnavailableError("connection refused")
+
+    client.health = unavailable
+    failed = checks.probe_agent_health(_FakeCfg())
+    assert failed.status == "fail"
+    assert "connection refused" in failed.detail
+
+
+def test_probe_guest_exec_round_trip_verdicts(monkeypatch):
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.agent import ExecResult
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.RUNNING))
+
+    class _Client:
+        result = ExecResult(rc=0, stdout="ok\n", stderr="")
+
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def exec(self, *_a, **_k):
+            return self.result
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _Client)
+    passed = checks.probe_guest_exec(_FakeCfg())
+    assert passed.status == "ok"
+    assert "round-trip OK" in passed.detail
+
+    _Client.result = ExecResult(rc=9, stdout="", stderr="access denied")
+    failed = checks.probe_guest_exec(_FakeCfg())
+    assert failed.status == "fail"
+    assert "rc=9" in failed.detail
+
+    _Client.result = ExecResult(rc=0, stdout="wrong", stderr="")
+    degraded = checks.probe_guest_exec(_FakeCfg())
+    assert degraded.status == "warn"
+    assert "unexpected stdout" in degraded.detail
+
+
+def test_probe_guest_summary_parses_snapshot_and_rejects_bad_json(monkeypatch):
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.agent import ExecResult
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.RUNNING))
+
+    class _Client:
+        stdout = (
+            '{"os":"Windows 11","build":"26100","uptime_h":5.5,'
+            '"user":"WPX-User","sessions":2,"c_free_gb":42.0}'
+        )
+
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def exec(self, *_a, **_k):
+            return ExecResult(rc=0, stdout=self.stdout, stderr="")
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _Client)
+    passed = checks.probe_guest_summary(_FakeCfg())
+    assert passed.status == "ok"
+    assert "Windows 11 build=26100" in passed.detail
+    assert "sessions=2" in passed.detail
+    assert "C:=42.0GiB free" in passed.detail
+
+    _Client.stdout = "not-json"
+    degraded = checks.probe_guest_summary(_FakeCfg())
+    assert degraded.status == "warn"
+    assert "non-JSON stdout" in degraded.detail
+
+
+@pytest.mark.parametrize(
+    ("bundled", "status", "detail"),
+    [("(unknown)", "warn", "marker missing"), ("6.02", "ok", "bundle=6.02")],
+)
+def test_probe_oem_version_verdicts(monkeypatch, bundled, status, detail):
+    monkeypatch.setattr("winpodx.core.info._bundled_oem_version", lambda: bundled)
+
+    out = checks.probe_oem_version(_FakeCfg())
+
+    assert out.status == status
+    assert detail in out.detail
+
+
+@pytest.mark.parametrize(
+    ("enabled", "available", "status", "detail"),
+    [
+        (False, False, "skip", "disabled"),
+        (True, True, "ok", "present"),
+        (True, False, "warn", "not found"),
+    ],
+)
+def test_probe_guest_mount_verdicts(monkeypatch, enabled, available, status, detail):
+    cfg = Config()
+    cfg.reverse_open.enabled = enabled
+    monkeypatch.setattr("winpodx.core.guest_disk.kio_fuse_available", lambda: available)
+
+    out = checks.probe_guest_mount(cfg)
+
+    assert out.status == status
+    assert detail in out.detail
+
+
+def test_probe_password_age_warns_on_invalid_and_ok_on_fresh_timestamp():
+    cfg = Config()
+    cfg.rdp.password_max_age = 7
+    cfg.rdp.password_updated = "not-a-date"
+    invalid = checks.probe_password_age(cfg)
+    assert invalid.status == "warn"
+    assert "unparseable timestamp" in invalid.detail
+
+    cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
+    fresh = checks.probe_password_age(cfg)
+    assert fresh.status == "ok"
+    assert "7d remaining" in fresh.detail
+
+
+@pytest.mark.parametrize(
+    ("free_gb", "status"),
+    [(1.0, "fail"), (5.0, "warn"), (20.0, "ok")],
+)
+def test_probe_disk_free_thresholds(monkeypatch, free_gb, status):
+    usage = type("Usage", (), {"free": int(free_gb * 1024**3), "total": 100 * 1024**3})()
+    monkeypatch.setattr("shutil.disk_usage", lambda _target: usage)
+
+    out = checks.probe_disk_free(_FakeCfg())
+
+    assert out.status == status
+    assert f"{free_gb:.1f}/100 GiB free" == out.detail
 
 
 # --- Helpers ---

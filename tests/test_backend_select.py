@@ -156,3 +156,15 @@ def test_install_sh_mirror_uses_same_podman_min_major() -> None:
         f"install.sh gates podman major < {match.group(1)} but Python uses "
         f"PODMAN_MIN_MAJOR_VERSION = {expected_literal}; bash mirror has drifted"
     )
+
+
+def test_deps_default_uses_check_all_result_for_selection() -> None:
+    deps = _deps(podman=False, docker=True)
+    with patch("winpodx.utils.deps.check_all", return_value=deps) as check_all:
+        assert choose_backend() == "docker"
+    check_all.assert_called_once_with()
+
+
+def test_missing_priority_entry_is_skipped() -> None:
+    docker = DepCheck(name="docker", found=True, note="Docker backend")
+    assert choose_backend(deps={"docker": docker}) == "docker"
