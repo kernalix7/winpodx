@@ -809,3 +809,57 @@ def test_listener_drops_request_for_dangerous_url(tmp_path: Path, spawn_capture)
     assert captured == []
     assert listener.stats_snapshot().rejected_schema == 1
     assert list(inc.iterdir()) == []
+
+
+def test_process_pending_refuses_a_path_swapped_before_spawn(
+    tmp_path: Path, home_under_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The listener hands the child a by-name path, so the guest can rename the
+    # validated parent away and symlink it elsewhere after validation. The
+    # pre-spawn identity re-check must catch that and spawn nothing.
+    (home_under_tmp / "safe").mkdir()
+    (home_under_tmp / "safe" / "note.txt").write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "note.txt").write_text("ATTACKER", encoding="utf-8")
+
+    captured: list = []
+
+    def spawn(argv: list[str], popen_kwargs: dict) -> object:
+        captured.append((argv, dict(popen_kwargs)))
+        return None
+
+    def swap_then_check(self) -> None:
+        # Stand in for the guest winning the race: perform the swap at the
+        # last possible moment, then run the real check.
+        if (home_under_tmp / "safe").is_dir() and not (home_under_tmp / "safe").is_symlink():
+            (home_under_tmp / "safe").rename(tmp_path / "safe-moved")
+            (home_under_tmp / "safe").symlink_to(outside)
+        _orig_assert_unchanged(self)
+
+    from winpodx.reverse_open.paths import SafeFile
+
+    _orig_assert_unchanged = SafeFile.assert_unchanged
+    monkeypatch.setattr(SafeFile, "assert_unchanged", swap_then_check)
+
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    _write_request(
+        inc,
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "\\\\tsclient\\home\\safe\\note.txt",
+            "origin": "host",
+            "ts": "2026-06-19T00:00:00Z",
+            "pod_id": None,
+        },
+    )
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={"home": home_under_tmp})
+    apps_db = _apps_db_with("kate", ["/usr/bin/kate", "%f"])
+    listener = Listener(cfg, apps_db, _seen(tmp_path), spawn=spawn)
+
+    listener.process_pending()
+
+    assert captured == [], "a swapped path must never reach the spawn"
+    assert listener.stats_snapshot().accepted == 0

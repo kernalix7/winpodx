@@ -16,9 +16,16 @@ the path to the spawned Linux app, we have to:
 The atomic context manager :func:`safe_open_unc` is the *only* correct
 entry point for callers that will hand the resulting path to a child
 process: it opens the FD before validation, then validates against
-the kernel's authoritative ``/proc/self/fd/N`` readlink. Any later
-on-disk symlink swap can no longer redirect what the spawn targets,
-because the FD pins the inode in the listener process.
+the kernel's authoritative ``/proc/self/fd/N`` readlink, so the
+*validation* cannot be redirected by a later on-disk swap.
+
+What the FD pins is the listener's own view. A caller that passes
+``real_path`` into a child's argv makes that child reopen **by name**,
+which is racy again; such callers must call
+:meth:`SafeFile.assert_unchanged` immediately before spawning to
+re-check the name against the pinned inode. Only ``proc_path`` with
+``pass_fds`` (or an FD-backed portal pathname) removes the race
+outright.
 
 The display-only helper :func:`translate_unc_to_posix` remains for
 log/error messages and CLI status lines. It is **not** TOCTOU-safe;
@@ -317,13 +324,15 @@ class SafeFile:
         process (the receiver wouldn't have the listener's FD).
 
     ``proc_path``
-        The literal ``/proc/self/fd/N`` form. Kept for callers that
-        truly need the FD-pinned referent (e.g. tools that want to
-        defend against between-validate-and-spawn TOCTOU swaps). Using
-        it requires the child to inherit ``fd`` via Popen
-        ``pass_fds=(self.fd,)``. **The listener does NOT use this**
-        because the threat model is user-acting-on-own-files and the
-        single-instance-app handoff failure is the dominant concern.
+        The literal ``/proc/self/fd/N`` form -- the only FD-pinned
+        referent, immune to any later rename or symlink swap. Using it
+        requires the child to inherit ``fd`` via Popen
+        ``pass_fds=(self.fd,)``. **The listener does NOT use this**:
+        D-Bus-handoff apps forward the path to a pre-existing singleton
+        that never inherits our FD table, so ``/proc/self/fd/N`` is
+        unresolvable there. That is a deliberate compatibility
+        exception, not a claim that reopen-by-name is race-free --
+        see :meth:`assert_unchanged`.
 
     Use the :func:`safe_open_unc` context-manager wrapper rather
     than constructing this directly -- it handles validation, FD
@@ -333,12 +342,56 @@ class SafeFile:
     fd: int
     real_path: Path
     proc_path: Path
+    st_dev: int
+    st_ino: int
 
     def close(self) -> None:
         try:
             os.close(self.fd)
         except OSError as e:
             log.debug("SafeFile.close: %s", e)
+
+    def assert_unchanged(self) -> None:
+        """Re-check that ``real_path`` still names the validated inode.
+
+        Handing ``real_path`` to the child means the child reopens **by
+        name**, so everything validated against the pinned FD can be
+        swapped out in between -- rename the validated parent away and
+        drop a symlink in its place and the child opens the attacker's
+        target instead. Re-resolving the name here and comparing
+        device/inode against the pinned FD catches exactly that.
+
+        This is best-effort race *detection*, not a TOCTOU-safe
+        handoff: an attacker who wins the much narrower window between
+        this check and the child's own ``open()`` is still unobserved.
+        The only real closure is an FD-backed stable pathname (XDG
+        Documents portal) or FD inheritance via ``proc_path``.
+
+        Holding the original ``O_PATH`` FD keeps the validated inode
+        alive, so its number cannot be recycled under us while we look.
+        """
+        try:
+            probe = os.open(str(self.real_path), _O_PATH | os.O_NOFOLLOW)
+        except OSError as e:
+            raise ReversePathError(
+                f"validated path vanished or became unopenable before spawn: {self.real_path} ({e})"
+            ) from e
+        try:
+            st = os.fstat(probe)
+        except OSError as e:
+            raise ReversePathError(f"could not re-stat {self.real_path} before spawn: {e}") from e
+        finally:
+            try:
+                os.close(probe)
+            except OSError as e:
+                log.debug("SafeFile.assert_unchanged: probe close: %s", e)
+
+        if (st.st_dev, st.st_ino) != (self.st_dev, self.st_ino):
+            raise ReversePathError(
+                f"path was swapped between validation and spawn: {self.real_path} "
+                f"(validated dev/ino {self.st_dev}/{self.st_ino}, "
+                f"now {st.st_dev}/{st.st_ino})"
+            )
 
     def popen_kwargs(self) -> dict[str, tuple[int, ...]]:
         """Return kwargs to merge into ``subprocess.Popen(...)``.
@@ -486,7 +539,13 @@ def safe_open_unc(
                 )
 
         proc_path = Path(f"/proc/self/fd/{fd}")
-        safe = SafeFile(fd=fd, real_path=true_path, proc_path=proc_path)
+        safe = SafeFile(
+            fd=fd,
+            real_path=true_path,
+            proc_path=proc_path,
+            st_dev=st.st_dev,
+            st_ino=st.st_ino,
+        )
         try:
             yield safe
         finally:
