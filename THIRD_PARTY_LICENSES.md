@@ -57,6 +57,20 @@ licenses govern.
 - Role: stub Windows Explorer invokes from "Open with" to relay a
   file-open request back to the host's reverse-open listener.
 
+The shipped `.exe` is statically linked, so the crates below are compiled into
+the redistributed binary. All are permissive and compatible with WinPodX's MIT
+terms; the exact versions are pinned by
+`config/oem/reverse-open/shim/Cargo.lock`.
+
+| Crate | License | Why it is linked in |
+|-------|---------|---------------------|
+| [getrandom](https://crates.io/crates/getrandom) | MIT OR Apache-2.0 | Crypto-quality randomness for the request UUID (routes to `BCryptGenRandom` on Windows). Direct dependency. |
+| [cfg-if](https://crates.io/crates/cfg-if) | MIT OR Apache-2.0 | Transitive, via `getrandom`. |
+
+`winresource` and the `toml`/`serde` crates it pulls in are **build**
+dependencies only — they stamp the PE VERSIONINFO resource at compile time and
+are not linked into the shipped binary.
+
 ## Runtime dependency (always required)
 
 | Package | License | When | Notes |
@@ -67,59 +81,79 @@ licenses govern.
 
 | Package | License | Extra | Linkage |
 |---------|---------|-------|---------|
-| [PySide6](https://pypi.org/project/PySide6/) | LGPL-3.0-or-later (with [Qt for Python FAQ exceptions](https://www.qt.io/qt-for-python)) | `winpodx[gui]` | Dynamic — imported at runtime. Not redistributed by WinPodX. |
+| [PySide6](https://pypi.org/project/PySide6/) | LGPL-3.0-or-later (with [Qt for Python FAQ exceptions](https://www.qt.io/qt-for-python)) | `winpodx[gui]` | Dynamic — imported at runtime. Redistributed **only** inside the AppImage (see below). |
 | [docker](https://pypi.org/project/docker/) (docker-py) | Apache-2.0 | `winpodx[docker]` | Dynamic — imported at runtime. |
-| [pyxdg](https://pypi.org/project/pyxdg/) | LGPL-2.0-or-later | (none — soft optional) | Dynamic — try-imported at runtime by `core/reverse_open/mime.py` for the long-tail MIME→extension fallback when a type isn't in the curated 86-entry table. WinPodX works without it (fallback simply returns the curated entry only). Not vendored. |
+| [Pillow](https://pypi.org/project/Pillow/) | MIT-CMU | `winpodx[reverse-open]` | Dynamic — function-local import in `reverse_open/icons.py` for raster → multi-resolution ICO. |
+| [cairosvg](https://pypi.org/project/CairoSVG/) | LGPL-3.0-or-later | `winpodx[reverse-open]` | Dynamic — function-local import in `reverse_open/icons.py` for SVG → PNG. |
+| [pyxdg](https://pypi.org/project/pyxdg/) | LGPL-2.0-or-later | `winpodx[reverse-open]` | Dynamic — function-local import for the freedesktop icon-theme lookup and the long-tail MIME→extension fallback. WinPodX degrades gracefully without it. Not vendored. |
 
-LGPL compliance: WinPodX does not statically link, vendor, or redistribute
-the PySide6 binaries. Users install them from PyPI (or their distro) at their
-own discretion; the LGPL reverse-engineering / replacement rights are preserved
-because the libraries remain swappable at the Python import level.
+Without the `reverse-open` extra the discovery layer still works; ICO
+conversion falls back to a logged warning and writes no file.
+
+LGPL compliance: the source tree, wheel, sdist, `.deb` and `.rpm` do not
+statically link, vendor, or redistribute PySide6 / cairosvg / pyxdg — users
+install them from PyPI or their distro. The AppImage **does** redistribute
+them; the LGPL relinking right is preserved there because the SquashFS is
+user-extractable (`--appimage-extract`) and the libraries stay dynamically
+loaded and replaceable at the Python import level.
 
 ## Development-only dependencies (`winpodx[dev]`)
 
 | Package | License |
 |---------|---------|
 | pytest | MIT |
+| pytest-xdist | MIT |
+| pytest-cov | MIT |
 | ruff | MIT |
 | pip-audit | Apache-2.0 |
+| Pillow | MIT-CMU |
 | hatchling (build backend) | MIT |
 
 Dev dependencies are not shipped in the wheel / sdist / distro packages.
 
-## Fat AppImage release artifact (DOES redistribute the components below)
+## Thin AppImage release artifact (DOES redistribute the components below)
 
 The **source tree, wheel, `.deb`, and `.rpm` do not vendor** FreeRDP / Podman
 / Qt / Python — they are runtime dependencies the host provides (see the next
-section). **The fat AppImage release artifact is the exception**: since v0.5.8,
-`winpodx-fat-x86_64.AppImage` bundles, for self-contained operation on
-immutable distros:
+section). **The AppImage release artifact is the exception.** Since 0.6.0 the
+shipped artifact is the *Thin* AppImage (`winpodx-x86_64.AppImage`), which
+bundles only:
 
 - **Python 3.11** (astral-sh python-build-standalone) — PSF
 - **PySide6 / Qt6** — LGPL-3.0 (dynamically loaded; the AppImage SquashFS is
   user-extractable via `--appimage-extract`, satisfying LGPL relinking)
-- **Pillow** (HPND), **cairosvg** (LGPL-3.0), **pyxdg** (LGPL-2.0)
-- **FreeRDP** (xfreerdp / wlfreerdp / sdl-freerdp) — Apache-2.0
-- **Podman**, **conmon**, **crun**, **netavark**, **slirp4netns**, **passt** —
-  Apache-2.0
-- **podman-compose** — GPL-2.0, invoked by WinPodX as a **separate executable
-  via subprocess** (mere aggregation under GPLv2 §2 — WinPodX itself stays
-  MIT; the GPL does not reach across the exec boundary)
+- **Pillow** (MIT-CMU), **cairosvg** (LGPL-3.0-or-later), **pyxdg** (LGPL-2.0)
+- **FreeRDP** (xfreerdp / wlfreerdp / sdl-freerdp) and **libwinpr** —
+  Apache-2.0, plus the shared libraries `ldd` resolves for them
+
+The container stack is **no longer bundled**. `podman` / `docker` /
+`podman-compose` / `conmon` / `crun` / `netavark` / `slirp4netns` / `passt`
+are installed by the user through their distro package manager and executed as
+separate processes, so none of them is redistributed by WinPodX. Their license
+texts are retained under `packaging/appimage/licenses/` for provenance of the
+pre-0.6.0 Fat AppImage and are not part of the current artifact.
 
 Each bundled component's license + NOTICE text is shipped inside the AppImage
 at `usr/share/doc/winpodx/third-party/`, alongside WinPodX's own `LICENSE` and
-this file at `usr/share/doc/winpodx/`. A GPL-2.0 source offer for
-podman-compose is included there too. The CI build step that collects these is
-in `.github/workflows/appimage-publish.yml`.
+this file at `usr/share/doc/winpodx/`. The CI build step that collects these is
+in `.github/workflows/appimage-publish.yml`; the PySide6 and FreeRDP license
+copies are hard-fail gated there.
+
+> **Known gap.** `packaging/appimage/bundle-system-bins.sh` walks `ldd` and
+> copies every non-excluded shared library FreeRDP needs, but the workflow only
+> copies the `freerdp-libs` and `libwinpr` license directories explicitly. A
+> transitive `.so` pulled in that way is therefore not guaranteed to ship with
+> its own license text. Tracked for a follow-up that makes the collection
+> fail-closed per copied library.
 
 ## Runtime system dependencies (not vendored)
 
-Installed by `install.sh` via the host's package manager, or by the user
-(this is the default for the wheel / `.deb` / `.rpm` / curl install — only
-the fat AppImage above bundles them):
+Installed by `install.sh` via the host's package manager, or by the user.
+This is the default for every install path; the Thin AppImage above bundles
+FreeRDP but still relies on a host-installed container runtime:
 
-- **FreeRDP 3+** — Apache-2.0
-- **Podman** / Docker — Apache-2.0 / Apache-2.0
+- **FreeRDP 3+** — Apache-2.0 (bundled in the AppImage only)
+- **Podman** / Docker — Apache-2.0 / Apache-2.0 (never bundled)
 - **Microsoft Windows** — EULA-governed; the user supplies their own license
   via the dockur/windows image, which WinPodX pulls at setup time.
 - **dockur/windows container image** — MIT
