@@ -626,7 +626,8 @@ def _device_nodes_block(cfg: Config) -> str:
     IOMMU-group node. USB is NOT a device node here -- the whole
     ``/dev/bus/usb`` tree is bind-mounted instead (see
     ``_extra_volumes_block``) so devices plugged in *after* container start are
-    reachable for live hot-plug. Paths are constants, never YAML-dangerous.
+    reachable for live hot-plug. PCI devices without a valid IOMMU group are
+    refused before a compose file is generated.
     """
     nodes = ["/dev/kvm", "/dev/net/tun"]
     nodes.extend(
