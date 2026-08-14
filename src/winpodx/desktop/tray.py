@@ -5,13 +5,118 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 from winpodx.core.i18n import tr
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QMenu
+
+    from winpodx.core.app import AppInfo
 
 log = logging.getLogger(__name__)
 
 
 _TRAY_LOCK_FH = None  # held for the lifetime of the tray process
+
+_TRAY_ADMIN_HINTS = (
+    "control-panel",
+    "task-manager",
+    "command-processor",
+    "powershell",
+    "system-",
+    "configuration",
+    "diagnostic",
+    "administrative",
+    "registry-editor",
+    "event-viewer",
+    "services",
+    "odbc",
+    "iscsi",
+    "memory-diagnostic",
+    "drive-optimizer",
+    "disk-cleanup",
+)
+
+_TRAY_USER_WINDOWS_HINTS = (
+    "calculator",
+    "media-player",
+    "microsoft-store",
+    "notepad",
+    "paint",
+    "photos",
+    "snipping-tool",
+    "terminal",
+)
+
+
+def _tray_app_sort_key(app_info: AppInfo) -> tuple[int, str]:
+    slug = app_info.name.lower()
+    executable = (app_info.executable or "").replace("\\", "/").lower()
+
+    if app_info.essential:
+        tier = 0
+    elif any(hint in slug for hint in _TRAY_ADMIN_HINTS):
+        tier = 3
+    elif any(hint in slug for hint in _TRAY_USER_WINDOWS_HINTS):
+        tier = 1
+    elif any(
+        marker in executable
+        for marker in ("/program files/", "/program files (x86)/", "/users/", "/windowsapps/")
+    ):
+        tier = 1
+    else:
+        tier = 2
+
+    return (tier, app_info.full_name.casefold())
+
+
+def _visible_tray_apps(apps: Iterable[AppInfo]) -> list[AppInfo]:
+    return sorted((app for app in apps if not app.hidden), key=_tray_app_sort_key)
+
+
+def _tray_launch_kwargs(app_info: AppInfo) -> dict[str, object]:
+    return {
+        "launch_uri": app_info.launch_uri or None,
+        "wm_class_hint": app_info.wm_class_hint or None,
+        "default_args": app_info.args or None,
+        "app_icon": app_info.icon_path or None,
+        "rdp_overrides": app_info.rdp_overrides or None,
+    }
+
+
+def _refresh_tray_apps_menu(
+    apps_menu: QMenu,
+    make_launcher: Callable[[AppInfo], Callable[[], None]],
+    on_desktop: Callable[[], None],
+) -> bool:
+    from PySide6.QtGui import QAction
+
+    from winpodx.core.app import list_available_apps
+
+    try:
+        available_apps = _visible_tray_apps(list_available_apps())
+    except Exception as e:  # noqa: BLE001 -- preserve the last good tray menu
+        log.warning("tray app menu refresh failed: %s", e)
+        return False
+
+    apps_menu.clear()
+    for app_info in available_apps:
+        action = QAction(app_info.full_name, apps_menu)
+        action.triggered.connect(make_launcher(app_info))
+        apps_menu.addAction(action)
+
+    if not available_apps:
+        no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
+        no_apps.setEnabled(False)
+        apps_menu.addAction(no_apps)
+
+    apps_menu.addSeparator()
+    desktop_action = QAction(tr("Full Desktop"), apps_menu)
+    desktop_action.triggered.connect(on_desktop)
+    apps_menu.addAction(desktop_action)
+    return True
 
 
 def _acquire_tray_lock() -> bool:
@@ -71,7 +176,6 @@ def run_tray() -> None:
         sys.exit(1)
 
     from winpodx.core import devices as D
-    from winpodx.core.app import list_available_apps
     from winpodx.core.config import Config
     from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
     from winpodx.core.process import list_active_sessions
@@ -273,7 +377,7 @@ def run_tray() -> None:
         # Rebuilding them on this always-firing QTimer tick keeps them current
         # regardless of whether aboutToShow fires. Guarded: this is a QTimer slot
         # and must never raise (an uncaught exception aborts app.exec()).
-        for _rebuild in (_rebuild_sessions_menu, _rebuild_devices_menu):
+        for _rebuild in (_rebuild_apps_menu, _rebuild_sessions_menu, _rebuild_devices_menu):
             try:
                 _rebuild()
             except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
@@ -362,16 +466,19 @@ def run_tray() -> None:
     menu.addSeparator()
 
     apps_menu = QMenu(tr("Launch App"))
-    available_apps = list_available_apps()
 
-    def make_launcher(executable: str, full_name: str):
+    def make_launcher(app_info: AppInfo) -> Callable[[], None]:
         def launcher() -> None:
             cfg = Config.load()
             try:
-                launch_app(cfg, executable)
+                launch_app(
+                    cfg,
+                    app_info.executable,
+                    **_tray_launch_kwargs(app_info),
+                )
                 tray.showMessage(
                     "WinPodX",
-                    tr("Launching {name}...").format(name=full_name),
+                    tr("Launching {name}...").format(name=app_info.full_name),
                     QSystemTrayIcon.MessageIcon.Information,
                 )
             except RuntimeError as e:
@@ -384,19 +491,6 @@ def run_tray() -> None:
 
         return launcher
 
-    for app_info in available_apps[:20]:
-        action = QAction(app_info.full_name, apps_menu)
-        action.triggered.connect(make_launcher(app_info.executable, app_info.full_name))
-        apps_menu.addAction(action)
-
-    if not available_apps:
-        no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
-        no_apps.setEnabled(False)
-        apps_menu.addAction(no_apps)
-
-    apps_menu.addSeparator()
-    desktop_action = QAction(tr("Full Desktop"), apps_menu)
-
     def on_desktop() -> None:
         try:
             launch_app(Config.load())
@@ -406,8 +500,13 @@ def run_tray() -> None:
         except RuntimeError as e:
             tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
 
-    desktop_action.triggered.connect(on_desktop)
-    apps_menu.addAction(desktop_action)
+    def _rebuild_apps_menu() -> None:
+        _refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop)
+
+    # Discovery, Hide/Show, installs and removals can change the app set while
+    # the long-lived tray is running. Refresh immediately before it is opened.
+    apps_menu.aboutToShow.connect(_rebuild_apps_menu)
+    _rebuild_apps_menu()
 
     menu.addMenu(apps_menu)
 
