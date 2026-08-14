@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- **PCI 패스스루 시 할당된 장치의 VFIO IOMMU 그룹 노드도 컨테이너에 노출하도록 수정.** 기존 생성 compose 설정은 `/dev/vfio/vfio`만 노출했지만 QEMU가 할당된 PCI 장치를 열려면 `/dev/vfio/<group>`도 필요하므로, 장치가 `vfio-pci`에 올바르게 바인딩되어 있어도 패스스루가 실패할 수 있었습니다. 이제 WinPodX가 할당된 각 PCI 장치의 IOMMU 그룹을 확인해 VFIO 제어 노드와 함께 해당 그룹 노드를 노출하며, 여러 PCI function이 같은 그룹을 공유하면 노드를 중복 추가하지 않습니다.
+- **PCI 패스스루 시 할당된 장치의 VFIO IOMMU 그룹 노드도 컨테이너에 노출하도록 수정.** 기존 생성 compose 설정은 `/dev/vfio/vfio`만 노출했지만 QEMU가 할당된 PCI 장치를 열려면 `/dev/vfio/<group>`도 필요하므로, 장치가 `vfio-pci`에 올바르게 바인딩되어 있어도 패스스루가 실패할 수 있었습니다. 이제 WinPodX가 할당된 각 PCI 장치의 IOMMU 그룹을 확인해 VFIO 제어 노드와 함께 해당 그룹 노드를 노출하며, 여러 PCI function이 같은 그룹을 공유하면 노드를 중복 추가하지 않습니다. 할당된 장치의 그룹을 확인할 수 없으면 pod 설정 생성을 거부하고, 호스트에서 읽은 그룹 식별자를 검증한 후에만 `/dev/vfio/<group>` 경로를 만듭니다.
 
 ### Contributors
 
