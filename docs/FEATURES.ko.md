@@ -238,4 +238,4 @@ winpodx app install myapp   # desktop 메뉴에 등록
 
 **완전 오프라인 동작.** rdprrap zip 이 WinPodX 의 data 디렉토리 (`config/oem/`) 안에 ship 되고 게스트 첫 부팅 중 `C:\OEM\` 에 stage. 추출 전 pin 파일에 대해 sha256 검증. 설치 시점에 네트워크 접근 불필요.
 
-설치는 일회성: dockur 의 unattended setup 단계 중 패치 적용. 그 단계의 무엇이라도 실패하면 (해시 불일치, 추출, installer 에러), WinPodX 가 경고 로그 + 게스트는 단일 세션 모드 유지 — 앱 실행이 이 단계에서 막히지 않음. guest 측 management 채널 (설치 후 활성/비활성/상태) 은 차후 릴리스 예정.
+설치는 일회성: dockur 의 unattended setup 단계 중 패치 적용. 그 단계의 무엇이라도 실패하면 (해시 불일치, 추출, installer 에러), WinPodX 가 경고 로그 + 게스트는 단일 세션 모드 유지 — 앱 실행이 이 단계에서 막히지 않음. 이후 `winpodx guest multi-session on|off|status` 로 관리; `winpodx guest apply-fixes` 도 활성화를 self-heal.
