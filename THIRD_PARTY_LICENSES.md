@@ -59,8 +59,9 @@ licenses govern.
 
 The shipped `.exe` is statically linked, so the crates below are compiled into
 the redistributed binary. All are permissive and compatible with WinPodX's MIT
-terms; the exact versions are pinned by
-`config/oem/reverse-open/shim/Cargo.lock`.
+terms. The source manifest declares the dependency ranges; `Cargo.lock` is not
+tracked, so the exact resolved versions must be inventoried from the build that
+produces the prebuilt binary whenever that binary is regenerated.
 
 | Crate | License | Why it is linked in |
 |-------|---------|---------------------|
