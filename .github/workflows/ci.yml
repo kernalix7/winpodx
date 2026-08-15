@@ -91,6 +91,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      # PySide6 loads libEGL.so.1 at import time even under offscreen; the
+      # ubuntu-latest image does not ship it, so provide it before the Qt
+      # install/tests to keep the gui/ coverage real.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1
       # `[all]`, not `[dev]`: without PySide6 the Qt-gated tests skip and gui/
       # coverage reads far below reality.
       - run: pip install -e ".[all]" || pip install -e ".[dev]"
