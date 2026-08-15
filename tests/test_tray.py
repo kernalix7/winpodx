@@ -144,7 +144,7 @@ def test_timer_tick_rebuilds_both_submenus_and_cannot_raise() -> None:
     # periodic tick is the fallback -- and an uncaught exception in a QTimer
     # slot aborts app.exec(), taking the whole tray down.
     src = _src()
-    loop = "for _rebuild in (_rebuild_sessions_menu, _rebuild_devices_menu):"
+    loop = "for _rebuild in (_rebuild_apps_menu, _rebuild_sessions_menu, _rebuild_devices_menu):"
     assert loop in src
     tail = src[src.index(loop) :]
     assert "try:" in tail[:200]
@@ -391,7 +391,15 @@ def test_app_desktop_and_double_click_launch_real_handlers(tray_runtime) -> None
     tray_runtime.tray.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
 
     assert tray_runtime.launch.call_args_list == [
-        call(tray_runtime.cfg, r"C:\Office\word.exe"),
+        call(
+            tray_runtime.cfg,
+            r"C:\Office\word.exe",
+            launch_uri=None,
+            wm_class_hint=None,
+            default_args=None,
+            app_icon=None,
+            rdp_overrides=None,
+        ),
         call(tray_runtime.cfg),
         call(tray_runtime.cfg),
     ]

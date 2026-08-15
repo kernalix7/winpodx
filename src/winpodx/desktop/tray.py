@@ -50,6 +50,8 @@ _TRAY_USER_WINDOWS_HINTS = (
     "terminal",
 )
 
+_TRAY_APPS_PAGE_SIZE = 12
+
 
 def _tray_app_sort_key(app_info: AppInfo) -> tuple[int, str]:
     slug = app_info.name.lower()
@@ -101,11 +103,29 @@ def _refresh_tray_apps_menu(
         log.warning("tray app menu refresh failed: %s", e)
         return False
 
+    stale_submenus = [
+        submenu for action in apps_menu.actions() if (submenu := action.menu()) is not None
+    ]
     apps_menu.clear()
-    for app_info in available_apps:
-        action = QAction(app_info.full_name, apps_menu)
-        action.triggered.connect(make_launcher(app_info))
-        apps_menu.addAction(action)
+    for submenu in stale_submenus:
+        submenu.deleteLater()
+
+    if len(available_apps) <= _TRAY_APPS_PAGE_SIZE:
+        for app_info in available_apps:
+            action = QAction(app_info.full_name, apps_menu)
+            action.triggered.connect(make_launcher(app_info))
+            apps_menu.addAction(action)
+    else:
+        from PySide6.QtWidgets import QMenu
+
+        for start in range(0, len(available_apps), _TRAY_APPS_PAGE_SIZE):
+            page_apps = available_apps[start : start + _TRAY_APPS_PAGE_SIZE]
+            page_menu = QMenu(f"{start + 1}-{start + len(page_apps)}", apps_menu)
+            for app_info in page_apps:
+                action = QAction(app_info.full_name, page_menu)
+                action.triggered.connect(make_launcher(app_info))
+                page_menu.addAction(action)
+            apps_menu.addMenu(page_menu)
 
     if not available_apps:
         no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
