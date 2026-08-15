@@ -23,8 +23,8 @@ Linux 에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 �
 | 프린터 리디렉션 기본 | 없음 | 없음 | 문서화 안 됨 | 있음 (FreeRDP) |
 | USB 드라이브 공유 | 없음 | 없음 | 스마트카드 패스스루 | **`\\tsclient\media` 서브폴더 공유 (불안정했던 드라이브 레터 자동 매핑은 제거)** |
 | 호스트 USB / PCI 장치 패스스루 | 없음 | 없음 | 스마트카드만 | **있음 (`device list / attach / detach`, GUI Devices 페이지, 트레이 USB 스위처; USB live hot-plug, PCI boot-add)** |
-| Discovery (설치된 앱 자동 스캔) | 없음 | 없음 | 있음 | **있음 (Registry + Start Menu + UWP + choco/scoop)** |
-| 멀티세션 RDP | 없음 | 없음 | 문서화 안 됨 | **있음 (bundled rdprrap, 최대 10)** |
+| Discovery (설치된 앱 자동 스캔) | 없음 | 없음 | 있음 | **있음 (기본 Start Menu + UWP; Registry/choco/scoop 전체 스캔은 opt-in)** |
+| 멀티세션 RDP | 없음 | 없음 | 문서화 안 됨 | **있음 (bundled rdprrap, 기본 25; 1–50 설정 가능)** |
 | Reverse 파일 열기 (guest → host xdg-open) | 없음 | 없음 | 없음 | **있음 (Linux 앱이 Windows "Open with…" 메뉴에 노출)** |
 | Windows 디스크 자동 확장 | 없음 | 없음 | 없음 | **있음 (idle, 호스트 여유 공간으로 bounded)** |
 | 게스트 동기화 (재설치 없는 in-place 업데이트) | 없음 | 없음 | 없음 | **있음 (pod 시작 시 자동 + `guest sync`)** |
@@ -52,4 +52,4 @@ Linux 에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 �
 | IE 전용 레거시 엔터프라이즈 웹 앱 | **WinPodX** |
 | "대부분 동작" 이 허용 안 되는 모든 것 | **WinPodX** |
 
-Wine 은 속도와 GPU 에서 (DXVK/VKD3D 변환이 깔끔하게 될 때) 이김. WinPodX 는 그 외 모든 곳에서 **100% Windows 기능 동등성** 으로 이김 — 모든 앱이 실제 Windows 커널 위에서 실행되고, FreeRDP RemoteApp 통해 Linux 데스크톱에 네이티브 윈도로 렌더링됨.
+Wine 은 속도와 GPU 에서 (DXVK/VKD3D 변환이 깔끔하게 될 때) 이김. WinPodX 는 Wine 이 구현하지 않은 Windows 구성요소가 필요한 앱에 실제 Windows 커널과 userspace 를 제공하고 FreeRDP RemoteApp 으로 Linux 데스크톱에 렌더링함. 호환성은 높아지지만 모든 앱을 보장하지는 않으며 VM 탐지, 안티치트, GPU 요구사항, 미지원 하드웨어가 여전히 실행을 막을 수 있음.
