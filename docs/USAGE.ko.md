@@ -311,7 +311,7 @@ extra_flags = ""             # 추가 FreeRDP 플래그 (allowlist); 예:
 [pod]
 backend = "podman"
 win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016 — 커스텀 ISO 는 ARCHITECTURE.md 참고
-keyboard = "en-US"                               # Windows 설치 로케일; FreeRDP 세션 레이아웃(/kbd:layout)으로도 매핑돼 비-US 키보드가 RemoteApp 창에서 동작 (#660)
+keyboard = ""                                    # 비어있으면 호스트에서 자동 감지; FreeRDP 세션 레이아웃(/kbd:layout)으로도 매핑
 cpu_cores = 4
 ram_gb = 6
 vnc_port = 8007
@@ -319,8 +319,8 @@ auto_start = false                               # opt-in 로그인 자동시작
 idle_timeout = 0                                 # 자동 suspend 까지 초 (0 = 비활성)
 idle_action = "pause"                            # idle timeout 동작: pause | stop
 boot_timeout = 300                               # 첫 부팅 unattended 설치 대기 초
-image = "docker.io/dockurr/windows:latest"       # 컨테이너 이미지 (에어갭 미러용 override)
-usb_live = true                                  # attach 된 USB 장치를 실행 중 게스트에 hot-plug (재시작 없이) — `winpodx device` 참고
+image = "docker.io/dockurr/windows@sha256:..."   # 릴리스에서 pin 된 이미지 (에어갭 미러용 override)
+usb_live = true                                  # 레거시 호환 키; live USB 는 usbredir 사용 — `winpodx device` 참고
 home_share = ""                                  # 비어있으면 Home 전체; 절대 경로를 지정하면 그 디렉터리만 \\tsclient\home 으로 공유 (#758)
 # disguise_level = "balanced"                    # bare-metal 모드: off | balanced(기본, 무손실 숨김) | max(Hyper-V 끔, 느려짐) — Nvidia code-43 / VM 거부 앱; 안티치트 우회 아님 (#246)
 disk_size = "64G"                                # dockur 에 전달하는 가상 디스크 크기 (`install grow-disk` 로 확장)
@@ -341,8 +341,8 @@ full_app_scan = false                            # false = 시작메뉴 전용 �
 
 [reverse_open]
 enabled = true                                   # v0.5.0 부터 기본 활성
-allow = []                                       # 비어있으면 발견된 모든 앱
-deny = []                                        # manifest 에서 제외할 앱
+allowlist = []                                   # 비어있으면 발견된 모든 앱
+denylist = []                                    # manifest 에서 제외할 앱
 
 [logging]
 level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW — RAW = DEBUG + pod 로그 (podman logs -f) 를 GUI Terminal 에 interleave
