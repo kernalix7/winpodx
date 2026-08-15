@@ -195,7 +195,7 @@ winpodx launch                    # 빠른 앱 런처 (Start-menu 스타일 선�
 - RemoteApp (RAIL) 이 각 Windows 앱을 네이티브 Linux 윈도로 렌더링 — 전체 데스크톱 아님
 - `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<stem>` + `StartupWMClass`)
 - 양방향 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
-- 멀티세션 RDP: bundled [rdprrap](https://github.com/kernalix7/rdprrap) 이 최대 10개 독립 세션 자동 활성화
+- 멀티세션 RDP: bundled [rdprrap](https://github.com/kernalix7/rdprrap) 이 독립 세션 자동 활성화; 기본 25개, 1–50 범위로 설정 가능
 - 멀티모니터 RAIL (0.6.0): remote-app 윈도를 두 번째 모니터로 끌어도 입력이 계속 동작 — 기본 활성 (`cfg.rdp.multimon`, 기본 `span`)
 - RAIL 전제조건이 unattended 설치 중 자동 설정
 
@@ -282,7 +282,7 @@ winpodx launch                    # 빠른 앱 런처 (Start-menu 스타일 선�
 ```bash
 # 리포 루트에서 (설치 불필요)
 export PYTHONPATH="$PWD/src"
-pytest tests/ -n auto      # 1800+ 테스트, 병렬 실행
+pytest tests/ -n auto      # 3500+ 테스트, 병렬 실행
 ruff check src/ tests/      # 린트
 ruff format --check src/ tests/
 # 커버리지 게이트 (CI 기준 88% 이상)

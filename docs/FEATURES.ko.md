@@ -46,9 +46,9 @@ winpodx host-open disable       # 기능 전체 끄기
 - RemoteApp (RAIL) 이 각 앱을 네이티브 Linux 윈도로 렌더링 — 전체 데스크톱 아님
 - `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<stem>` + `StartupWMClass`)
 - 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
-- 멀티세션 RDP: bundled rdprrap 이 최대 10개 독립 세션 자동 활성화
+- 멀티세션 RDP: bundled rdprrap 이 독립 세션을 자동 활성화; `cfg.pod.max_sessions` 기본값은 25, 허용 범위는 1–50
 - 실행 중인 세션을 GUI Dashboard (Running-sessions 스트립) 또는 시스템 트레이 메뉴에서 종료
-- RAIL 전제조건 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) 이 unattended 설치 중 자동 설정
+- RAIL 전제조건 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `fSingleSessionPerUser=0` + 설정된 `MaxInstanceCount`) 이 unattended 설치 중 자동 설정
 - 멀티모니터 RAIL 기본 활성 (`cfg.rdp.multimon = "span"`): 리모트 앱 윈도를 두 번째 모니터로 드래그해도 입력이 계속 동작
 - UWP/Store 앱도 다른 앱처럼 Linux taskbar 에 등장
 
@@ -232,7 +232,7 @@ winpodx app install myapp   # desktop 메뉴에 등록
 
 기본 Windows Desktop 에디션은 RDP 를 사용자당 1 세션으로 제한 — 두 번째 앱이 재연결하면서 첫 세션을 빼앗아감. WinPodX 는 [rdprrap](https://github.com/kernalix7/rdprrap) — RDPWrap 의 Rust 재구현 — 을 패키지 내부에 bundle 하고 Windows unattended 설치 중 자동 설치, 그래서 각 RemoteApp 윈도가 독립 세션을 받음.
 
-**RAIL 전제조건.** RemoteApp 자체가 unattended setup 중 WinPodX 가 적용하는 세 개의 레지스트리 설정 필요: `fDisabledAllowList=1` (RemoteApp publishing 활성), `fInheritInitialProgram=1` (`/app:program:...` 가 셸이 아닌 타겟 실행파일을 실행하도록), `MaxInstanceCount=10` + `fSingleSessionPerUser=0` (단일 세션 제한 해제, 최대 10개 동시 RemoteApp 윈도). 이 키들은 rdprrap 설치 성공 여부와 관계없이 설정 — rdprrap 가 세션을 *독립적으로* 만들어주지만, 레지스트리 키들이 RemoteApp 을 일단 동작하게 만드는 것. rdprrap 설치 후 `TermService` 가 cycle 되어 wrapper DLL 이 재부팅 없이 활성화.
+**RAIL 전제조건.** RemoteApp 자체가 unattended setup 중 WinPodX 가 적용하는 레지스트리 설정 필요: `fDisabledAllowList=1` (RemoteApp publishing 활성), `fInheritInitialProgram=1` (`/app:program:...` 가 셸이 아닌 타겟 실행파일을 실행하도록), `fSingleSessionPerUser=0`, 그리고 `cfg.pod.max_sessions` 에서 가져온 `MaxInstanceCount` (기본 25, 범위 1–50). OEM setup 은 최초 상한 50을 쓰고 provisioning 이 설정값으로 동기화. 이 키들은 rdprrap 설치 성공 여부와 관계없이 설정 — rdprrap 가 세션을 *독립적으로* 만들어주지만, 레지스트리 키들이 RemoteApp 을 일단 동작하게 만드는 것. rdprrap 설치 후 `TermService` 가 cycle 되어 wrapper DLL 이 재부팅 없이 활성화.
 
 **인증 채널.** NLA 비활성 (`UserAuthentication=0`) 으로 FreeRDP 명령줄이 `podman unshare --rootless-netns` 아래에서 unattended 인증 가능, 하지만 `SecurityLayer=2` 가 RDP 채널 자체는 TLS 로 암호화 유지 (그래서 `127.0.0.1` 에 대한 `/sec:tls /cert:ignore` 가 완전 인증 + 암호화 경로 — NLA 가 꺼져있어도 wire 에 평문 없음).
 
