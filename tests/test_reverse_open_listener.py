@@ -423,6 +423,54 @@ def test_process_pending_guest_rejects_when_mount_unavailable(
     assert captured == []
 
 
+def test_process_pending_guest_refuses_a_path_swapped_before_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mount = tmp_path / "guest-c"
+    target = mount / "Users" / "me" / "note.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "note.txt").write_text("attacker", encoding="utf-8")
+    captured: list[tuple[list[str], dict]] = []
+
+    from winpodx.reverse_open.paths import SafeFile
+
+    original_assert_unchanged = SafeFile.assert_unchanged
+
+    def swap_then_check(self: SafeFile) -> None:
+        target.parent.rename(tmp_path / "moved")
+        target.parent.symlink_to(outside)
+        original_assert_unchanged(self)
+
+    monkeypatch.setattr(SafeFile, "assert_unchanged", swap_then_check)
+    incoming = _incoming(tmp_path)
+    incoming.chmod(0o700)
+    _write_request(
+        incoming,
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "C:\\Users\\me\\note.txt",
+            "origin": "guest",
+            "ts": "2026-06-19T00:00:00Z",
+            "pod_id": None,
+        },
+    )
+    listener = Listener(
+        ListenerConfig(incoming_dir=incoming, share_roots={}, guest_mount=lambda: mount),
+        _apps_db_with("kate", ["/usr/bin/kate", "%f"]),
+        _seen(tmp_path),
+        spawn=lambda argv, kwargs: captured.append((argv, kwargs)),
+    )
+
+    listener.process_pending()
+
+    assert captured == []
+    assert listener.stats_snapshot().accepted == 0
+
+
 def test_process_pending_spawns_on_happy_path(
     tmp_path: Path, home_under_tmp: Path, spawn_capture: tuple
 ) -> None:

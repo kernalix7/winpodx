@@ -674,3 +674,24 @@ def test_assert_unchanged_reports_a_vanished_path(tmp_path):
 
         with pytest.raises(ReversePathError, match="vanished or became unopenable"):
             safe.assert_unchanged()
+
+
+def test_safe_open_unc_closes_the_pinned_fd_once_when_the_body_raises(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.write_text("inside", encoding="utf-8")
+    real_close = os.close
+    closed: list[int] = []
+
+    def close_once(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(os, "close", close_once)
+    pinned_fd = -1
+
+    with pytest.raises(RuntimeError, match="body failed"):
+        with safe_open_unc(r"\\tsclient\home\target", {"home": tmp_path}) as safe:
+            pinned_fd = safe.fd
+            raise RuntimeError("body failed")
+
+    assert closed.count(pinned_fd) == 1

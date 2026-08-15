@@ -64,7 +64,7 @@ from winpodx.reverse_open.apps_db import (
     strip_path_placeholders,
     substitute_path,
 )
-from winpodx.reverse_open.paths import ReversePathError, safe_open_unc
+from winpodx.reverse_open.paths import ReversePathError, safe_open_path, safe_open_unc
 from winpodx.reverse_open.seen_uuids import SeenUUIDs
 
 log = logging.getLogger(__name__)
@@ -519,24 +519,24 @@ class Listener:
             log.warning("listener: guest path rejected (%s): %s", path.name, win_path)
             _safe_unlink(path)
             return
-        if not host_path.exists():
-            self._stats.rejected_path += 1
-            log.warning(
-                "listener: guest file not found under mount (%s): %s -> %s",
-                path.name,
-                win_path,
-                host_path,
-            )
-            _safe_unlink(path)
-            return
-
-        argv = substitute_path(app.exec_argv, str(host_path))  # type: ignore[attr-defined]
-        log.info("listener: spawning (guest) slug=%s argv=%r", slug, argv)
         try:
-            self._spawn(argv, {})
-        except OSError as exc:
-            self._stats.spawn_errors += 1
-            log.warning("listener: spawn failed for %s: %s", slug, exc)
+            with safe_open_path(host_path, Path(mount_root)) as safe:
+                argv = substitute_path(  # type: ignore[attr-defined]
+                    app.exec_argv,
+                    str(safe.real_path),
+                )
+                log.info("listener: spawning (guest) slug=%s argv=%r", slug, argv)
+                safe.assert_unchanged()
+                try:
+                    self._spawn(argv, safe.popen_kwargs())
+                except OSError as exc:
+                    self._stats.spawn_errors += 1
+                    log.warning("listener: spawn failed for %s: %s", slug, exc)
+                    _safe_unlink(path)
+                    return
+        except ReversePathError as exc:
+            self._stats.rejected_path += 1
+            log.warning("listener: guest path rejected for %s: %s", path.name, exc)
             _safe_unlink(path)
             return
 

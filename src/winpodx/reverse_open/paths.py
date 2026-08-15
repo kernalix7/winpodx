@@ -415,6 +415,74 @@ _O_PATH = getattr(os, "O_PATH", 0o010000000)  # Linux O_PATH = 0o10000000
 
 
 @contextmanager
+def safe_open_path(candidate: Path, allowed_root: Path) -> Iterator[SafeFile]:
+    """Pin and validate an untrusted host path beneath ``allowed_root``.
+
+    The FD is acquired before canonical-path validation and remains open until
+    the caller leaves the context. Validation failures and context-body errors
+    each have one FD owner, so the descriptor is closed exactly once.
+    """
+    try:
+        fd = os.open(str(candidate), _O_PATH | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ReversePathError(f"cannot open {candidate}: {exc}") from exc
+
+    safe: SafeFile | None = None
+    try:
+        try:
+            st = os.fstat(fd)
+        except OSError as e:
+            raise ReversePathError(f"could not fstat fd {fd} for {candidate}: {e}") from e
+        if stat.S_ISLNK(st.st_mode):
+            raise ReversePathError(
+                f"refusing symlink leaf for {candidate}: "
+                f"O_PATH|O_NOFOLLOW pinned a symlink, not a real inode"
+            )
+
+        try:
+            true_path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError as e:
+            raise ReversePathError(f"could not read /proc/self/fd/{fd} for {candidate}: {e}") from e
+
+        try:
+            resolved_root = allowed_root.resolve(strict=False)
+        except (OSError, RuntimeError) as e:
+            raise ReversePathError(f"share root resolution failed: {e}") from e
+
+        if not is_relative_to(true_path, resolved_root):
+            raise ReversePathError(
+                f"path escapes share root after canonicalisation: "
+                f"{candidate} -> {true_path} (root: {resolved_root})"
+            )
+
+        for deny_root in _DENYLIST_ROOTS:
+            if is_relative_to(true_path, deny_root):
+                raise ReversePathError(
+                    f"path resolves under system denylist root {deny_root}: "
+                    f"{candidate} -> {true_path}"
+                )
+
+        safe = SafeFile(
+            fd=fd,
+            real_path=true_path,
+            proc_path=Path(f"/proc/self/fd/{fd}"),
+            st_dev=st.st_dev,
+            st_ino=st.st_ino,
+        )
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+    try:
+        yield safe
+    finally:
+        safe.close()
+
+
+@contextmanager
 def safe_open_unc(
     unc_path: str,
     share_roots: dict[str, Path],
@@ -461,100 +529,5 @@ def safe_open_unc(
       a security event.
     """
     candidate, share_root = _unc_to_candidate(unc_path, share_roots)
-
-    # Acquire the FD FIRST. Once this returns, the kernel pins the
-    # inode and any subsequent symlink swap on disk can no longer
-    # redirect what we (and our future child) operate on.
-    #
-    # O_NOFOLLOW catches the leaf-symlink case -- if `candidate`
-    # itself is a symlink at this exact instant, the kernel raises
-    # ELOOP rather than following it. Non-leaf component swaps are
-    # caught by the readlink validation below: the kernel's
-    # /proc/self/fd/N readlink returns the *real* path to the inode,
-    # and if that path isn't under the share root we reject.
-    try:
-        fd = os.open(str(candidate), _O_PATH | os.O_NOFOLLOW)
-    except OSError as exc:
-        # The file is gone / unreadable / a symlink (ELOOP). Surface it as a
-        # ReversePathError so the listener drops the request instead of letting
-        # a raw FileNotFoundError escape _handle_request and re-loop forever on
-        # the same stale entry (#425: continuous 'process_pending raised').
-        raise ReversePathError(f"cannot open {candidate}: {exc}") from exc
-
-    try:
-        # With ``O_PATH | O_NOFOLLOW``, the kernel opens the symlink
-        # *itself* if the leaf is a symlink (rather than raising ELOOP
-        # the way plain ``O_NOFOLLOW`` would). That's a problem for
-        # us: ``readlink('/proc/self/fd/N')`` then returns the
-        # symlink's own path -- which is inside the share root by
-        # construction -- and the ``is_relative_to`` check would
-        # incorrectly pass even though the symlink target points
-        # outside.
-        #
-        # Fstat the FD and refuse if the leaf is a symlink. Regular
-        # files, directories, and other inodes are fine; symlinks at
-        # this layer always indicate either an attack or a guest
-        # producing a path the listener shouldn't follow.
-        try:
-            st = os.fstat(fd)
-        except OSError as e:
-            raise ReversePathError(f"could not fstat fd {fd} for {unc_path!r}: {e}") from e
-        if stat.S_ISLNK(st.st_mode):
-            raise ReversePathError(
-                f"refusing symlink leaf for {unc_path!r}: "
-                f"O_PATH|O_NOFOLLOW pinned a symlink, not a real inode"
-            )
-
-        # Read the canonical path the kernel sees for this FD. This
-        # is the authoritative answer -- not affected by any later
-        # on-disk rename or symlink swap.
-        try:
-            true_path_str = os.readlink(f"/proc/self/fd/{fd}")
-        except OSError as e:
-            raise ReversePathError(
-                f"could not read /proc/self/fd/{fd} for {unc_path!r}: {e}"
-            ) from e
-        true_path = Path(true_path_str)
-
-        # Resolve the share root for an apples-to-apples comparison.
-        try:
-            resolved_root = share_root.resolve(strict=False)
-        except (OSError, RuntimeError) as e:
-            raise ReversePathError(f"share root resolution failed: {e}") from e
-
-        if not is_relative_to(true_path, resolved_root):
-            raise ReversePathError(
-                f"path escapes share root after canonicalisation: "
-                f"{unc_path!r} -> {true_path} (root: {resolved_root})"
-            )
-
-        # Post-resolve denylist applied to the kernel's canonical
-        # path -- defence-in-depth against share roots that overlap
-        # /proc, /sys, or /dev.
-        for deny_root in _DENYLIST_ROOTS:
-            if is_relative_to(true_path, deny_root):
-                raise ReversePathError(
-                    f"path resolves under system denylist root {deny_root}: "
-                    f"{unc_path!r} -> {true_path}"
-                )
-
-        proc_path = Path(f"/proc/self/fd/{fd}")
-        safe = SafeFile(
-            fd=fd,
-            real_path=true_path,
-            proc_path=proc_path,
-            st_dev=st.st_dev,
-            st_ino=st.st_ino,
-        )
-        try:
-            yield safe
-        finally:
-            safe.close()
-    except BaseException:
-        # Validation failed (or yield body raised before SafeFile.close
-        # ran) -- ensure the FD never leaks.
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        raise
+    with safe_open_path(candidate, share_root) as safe:
+        yield safe
