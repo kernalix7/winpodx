@@ -98,11 +98,11 @@ def _enable_native_menu_scrolling(menu: QMenu) -> None:
             hint: QStyle.StyleHint,
             option: QStyleOption | None = None,
             widget: QWidget | None = None,
-            return_data: QStyleHintReturn | None = None,
+            returnData: QStyleHintReturn | None = None,  # noqa: N803 - Qt override
         ) -> int:
             if hint == QStyle.StyleHint.SH_Menu_Scrollable:
                 return 1
-            return super().styleHint(hint, option, widget, return_data)
+            return super().styleHint(hint, option, widget, returnData)
 
     current = menu.style()
     proxy = _ScrollableMenuStyle(current.objectName() or current.name())
