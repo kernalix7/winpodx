@@ -86,6 +86,8 @@ QtCore = pytest.importorskip("PySide6.QtCore")
 QApplication = QtWidgets.QApplication
 QEvent = QtCore.QEvent
 QMenu = QtWidgets.QMenu
+QStyle = QtWidgets.QStyle
+QStyleFactory = QtWidgets.QStyleFactory
 
 
 @pytest.fixture(scope="module")
@@ -103,28 +105,22 @@ def _launcher_factory(captured: list[AppInfo]) -> Callable[[AppInfo], Callable[[
     return make_launcher
 
 
-_PAGE_TITLES_54 = ["1-12", "13-24", "25-36", "37-48", "49-54"]
-
-
 def _numbered_apps(count: int, *, hidden: set[int] | None = None) -> list[AppInfo]:
     # one shared sort tier, zero-padded so the casefold tiebreak is numeric order
     hidden = hidden or set()
     return [_app(f"app-{index:02d}", hidden=index in hidden) for index in range(1, count + 1)]
 
 
-def _page_menus(menu: QMenu) -> list[QMenu]:
-    return [action.menu() for action in menu.actions() if action.menu() is not None]
+def _child_menus(menu: QMenu) -> list[QMenu]:
+    return [submenu for action in menu.actions() if (submenu := action.menu()) is not None]
 
 
-def _app_names(menu: QMenu) -> list[str]:
-    names: list[str] = []
-    for action in menu.actions():
-        submenu = action.menu()
-        if submenu is not None:
-            names.extend(child.text() for child in submenu.actions())
-        elif not action.isSeparator() and action.text() != "Full Desktop":
-            names.append(action.text())
-    return names
+def _direct_app_names(menu: QMenu) -> list[str]:
+    return [
+        action.text()
+        for action in menu.actions()
+        if action.menu() is None and not action.isSeparator() and action.text() != "Full Desktop"
+    ]
 
 
 def test_refresh_tray_apps_menu_populates_sorted_parented_actions(
@@ -199,31 +195,30 @@ def test_refresh_tray_apps_menu_keeps_full_desktop_when_no_apps_exist(
     assert actions[0].isEnabled() is False
 
 
-def test_refresh_tray_apps_menu_pages_overflow_into_numeric_range_submenus(
+@pytest.mark.parametrize("count", [1, 12, 13, 54])
+def test_refresh_tray_apps_menu_lists_every_app_as_a_flat_top_level_action(
     qt_app: QApplication,
     monkeypatch: pytest.MonkeyPatch,
+    count: int,
 ) -> None:
-    apps = _numbered_apps(54)
+    apps = _numbered_apps(count)
     monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: list(reversed(apps)))
     menu = QMenu()
 
     refreshed = tray._refresh_tray_apps_menu(menu, _launcher_factory([]), lambda: None)
 
     assert refreshed is True
+    assert _child_menus(menu) == []
     top_level = [action.text() for action in menu.actions() if not action.isSeparator()]
-    assert top_level == [*_PAGE_TITLES_54, "Full Desktop"]
-    pages = _page_menus(menu)
-    assert all(page.parent() is menu for page in pages)
-    assert all(action.parent() is page for page in pages for action in page.actions())
-    assert _app_names(menu) == [app.full_name for app in apps]
+    assert top_level == [*(app.full_name for app in apps), "Full Desktop"]
+    assert all(action.parent() is menu for action in menu.actions() if not action.isSeparator())
 
 
-@pytest.mark.parametrize(("count", "page_titles"), [(12, []), (13, ["1-12", "13-13"])])
-def test_refresh_tray_apps_menu_pages_only_beyond_twelve_apps(
+@pytest.mark.parametrize("count", [1, 12, 13, 54])
+def test_refresh_tray_apps_menu_never_creates_a_child_menu_at_any_count(
     qt_app: QApplication,
     monkeypatch: pytest.MonkeyPatch,
     count: int,
-    page_titles: list[str],
 ) -> None:
     apps = _numbered_apps(count)
     monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: apps)
@@ -232,33 +227,46 @@ def test_refresh_tray_apps_menu_pages_only_beyond_twelve_apps(
     refreshed = tray._refresh_tray_apps_menu(menu, _launcher_factory([]), lambda: None)
 
     assert refreshed is True
-    assert [page.title() for page in _page_menus(menu)] == page_titles
-    assert _app_names(menu) == [app.full_name for app in apps]
+    assert menu.findChildren(QMenu) == []
+    assert _direct_app_names(menu) == [app.full_name for app in apps]
 
 
-@pytest.mark.parametrize(
-    ("count", "hidden", "page_titles"),
-    [(13, {13}, []), (14, {14}, ["1-12", "13-13"])],
-)
-def test_refresh_tray_apps_menu_filters_hidden_apps_before_paging(
+def test_refresh_tray_apps_menu_enables_native_scrolling_when_style_disables_it(
     qt_app: QApplication,
     monkeypatch: pytest.MonkeyPatch,
-    count: int,
-    hidden: set[int],
-    page_titles: list[str],
 ) -> None:
-    apps = _numbered_apps(count, hidden=hidden)
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: _numbered_apps(54))
+    menu = QMenu()
+    fusion_style = QStyleFactory.create("Fusion")
+    assert fusion_style is not None
+    fusion_style.setParent(menu)
+    menu.setStyle(fusion_style)
+    scroll_hint = QStyle.StyleHint.SH_Menu_Scrollable
+    assert menu.style().styleHint(scroll_hint, None, menu) == 0
+
+    refreshed = tray._refresh_tray_apps_menu(menu, _launcher_factory([]), lambda: None)
+
+    assert refreshed is True
+    assert menu.style().styleHint(scroll_hint, None, menu) == 1
+    assert menu.findChildren(QMenu) == []
+
+
+def test_refresh_tray_apps_menu_filters_hidden_apps_out_of_the_flat_list(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apps = _numbered_apps(54, hidden={5, 17, 42})
     monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: apps)
     menu = QMenu()
 
     refreshed = tray._refresh_tray_apps_menu(menu, _launcher_factory([]), lambda: None)
 
     assert refreshed is True
-    assert [page.title() for page in _page_menus(menu)] == page_titles
-    assert _app_names(menu) == [app.full_name for app in apps if not app.hidden]
+    assert _child_menus(menu) == []
+    assert _direct_app_names(menu) == [app.full_name for app in apps if not app.hidden]
 
 
-def test_refresh_tray_apps_menu_paginated_edge_actions_launch_their_apps(
+def test_refresh_tray_apps_menu_first_and_last_flat_actions_launch_their_apps(
     qt_app: QApplication,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -268,15 +276,18 @@ def test_refresh_tray_apps_menu_paginated_edge_actions_launch_their_apps(
     captured: list[AppInfo] = []
 
     assert tray._refresh_tray_apps_menu(menu, _launcher_factory(captured), lambda: None) is True
-    pages = _page_menus(menu)
-    assert len(pages) == len(_PAGE_TITLES_54)
-    pages[0].actions()[0].trigger()
-    pages[-1].actions()[-1].trigger()
+    app_actions = [
+        action
+        for action in menu.actions()
+        if action.menu() is None and not action.isSeparator() and action.text() != "Full Desktop"
+    ]
+    app_actions[0].trigger()
+    app_actions[-1].trigger()
 
     assert captured == [apps[0], apps[-1]]
 
 
-def test_refresh_tray_apps_menu_keeps_the_last_good_pagination_when_listing_fails(
+def test_refresh_tray_apps_menu_keeps_the_last_good_flat_menu_when_listing_fails(
     qt_app: QApplication,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -284,6 +295,7 @@ def test_refresh_tray_apps_menu_keeps_the_last_good_pagination_when_listing_fail
     menu = QMenu()
     launcher = _launcher_factory([])
     assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is True
+    previous_names = _direct_app_names(menu)
 
     def fail_listing() -> list[AppInfo]:
         raise OSError("catalog unavailable")
@@ -291,11 +303,12 @@ def test_refresh_tray_apps_menu_keeps_the_last_good_pagination_when_listing_fail
     monkeypatch.setattr("winpodx.core.app.list_available_apps", fail_listing)
 
     assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is False
-    assert [page.title() for page in _page_menus(menu)] == _PAGE_TITLES_54
-    assert _app_names(menu) == [f"app-{index:02d}" for index in range(1, 55)]
+    assert _child_menus(menu) == []
+    assert previous_names == [f"app-{index:02d}" for index in range(1, 55)]
+    assert _direct_app_names(menu) == previous_names
 
 
-def test_refresh_tray_apps_menu_repeated_refreshes_do_not_retain_stale_pages(
+def test_refresh_tray_apps_menu_repeated_refreshes_keep_a_flat_menu_without_duplicates(
     qt_app: QApplication,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -307,9 +320,10 @@ def test_refresh_tray_apps_menu_repeated_refreshes_do_not_retain_stale_pages(
         assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None) is True
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
-    live_titles = [page.title() for page in _page_menus(menu)]
-    assert live_titles == _PAGE_TITLES_54
-    assert sorted(child.title() for child in menu.findChildren(QMenu)) == sorted(live_titles)
+    assert menu.findChildren(QMenu) == []
+    names = _direct_app_names(menu)
+    assert names == [f"app-{index:02d}" for index in range(1, 55)]
+    assert len(names) == len(set(names))
 
 
 def test_run_tray_wires_app_menu_to_open_and_timer_refresh() -> None:

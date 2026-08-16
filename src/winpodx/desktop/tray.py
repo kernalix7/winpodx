@@ -50,8 +50,6 @@ _TRAY_USER_WINDOWS_HINTS = (
     "terminal",
 )
 
-_TRAY_APPS_PAGE_SIZE = 12
-
 
 def _tray_app_sort_key(app_info: AppInfo) -> tuple[int, str]:
     slug = app_info.name.lower()
@@ -88,6 +86,30 @@ def _tray_launch_kwargs(app_info: AppInfo) -> dict[str, object]:
     }
 
 
+def _enable_native_menu_scrolling(menu: QMenu) -> None:
+    from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleHintReturn, QStyleOption, QWidget
+
+    if menu.style().styleHint(QStyle.StyleHint.SH_Menu_Scrollable, None, menu):
+        return
+
+    class _ScrollableMenuStyle(QProxyStyle):
+        def styleHint(
+            self,
+            hint: QStyle.StyleHint,
+            option: QStyleOption | None = None,
+            widget: QWidget | None = None,
+            return_data: QStyleHintReturn | None = None,
+        ) -> int:
+            if hint == QStyle.StyleHint.SH_Menu_Scrollable:
+                return 1
+            return super().styleHint(hint, option, widget, return_data)
+
+    current = menu.style()
+    proxy = _ScrollableMenuStyle(current.objectName() or current.name())
+    proxy.setParent(menu)
+    menu.setStyle(proxy)
+
+
 def _refresh_tray_apps_menu(
     apps_menu: QMenu,
     make_launcher: Callable[[AppInfo], Callable[[], None]],
@@ -103,29 +125,13 @@ def _refresh_tray_apps_menu(
         log.warning("tray app menu refresh failed: %s", e)
         return False
 
-    stale_submenus = [
-        submenu for action in apps_menu.actions() if (submenu := action.menu()) is not None
-    ]
+    _enable_native_menu_scrolling(apps_menu)
     apps_menu.clear()
-    for submenu in stale_submenus:
-        submenu.deleteLater()
 
-    if len(available_apps) <= _TRAY_APPS_PAGE_SIZE:
-        for app_info in available_apps:
-            action = QAction(app_info.full_name, apps_menu)
-            action.triggered.connect(make_launcher(app_info))
-            apps_menu.addAction(action)
-    else:
-        from PySide6.QtWidgets import QMenu
-
-        for start in range(0, len(available_apps), _TRAY_APPS_PAGE_SIZE):
-            page_apps = available_apps[start : start + _TRAY_APPS_PAGE_SIZE]
-            page_menu = QMenu(f"{start + 1}-{start + len(page_apps)}", apps_menu)
-            for app_info in page_apps:
-                action = QAction(app_info.full_name, page_menu)
-                action.triggered.connect(make_launcher(app_info))
-                page_menu.addAction(action)
-            apps_menu.addMenu(page_menu)
+    for app_info in available_apps:
+        action = QAction(app_info.full_name, apps_menu)
+        action.triggered.connect(make_launcher(app_info))
+        apps_menu.addAction(action)
 
     if not available_apps:
         no_apps = QAction(tr("(no apps - run 'winpodx setup')"), apps_menu)
