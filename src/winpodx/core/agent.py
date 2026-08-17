@@ -44,6 +44,7 @@ log = logging.getLogger(__name__)
 # documented as the paired second SoT (PowerShell can't import a Python
 # constant). Changing the port means editing here AND those PS1/BAT files.
 AGENT_PORT = 8765
+_EXEC_RESPONSE_GRACE = 5.0
 
 
 class AgentError(RuntimeError):
@@ -235,10 +236,10 @@ class AgentClient:
         """POST /exec — run ``script`` as PowerShell on the guest.
 
         ``script`` is the raw PowerShell source; this method base64-encodes
-        it before sending. ``timeout`` is the per-call client budget in
-        seconds; we pass ``timeout-1`` to urlopen so the server-side cap
-        has room to fire and respond before the client gives up. A
-        client-side socket timeout becomes ``AgentTimeoutError``.
+        it before sending. ``timeout`` is the guest's per-call execution
+        budget in seconds; urllib waits for that server timeout plus a
+        private five-second cleanup/response grace period before giving up.
+        A client-side socket timeout becomes ``AgentTimeoutError``.
 
         Returns ``ExecResult`` even when the script's rc is non-zero —
         that's a script-level outcome, not a transport-level error.
@@ -258,7 +259,7 @@ class AgentClient:
             with_auth=True,
             extra_headers={"Content-Type": "application/json"},
         )
-        urlopen_timeout = float(max(1, timeout - 1))
+        urlopen_timeout = float(timeout) + _EXEC_RESPONSE_GRACE
         try:
             with urllib_request.urlopen(req, timeout=urlopen_timeout) as resp:
                 status = resp.status

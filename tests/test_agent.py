@@ -249,7 +249,7 @@ class TestExec:
         assert result.ok is True
         assert captured["url"] == "http://127.0.0.1:8765/exec"
         assert captured["method"] == "POST"
-        assert captured["timeout"] == 14.0  # timeout - 1
+        assert captured["timeout"] == 20.0  # timeout + five-second response grace
         # Authorization header present.
         header_keys = {k.lower(): v for k, v in captured["headers"].items()}
         assert header_keys["authorization"] == "Bearer " + "cafebabe" * 8
@@ -257,6 +257,28 @@ class TestExec:
         sent = json.loads(captured["body"].decode("utf-8"))
         assert sent["timeout_sec"] == 15
         assert base64.b64decode(sent["script"]).decode("utf-8") == "Write-Output ok"
+
+    def test_exec_deadline_allows_response_grace_at_minimum_timeout(
+        self, monkeypatch, authed_client
+    ):
+        # Given: a successful guest response and the minimum valid timeout.
+        body = json.dumps({"rc": 0, "stdout": "", "stderr": ""}).encode("utf-8")
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["timeout"] = timeout
+            captured["body"] = req.data
+            return _FakeResponse(body, status=200)
+
+        _patch_urlopen(monkeypatch, fake_urlopen)
+
+        # When: the client executes the script.
+        authed_client.exec("Write-Output ok", timeout=1)
+
+        # Then: the guest gets the requested timeout and the client keeps five seconds of grace.
+        sent = json.loads(captured["body"].decode("utf-8"))
+        assert sent["timeout_sec"] == 1
+        assert captured["timeout"] == 6.0
 
     def test_exec_token_rejected(self, monkeypatch, authed_client):
         def fake_urlopen(req, timeout=None):
