@@ -435,14 +435,12 @@ def finish_provisioning(
       first boot.
     * ``with_discovery`` — run the shared discovery path (discover_apps +
       persist_discovered + _register_desktop_entries) with ``retries``
-      attempts and exponential backoff. Defaults to 5: the guest's Start
-      Menu enumeration can blow the 180s-per-attempt budget on a heavily
-      loaded first boot (Sysprep just finished, Defender scanning), and
-      each retry lands on a progressively idler guest — so a few extra
-      attempts turn a first-boot timeout into a populated menu instead of
-      an empty one the user has to fix with ``app refresh``. Each attempt
-      only costs its 180s budget when it actually times out; a normal boot
-      succeeds on attempt 1 and never waits.
+      attempts and exponential backoff. Defaults to 5 so transient channel
+      and session failures on a heavily loaded first boot (Sysprep just
+      finished, Defender scanning) can land on a progressively idler guest.
+      A discovery deadline uses ``DEFAULT_DISCOVERY_TIMEOUT`` and surfaces
+      immediately instead of repeating an expensive operation on an already
+      resource-constrained guest.
     * ``with_reverse_open`` — run the host-open listener-start + manifest
       refresh, gated additionally on ``cfg.reverse_open.enabled``.
     * ``on_progress(stage, detail)`` — optional callback so a GUI can mirror
@@ -642,11 +640,11 @@ def _run_discovery_with_retry(
     entries``). install.sh's old ``app refresh`` and pending.resume's
     ``discover_apps + persist + register`` both collapse onto this.
 
-    Retries up to ``retries`` attempts with exponential backoff (2, 4, 8…s,
-    capped at 30 s) to ride out the agent's transient "responsive but not
-    yet stable" window right after install.bat's final TermService cycle —
-    install.sh used a fixed 6× / 10 s loop; the backoff here is gentler at
-    the start and bounded above.
+    Retries non-timeout failures up to ``retries`` attempts with exponential
+    backoff (2, 4, 8…s, capped at 30 s) to ride out the agent's transient
+    "responsive but not yet stable" window right after install.bat's final
+    TermService cycle. A timeout is terminal because immediately repeating a
+    full-length scan compounds pressure on a resource-constrained guest.
 
     ``require_agent`` mirrors the chain-level flag: with ``WINPODX_REQUIRE_AGENT
     =1`` exported (which ``finish_provisioning`` does for the agent-first
@@ -663,7 +661,12 @@ def _run_discovery_with_retry(
     lazy-import pattern is used by ``utils.pending.resume``.
     """
     from winpodx.cli.app import _register_desktop_entries
-    from winpodx.core.discovery import DiscoveryError, discover_apps, persist_discovered
+    from winpodx.core.discovery import (
+        DEFAULT_DISCOVERY_TIMEOUT,
+        DiscoveryError,
+        discover_apps,
+        persist_discovered,
+    )
     from winpodx.core.transport.agent import AgentTransport
 
     transport = AgentTransport(cfg)
@@ -671,13 +674,15 @@ def _run_discovery_with_retry(
     attempt = 0
     while True:
         try:
-            apps = discover_apps(cfg, timeout=180)
+            apps = discover_apps(cfg, timeout=DEFAULT_DISCOVERY_TIMEOUT)
             persist_discovered(apps)
             if apps:
                 _register_desktop_entries(apps)
             return len(apps)
         except Exception as e:  # noqa: BLE001 — retry on any discovery failure
             last_exc = e
+            if isinstance(e, DiscoveryError) and e.kind == "timeout":
+                raise
             agent_unavailable = (
                 isinstance(e, DiscoveryError) and getattr(e, "kind", "") == "agent_unavailable"
             )
