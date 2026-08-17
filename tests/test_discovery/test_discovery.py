@@ -973,6 +973,21 @@ def test_discover_nonzero_exit_raises(tmp_path, monkeypatch):
         assert excinfo.value.kind == "script_failed"
 
 
+def test_discover_timeout_exit_is_classified_as_timeout(tmp_path, monkeypatch):
+    cfg = _make_cfg(backend="podman")
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# stub")
+
+    _stub_run_in_windows(monkeypatch, rc=124, stderr="guest command timed out")
+    with (
+        patch("winpodx.core.discovery.shutil.which", return_value="/usr/bin/podman"),
+        patch("winpodx.core.discovery._ps_script_path", return_value=script),
+    ):
+        with pytest.raises(DiscoveryError, match="rc=124") as excinfo:
+            discover_apps(cfg)
+        assert excinfo.value.kind == "timeout"
+
+
 def test_discover_uses_windows_exec_channel(tmp_path, monkeypatch):
     """v0.1.9.5: the discover_apps.ps1 body is forwarded to windows_exec, NOT
     sent through podman exec (which only reaches the Linux container)."""
@@ -1155,9 +1170,7 @@ def test_discover_surfaces_timeout(tmp_path, monkeypatch):
     ):
         with pytest.raises(DiscoveryError, match="channel failure") as excinfo:
             discover_apps(cfg, timeout=1)
-        # Timeout is a channel-level failure; classifies as script_failed
-        # since the script never got a chance to actually fail.
-        assert excinfo.value.kind == "script_failed"
+        assert excinfo.value.kind == "timeout"
 
 
 # --- Hybrid filter: essentials allowlist + noise denylist ------------------
@@ -1618,6 +1631,23 @@ def test_discover_agent_nonzero_and_transport_failure(tmp_path, monkeypatch):
     assert disconnected.value.kind == "session_disconnected"
 
 
+def test_discover_agent_timeout_exit_is_classified_as_timeout(tmp_path, monkeypatch):
+    cfg = _make_cfg()
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# agent script")
+    transport = MagicMock()
+    transport.name = "agent"
+    transport.exec.return_value = MagicMock(rc=124, stdout="", stderr="guest command timed out")
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda _cfg: transport)
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+
+    with pytest.raises(DiscoveryError, match="rc=124") as excinfo:
+        discover_apps(cfg)
+
+    assert excinfo.value.kind == "timeout"
+
+
 def test_discover_require_agent_rejects_freerdp_fallback(tmp_path, monkeypatch):
     cfg = _make_cfg()
     script = tmp_path / "discover_apps.ps1"
@@ -1637,6 +1667,7 @@ def test_discover_require_agent_rejects_freerdp_fallback(tmp_path, monkeypatch):
     "message,expected",
     [
         ("connection refused", "pod_not_running"),
+        ("ERRCONNECT_ACTIVATION_TIMEOUT", "pod_not_running"),
         ("ERRINFO_RPC_INITIATED_DISCONNECT", "session_disconnected"),
         ("LOGON_FAILURE 0xc000006d", "pod_not_running"),
         ("PowerShell syntax error", "script_failed"),

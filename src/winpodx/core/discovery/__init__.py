@@ -598,7 +598,7 @@ def _classify_channel_error(exc: Exception) -> str:
     dialog on a perfectly running pod (kernalix7 hit this 2026-05-03
     after a fresh install).
 
-    The new logic separates three states:
+    The new logic separates four states:
 
     1. ``pod_not_running`` — connection refused / connect transport
        failed / agent unavailable. Pod is genuinely down or still
@@ -607,7 +607,8 @@ def _classify_channel_error(exc: Exception) -> str:
        the session terminated (LOGOFF_BY_USER, RPC_INITIATED_DISCONNECT,
        common during multi-session mid-activation). Retry usually
        works.
-    3. ``script_failed`` — anything else (script crash, malformed
+    3. ``timeout`` — the transport or guest command exceeded its deadline.
+    4. ``script_failed`` — anything else (script crash, malformed
        output, etc.).
     """
     msg = str(exc).lower()
@@ -636,6 +637,8 @@ def _classify_channel_error(exc: Exception) -> str:
     # match. Caller can route this to the sync-password rescue path.
     if "auth" in msg or "logon_failure" in msg or "0xc000006d" in msg:
         return "pod_not_running"
+    if "timeout" in msg or "timed out" in msg:
+        return "timeout"
     return "script_failed"
 
 
@@ -760,7 +763,7 @@ def discover_apps(
             if tresult.rc != 0:
                 raise DiscoveryError(
                     f"Discovery script failed (rc={tresult.rc}): {tresult.stderr.strip()}",
-                    kind="script_failed",
+                    kind="timeout" if tresult.rc == 124 else "script_failed",
                 )
             return _parse_discovery_output(tresult.stdout)
 
@@ -808,7 +811,7 @@ def discover_apps(
         if result.rc != 0:
             raise DiscoveryError(
                 f"Discovery script failed (rc={result.rc}): {result.stderr.strip()}",
-                kind="script_failed",
+                kind="timeout" if result.rc == 124 else "script_failed",
             )
 
         return _parse_discovery_output(result.stdout)
