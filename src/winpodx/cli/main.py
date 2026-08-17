@@ -10,6 +10,16 @@ from winpodx import __version__
 from winpodx.core.i18n import tr
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError("must be a positive integer") from e
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def cli(argv: list[str] | None = None) -> None:
     """winpodx CLI entry point."""
     from winpodx.utils.logging import setup_logging
@@ -57,7 +67,7 @@ def cli(argv: list[str] | None = None) -> None:
 
     refresh_p.add_argument(
         "--timeout",
-        type=int,
+        type=_positive_int,
         default=DEFAULT_DISCOVERY_TIMEOUT,
         help=(
             "Discovery timeout in seconds "
@@ -780,9 +790,10 @@ def cli(argv: list[str] | None = None) -> None:
         "--retries",
         type=int,
         default=5,
-        help="Discovery retry attempts with exponential backoff (default 5). "
-        "A loaded first boot can blow the 180s/attempt budget; each retry "
-        "lands on an idler guest.",
+        help=(
+            "Discovery retry attempts for transient channel/session failures "
+            "with exponential backoff (default 5). Terminal timeouts are not retried."
+        ),
     )
     provision_p.add_argument(
         "--verbose",
@@ -1095,7 +1106,8 @@ def _cmd_provision(args: argparse.Namespace) -> int:
 
     Flags map 1:1 onto the helper parameters. Run with no flags it
     reproduces install.sh's post-create defaults (wait 3600s, soft agent
-    settle, discovery on with 5× retry, reverse-open on when enabled), so
+    settle, discovery on with five retries for non-timeout transient failures,
+    reverse-open on when enabled), so
     an AppImage first run can simply ``winpodx provision`` for the
     install.sh UX without re-implementing it (item I AppImage parity).
     """
@@ -1169,8 +1181,25 @@ def _cmd_provision(args: argparse.Namespace) -> int:
         )
         return 4
 
-    print(tr("Provisioning complete."))
+    discovery_status = results.get("discovery")
+    discovery_failed = (
+        with_discovery
+        and isinstance(discovery_status, str)
+        and discovery_status.startswith("failed:")
+    )
+    if discovery_failed:
+        print(
+            tr(
+                "provision deferred: Windows app discovery did not complete; "
+                "leaving pending setup for the next retry."
+            ),
+            file=sys.stderr,
+        )
+    else:
+        print(tr("Provisioning complete."))
+
     for stage, status in results.items():
+        output = sys.stderr if discovery_failed and stage == "discovery" else sys.stdout
         if isinstance(status, dict):
             # apply_fixes carries a {helper: status_str} map; render it as a
             # compact "N/N fixes OK" when every helper succeeded, else a joined
@@ -1182,10 +1211,10 @@ def _cmd_provision(args: argparse.Namespace) -> int:
                 rendered = f"{ok_count}/{total} fixes OK"
             else:
                 rendered = ", ".join(f"{k}: {v}" for k, v in status.items())
-            print(f"  {stage}: {rendered}")
+            print(f"  {stage}: {rendered}", file=output)
         else:
-            print(f"  {stage}: {status}")
-    return 0
+            print(f"  {stage}: {status}", file=output)
+    return 5 if discovery_failed else 0
 
 
 def _cmd_language(code: str | None) -> None:

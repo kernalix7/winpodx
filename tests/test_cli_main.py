@@ -582,6 +582,26 @@ class TestProvision:
         assert result == 5
         assert "provision deferred: agent offline" in capsys.readouterr().err
 
+    def test_discovery_failure_returns_deferred_exit_without_success_banner(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from winpodx.core import provisioner
+
+        _patch_config(monkeypatch, SimpleNamespace(pod=SimpleNamespace(backend="podman")))
+        monkeypatch.setattr(
+            provisioner,
+            "finish_provisioning",
+            lambda cfg, **kwargs: {"wait_ready": "ok", "discovery": "failed: guest channel closed"},
+        )
+
+        result = main._cmd_provision(self._args())
+
+        output = capsys.readouterr()
+        assert result == 5
+        assert "provision deferred" in output.err
+        assert "discovery: failed: guest channel closed" in output.err
+        assert "Provisioning complete." not in output.out
+
     def test_wait_timeout_returns_retryable_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
