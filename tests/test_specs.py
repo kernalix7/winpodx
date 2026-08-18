@@ -304,13 +304,11 @@ class TestHostClocksourceGatesInvtsc:
         with patch("pathlib.Path.read_text", return_value="hpet\n"):
             assert _host_clocksource_is_tsc() is False
 
-    def test_unreadable_sysfs_defaults_true(self):
-        # Missing/unreadable sysfs shouldn't punish hosts where the check
-        # itself can't run (e.g. some container/chroot setups).
+    def test_unreadable_sysfs_defaults_false(self):
         from winpodx.utils.specs import _host_clocksource_is_tsc
 
         with patch("pathlib.Path.read_text", side_effect=OSError):
-            assert _host_clocksource_is_tsc() is True
+            assert _host_clocksource_is_tsc() is False
 
     def test_invtsc_capability_false_when_kernel_rejected_tsc(self, monkeypatch):
         from winpodx.utils import specs

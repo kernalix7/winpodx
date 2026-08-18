@@ -468,11 +468,8 @@ def test_compose_cpu_flags_invtsc_auto_profile_appends_when_supported(monkeypatc
     assert 'VMX: "N"' in content
 
 
-def test_compose_cpu_flags_invtsc_skipped_when_host_lacks_flag(monkeypatch):
-    """Even with ``tuning_profile = "auto"``, a host without
-    ``constant_tsc + nonstop_tsc`` must not get ``+invtsc`` in CPU_FLAGS
-    -- QEMU would either silently drop it or refuse to start.
-    """
+@pytest.mark.parametrize("profile", ["auto", "off"])
+def test_compose_cpu_flags_invtsc_false_overrides_dockur(monkeypatch, profile):
     import winpodx.utils.specs as specs
 
     monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
@@ -491,9 +488,9 @@ def test_compose_cpu_flags_invtsc_skipped_when_host_lacks_flag(monkeypatch):
         ),
     )
     cfg = _cfg()
-    cfg.pod.tuning_profile = "auto"
+    cfg.pod.tuning_profile = profile
     content = _build_compose_content(cfg)
-    assert "+invtsc" not in content
+    assert 'CPU_FLAGS: "arch_capabilities=off,-invtsc"' in content
 
 
 def test_compose_cpu_flags_aarch64_ignores_tuning_profile(monkeypatch):
