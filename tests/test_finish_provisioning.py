@@ -16,6 +16,7 @@ import pytest
 
 from winpodx.core import provisioner
 from winpodx.core.config import Config
+from winpodx.core.discovery import DEFAULT_DISCOVERY_TIMEOUT, DiscoveryError
 from winpodx.core.provisioner import (
     ProvisionAgentUnavailable,
     finish_provisioning,
@@ -279,7 +280,7 @@ def test_on_progress_exception_is_swallowed(monkeypatch):
     assert results["wait_ready"] == "ok"
 
 
-# --- discovery retry helper (the 6× behaviour) ---------------------------
+# --- discovery retry helper (non-timeout transient failures) --------------
 
 
 def test_discovery_retry_succeeds_after_transient_failures(monkeypatch):
@@ -312,6 +313,81 @@ def test_discovery_retry_raises_after_exhausting(monkeypatch):
 
     with pytest.raises(RuntimeError, match="never settles"):
         provisioner._run_discovery_with_retry(_cfg(), retries=3)
+
+
+def test_discovery_retry_uses_default_discovery_timeout(monkeypatch):
+    timeouts: list[int] = []
+
+    def discover(cfg, *, timeout):
+        timeouts.append(timeout)
+        return []
+
+    monkeypatch.setattr("winpodx.core.discovery.discover_apps", discover)
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", lambda apps: None)
+    monkeypatch.setattr("winpodx.cli.app._register_desktop_entries", lambda apps: None)
+
+    assert provisioner._run_discovery_with_retry(_cfg(), retries=5) == 0
+    assert timeouts == [DEFAULT_DISCOVERY_TIMEOUT]
+
+
+def test_discovery_retry_does_not_retry_timeout(monkeypatch):
+    attempts = 0
+    sleeps: list[int] = []
+    persisted = 0
+    registered = 0
+
+    def timeout(cfg, *, timeout):
+        nonlocal attempts
+        attempts += 1
+        raise DiscoveryError("guest channel timed out", kind="timeout")
+
+    def persist(apps):
+        nonlocal persisted
+        persisted += 1
+
+    def register(apps):
+        nonlocal registered
+        registered += 1
+
+    monkeypatch.setattr("winpodx.core.discovery.discover_apps", timeout)
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", persist)
+    monkeypatch.setattr("winpodx.cli.app._register_desktop_entries", register)
+    monkeypatch.setattr(provisioner.time, "sleep", sleeps.append)
+
+    with pytest.raises(DiscoveryError, match="guest channel timed out"):
+        provisioner._run_discovery_with_retry(_cfg(), retries=5)
+
+    assert (attempts, sleeps, persisted, registered) == (1, [], 0, 0)
+
+
+def test_discovery_retry_retries_non_timeout_transient_five_times(monkeypatch):
+    attempts = 0
+    sleeps: list[int] = []
+    persisted = 0
+    registered = 0
+
+    def transient(cfg, *, timeout):
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("guest is still starting")
+
+    def persist(apps):
+        nonlocal persisted
+        persisted += 1
+
+    def register(apps):
+        nonlocal registered
+        registered += 1
+
+    monkeypatch.setattr("winpodx.core.discovery.discover_apps", transient)
+    monkeypatch.setattr("winpodx.core.discovery.persist_discovered", persist)
+    monkeypatch.setattr("winpodx.cli.app._register_desktop_entries", register)
+    monkeypatch.setattr(provisioner.time, "sleep", sleeps.append)
+
+    with pytest.raises(RuntimeError, match="guest is still starting"):
+        provisioner._run_discovery_with_retry(_cfg(), retries=5)
+
+    assert (attempts, sleeps, persisted, registered) == (5, [2, 4, 8, 16], 0, 0)
 
 
 # --- _apply_via_transport transient retry (agent_keepalive hardening) ----
@@ -827,10 +903,9 @@ def test_discovery_with_retry_reraises_other_errors_even_with_require_agent(monk
 
 
 def test_discovery_default_retries_is_five() -> None:
-    """First-boot discovery can time out on the 180s/attempt budget under a
-    loaded guest; the default retry count is 5 so a slow first boot ends with a
-    populated menu instead of an empty one (regression guard against a revert
-    to the old 2)."""
+    """Five retries cover transient guest channel/session failures; terminal
+    discovery timeouts return immediately (regression guard against a revert
+    to the old retry count of 2)."""
     import inspect
 
     from winpodx.core.provisioner import finish_provisioning
@@ -842,8 +917,8 @@ def test_provision_cli_retries_default_is_five(monkeypatch) -> None:
     """install.sh drives a fresh install via `winpodx provision` (not setup),
     so the provision command's own retries default is the one that matters for
     first-boot discovery. With no --retries on the args, _cmd_provision must
-    pass 5 to finish_provisioning (a slow first boot blows the 180s/attempt
-    budget; #784 bumped setup + the finish_provisioning default but the
+    pass 5 to finish_provisioning for non-timeout transient channel/session
+    failures (#784 bumped setup + the finish_provisioning default but the
     provision CLI path defaulted to 2 until this)."""
     import argparse
     from types import SimpleNamespace

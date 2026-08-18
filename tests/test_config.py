@@ -814,3 +814,213 @@ def test_config_save_load_home_share_roundtrip(tmp_path, monkeypatch):
 
     loaded = Config.load()
     assert loaded.pod.home_share == share
+
+
+def test_cli_config_routes_commands(monkeypatch):
+    import argparse
+
+    from winpodx.cli import config_cmd as cli
+
+    calls = []
+    monkeypatch.setattr(cli, "_show", lambda: calls.append(("show",)))
+    monkeypatch.setattr(cli, "_set", lambda *a, **k: calls.append(("set", *a, k)))
+    monkeypatch.setattr(cli, "_import_config", lambda: calls.append(("import",)))
+
+    cli.handle_config(argparse.Namespace(config_command="show"))
+    cli.handle_config(
+        argparse.Namespace(config_command="set", key="pod.ram_gb", value="8", auto=False)
+    )
+    cli.handle_config(argparse.Namespace(config_command="import"))
+
+    assert calls == [
+        ("show",),
+        ("set", "pod.ram_gb", "8", {"auto": False}),
+        ("import",),
+    ]
+
+
+def test_cli_config_unknown_command_exits(capsys):
+    import argparse
+
+    import pytest
+
+    from winpodx.cli import config_cmd as cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.handle_config(argparse.Namespace(config_command="bogus"))
+    assert exc.value.code == 1
+    assert "Usage: winpodx config" in capsys.readouterr().out
+
+
+def test_cli_config_show_masks_password_and_warns(monkeypatch, capsys):
+    from winpodx.cli import config_cmd as cli
+    from winpodx.core import config as config_mod
+
+    cfg = Config()
+    cfg.rdp.user = "alice"
+    cfg.rdp.password = "secret"
+    cfg.rdp.askpass = ""
+    cfg.rdp.domain = ""
+    cfg.desktop.mime_associations = True
+    cfg.desktop.full_app_scan = False
+    monkeypatch.setattr(config_mod.Config, "load", staticmethod(lambda: cfg))
+    monkeypatch.setattr(config_mod, "check_session_budget", lambda actual: "too many sessions")
+
+    cli._show()
+
+    captured = capsys.readouterr()
+    assert "user     = alice" in captured.out
+    assert "password = ***" in captured.out
+    assert "secret" not in captured.out
+    assert "askpass  = (not set)" in captured.out
+    assert "full_app_scan" in captured.out
+    assert "WARNING: too many sessions" in captured.err
+
+
+def test_cli_config_set_validates_key_value_and_auto(monkeypatch, capsys):
+    import pytest
+
+    from winpodx.cli import config_cmd as cli
+    from winpodx.core import config as config_mod
+
+    cfg = Config()
+    monkeypatch.setattr(config_mod.Config, "load", staticmethod(lambda: cfg))
+
+    for key, value, auto, expected in (
+        ("pod", "1", False, "Key format"),
+        ("pod.missing", "1", False, "Unknown config key"),
+        ("pod.timezone", "UTC", True, "mutually exclusive"),
+        ("rdp.ip", None, True, "--auto not yet supported"),
+        ("rdp.ip", None, False, "Missing value"),
+        ("rdp.port", "not-int", False, "Invalid integer value"),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            cli._set(key, value, auto=auto)
+        assert exc.value.code == 1
+        assert expected in capsys.readouterr().out
+
+
+def test_cli_config_set_parses_bool_int_string_and_clamps(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.cli import config_cmd as cli
+    from winpodx.core import config as config_mod
+
+    warnings = []
+    monkeypatch.setattr(
+        config_mod,
+        "check_session_budget",
+        lambda cfg: warnings.append((cfg.pod.max_sessions, cfg.pod.ram_gb)) or "oversubscribed",
+    )
+
+    cli._set("pod.auto_start", "yes")
+    assert Config.load().pod.auto_start is True
+    assert "Set pod.auto_start = True" in capsys.readouterr().out
+
+    cli._set("pod.max_sessions", "999")
+    loaded = Config.load()
+    assert loaded.pod.max_sessions == 50
+    captured = capsys.readouterr()
+    assert "Set pod.max_sessions = 50" in captured.out
+    assert "WARNING: oversubscribed" in captured.err
+    assert warnings[-1][0] == 50
+
+    cli._set("rdp.user", "bob")
+    assert Config.load().rdp.user == "bob"
+    assert "Set rdp.user = bob" in capsys.readouterr().out
+
+
+def test_cli_config_set_auto_timezone_uses_detector(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.cli import config_cmd as cli
+    from winpodx.utils import locale
+
+    monkeypatch.setattr(locale, "detect_timezone", lambda: "Asia/Seoul")
+
+    cli._set("pod.timezone", None, auto=True)
+
+    assert Config.load().pod.timezone == "Asia/Seoul"
+    assert "Set pod.timezone = Asia/Seoul" in capsys.readouterr().out
+    assert cli._resolve_auto_value("rdp", "ip") is None
+
+
+def test_cli_config_compose_change_applies_running_pod(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from winpodx.cli import config_cmd as cli
+    from winpodx.core import compose, pod
+
+    cfg = Config()
+    calls = []
+    monkeypatch.setattr(compose, "generate_compose", lambda actual: calls.append("compose"))
+    monkeypatch.setattr(
+        pod, "pod_status", lambda actual: SimpleNamespace(state=pod.PodState.RUNNING)
+    )
+    monkeypatch.setattr(pod, "stop_pod", lambda actual: calls.append("stop"))
+    monkeypatch.setattr(pod, "start_pod", lambda actual: calls.append("start"))
+
+    cli._apply_compose_change(cfg)
+
+    assert calls == ["compose", "stop", "start"]
+    assert "Applying to the running container" in capsys.readouterr().out
+
+
+def test_cli_config_compose_change_stopped_and_failures(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from winpodx.cli import config_cmd as cli
+    from winpodx.core import compose, pod
+
+    cfg = Config()
+    monkeypatch.setattr(compose, "generate_compose", lambda actual: None)
+    monkeypatch.setattr(
+        pod, "pod_status", lambda actual: SimpleNamespace(state=pod.PodState.STOPPED)
+    )
+    cli._apply_compose_change(cfg)
+    assert "applies on the next" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        compose, "generate_compose", lambda actual: (_ for _ in ()).throw(RuntimeError("bad yaml"))
+    )
+    cli._apply_compose_change(cfg)
+    assert "could not regenerate compose (bad yaml)" in capsys.readouterr().out
+
+    cfg.pod.backend = "manual"
+    cli._apply_compose_change(cfg)
+    assert capsys.readouterr().out == ""
+
+
+def test_cli_config_set_compose_wipe_and_disguise_messages(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.cli import config_cmd as cli
+    from winpodx.core import config as config_mod
+
+    applied = []
+    monkeypatch.setattr(cli, "_apply_compose_change", lambda cfg: applied.append(cfg.pod.ram_gb))
+    cli._set("pod.ram_gb", "8")
+    assert applied == [8]
+
+    cli._set("pod.win_version", "10")
+    assert "fresh install" in capsys.readouterr().out
+
+    monkeypatch.setattr(config_mod, "disguise_changes_devices", lambda old, new: True)
+    cli._set("pod.disguise_level", "max")
+    output = capsys.readouterr().out
+    assert "PERMANENTLY DELETES" in output
+    assert applied == [8]
+
+
+def test_cli_config_import_absent_and_success(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.cli import config_cmd as cli
+    from winpodx.utils import compat
+
+    monkeypatch.setattr(compat, "import_winapps_config", lambda: None)
+    cli._import_config()
+    assert "No winapps.conf found" in capsys.readouterr().out
+
+    cfg = Config()
+    cfg.rdp.user = "imported"
+    monkeypatch.setattr(compat, "import_winapps_config", lambda: cfg)
+    cli._import_config()
+    assert Config.load().rdp.user == "imported"
+    assert str(Config.path()) in capsys.readouterr().out

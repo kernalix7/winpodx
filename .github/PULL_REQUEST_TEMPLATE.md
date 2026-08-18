@@ -12,7 +12,7 @@ Closes #
 
 ## Checklist
 
-- [ ] `pytest tests/ -v`: all tests pass
+- [ ] `pytest tests/ -n auto`: all tests pass
 - [ ] `ruff check src/ tests/`: zero errors
 - [ ] `ruff format --check src/ tests/`: formatted
 - [ ] Documentation updated (CHANGELOG, docs: both ko & en)

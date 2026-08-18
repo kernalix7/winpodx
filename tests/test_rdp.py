@@ -1718,3 +1718,489 @@ class TestFreerdpRailWarning:
 
         monkeypatch.setattr(rdp_mod, "freerdp_version", lambda: None)
         assert rdp_mod.freerdp_rail_warning() is None
+
+
+def test_rdp_session_properties_and_stderr_tail(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    session = rdp_mod.RDPSession(app_name="excel")
+    assert session.pid_file == tmp_path / "excel.cproc"
+    assert session.stderr_log == tmp_path / "excel.stderr"
+    assert session.stderr_tail == b""
+    assert session.is_running is False
+
+    session.stderr_log.write_bytes(b"x" * 3000)
+    session.process = _FakeProc()
+    assert session.stderr_tail == b"x" * 2048
+    assert session.is_running is True
+
+
+def test_media_redirect_base_uses_placeholder_when_no_mount(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.utils import paths
+
+    monkeypatch.setattr(rdp_mod, "_find_media_base", lambda: None)
+    monkeypatch.setattr(paths, "data_dir", lambda: tmp_path)
+    result = rdp_mod._media_redirect_base()
+    assert result == tmp_path / "media"
+    assert result.is_dir()
+
+
+def test_freerdp_version_accepts_major_minor(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "_FREERDP_VERSION_CACHE", rdp_mod._UNPROBED)
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("xfreerdp3", "xfreerdp"))
+    result = type("Result", (), {"stdout": "FreeRDP version 3.27\n", "stderr": ""})()
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: result)
+    assert rdp_mod.freerdp_version() == (3, 27, 0)
+
+
+def test_find_native_freerdp_checks_rail_then_sdl(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(
+        rdp_mod.shutil,
+        "which",
+        lambda name: "/usr/bin/sdl-freerdp3" if name == "sdl-freerdp3" else None,
+    )
+    assert rdp_mod._find_native_freerdp() == ("/usr/bin/sdl-freerdp3", "sdl")
+
+
+def test_find_flatpak_freerdp_success_and_missing_binary(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    installed = type(
+        "Result", (), {"returncode": 0, "stdout": "org.example.App\ncom.freerdp.FreeRDP\n"}
+    )()
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: installed)
+    assert rdp_mod._find_flatpak_freerdp() == (rdp_mod._FLATPAK_FREERDP_CMD, "flatpak")
+
+    def missing(*_args, **_kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(rdp_mod.subprocess, "run", missing)
+    assert rdp_mod._find_flatpak_freerdp() is None
+
+
+def test_resolve_password_askpass_success_and_fallback(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    cfg = Config()
+    cfg.rdp.password = "configured"
+    cfg.rdp.askpass = "secret-tool lookup winpodx rdp"
+    monkeypatch.setattr(rdp_mod.shutil, "which", lambda _name: "/usr/bin/secret-tool")
+    success = type("Result", (), {"returncode": 0, "stdout": "from-helper\n"})()
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: success)
+    assert rdp_mod._resolve_password(cfg) == "from-helper"
+
+    monkeypatch.setattr(rdp_mod.shutil, "which", lambda _name: None)
+    assert rdp_mod._resolve_password(cfg) == "configured"
+
+
+def test_build_rdp_command_rejects_invalid_uwp_aumid(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("xfreerdp3", "xfreerdp"))
+    cfg = _url_cfg()
+    with pytest.raises(RuntimeError, match="Invalid UWP AUMID"):
+        rdp_mod.build_rdp_command(cfg, launch_uri="Calculator,cmd:evil")
+
+
+def test_find_existing_session_reuses_valid_freerdp_pid(monkeypatch, tmp_path):
+    from winpodx.core import process as process_mod
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(process_mod, "is_freerdp_pid", lambda pid: pid == 4321)
+    (tmp_path / "word.cproc").write_text("4321")
+    session = rdp_mod._find_existing_session("word")
+    assert session is not None
+    assert session.app_name == "word"
+    assert (tmp_path / "word.cproc").exists()
+
+
+def test_find_existing_session_removes_corrupt_pid_file(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    pid_file = tmp_path / "word.cproc"
+    pid_file.write_text("not-a-pid")
+    assert rdp_mod._find_existing_session("word") is None
+    assert not pid_file.exists()
+
+
+def test_reaper_waits_and_removes_pid_file(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    waited: list[bool] = []
+
+    class _ExitedProc:
+        def wait(self):
+            waited.append(True)
+
+    session = rdp_mod.RDPSession(app_name="word", process=_ExitedProc())
+    session.pid_file.write_text("123")
+    rdp_mod._reaper_thread(session)
+    assert waited == [True]
+    assert not session.pid_file.exists()
+
+
+def test_early_exit_stderr_reports_exit_without_sleep(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    class _ExitedProc:
+        def poll(self):
+            return 12
+
+    session = rdp_mod.RDPSession(app_name="word", process=_ExitedProc())
+    session.stderr_log.write_text("connection rejected")
+    assert rdp_mod._early_exit_stderr(session, settle=0) == "connection rejected"
+
+
+def test_read_stderr_log_returns_explicit_error(tmp_path):
+    from winpodx.core.rdp import _read_stderr_log
+
+    result = _read_stderr_log(tmp_path / "missing.stderr")
+    assert result.startswith("(could not read stderr log")
+
+
+def test_drain_window_setup_log_timeout_is_nonfatal():
+    import subprocess
+
+    from winpodx.core import rdp as rdp_mod
+
+    class _Helper:
+        returncode = None
+
+        def communicate(self, timeout):
+            assert timeout == 120
+            raise subprocess.TimeoutExpired("window-setup", timeout)
+
+    assert rdp_mod._drain_window_setup_log(_Helper()) is None
+
+
+def test_spawn_detached_writes_cproc_pid(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    class _Spawned:
+        pid = 7654
+
+    monkeypatch.setattr(rdp_mod.subprocess, "Popen", lambda *a, **k: _Spawned())
+    session = rdp_mod._spawn_detached(rdp_mod.RDPSession("excel"), ["xfreerdp3"])
+    assert session.process is not None
+    assert session.pid_file.read_text() == "7654"
+    assert (session.pid_file.stat().st_mode & 0o777) == 0o600
+
+
+def test_spawn_detached_failure_removes_cproc(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    def fail(*_args, **_kwargs):
+        raise OSError("spawn failed")
+
+    monkeypatch.setattr(rdp_mod.subprocess, "Popen", fail)
+    session = rdp_mod.RDPSession("excel")
+    with pytest.raises(OSError, match="spawn failed"):
+        rdp_mod._spawn_detached(session, ["xfreerdp3"])
+    assert not session.pid_file.exists()
+
+
+def test_wait_session_interactive_ready_without_sleep(monkeypatch):
+    from winpodx.core import agent as agent_mod
+    from winpodx.core import rdp as rdp_mod
+
+    class _Response:
+        stdout = "READY\n"
+
+    class _Agent:
+        def __init__(self, _cfg):
+            pass
+
+        def health(self):
+            return None
+
+        def exec(self, command, timeout):
+            assert "SessionId" in command
+            assert timeout == 10
+            return _Response()
+
+    monkeypatch.setattr(agent_mod, "AgentClient", _Agent)
+    assert rdp_mod._wait_session_interactive(Config(), timeout=1) is True
+
+
+def test_relist_uwp_taskbar_stops_on_scan_error(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod.shutil, "which", lambda _name: "/usr/bin/wmctrl")
+
+    def fail(*_args, **_kwargs):
+        raise OSError("display closed")
+
+    monkeypatch.setattr(rdp_mod.subprocess, "run", fail)
+    assert rdp_mod._relist_uwp_taskbar("calc") is None
+
+
+def test_apply_window_icon_sets_each_matching_window_once(monkeypatch, tmp_path):
+    import time
+
+    from winpodx.core import rdp as rdp_mod
+
+    icon = tmp_path / "excel.png"
+    icon.touch()
+    output = "0x10 0 RAIL.excel host One\n0x10 0 RAIL.excel host One duplicate\n"
+    result = type("Result", (), {"stdout": output})()
+    applied: list[int] = []
+    monkeypatch.setattr(rdp_mod.shutil, "which", lambda _name: "/usr/bin/wmctrl")
+    monkeypatch.setattr(rdp_mod, "_window_icon_cardinals", lambda _path: [1, 1, 0xFF00FF00])
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: result)
+    monkeypatch.setattr(
+        rdp_mod, "_set_net_wm_icon", lambda win_id, _data: applied.append(win_id) or True
+    )
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    rdp_mod._apply_window_icon("excel", str(icon))
+    assert applied == [0x10]
+
+
+def test_count_rail_windows_nonzero_exit_is_scan_failure(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    result = type("Result", (), {"returncode": 1, "stdout": ""})()
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: result)
+    assert rdp_mod._count_rail_windows("wmctrl", "RAIL.excel") is None
+
+
+def test_window_reaper_noop_without_process():
+    from winpodx.core import rdp as rdp_mod
+
+    assert rdp_mod._window_reaper(rdp_mod.RDPSession("excel"), "excel") is None
+
+
+def test_launch_desktop_delegates_exact_arguments(monkeypatch):
+    from winpodx.core import rdp as rdp_mod
+
+    expected = rdp_mod.RDPSession("desktop")
+    captured: dict = {}
+
+    def fake_launch(cfg, **kwargs):
+        captured.update(kwargs)
+        return expected
+
+    monkeypatch.setattr(rdp_mod, "launch_app", fake_launch)
+    assert rdp_mod.launch_desktop(Config(), extra_args="/gdi:sw") is expected
+    assert captured == {"app_executable": None, "file_path": None, "extra_args": "/gdi:sw"}
+
+
+def test_linux_to_unc_relative_path_and_invalid_windows_character(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod.Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setattr(rdp_mod.Path, "cwd", staticmethod(lambda: tmp_path))
+    assert rdp_mod.linux_to_unc("Docs/report.txt") == "\\\\tsclient\\home\\Docs\\report.txt"
+    with pytest.raises(ValueError, match="invalid for Windows"):
+        rdp_mod.linux_to_unc("Docs/bad?.txt")
+
+
+def test_validate_flag_strict_device_redirects_reject_paths():
+    from winpodx.core.rdp import _validate_flag
+
+    assert _validate_flag("/drive:home") is True
+    assert _validate_flag("/usb:auto") is True
+    assert _validate_flag("/drive:home,/etc") is False
+    assert _validate_flag("/serial:COM1") is False
+
+
+def test_reaper_tolerates_wait_error_and_still_unlinks(monkeypatch, tmp_path):
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    class _BadWait:
+        def wait(self):
+            raise OSError("already reaped")
+
+    session = rdp_mod.RDPSession("excel", process=_BadWait())
+    session.pid_file.write_text("123")
+    rdp_mod._reaper_thread(session)
+    assert not session.pid_file.exists()
+
+
+def test_spawn_detached_lock_contention_returns_existing(monkeypatch, tmp_path):
+    import fcntl
+
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    existing = rdp_mod.RDPSession("excel")
+
+    def busy(*_args):
+        raise BlockingIOError
+
+    monkeypatch.setattr(fcntl, "flock", busy)
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: existing)
+    assert rdp_mod._spawn_detached(rdp_mod.RDPSession("excel"), ["xfreerdp3"]) is existing
+
+
+def test_spawn_detached_lock_contention_without_session_raises(monkeypatch, tmp_path):
+    import fcntl
+
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+
+    def busy(*_args):
+        raise BlockingIOError
+
+    monkeypatch.setattr(fcntl, "flock", busy)
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: None)
+    with pytest.raises(RuntimeError, match="Could not acquire lock for excel"):
+        rdp_mod._spawn_detached(rdp_mod.RDPSession("excel"), ["xfreerdp3"])
+
+
+def test_wait_session_interactive_health_failure_is_nonblocking(monkeypatch):
+    from winpodx.core import agent as agent_mod
+    from winpodx.core import rdp as rdp_mod
+
+    class _Agent:
+        def __init__(self, _cfg):
+            pass
+
+        def health(self):
+            raise OSError("agent down")
+
+    monkeypatch.setattr(agent_mod, "AgentClient", _Agent)
+    assert rdp_mod._wait_session_interactive(Config(), timeout=1) is False
+
+
+def test_wait_session_interactive_agent_error_is_nonblocking(monkeypatch):
+    from winpodx.core import agent as agent_mod
+    from winpodx.core import rdp as rdp_mod
+
+    class _Agent:
+        def __init__(self, _cfg):
+            pass
+
+        def health(self):
+            return None
+
+        def exec(self, _command, timeout):
+            raise agent_mod.AgentError("probe failed")
+
+    monkeypatch.setattr(agent_mod, "AgentClient", _Agent)
+    assert rdp_mod._wait_session_interactive(Config(), timeout=1) is False
+
+
+def test_wait_session_interactive_timeout_without_real_sleep(monkeypatch):
+    import time
+
+    from winpodx.core import agent as agent_mod
+    from winpodx.core import rdp as rdp_mod
+
+    class _Response:
+        stdout = "LOCKED"
+
+    class _Agent:
+        def __init__(self, _cfg):
+            pass
+
+        def health(self):
+            return None
+
+        def exec(self, _command, timeout):
+            return _Response()
+
+    ticks = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr(agent_mod, "AgentClient", _Agent)
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    assert rdp_mod._wait_session_interactive(Config(), timeout=1) is False
+
+
+def test_launch_app_uwp_warning_and_window_setup_args(monkeypatch, tmp_path, capsys):
+    from winpodx.core import rdp as rdp_mod
+
+    aumid = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: None)
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("xfreerdp3", "xfreerdp"))
+    monkeypatch.setattr(rdp_mod, "build_rdp_command", lambda *a, **k: (["xfreerdp3"], ""))
+    monkeypatch.setattr(rdp_mod, "freerdp_rail_warning", lambda: "upgrade FreeRDP")
+    monkeypatch.setattr(rdp_mod, "_early_exit_stderr", lambda _session: None)
+
+    class _Spawned:
+        pid = 2468
+        returncode = None
+
+        def poll(self):
+            return None
+
+    def fake_spawn(session, _cmd):
+        session.process = _Spawned()
+        return session
+
+    monkeypatch.setattr(rdp_mod, "_spawn_detached", fake_spawn)
+    thread_targets: list = []
+
+    class _Thread:
+        def __init__(self, *, target, args, daemon):
+            thread_targets.append((target, args, daemon))
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(rdp_mod.threading, "Thread", _Thread)
+    helper_calls: list[list[str]] = []
+
+    class _Helper:
+        returncode = 0
+
+    def fake_popen(cmd, **_kwargs):
+        helper_calls.append(cmd)
+        return _Helper()
+
+    monkeypatch.setattr(rdp_mod.subprocess, "Popen", fake_popen)
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    session = rdp_mod.launch_app(cfg, launch_uri=aumid, app_icon="/tmp/calc.png")
+    assert session.app_name.startswith("winpodx-uwp-")
+    assert "upgrade FreeRDP" in capsys.readouterr().err
+    assert helper_calls[0][-3:] == ["/tmp/calc.png", "--uwp"] or helper_calls[0][-3:] == [
+        "--icon",
+        "/tmp/calc.png",
+        "--uwp",
+    ]
+    assert len(thread_targets) == 3
+
+
+def test_launch_app_window_setup_spawn_failure_is_nonfatal(monkeypatch, tmp_path):
+    rdp_mod, _spawned = _patch_launch_to_spawn(
+        monkeypatch, tmp_path, ["xfreerdp3", "/v:127.0.0.1", "notepad"]
+    )
+    monkeypatch.setattr(rdp_mod, "_early_exit_stderr", lambda _session: None)
+
+    class _Thread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(rdp_mod.threading, "Thread", _Thread)
+    monkeypatch.setattr(
+        rdp_mod.subprocess,
+        "Popen",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("helper unavailable")),
+    )
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    session = rdp_mod.launch_app(cfg, app_executable="notepad.exe")
+    assert session.process is not None

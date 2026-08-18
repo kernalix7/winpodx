@@ -89,7 +89,7 @@ winpodx setup                     # full 셋업: config + 컨테이너 + wait-re
 winpodx setup --customize         # wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
 winpodx setup-host                # 호스트 준비 wizard (kvm 그룹, /etc/subuid, kvm 모듈) pkexec 한 번 — AppImage 사용자
 winpodx provision                 # pod 기동 후 체인 (wait-ready → apply-fixes → discovery → reverse-open) — install.sh / setup / migrate / GUI 가 모두 호출하는 단일 SoT (0.6.0 item B)
-winpodx provision --retries N     # discovery 재시도 횟수 재정의 (기본 2 — 0.6.0 item M)
+winpodx provision --retries N     # discovery 재시도 횟수 재정의 (기본 5 — 느린 첫 부팅 게스트용)
 winpodx provision --require-agent # 게스트 agent 강제 게이트 (신규 설치용, #271)
 winpodx migrate                   # 기존 guest in-place 업그레이드 (agent.ps1 / 스크립트 갱신, 픽스 재적용, 재discovery, reverse-open 갱신)
 winpodx doctor                    # read-only 헬스 진단 + per-check fix 힌트 (deps / pod / RDP / agent / disk / config / install 상태)
@@ -99,7 +99,7 @@ winpodx doctor --fix              # warn/fail finding 중 fixer 가진 것을 id
 winpodx autostart on|off|status   # 로그인 시 Windows pod 자동시작 (opt-in; 기본 꺼짐)
 winpodx language                  # 현재 UI 언어 표시
 winpodx language ko               # UI 언어 설정: auto | en | ko | zh | ja | de | fr | it (auto = 호스트 로케일)
-# `winpodx info` 와 `winpodx check` 는 `winpodx doctor` 의 deprecated alias (0.6.x 동안 deprecation 경고와 함께 동작; 0.7.0 에서 제거).
+# `winpodx info` 와 `winpodx check` 는 `winpodx doctor` 의 deprecated alias — 여전히 동작하며 stderr 에 한 줄의 deprecation 경고를 출력합니다.
 winpodx gui                       # Qt6 메인 윈도 실행 (Dashboard / All apps / Devices / Settings / Tools / Terminal)
 winpodx tray                      # Qt 시스템 트레이 아이콘 실행
 winpodx config show               # 현재 config 표시
@@ -163,7 +163,7 @@ winpodx pod recreate --wipe-storage              # Windows 초기화 후 새 하
 
 GUI에서도 선택 가능: **Settings → Bare-metal compatibility**. 어느 쪽이든 `winpodx pod recreate` 후 적용됨 (QEMU `-cpu` 라인 + `HV` env + 디스크 크기를 바꾸므로; recreate는 Windows 디스크 유지).
 
-**고급 — 패치된 QEMU 이미지 (`cfg.pod.disguise_image`):** 일부 VM 마커(ACPI OEM `BOCHS`, 디스크 모델 `QEMU HARDDISK`)는 QEMU에 컴파일된 문자열이라 커맨드라인 인자로 못 바꿉니다. `packaging/qemu-disguise/`가 그 문자열을 패치한 커스텀 dockur 이미지를 빌드하며, `disguise_image`에 지정하면 `max`에서 사용됩니다. winpodx는 패치 레시피만 배포(패치된 바이너리 없음). PCI 벤더 ID는 일부러 안 건드림(스푸핑하면 dockur virtio-serial이 깨짐). 그 디렉터리 README 참고.
+**고급 — 패치된 QEMU 이미지 (`winpodx disguise build-image`):** 일부 VM 마커(ACPI OEM `BOCHS`, 디스크 모델 `QEMU HARDDISK`)는 QEMU에 컴파일된 문자열이라 커맨드라인 인자로 못 바꿉니다. `winpodx disguise build-image` 를 실행하면 그 문자열을 **호스트의 실제 벤더 + 디스크 모델**로 패치한 커스텀 dockur 이미지를 빌드하고 `cfg.pod.disguise_image` 를 설정해 `max`에서 사용합니다. 호스트 값은 `/sys`에서 root 없이 읽고 어디에도 커밋하지 않으며, 빌드는 약 20–40분 걸리고 이미지는 로컬에만 남습니다. winpodx는 `packaging/qemu-disguise/`의 패치 레시피만 배포(패치된 바이너리 없음). PCI 벤더 ID는 일부러 안 건드림(스푸핑하면 dockur virtio-serial이 깨짐). 그 디렉터리 README 참고.
 
 **안티치트 우회 아님.** 캐주얼 탐지기와 VM 거부 앱(code 43, DRM/런치게이트)용 시그니처 레벨 숨김입니다. 커널 안티치트(EAC/BattlEye/Vanguard)는 **못 피합니다** — 하드웨어 attestation(TPM + Secure Boot)과 게스트가 위조 못 하는 VM-exit 타이밍에 의존하며, 온라인 게임 안티치트 우회는 게임 ToS 위반입니다.
 
@@ -190,7 +190,9 @@ GUI에서도 선택 가능: **Settings → Bare-metal compatibility**. 어느 �
 ```
 === WinPodX doctor ===
 
+  [OK  ] compose_provider   podman-compose  (2ms)
   [OK  ] pod_running        running (ip=127.0.0.1)  (58ms)
+  [OK  ] host_ports         RDP/agent/SMB ports free  (4ms)
   [OK  ] rdp_port           127.0.0.1:3390 reachable  (0ms)
   [OK  ] agent_health       version=0.2.2-rev4  (63ms)
   [OK  ] agent_auth_ready   bearer token available  (1ms)
@@ -309,15 +311,17 @@ extra_flags = ""             # 추가 FreeRDP 플래그 (allowlist); 예:
 [pod]
 backend = "podman"
 win_version = "11"                               # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 | 2025 | 2022 | 2019 | 2016 — 커스텀 ISO 는 ARCHITECTURE.md 참고
-keyboard = "en-US"                               # Windows 설치 로케일; FreeRDP 세션 레이아웃(/kbd:layout)으로도 매핑돼 비-US 키보드가 RemoteApp 창에서 동작 (#660)
+keyboard = ""                                    # 비어있으면 호스트에서 자동 감지; FreeRDP 세션 레이아웃(/kbd:layout)으로도 매핑
 cpu_cores = 4
-ram_gb = 4
+ram_gb = 6
 vnc_port = 8007
 auto_start = false                               # opt-in 로그인 자동시작: 로그인 시 트레이가 pod 시작 (`winpodx autostart on|off|status` 로 토글)
 idle_timeout = 0                                 # 자동 suspend 까지 초 (0 = 비활성)
+idle_action = "pause"                            # idle timeout 동작: pause | stop
 boot_timeout = 300                               # 첫 부팅 unattended 설치 대기 초
-image = "docker.io/dockurr/windows:latest"       # 컨테이너 이미지 (에어갭 미러용 override)
-usb_live = true                                  # attach 된 USB 장치를 실행 중 게스트에 hot-plug (재시작 없이) — `winpodx device` 참고
+image = "docker.io/dockurr/windows@sha256:..."   # 릴리스에서 pin 된 이미지 (에어갭 미러용 override)
+usb_live = true                                  # 레거시 호환 키; live USB 는 usbredir 사용 — `winpodx device` 참고
+home_share = ""                                  # 비어있으면 Home 전체; 절대 경로를 지정하면 그 디렉터리만 \\tsclient\home 으로 공유 (#758)
 # disguise_level = "balanced"                    # bare-metal 모드: off | balanced(기본, 무손실 숨김) | max(Hyper-V 끔, 느려짐) — Nvidia code-43 / VM 거부 앱; 안티치트 우회 아님 (#246)
 disk_size = "64G"                                # dockur 에 전달하는 가상 디스크 크기 (`install grow-disk` 로 확장)
 disk_autogrow = true                             # C: 가 임계 넘으면 자동 확장 (idle 일 때만)
@@ -326,6 +330,7 @@ disk_autogrow_target_free_pct = 30               # 확장 후 회복할 여유 �
 disk_autogrow_increment = "32G"                  # 확장 granularity / 최소 step
 disk_max_size = ""                               # 선택적 상한; 빈값 = host 여유공간만이 한계
 guest_autosync = true                            # host 업데이트 후 guest 아티팩트 자동 푸시 (재설치 없이)
+max_sessions = 25                                # 동시 RemoteApp 세션 수 (1-50)
 
 [ui]
 language = "auto"                                # UI 언어: auto | en | ko | zh | ja | de | fr | it (auto = 호스트 로케일, 영어로 폴백; `winpodx language` 또는 GUI 설정으로 변경)
@@ -336,8 +341,8 @@ full_app_scan = false                            # false = 시작메뉴 전용 �
 
 [reverse_open]
 enabled = true                                   # v0.5.0 부터 기본 활성
-allow = []                                       # 비어있으면 발견된 모든 앱
-deny = []                                        # manifest 에서 제외할 앱
+allowlist = []                                   # 비어있으면 발견된 모든 앱
+denylist = []                                    # manifest 에서 제외할 앱
 
 [logging]
 level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW — RAW = DEBUG + pod 로그 (podman logs -f) 를 GUI Terminal 에 interleave

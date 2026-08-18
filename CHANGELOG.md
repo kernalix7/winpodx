@@ -9,13 +9,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- **The tray app launcher now stays current and preserves each app's complete launch configuration.** Visible Windows applications are sorted consistently by launcher tier and name, hidden applications are excluded, and the previous 20-app cap is gone. Tray launches now carry launch URIs, window-class hints, default arguments, app icons, and per-app RDP overrides. The menu refreshes both when opened and on the status timer for desktops such as KDE Plasma that do not reliably emit nested-menu signals; if the app catalogue cannot be read, the last working menu remains available. Behavioural tests cover ordering, filtering, launch metadata, action ownership, and failure-safe rebuilding.
+
 ### Fixed
 
 - **GUI resource colors and Windows app naming are now handled correctly.** Fixed resource-related color handling in the GUI and corrected Windows application naming so discovered applications are presented consistently and accurately.
 
+- **PCI passthrough now exposes the assigned device's VFIO IOMMU-group node to the container.** The generated compose configuration previously exposed only `/dev/vfio/vfio`; QEMU also needs `/dev/vfio/<group>` to open an assigned PCI device, so passthrough could fail even when the device was correctly bound to `vfio-pci`. WinPodX now resolves every assigned PCI device's IOMMU group, exposes the corresponding group nodes alongside the VFIO control node, and de-duplicates nodes when multiple PCI functions share a group. It refuses to generate the pod configuration when an assigned device has no resolvable group, and validates host-derived group identifiers before constructing any `/dev/vfio/<group>` path.
+
 ### Contributors
 
-Thanks to @silentone12725 for this contribution.
+Thanks to @silentone12725 for these contributions.
 
 ## [0.10.4] - 2026-07-27
 

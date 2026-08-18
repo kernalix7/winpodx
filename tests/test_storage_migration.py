@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from winpodx.core import storage_migration as sm
 
 
@@ -710,3 +712,202 @@ class TestChattrPostMigrationVerification:
         # Verification is gated on chattr_will_run; the helper is never
         # invoked for non-btrfs targets.
         mock_check.assert_not_called()
+
+
+class TestMigrationFailureBranches:
+    def _cfg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        cfg.pod.backend = "podman"
+        cfg.save()
+        return cfg
+
+    def _plan(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        return sm.MigrationPlan(
+            backend="podman",
+            source_volume="winpodx-data",
+            source_mountpoint=src,
+            source_size_bytes=1024,
+            target_path=tmp_path / "target",
+            target_fs="ext4",
+            chattr_will_run=False,
+            free_bytes_target=10 << 30,
+        )
+
+    def test_volume_probe_subprocess_error_is_absent(self):
+        with patch.object(sm.subprocess, "run", side_effect=OSError("denied")):
+            assert sm._volume_exists_single("podman", "winpodx-data") is False
+
+    @pytest.mark.parametrize("payload", ["{}", "[]", '[{"Mountpoint": 7}]'])
+    def test_mountpoint_rejects_invalid_inspect_shapes(self, payload):
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
+            patch.object(
+                sm.subprocess,
+                "run",
+                return_value=MagicMock(returncode=0, stdout=payload, stderr=""),
+            ),
+        ):
+            assert sm.get_volume_mountpoint("podman") is None
+
+    def test_mountpoint_inspect_exception_is_none(self):
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman"),
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
+            patch.object(sm.subprocess, "run", side_effect=OSError("denied")),
+        ):
+            assert sm.get_volume_mountpoint("podman") is None
+
+    def test_plan_rejects_missing_mountpoint(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        with (
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
+            patch.object(sm, "get_volume_mountpoint", return_value=None),
+        ):
+            result = sm.plan_migration(cfg, tmp_path / "target")
+        assert result == "could not resolve 'winpodx-data' mountpoint via `podman volume inspect`"
+
+    def test_plan_rejects_insufficient_capacity(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "disk.img").write_bytes(b"x" * 100)
+        usage = MagicMock(free=0)
+        with (
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
+            patch.object(sm, "get_volume_mountpoint", return_value=src),
+            patch.object(sm, "detect_path_fs", return_value="ext4"),
+            patch.object(sm.shutil, "disk_usage", return_value=usage),
+        ):
+            result = sm.plan_migration(cfg, tmp_path / "target")
+        assert isinstance(result, str)
+        assert "not enough free space" in result
+        assert "have 0 GiB" in result
+
+    def test_plan_tolerates_capacity_query_error(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        src = tmp_path / "src"
+        src.mkdir()
+        with (
+            patch.object(sm, "resolve_named_volume", return_value="winpodx-data"),
+            patch.object(sm, "get_volume_mountpoint", return_value=src),
+            patch.object(sm, "detect_path_fs", return_value="ext4"),
+            patch.object(sm.shutil, "disk_usage", side_effect=OSError("unmounted")),
+        ):
+            plan = sm.plan_migration(cfg, tmp_path / "missing" / "target")
+        assert isinstance(plan, sm.MigrationPlan)
+        assert plan.free_bytes_target == -1
+
+    def test_execute_reports_target_mkdir_failure(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        plan = self._plan(tmp_path)
+        with (
+            patch.object(sm, "_stop_pod", return_value=(True, "stopped")),
+            patch.object(sm.Path, "mkdir", side_effect=OSError("read-only")),
+        ):
+            result = sm.execute_migration(cfg, plan, start_pod=False)
+        assert result.status == "failed"
+        assert "read-only" in result.detail
+
+    def test_execute_retains_source_when_compose_persist_fails(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path, monkeypatch)
+        plan = self._plan(tmp_path)
+        with (
+            patch.object(sm, "_stop_pod", return_value=(True, "stopped")),
+            patch.object(sm, "_rsync_copy", return_value=(True, "ok")),
+            patch("winpodx.core.compose.generate_compose", side_effect=RuntimeError("bad compose")),
+            patch.object(sm.subprocess, "run") as run,
+        ):
+            result = sm.execute_migration(cfg, plan, start_pod=True)
+        assert result.status == "failed"
+        assert "Original volume retained for rollback" in result.detail
+        run.assert_not_called()
+
+
+class TestMigrationCommandHelpers:
+    def test_stop_pod_requires_compose_file(self, tmp_path):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        with patch.object(sm.Path, "home", return_value=tmp_path):
+            ok, detail = sm._stop_pod(cfg)
+        assert ok is False
+        assert "compose file not found" in detail
+
+    def test_stop_pod_accepts_already_stopped_pod(self, tmp_path):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        compose = tmp_path / ".config" / "winpodx" / "compose.yaml"
+        compose.parent.mkdir(parents=True)
+        compose.touch()
+        proc = MagicMock(returncode=1, stdout="", stderr="No such container")
+        with (
+            patch.object(sm.Path, "home", return_value=tmp_path),
+            patch.object(sm.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"),
+            patch.object(sm.subprocess, "run", return_value=proc) as run,
+        ):
+            ok, detail = sm._stop_pod(cfg)
+        assert (ok, detail) == (True, "no running pod")
+        run.assert_called_once_with(
+            ["podman-compose", "down"],
+            cwd=compose.parent,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def test_stop_pod_reports_compose_exception(self, tmp_path):
+        from winpodx.core.config import Config
+
+        cfg = Config()
+        compose = tmp_path / ".config" / "winpodx" / "compose.yaml"
+        compose.parent.mkdir(parents=True)
+        compose.touch()
+        with (
+            patch.object(sm.Path, "home", return_value=tmp_path),
+            patch.object(sm.shutil, "which", return_value="/usr/bin/podman-compose"),
+            patch.object(sm.subprocess, "run", side_effect=OSError("exec denied")),
+        ):
+            ok, detail = sm._stop_pod(cfg)
+        assert ok is False
+        assert detail == "compose down raised: exec denied"
+
+    def test_rsync_copy_uses_sparse_contents_copy(self, tmp_path):
+        src, dst = tmp_path / "src", tmp_path / "dst"
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch.object(sm.shutil, "which", return_value="/usr/bin/rsync"),
+            patch.object(sm.subprocess, "run", return_value=proc) as run,
+        ):
+            assert sm._rsync_copy(src, dst) == (True, "ok")
+        run.assert_called_once_with(
+            ["rsync", "-aS", f"{src}/", f"{dst}/"],
+            capture_output=True,
+            text=True,
+            timeout=86400,
+        )
+
+    def test_rsync_copy_falls_back_to_cp_and_reports_failure(self, tmp_path):
+        src, dst = tmp_path / "src", tmp_path / "dst"
+        proc = MagicMock(returncode=9, stdout="", stderr="disk full")
+        with (
+            patch.object(
+                sm.shutil, "which", side_effect=lambda name: "/bin/cp" if name == "cp" else None
+            ),
+            patch.object(sm.subprocess, "run", return_value=proc) as run,
+        ):
+            ok, detail = sm._rsync_copy(src, dst)
+        assert ok is False
+        assert detail == "copy failed (rc=9): disk full"
+        assert run.call_args.args[0] == ["cp", "-a", f"{src}/.", f"{dst}/"]
+
+    def test_rsync_copy_rejects_missing_copy_tools(self, tmp_path):
+        with patch.object(sm.shutil, "which", return_value=None):
+            result = sm._rsync_copy(tmp_path / "src", tmp_path / "dst")
+        assert result == (False, "neither rsync nor cp available")

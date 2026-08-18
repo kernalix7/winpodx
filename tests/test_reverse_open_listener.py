@@ -423,6 +423,54 @@ def test_process_pending_guest_rejects_when_mount_unavailable(
     assert captured == []
 
 
+def test_process_pending_guest_refuses_a_path_swapped_before_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mount = tmp_path / "guest-c"
+    target = mount / "Users" / "me" / "note.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "note.txt").write_text("attacker", encoding="utf-8")
+    captured: list[tuple[list[str], dict]] = []
+
+    from winpodx.reverse_open.paths import SafeFile
+
+    original_assert_unchanged = SafeFile.assert_unchanged
+
+    def swap_then_check(self: SafeFile) -> None:
+        target.parent.rename(tmp_path / "moved")
+        target.parent.symlink_to(outside)
+        original_assert_unchanged(self)
+
+    monkeypatch.setattr(SafeFile, "assert_unchanged", swap_then_check)
+    incoming = _incoming(tmp_path)
+    incoming.chmod(0o700)
+    _write_request(
+        incoming,
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "C:\\Users\\me\\note.txt",
+            "origin": "guest",
+            "ts": "2026-06-19T00:00:00Z",
+            "pod_id": None,
+        },
+    )
+    listener = Listener(
+        ListenerConfig(incoming_dir=incoming, share_roots={}, guest_mount=lambda: mount),
+        _apps_db_with("kate", ["/usr/bin/kate", "%f"]),
+        _seen(tmp_path),
+        spawn=lambda argv, kwargs: captured.append((argv, kwargs)),
+    )
+
+    listener.process_pending()
+
+    assert captured == []
+    assert listener.stats_snapshot().accepted == 0
+
+
 def test_process_pending_spawns_on_happy_path(
     tmp_path: Path, home_under_tmp: Path, spawn_capture: tuple
 ) -> None:
@@ -809,3 +857,57 @@ def test_listener_drops_request_for_dangerous_url(tmp_path: Path, spawn_capture)
     assert captured == []
     assert listener.stats_snapshot().rejected_schema == 1
     assert list(inc.iterdir()) == []
+
+
+def test_process_pending_refuses_a_path_swapped_before_spawn(
+    tmp_path: Path, home_under_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The listener hands the child a by-name path, so the guest can rename the
+    # validated parent away and symlink it elsewhere after validation. The
+    # pre-spawn identity re-check must catch that and spawn nothing.
+    (home_under_tmp / "safe").mkdir()
+    (home_under_tmp / "safe" / "note.txt").write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "note.txt").write_text("ATTACKER", encoding="utf-8")
+
+    captured: list = []
+
+    def spawn(argv: list[str], popen_kwargs: dict) -> object:
+        captured.append((argv, dict(popen_kwargs)))
+        return None
+
+    def swap_then_check(self) -> None:
+        # Stand in for the guest winning the race: perform the swap at the
+        # last possible moment, then run the real check.
+        if (home_under_tmp / "safe").is_dir() and not (home_under_tmp / "safe").is_symlink():
+            (home_under_tmp / "safe").rename(tmp_path / "safe-moved")
+            (home_under_tmp / "safe").symlink_to(outside)
+        _orig_assert_unchanged(self)
+
+    from winpodx.reverse_open.paths import SafeFile
+
+    _orig_assert_unchanged = SafeFile.assert_unchanged
+    monkeypatch.setattr(SafeFile, "assert_unchanged", swap_then_check)
+
+    inc = _incoming(tmp_path)
+    inc.chmod(0o700)
+    _write_request(
+        inc,
+        {
+            "version": 2,
+            "app": "kate",
+            "path": "\\\\tsclient\\home\\safe\\note.txt",
+            "origin": "host",
+            "ts": "2026-06-19T00:00:00Z",
+            "pod_id": None,
+        },
+    )
+    cfg = ListenerConfig(incoming_dir=inc, share_roots={"home": home_under_tmp})
+    apps_db = _apps_db_with("kate", ["/usr/bin/kate", "%f"])
+    listener = Listener(cfg, apps_db, _seen(tmp_path), spawn=spawn)
+
+    listener.process_pending()
+
+    assert captured == [], "a swapped path must never reach the spawn"
+    assert listener.stats_snapshot().accepted == 0

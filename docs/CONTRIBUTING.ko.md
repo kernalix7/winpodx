@@ -6,7 +6,7 @@ WinPodX에 관심을 가져 주셔서 감사합니다! 이 가이드는 기여�
 
 ## 사전 요구 사항
 
-- Python 3.9+ (3.13 에서 개발; CI 는 3.9 / 3.10 / 3.11 / 3.12 / 3.13 매트릭스)
+- Python 3.9+ (3.13 에서 개발; CI 는 3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14 매트릭스)
 - FreeRDP 3+
 
 ## 빌드
@@ -22,14 +22,17 @@ pip install -e ".[dev]"
 ## 테스트
 
 ```bash
-# 테스트 실행
-pytest tests/ -v
+# 전체 스위트는 병렬 안전 — 약 15 초
+pytest tests/ -n auto
 
 # 린트
 ruff check src/ tests/
 
 # 포맷 검사
 ruff format --check src/ tests/
+
+# 커버리지 (ci.yml 의 바닥값 이상을 유지해야 함)
+pytest tests/ -n auto --cov=winpodx --cov-report=term-missing:skip-covered
 ```
 
 `pytest`는 Linux CI 러너에서 돌며 Windows 게스트를 실행할 수 없습니다. 게스트를
@@ -49,9 +52,10 @@ ruff format --check src/ tests/
 
 PR을 제출하기 전에 다음을 확인하세요:
 
-- [ ] `pytest tests/ -v` 통과
+- [ ] `pytest tests/ -n auto` 통과
 - [ ] `ruff check src/ tests/` 오류 없음
 - [ ] `ruff format --check src/ tests/` 통과
+- [ ] `python scripts/ci/verify_versions.py` 통과 (버전을 올렸다면)
 - [ ] 문서 업데이트 완료 (해당하는 경우)
 - [ ] 하드코딩된 자격 증명 또는 비밀 정보 없음
 

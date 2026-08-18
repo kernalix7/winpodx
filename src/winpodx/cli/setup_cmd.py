@@ -712,7 +712,8 @@ def _run_full_provision(cfg: Config) -> None:
     reverse-open — moved into the helper, parameter-gated. We pass the same
     parameters the old inline code used: 3600s wait, soft agent settle
     (require_agent=False so a slow first boot doesn't crash setup), discovery
-    with 6× retry, reverse-open gated on cfg.reverse_open.enabled.
+    with five retries for non-timeout transient failures, reverse-open gated
+    on cfg.reverse_open.enabled.
 
     Skipped for non-podman/docker backends (the helper short-circuits too).
     """

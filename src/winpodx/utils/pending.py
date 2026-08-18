@@ -146,9 +146,9 @@ def resume(printer=print) -> None:
     #                   agent.ps1 / OEM scripts in the guest)
     #   * discovery   ← results["discovery"]
     # Parameters preserve the old behaviour: 300s wait (NOT 3600), soft
-    # agent settle (require_agent=False), no reverse-open, discovery with a
-    # 3× retry. Discovery always runs in the helper; we only clear the
-    # discovery marker when it was actually pending.
+    # agent settle (require_agent=False), no reverse-open, and discovery with
+    # five retries for non-timeout transient failures. Discovery always runs
+    # in the helper; we only clear the discovery marker when it was pending.
     def _on_progress(stage: str, detail: str) -> None:
         printer(f"[WinPodX] {stage}: {detail}")
 

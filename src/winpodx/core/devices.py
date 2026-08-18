@@ -465,6 +465,13 @@ def classify_safety(dev: HostDevice) -> Safety:
 # --------------------------------------------------------------------------
 
 
+class PciPassthroughError(RuntimeError):
+    """An assigned PCI device cannot be passed through safely."""
+
+
+_IOMMU_GROUP_RE = re.compile(r"^[0-9]+$")
+
+
 def qemu_device_args(devices: list[DeviceConfig]) -> list[str]:
     """Build the QEMU ``-device`` argument tokens for *devices*.
 
@@ -485,16 +492,45 @@ def qemu_device_args(devices: list[DeviceConfig]) -> list[str]:
 def host_device_nodes(devices: list[DeviceConfig]) -> list[str]:
     """Host ``/dev`` nodes the container needs for *devices*.
 
-    PCI VFIO needs ``/dev/vfio/vfio`` (the VFIO container device) — the
-    per-group node is added at attach time by the platform. USB live-attach
-    needs the whole ``/dev/bus/usb`` tree exposed so a device plugged in
-    *after* container creation is still reachable for a QMP ``device_add``.
+    USB live-attach needs the whole ``/dev/bus/usb`` tree exposed so devices
+    plugged in after container creation remain reachable.
+
+    PCI passthrough needs both the VFIO control node and the IOMMU-group node
+    for every assigned PCI device. Multiple functions in the same IOMMU group
+    share one group node, so group paths are de-duplicated. An assigned PCI
+    device without a valid group is refused before compose generation.
     """
     nodes: list[str] = []
+
     if any(d.dtype == "usb" for d in devices):
         nodes.append("/dev/bus/usb")
-    if any(d.dtype == "pci" for d in devices):
+
+    pci = [d for d in devices if d.dtype == "pci"]
+    if pci:
         nodes.append("/dev/vfio/vfio")
+
+        groups: set[str] = set()
+        missing_groups: list[str] = []
+        for d in pci:
+            group = _iommu_group_for(d.did)
+            if group is None:
+                missing_groups.append(d.did)
+                continue
+            if _IOMMU_GROUP_RE.fullmatch(group) is None:
+                raise PciPassthroughError(
+                    f"PCI device {d.did} returned invalid IOMMU group {group!r}"
+                )
+            groups.add(group)
+
+        if missing_groups:
+            devices_text = ", ".join(missing_groups)
+            raise PciPassthroughError(
+                f"PCI device(s) {devices_text} have no IOMMU group; enable VT-d/AMD-Vi "
+                "and the host IOMMU, or detach the device before starting the pod"
+            )
+
+        nodes.extend(f"/dev/vfio/{group}" for group in sorted(groups, key=int))
+
     return nodes
 
 

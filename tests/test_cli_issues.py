@@ -647,6 +647,21 @@ class TestRefreshAppsCli:
             _args, kwargs = mock_da.call_args
             assert kwargs.get("timeout") == DEFAULT_DISCOVERY_TIMEOUT
 
+    @pytest.mark.parametrize("timeout", [0, -1])
+    def test_refresh_rejects_non_positive_timeout_before_discovery(
+        self, timeout: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winpodx.cli.main import cli as cli_entry
+
+        discovery = MagicMock(return_value=[])
+        monkeypatch.setattr("winpodx.core.discovery.discover_apps", discovery)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_entry(["app", "refresh", "--timeout", str(timeout)])
+
+        assert excinfo.value.code == 2
+        discovery.assert_not_called()
+
     def test_refresh_pod_not_running_exits_2(self):
         from winpodx.core.config import Config
         from winpodx.core.discovery import DiscoveryError

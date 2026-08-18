@@ -14,23 +14,23 @@ Linux 에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 �
 | 설정 | 수동 (셸 + 설정 파일 + RDP 테스트) | 원라인 스크립트 | 원클릭 GUI 설치 | **제로 설정** (첫 실행 시 자동) |
 | 인터페이스 | CLI 만 | CLI 만 | Electron GUI | **Qt6 GUI + CLI + 트레이** |
 | 앱 범위 | 모든 Windows 앱 | Office 전용 | 모든 Windows 앱 | 모든 Windows 앱 |
-| 언어 | Shell (86%) | Shell + Python | TypeScript / Vue / Go | **Python (100%)** |
+| 언어 | Shell | Shell + Python | TypeScript / Vue / Go | **Python 우선 + guest PowerShell/Rust shim** |
 | 런타임 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP, Podman** |
 | 자동 suspend / resume | 없음 | 없음 | 문서화 안 됨 | **있음 (idle timeout)** |
 | 비밀번호 회전 | 없음 | 없음 | 문서화 안 됨 | **있음 (7일, atomic)** |
 | HiDPI 자동 감지 | 없음 | 없음 | 문서화 안 됨 | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |
 | 사운드 기본 | 없음 | 없음 | 있음 (FreeRDP) | 있음 (FreeRDP) |
 | 프린터 리디렉션 기본 | 없음 | 없음 | 문서화 안 됨 | 있음 (FreeRDP) |
-| USB 드라이브 자동 매핑 | 없음 | 없음 | 스마트카드 패스스루 | **드라이브 서브폴더 → 드라이브 레터, FileSystemWatcher** |
+| USB 드라이브 공유 | 없음 | 없음 | 스마트카드 패스스루 | **`\\tsclient\media` 서브폴더 공유 (불안정했던 드라이브 레터 자동 매핑은 제거)** |
 | 호스트 USB / PCI 장치 패스스루 | 없음 | 없음 | 스마트카드만 | **있음 (`device list / attach / detach`, GUI Devices 페이지, 트레이 USB 스위처; USB live hot-plug, PCI boot-add)** |
-| Discovery (설치된 앱 자동 스캔) | 없음 | 없음 | 있음 | **있음 (Registry + Start Menu + UWP + choco/scoop)** |
-| 멀티세션 RDP | 없음 | 없음 | 문서화 안 됨 | **있음 (bundled rdprrap, 최대 10)** |
+| Discovery (설치된 앱 자동 스캔) | 없음 | 없음 | 있음 | **있음 (기본 Start Menu + UWP; Registry/choco/scoop 전체 스캔은 opt-in)** |
+| 멀티세션 RDP | 없음 | 없음 | 문서화 안 됨 | **있음 (bundled rdprrap, 기본 25; 1–50 설정 가능)** |
 | Reverse 파일 열기 (guest → host xdg-open) | 없음 | 없음 | 없음 | **있음 (Linux 앱이 Windows "Open with…" 메뉴에 노출)** |
 | Windows 디스크 자동 확장 | 없음 | 없음 | 없음 | **있음 (idle, 호스트 여유 공간으로 bounded)** |
 | 게스트 동기화 (재설치 없는 in-place 업데이트) | 없음 | 없음 | 없음 | **있음 (pod 시작 시 자동 + `guest sync`)** |
 | 다국어 UI | 영어 전용 | 영어 전용 | 영어 전용 | **있음 (7개 언어, 로케일 자동 감지)** |
 | 오프라인 / 에어갭 설치 | 없음 | 없음 | 없음 | **있음 (`--source` + `--image-tar`)** |
-| 라이선스 | MIT | AGPL-3.0 | MIT | MIT |
+| 라이선스 | Mixed (대부분 AGPL-3.0; 상속된 무라이선스 파일 잔존) | AGPL-3.0 | MIT | MIT |
 
 > winboat 가 스코프상 가장 가까운 peer 이고 영감을 준 프로젝트. 우리는 다른 조합에 집중 — Electron 대신 stdlib 지향 Python + Qt6, 더 깊은 자동 설정 (auto suspend, 7일 비밀번호 회전, 다중 DE HiDPI), reverse-open (Linux 앱이 Windows "Open with…" 메뉴에 기본 노출되는 유일한 프로젝트), 다국어 UI (7개 언어, 로케일 자동 감지), 채워질수록 스스로 커지는 자가 관리 Windows 디스크, 재설치 없이 실행 중인 게스트로 호스트 업데이트를 push 하는 in-place 게스트 동기화, 명시적 에어갭 설치 경로. 두 프로젝트 모두 dockur/windows 위에 빌드 — 그 생태계는 한 앱보다 크다.
 
@@ -45,11 +45,11 @@ Linux 에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 �
 | Microsoft 365 with 완전한 Outlook + Teams + OneDrive 통합 | **WinPodX** |
 | Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | WinPodX — 단 무거운 GPU 이펙트는 CPU 바운드 (위 GPU 행 참조) |
 | 안티치트 게임 (Valorant, EAC, BattlEye) | **TBD** — 안티치트마다 VM 감지 정책 다름 (Vanguard 는 TPM 2.0 + hypervisor 없음 필요, EAC 는 대부분 VM 차단, VAC 는 관대). 시도 전 테스트 필수. |
-| DRM 무거운 소프트웨어 / 하드웨어 동글 앱 | **WinPodX** |
-| 커널 모드 드라이버 출시 앱 (일부 VPN, 보안 스위트) | **WinPodX** |
-| 지역 인증서 사용 은행 / 세무 / 행정 도구 | **WinPodX** |
-| Visual Studio, WinUI 3 / WinRT, Wine 이 따라잡지 못한 .NET 기능 | **WinPodX** |
+| DRM 무거운 소프트웨어 / 하드웨어 동글 앱 | **WinPodX** — 단 디바이스 패스스루가 가능하고 소프트웨어가 VM 을 허용할 때 |
+| 커널 모드 드라이버 출시 앱 (일부 VPN, 보안 스위트) | **WinPodX** — 단 드라이버가 가상 머신을 차단하지 않을 때 |
+| 지역 인증서 사용 은행 / 세무 / 행정 도구 | **WinPodX** — 해당 도구의 VM 정책에 따름 |
+| Visual Studio, WinUI 3 / WinRT, Wine 이 따라잡지 못한 .NET 기능 | **WinPodX** — GPU 무거운 워크로드는 여전히 수동 패스스루 필요 |
 | IE 전용 레거시 엔터프라이즈 웹 앱 | **WinPodX** |
-| "대부분 동작" 이 허용 안 되는 모든 것 | **WinPodX** |
+| Wine 의 호환 레이어가 아닌 진짜 Windows userspace/kernel 이 필요한 앱 | **WinPodX** — 하드웨어 및 VM 탐지 제약에 따름 |
 
-Wine 은 속도와 GPU 에서 (DXVK/VKD3D 변환이 깔끔하게 될 때) 이김. WinPodX 는 그 외 모든 곳에서 **100% Windows 기능 동등성** 으로 이김 — 모든 앱이 실제 Windows 커널 위에서 실행되고, FreeRDP RemoteApp 통해 Linux 데스크톱에 네이티브 윈도로 렌더링됨.
+Wine 은 속도와 GPU 에서 (DXVK/VKD3D 변환이 깔끔하게 될 때) 이김. WinPodX 는 Wine 이 구현하지 않은 Windows 구성요소가 필요한 앱에 실제 Windows 커널과 userspace 를 제공하고 FreeRDP RemoteApp 으로 Linux 데스크톱에 렌더링함. 호환성은 높아지지만 모든 앱을 보장하지는 않으며 VM 탐지, 안티치트, GPU 요구사항, 미지원 하드웨어가 여전히 실행을 막을 수 있음.

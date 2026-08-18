@@ -613,3 +613,85 @@ def test_property_translate_total_function(tmp_path):
         )
 
     _check()
+
+
+# --- assert_unchanged: swap detection between validation and spawn ---------
+
+
+def test_assert_unchanged_accepts_an_untouched_path(tmp_path):
+    share_roots = {"home": tmp_path}
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "safe" / "target").write_text("inside", encoding="utf-8")
+
+    with safe_open_unc(r"\\tsclient\home\safe\target", share_roots) as safe:
+        safe.assert_unchanged()
+
+
+def test_assert_unchanged_catches_the_parent_rename_symlink_swap(tmp_path):
+    # The audited attack: after validation the guest renames the validated
+    # parent away and drops a symlink of the same name pointing outside the
+    # share, so the child's reopen-by-name lands on the attacker's target.
+    share_roots = {"home": tmp_path}
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "safe" / "target").write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "target").write_text("ATTACKER", encoding="utf-8")
+
+    with safe_open_unc(r"\\tsclient\home\safe\target", share_roots) as safe:
+        assert safe.real_path.read_text(encoding="utf-8") == "inside"
+
+        (tmp_path / "safe").rename(tmp_path / "safe-moved")
+        (tmp_path / "safe").symlink_to(outside)
+        # Reopen-by-name now resolves to the attacker's file...
+        assert safe.real_path.read_text(encoding="utf-8") == "ATTACKER"
+
+        # ...which is exactly what the pre-spawn re-check must refuse.
+        with pytest.raises(ReversePathError, match="swapped between validation and spawn"):
+            safe.assert_unchanged()
+
+
+def test_assert_unchanged_catches_a_replaced_leaf(tmp_path):
+    share_roots = {"home": tmp_path}
+    target = tmp_path / "target"
+    target.write_text("inside", encoding="utf-8")
+
+    with safe_open_unc(r"\\tsclient\home\target", share_roots) as safe:
+        target.unlink()
+        target.write_text("ATTACKER", encoding="utf-8")
+
+        with pytest.raises(ReversePathError, match="swapped between validation and spawn"):
+            safe.assert_unchanged()
+
+
+def test_assert_unchanged_reports_a_vanished_path(tmp_path):
+    share_roots = {"home": tmp_path}
+    target = tmp_path / "target"
+    target.write_text("inside", encoding="utf-8")
+
+    with safe_open_unc(r"\\tsclient\home\target", share_roots) as safe:
+        target.unlink()
+
+        with pytest.raises(ReversePathError, match="vanished or became unopenable"):
+            safe.assert_unchanged()
+
+
+def test_safe_open_unc_closes_the_pinned_fd_once_when_the_body_raises(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.write_text("inside", encoding="utf-8")
+    real_close = os.close
+    closed: list[int] = []
+
+    def close_once(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(os, "close", close_once)
+    pinned_fd = -1
+
+    with pytest.raises(RuntimeError, match="body failed"):
+        with safe_open_unc(r"\\tsclient\home\target", {"home": tmp_path}) as safe:
+            pinned_fd = safe.fd
+            raise RuntimeError("body failed")
+
+    assert closed.count(pinned_fd) == 1

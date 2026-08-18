@@ -18,7 +18,7 @@ End-to-end reference for how a WinPodX pod is installed, upgraded, migrated, and
 8. [Container image pinning](#8-container-image-pinning)
 9. [Discovery (`winpodx app refresh`)](#9-discovery-winpodx-app-refresh)
 10. [Transport selection](#10-transport-selection-agent-vs-freerdp)
-11. [Guest sync (`winpodx pod sync-guest`)](#11-guest-sync-winpodx-pod-sync-guest)
+11. [Guest sync (`winpodx guest sync`)](#11-guest-sync-winpodx-guest-sync)
 12. [Disk auto-grow](#12-disk-auto-grow)
 13. [Pod auto-start on login](#13-pod-auto-start-on-login-opt-in)
 14. [Recovery scenarios](#14-recovery-scenarios)
@@ -51,26 +51,20 @@ End-to-end reference for how a WinPodX pod is installed, upgraded, migrated, and
         └──────────────┬───────────────────┘
                        │
                        ▼
-            ┌─────────────────────┐
-            │ winpodx pod         │
-            │   wait-ready        │ (3 phases: container,
-            │                     │  RDP port, FreeRDP probe)
-            └──────────┬──────────┘
-                       │
-                       ▼
-            ┌─────────────────────┐
-            │ winpodx migrate     │ (only if existing config)
-            │  - version compare  │
-            │  - image pin align  │
-            │  - apply chain      │
-            └──────────┬──────────┘
-                       │
-                       ▼
-            ┌─────────────────────┐
-            │ winpodx app refresh │
-            │  (3-layer race-free │
-            │   discovery)        │
-            └─────────────────────┘
+             ┌─────────────────────┐
+             │ fresh: provision    │
+             │   --require-agent   │
+             │ upgrade: migrate    │
+             └──────────┬──────────┘
+                        │
+                        ▼
+             ┌─────────────────────┐
+             │ finish_provisioning │
+             │  wait-ready         │
+             │  apply fixes        │
+             │  discovery          │
+             │  reverse-open       │
+             └─────────────────────┘
 ```
 
 The shaded boxes are entry points; everything else is implementation. Each is described in detail below.
@@ -89,12 +83,11 @@ The shaded boxes are entry points; everything else is implementation. Each is de
 4. Setup writes `~/.config/winpodx/winpodx.toml`:
    - `cfg.pod.image` defaults to `DOCKUR_IMAGE_PIN` (a SHA-pinned `docker.io/dockurr/windows@sha256:…` digest — see [§8](#8-container-image-pinning)).
    - `cfg.rdp.password` randomized.
-   - `cfg.pod.backend` autodetected (podman > docker > libvirt).
+   - `cfg.pod.backend` autodetected (Podman 4+ > Docker; Podman is the install fallback). Manual RDP can be selected explicitly; libvirt was removed in 0.6.0.
 5. Setup runs `generate_compose(cfg)` which writes `~/.config/winpodx/compose.yaml`.
 6. Setup runs `_ensure_oem_token_staged()` which writes `~/.config/winpodx/agent_token.txt` and copies it to the OEM bind-mount source dir.
-7. `install.sh` calls `winpodx pod wait-ready --timeout 3600 --logs`. dockur pulls the pinned image, downloads the Windows ISO (~7.5 GB), runs Sysprep with our OEM bundle ([§3](#3-sysprep-first-boot-installbat)) — typically 5-10 min on first install.
-8. Migrate is **skipped** (no `installed_version.txt` to compare against).
-9. `install.sh` calls `winpodx app refresh` ([§9](#9-discovery-winpodx-app-refresh)).
+7. `install.sh` calls `winpodx provision --require-agent`. Its shared `finish_provisioning()` chain waits for Windows with live container progress, settles the required agent, applies runtime fixes, runs discovery ([§9](#9-discovery-winpodx-app-refresh)), and refreshes reverse-open. dockur pulls the pinned image, downloads the Windows ISO (~7.5 GB), and runs Sysprep with our OEM bundle ([§3](#3-sysprep-first-boot-installbat)) — typically 5-10 min on first install.
+8. Migrate is **skipped**; the new guest already contains the current OEM payload.
 
 **End state.** Fully provisioned pod, multi-session active, agent running under wscript wrapper, app menu populated.
 
@@ -132,9 +125,7 @@ The shaded boxes are entry points; everything else is implementation. Each is de
 
 1. `install.sh` re-extracts source to `~/.local/bin/winpodx-app/` (host code update).
 2. Runs `winpodx setup --non-interactive` — detects existing config, prints `Existing config found ..., skipping setup`, runs `_ensure_oem_token_staged()`, returns. **No compose regeneration here**, so the running pod is undisturbed by the source code update.
-3. Runs `winpodx pod wait-ready` — typically completes in seconds since the container is already up and warm.
-4. Runs `winpodx migrate` ([§5](#5-migrate-winpodx-migrate)) — the canonical place where existing-pod migration happens.
-5. Runs `winpodx app refresh` to refresh the discovered app menu.
+3. Runs `winpodx migrate --non-interactive` ([§5](#5-migrate-winpodx-migrate)) — the canonical existing-pod path. Migrate performs guest auto-sync/image migration, then delegates wait-ready, apply-fixes, discovery, and reverse-open to the shared provisioning chain.
 
 The only path that mutates the guest is migrate. install.sh itself is purely host-side after step 2.
 
@@ -187,7 +178,7 @@ Patch versions (0.1.9.x) collapse to the same `(0, 1, 9)` tuple under `[:3]` tru
 
 ## 6. Apply chain (`apply_windows_runtime_fixes`)
 
-**Code.** `src/winpodx/core/provisioner.py::apply_windows_runtime_fixes`. Called by `winpodx pod apply-fixes`, the GUI Tools-page button, and migrate.
+**Code.** `src/winpodx/core/provisioner.py::apply_windows_runtime_fixes`. Called by `winpodx guest apply-fixes` (the old `pod apply-fixes` spelling remains a deprecated alias), the GUI Tools-page button, and migrate.
 
 **Order matters** — each step assumes earlier steps have run:
 
@@ -370,13 +361,11 @@ If suspicious: wait 8 s, retry once. Picks the larger result so retry never regr
 
 ### 9.4 Discovery sources
 
-The script unions five sources, deduping by lowercase executable path or UWP AUMID:
-
-1. **Registry App Paths** (`HKLM` + `HKCU`)
-2. **Start Menu .lnk recursion** (ProgramData + every user profile)
-3. **UWP / MSIX packages** via `Get-AppxPackage` + `AppxManifest.xml`
-4. **Chocolatey + Scoop shims**
-5. **Essentials allowlist** — File Explorer / Calculator / Settings always emitted with synthesized stubs, since they aren't enumerated as `.lnk` files.
+The default scan uses Start Menu `.lnk` recursion (ProgramData + every user
+profile), plus the essentials allowlist for File Explorer / Calculator /
+Settings. When `desktop.full_app_scan` is enabled, the script also unions
+Registry App Paths (`HKLM` + `HKCU`), UWP / MSIX packages, and Chocolatey +
+Scoop shims. Results are deduped by lowercase executable path or UWP AUMID.
 
 Junk filter: hides uninstallers, redistributables, `LicenseManagerShellExt`, `WindowsPackageManagerServer`, etc. User overrides via `hidden = true` in `app.toml` survive subsequent refreshes.
 
@@ -388,7 +377,7 @@ Persisted under `~/.local/share/winpodx/discovered/`. Each app gets a `.toml` pl
 
 ## 10. Transport selection (agent vs FreeRDP)
 
-**Code.** `src/winpodx/core/transport/__init__.py::dispatch`.
+**Code.** `src/winpodx/core/transport/dispatch.py::dispatch` (re-exported by the package).
 
 **Two transports.**
 
@@ -399,9 +388,10 @@ Persisted under `~/.local/share/winpodx/discovered/`. Each app gets a `.toml` pl
 
 **Selection rule.** `dispatch(cfg)` calls agent `/health` with a 1-2 s timeout. If the agent answers, returns `AgentTransport`. Otherwise returns `FreerdpTransport`.
 
-**Used by.** `core.updates`, `core.daemon.sync_windows_time`, `cli.pod.multi-session`, `cli.main.debloat`, GUI Tools-page debloat handler — all go through `windows_exec.run_via_transport`.
-
-**Not used by (intentionally).** Password rotation and `winpodx pod sync-password` rescue path — both need direct credential auth, must use FreeRDP.
+**Used by.** Discovery, runtime fixes, time sync, multi-session, debloat, guest
+sync, and password rotation all use the transport layer. Rotation explicitly
+requires the agent first and controls its own FreeRDP fallback; user-facing app
+launches remain direct FreeRDP RemoteApp sessions.
 
 ### 10.1 Verifying which transport is active
 
@@ -428,9 +418,9 @@ Agent listener: `http://+:8765/` with `netsh http add urlacl` pre-registered (Us
 
 ---
 
-## 11. Guest sync (`winpodx pod sync-guest`)
+## 11. Guest sync (`winpodx guest sync`)
 
-**Code.** `src/winpodx/core/guest_sync.py::sync_guest`. Full design notes: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
+**Code.** `src/winpodx/core/guest_sync.py::sync_guest`. Full design notes: [GUEST_SYNC_DESIGN.md](GUEST_SYNC_DESIGN.md).
 
 **Goal.** Upgrading WinPodX on the host updates the host binary, but the
 guest-side artifacts staged at first install go stale until the user wipes and
@@ -441,17 +431,16 @@ the urlacl reservation, or the guest binaries. Guest sync closes that gap withou
 a reinstall.
 
 **Key enabler.** `/oem` is a **live bind mount** of the host's `config/oem`
-(`{oem_dir}:/oem:Z` in `compose.py`), so after a host upgrade the running
+(`{oem_dir}:/oem:Z` in `core/pod/compose.py`), so after a host upgrade the running
 container's `/oem` *already* holds the new files — no image rebuild. Delivery
-into the guest is the same channel `winpodx pod recover-oem` uses (tar `/oem`
+into the guest is the same channel `winpodx guest recover-oem` uses (tar `/oem`
 in the container → one-shot HTTP server on `127.0.0.1:8766` → guest pulls via
 the QEMU NAT gateway `10.0.2.2`), except sync runs over the bearer-authed
 `/exec` endpoint because the agent is alive.
 
-**When it runs.** **Once per pod start**, after the pod is responsive
-(`provisioner.ensure_ready()` / `pod wait-ready` tail), when
-`cfg.pod.guest_autosync` (default `True`) is set and the guest stamp is stale.
-Gated to podman/docker.
+**When it runs.** After the pod is responsive (`pod wait-ready` tail or
+migrate), when `cfg.pod.guest_autosync` (default `True`) is set and an existing
+guest stamp is stale. Gated to podman/docker.
 
 **Staleness gate.** Host current = `winpodx.__version__` +
 `core.info._bundled_oem_version()`. `read_guest_version()` reads
@@ -489,7 +478,7 @@ re-run):
 `sync_guest` returns a per-step result map (like `apply_windows_runtime_fixes`)
 so the CLI and GUI Tools → Sync Guest action can render rows.
 
-**Manual.** `winpodx pod sync-guest [--force]`. `--force` re-syncs even when the
+**Manual.** `winpodx guest sync [--force]`. `--force` re-syncs even when the
 stamp matches the host pair (a clean no-op on an up-to-date guest — same
 artifacts re-delivered, no session disruption).
 
@@ -582,7 +571,7 @@ Windows app.
 - `WinpodxMedia` — fixed in PR #84 (was bare `powershell.exe -WindowStyle Hidden`).
 - `WinpodxAgent` — fixed in PR #58.
 
-**Fix.** `winpodx pod apply-fixes` rewrites both entries (the `vbs_launchers` step is conditional on legacy entries existing, so it's safe to re-run).
+**Fix.** `winpodx guest apply-fixes` rewrites both entries (the `vbs_launchers` step is conditional on legacy entries existing, so it's safe to re-run).
 
 ### 14.3 "Select a session to reconnect to" dialog
 
@@ -633,6 +622,6 @@ If the container itself isn't starting (podman exits immediately), check `podman
 
 ## See also
 
-- **[CHANGELOG.md](../CHANGELOG.md)** — release history.
+- **[CHANGELOG.md](../../CHANGELOG.md)** — release history.
 - **[AGENT_V2_DESIGN.md](AGENT_V2_DESIGN.md)** — agent protocol design notes.
 - **[TRANSPORT_ABC.md](TRANSPORT_ABC.md)** — transport abstraction internals.

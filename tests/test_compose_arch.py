@@ -41,6 +41,29 @@ def _stub_smbios_blob_write(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_disguise_image_probe(monkeypatch):
+    """Keep the max-disguise tests off the real container runtime.
+
+    At ``disguise_level = max`` with no ``disguise_image`` wired, compose
+    generation auto-resolves the canonical tag via ``disguise_image_present()``
+    (compose.py:831), which shells out to ``<backend> image inspect`` with a 30 s
+    timeout. On a host that has podman that call is real: it initialises a
+    container store under the fixture-redirected ``XDG_DATA_HOME`` and leaves
+    hundreds of MB of overlay scratch behind. It also makes the assertions
+    host-dependent — a developer who actually built the patched image would get
+    the tag substituted into ``image:`` and see different compose output.
+
+    False == "not built locally", which is what every assertion here expects.
+    ``disguise_image_present`` is imported inside the function under test, so
+    patch the defining module.
+    """
+    monkeypatch.setattr(
+        "winpodx.cli.disguise.disguise_image_present",
+        lambda cfg: False,
+    )
+
+
 def _cfg() -> Config:
     cfg = Config()
     cfg.pod.backend = "podman"

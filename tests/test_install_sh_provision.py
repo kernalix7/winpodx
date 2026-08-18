@@ -146,6 +146,31 @@ def test_deferred_provision_is_not_a_rollback(script: str) -> None:
     assert "winpodx app refresh" in script
 
 
+# --- #810: dockur ejects the install ISO after the first full shutdown -------
+
+
+def test_successful_fresh_install_cold_restarts_to_remove_install_media(script: str) -> None:
+    command = 'WINPODX_NO_TRAY_SPAWN=1 "$SYMLINK" pod restart'
+    gate = '[ "$IS_FRESH_INSTALL" = "1" ] && [ "$SETUP_OK" -eq 1 ]'
+    assert gate in script
+    assert command in script
+    assert "Finalizing Windows installation" in script
+
+    # The restart belongs only to PROVISION_RC=0's final else branch. Exit 4/5
+    # remains deferred, and every other non-zero exit remains a warning path.
+    success_branch = script.index('else\n        rm -f "$PENDING_FILE"')
+    branch_end = script.index('\n    fi\n    rm -f "$PROVISION_OUT"', success_branch)
+    restart = script.index(command)
+    assert success_branch < restart < branch_end
+
+
+def test_final_install_restart_is_best_effort(script: str) -> None:
+    command = 'WINPODX_NO_TRAY_SPAWN=1 "$SYMLINK" pod restart'
+    assert f"if ! {command}; then" in script
+    assert "final stop/start did not complete" in script
+    assert r"Run \`winpodx pod restart\` once" in script
+
+
 def test_mode_prompt_reads_from_tty_so_curl_bash_can_choose(script: str) -> None:
     # Under `curl ... | bash`, stdin is the script pipe, so the R/A/C/N mode
     # menu (and Custom sub-prompts) must read from the controlling terminal

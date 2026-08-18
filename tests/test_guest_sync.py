@@ -8,6 +8,7 @@ version-stamp comparison, the parse, and the trigger gating."""
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -245,3 +246,205 @@ def test_sync_guest_uses_windowless_transport_not_freerdp(monkeypatch: pytest.Mo
     assert results.get("oem_delivery") == "ok"
     assert results.get("agent_restart") == "ok"
     assert results.get("agent_back") == "ok"
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (MagicMock(ok=False, stdout="ignored"), None),
+        (MagicMock(ok=True, stdout="  "), None),
+        (MagicMock(ok=True, stdout="not-json"), None),
+    ],
+)
+def test_read_guest_version_rejects_failed_or_hostile_output(
+    monkeypatch: pytest.MonkeyPatch, result, expected
+) -> None:
+    from winpodx.core import guest_sync
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", lambda *a, **k: result)
+    assert guest_sync.read_guest_version(_cfg()) is expected
+
+
+def test_read_guest_version_handles_transport_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+    from winpodx.core.windows_exec import WindowsExecError
+
+    def fail(*_args, **_kwargs):
+        raise WindowsExecError("offline")
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", fail)
+    assert guest_sync.read_guest_version(_cfg()) is None
+
+
+def test_backend_exec_validates_backend_before_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    cfg = _cfg()
+    cfg.pod.backend = "manual"
+    run = MagicMock()
+    monkeypatch.setattr(guest_sync.subprocess, "run", run)
+    with pytest.raises(guest_sync.GuestSyncError, match="not available"):
+        guest_sync._backend_exec(cfg, ["ps"])
+    run.assert_not_called()
+
+
+def test_backend_exec_uses_specific_backend_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    monkeypatch.setattr(guest_sync.shutil, "which", lambda name: f"/usr/bin/{name}")
+    run = MagicMock(return_value=MagicMock(returncode=0))
+    monkeypatch.setattr(guest_sync.subprocess, "run", run)
+    result = guest_sync._backend_exec(_cfg(), ["exec", "winpodx", "true"], timeout=7)
+    assert result.returncode == 0
+    run.assert_called_once_with(
+        ["podman", "exec", "winpodx", "true"],
+        capture_output=True,
+        text=True,
+        timeout=7,
+    )
+
+
+def test_serve_oem_rejects_missing_install_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    monkeypatch.setattr(
+        guest_sync, "_backend_exec", lambda *a, **k: MagicMock(returncode=1, stderr="missing")
+    )
+    with pytest.raises(guest_sync.GuestSyncError, match="install.bat missing"):
+        guest_sync._serve_oem(_cfg())
+
+
+def test_serve_oem_rejects_failed_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    responses = iter(
+        [MagicMock(returncode=0, stderr=""), MagicMock(returncode=2, stderr="tar denied")]
+    )
+    monkeypatch.setattr(guest_sync, "_backend_exec", lambda *a, **k: next(responses))
+    with pytest.raises(guest_sync.GuestSyncError, match="tar /oem failed: tar denied"):
+        guest_sync._serve_oem(_cfg())
+
+
+def test_serve_oem_stages_and_serves_without_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    calls = []
+
+    def fake_exec(_cfg, args, *, timeout=60):
+        calls.append((args, timeout))
+        return MagicMock(returncode=0, stderr="")
+
+    monkeypatch.setattr(guest_sync, "_backend_exec", fake_exec)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    guest_sync._serve_oem(_cfg())
+    assert len(calls) == 4
+    assert calls[0][0][-1] == "test -f /oem/install.bat"
+    assert "tar czf /tmp/winpodx-sync/oem.tar.gz oem" in calls[1][0][-1]
+    assert calls[3][0][1] == "-d"
+
+
+def test_stop_oem_server_swallows_backend_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    def fail(*_args, **_kwargs):
+        raise guest_sync.GuestSyncError("gone")
+
+    monkeypatch.setattr(guest_sync, "_backend_exec", fail)
+    assert guest_sync._stop_oem_server(_cfg()) is None
+
+
+def test_stamp_retry_stops_after_success_without_real_sleep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winpodx.core import guest_sync
+
+    writes = iter([False, False, True])
+    sleeps = []
+    monkeypatch.setattr(guest_sync, "write_guest_version", lambda *a, **k: next(writes))
+    monkeypatch.setattr(guest_sync, "host_version", lambda: GuestVersion("1", "2"))
+    monkeypatch.setattr("time.sleep", sleeps.append)
+    assert guest_sync._write_stamp_with_retry(_cfg(), attempts=4, wait=0.25) is True
+    assert sleeps == [0.25, 0.25]
+
+
+def test_sync_guest_skips_unsupported_and_current(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    cfg = _cfg()
+    cfg.pod.backend = "manual"
+    assert guest_sync.sync_guest(cfg) == {"backend": "skipped (backend=manual not supported)"}
+    monkeypatch.setattr(guest_sync, "guest_sync_needed", lambda cfg: False)
+    assert guest_sync.sync_guest(_cfg()) == {"sync": "skipped (guest already current)"}
+
+
+def test_sync_guest_aborts_after_failed_oem_pull(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    stopped = []
+    monkeypatch.setattr(guest_sync, "_serve_oem", lambda cfg: None)
+    monkeypatch.setattr(guest_sync, "_stop_oem_server", lambda cfg: stopped.append(cfg))
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_via_transport",
+        lambda *a, **k: MagicMock(ok=False, stderr="hostile response", stdout=""),
+    )
+    results = guest_sync.sync_guest(_cfg(), force=True)
+    assert results == {"oem_delivery": "failed: guest OEM pull failed: hostile response"}
+    assert len(stopped) >= 1
+
+
+def test_sync_guest_records_step_errors_and_skips_stamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync, provisioner
+    from winpodx.core.windows_exec import WindowsExecError
+
+    calls = {"n": 0}
+
+    def transport(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return MagicMock(ok=True, rc=0, stdout="ok", stderr="")
+        raise WindowsExecError("agent dropped")
+
+    monkeypatch.setattr(guest_sync, "_serve_oem", lambda cfg: None)
+    monkeypatch.setattr(guest_sync, "_stop_oem_server", lambda cfg: None)
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", transport)
+    monkeypatch.setattr(provisioner, "apply_windows_runtime_fixes", lambda cfg: {"rdp": "failed"})
+    results = guest_sync.sync_guest(_cfg(), force=True)
+    assert results["urlacl"] == "failed: agent dropped"
+    assert results["stamp"] == "skipped (a step failed; will retry next sync)"
+    assert results["agent_restart"] == "failed: agent dropped"
+
+
+def test_wait_agent_back_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import agent, guest_sync
+
+    attempts = {"n": 0}
+
+    class _Client:
+        def __init__(self, cfg):
+            pass
+
+        def health(self):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("settling")
+
+    times = iter([0.0, 0.0, 0.1])
+    monkeypatch.setattr(agent, "AgentClient", _Client)
+    monkeypatch.setattr("time.monotonic", lambda: next(times))
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    assert guest_sync._wait_agent_back(_cfg(), timeout=15, interval=0) is True
+    assert attempts["n"] == 2
+
+
+def test_maybe_autosync_handles_sync_precondition_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.core import guest_sync
+
+    _agent_up(monkeypatch)
+    monkeypatch.setattr(guest_sync, "read_guest_version", lambda cfg: GuestVersion("old", "old"))
+    monkeypatch.setattr(guest_sync, "host_version", lambda: GuestVersion("new", "new"))
+
+    def fail(_cfg):
+        raise guest_sync.GuestSyncError("oem missing")
+
+    monkeypatch.setattr(guest_sync, "sync_guest", fail)
+    assert guest_sync.maybe_autosync(_cfg()) is False

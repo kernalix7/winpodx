@@ -225,10 +225,53 @@ def test_qemu_device_args():
     assert "vfio-pci,host=0000:01:00.0" in args
 
 
-def test_host_device_nodes():
+def test_host_device_nodes(monkeypatch):
+    monkeypatch.setattr(D, "_iommu_group_for", lambda addr: "14")
+
     assert D.host_device_nodes([D.DeviceConfig("usb", "1234:5678")]) == ["/dev/bus/usb"]
-    assert D.host_device_nodes([D.DeviceConfig("pci", "01:00.0")]) == ["/dev/vfio/vfio"]
+    assert D.host_device_nodes([D.DeviceConfig("pci", "01:00.0")]) == [
+        "/dev/vfio/vfio",
+        "/dev/vfio/14",
+    ]
     assert D.host_device_nodes([]) == []
+
+
+def test_host_device_nodes_deduplicates_iommu_group(monkeypatch):
+    groups = {
+        "0000:01:00.0": "14",
+        "0000:01:00.1": "14",
+        "0000:04:00.0": "17",
+    }
+    monkeypatch.setattr(D, "_iommu_group_for", groups.get)
+
+    nodes = D.host_device_nodes(
+        [
+            D.DeviceConfig("pci", "0000:01:00.0"),
+            D.DeviceConfig("pci", "0000:01:00.1"),
+            D.DeviceConfig("pci", "0000:04:00.0"),
+        ]
+    )
+
+    assert nodes == [
+        "/dev/vfio/vfio",
+        "/dev/vfio/14",
+        "/dev/vfio/17",
+    ]
+
+
+def test_host_device_nodes_pci_without_iommu_group(monkeypatch):
+    monkeypatch.setattr(D, "_iommu_group_for", lambda addr: None)
+
+    with pytest.raises(D.PciPassthroughError, match="01:00.0"):
+        D.host_device_nodes([D.DeviceConfig("pci", "01:00.0")])
+
+
+@pytest.mark.parametrize("group", ["", "14a", "../vfio"])
+def test_host_device_nodes_rejects_malformed_iommu_group(monkeypatch, group):
+    monkeypatch.setattr(D, "_iommu_group_for", lambda addr: group)
+
+    with pytest.raises(D.PciPassthroughError, match="IOMMU group"):
+        D.host_device_nodes([D.DeviceConfig("pci", "01:00.0")])
 
 
 def test_usb_qom_id_stable():
@@ -348,9 +391,11 @@ def test_compose_usb_live_opt_in_wires_usb_bus_only():
     assert "usb-host" not in out  # USB never boot-added
 
 
-def test_compose_pci_boot_adds_vfio_usb_stays_live():
+def test_compose_pci_boot_adds_vfio_usb_stays_live(monkeypatch):
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
+
+    monkeypatch.setattr(D, "_iommu_group_for", lambda addr: "14")
 
     c = Config()
     c.pod.usb_live = True  # opt-in so the QMP socket is wired alongside PCI
@@ -359,6 +404,7 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live():
     out = _build_compose_content(c)
     # PCI is boot-added (can't hot-plug into a container QEMU).
     assert "- /dev/vfio/vfio" in out
+    assert "- /dev/vfio/14" in out
     assert "vfio-pci,host=0000:01:00.0" in out
     # USB stays live-only even when assigned — never boot-added; the USB bus
     # bind is present (live attach reuses dockur's monitor, no custom -qmp).
@@ -369,11 +415,13 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live():
     assert "- label=disable" in out
 
 
-def test_compose_pci_only_still_lifts_selinux():
-    # Even with usb_live off, an assigned PCI device exposes /dev/vfio/vfio,
+def test_compose_pci_only_still_lifts_selinux(monkeypatch):
+    # Even with usb_live off, an assigned PCI device exposes VFIO device nodes,
     # which container_t can't open on SELinux hosts -> label=disable applies.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
+
+    monkeypatch.setattr(D, "_iommu_group_for", lambda addr: "14")
 
     c = Config()
     c.pod.usb_live = False
@@ -382,6 +430,19 @@ def test_compose_pci_only_still_lifts_selinux():
     out = _build_compose_content(c)
     assert "- /dev/bus/usb" not in out  # usb off
     assert "- label=disable" in out  # but PCI still needs the lift
+
+
+def test_compose_pci_without_iommu_group_fails_closed(monkeypatch):
+    from winpodx.core.config import Config
+    from winpodx.core.pod.compose import _build_compose_content
+
+    monkeypatch.setattr(D, "_iommu_group_for", lambda addr: None)
+    c = Config()
+    c.pod.devices = ["pci|0000:01:00.0|Card"]
+    c.pod.__post_init__()
+
+    with pytest.raises(D.PciPassthroughError, match="0000:01:00.0"):
+        _build_compose_content(c)
 
 
 def test_assign_device_persists_and_dedups(tmp_path, monkeypatch):

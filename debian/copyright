@@ -48,6 +48,19 @@ Comment: Pre-built WinPodX-owned Rust stub (source at
  config/oem/reverse-open/shim/) that Windows Explorer invokes from the
  "Open with" menu to relay a file-open request back to the host's
  reverse-open listener. Same MIT terms as WinPodX.
+ .
+ The binary is statically linked, so the following crates are compiled into
+ it. Both are dual-licensed MIT OR Apache-2.0 and compatible with the MIT
+ terms above. The source manifest declares dependency ranges; Cargo.lock is
+ not tracked, so exact resolved versions must be inventoried from the build
+ that produces the prebuilt binary whenever it is regenerated:
+ .
+ getrandom (MIT OR Apache-2.0) - crypto-quality randomness for the request
+ UUID, routed to BCryptGenRandom on Windows targets.
+ cfg-if (MIT OR Apache-2.0) - transitive, via getrandom.
+ .
+ winresource and its toml/serde dependencies are build-time only (they stamp
+ the PE VERSIONINFO resource) and are not linked into the shipped binary.
 
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a

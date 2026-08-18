@@ -10,6 +10,7 @@ flow through ``run_migrate`` with refresh skipped.
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from winpodx.cli.migrate import (
@@ -339,6 +340,26 @@ def _args(no_refresh: bool = True, non_interactive: bool = True) -> argparse.Nam
     return argparse.Namespace(no_refresh=no_refresh, non_interactive=non_interactive)
 
 
+def _stub_guest_apply(monkeypatch) -> None:
+    """Neutralise run_migrate()'s guest-apply chain.
+
+    Every helper below talks to the real host, and the apply step lands in
+    ``provisioner.ensure_ready()`` -> ``_ensure_pod_running()``, which starts a
+    pod and then blocks in the RDP wait loop (provisioner.py:1393-1399) for the
+    whole timeout on any machine that actually has podman + FreeRDP installed —
+    so the suite hangs locally while passing on a bare CI runner (no deps ->
+    ensure_ready bails early). The tests below assert run_migrate's flow control
+    only; each helper has its own dedicated tests further down this file.
+    """
+    for name in (
+        "_probe_password_sync",
+        "_ensure_canonical_image_pin",
+        "_apply_runtime_fixes_to_existing_guest",
+        "_maybe_auto_migrate_storage",
+    ):
+        monkeypatch.setattr(f"winpodx.cli.migrate.{name}", lambda *a, **k: None)
+
+
 def test_run_migrate_fresh_install_writes_marker(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
     with patch("winpodx.core.config.Config.path", return_value=tmp_path / "noconfig.toml"):
@@ -352,6 +373,7 @@ def test_run_migrate_already_current(tmp_path, monkeypatch, capsys):
     from winpodx import __version__ as current
 
     monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _stub_guest_apply(monkeypatch)
     (tmp_path / "installed_version.txt").write_text(current + "\n", encoding="utf-8")
     rc = run_migrate(_args())
     assert rc == 0
@@ -363,6 +385,7 @@ def test_run_migrate_upgrade_skips_refresh_when_flagged(tmp_path, monkeypatch, c
     or not the current package version has been bumped yet.
     """
     monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _stub_guest_apply(monkeypatch)
     (tmp_path / "installed_version.txt").write_text("0.1.0\n", encoding="utf-8")
     rc = run_migrate(_args(no_refresh=True, non_interactive=True))
     assert rc == 0
@@ -379,6 +402,7 @@ def test_run_migrate_non_interactive_queues_discovery(tmp_path, monkeypatch, cap
     monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
     # isolate the pending file too (add_step writes via pending.config_dir)
     monkeypatch.setattr("winpodx.utils.pending.config_dir", lambda: tmp_path)
+    _stub_guest_apply(monkeypatch)
     (tmp_path / "installed_version.txt").write_text("0.1.0\n", encoding="utf-8")
     # no_refresh=False but non_interactive=True -> must not block on input, and
     # must auto-apply the update by queuing discovery for the next launch (#545
@@ -1007,3 +1031,236 @@ def test_canonical_pin_uses_x86_image_on_x86(tmp_path):
         _ensure_canonical_image_pin(non_interactive=True)
 
     assert cfg.pod.image == DOCKUR_IMAGE_PIN
+
+
+def test_whats_new_selects_and_orders_every_release_in_range(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "winpodx.cli.migrate._VERSION_NOTES",
+        {"0.3.0": ["third"], "0.1.9": ["first"], "0.2.0": ["second"]},
+    )
+
+    _print_whats_new("0.1.8", "0.3.0")
+
+    out = capsys.readouterr().out
+    assert out.index("0.1.9") < out.index("0.2.0") < out.index("0.3.0")
+    assert all(note in out for note in ("first", "second", "third"))
+
+
+def test_cleanup_legacy_entries_removes_desktops_and_matching_icons(tmp_path, monkeypatch, capsys):
+    from winpodx.cli.migrate import _maybe_cleanup_legacy_bundled
+
+    apps = tmp_path / "applications"
+    icons = tmp_path / "icons"
+    apps.mkdir()
+    stale = apps / "winpodx-excel-o365.desktop"
+    stale.write_text("legacy", encoding="utf-8")
+    for relative in (
+        "scalable/apps/winpodx-excel-o365.svg",
+        "32x32/apps/winpodx-excel-o365.png",
+    ):
+        icon = icons / relative
+        icon.parent.mkdir(parents=True, exist_ok=True)
+        icon.write_text("icon", encoding="utf-8")
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: apps)
+    monkeypatch.setattr("winpodx.utils.paths.icons_dir", lambda: icons)
+    monkeypatch.setattr("winpodx.cli.migrate._prompt_yes", lambda *_a, **_k: True)
+
+    _maybe_cleanup_legacy_bundled(non_interactive=False)
+
+    assert not stale.exists()
+    assert not (icons / "scalable/apps/winpodx-excel-o365.svg").exists()
+    assert not (icons / "32x32/apps/winpodx-excel-o365.png").exists()
+    assert "Removed 1 of 1" in capsys.readouterr().out
+
+
+def test_cleanup_legacy_entries_noninteractive_lists_without_deleting(
+    tmp_path, monkeypatch, capsys
+):
+    from winpodx.cli.migrate import _maybe_cleanup_legacy_bundled
+
+    apps = tmp_path / "applications"
+    apps.mkdir()
+    stale = apps / "winpodx-notepad.desktop"
+    stale.write_text("legacy", encoding="utf-8")
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: apps)
+
+    _maybe_cleanup_legacy_bundled(non_interactive=True)
+
+    assert stale.exists()
+    out = capsys.readouterr().out
+    assert "winpodx-notepad.desktop" in out
+    assert "skipping cleanup" in out
+
+
+def test_run_migrate_interactive_crossing_legacy_boundary_runs_cleanup_and_refresh(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.cli.migrate.__version__", "0.1.9")
+    (tmp_path / "installed_version.txt").write_text("0.1.8\n", encoding="utf-8")
+    _stub_guest_apply(monkeypatch)
+    cleanup = MagicMock()
+    refresh = MagicMock()
+    monkeypatch.setattr("winpodx.cli.migrate._maybe_cleanup_legacy_bundled", cleanup)
+    monkeypatch.setattr("winpodx.cli.migrate._attempt_refresh", refresh)
+    monkeypatch.setattr("winpodx.cli.migrate._prompt_yes", lambda *_a, **_k: True)
+
+    assert run_migrate(_args(no_refresh=False, non_interactive=False)) == 0
+
+    cleanup.assert_called_once_with(False)
+    refresh.assert_called_once_with()
+    assert (tmp_path / "installed_version.txt").read_text().strip() == "0.1.9"
+
+
+def test_run_migrate_current_empty_menu_queues_discovery(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.utils.pending.config_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.cli.migrate._apps_registered", lambda: False)
+    _stub_guest_apply(monkeypatch)
+    from winpodx import __version__ as current
+
+    (tmp_path / "installed_version.txt").write_text(current + "\n", encoding="utf-8")
+
+    assert run_migrate(_args(no_refresh=False, non_interactive=True)) == 0
+
+    from winpodx.utils import pending
+
+    assert "discovery" in pending.list_pending()
+    assert "App menu is empty" in capsys.readouterr().out
+
+
+def test_probe_password_sync_success_uses_agent_transport(tmp_path, monkeypatch, capsys):
+    TestProbePasswordSync()._setup_cfg(tmp_path, monkeypatch)
+    from winpodx.cli.migrate import _probe_password_sync
+    from winpodx.core.pod import PodState
+
+    transport = MagicMock(name="agent")
+    transport.name = "agent"
+    with (
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.RUNNING)),
+        patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+        patch("winpodx.core.transport.dispatch", return_value=transport),
+        patch("winpodx.core.windows_exec.run_in_windows") as fallback,
+    ):
+        _probe_password_sync(non_interactive=True)
+
+    transport.exec.assert_called_once_with(
+        "Write-Output 'sync-check'", timeout=60, description="probe-password-sync"
+    )
+    fallback.assert_not_called()
+    assert "Probing Windows-side authentication" in capsys.readouterr().out
+
+
+def test_probe_password_sync_dispatch_failure_falls_back_to_windows_exec(
+    tmp_path, monkeypatch, capsys
+):
+    TestProbePasswordSync()._setup_cfg(tmp_path, monkeypatch)
+    from winpodx.cli.migrate import _probe_password_sync
+    from winpodx.core.pod import PodState
+
+    with (
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.RUNNING)),
+        patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+        patch("winpodx.core.transport.dispatch", side_effect=RuntimeError("agent down")),
+        patch("winpodx.core.windows_exec.run_in_windows") as fallback,
+    ):
+        _probe_password_sync(non_interactive=True)
+
+    fallback.assert_called_once()
+    assert fallback.call_args.kwargs == {"description": "probe-password-sync", "timeout": 60}
+    assert "Probing Windows-side authentication" in capsys.readouterr().out
+
+
+def test_storage_migration_reports_plan_error(tmp_path, monkeypatch, capsys):
+    TestMaybeAutoMigrateStorage()._setup_cfg(tmp_path, monkeypatch)
+    from winpodx.cli.migrate import _maybe_auto_migrate_storage
+
+    source = tmp_path / "source"
+    with (
+        patch("winpodx.core.storage_migration.named_volume_exists", return_value=True),
+        patch("winpodx.core.storage_migration.get_volume_mountpoint", return_value=source),
+        patch("winpodx.utils.btrfs.detect_path_fs", return_value="btrfs"),
+        patch("winpodx.core.storage_migration.plan_migration", return_value="not enough space"),
+        patch("winpodx.core.storage_migration.execute_migration") as execute,
+    ):
+        _maybe_auto_migrate_storage(non_interactive=True)
+
+    execute.assert_not_called()
+    out = capsys.readouterr().out
+    assert "not enough space" in out
+    assert "Manual retry" in out
+
+
+def test_runtime_apply_stopped_interactive_decline_does_not_start(tmp_path, monkeypatch, capsys):
+    TestApplyRuntimeFixesAgentGate()._setup_cfg(tmp_path, monkeypatch)
+    from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
+    from winpodx.core.pod import PodState
+
+    with (
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.STOPPED)),
+        patch("winpodx.cli.migrate._prompt_yes", return_value=False),
+        patch("winpodx.core.provisioner.ensure_ready") as ensure,
+    ):
+        _apply_runtime_fixes_to_existing_guest(non_interactive=False)
+
+    ensure.assert_not_called()
+    assert "Skipped" in capsys.readouterr().out
+
+
+def test_runtime_apply_stopped_noninteractive_starts_and_applies(tmp_path, monkeypatch, capsys):
+    TestApplyRuntimeFixesAgentGate()._setup_cfg(tmp_path, monkeypatch)
+    from winpodx.cli.migrate import _apply_runtime_fixes_to_existing_guest
+    from winpodx.core.pod import PodState
+
+    with (
+        patch("winpodx.core.pod.pod_status", return_value=MagicMock(state=PodState.STOPPED)),
+        patch("winpodx.core.provisioner.ensure_ready") as ensure,
+    ):
+        _apply_runtime_fixes_to_existing_guest(non_interactive=True)
+
+    ensure.assert_called_once()
+    assert "Pod started + Windows-side fixes applied" in capsys.readouterr().out
+
+
+def test_attempt_refresh_running_guest_persists_discovered_apps(monkeypatch, capsys):
+    from winpodx.cli.migrate import _attempt_refresh
+
+    cfg = MagicMock()
+    apps = [MagicMock(), MagicMock()]
+    with (
+        patch("winpodx.core.config.Config.load", return_value=cfg),
+        patch("winpodx.cli.migrate._pod_is_running", return_value=True),
+        patch("winpodx.core.provisioner.wait_for_windows_responsive", return_value=True),
+        patch("winpodx.core.discovery.discover_apps", return_value=apps),
+        patch("winpodx.core.discovery.persist_discovered", return_value=["a", "b"]) as persist,
+    ):
+        _attempt_refresh()
+
+    persist.assert_called_once_with(apps)
+    assert "Discovered 2 app(s); wrote 2 profile(s)" in capsys.readouterr().out
+
+
+def test_attempt_refresh_declines_to_start_stopped_pod(monkeypatch, capsys):
+    from winpodx.cli.migrate import _attempt_refresh
+
+    with (
+        patch("winpodx.core.config.Config.load", return_value=MagicMock()),
+        patch("winpodx.cli.migrate._pod_is_running", return_value=False),
+        patch("winpodx.cli.migrate._prompt_yes", return_value=False),
+        patch("winpodx.core.discovery.discover_apps") as discover,
+    ):
+        _attempt_refresh()
+
+    discover.assert_not_called()
+    assert "Skipping refresh" in capsys.readouterr().out
+
+
+def test_pod_is_running_uses_selected_runtime_and_container(monkeypatch):
+    from winpodx.cli.migrate import _pod_is_running
+
+    cfg = SimpleNamespace(pod=SimpleNamespace(backend="docker", container_name="custom"))
+    run = MagicMock(return_value=SimpleNamespace(stdout="Running\n"))
+    monkeypatch.setattr("winpodx.cli.migrate.subprocess.run", run)
+
+    assert _pod_is_running(cfg) is True
+    assert run.call_args.args[0][:4] == ["docker", "ps", "--filter", "name=custom"]

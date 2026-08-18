@@ -57,7 +57,10 @@ def _parse_inspect_timestamp(raw: str) -> datetime.datetime | None:
         return None
     date = m.group("date")
     time_ = m.group("time")
-    frac = (m.group("frac") or "")[:7]  # microseconds-precision max
+    # Python 3.9/3.10 fromisoformat only accepts 3- or 6-digit fractions;
+    # truncate to 6 and pad so ".5Z" -> ".500000".
+    raw_frac = m.group("frac") or ""
+    frac = f".{raw_frac[1:7].ljust(6, '0')}" if raw_frac else ""
     sign = m.group("sign")
     if sign:
         hh, mm = m.group("hh"), m.group("mm")

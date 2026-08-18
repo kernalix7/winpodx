@@ -11,7 +11,7 @@ reinstalls Windows:
   multi-session registry, Defender exclusions, TermService recovery, NIC tweaks.
 - Guest binaries — rdprrap zip, `shim.exe` (reverse-open), `rcedit.exe`.
 
-`winpodx pod apply-fixes` already re-applies *some* idempotent registry fixes,
+`winpodx guest apply-fixes` already re-applies *some* idempotent registry fixes,
 but it does **not** refresh `agent.ps1`, the urlacl reservation, or the guest
 binaries — and it is manual. Users on an upgraded host silently run an old
 guest until they reinstall.
@@ -19,9 +19,9 @@ guest until they reinstall.
 ## Key enabler
 
 `/oem` is a **live bind mount** of the host's `config/oem`
-(`{oem_dir}:/oem:Z` in compose.py). So after a host upgrade the container's
+(`{oem_dir}:/oem:Z` in `core/pod/compose.py`). So after a host upgrade the container's
 `/oem` already contains the new agent.ps1 / rdprrap / scripts — no image
-rebuild. Delivery into the guest is the same channel `winpodx pod recover-oem`
+rebuild. Delivery into the guest is the same channel `winpodx guest recover-oem`
 already uses (tar `/oem` → container HTTP :8766 → guest pulls via the QEMU NAT
 gateway `10.0.2.2`), except for sync the **agent is alive**, so it runs over
 `/exec` automatically instead of noVNC paste.
@@ -36,13 +36,15 @@ The guest records what provisioned it at
 ```
 
 - Host current = `winpodx.__version__` + `core.info._bundled_oem_version()`.
-- `read_guest_version()` reads the file via `/exec`; missing/old/unparseable →
-  treated as "needs sync".
+- `read_guest_version()` reads the file via `/exec`; missing/unparseable returns
+  no stamp, while a differing stamp is treated as "needs sync".
 - Written **only after** a fully successful sync (or by the installer on a
   fresh provision).
 
 `guest_sync_needed(cfg)` returns True when the guest stamp differs from the
-host pair (or is absent).
+host pair (including when it is absent). The automatic trigger is deliberately
+stricter: an absent stamp is recorded without syncing so first boot is not
+disrupted.
 
 ## Sync flow (`core/guest_sync.py :: sync_guest`)
 
@@ -76,10 +78,11 @@ so CLI/GUI can render rows.
 
 ## Triggers
 
-- **Auto** (default on): after the pod is responsive (`provisioner.ensure_ready`
-  / `pod wait-ready` tail), if `guest_sync_needed` → run `sync_guest`. Cheap
-  no-op when versions match. Gated to podman/docker.
-- **Manual**: `winpodx pod sync-guest [--force]` and a GUI **Tools → Sync
+- **Auto** (default on): after the pod is responsive (`pod wait-ready` tail or
+  migrate), compare the guest stamp. A differing existing stamp runs
+  `sync_guest`; an absent stamp is recorded without syncing; a matching stamp
+  is a cheap no-op. Gated to podman/docker.
+- **Manual**: `winpodx guest sync [--force]` and a GUI **Tools → Sync
   Guest** action. `--force` re-syncs even when the stamp matches.
 
 Config: `pod.guest_autosync` (bool, default True). `false` = only manual.
@@ -101,10 +104,10 @@ Guest-side `/exec` work — pwsh-on-Linux Pester is **not** sufficient.
 1. Upgrade host WinPodX (bump `oem_bundle`), start an existing pod.
    → auto-sync runs; `guest_version.json` updates to the new pair.
 2. `C:\OEM\agent.ps1` matches the new host copy (hash/length).
-3. Agent rebinds 8765 after the restart task (no manual step); `winpodx check`
+3. Agent rebinds 8765 after the restart task (no manual step); `winpodx doctor`
    shows agent reachable.
 4. `netsh http show urlacl url=http://+:8765/` shows the WD SID reservation.
 5. rdprrap still active; multi-session still works.
-6. `winpodx pod sync-guest --force` on an up-to-date guest is a clean no-op
+6. `winpodx guest sync --force` on an up-to-date guest is a clean no-op
    (no session disruption, exit 0).
 7. Re-run sync after killing it mid-flight → converges (idempotency).

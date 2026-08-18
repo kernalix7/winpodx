@@ -10,7 +10,7 @@ WinPodX 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, WinPodX 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트를 스캔하고 설치된 모든 앱을 실제 아이콘과 함께 등록. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
+distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, WinPodX 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트의 Start Menu 앱을 실제 아이콘과 함께 등록 (`desktop.full_app_scan` opt-in 시 Registry / UWP / Chocolatey / Scoop 포함). 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
 
 > **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. WinPodX 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
 
@@ -35,7 +35,7 @@ WINPODX_REF=main  curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx
 WINPODX_REF=vX.Y.Z curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-> **업그레이드.** `install.sh` 재실행 (또는 패키지 업그레이드) 시 새 버전이 그 자리에서 설치됨. 실행 중인 시스템 트레이 / GUI 는 새 버전이 적용되도록 자동으로 재시작 — 수동 재시작 불필요. Windows pod 는 그동안 계속 실행됨.
+> **업그레이드.** `install.sh` 재실행 (또는 패키지 업그레이드) 시 새 버전이 그 자리에서 설치됨. 실행 중인 시스템 트레이 / GUI 는 새 버전이 적용되도록 자동으로 재시작 — 수동 재시작 불필요. Windows pod 는 그동안 계속 실행됨. 설치 방식별 전체 절차와 Bazzite / rpm-ostree 호스트는 아래 [WinPodX 업데이트](#winpodx-업데이트) 참고.
 
 ## 수동 설치 (provisioning 건너뛰기)
 
@@ -308,6 +308,47 @@ cd winpodx
 export PYTHONPATH="$PWD/src"
 python3 -m winpodx app run word
 ```
+
+## WinPodX 업데이트
+
+별도 update 명령은 없으며, 설치한 방식과 같은 방식으로 업데이트합니다.
+
+**curl 원라이너 / 소스 설치** (`~/.local/bin/winpodx-app/`): 설치할 때 쓴 명령을 그대로 다시 실행:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+```
+
+기존 설치를 감지해 venv 만 교체하고 config 와 Windows VM 디스크는 그대로 유지합니다. 업그레이드 후 첫 실행 시 `migrate` 체인이 자동으로 갱신된 guest 스크립트(agent, rdprrap, OEM fix)를 실행 중인 guest에 push하고 release note를 표시합니다. 실행 중인 트레이 / GUI도 자동 재시작하며 Windows pod는 계속 실행됩니다. curl 원라이너로 설치한 **Bazzite 및 기타 rpm-ostree 호스트**도 같은 명령으로 업데이트하며 `--main`이나 VM 초기화가 필요 없습니다. 로컬 clone은 `git pull && ./install.sh` 사용.
+
+**openSUSE / Fedora (OBS RPM):**
+
+```bash
+sudo zypper refresh && sudo zypper update winpodx      # openSUSE
+sudo dnf update winpodx                                 # Fedora
+```
+
+**Fedora Atomic Desktop (rpm-ostree):** `sudo rpm-ostree upgrade` 실행. live 적용이 아니라 staged 되었다고 출력될 때만 재부팅합니다.
+
+**Debian / Ubuntu:** 최신 release의 새 `.deb`를 기존 패키지 위에 설치:
+
+```bash
+sudo apt install ./winpodx_<version>_all_debian13.deb
+```
+
+**AlmaLinux / Rocky / RHEL:** 최신 `.rpm`을 기존 패키지 위에 설치:
+
+```bash
+sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm
+```
+
+**Arch:** `yay -S winpodx` (또는 `paru -S winpodx`). `winpodx-git`은 `yay -Syu --devel`로 최신 commit을 가져옵니다.
+
+**AppImage:** 최신 release의 새 AppImage로 기존 파일을 교체합니다. in-place self-update는 없습니다.
+
+**Nix:** profile 설치는 `nix profile upgrade winpodx`, 직접 실행은 `nix run github:kernalix7/winpodx`를 다시 실행합니다.
+
+어느 경로든 `winpodx --version`으로 실행 버전을 확인할 수 있습니다. guest가 host보다 뒤처지면 `winpodx doctor`가 version drift를 알리고 `winpodx guest sync --force`로 guest 스크립트를 다시 push할 수 있지만, 보통 다음 pod 시작 때 자동 동기화됩니다.
 
 ## 언인스톨
 

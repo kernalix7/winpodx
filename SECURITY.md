@@ -166,6 +166,33 @@ even a full guest-kernel RCE does not grant host root. A guest-compromise
 attacker is confined to the unprivileged user namespace that hosts the guest
 container.
 
+## PCI/VFIO passthrough (opt-in)
+
+PCI passthrough is disabled by default and requires an explicit device
+assignment plus the CLI `--force` option or GUI confirmation. Enabling it is a
+deliberate exception to the normal container-isolation posture:
+
+- VFIO isolates hardware at the IOMMU-group level. Windows receives only the
+  PCI functions selected for QEMU, but the container is given the group's
+  `/dev/vfio/<group>` file descriptor. Every sibling device in that group must
+  therefore be detached from its host driver and treated as part of the same
+  trust boundary; a QEMU or container compromise can affect the whole group.
+- A passed-through device can perform DMA into memory mapped for the guest.
+  Containment depends on a correctly enabled host IOMMU (Intel VT-d or AMD-Vi),
+  not solely on the rootless container user namespace.
+- On SELinux hosts, raw USB or PCI device access requires `label=disable` for
+  the Windows container. WinPodX emits that option only while a passthrough
+  device path is exposed; disabling USB live access and removing all PCI
+  assignments restores the normal container label.
+- Rootless Podman does not bypass host device permissions. VFIO group nodes are
+  commonly root-owned, so the operator must grant the user access with an ACL
+  or udev rule before passthrough can work.
+
+WinPodX fails closed while generating the pod configuration: every assigned
+PCI device must resolve to an ASCII-numeric IOMMU group. Missing or malformed
+groups are rejected before a `/dev/vfio/<group>` path or usable compose
+configuration is produced.
+
 ## Attribution
 
 We appreciate responsible disclosure and will credit reporters in release notes (unless anonymity is preferred).

@@ -10,6 +10,9 @@ exercised against a fake Hicolor tree we build under XDG_DATA_HOME (the
 from __future__ import annotations
 
 import os
+import sys
+import types
+from builtins import __import__ as real_import
 from pathlib import Path
 
 import pytest
@@ -260,3 +263,140 @@ def test_convert_cpp2_xpm_writes_real_icon(tmp_path: Path) -> None:
     dst = tmp_path / "t.ico"
     assert convert_to_ico(src, dst) is True
     _assert_ico_valid(dst)
+
+
+def test_resolve_icon_uses_lazy_xdg_icon_theme(monkeypatch, tmp_path: Path) -> None:
+    icon = tmp_path / "theme.png"
+    _make_png(icon)
+    calls: list[tuple[str, int]] = []
+    icon_theme = types.ModuleType("xdg.IconTheme")
+
+    def get_icon_path(name: str, *, size: int) -> str:
+        calls.append((name, size))
+        return str(icon)
+
+    icon_theme.getIconPath = get_icon_path
+    monkeypatch.setitem(sys.modules, "xdg", types.ModuleType("xdg"))
+    monkeypatch.setitem(sys.modules, "xdg.IconTheme", icon_theme)
+
+    assert resolve_icon("themed-app") == icon
+    assert calls == [("themed-app", 256)]
+
+
+def test_convert_svg_uses_lazy_cairosvg_and_writes_ico(monkeypatch, tmp_path: Path) -> None:
+    src = tmp_path / "icon.svg"
+    src.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"/>')
+    dst = tmp_path / "icon.ico"
+    calls: list[tuple[str, int, int]] = []
+    cairosvg = types.ModuleType("cairosvg")
+
+    def svg2png(*, url: str, output_width: int, output_height: int) -> bytes:
+        calls.append((url, output_width, output_height))
+        buffer = __import__("io").BytesIO()
+        Image.new("RGBA", (output_width, output_height), (10, 20, 30, 255)).save(
+            buffer, format="PNG"
+        )
+        return buffer.getvalue()
+
+    cairosvg.svg2png = svg2png
+    monkeypatch.setitem(sys.modules, "cairosvg", cairosvg)
+
+    assert convert_to_ico(src, dst) is True
+    assert src.read_bytes().startswith(b"<svg")
+    assert dst.read_bytes()[:4] == b"\x00\x00\x01\x00"
+    assert [size for _, size, _ in calls] == list(ICO_SIZES)
+
+
+def test_svg_without_raster_backend_writes_placeholder(monkeypatch, tmp_path: Path) -> None:
+    src = tmp_path / "icon.svg"
+    src.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    dst = tmp_path / "placeholder.ico"
+
+    def import_without_svg_backends(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "cairosvg" or name.startswith("reportlab") or name.startswith("svglib"):
+            raise ImportError(name)
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", import_without_svg_backends)
+
+    assert convert_to_ico(src, dst) is False
+    assert dst.read_bytes()[:4] == b"\x00\x00\x01\x00"
+
+
+def test_convert_without_pillow_logs_warning_and_does_not_write(
+    monkeypatch, caplog, tmp_path: Path
+) -> None:
+    dst = tmp_path / "missing.ico"
+
+    def import_without_pillow(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "PIL":
+            raise ImportError(name)
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", import_without_pillow)
+
+    with caplog.at_level("WARNING", logger="winpodx.reverse_open.icons"):
+        assert convert_to_ico(tmp_path / "source.png", dst) is False
+
+    assert "Pillow not installed" in caplog.text
+    assert dst.exists() is False
+
+
+def test_convert_svg_rejects_non_png_rasterizer_output(monkeypatch, tmp_path: Path) -> None:
+    src = tmp_path / "bad.svg"
+    src.write_text("not an svg")
+    dst = tmp_path / "bad.ico"
+    cairosvg = types.ModuleType("cairosvg")
+    cairosvg.svg2png = lambda **_kwargs: b"not-png"
+    monkeypatch.setitem(sys.modules, "cairosvg", cairosvg)
+
+    with pytest.raises(OSError):
+        convert_to_ico(src, dst)
+
+    assert dst.exists() is False
+
+
+def test_decode_xpm_unreadable_path_returns_none(caplog, tmp_path: Path) -> None:
+    from winpodx.reverse_open import icons
+
+    missing = tmp_path / "missing.xpm"
+
+    with caplog.at_level("DEBUG", logger="winpodx.reverse_open.icons"):
+        assert icons._decode_xpm_rgba(missing) is None
+
+    assert "cannot read XPM" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["bad header", "0 1 1 1", "1 1 2 1"],
+)
+def test_decode_xpm_rejects_invalid_headers(tmp_path: Path, header: str) -> None:
+    from winpodx.reverse_open import icons
+
+    src = tmp_path / "invalid.xpm"
+    src.write_text(f'static char *x[] = {{"{header}", "a c red", "a"}};')
+
+    assert icons._decode_xpm_rgba(src) is None
+
+
+def test_decode_xpm_handles_wide_hex_unknown_and_missing_colors(tmp_path: Path) -> None:
+    from winpodx.reverse_open import icons
+
+    src = tmp_path / "colors.xpm"
+    src.write_text(
+        "static char *x[] = {\n"
+        '"3 1 3 1",\n'
+        '"a c #FFFF00008000",\n'
+        '"b c definitely-not-an-x11-color",\n'
+        '"c symbolic ignored",\n'
+        '"abc"};\n'
+    )
+
+    image = icons._decode_xpm_rgba(src)
+
+    assert image is not None
+    pixels = image.load()
+    assert pixels[0, 0] == (255, 0, 128, 255)
+    assert pixels[1, 0] == (0, 0, 0, 0)
+    assert pixels[2, 0] == (0, 0, 0, 0)

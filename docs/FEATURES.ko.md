@@ -46,16 +46,16 @@ winpodx host-open disable       # 기능 전체 끄기
 - RemoteApp (RAIL) 이 각 앱을 네이티브 Linux 윈도로 렌더링 — 전체 데스크톱 아님
 - `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<stem>` + `StartupWMClass`)
 - 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
-- 멀티세션 RDP: bundled rdprrap 이 최대 10개 독립 세션 자동 활성화
+- 멀티세션 RDP: bundled rdprrap 이 독립 세션을 자동 활성화; `cfg.pod.max_sessions` 기본값은 25, 허용 범위는 1–50
 - 실행 중인 세션을 GUI Dashboard (Running-sessions 스트립) 또는 시스템 트레이 메뉴에서 종료
-- RAIL 전제조건 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) 이 unattended 설치 중 자동 설정
+- RAIL 전제조건 (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `fSingleSessionPerUser=0` + 설정된 `MaxInstanceCount`) 이 unattended 설치 중 자동 설정
 - 멀티모니터 RAIL 기본 활성 (`cfg.rdp.multimon = "span"`): 리모트 앱 윈도를 두 번째 모니터로 드래그해도 입력이 계속 동작
 - UWP/Store 앱도 다른 앱처럼 Linux taskbar 에 등장
 
 ## 제로 설정 실행
 
 - 첫 앱 클릭이 모든 것 자동 프로비저닝: config, 컨테이너, desktop 엔트리
-- 첫 부팅 시 자동 discovery 가 실행 중인 Windows 게스트 스캔, 설치된 모든 앱 (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) 을 실제 바이너리 아이콘과 함께 등록
+- 첫 부팅 시 자동 discovery 가 실행 중인 Windows 게스트의 Start Menu 를 스캔해 실제 바이너리 아이콘과 함께 등록. `desktop.full_app_scan = true` 로 Registry App Paths, UWP/MSIX, Chocolatey, Scoop 까지 포함 가능
 - `winpodx app refresh` 또는 GUI Refresh 버튼으로 언제든 수동 재스캔
 - 고급 설정용 대화형 setup 마법사
 - 로그인 시 pod 자동 시작 옵션 (opt-in, 기본 꺼짐): `winpodx autostart on|off|status` 또는 GUI 체크박스가 XDG autostart `.desktop` 엔트리(`~/.config/autostart/winpodx-tray.desktop`)를 설치 — 로그인 시 트레이가 떠 첫 앱 클릭 전에 Windows pod 이 미리 준비됨
@@ -85,11 +85,11 @@ winpodx host-open disable       # 기능 전체 끄기
 | **클립보드** | RDP 통한 양방향 복사-붙여넣기 (`+clipboard`) | 활성 |
 | **사운드** | ALSA 통한 오디오 스트리밍 (`/sound:sys:alsa`) | 활성 |
 | **프린터** | Linux 프린터가 Windows 에 공유 (`/printer`) | 활성 |
-| **홈 디렉토리** | `\\tsclient\home` 으로 공유 (`+home-drive`) | 활성 |
+| **홈 디렉토리** | 기본은 Home 전체를 `\\tsclient\home` 으로 공유 (`+home-drive`); `cfg.pod.home_share` 에 절대 경로를 지정하면 그 디렉터리만 공유 | 활성 |
 | **USB 드라이브** | media 폴더가 `\\tsclient\media` 로 공유 (`/drive:media`); 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능. 마운트된 미디어가 없어도 게스트 측 USB 바로가기가 항상 정상 동작 | 활성 |
 | **USB 디바이스 패스스루** | 네이티브 USB 리디렉션 (`/usb:auto`) — FreeRDP urbdrc 플러그인 필요 | **Opt-in** (`extra_flags` 에 추가) |
 | **호스트 USB / PCI 패스스루** | 호스트 USB 또는 PCI 디바이스를 Windows 게스트로 직접 매핑 (`winpodx device list / attach <id> / detach <id>`, GUI Devices 탭, 트레이 USB 스위처). USB 는 라이브 핫플러그; PCI 는 부팅 시 추가되어 게스트 재시작 + 안전 확인 필요 | USB 라이브 (`cfg.pod.usb_live`, 기본 켜짐) |
-| **USB 드라이브 매핑** | Windows 측 스크립트가 FileSystemWatcher 로 USB 서브폴더를 드라이브 레터 (E:, F:, ...) 로 자동 매핑 | 활성 |
+| **USB 드라이브 매핑** | `\\tsclient\media` 아래 서브폴더로 접근; 설치 안정성을 위해 Windows 드라이브 레터 자동 매핑은 제거됨 (#613, #638) | 서브폴더 공유 |
 | **Reverse 파일 열기** | Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 등장; 선택 시 호스트 `xdg-open` 으로 round-trip | 활성 |
 
 ### USB 드라이브 흐름
@@ -104,10 +104,7 @@ Linux 가 /run/media/$USER/USBNAME 으로 마운트
 FreeRDP 가 \\tsclient\media\USBNAME 으로 공유
     │
     ▼
-media_monitor.ps1 감지 → net use E: \\tsclient\media\USBNAME
-    │
-    ▼
-Windows Explorer 에 E: 드라이브 표시
+Windows Explorer 에서 \\tsclient\media\USBNAME 열기
 ```
 
 ### 호스트 USB / PCI 디바이스 패스스루
@@ -200,7 +197,7 @@ Windows `C:` 드라이브가 채워질수록 스스로 커짐 — 거대한 가�
 
 ### 자동 discovery (기본)
 
-v0.1.9 부터 WinPodX 는 **큐레이트된 프로필 리스트 없음**. Windows pod 첫 부팅 시 provisioner 가 `winpodx app refresh` 실행, 실행 중인 게스트를 스캔:
+v0.1.9 부터 WinPodX 는 **큐레이트된 프로필 리스트 없음**. Windows pod 첫 부팅 시 provisioner 가 `winpodx app refresh` 실행, 기본적으로 Start Menu 를 스캔합니다. `desktop.full_app_scan = true` 일 때는 다음 소스도 포함:
 
 - Registry `App Paths` (`HKLM` + `HKCU`)
 - Start Menu `.lnk` 재귀 (depth-cap)
@@ -235,10 +232,10 @@ winpodx app install myapp   # desktop 메뉴에 등록
 
 기본 Windows Desktop 에디션은 RDP 를 사용자당 1 세션으로 제한 — 두 번째 앱이 재연결하면서 첫 세션을 빼앗아감. WinPodX 는 [rdprrap](https://github.com/kernalix7/rdprrap) — RDPWrap 의 Rust 재구현 — 을 패키지 내부에 bundle 하고 Windows unattended 설치 중 자동 설치, 그래서 각 RemoteApp 윈도가 독립 세션을 받음.
 
-**RAIL 전제조건.** RemoteApp 자체가 unattended setup 중 WinPodX 가 적용하는 세 개의 레지스트리 설정 필요: `fDisabledAllowList=1` (RemoteApp publishing 활성), `fInheritInitialProgram=1` (`/app:program:...` 가 셸이 아닌 타겟 실행파일을 실행하도록), `MaxInstanceCount=10` + `fSingleSessionPerUser=0` (단일 세션 제한 해제, 최대 10개 동시 RemoteApp 윈도). 이 키들은 rdprrap 설치 성공 여부와 관계없이 설정 — rdprrap 가 세션을 *독립적으로* 만들어주지만, 레지스트리 키들이 RemoteApp 을 일단 동작하게 만드는 것. rdprrap 설치 후 `TermService` 가 cycle 되어 wrapper DLL 이 재부팅 없이 활성화.
+**RAIL 전제조건.** RemoteApp 자체가 unattended setup 중 WinPodX 가 적용하는 레지스트리 설정 필요: `fDisabledAllowList=1` (RemoteApp publishing 활성), `fInheritInitialProgram=1` (`/app:program:...` 가 셸이 아닌 타겟 실행파일을 실행하도록), `fSingleSessionPerUser=0`, 그리고 `cfg.pod.max_sessions` 에서 가져온 `MaxInstanceCount` (기본 25, 범위 1–50). OEM setup 은 최초 상한 50을 쓰고 provisioning 이 설정값으로 동기화. 이 키들은 rdprrap 설치 성공 여부와 관계없이 설정 — rdprrap 가 세션을 *독립적으로* 만들어주지만, 레지스트리 키들이 RemoteApp 을 일단 동작하게 만드는 것. rdprrap 설치 후 `TermService` 가 cycle 되어 wrapper DLL 이 재부팅 없이 활성화.
 
 **인증 채널.** NLA 비활성 (`UserAuthentication=0`) 으로 FreeRDP 명령줄이 `podman unshare --rootless-netns` 아래에서 unattended 인증 가능, 하지만 `SecurityLayer=2` 가 RDP 채널 자체는 TLS 로 암호화 유지 (그래서 `127.0.0.1` 에 대한 `/sec:tls /cert:ignore` 가 완전 인증 + 암호화 경로 — NLA 가 꺼져있어도 wire 에 평문 없음).
 
 **완전 오프라인 동작.** rdprrap zip 이 WinPodX 의 data 디렉토리 (`config/oem/`) 안에 ship 되고 게스트 첫 부팅 중 `C:\OEM\` 에 stage. 추출 전 pin 파일에 대해 sha256 검증. 설치 시점에 네트워크 접근 불필요.
 
-설치는 일회성: dockur 의 unattended setup 단계 중 패치 적용. 그 단계의 무엇이라도 실패하면 (해시 불일치, 추출, installer 에러), WinPodX 가 경고 로그 + 게스트는 단일 세션 모드 유지 — 앱 실행이 이 단계에서 막히지 않음. guest 측 management 채널 (설치 후 활성/비활성/상태) 은 차후 릴리스 예정.
+설치는 일회성: dockur 의 unattended setup 단계 중 패치 적용. 그 단계의 무엇이라도 실패하면 (해시 불일치, 추출, installer 에러), WinPodX 가 경고 로그 + 게스트는 단일 세션 모드 유지 — 앱 실행이 이 단계에서 막히지 않음. 이후 `winpodx guest multi-session on|off|status` 로 관리; `winpodx guest apply-fixes` 도 활성화를 self-heal.

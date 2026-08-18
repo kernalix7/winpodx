@@ -794,3 +794,429 @@ def test_exe_hash_roundtrips_through_toml(tmp_path):
     loaded = load_app(d)
     assert loaded is not None
     assert loaded.exe_hash == _H1
+
+
+def test_cli_app_routes_every_subcommand(monkeypatch):
+    import argparse
+
+    from winpodx.cli import app as cli
+
+    calls = []
+    monkeypatch.setattr(cli, "_list_apps", lambda: calls.append(("list",)))
+    monkeypatch.setattr(cli, "_refresh_apps", lambda *a: calls.append(("refresh", *a)))
+    monkeypatch.setattr(cli, "_run_app", lambda *a, **k: calls.append(("run", *a, k)))
+    monkeypatch.setattr(cli, "_install_app", lambda *a: calls.append(("install", *a)))
+    monkeypatch.setattr(cli, "_install_all", lambda: calls.append(("install-all",)))
+    monkeypatch.setattr(cli, "_remove_app", lambda n: calls.append(("remove", n)))
+    monkeypatch.setattr(cli, "_set_hidden", lambda *a: calls.append(("hidden", *a)))
+    monkeypatch.setattr(cli, "_show_sessions", lambda: calls.append(("sessions",)))
+    monkeypatch.setattr(cli, "_kill_session", lambda n: calls.append(("kill", n)))
+
+    cli.handle_app(argparse.Namespace(app_command="list"))
+    cli.handle_app(argparse.Namespace(app_command="refresh", json=True, timeout=9))
+    cli.handle_app(
+        argparse.Namespace(
+            app_command="run", name="word", file="doc.docx", wait=True, extra_args="/safe"
+        )
+    )
+    cli.handle_app(argparse.Namespace(app_command="install", name="word", mime=True))
+    cli.handle_app(argparse.Namespace(app_command="install-all"))
+    cli.handle_app(argparse.Namespace(app_command="remove", name="word"))
+    cli.handle_app(argparse.Namespace(app_command="hide", name="word"))
+    cli.handle_app(argparse.Namespace(app_command="show", name="word"))
+    cli.handle_app(argparse.Namespace(app_command="sessions"))
+    cli.handle_app(argparse.Namespace(app_command="kill", name="word"))
+
+    assert calls == [
+        ("list",),
+        ("refresh", True, 9),
+        ("run", "word", "doc.docx", True, {"extra_args": "/safe"}),
+        ("install", "word", True),
+        ("install-all",),
+        ("remove", "word"),
+        ("hidden", "word", True),
+        ("hidden", "word", False),
+        ("sessions",),
+        ("kill", "word"),
+    ]
+
+
+def test_cli_app_unknown_command_and_invalid_name_exit(capsys):
+    import argparse
+
+    import pytest
+
+    from winpodx.cli import app as cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.handle_app(argparse.Namespace(app_command="bogus"))
+    assert exc.value.code == 1
+    assert "Usage: winpodx app" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as exc:
+        cli._remove_app("../bad")
+    assert exc.value.code == 1
+    assert "Invalid app name" in capsys.readouterr().err
+
+
+def test_cli_list_apps_prints_rows_and_empty(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    import winpodx.core.app as core_app
+    from winpodx.cli import app as cli
+
+    monkeypatch.setattr(core_app, "list_available_apps", lambda: [])
+    cli._list_apps()
+    assert "No applications found" in capsys.readouterr().out
+
+    apps = [SimpleNamespace(name="word", full_name="Microsoft Word", categories=["Office", "Doc"])]
+    monkeypatch.setattr(core_app, "list_available_apps", lambda: apps)
+    cli._list_apps()
+    output = capsys.readouterr().out
+    assert "Full Name" in output
+    assert "word" in output
+    assert "Office, Doc" in output
+
+
+def test_cli_refresh_json_streams_progress_and_persists(monkeypatch, capsys):
+    import json
+
+    from winpodx.cli import app as cli
+    from winpodx.core import config as config_mod
+    from winpodx.core import discovery
+
+    found = discovery.DiscoveredApp(
+        name="word",
+        full_name="Word",
+        executable="C:\\Word.exe",
+        args="/q",
+        source="win32",
+        launch_uri="word:",
+        wm_class_hint="word",
+        icon_path="/tmp/word.png",
+    )
+    cfg = object()
+    persisted = []
+
+    def discover(actual_cfg, *, timeout, progress_callback):
+        assert actual_cfg is cfg
+        assert timeout == 7
+        progress_callback("Registry scanned")
+        return [found]
+
+    monkeypatch.setattr(config_mod.Config, "load", staticmethod(lambda: cfg))
+    monkeypatch.setattr(discovery, "discover_apps", discover)
+    monkeypatch.setattr(discovery, "persist_discovered", lambda apps: persisted.extend(apps))
+    monkeypatch.setattr(
+        cli, "_register_desktop_entries", lambda apps: persisted.append("registered")
+    )
+
+    cli._refresh_apps(True, 7)
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)[0]["name"] == "word"
+    assert "Registry scanned" in captured.err
+    assert "OK: discovered 1 app(s)" in captured.err
+    assert persisted == [found, "registered"]
+
+
+def test_cli_refresh_empty_text_output(monkeypatch, capsys):
+    from winpodx.cli import app as cli
+    from winpodx.core import config as config_mod
+    from winpodx.core import discovery
+
+    monkeypatch.setattr(config_mod.Config, "load", staticmethod(lambda: object()))
+    monkeypatch.setattr(discovery, "discover_apps", lambda *a, **k: [])
+    monkeypatch.setattr(discovery, "persist_discovered", lambda apps: None)
+
+    cli._refresh_apps(False, 1)
+    assert capsys.readouterr().out == "No apps discovered.\n"
+
+
+def test_cli_refresh_discovery_errors_have_specific_exit_codes(monkeypatch, capsys):
+    import pytest
+
+    from winpodx.cli import app as cli
+    from winpodx.core import config as config_mod
+    from winpodx.core import discovery
+
+    monkeypatch.setattr(config_mod.Config, "load", staticmethod(lambda: object()))
+
+    for kind, code, expected in (
+        ("pod_not_running", 2, "Pod is not running"),
+        ("unsupported_backend", 2, "requires podman or docker"),
+        ("agent_unavailable", 5, "refresh deferred"),
+        ("timeout", 4, "ERROR: boom"),
+    ):
+
+        def fail(*args, _kind=kind, **kwargs):
+            raise discovery.DiscoveryError("boom", kind=_kind)
+
+        monkeypatch.setattr(discovery, "discover_apps", fail)
+        with pytest.raises(SystemExit) as exc:
+            cli._refresh_apps(False, 1)
+        assert exc.value.code == code
+        assert expected in capsys.readouterr().err
+
+
+def test_cli_run_app_passes_all_metadata_and_waits(monkeypatch, tmp_path, capsys):
+    from types import SimpleNamespace
+
+    from winpodx.cli import app as cli
+    from winpodx.core import app as core_app
+    from winpodx.core import provisioner, rdp
+
+    cfg = object()
+    waits = []
+    pid_file = tmp_path / "word.cproc"
+    pid_file.write_text("1", encoding="utf-8")
+    session = SimpleNamespace(
+        stderr_log=tmp_path / "word.log",
+        process=SimpleNamespace(wait=lambda: waits.append(True)),
+        pid_file=pid_file,
+    )
+    info = SimpleNamespace(
+        executable="C:\\Word.exe",
+        launch_uri="word:",
+        wm_class_hint="word",
+        args="/q",
+        icon_path="/tmp/word.png",
+        rdp_overrides={"scale": 140},
+        full_name="Word",
+    )
+    captured = {}
+    monkeypatch.setattr(provisioner, "ensure_ready", lambda: cfg)
+    monkeypatch.setattr(core_app, "find_app", lambda name: info if name == "word" else None)
+
+    def launch(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return session
+
+    monkeypatch.setattr(rdp, "launch_app", launch)
+
+    cli._run_app("word", "doc.docx", True, extra_args="/safe")
+
+    assert captured["args"] == (cfg, "C:\\Word.exe", "doc.docx")
+    assert captured["kwargs"] == {
+        "launch_uri": "word:",
+        "wm_class_hint": "word",
+        "default_args": "/q",
+        "extra_args": "/safe",
+        "app_icon": "/tmp/word.png",
+        "rdp_overrides": {"scale": 140},
+    }
+    assert waits == [True]
+    assert not pid_file.exists()
+    assert "Launching Word" in capsys.readouterr().out
+
+
+def test_cli_run_desktop_waits_and_reports_launch_failure(monkeypatch, tmp_path, capsys):
+    import pytest
+
+    from winpodx.cli import app as cli
+    from winpodx.core import provisioner, rdp
+    from winpodx.desktop import notify
+
+    waits = []
+    notices = []
+    session = type(
+        "Session",
+        (),
+        {
+            "stderr_log": tmp_path / "desktop.log",
+            "process": type("Process", (), {"wait": lambda self: waits.append(True)})(),
+        },
+    )()
+    monkeypatch.setattr(provisioner, "ensure_ready", lambda: object())
+    monkeypatch.setattr(rdp, "launch_desktop", lambda cfg, extra_args: session)
+    monkeypatch.setattr(notify, "notify_error", notices.append)
+
+    cli._run_app("desktop", None, True, extra_args="/size:100%")
+    assert waits == [True]
+    assert "Launching Windows desktop" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        rdp,
+        "launch_desktop",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")),
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli._run_app("desktop", None, False)
+    assert exc.value.code == 1
+    assert notices == ["x"]
+    assert "Launch failed: x" in capsys.readouterr().err
+
+
+def test_cli_run_app_setup_and_lookup_errors(monkeypatch, capsys):
+    import pytest
+
+    from winpodx.cli import app as cli
+    from winpodx.core import app as core_app
+    from winpodx.core import provisioner
+    from winpodx.desktop import notify
+
+    notices = []
+    monkeypatch.setattr(notify, "notify_error", notices.append)
+    monkeypatch.setattr(
+        provisioner, "ensure_ready", lambda: (_ for _ in ()).throw(RuntimeError("not ready"))
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli._run_app("word", None, False)
+    assert exc.value.code == 1
+    assert notices == ["not ready"]
+    assert "Setup error: not ready" in capsys.readouterr().err
+
+    monkeypatch.setattr(provisioner, "ensure_ready", lambda: object())
+    monkeypatch.setattr(core_app, "find_app", lambda name: None)
+    with pytest.raises(SystemExit) as exc:
+        cli._run_app("missing", None, False)
+    assert exc.value.code == 1
+    assert "Unknown app: missing" in capsys.readouterr().out
+
+
+def test_cli_install_remove_sessions_and_kill(monkeypatch, tmp_path, capsys):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from winpodx.cli import app as cli
+    from winpodx.core import app as core_app
+    from winpodx.core import process
+    from winpodx.desktop import entry, icons, mime
+
+    info = SimpleNamespace(
+        name="word", full_name="Word", mime_types=["application/docx"], categories=[]
+    )
+    installed = []
+    monkeypatch.setattr(core_app, "find_app", lambda name: info if name == "word" else None)
+    monkeypatch.setattr(
+        entry, "install_desktop_entry", lambda app: installed.append(app.name) or tmp_path
+    )
+    monkeypatch.setattr(mime, "register_mime_types", lambda app: installed.append("mime"))
+    cli._install_app("word", True)
+    assert installed == ["word", "mime"]
+    assert "Registered MIME types: application/docx" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as exc:
+        cli._install_app("missing", False)
+    assert exc.value.code == 1
+    assert "Unknown app: missing" in capsys.readouterr().out
+
+    monkeypatch.setattr(core_app, "list_available_apps", lambda: [info])
+    monkeypatch.setattr(icons, "update_icon_cache", lambda: installed.append("cache"))
+    cli._install_all()
+    assert installed[-2:] == ["word", "cache"]
+    assert "1 apps installed" in capsys.readouterr().out
+
+    removed = []
+    monkeypatch.setattr(entry, "remove_desktop_entry", removed.append)
+    cli._remove_app("word")
+    assert removed == ["word"]
+    assert "Removed word" in capsys.readouterr().out
+
+    sessions = [SimpleNamespace(app_name="word", pid=42, is_alive=True)]
+    monkeypatch.setattr(process, "list_active_sessions", lambda: sessions)
+    cli._show_sessions()
+    assert "word" in capsys.readouterr().out
+    monkeypatch.setattr(process, "list_active_sessions", lambda: [])
+    cli._show_sessions()
+    assert "No active sessions" in capsys.readouterr().out
+
+    monkeypatch.setattr(process, "kill_session", lambda name: name == "word")
+    cli._kill_session("word")
+    cli._kill_session("excel")
+    output = capsys.readouterr().out
+    assert "Killed session: word" in output
+    assert "No active session found: excel" in output
+
+
+def test_cli_register_entries_installs_prunes_and_warns(monkeypatch, tmp_path, capsys):
+    from types import SimpleNamespace
+
+    from winpodx.cli import app as cli
+    from winpodx.core import app as core_app
+    from winpodx.desktop import entry, icons
+    from winpodx.utils import paths
+
+    apps_dir = tmp_path / "applications"
+    apps_dir.mkdir()
+    for name in ("winpodx-stale.desktop", "winpodx-gui.desktop", "winpodx-word.desktop"):
+        (apps_dir / name).write_text("x", encoding="utf-8")
+    word = SimpleNamespace(name="word", full_name="Word")
+    installed = []
+    removed = []
+    monkeypatch.setattr(core_app, "list_available_apps", lambda: [word])
+    monkeypatch.setattr(entry, "install_desktop_entry", lambda app: installed.append(app.name))
+    monkeypatch.setattr(entry, "install_desktop_shortcut", lambda: installed.append("desktop"))
+    monkeypatch.setattr(entry, "remove_desktop_entry", removed.append)
+    monkeypatch.setattr(icons, "update_icon_cache", lambda: installed.append("cache"))
+    monkeypatch.setattr(paths, "applications_dir", lambda: apps_dir)
+
+    cli._register_desktop_entries(
+        [SimpleNamespace(slug="word", name="word"), SimpleNamespace(slug="unknown", name="unknown")]
+    )
+
+    assert installed == ["word", "desktop", "cache"]
+    assert removed == ["stale"]
+    error = capsys.readouterr().err
+    assert "Registered 1 app(s)" in error
+    assert "unknown" in error
+    assert "Removed 1 stale desktop entry" in error
+
+
+def test_cli_register_entries_lists_registered_names_sorted(monkeypatch, tmp_path, capsys):
+    # #530: the install flow prints WHICH apps landed, sorted so a multi-app
+    # registration is stable across runs; a regression to set order would reorder it.
+    from types import SimpleNamespace
+
+    from winpodx.cli import app as cli
+    from winpodx.core import app as core_app
+    from winpodx.desktop import entry, icons
+    from winpodx.utils import paths
+
+    apps_dir = tmp_path / "applications"
+    apps_dir.mkdir()
+    word = SimpleNamespace(name="word", full_name="Word")
+    acrobat = SimpleNamespace(name="acrobat", full_name="Acrobat")
+    monkeypatch.setattr(core_app, "list_available_apps", lambda: [word, acrobat])
+    monkeypatch.setattr(entry, "install_desktop_entry", lambda app: None)
+    monkeypatch.setattr(entry, "install_desktop_shortcut", lambda: None)
+    monkeypatch.setattr(entry, "remove_desktop_entry", lambda slug: None)
+    monkeypatch.setattr(icons, "update_icon_cache", lambda: None)
+    monkeypatch.setattr(paths, "applications_dir", lambda: apps_dir)
+
+    cli._register_desktop_entries(
+        [SimpleNamespace(slug="word", name="word"), SimpleNamespace(slug="acrobat", name="acrobat")]
+    )
+
+    error = capsys.readouterr().err
+    acrobat_at = error.index("Acrobat")
+    word_at = error.index("Word")
+    assert acrobat_at < word_at, "registered names must print in sorted order"
+
+
+def test_cli_set_hidden_not_found_and_success(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from winpodx.cli import app as cli
+    from winpodx.core import app as core_app
+
+    monkeypatch.setattr(core_app, "set_app_hidden", lambda name, hidden: None)
+    with pytest.raises(SystemExit) as exc:
+        cli._set_hidden("word", True)
+    assert exc.value.code == 1
+    assert "not found" in capsys.readouterr().err
+
+    monkeypatch.setattr(
+        core_app,
+        "set_app_hidden",
+        lambda name, hidden: SimpleNamespace(name=name, full_name=name, hidden=hidden),
+    )
+    cli._set_hidden("word", True)
+    cli._set_hidden("word", False)
+    output = capsys.readouterr().out
+    assert "Hid 'word'" in output
+    assert "Showing 'word'" in output

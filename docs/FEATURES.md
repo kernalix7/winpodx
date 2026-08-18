@@ -6,7 +6,7 @@ The full feature set: peripherals & sharing, multi-session RDP, app profiles, an
 
 ## Reverse-open (Linux apps in Windows "Open with…")
 
-Shipped in v0.5.0, default-on since. Right-click any file inside the Windows guest and your Linux-side handler appears in the "Open with…" menu — Kate for `.txt`, gwenview for `.png`, Firefox for `.html`, and so on. Picking one round-trips the file open back to the host's `xdg-open` so it lands in the Linux app you actually configured.
+Shipped in v0.5.0, default-on since. Right-click any file inside the Windows guest and your Linux-side handler appears in the "Open with…" menu — Kate for `.txt`, gwenview for `.png`, Firefox for `.html`, and so on. Picking one round-trips the file open back to that discovered Linux app.
 
 How it works:
 
@@ -46,16 +46,16 @@ Per-slug icons render in both the short Open With menu and the long "Choose anot
 - RemoteApp (RAIL) renders each app as a native Linux window — no full desktop
 - Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
 - File associations: double-click `.docx` in your Linux file manager → Word opens
-- Multi-session RDP: bundled rdprrap auto-enables up to 10 independent sessions
-- Terminate any running session from the GUI Dashboard (Running-sessions strip) or the system-tray menu
-- RAIL prerequisites (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) set automatically during unattended install
+- Multi-session RDP: bundled rdprrap auto-enables independent sessions; `cfg.pod.max_sessions` defaults to 25 and is clamped to 1–50
+- Terminate any running session from the GUI Tools page (RDP Sessions card) or the system-tray menu
+- RAIL prerequisites (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `fSingleSessionPerUser=0` + configured `MaxInstanceCount`) are set automatically
 - Multi-monitor RAIL on by default (`cfg.rdp.multimon = "span"`): a remote-app window keeps working input when dragged onto a second monitor
 - UWP/Store apps now appear in the Linux taskbar like any other app
 
 ## Zero-config launch
 
 - First app click auto-provisions everything: config, container, desktop entries
-- Auto-discovery on first boot scans the running Windows guest and registers every installed app (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) with the real binary's icon
+- Auto-discovery on first boot scans Start Menu shortcuts, Start-Menu-visible UWP/MSIX apps, and OS essentials with their real icons; set `desktop.full_app_scan = true` to add Registry App Paths, all UWP packages, Chocolatey, and Scoop
 - Manual rescan any time via `winpodx app refresh` or the GUI Refresh button
 - Interactive setup wizard for advanced configuration
 - Optional pod auto-start on login (opt-in, off by default): `winpodx autostart on|off|status` or the GUI checkbox installs an XDG autostart `.desktop` entry (`~/.config/autostart/winpodx-tray.desktop`) so the tray launches on login and warms the Windows pod before your first app click
@@ -85,12 +85,11 @@ The desktop GUI is built around a Start-menu-style layout: a left vertical navig
 | **Clipboard** | Bidirectional copy-paste via RDP (`+clipboard`) | Enabled |
 | **Sound** | Audio streaming via ALSA (`/sound:sys:alsa`) | Enabled |
 | **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
-| **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
+| **Home directory** | Shared as `\\tsclient\home`: the whole Home via `+home-drive`, or only `pod.home_share` via `/drive:home,<path>` | Enabled |
 | **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders. The guest-side USB shortcut always resolves even when no media is mounted | Enabled |
 | **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
-| **Host USB / PCI passthrough** | Map a host USB or PCI device straight into the Windows guest (`winpodx device list / attach <id> / detach <id>`, GUI Devices tab, tray USB switcher). USB hot-plugs live; PCI is boot-added and needs a guest restart + safety confirmation | USB live (`cfg.pod.usb_live`, default on) |
-| **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
-| **Reverse file open** | Linux apps appear in the Windows guest's right-click "Open with…" menu; selecting one round-trips the file open to host `xdg-open` | Enabled |
+| **Host USB / PCI passthrough** | Map a host USB or PCI device straight into the Windows guest (`winpodx device list / attach <id> / detach <id>`, GUI Devices tab, tray USB switcher). USB redirects live through usbredir; PCI is boot-added and needs a guest restart + safety confirmation | USB live |
+| **Reverse file open** | Linux apps appear in the Windows guest's right-click "Open with…" menu; selecting one round-trips the file open to that discovered host app | Enabled |
 
 ### USB Drive Flow
 
@@ -104,10 +103,7 @@ Linux mounts to /run/media/$USER/USBNAME
 FreeRDP shares as \\tsclient\media\USBNAME
     │
     ▼
-media_monitor.ps1 detects → net use E: \\tsclient\media\USBNAME
-    │
-    ▼
-Windows Explorer shows E: drive
+Windows Explorer opens it through the desktop USB shortcut
 ```
 
 ### Host USB / PCI device passthrough
@@ -120,7 +116,7 @@ winpodx device attach <id>     # attach a USB or PCI device to the guest
 winpodx device detach <id>     # detach it again
 ```
 
-- **USB** hot-plugs live (`cfg.pod.usb_live`, default on) — attach/detach without restarting the guest.
+- **USB** redirects live through usbredir — attach/detach without restarting the guest; a privilege prompt may appear so the host helper can open the device. The legacy `pod.usb_live` key no longer gates this path.
 - **PCI** is boot-added: it needs a guest restart to take effect and asks for a safety confirmation (`--force` on the CLI, or the dialog in the GUI).
 - A **GUI Devices tab** gives you a two-column host ↔ guest mover, and the **system-tray USB switcher** lets you flip a USB device in or out without opening the full window.
 
@@ -128,31 +124,31 @@ winpodx device detach <id>     # detach it again
 
 ## Automation & Security
 
-- Auto suspend / resume: container pauses when idle, resumes on next launch
+- Idle action / resume: after `pod.idle_timeout`, the container can pause (default action, keeps RAM) or stop (`pod.idle_action = "stop"`, frees RAM); the next launch resumes or cold-boots it
 - Password auto-rotation: 20-char cryptographic password, 7-day cycle with rollback
 - Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
 - Multi-backend: Podman (default), Docker, manual RDP
 - Windows build pinned to 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365-day feature-update defer)
-- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (DiagTrack / dmwappushservice / WSearch / SysMain)
-- High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS
+- Windows debloat: telemetry, ads, Cortana, DiagTrack, and SysMain are disabled by default; expanded presets can additionally disable OneDrive, widgets, scheduled tasks, startup programs, visual effects, search indexing, and transparency
+- High-performance power plan + hibernation off + host-detected Windows timezone + Cloudflare DNS
 - Time sync: force Windows clock resync after host sleep/wake
 - FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
 
 ## Bare-metal disguise (VM-detection avoidance)
 
-Shipped in v0.7.0. Opt-in, off by default. Software that refuses to run when a hypervisor is detected — Nvidia GPU-passthrough "code 43", launch-gate VM checks, VM-hostile installers — sees a genuine-looking bare-metal box instead of QEMU/KVM. Select the level with:
+Shipped in v0.7.0. `balanced` is the default. Software that refuses to run when a hypervisor is detected — Nvidia GPU-passthrough "code 43", launch-gate VM checks, VM-hostile installers — sees a genuine-looking bare-metal box instead of QEMU/KVM. Select the level with:
 
 ```bash
-winpodx config set pod.disguise_level off      # default — no disguise
-winpodx config set pod.disguise_level balanced # per-VM args only, no rebuild
-winpodx config set pod.disguise_level max      # patched-QEMU image (Hardened)
+winpodx config set pod.disguise_level off      # no disguise
+winpodx config set pod.disguise_level balanced # default; per-VM hiding, container auto-recreated
+winpodx config set pod.disguise_level max      # emulated hardware; requires wipe + reinstall
 ```
 
-Or use the GUI Settings page → "Bare-metal level" selector (choosing Hardened triggers the image build automatically).
+Or use the GUI Settings page → "Bare-metal level" selector (choosing Hardened triggers the image build and destructive reinstall confirmation automatically).
 
 ### Levels
 
-**`balanced`** (per-VM, no rebuild):
+**`balanced`** (per-VM, no patched-image rebuild):
 - Clears the CPUID hypervisor-present bit and the KVM signature (`-cpu -hypervisor,kvm=off,-kvm-pv-*`)
 - Mirrors the host's real SMBIOS/DMI (system / board / BIOS vendor + product, CPU vendor + model) into the guest
 - Injects a synthetic SMBIOS sensor/descriptor blob (voltage / temperature probes, cooling device, cache, memory array + DIMMs, 40+ structures) so `Win32_*` / `CIM_*` WMI sensor classes report like real hardware
@@ -160,6 +156,7 @@ Or use the GUI Settings page → "Bare-metal level" selector (choosing Hardened 
 **`max` ("Hardened")** (includes everything in `balanced`, plus):
 - `winpodx disguise build-image` compiles QEMU **locally** (~20–40 min) with the VM-identifying strings that can't be overridden via command line rewritten to the host's real values: ACPI OEM IDs (`BOCHS`/`BXPC` → host), FADT hypervisor-vendor + PM-profile byte, device `_HID`s, `WAET` table signature, disk / optical model **and INQUIRY vendor**; also injects a thermal-zone SSDT and a WSMT table
 - Presents a SATA system disk, e1000 NIC, std VGA, and `nec-usb-xhci` USB-3 controller (keeps USB3 while dropping the Red Hat `VEN_1B36` tell); removes the virtio-rng device (`VEN_1AF4`) and prunes unused virtio driver service keys in the guest
+- Requires `winpodx pod recreate --wipe-storage` when switching into or out of `max`, because changing the boot-disk controller makes the existing Windows install unbootable
 
 No binary is ever shipped — the image is built on your machine from the standard QEMU source.
 
@@ -191,7 +188,7 @@ The Windows `C:` drive grows itself as it fills, so you don't have to pre-provis
 
 Push host-side updates into a running Windows guest without reinstalling it. When WinPodX ships a newer guest agent, urlacl reservation, rdprrap build, or post-install fix, the guest picks it up in place.
 
-- **Automatic** on pod start when `guest_autosync` is enabled — the guest is reconciled to the current host version every time it comes up.
+- **Automatic** once per pod start when `guest_autosync` is enabled and the guest version stamp is older than the host.
 - **Manual**: `winpodx guest sync [--force]` to reconcile on demand (`--force` re-pushes even when versions already match).
 
 ## App Profiles
@@ -200,12 +197,13 @@ App profiles are **metadata only**: they describe where a Windows app lives so W
 
 ### Auto-discovery (default)
 
-Starting from v0.1.9 WinPodX ships **no curated profile list**. The first time the Windows pod boots, the provisioner runs `winpodx app refresh` and that scans the running guest:
+Starting from v0.1.9 WinPodX ships **no curated profile list**. The first time the Windows pod boots, the provisioner runs the same discovery path as `winpodx app refresh`. By default it scans:
 
-- Registry `App Paths` (`HKLM` + `HKCU`)
 - Start Menu `.lnk` recursion (depth-capped)
-- UWP / MSIX packages via `Get-AppxPackage` + `AppxManifest.xml`
-- Chocolatey + Scoop shims
+- Start-Menu-visible UWP / MSIX packages via `Get-AppxPackage` + `AppxManifest.xml`
+- OS essentials that may not have a Start Menu shortcut
+
+Set `desktop.full_app_scan = true` to additionally scan Registry `App Paths` (`HKLM` + `HKCU`), every UWP package, and Chocolatey + Scoop shims.
 
 For each result it extracts the icon directly from the binary (or the package's logo asset for UWP) and writes the entry to `~/.local/share/winpodx/discovered/<slug>/`. Re-run any time:
 
@@ -226,6 +224,11 @@ full_name = "My Application"
 executable = "C:\\Program Files\\MyApp\\myapp.exe"
 categories = ["Utility"]
 mime_types = []
+
+[rdp]
+scale = 125
+multimon = "off"
+extra_flags = "+multitouch"
 EOF
 
 winpodx app install myapp   # Register in desktop menu
@@ -233,12 +236,12 @@ winpodx app install myapp   # Register in desktop menu
 
 ## Multi-Session RDP
 
-Stock Windows Desktop editions limit RDP to one session per user; a second app would otherwise reconnect and steal the first session. WinPodX bundles [rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of RDPWrap — inside the package itself and installs it automatically during the Windows unattended install, so each RemoteApp window gets its own independent session.
+Stock Windows Desktop editions limit RDP to one session per user; a second app would otherwise reconnect and steal the first session. WinPodX bundles [rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of RDPWrap — inside the package itself and installs it automatically during the Windows unattended install, so each RemoteApp window gets its own independent session. The runtime limit is `cfg.pod.max_sessions` (default 25, range 1–50).
 
-**RAIL prerequisites.** RemoteApp itself requires three registry settings that WinPodX applies during unattended setup: `fDisabledAllowList=1` (enables RemoteApp publishing), `fInheritInitialProgram=1` (required for `/app:program:...` to launch the target executable instead of a shell), and `MaxInstanceCount=10` paired with `fSingleSessionPerUser=0` (lifts the single-session cap up to 10 concurrent RemoteApp windows). These are set regardless of whether rdprrap installs successfully — rdprrap is what makes the sessions *independent*, but the registry keys are what make RemoteApp work at all. After rdprrap install `TermService` is cycled so the wrapper DLL activates without a reboot.
+**RAIL prerequisites.** WinPodX applies `fDisabledAllowList=1` (enables RemoteApp publishing), `fInheritInitialProgram=1` (required for `/app:program:...` to launch the target executable instead of a shell), `fSingleSessionPerUser=0`, and `MaxInstanceCount` from `cfg.pod.max_sessions`. OEM setup initially writes a ceiling of 50; provisioning then synchronizes the configured value. These are set regardless of whether rdprrap installs successfully — rdprrap is what makes the sessions *independent*, but the registry keys are what make RemoteApp work at all. After rdprrap install `TermService` is cycled so the wrapper DLL activates without a reboot.
 
 **Authentication channel.** NLA is disabled (`UserAuthentication=0`) so the FreeRDP command line can authenticate unattended from under `podman unshare --rootless-netns`, but `SecurityLayer=2` keeps the RDP channel itself encrypted with TLS (so `/sec:tls /cert:ignore` against `127.0.0.1` is the full authenticated + encrypted path — no cleartext on the wire even though NLA is off).
 
 **Works fully offline.** The rdprrap zip ships inside WinPodX's data directory (`config/oem/`) and is staged into `C:\OEM\` during the guest's first boot. sha256 is verified against a pin file before extraction. No network access is required at install time.
 
-Install is one-shot: the patch is applied during dockur's unattended setup phase. If anything in that step fails (hash mismatch, extraction, installer error), WinPodX logs a warning and the guest stays in single-session mode — app launch never blocks on this step. A guest-side management channel (enable/disable/status after install) is planned for a later release.
+The patch is applied during dockur's unattended setup phase. If anything in that step fails (hash mismatch, extraction, installer error), WinPodX logs a warning and the guest stays in single-session mode — app launch never blocks on this step. Manage it later with `winpodx guest multi-session on|off|status`; `winpodx guest apply-fixes` also self-heals activation.

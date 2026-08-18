@@ -6,7 +6,7 @@ Thank you for your interest in contributing to WinPodX! This guide will help you
 
 ## Prerequisites
 
-- Python 3.9+ (developed on 3.13; CI covers 3.9 / 3.10 / 3.11 / 3.12 / 3.13)
+- Python 3.9+ (developed on 3.13; CI covers 3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14)
 - FreeRDP 3+
 
 ## Build
@@ -22,14 +22,17 @@ pip install -e ".[dev]"
 ## Test
 
 ```bash
-# Run tests
-pytest tests/ -v
+# Run tests — the full suite is parallel-safe and finishes in ~15 s
+pytest tests/ -n auto
 
 # Lint
 ruff check src/ tests/
 
 # Format check
 ruff format --check src/ tests/
+
+# Coverage (must stay at or above the CI floor in ci.yml)
+pytest tests/ -n auto --cov=winpodx --cov-report=term-missing:skip-covered
 ```
 
 `pytest` runs on a Linux CI runner and cannot exercise the Windows guest. Any
@@ -50,9 +53,10 @@ see [docs/RELEASE_TESTING.md](docs/RELEASE_TESTING.md) for the guest-side smoke
 
 Before submitting a PR, ensure the following:
 
-- [ ] `pytest tests/ -v` passes
+- [ ] `pytest tests/ -n auto` passes
 - [ ] `ruff check src/ tests/` reports zero errors
 - [ ] `ruff format --check src/ tests/` passes
+- [ ] `python scripts/ci/verify_versions.py` passes (if you bumped a version)
 - [ ] Documentation is updated (if applicable)
 - [ ] No hardcoded credentials or secrets
 

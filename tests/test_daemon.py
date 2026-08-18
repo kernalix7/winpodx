@@ -395,3 +395,160 @@ def test_session_window_reaper_noop_without_wmctrl(monkeypatch):
     monkeypatch.setattr(daemon, "list_active_sessions", lambda: called.append("x") or [])
     daemon.run_session_window_reaper(Config(), threading.Event())
     assert called == []  # returned before the loop
+
+
+def test_container_commands_reject_manual_backend(monkeypatch):
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    monkeypatch.setattr(
+        daemon.subprocess,
+        "run",
+        lambda *_a, **_k: pytest.fail("manual backend must not invoke a container runtime"),
+    )
+
+    assert suspend_pod(cfg) is False
+    assert resume_pod(cfg) is False
+    assert is_pod_paused(cfg) is False
+
+
+@pytest.mark.parametrize(
+    "error",
+    [FileNotFoundError(), daemon.subprocess.TimeoutExpired("podman", 1)],
+)
+def test_suspend_pod_degrades_when_runtime_cannot_execute(monkeypatch, error):
+    cfg = Config()
+    monkeypatch.setattr(daemon.subprocess, "run", MagicMock(side_effect=error))
+
+    assert suspend_pod(cfg) is False
+
+
+def test_container_commands_report_nonzero_results(monkeypatch):
+    cfg = Config()
+    failed = MagicMock(returncode=125, stdout="", stderr="runtime failure")
+    monkeypatch.setattr(daemon.subprocess, "run", MagicMock(return_value=failed))
+
+    assert suspend_pod(cfg) is False
+    assert resume_pod(cfg) is False
+    assert is_pod_paused(cfg) is False
+
+
+def test_ensure_pod_awake_resumes_and_confirms_transition(monkeypatch):
+    cfg = Config()
+    paused_states = iter([True, False])
+    resumed: list[str] = []
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda _cfg: next(paused_states))
+    monkeypatch.setattr(
+        daemon,
+        "resume_pod",
+        lambda inner: resumed.append(inner.pod.container_name) or True,
+    )
+    monkeypatch.setattr(daemon.time, "sleep", lambda _seconds: None)
+
+    daemon.ensure_pod_awake(cfg)
+
+    assert resumed == [cfg.pod.container_name]
+
+
+def test_ensure_pod_awake_fails_when_resume_does_not_unpause(monkeypatch):
+    from winpodx.core.provisioner import ProvisionError
+
+    cfg = Config()
+    monkeypatch.setattr(daemon, "is_pod_paused", lambda _cfg: True)
+    monkeypatch.setattr(daemon, "resume_pod", lambda _cfg: False)
+    monkeypatch.setattr(daemon.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(ProvisionError, match=cfg.pod.container_name):
+        daemon.ensure_pod_awake(cfg)
+
+
+def test_sync_windows_time_reports_channel_and_command_failures(monkeypatch):
+    from winpodx.core.windows_exec import WindowsExecError, WindowsExecResult
+
+    cfg = Config()
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_via_transport",
+        MagicMock(side_effect=WindowsExecError("channel down")),
+    )
+    assert sync_windows_time(cfg) is False
+
+    monkeypatch.setattr(
+        "winpodx.core.windows_exec.run_via_transport",
+        MagicMock(return_value=WindowsExecResult(rc=7, stdout="", stderr="denied")),
+    )
+    assert sync_windows_time(cfg) is False
+
+
+class _ScriptedStopEvent:
+    def __init__(self, iterations: int) -> None:
+        self.iterations = iterations
+        self.checks = 0
+        self.waits: list[float] = []
+
+    def is_set(self) -> bool:
+        self.checks += 1
+        return self.checks > self.iterations
+
+    def wait(self, seconds: float) -> bool:
+        self.waits.append(seconds)
+        return False
+
+
+def test_idle_monitor_suspends_after_timeout_without_waiting(monkeypatch):
+    cfg = Config()
+    cfg.pod.idle_timeout = 5
+    cfg.pod.disk_autogrow = False
+    stop = _ScriptedStopEvent(iterations=2)
+    actions: list[str] = []
+    monkeypatch.setattr(daemon, "list_active_sessions", lambda: [])
+    monkeypatch.setattr(daemon.time, "monotonic", MagicMock(side_effect=[10.0, 16.0]))
+    monkeypatch.setattr(daemon, "_apply_idle_action", lambda _cfg: actions.append("suspend"))
+
+    daemon.run_idle_monitor(cfg, stop)
+
+    assert actions == ["suspend"]
+    assert stop.waits == [30, 30]
+
+
+def test_idle_monitor_active_session_resets_idle_timer(monkeypatch):
+    cfg = Config()
+    cfg.pod.idle_timeout = 1
+    cfg.pod.disk_autogrow = False
+    stop = _ScriptedStopEvent(iterations=3)
+    sessions = iter([[], [MagicMock()], []])
+    actions: list[str] = []
+    monkeypatch.setattr(daemon, "list_active_sessions", lambda: next(sessions))
+    monkeypatch.setattr(daemon.time, "monotonic", MagicMock(side_effect=[10.0, 100.0]))
+    monkeypatch.setattr(daemon, "_apply_idle_action", lambda _cfg: actions.append("suspend"))
+
+    daemon.run_idle_monitor(cfg, stop)
+
+    assert actions == []
+
+
+def test_idle_monitor_disabled_returns_without_polling(monkeypatch):
+    cfg = Config()
+    cfg.pod.idle_timeout = 0
+    monkeypatch.setattr(
+        daemon,
+        "list_active_sessions",
+        lambda: pytest.fail("disabled monitor must not inspect sessions"),
+    )
+
+    daemon.run_idle_monitor(cfg)
+
+
+def test_icon_refresh_monitor_runs_due_pass_without_waiting(monkeypatch):
+    stop = _ScriptedStopEvent(iterations=1)
+    refreshed: list[str] = []
+    monkeypatch.setattr(daemon.time, "monotonic", MagicMock(side_effect=[0.0, 300.0, 300.0]))
+    monkeypatch.setattr(
+        daemon,
+        "_icon_refresh_once",
+        lambda cfg: refreshed.append(cfg.pod.container_name),
+    )
+
+    cfg = Config()
+    daemon.run_icon_refresh_monitor(cfg, stop)
+
+    assert refreshed == [cfg.pod.container_name]
+    assert stop.waits == [60]

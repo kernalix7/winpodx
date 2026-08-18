@@ -20,6 +20,27 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _pod_reports_running(monkeypatch):
+    """Short-circuit the half-uninstalled guard's live pod probe.
+
+    ``_heal_missing_container_if_needed`` probes ``pod_status(cfg)`` and calls
+    ``ensure_ready(cfg)`` when the pod looks absent (setup_cmd.py:553-568).
+    Unpatched that is a real ``podman ps``, and the heal branch then blocks in
+    the RDP wait loop. RUNNING skips the branch entirely.
+
+    Deliberately per-file, not in conftest: tests/test_backend.py exercises the
+    real ``pod_status`` and must not see it replaced. The guard tests below
+    patch this themselves with STOPPED / ERROR and those patches win.
+    """
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda cfg: PodStatus(state=PodState.RUNNING),
+    )
+
+
 def _make_existing_config(tmp_path):
     """Persist a podman config so handle_setup hits the existing-config branch."""
     from winpodx.core.config import Config

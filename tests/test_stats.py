@@ -268,3 +268,148 @@ def test_cgroup_memory_bytes_falls_back_to_rss_sum(
 def test_cgroup_memory_bytes_none_when_nothing_readable(tmp_path) -> None:
     # No memory.current and no cgroup.procs -> give up (None).
     assert stats._cgroup_memory_bytes(str(tmp_path)) is None
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected"),
+    [("podman", "podman"), ("docker", "docker"), ("manual", None)],
+)
+def test_stats_cli_selects_supported_backend(backend: str, expected: str | None) -> None:
+    cfg = _running_cfg()
+    cfg.pod.backend = backend
+
+    assert stats._stats_cli(cfg) == expected
+
+
+def test_resolve_container_name_uses_first_match_and_falls_back(monkeypatch) -> None:
+    outputs = iter(
+        [
+            _FakeProc(0, "winpodx_windows_1\nwinpodx-windows\n"),
+            _FakeProc(0, ""),
+            _FakeProc(1, "", "denied"),
+        ]
+    )
+    monkeypatch.setattr(stats.subprocess, "run", lambda *_a, **_k: next(outputs))
+
+    assert stats._resolve_container_name("podman", "winpodx-windows", {}) == "winpodx_windows_1"
+    assert stats._resolve_container_name("podman", "winpodx-windows", {}) is None
+    assert stats._resolve_container_name("podman", "winpodx-windows", {}) is None
+
+
+@pytest.mark.parametrize("stdout", ["", "not-json", "[]", "null", '"string"'])
+def test_podman_stats_malformed_or_empty_output_returns_na(monkeypatch, stdout: str) -> None:
+    cfg = _running_cfg()
+    monkeypatch.setattr(stats, "_resolve_container_name", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        stats.subprocess,
+        "run",
+        lambda *_a, **_k: _FakeProc(returncode=0, stdout=stdout),
+    )
+
+    assert stats._podman_stats_cpu_ram(cfg) == (None, None, None)
+
+
+def test_podman_stats_parses_podman_array_and_decimal_units(monkeypatch) -> None:
+    cfg = _running_cfg()
+    payload = json.dumps([{"CPU": "2.5%", "MemoryUsage": "1.5GB / 16GB", "Mem": "9.4%"}])
+    monkeypatch.setattr(stats, "_resolve_container_name", lambda *_a, **_k: "actual-container")
+    monkeypatch.setattr(
+        stats.subprocess,
+        "run",
+        lambda cmd, **_kwargs: (
+            _FakeProc(0, payload)
+            if cmd[-1] == "actual-container"
+            else pytest.fail("resolved name not used")
+        ),
+    )
+
+    cpu, used, pct = stats._podman_stats_cpu_ram(cfg)
+
+    assert cpu == pytest.approx(2.5)
+    assert used == pytest.approx(1.5 * 1000**3 / GIB)
+    assert pct == pytest.approx(9.4)
+
+
+def test_podman_stats_runtime_error_and_nonzero_return_na(monkeypatch) -> None:
+    cfg = _running_cfg()
+    monkeypatch.setattr(stats, "_resolve_container_name", lambda *_a, **_k: None)
+    monkeypatch.setattr(stats.subprocess, "run", lambda *_a, **_k: (_ for _ in ()).throw(OSError()))
+    assert stats._podman_stats_cpu_ram(cfg) == (None, None, None)
+
+    monkeypatch.setattr(stats.subprocess, "run", lambda *_a, **_k: _FakeProc(1, "", "failed"))
+    assert stats._podman_stats_cpu_ram(cfg) == (None, None, None)
+
+
+@pytest.mark.parametrize(("stdout", "expected"), [("4321\n", 4321), ("0\n", None), ("bad", None)])
+def test_container_pid_parsing(monkeypatch, stdout: str, expected: int | None) -> None:
+    monkeypatch.setattr(stats, "_resolve_container_name", lambda *_a, **_k: None)
+    monkeypatch.setattr(stats.subprocess, "run", lambda *_a, **_k: _FakeProc(0, stdout))
+
+    assert stats._container_pid("podman", _running_cfg(), {}) == expected
+
+
+def test_guest_resources_converts_disk_ram_and_clamps_percent(monkeypatch) -> None:
+    disk = type("Disk", (), {"total_bytes": 64 * GIB, "used_bytes": 48 * GIB, "used_pct": 75.0})()
+    guest = type(
+        "Guest",
+        (),
+        {"disk": disk, "ram_used_bytes": 20 * GIB, "ram_total_bytes": 16 * GIB},
+    )()
+    monkeypatch.setattr("winpodx.core.disk.get_guest_resources", lambda *_a, **_k: guest)
+
+    disk_result, ram_result = stats._guest_resources(_running_cfg())
+
+    assert disk_result == pytest.approx((64.0, 48.0, 75.0))
+    assert ram_result == pytest.approx((20.0, 100.0))
+
+
+def test_guest_resources_degrades_on_probe_exception(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "winpodx.core.disk.get_guest_resources",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("guest unavailable")),
+    )
+
+    assert stats._guest_resources(_running_cfg()) == ((None, None, None), (None, None))
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("RUNNING", "running"),
+        ("PAUSED", "paused"),
+        ("STOPPED", "stopped"),
+        ("STARTING", "checking"),
+        ("UNRESPONSIVE", "checking"),
+        ("ERROR", "unknown"),
+    ],
+)
+def test_pod_state_maps_backend_states(monkeypatch, state: str, expected: str) -> None:
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(
+        "winpodx.core.pod.backend.pod_status",
+        lambda _cfg: PodStatus(state=getattr(PodState, state)),
+    )
+
+    assert stats._pod_state(_running_cfg()) == expected
+
+
+def test_snapshot_uses_supplied_state_and_degrades_probe_exceptions(monkeypatch) -> None:
+    monkeypatch.setattr(stats, "_pod_state", lambda _cfg: pytest.fail("state was supplied"))
+    monkeypatch.setattr(
+        stats,
+        "_host_cpu_pct",
+        lambda _cfg: (_ for _ in ()).throw(RuntimeError("cpu unavailable")),
+    )
+    monkeypatch.setattr(
+        stats,
+        "_guest_resources",
+        lambda _cfg: (_ for _ in ()).throw(RuntimeError("guest unavailable")),
+    )
+
+    snap = stats.pod_resource_snapshot(_running_cfg(), pod_state="running")
+
+    assert snap.pod_state == "running"
+    assert snap.cpu_pct is None
+    assert snap.ram_used_gb is None
+    assert snap.disk_total_gb is None

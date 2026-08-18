@@ -15,6 +15,7 @@ from pathlib import Path
 from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
 from winpodx.core.devices import (
+    host_device_nodes,
     parse_entries,
     qemu_device_args,
 )
@@ -620,16 +621,19 @@ def _resolve_install_locale(cfg: Config) -> tuple[str, str, str]:
 def _device_nodes_block(cfg: Config) -> str:
     """Build the indented YAML ``devices:`` list body.
 
-    Always exposes ``/dev/kvm`` + ``/dev/net/tun`` (dockur needs both); adds
-    ``/dev/vfio/vfio`` when a PCI device is assigned. USB is NOT a device node
-    here — the whole ``/dev/bus/usb`` tree is bind-mounted instead (see
+    Always exposes ``/dev/kvm`` + ``/dev/net/tun`` (dockur needs both). For
+    PCI passthrough, exposes the VFIO control node plus each assigned device's
+    IOMMU-group node. USB is NOT a device node here -- the whole
+    ``/dev/bus/usb`` tree is bind-mounted instead (see
     ``_extra_volumes_block``) so devices plugged in *after* container start are
-    reachable for live hot-plug. Paths are constants, never YAML-dangerous.
+    reachable for live hot-plug. PCI devices without a valid IOMMU group are
+    refused before a compose file is generated.
     """
     nodes = ["/dev/kvm", "/dev/net/tun"]
-    if any(d.dtype == "pci" for d in parse_entries(cfg.pod.devices)):
-        nodes.append("/dev/vfio/vfio")
-    return "".join(f"      - {n}\n" for n in nodes)
+    nodes.extend(
+        node for node in host_device_nodes(parse_entries(cfg.pod.devices)) if node != "/dev/bus/usb"
+    )
+    return "".join(f"      - {node}\n" for node in nodes)
 
 
 def _extra_volumes_block(cfg: Config) -> str:

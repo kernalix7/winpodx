@@ -64,7 +64,7 @@ from winpodx.reverse_open.apps_db import (
     strip_path_placeholders,
     substitute_path,
 )
-from winpodx.reverse_open.paths import ReversePathError, safe_open_unc
+from winpodx.reverse_open.paths import ReversePathError, safe_open_path, safe_open_unc
 from winpodx.reverse_open.seen_uuids import SeenUUIDs
 
 log = logging.getLogger(__name__)
@@ -356,20 +356,19 @@ class Listener:
         unc = data["path"]
         try:
             with safe_open_unc(unc, self._cfg.share_roots) as safe:
-                # Use the kernel's canonical real path (not the
-                # /proc/self/fd/N proc_path) so D-Bus-handoff apps —
-                # Firefox, LibreOffice, Chromium et al. — work. Those
-                # apps forward the file path to a pre-existing singleton
-                # instance and exit, and the singleton process doesn't
-                # inherit our FD table, so /proc/self/fd/N can't be
-                # resolved there. TOCTOU isn't in scope: user is
-                # acting on their own files.
+                # real_path, not proc_path: D-Bus-handoff apps (Firefox,
+                # LibreOffice, Chromium) pass the path to a singleton that
+                # never inherits our FD table. The cost is a reopen BY NAME,
+                # so assert_unchanged() below re-checks the pinned inode just
+                # before spawn. That narrows the swap window; closing it needs
+                # an FD-backed stable pathname (XDG Documents portal).
                 argv = substitute_path(app.exec_argv, str(safe.real_path))
                 # Log the exact argv so a misbehaving spawn (e.g. wrong
                 # file path, dropped placeholder, mistargeted Firefox)
                 # is recoverable from the daemon log instead of needing
                 # a re-instrumentation cycle on the user's machine.
                 log.info("listener: spawning slug=%s argv=%r", slug, argv)
+                safe.assert_unchanged()
                 try:
                     self._spawn(argv, safe.popen_kwargs())
                 except OSError as exc:
@@ -520,24 +519,24 @@ class Listener:
             log.warning("listener: guest path rejected (%s): %s", path.name, win_path)
             _safe_unlink(path)
             return
-        if not host_path.exists():
-            self._stats.rejected_path += 1
-            log.warning(
-                "listener: guest file not found under mount (%s): %s -> %s",
-                path.name,
-                win_path,
-                host_path,
-            )
-            _safe_unlink(path)
-            return
-
-        argv = substitute_path(app.exec_argv, str(host_path))  # type: ignore[attr-defined]
-        log.info("listener: spawning (guest) slug=%s argv=%r", slug, argv)
         try:
-            self._spawn(argv, {})
-        except OSError as exc:
-            self._stats.spawn_errors += 1
-            log.warning("listener: spawn failed for %s: %s", slug, exc)
+            with safe_open_path(host_path, Path(mount_root)) as safe:
+                argv = substitute_path(  # type: ignore[attr-defined]
+                    app.exec_argv,
+                    str(safe.real_path),
+                )
+                log.info("listener: spawning (guest) slug=%s argv=%r", slug, argv)
+                safe.assert_unchanged()
+                try:
+                    self._spawn(argv, safe.popen_kwargs())
+                except OSError as exc:
+                    self._stats.spawn_errors += 1
+                    log.warning("listener: spawn failed for %s: %s", slug, exc)
+                    _safe_unlink(path)
+                    return
+        except ReversePathError as exc:
+            self._stats.rejected_path += 1
+            log.warning("listener: guest path rejected for %s: %s", path.name, exc)
             _safe_unlink(path)
             return
 

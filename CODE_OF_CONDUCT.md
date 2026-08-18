@@ -59,5 +59,11 @@ include:
 
 ## Attribution
 
-This Code of Conduct is adapted from the Contributor Covenant, version 2.1:
+This Code of Conduct is adapted from the [Contributor Covenant][homepage],
+version 2.1, available at
 https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
+
+[homepage]: https://www.contributor-covenant.org
+
+The Contributor Covenant is licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
