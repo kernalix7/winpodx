@@ -203,8 +203,8 @@ def _host_clocksource_is_tsc() -> bool:
     produce a UEFI/DXE-stage boot hang (RDTSC-calibrated delay loop never
     converges, vCPU spins at 100% host/kernel time, 0% guest time).
 
-    Missing/unreadable sysfs (e.g. inside some container/chroot setups)
-    reports True so we don't punish hosts where the check itself can't run.
+    Missing/unreadable sysfs reports False because granting ``invtsc`` without
+    a positive kernel verdict can hang guest boot.
     """
     try:
         val = (
@@ -213,7 +213,7 @@ def _host_clocksource_is_tsc() -> bool:
             .strip()
         )
     except OSError:
-        return True
+        return False
     return val == "tsc"
 
 
