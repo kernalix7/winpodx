@@ -9,6 +9,7 @@ Most documents have an English original and a Korean (`.ko.md`) mirror linked fr
 | Topic | English | 한국어 |
 |---|---|---|
 | Quick install | [INSTALL.md](INSTALL.md) | [INSTALL.ko.md](INSTALL.ko.md) |
+| Existing/external Windows host | [EXTERNAL-HOST.md](EXTERNAL-HOST.md) | [EXTERNAL-HOST.ko.md](EXTERNAL-HOST.ko.md) |
 | Day-to-day usage | [USAGE.md](USAGE.md) | [USAGE.ko.md](USAGE.ko.md) |
 | Feature list | [FEATURES.md](FEATURES.md) | [FEATURES.ko.md](FEATURES.ko.md) |
 | How it's put together | [ARCHITECTURE.md](ARCHITECTURE.md) | [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md) |
