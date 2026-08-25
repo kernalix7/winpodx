@@ -254,6 +254,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for deep dives, including multi-session
 | Document | What's inside |
 |----------|---------------|
 | [INSTALL.md](docs/INSTALL.md) | Every install path — one-liner, package managers, AppImage, offline, Nix, source |
+| [EXTERNAL-HOST.md](docs/EXTERNAL-HOST.md) | Connect to an existing Windows PC or VM with the best-effort manual backend |
 | [USAGE.md](docs/USAGE.md) | CLI reference, Qt6 GUI tour, health checks, configuration file |
 | [FEATURES.md](docs/FEATURES.md) | Reverse-open, multi-session RDP, peripherals, app profiles, auto-discovery |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works (diagram), tech stack, source tree, data flows |
