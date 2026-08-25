@@ -75,6 +75,27 @@ Manual 모드는 바이너리 + desktop entry + 아이콘만 설치 — `winpodx
 
 환경변수는 `curl | bash` 에서도 동작 — `WINPODX_SKIP_DEPS=1 curl ... | bash` 가능.
 
+## Microsoft ISO 카탈로그 TLS 실패
+
+첫 Windows 부팅이 `wget` 종료 상태 `5`에서 멈추면 다운로드의 TLS 인증서 검증에 실패한 것입니다. dockur v6.05에서는 Windows ISO 카탈로그 미러가 지역 CDN을 경유할 수 있으므로, 해당 경로나 프록시 또는 VPN의 HTTPS 검사와 관련될 수 있습니다. 이 상태만으로 한 가지 원인을 단정할 수는 없습니다. 시스템 시계와 신뢰할 수 있는 인증서를 확인하고, 네트워크 정책상 안전한 경우 프록시나 VPN 없이 다시 시도하세요.
+
+카탈로그 실패가 계속되면 신뢰할 수 있는 경로로 Windows ISO를 내려받아 로컬 파일을 stage하세요. 절대 경로를 사용합니다.
+
+```bash
+# 로컬 WinPodX checkout에서 새로 설치할 때
+./install.sh --win-iso /absolute/path/Win10.iso
+
+# 패키지, AppImage, wheel 또는 수동 설치 후 첫 setup에서
+winpodx setup --win-iso /absolute/path/Win10.iso
+```
+
+`--win-iso`는 컨테이너가 부팅되기 전에 ISO를 dockur의 `custom.iso`로 stage하므로 Microsoft 카탈로그 다운로드를 피합니다. 이 옵션은 bind-mount storage 레이아웃을 쓰는 새 설치용입니다. 기존 설치가 아직 legacy `winpodx-data` named volume을 쓴다면 먼저 storage를 migrate한 뒤 ISO를 stage하세요.
+
+```bash
+winpodx setup --migrate-storage
+winpodx setup --win-iso /absolute/path/Win10.iso
+```
+
 ## Windows 에디션 선택
 
 기본은 dockur 의 최신 Windows 11 이미지. fresh install 시 `--win-version VER` (또는 `WINPODX_WIN_VERSION` 환경변수) 로 다른 큐레이트 에디션 선택 가능:

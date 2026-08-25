@@ -75,6 +75,27 @@ The installer takes three optional flags for machines with no registry / package
 
 Env vars are honored even under `curl | bash`, so `WINPODX_SKIP_DEPS=1 curl ... | bash` works.
 
+## Microsoft ISO catalog TLS failure
+
+If the first Windows boot stops with `wget` exit status `5`, the download failed TLS certificate validation. With dockur v6.05, Windows ISO catalog mirrors can route through a regional CDN, so this may involve that route or HTTPS inspection by a proxy or VPN. The status alone does not identify a single cause. Check the system clock and trusted certificates, then retry without a proxy or VPN if that is safe for your network.
+
+When the catalog still fails, download a Windows ISO through a trusted path and stage that local file instead. Use an absolute path:
+
+```bash
+# From a local WinPodX checkout, during a fresh install
+./install.sh --win-iso /absolute/path/Win10.iso
+
+# After a package, AppImage, wheel, or manual install, during first setup
+winpodx setup --win-iso /absolute/path/Win10.iso
+```
+
+`--win-iso` stages the ISO as dockur's `custom.iso` before the container boots, avoiding the Microsoft catalog download. It is for fresh installs that use the bind-mount storage layout. If an existing installation still uses the legacy `winpodx-data` named volume, migrate storage first, then stage the ISO:
+
+```bash
+winpodx setup --migrate-storage
+winpodx setup --win-iso /absolute/path/Win10.iso
+```
+
 ## Choosing the Windows edition
 
 By default WinPodX installs the latest dockur Windows 11 image. Pass `--win-version VER` (or the `WINPODX_WIN_VERSION` env var) to pick a different curated edition during a fresh install:
