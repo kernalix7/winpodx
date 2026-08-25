@@ -696,6 +696,25 @@ def test_dockur_progress_survives_no_backend(monkeypatch: pytest.MonkeyPatch) ->
     assert _REAL_DOCKUR_PROGRESS(harness) == (None, None, False)
 
 
+def test_dockur_progress_returns_full_status_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression: dockur status lines must reach the dialog untruncated —
+    # status[:80] used to slice mid-word (e.g. the btrfs warning lost its
+    # "issues with Windows Setup!" tail); the dialog shortens for display.
+    harness = Harness(_make_cfg())
+    log = (
+        "❯ Warning: you are using the BTRFS filesystem for /storage, "
+        "this might introduce issues with Windows Setup!\n"
+    )
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: _FakeRun(stdout=log))
+    err, progress, installing = _REAL_DOCKUR_PROGRESS(harness)
+    assert err is None
+    assert installing is False
+    assert progress == (
+        "Warning: you are using the BTRFS filesystem for /storage, "
+        "this might introduce issues with Windows Setup!"
+    )
+
+
 def test_phase1_fails_fast_on_qemu_boot_error(monkeypatch: pytest.MonkeyPatch) -> None:
     # A boot-looping QEMU device error (e.g. dockur's host_mtu on e1000) should
     # fail the bring-up fast with the real reason, not wait out the budget.
