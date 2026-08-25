@@ -365,7 +365,7 @@ class TestBuildRdpCommand:
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
         cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
-        assert "/app:program:notepad.exe,name:notepad" in cmd
+        assert "/app:program:notepad.exe,name:winpodx-notepad" in cmd
         # Separate /app-name: / /app-cmd: flags MUST NOT appear — they
         # double up with the combined form's name: / cmd: sub-keys.
         assert not any(c.startswith("/app-name:") for c in cmd)
@@ -996,18 +996,34 @@ class TestResolveWmClass:
     def test_exe_stem_default(self):
         from winpodx.core.rdp import resolve_wm_class
 
-        assert resolve_wm_class("C:\\Program Files\\App\\notepad.exe") == "notepad"
+        # Namespaced (#brave-taskbar-collision): a bare "notepad" token could
+        # collide with a native Linux app's own WM_CLASS.
+        assert resolve_wm_class("C:\\Program Files\\App\\notepad.exe") == "winpodx-notepad"
 
     def test_exe_hint_overrides_stem(self):
         from winpodx.core.rdp import resolve_wm_class
 
+        # A curated/explicit hint is trusted as-is, unprefixed.
         assert resolve_wm_class("C:\\x\\app.exe", "MyApp") == "myapp"
 
     def test_exe_unsafe_hint_falls_back_to_stem(self):
         from winpodx.core.rdp import resolve_wm_class
 
-        # A hint with disallowed chars must not produce an unsafe token.
-        assert resolve_wm_class("C:\\x\\app.exe", "bad name!@#") == "app"
+        # A hint with disallowed chars must not produce an unsafe token, and
+        # the stem fallback it lands on is namespaced same as the no-hint case.
+        assert resolve_wm_class("C:\\x\\app.exe", "bad name!@#") == "winpodx-app"
+
+    def test_win32_stem_fallback_does_not_collide_with_native_app(self):
+        # Regression: WinPodX's Brave app (discovered with no wm_class_hint)
+        # used to resolve to the bare token "brave", indistinguishable from
+        # -- or a prefix of -- a native Linux Brave install's own WM_CLASS,
+        # so the WM/taskbar merged the two apps' windows into one group.
+        from winpodx.core.rdp import resolve_wm_class
+
+        exe = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+        got = resolve_wm_class(exe)
+        assert got == "winpodx-brave"
+        assert got != "brave"
 
     def test_uwp_uses_aumid_slug_not_exe_stem(self):
         # Regression: a UWP AUMID's exe-stem is useless ("microsoft" from

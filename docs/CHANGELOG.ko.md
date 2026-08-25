@@ -16,6 +16,7 @@
 ### Fixed
 
 - **PCI 패스스루 시 할당된 장치의 VFIO IOMMU 그룹 노드도 컨테이너에 노출하도록 수정.** 기존 생성 compose 설정은 `/dev/vfio/vfio`만 노출했지만 QEMU가 할당된 PCI 장치를 열려면 `/dev/vfio/<group>`도 필요하므로, 장치가 `vfio-pci`에 올바르게 바인딩되어 있어도 패스스루가 실패할 수 있었습니다. 이제 WinPodX가 할당된 각 PCI 장치의 IOMMU 그룹을 확인해 VFIO 제어 노드와 함께 해당 그룹 노드를 노출하며, 여러 PCI function이 같은 그룹을 공유하면 노드를 중복 추가하지 않습니다. 할당된 장치의 그룹을 확인할 수 없으면 pod 설정 생성을 거부하고, 호스트에서 읽은 그룹 식별자를 검증한 후에만 `/dev/vfio/<group>` 경로를 만듭니다.
+- **`wm_class_hint`가 없는 상태로 자동 발견된 Windows 앱(예: Brave 등 모든 자동 발견 Win32 앱)이 네이티브 Linux 앱의 작업 표시줄 그룹에 뒤섞일 수 있었습니다.** `resolve_wm_class()`의 실행 파일 stem 폴백(예: `brave.exe` → `brave`)은 네임스페이스가 없는 `/wm-class` / `StartupWMClass` 토큰을 만들어냈고, 이는 같은 이름의 네이티브 Linux 앱이 사용하는 WM_CLASS와 구분되지 않거나 그 접두어와 겹칠 수 있어, 일부 창 관리자/독이 WinPodX RemoteApp 창과 네이티브 앱 창을 구분하지 못하고 하나로 묶어버렸습니다. 이제 실행 파일 stem 폴백에는 `winpodx-` 접두어가 붙어(UWP AUMID 슬러그 폴백과 동일한 방식) 네이티브 앱의 WM_CLASS와 절대 충돌하지 않습니다. `explorer`, `calculator` 같은 지정된 `wm_class_hint`는 영향을 받지 않습니다.
 
 ### Contributors
 

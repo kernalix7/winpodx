@@ -73,6 +73,21 @@ def _uwp_fallback_wm_class(aumid: str) -> str:
     return candidate
 
 
+def _win32_fallback_wm_class(stem: str) -> str:
+    """Derive a namespaced wm-class from a bare Win32 executable stem.
+
+    A bare stem (e.g. ``brave`` from ``brave.exe``) is indistinguishable from
+    -- or a prefix of -- the WM_CLASS a native Linux install of the same app
+    may use (Brave's own packaging isn't consistent about ``brave`` vs.
+    ``brave-browser``), so the Linux WM/taskbar can't tell "native Brave"
+    apart from "Brave running inside the WinPodX pod" and merges their
+    grouping. Prefixing with ``winpodx-`` keeps the token unique to WinPodX,
+    mirroring ``_uwp_fallback_wm_class``.
+    """
+    token = f"winpodx-{stem}" if stem else "winpodx-app"
+    return token if _is_safe_wm_class(token) else "winpodx-app"
+
+
 def resolve_wm_class(
     app_executable: str | None,
     wm_class_hint: str | None = None,
@@ -87,6 +102,11 @@ def resolve_wm_class(
     exe path, so the exe-stem default yields a useless token (e.g. ``microsoft``
     from ``Microsoft.WindowsCalculator_...!App``); they fall back to a slug of
     the AUMID instead. Mirrors the resolution in ``build_rdp_command`` exactly.
+
+    A curated ``wm_class_hint`` (e.g. ``explorer``/``calculator``) is trusted
+    as-is and returned unprefixed. Without one, the exe-stem fallback is
+    namespaced with ``winpodx-`` (see ``_win32_fallback_wm_class``) so it can
+    never collide with a native Linux app of the same name.
     """
     from pathlib import PureWindowsPath
 
@@ -97,11 +117,10 @@ def resolve_wm_class(
             if hint and _is_safe_wm_class(hint):
                 return hint
             return _uwp_fallback_wm_class(aumid)
+    if hint and _is_safe_wm_class(hint):
+        return hint
     stem = PureWindowsPath(app_executable or "").stem.lower()
-    name_token = hint or stem
-    if not _is_safe_wm_class(name_token):
-        name_token = stem
-    return name_token
+    return _win32_fallback_wm_class(stem)
 
 
 @dataclass
