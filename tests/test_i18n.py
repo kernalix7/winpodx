@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from string import Formatter
+
 import pytest
 
+from winpodx.core import devices as D
 from winpodx.core import i18n
 from winpodx.core.config import Config
 
@@ -54,6 +58,30 @@ def test_all_supported_catalogs_load_and_are_flat_str_maps() -> None:
         i18n.set_language(lang)
         # tr must always return a str (no crash, no None) for any input.
         assert isinstance(i18n.tr("High"), str)
+
+
+def _format_fields(text: str) -> Counter[str]:
+    return Counter(field for _, field, _, _ in Formatter().parse(text) if field is not None)
+
+
+@pytest.mark.parametrize("lang", [lang for lang in i18n.SUPPORTED if lang != "en"])
+def test_pr819_ui_keys_are_translated_with_matching_placeholders(lang: str) -> None:
+    catalog = i18n._load_catalog(lang)
+    keys = {
+        "Applications",
+        "Launch an app or pin one from Applications to see it here.",
+        "Applications are hidden",
+        "Bus {bus}",
+        "IOMMU {group}",
+        "WARNING",
+        *D._PCI_CLASS_NAMES.values(),
+        "PCI device",
+    }
+
+    for key in keys:
+        assert key in catalog, f"{lang} is missing {key!r}"
+        assert catalog[key].strip(), f"{lang} has a blank translation for {key!r}"
+        assert _format_fields(catalog[key]) == _format_fields(key)
 
 
 def test_config_ui_language_default_and_coerce() -> None:
