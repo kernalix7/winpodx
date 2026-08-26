@@ -12,6 +12,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+import winpodx.gui._main_window_devices as devices_mod  # noqa: E402
 from winpodx.cli import device as DC  # noqa: E402
 from winpodx.core import devices as D  # noqa: E402
 from winpodx.core.config import Config  # noqa: E402
@@ -59,6 +60,62 @@ def test_page_builds_and_populates(host):
     assert host._dev_host_col.count() == 3
     # Guest column empty -> placeholder + stretch.
     assert host._dev_guest_col.count() == 2
+
+
+@pytest.mark.parametrize(
+    ("pci_class", "class_label"),
+    [("03", "Graphics"), ("ff", "PCI device")],
+)
+def test_pci_metadata_translates_ui_labels_only(host, monkeypatch, pci_class, class_label):
+    calls: list[str] = []
+
+    def fake_tr(text: str) -> str:
+        calls.append(text)
+        return f"T<{text}>"
+
+    monkeypatch.setattr(devices_mod, "tr", fake_tr)
+    row = host._device_row(
+        D.HostDevice(
+            dtype="pci",
+            did="0000:01:00.0",
+            label="Example Vendor Example Adapter",
+            pci_class=pci_class,
+            iommu_group="15",
+        ),
+        assigned=False,
+    )
+    texts = [label.text() for label in row.findChildren(devices_mod.QLabel)]
+
+    assert any("T<IOMMU 15>" in text and f"T<{class_label}>" in text for text in texts)
+    assert "IOMMU {group}" in calls
+    assert class_label in calls
+    assert "Example Vendor Example Adapter" not in calls
+    assert "0000:01:00.0" not in calls
+
+
+def test_usb_bus_metadata_is_translated_without_translating_the_device(host, monkeypatch):
+    calls: list[str] = []
+
+    def fake_tr(text: str) -> str:
+        calls.append(text)
+        return f"T<{text}>"
+
+    monkeypatch.setattr(devices_mod, "tr", fake_tr)
+    row = host._device_row(
+        D.HostDevice(
+            dtype="usb",
+            did="1234:5678",
+            label="Example Security Dongle",
+            bus="003",
+        ),
+        assigned=False,
+    )
+    texts = [label.text() for label in row.findChildren(devices_mod.QLabel)]
+
+    assert any("T<Bus 003>" in text for text in texts)
+    assert "Bus {bus}" in calls
+    assert "Example Security Dongle" not in calls
+    assert "1234:5678" not in calls
 
 
 def test_attach_usb_persists_and_moves_column(host):

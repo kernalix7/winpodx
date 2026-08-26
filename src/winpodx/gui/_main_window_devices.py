@@ -309,9 +309,9 @@ class DevicesMixin:
             if host.iommu_group is not None:
                 meta_parts.append(tr("IOMMU {group}").format(group=host.iommu_group))
             if host.pci_class:
-                meta_parts.append(D.pci_class_name(host.pci_class))
+                meta_parts.append(tr(D.pci_class_name(host.pci_class)))
 
-        metadata = "  •  ".join(meta_parts)
+        metadata = " · ".join(meta_parts)
         meta_lbl = ElidingLabel(metadata)
         meta_lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
 
