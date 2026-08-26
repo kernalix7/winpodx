@@ -159,6 +159,7 @@ class DashHarness(DashboardMixin, QWidget):
 def _build_dash(
     monkeypatch: pytest.MonkeyPatch,
     *,
+    cfg: Config | None = None,
     apps: list[AppInfo] | None = None,
     pinned: tuple[str, ...] = (),
     recent: tuple[str, ...] = (),
@@ -174,7 +175,7 @@ def _build_dash(
         "pod_resource_snapshot",
         lambda _cfg, pod_state=None, with_disk=True: snapshot or _snapshot(),
     )
-    host = DashHarness(_make_cfg(), apps)
+    host = DashHarness(cfg or _make_cfg(), apps)
     page = host._build_dashboard_page()
     page.setParent(host)  # tie lifetimes; never a stray top-level window
     host._dashboard_timer.stop()
@@ -355,6 +356,23 @@ def test_apply_snapshot_formats_cpu_ram_and_disk(monkeypatch: pytest.MonkeyPatch
     assert host._gauge_ram._center_text == "62%"
     assert host._bar_disk._detail == "29 / 64 GB"
     assert host._bar_disk._pct == pytest.approx(45.0)
+
+
+def test_disk_bar_accessibility_uses_the_configured_autogrow_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg()
+    cfg.pod.disk_autogrow_threshold_pct = 85
+    host = _build_dash(monkeypatch, cfg=cfg)
+
+    host._apply_snapshot(_snapshot(disk_pct=84.0, disk_used_gb=54.0, disk_total_gb=64.0))
+    assert host._bar_disk.accessibleName() == tr("Disk C:")
+    assert "54 / 64 GB" in host._bar_disk.accessibleDescription()
+    assert tr("WARNING") not in host._bar_disk.accessibleDescription()
+
+    host._apply_snapshot(_snapshot(disk_pct=85.0, disk_used_gb=54.4, disk_total_gb=64.0))
+    assert "54 / 64 GB" in host._bar_disk.accessibleDescription()
+    assert tr("WARNING") in host._bar_disk.accessibleDescription()
 
 
 def test_apply_snapshot_falls_back_to_na_with_no_reading_yet(
