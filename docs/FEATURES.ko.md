@@ -73,7 +73,7 @@ winpodx host-open disable       # 기능 전체 끄기
 데스크톱 GUI 는 Start-menu 스타일 레이아웃으로 구성: 왼쪽 세로 내비게이션 사이드바 (페이지당 한 행) + 처음 진입하는 **Dashboard** 홈.
 
 - **Dashboard** 는 실시간 Pod / RAM / CPU 링 게이지와 디스크 사용량, 자동 복구 상태 카드, 고정/최근 워크스페이스 타일, reverse-open 토글을 보여줌.
-- 앱 런처는 이제 **All apps** 페이지.
+- 앱 런처는 이제 **Applications** 페이지.
 - **Devices** 페이지는 USB / PCI 패스스루용 두 컬럼 host ↔ guest 디바이스 mover 를 제공.
 - 통합 디자인 시스템 + 자체 SVG 아이콘 셋 (더 이상 유니코드 글리프 아이콘 아님), 좁거나 분수 배율 윈도에서 reflow 하는 반응형 레이아웃, fit-to-screen 사이징.
 - 상단의 hero 검색이 커맨드 바 역할도 겸함.
@@ -208,7 +208,7 @@ v0.1.9 부터 WinPodX 는 **큐레이트된 프로필 리스트 없음**. Window
 
 ```bash
 winpodx app refresh        # CLI
-# 또는 GUI All apps 페이지의 "Refresh Apps" 클릭
+# 또는 GUI Applications 페이지의 "Refresh Apps" 클릭
 ```
 
 ### 사용자 정의 앱 프로필 수동 추가

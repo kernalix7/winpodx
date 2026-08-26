@@ -73,7 +73,7 @@ The tray, GUI, and CLI are fully translated into 7 languages: English, Korean (í
 The desktop GUI is built around a Start-menu-style layout: a left vertical navigation sidebar (one row per page) with a **Dashboard** home you land on first.
 
 - **Dashboard** shows live Pod / RAM / CPU ring gauges plus disk usage, an auto-recovery status card, pinned and recent workspace tiles, and a reverse-open toggle.
-- The app launcher is now the **All apps** page.
+- The app launcher is now the **Applications** page.
 - A **Devices** page provides the two-column host â†” guest device mover for USB / PCI passthrough.
 - A unified design system with an in-house SVG icon set (no more unicode-glyph icons), responsive layouts that reflow on narrow or fractionally-scaled windows, and fit-to-screen sizing.
 - A hero search at the top doubles as a command bar.
@@ -209,7 +209,7 @@ For each result it extracts the icon directly from the binary (or the package's 
 
 ```bash
 winpodx app refresh        # CLI
-# or click "Refresh Apps" on the GUI All apps page
+# or click "Refresh Apps" on the GUI Applications page
 ```
 
 ### Adding a custom app profile manually
