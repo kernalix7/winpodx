@@ -100,7 +100,7 @@ winpodx autostart on|off|status   # 로그인 시 Windows pod 자동시작 (opt-
 winpodx language                  # 현재 UI 언어 표시
 winpodx language ko               # UI 언어 설정: auto | en | ko | zh | ja | de | fr | it (auto = 호스트 로케일)
 # `winpodx info` 와 `winpodx check` 는 `winpodx doctor` 의 deprecated alias — 여전히 동작하며 stderr 에 한 줄의 deprecation 경고를 출력합니다.
-winpodx gui                       # Qt6 메인 윈도 실행 (Dashboard / All apps / Devices / Settings / Tools / Terminal)
+winpodx gui                       # Qt6 메인 윈도 실행 (Dashboard / Applications / Devices / Settings / Tools / Terminal)
 winpodx tray                      # Qt 시스템 트레이 아이콘 실행
 winpodx config show               # 현재 config 표시
 winpodx config set rdp.scale 140  # config 값 변경
@@ -114,7 +114,7 @@ winpodx config import             # 기존 winapps.conf import
 | 페이지 | 동작 |
 |------|------|
 | **Dashboard** | 홈 화면 — 라이브 Pod / RAM / CPU ring 게이지 + 디스크 사용량, 자동 회복 상태 카드, pinned / recent 워크스페이스 타일, 라이브 RDP 앱 세션을 세션별 종료 버튼과 함께 나열하는 "Running sessions" 스트립, reverse-open 토글 |
-| **All apps** | 설치된 앱 프로필의 grid / list view (구 "Apps"), 검색 + 카테고리 필터, 앱별 실행 (3초 cooldown), Add / Edit / Delete 앱 프로필 다이얼로그 |
+| **Applications** | 설치된 앱 프로필의 grid / list view (구 "Apps"), 검색 + 카테고리 필터, 앱별 실행 (3초 cooldown), Add / Edit / Delete 앱 프로필 다이얼로그 |
 | **Devices** | USB / PCI 장치 패스스루용 2열 호스트 ↔ 게스트 mover (#286) — 왼쪽에서 호스트 장치 선택, 오른쪽에서 Windows 게스트에 attach (USB 는 live hot-plug; PCI 는 안전 확인과 함께 게스트 재시작 필요) |
 | **Settings** | RDP (user / IP / port / scale / DPI / 비밀번호 회전 / 멀티모니터), Container (backend / CPU / RAM / idle timeout), 그리고 reverse-open 패널 (enable 토글, allowlist + denylist, 라이브 daemon 상태, refresh / start / stop 버튼) 한 화면에 |
 | **Tools** | Suspend / Resume / Full Desktop 버튼, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, 그리고 원클릭 Windows Update **활성/비활성** 토글 |
