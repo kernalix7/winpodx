@@ -156,6 +156,35 @@ def test_statbar_accepts_none_and_keeps_detail_text() -> None:
     assert bar._detail == "n/a"
 
 
+def test_statbar_exposes_and_clears_critical_accessibility_state(monkeypatch) -> None:
+    _ensure_qapp()
+    import winpodx.gui._ring_gauge as gauge_mod
+
+    monkeypatch.setattr(gauge_mod, "tr", lambda text: f"T<{text}>", raising=False)
+    bar = StatBar(
+        "Disk C:",
+        "#89b4fa",
+        critical_color="#f38ba8",
+        critical_pct=85,
+    )
+
+    assert bar.accessibleName() == "Disk C:"
+
+    bar.set_value(84, "54 / 64 GB")
+    assert "54 / 64 GB" in bar.accessibleDescription()
+    assert "T<WARNING>" not in bar.accessibleDescription()
+
+    for pct in (85, 96):
+        bar.set_value(pct, "61 / 64 GB")
+        assert "61 / 64 GB" in bar.accessibleDescription()
+        assert "T<WARNING>" in bar.accessibleDescription()
+
+    bar.set_value(40, "26 / 64 GB")
+    assert "T<WARNING>" not in bar.accessibleDescription()
+    bar.set_value(None, "n/a")
+    assert bar.accessibleDescription() == "n/a"
+
+
 def test_statbar_size_hint_matches_its_minimum() -> None:
     _ensure_qapp()
     bar = StatBar("Disk", "#f9e2af")
