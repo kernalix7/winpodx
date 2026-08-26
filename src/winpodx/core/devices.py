@@ -338,7 +338,7 @@ def sort_host_devices(devices: list[HostDevice]) -> list[HostDevice]:
         except ValueError:
             return (1, value)
 
-    ranked_groups: list[tuple[tuple, list[HostDevice]]] = []
+    ranked_units: list[tuple[tuple, list[HostDevice]]] = []
 
     for group, members in groups.items():
         members.sort(key=lambda d: d.did)
@@ -349,33 +349,34 @@ def sort_host_devices(devices: list[HostDevice]) -> list[HostDevice]:
         # function rather than being promoted by an audio sibling.
         primary = members[0]
 
-        ranked_groups.append(
+        ranked_units.append(
             (
                 (
                     class_priority(primary),
-                    group_number(group),
                     primary.did,
+                    group_number(group),
                 ),
                 members,
             )
         )
 
-    ranked_groups.sort(key=lambda item: item[0])
+    for dev in ungrouped:
+        ranked_units.append(
+            (
+                (
+                    class_priority(dev),
+                    dev.did,
+                    (2, ""),
+                ),
+                [dev],
+            )
+        )
+
+    ranked_units.sort(key=lambda item: item[0])
 
     ordered_pci: list[HostDevice] = []
-    for _, members in ranked_groups:
+    for _, members in ranked_units:
         ordered_pci.extend(members)
-
-    ordered_pci.extend(
-        sorted(
-            ungrouped,
-            key=lambda d: (
-                class_priority(d),
-                d.did,
-                d.label.casefold(),
-            ),
-        )
-    )
 
     other.sort(key=lambda d: (d.dtype, d.label.casefold(), d.did))
 

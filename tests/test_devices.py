@@ -170,6 +170,76 @@ def test_sort_host_devices_secondary_function_does_not_promote_chipset_group():
     ]
 
 
+def test_sort_host_devices_ranks_grouped_and_ungrouped_pci_as_one_list():
+    devices = [
+        D.HostDevice(
+            dtype="pci",
+            did="0000:00:1f.3",
+            label="PCH Audio",
+            pci_class="04",
+            iommu_group="13",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:04:00.0",
+            label="Network",
+            pci_class="02",
+            iommu_group="17",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:01:00.0",
+            label="Graphics",
+            pci_class="03",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:00:1f.0",
+            label="PCH Bridge",
+            pci_class="06",
+            iommu_group="13",
+        ),
+    ]
+
+    out = D.sort_host_devices(devices)
+
+    assert [d.did for d in out] == [
+        "0000:01:00.0",
+        "0000:04:00.0",
+        "0000:00:1f.0",
+        "0000:00:1f.3",
+    ]
+
+
+def test_sort_host_devices_breaks_equal_priority_unit_ties_by_pci_address():
+    devices = [
+        D.HostDevice(
+            dtype="pci",
+            did="0000:04:00.1",
+            label="Network companion",
+            pci_class="02",
+            iommu_group="17",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:02:00.0",
+            label="Ungrouped network",
+            pci_class="02",
+        ),
+        D.HostDevice(
+            dtype="pci",
+            did="0000:04:00.0",
+            label="Grouped network",
+            pci_class="02",
+            iommu_group="17",
+        ),
+    ]
+    expected = ["0000:02:00.0", "0000:04:00.0", "0000:04:00.1"]
+
+    for candidate in (devices, list(reversed(devices))):
+        assert [d.did for d in D.sort_host_devices(candidate)] == expected
+
+
 @pytest.mark.parametrize(
     ("pci_class", "name"),
     [
