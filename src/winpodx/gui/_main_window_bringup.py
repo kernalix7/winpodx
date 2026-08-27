@@ -65,7 +65,6 @@ the false hope of a "Cancelling..." spinner that never lands.
 from __future__ import annotations
 
 import logging
-import textwrap
 import threading
 from types import SimpleNamespace
 from typing import Optional
@@ -469,7 +468,7 @@ class BringUpProgressDialog(QDialog):
         else:
             # Legacy label form -- just show it directly.
             self.header.setText(phase_id)
-        self.sub_detail.setText(textwrap.shorten(sub_detail, width=80))
+        self.sub_detail.setText(sub_detail)
 
         if idx < 0:
             return
@@ -536,9 +535,7 @@ class BringUpProgressDialog(QDialog):
             self.header.setStyleSheet(
                 f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.RED};"
             )
-            self.sub_detail.setText(
-                textwrap.shorten(error_msg or tr("(no error message)"), width=80)
-            )
+            self.sub_detail.setText(error_msg or tr("(no error message)"))
         self.cancel_btn.setText(tr("Close"))
         self.cancel_btn.setStyleSheet(BTN_PRIMARY)
         self.cancel_btn.setEnabled(True)
@@ -1033,7 +1030,7 @@ class BringUpMixin:
           the whole budget.
         * ``progress`` — the latest ``❯`` status line (or ``Downloading
           Windows NN%`` from the wget dot-rows); full text — the dialog
-          truncates it for the summary display.
+          wraps it for the summary display.
         * ``installing`` — True when dockur is actively downloading/installing, so
           phase 1 can extend its budget past the normal pod-ready window.
         """

@@ -522,13 +522,52 @@ def test_dialog_appends_pod_log_lines() -> None:
     try:
         dlg.append_pod_log_line("[pod] BdsDxe: starting Boot0001")
         dlg.append_pod_log_line("[pod] [Setup] Applying image...")
+        long_line = "[pod] " + "Windows setup status " * 6 + "LOG-END"
+        dlg.append_pod_log_line(long_line)
         text = dlg.pod_log_view.toPlainText()
         assert "[pod] BdsDxe: starting Boot0001" in text
         assert "[pod] [Setup] Applying image..." in text
+        assert long_line in text
         # Empty / falsy lines are ignored.
         before = dlg.pod_log_view.toPlainText()
         dlg.append_pod_log_line("")
         assert dlg.pod_log_view.toPlainText() == before
+    finally:
+        dlg.reject()
+
+
+def test_dialog_phase_detail_preserves_complete_wrapped_text() -> None:
+    _ensure_qapp()
+    from winpodx.gui._main_window_bringup import BringUpProgressDialog
+
+    # Given a phase detail longer than the old 80-character limit.
+    detail = "Windows setup status " * 6 + "DETAIL-END"
+    dlg = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
+    try:
+        # When the dialog renders the active phase.
+        dlg.on_phase("phase_1_pod", detail)
+
+        # Then Qt receives the complete string and wraps it visually.
+        assert dlg.sub_detail.text() == detail
+        assert dlg.sub_detail.wordWrap() is True
+    finally:
+        dlg.reject()
+
+
+def test_dialog_failure_preserves_complete_wrapped_error() -> None:
+    _ensure_qapp()
+    from winpodx.gui._main_window_bringup import BringUpProgressDialog
+
+    # Given a failure message longer than the old 80-character limit.
+    error = "Windows setup failure detail " * 5 + "ERROR-END"
+    dlg = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
+    try:
+        # When the dialog enters its failure state.
+        dlg.on_done(False, error)
+
+        # Then the diagnostic stays complete and remains word-wrapped.
+        assert dlg.sub_detail.text() == error
+        assert dlg.sub_detail.wordWrap() is True
     finally:
         dlg.reject()
 
@@ -699,11 +738,11 @@ def test_dockur_progress_survives_no_backend(monkeypatch: pytest.MonkeyPatch) ->
 def test_dockur_progress_returns_full_status_line(monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression: dockur status lines must reach the dialog untruncated —
     # status[:80] used to slice mid-word (e.g. the btrfs warning lost its
-    # "issues with Windows Setup!" tail); the dialog shortens for display.
+    # diagnostic tail); the dialog wraps the complete text for display.
     harness = Harness(_make_cfg())
     log = (
         "❯ Warning: you are using the BTRFS filesystem for /storage, "
-        "this might introduce issues with Windows Setup!\n"
+        "this might introduce issues with Windows Setup! STATUS-END\n"
     )
     monkeypatch.setattr("subprocess.run", lambda *a, **k: _FakeRun(stdout=log))
     err, progress, installing = _REAL_DOCKUR_PROGRESS(harness)
@@ -711,7 +750,7 @@ def test_dockur_progress_returns_full_status_line(monkeypatch: pytest.MonkeyPatc
     assert installing is False
     assert progress == (
         "Warning: you are using the BTRFS filesystem for /storage, "
-        "this might introduce issues with Windows Setup!"
+        "this might introduce issues with Windows Setup! STATUS-END"
     )
 
 
