@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 
@@ -225,6 +226,37 @@ def parse_lspci(output: str, iommu_lookup=None) -> list[HostDevice]:
     return devices
 
 
+def parse_lspci_names(output: str) -> dict[str, str]:
+    """Parse ``lspci -Dmm`` into ``PCI address -> human-readable label``.
+
+    Numeric ``lspci -Dmm -n`` remains authoritative for PCI class codes.
+    This second view is used only to give devices useful names in the GUI.
+    """
+    names: dict[str, str] = {}
+    for line in output.splitlines():
+        try:
+            fields = shlex.split(line)
+        except ValueError:
+            continue
+
+        if len(fields) < 4:
+            continue
+
+        addr, _class_name, vendor, device = fields[:4]
+
+        if not re.fullmatch(
+            r"(?:[0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]",
+            addr,
+        ):
+            continue
+
+        parts = [part for part in (vendor, device) if part]
+        if parts:
+            names[addr.lower()] = " ".join(parts)
+
+    return names
+
+
 def _iommu_group_for(addr: str) -> str | None:
     """Return the IOMMU group number for a PCI address, or ``None``."""
     # /sys/bus/pci/devices wants the full domain-qualified address.
@@ -241,8 +273,146 @@ def _iommu_group_for(addr: str) -> str | None:
 
 
 def list_host_pci() -> list[HostDevice]:
-    """Enumerate host PCI devices via ``lspci`` (empty list if unavailable)."""
-    return parse_lspci(_run(["lspci", "-Dmm", "-n"]), iommu_lookup=_iommu_group_for)
+    """Enumerate host PCI devices with stable numeric metadata and readable names."""
+    devices = parse_lspci(
+        _run(["lspci", "-Dmm", "-n"]),
+        iommu_lookup=_iommu_group_for,
+    )
+    names = parse_lspci_names(_run(["lspci", "-Dmm"]))
+
+    for dev in devices:
+        if dev.did in names:
+            dev.label = names[dev.did]
+
+    return devices
+
+
+# PCI classes ordered by how useful they generally are for guest passthrough.
+# Lower values appear first. Host/chipset infrastructure intentionally sinks
+# to the bottom so useful endpoint devices are easier to find.
+_PCI_CLASS_SORT_PRIORITY = {
+    "03": 10,  # display / GPU
+    "04": 20,  # multimedia / audio
+    "02": 30,  # network
+    "01": 40,  # storage
+    "0c": 50,  # serial bus / USB controllers
+    "07": 60,  # communications
+    "08": 70,  # system peripherals
+    "11": 80,  # signal processing
+    "05": 90,  # memory
+    "ff": 100,  # unclassified/vendor-specific
+    "06": 200,  # bridges / host infrastructure
+}
+
+
+def sort_host_devices(devices: list[HostDevice]) -> list[HostDevice]:
+    """Return host devices in stable passthrough-oriented display order.
+
+    USB peripherals come first. PCI devices are kept together by IOMMU group,
+    with each group ranked by its primary (lowest-address) PCI function. This
+    keeps multifunction devices such as GPU + HDMI audio adjacent without
+    allowing a secondary audio function to promote an otherwise host-critical
+    chipset group.
+    """
+    usb = [d for d in devices if d.dtype == "usb"]
+    pci = [d for d in devices if d.dtype == "pci"]
+    other = [d for d in devices if d.dtype not in {"usb", "pci"}]
+
+    usb.sort(key=lambda d: (d.label.casefold(), d.did, d.bus, d.addr))
+
+    groups: dict[str, list[HostDevice]] = {}
+    ungrouped: list[HostDevice] = []
+
+    for dev in pci:
+        if dev.iommu_group is None:
+            ungrouped.append(dev)
+        else:
+            groups.setdefault(dev.iommu_group, []).append(dev)
+
+    def class_priority(dev: HostDevice) -> int:
+        return _PCI_CLASS_SORT_PRIORITY.get(dev.pci_class.lower(), 110)
+
+    def group_number(value: str) -> tuple[int, int | str]:
+        try:
+            return (0, int(value))
+        except ValueError:
+            return (1, value)
+
+    ranked_units: list[tuple[tuple, list[HostDevice]]] = []
+
+    for group, members in groups.items():
+        members.sort(key=lambda d: d.did)
+
+        # PCI function .0 / the lowest address is the best approximation of
+        # the groups primary endpoint. For a GPU group this is the display
+        # controller; for a PCH group it remains the bridge/infrastructure
+        # function rather than being promoted by an audio sibling.
+        primary = members[0]
+
+        ranked_units.append(
+            (
+                (
+                    class_priority(primary),
+                    primary.did,
+                    group_number(group),
+                ),
+                members,
+            )
+        )
+
+    for dev in ungrouped:
+        ranked_units.append(
+            (
+                (
+                    class_priority(dev),
+                    dev.did,
+                    (2, ""),
+                ),
+                [dev],
+            )
+        )
+
+    ranked_units.sort(key=lambda item: item[0])
+
+    ordered_pci: list[HostDevice] = []
+    for _, members in ranked_units:
+        ordered_pci.extend(members)
+
+    other.sort(key=lambda d: (d.dtype, d.label.casefold(), d.did))
+
+    return usb + ordered_pci + other
+
+
+_PCI_CLASS_NAMES = {
+    "01": "Storage",
+    "02": "Network",
+    "03": "Graphics",
+    "04": "Multimedia",
+    "05": "Memory",
+    "06": "Bridge",
+    "07": "Communication",
+    "08": "System peripheral",
+    "09": "Input",
+    "0a": "Docking station",
+    "0b": "Processor",
+    "0c": "Serial bus",
+    "0d": "Wireless",
+    "0e": "Intelligent I/O",
+    "0f": "Satellite communication",
+    "10": "Encryption",
+    "11": "Signal processing",
+    "12": "Processing accelerator",
+    "13": "Instrumentation",
+}
+
+
+def pci_class_name(pci_class: str) -> str:
+    """Return a short human-readable name for a broad PCI class.
+
+    Unknown, vendor-specific, and malformed classes deliberately fall back to
+    ``PCI device`` rather than guessing from vendor/device IDs.
+    """
+    return _PCI_CLASS_NAMES.get(pci_class.lower(), "PCI device")
 
 
 # --------------------------------------------------------------------------

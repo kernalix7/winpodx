@@ -100,7 +100,7 @@ winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off 
 winpodx language                  # Show the current UI language
 winpodx language ko               # Set UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale)
 # `winpodx info` and `winpodx check` are deprecated aliases of `winpodx doctor` — they still work, printing a one-line deprecation notice on stderr.
-winpodx gui                       # Launch Qt6 main window (Dashboard / All apps / Devices / Settings / Tools / Terminal)
+winpodx gui                       # Launch Qt6 main window (Dashboard / Applications / Devices / Settings / Tools / Terminal)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config
 winpodx config set rdp.scale 140  # Change a config value
@@ -114,7 +114,7 @@ Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460
 | Page | What it does |
 |------|--------------|
 | **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, and a reverse-open toggle |
-| **All apps** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
+| **Applications** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
 | **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB redirects live; PCI needs a guest restart with a safety confirmation) |
 | **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout / idle action / max sessions), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
 | **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, live RDP sessions with per-session terminate buttons, and a one-click Windows Update **enable / disable** toggle |

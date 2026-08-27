@@ -55,7 +55,7 @@ class NavigationMixin:
         elif hasattr(self, "_dashboard_timer"):
             self._dashboard_timer.stop()
 
-        # All apps (page 1): refresh the launcher's "Running" live-session strip
+        # Applications (page 1): refresh the launcher's "Running" live-session strip
         # whenever it is opened so it reflects what's actually running.
         if index == 1 and hasattr(self, "_refresh_running_strip"):
             self._refresh_running_strip()
@@ -108,7 +108,7 @@ class NavigationMixin:
         search_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self)
 
         def _focus_search() -> None:
-            # Search lives on the "All apps" page (index 1); jump there first
+            # Search lives on the "Applications" page (index 1); jump there first
             # so the box is visible, then focus + select-all for a retype.
             self._switch_page(1)
             self.search_box.setFocus(Qt.FocusReason.ShortcutFocusReason)

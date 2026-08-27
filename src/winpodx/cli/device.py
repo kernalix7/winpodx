@@ -53,7 +53,7 @@ def _guest_running(cfg: Config) -> bool:
 
 
 def _enumerate_host() -> list[D.HostDevice]:
-    return D.list_host_usb() + D.list_host_pci()
+    return D.sort_host_devices(D.list_host_usb() + D.list_host_pci())
 
 
 # --------------------------------------------------------------------------

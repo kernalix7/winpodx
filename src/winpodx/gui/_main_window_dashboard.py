@@ -203,8 +203,8 @@ class DashboardMixin:
         card, lay = self._dash_card(tr("Resource centre"), "performance")
 
         self._gauge_pod = RingGauge(tr("Pod"), C.GREEN)
-        self._gauge_ram = RingGauge(tr("RAM"), C.BLUE)
-        self._gauge_cpu = RingGauge(tr("CPU"), C.MAUVE)
+        self._gauge_ram = RingGauge(tr("RAM"), C.MAUVE)
+        self._gauge_cpu = RingGauge(tr("CPU"), C.BLUE)
 
         gauges = QHBoxLayout()
         gauges.setSpacing(SPACE_L)
@@ -212,7 +212,12 @@ class DashboardMixin:
             gauges.addWidget(g, 1)
         lay.addLayout(gauges, 1)
 
-        self._bar_disk = StatBar(tr("Disk C:"), C.PEACH)
+        self._bar_disk = StatBar(
+            tr("Disk C:"),
+            C.BLUE,
+            critical_color=C.RED,
+            critical_pct=float(self.cfg.pod.disk_autogrow_threshold_pct),
+        )
         lay.addWidget(self._bar_disk)
         return card
 
@@ -297,7 +302,7 @@ class DashboardMixin:
             holder.addWidget(
                 make_empty_panel(
                     tr("No pinned or recent apps yet"),
-                    tr("Launch an app or pin one from All apps to see it here."),
+                    tr("Launch an app or pin one from Applications to see it here."),
                 )
             )
             self._workspace_cols_cur = self._workspace_cols()

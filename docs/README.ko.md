@@ -242,7 +242,7 @@ winpodx launch                    # 빠른 앱 런처 (Start-menu 스타일 선�
 - 오프라인 / 에어갭 설치 (`--source` + `--image-tar`)
 - 원라인 언인스톨 (Windows VM 데이터 유지; `--purge` 로 전부 삭제)
 - `winpodx doctor` 통한 헬스 체크 (deps / pod / RDP / agent / disk / round-trip / 비밀번호 age; `--json` 머신리더블, `--quick` 가벼운 서브셋, `--fix` 흔한 finding 의 idempotent 자동 복구)
-- 재설계된 Qt6 GUI (0.6.0): 좌측 Start-menu 스타일 네비게이션 사이드바 + 새로운 **Dashboard** 홈 (라이브 Pod / RAM / CPU 링 게이지, 디스크 사용량, 자동 복구 상태 카드, pinned/recent 워크스페이스 타일, reverse-open 토글); 앱 런처는 이제 "All apps" 페이지가 되어 Devices / Settings / Tools / Terminal / Info 와 나란히 — 가벼운 시스템 트레이도 별도. 자체 SVG 아이콘 세트, 반응형 reflow, 커맨드 바를 겸하는 hero search
+- 재설계된 Qt6 GUI (0.6.0): 좌측 Start-menu 스타일 네비게이션 사이드바 + 새로운 **Dashboard** 홈 (라이브 Pod / RAM / CPU 링 게이지, 디스크 사용량, 자동 복구 상태 카드, pinned/recent 워크스페이스 타일, reverse-open 토글); 앱 런처는 이제 "Applications" 페이지가 되어 Devices / Settings / Tools / Terminal / Info 와 나란히 — 가벼운 시스템 트레이도 별도. 자체 SVG 아이콘 세트, 반응형 reflow, 커맨드 바를 겸하는 hero search
 - stdlib 지향 Python (3.11+ 는 pip-deps 없음; 3.9 / 3.10 은 `tomli` 폴백 1개)
 
 </td></tr>

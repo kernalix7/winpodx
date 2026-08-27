@@ -120,7 +120,7 @@ class HeaderMixin:
         self.nav_buttons: list[QPushButton] = []
         nav_items = [
             (tr("Dashboard"), 0, "home"),
-            (tr("All apps"), 1, "grid"),
+            (tr("Applications"), 1, "grid"),
             (tr("Settings"), 2, "gear"),
             (tr("Tools"), 3, "clean"),
             (tr("Terminal / Logs"), 4, "prompt"),

@@ -241,7 +241,7 @@ Or just click an app icon in your application menu. `winpodx launch` opens a sea
 - Offline / air-gapped install (`--source` + `--image-tar`)
 - One-line uninstall (keeps Windows VM data unless `--purge`)
 - Health checks via `winpodx doctor` (deps / pod / RDP / agent / disk / round-trip / password age; `--json` for machine-readable, `--quick` for cheap subset, `--fix` for idempotent auto-remediation of common findings)
-- Redesigned Qt6 GUI: a left Start-menu-style navigation sidebar + a **Dashboard** home with live Pod / RAM / CPU ring gauges, disk usage, an auto-recovery status card, pinned/recent workspace tiles, and a reverse-open toggle; the app launcher is the "All apps" page, alongside Devices / Settings / Tools / Terminal / Info — plus a lighter system tray. In-house SVG icon set, responsive reflow, and a hero search that doubles as a command bar
+- Redesigned Qt6 GUI: a left Start-menu-style navigation sidebar + a **Dashboard** home with live Pod / RAM / CPU ring gauges, disk usage, an auto-recovery status card, pinned/recent workspace tiles, and a reverse-open toggle; the app launcher is the "Applications" page, alongside Devices / Settings / Tools / Terminal / Info — plus a lighter system tray. In-house SVG icon set, responsive reflow, and a hero search that doubles as a command bar
 - Stdlib-leaning Python (no pip-deps on 3.11+; one `tomli` fallback on 3.9 / 3.10)
 
 </td></tr>
