@@ -25,6 +25,7 @@ DESKTOP_TEMPLATE = """\
 [Desktop Entry]
 Version=1.0
 Type=Application
+X-WinPodX-Managed=true
 Name={full_name}
 Comment={comment}
 Exec={winpodx_exe} app run {name} %u

@@ -43,6 +43,7 @@ def test_desktop_template():
     assert "Categories=Office;WordProcessor;" in content
     assert "MimeType=application/msword;" in content
     assert "StartupWMClass=winword" in content
+    assert "X-WinPodX-Managed=true" in content
 
 
 def test_register_mime_excludes_http_https_from_default_grab(tmp_path, monkeypatch):
