@@ -90,7 +90,7 @@
  "feat.seamless.multimon.title": "Multi-monitor RAIL",
  "feat.seamless.rail.body": "Each Windows app renders as its own native Linux window — no full-screen Windows desktop. Drop into a full desktop only when you actually want one (<code>winpodx app run desktop</code>).",
  "feat.seamless.rail.title": "RemoteApp (RAIL), not a desktop",
- "feat.seamless.taskbar.body": "Per-app taskbar icons via <code>WM_CLASS</code> matching (<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>), so each window pins and alt-tabs like a first-class Linux app.",
+ "feat.seamless.taskbar.body": "Per-app taskbar icons via <code>WM_CLASS</code> matching (<code>/wm-class:&lt;resolved-token&gt;</code> + <code>StartupWMClass</code>), so each window pins and alt-tabs like a first-class Linux app.",
  "feat.seamless.taskbar.title": "Real taskbar identity",
  "feat.seamless.title": "Seamless app windows",
  "feat.seamless.urlschemes.body": "Click a <code>mailto:</code> link and Outlook opens; app schemes like <code>slack:</code>, <code>vnc:</code>, <code>zoommtg:</code> route to the right Windows app automatically — every scheme an app registers is harvested during discovery and turned into a Linux <code>x-scheme-handler</code>. Web schemes (<code>http:</code>/<code>https:</code>) are registered too, but never silently made your default — you opt in. A shared denylist + sanitizer blocks dangerous schemes (<code>file:</code>, <code>javascript:</code>, <code>data:</code>, …) at both registration and launch.",

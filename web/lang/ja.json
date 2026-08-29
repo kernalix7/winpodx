@@ -90,7 +90,7 @@
  "feat.seamless.multimon.title": "マルチモニター RAIL",
  "feat.seamless.rail.body": "各 Windows アプリは、独立したネイティブ Linux ウィンドウとして描画されます — フルスクリーンの Windows デスクトップではありません。必要なときだけフルデスクトップへ入れます（<code>winpodx app run desktop</code>）。",
  "feat.seamless.rail.title": "デスクトップではなく RemoteApp（RAIL）",
- "feat.seamless.taskbar.body": "<code>WM_CLASS</code> マッチング（<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>）でアプリごとのタスクバーアイコンを実現します。各ウィンドウを本物の Linux アプリのようにピン留めし、Alt+Tab で切り替えられます。",
+ "feat.seamless.taskbar.body": "<code>WM_CLASS</code> マッチング（<code>/wm-class:&lt;resolved-token&gt;</code> + <code>StartupWMClass</code>）でアプリごとのタスクバーアイコンを実現します。各ウィンドウを本物の Linux アプリのようにピン留めし、Alt+Tab で切り替えられます。",
  "feat.seamless.taskbar.title": "本物のタスクバー識別",
  "feat.seamless.title": "シームレスなアプリウィンドウ",
  "feat.seamless.urlschemes.body": "<code>mailto:</code> リンクをクリックすれば Outlook が開きます。<code>slack:</code>、<code>vnc:</code>、<code>zoommtg:</code> などのアプリスキームは自動的に適切な Windows アプリへ振り分けられます — アプリが登録するスキームはディスカバリー時にすべて収集され、Linux の <code>x-scheme-handler</code> に変換されます。Web スキーム（<code>http:</code>/<code>https:</code>）も登録されますが、勝手に既定にされることはありません — 有効化はあなた次第です。共有の拒否リストとサニタイザーが、危険なスキーム（<code>file:</code>、<code>javascript:</code>、<code>data:</code> など）を登録時と起動時の両方でブロックします。",

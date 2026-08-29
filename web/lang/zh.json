@@ -90,7 +90,7 @@
  "feat.seamless.multimon.title": "多显示器 RAIL",
  "feat.seamless.rail.body": "每个 Windows 应用都渲染为自己的原生 Linux 窗口 — 没有全屏 Windows 桌面。只有你确实需要完整桌面时才进入（<code>winpodx app run desktop</code>）。",
  "feat.seamless.rail.title": "RemoteApp (RAIL)，不是桌面",
- "feat.seamless.taskbar.body": "通过 <code>WM_CLASS</code> 匹配（<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>）实现逐应用任务栏图标，让每个窗口都能像一等 Linux 应用一样固定和 alt-tab。",
+ "feat.seamless.taskbar.body": "通过 <code>WM_CLASS</code> 匹配（<code>/wm-class:&lt;resolved-token&gt;</code> + <code>StartupWMClass</code>）实现逐应用任务栏图标，让每个窗口都能像一等 Linux 应用一样固定和 alt-tab。",
  "feat.seamless.taskbar.title": "真实的任务栏身份",
  "feat.seamless.title": "无缝应用窗口",
  "feat.seamless.urlschemes.body": "点击 <code>mailto:</code> 链接，Outlook 就会打开；<code>slack:</code>、<code>vnc:</code>、<code>zoommtg:</code> 等应用 scheme 会自动路由到对应的 Windows 应用 — 应用注册的每个 scheme 都会在发现时被收集，并转换成 Linux 的 <code>x-scheme-handler</code>。网页 scheme（<code>http:</code>/<code>https:</code>）也会一并注册，但绝不会被悄悄设为你的默认 — 需要你自己选择启用。共享的拒绝列表 + 净化器会在注册和启动两端拦截危险 scheme（<code>file:</code>、<code>javascript:</code>、<code>data:</code> 等）。",

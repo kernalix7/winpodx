@@ -90,7 +90,7 @@
  "feat.seamless.multimon.title": "RAIL multi-écran",
  "feat.seamless.rail.body": "Chaque app Windows s'affiche dans sa propre fenêtre Linux native — pas de bureau Windows plein écran. Passez en bureau complet uniquement quand vous en avez vraiment besoin (<code>winpodx app run desktop</code>).",
  "feat.seamless.rail.title": "RemoteApp (RAIL), pas un bureau",
- "feat.seamless.taskbar.body": "Icône de barre des tâches dédiée pour chaque app grâce au matching <code>WM_CLASS</code> (<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>) : chaque fenêtre s'épingle et passe en alt-tab comme une vraie app Linux.",
+ "feat.seamless.taskbar.body": "Icône de barre des tâches dédiée pour chaque app grâce au matching <code>WM_CLASS</code> (<code>/wm-class:&lt;resolved-token&gt;</code> + <code>StartupWMClass</code>) : chaque fenêtre s'épingle et passe en alt-tab comme une vraie app Linux.",
  "feat.seamless.taskbar.title": "Une vraie identité dans la barre des tâches",
  "feat.seamless.title": "Fenêtres d'apps intégrées",
  "feat.seamless.urlschemes.body": "Cliquez sur un lien <code>mailto:</code> et Outlook s'ouvre ; les schémas d'app comme <code>slack:</code>, <code>vnc:</code>, <code>zoommtg:</code> aboutissent automatiquement dans la bonne app Windows — chaque schéma qu'une app enregistre est collecté pendant la découverte et transformé en <code>x-scheme-handler</code> Linux. Les schémas web (<code>http:</code>/<code>https:</code>) sont eux aussi enregistrés, mais jamais définis en silence comme votre défaut — c'est vous qui l'activez. Une denylist partagée + un assainisseur bloquent les schémas dangereux (<code>file:</code>, <code>javascript:</code>, <code>data:</code>, …) à l'enregistrement comme au lancement.",

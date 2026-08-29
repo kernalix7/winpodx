@@ -90,7 +90,7 @@
  "feat.seamless.multimon.title": "Multi-Monitor-RAIL",
  "feat.seamless.rail.body": "Jede Windows-App erscheint als eigenes natives Linux-Fenster — kein Windows-Vollbild-Desktop. In einen kompletten Desktop wechselst du nur, wenn du wirklich einen brauchst (<code>winpodx app run desktop</code>).",
  "feat.seamless.rail.title": "RemoteApp (RAIL) statt Desktop",
- "feat.seamless.taskbar.body": "Eigene Taskleisten-Icons pro App über <code>WM_CLASS</code>-Abgleich (<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>), sodass sich jedes Fenster anheften und per Alt-Tab wechseln lässt wie eine native Linux-App.",
+ "feat.seamless.taskbar.body": "Eigene Taskleisten-Icons pro App über <code>WM_CLASS</code>-Abgleich (<code>/wm-class:&lt;resolved-token&gt;</code> + <code>StartupWMClass</code>), sodass sich jedes Fenster anheften und per Alt-Tab wechseln lässt wie eine native Linux-App.",
  "feat.seamless.taskbar.title": "Echte Identität in der Taskleiste",
  "feat.seamless.title": "Nahtlose App-Fenster",
  "feat.seamless.urlschemes.body": "Klick auf einen <code>mailto:</code>-Link und Outlook öffnet sich; App-Schemata wie <code>slack:</code>, <code>vnc:</code>, <code>zoommtg:</code> landen automatisch in der richtigen Windows-App — jedes Schema, das eine App registriert, wird bei der Discovery eingesammelt und auf der Linux-Seite in einen <code>x-scheme-handler</code> verwandelt. Web-Schemata (<code>http:</code>/<code>https:</code>) werden ebenfalls registriert, aber nie unbemerkt zu deinem Standard gemacht — du entscheidest dich aktiv dafür. Eine gemeinsame Denylist + ein Sanitizer blockieren gefährliche Schemata (<code>file:</code>, <code>javascript:</code>, <code>data:</code>, …) bei Registrierung und Start.",

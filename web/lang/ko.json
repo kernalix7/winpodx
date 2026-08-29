@@ -90,7 +90,7 @@
  "feat.seamless.multimon.title": "멀티 모니터 RAIL",
  "feat.seamless.rail.body": "각 Windows 앱은 전체 화면 Windows 데스크톱이 아니라, 독립된 네이티브 Linux 창으로 렌더링됩니다. 전체 데스크톱은 정말 필요할 때만 들어가면 됩니다(<code>winpodx app run desktop</code>).",
  "feat.seamless.rail.title": "데스크톱이 아닌 RemoteApp(RAIL)",
- "feat.seamless.taskbar.body": "<code>WM_CLASS</code> 매칭(<code>/wm-class:&lt;stem&gt;</code> + <code>StartupWMClass</code>)으로 앱별 작업 표시줄 아이콘을 정확히 잡습니다. 각 창을 Linux 앱처럼 고정하고 alt-tab으로 전환할 수 있습니다.",
+ "feat.seamless.taskbar.body": "<code>WM_CLASS</code> 매칭(<code>/wm-class:&lt;resolved-token&gt;</code> + <code>StartupWMClass</code>)으로 앱별 작업 표시줄 아이콘을 정확히 잡습니다. 각 창을 Linux 앱처럼 고정하고 alt-tab으로 전환할 수 있습니다.",
  "feat.seamless.taskbar.title": "확실한 작업 표시줄 식별",
  "feat.seamless.title": "매끄러운 앱 창",
  "feat.seamless.urlschemes.body": "<code>mailto:</code> 링크를 클릭하면 Outlook이 열립니다. <code>slack:</code>, <code>vnc:</code>, <code>zoommtg:</code> 같은 앱 스킴은 자동으로 알맞은 Windows 앱으로 연결됩니다 — 앱이 등록하는 모든 스킴은 디스커버리 때 수집되어 Linux <code>x-scheme-handler</code>로 변환됩니다. 웹 스킴(<code>http:</code>/<code>https:</code>)도 등록되지만, 사용자 몰래 기본값으로 지정되지는 않습니다 — 직접 켜야 적용됩니다. 공용 거부 목록과 새니타이저가 위험한 스킴(<code>file:</code>, <code>javascript:</code>, <code>data:</code> 등)을 등록·실행 양쪽에서 차단합니다.",
