@@ -524,15 +524,26 @@ class LibraryPageMixin:
         import shutil
         import subprocess
 
+        from winpodx.core.rdp import resolve_session_wm_classes
+
         try:
+            candidates = resolve_session_wm_classes(app_name)
             if shutil.which("wmctrl"):
-                subprocess.run(["wmctrl", "-x", "-a", app_name], timeout=3, check=False)
+                for wm_class in candidates:
+                    result = subprocess.run(
+                        ["wmctrl", "-x", "-a", wm_class], timeout=3, check=False
+                    )
+                    if getattr(result, "returncode", 0) == 0:
+                        break
             elif shutil.which("xdotool"):
-                subprocess.run(
-                    ["xdotool", "search", "--class", app_name, "windowactivate"],
-                    timeout=3,
-                    check=False,
-                )
+                for wm_class in candidates:
+                    result = subprocess.run(
+                        ["xdotool", "search", "--class", wm_class, "windowactivate"],
+                        timeout=3,
+                        check=False,
+                    )
+                    if getattr(result, "returncode", 0) == 0:
+                        break
         except Exception:  # noqa: BLE001 -- best-effort, never break the UI
             pass
 

@@ -1231,13 +1231,19 @@ def test_focus_session_prefers_wmctrl_then_xdotool(page, monkeypatch) -> None:
 
     monkeypatch.setattr(shutil, "which", lambda tool: "/usr/bin/wmctrl" if tool == "wmctrl" else "")
     host._focus_session("word")
-    assert calls[-1][0] == "wmctrl"
+    assert calls[-1] == ["wmctrl", "-x", "-a", "winpodx-word"]
 
     monkeypatch.setattr(
         shutil, "which", lambda tool: "/usr/bin/xdotool" if tool == "xdotool" else ""
     )
     host._focus_session("word")
-    assert calls[-1][0] == "xdotool"
+    assert calls[-1] == [
+        "xdotool",
+        "search",
+        "--class",
+        "winpodx-word",
+        "windowactivate",
+    ]
 
     monkeypatch.setattr(shutil, "which", lambda tool: None)
     before = len(calls)
