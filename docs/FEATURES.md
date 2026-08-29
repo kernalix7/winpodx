@@ -44,7 +44,7 @@ Per-slug icons render in both the short Open With menu and the long "Choose anot
 ## Seamless app windows
 
 - RemoteApp (RAIL) renders each app as a native Linux window — no full desktop
-- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
+- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<resolved-token>` + `StartupWMClass`)
 - File associations: double-click `.docx` in your Linux file manager → Word opens
 - Multi-session RDP: bundled rdprrap auto-enables independent sessions; `cfg.pod.max_sessions` defaults to 25 and is clamped to 1–50
 - Terminate any running session from the GUI Tools page (RDP Sessions card) or the system-tray menu

@@ -193,7 +193,7 @@ Or just click an app icon in your application menu. `winpodx launch` opens a sea
 
 **Seamless app windows**
 - RemoteApp (RAIL) renders each Windows app as a native Linux window — no full desktop
-- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
+- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<resolved-token>` + `StartupWMClass`)
 - Bidirectional file associations: double-click `.docx` in your file manager → Word opens
 - Multi-session RDP: bundled [rdprrap](https://github.com/kernalix7/rdprrap) auto-enables up to 25 independent sessions by default (configurable from 1 to 50)
 - Multi-monitor RAIL: a remote-app window keeps working input when dragged onto a second monitor — on by default (`cfg.rdp.multimon`, default `span`)
