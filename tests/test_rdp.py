@@ -934,6 +934,107 @@ def test_launch_app_no_rdp_overrides_passes_none(monkeypatch, tmp_path):
     assert captured["extra_args"] == "+gfx"
 
 
+def test_launch_app_preserves_session_name_but_uses_resolved_wm_class(monkeypatch, tmp_path):
+    # Given a Win32 executable with a bare stem, lifecycle identity stays bare
+    # for the .cproc file while window-facing consumers use the safe token.
+    rdp_mod, _spawned = _patch_launch_to_spawn(monkeypatch, tmp_path, ["xfreerdp", "notepad"])
+    thread_calls = []
+    helper_calls = []
+
+    class _FakeThread:
+        def __init__(self, *, target, args, daemon):
+            thread_calls.append((target, args, daemon))
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(rdp_mod.threading, "Thread", _FakeThread)
+
+    def fake_popen(*args, **kwargs):
+        helper_calls.append((args, kwargs))
+        return _FakeProc()
+
+    monkeypatch.setattr(rdp_mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *args, **kwargs: _FakeRun())
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+
+    # When launching the executable.
+    session = rdp_mod.launch_app(cfg, app_executable="C:\\Apps\\Notepad.exe")
+
+    # Then the session and .cproc identity are bare, but both window consumers
+    # receive resolve_wm_class(executable).
+    assert session.app_name == "notepad"
+    window_reaper = next(
+        args for target, args, _daemon in thread_calls if target is rdp_mod._window_reaper
+    )
+    assert window_reaper == (session, "winpodx-notepad")
+    assert helper_calls[0][0][0][-1] == "winpodx-notepad"
+
+
+def test_resolve_wm_class_long_unsafe_stems_are_bounded_and_distinct():
+    from winpodx.core.rdp import resolve_wm_class
+
+    # Given distinct stems that exceed the WM_CLASS limit and contain unsafe
+    # characters.
+    executables = (
+        "C:\\Apps\\Alpha " + "x" * 80 + "!.exe",
+        "C:\\Apps\\Beta " + "x" * 80 + "!.exe",
+    )
+
+    # When resolving their window classes repeatedly.
+    first = tuple(resolve_wm_class(executable) for executable in executables)
+    second = tuple(resolve_wm_class(executable) for executable in executables)
+
+    # Then values are deterministic, safe, bounded, and do not collapse.
+    assert first == second
+    assert first[0] != first[1]
+    assert all(value.startswith("winpodx-") for value in first)
+    assert all(len(value) <= 64 for value in first)
+    assert all(value.replace("-", "").isalnum() for value in first)
+
+
+def test_resolve_session_wm_classes_uses_profile_metadata(monkeypatch):
+    from winpodx.core import app as app_mod
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.app import AppInfo
+
+    apps = [
+        AppInfo(
+            name="custom",
+            full_name="Custom",
+            executable="C:\\Apps\\foo.exe",
+            wm_class_hint="custom-class",
+        )
+    ]
+    monkeypatch.setattr(app_mod, "list_available_apps", lambda: apps)
+
+    assert rdp_mod.resolve_session_wm_classes("foo") == ("custom-class",)
+    assert rdp_mod.resolve_session_wm_classes("orphan") == ("winpodx-orphan",)
+    assert rdp_mod.resolve_session_wm_classes("winpodx-uwp-calc") == ("winpodx-uwp-calc",)
+
+
+def test_resolve_session_wm_classes_handles_prefixed_win32_stem(monkeypatch):
+    from winpodx.core import app as app_mod
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.app import AppInfo
+
+    monkeypatch.setattr(
+        app_mod,
+        "list_available_apps",
+        lambda: [
+            AppInfo(
+                name="helper",
+                full_name="Helper",
+                executable="C:\\Tools\\winpodx-helper.exe",
+            )
+        ],
+    )
+
+    assert rdp_mod.resolve_session_wm_classes("winpodx-helper") == ("winpodx-winpodx-helper",)
+
+
 def test_linux_to_unc_home_symlink_atomic(monkeypatch, tmp_path):
     # Fedora Atomic / Silverblue / Kinoite: /home is a symlink to /var/home.
     # Path.home() stays the symlink path; the file resolves to the target.
@@ -1063,6 +1164,7 @@ class TestResolveWmClass:
 class _FakeRun:
     def __init__(self, stdout: str = "") -> None:
         self.stdout = stdout
+        self.stderr = ""
         self.returncode = 0
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -85,7 +86,10 @@ def _win32_fallback_wm_class(stem: str) -> str:
     mirroring ``_uwp_fallback_wm_class``.
     """
     token = f"winpodx-{stem}" if stem else "winpodx-app"
-    return token if _is_safe_wm_class(token) else "winpodx-app"
+    if _is_safe_wm_class(token):
+        return token
+    digest = hashlib.sha256(stem.encode("utf-8")).hexdigest()[:16]
+    return f"winpodx-app-{digest}"
 
 
 def resolve_wm_class(
@@ -121,6 +125,50 @@ def resolve_wm_class(
         return hint
     stem = PureWindowsPath(app_executable or "").stem.lower()
     return _win32_fallback_wm_class(stem)
+
+
+def _session_app_name(
+    app_executable: str | None,
+    launch_uri: str | None,
+    wm_class_hint: str | None,
+) -> str:
+    if launch_uri:
+        hint = (wm_class_hint or "").strip().lower()
+        if hint and _is_safe_wm_class(hint):
+            return hint
+        aumid = launch_uri.strip()
+        return _uwp_fallback_wm_class(aumid) if _is_valid_aumid(aumid) else "winpodx-uwp"
+    if app_executable:
+        from pathlib import PureWindowsPath
+
+        return PureWindowsPath(app_executable).stem.lower()
+    return "desktop"
+
+
+def resolve_session_wm_classes(app_name: str) -> tuple[str, ...]:
+    from winpodx.core.app import list_available_apps
+
+    resolved: list[str] = []
+    for app in list_available_apps():
+        identity = _session_app_name(
+            app.executable,
+            app.launch_uri or None,
+            app.wm_class_hint or None,
+        )
+        if identity != app_name:
+            continue
+        wm_class = resolve_wm_class(
+            app.executable,
+            app.wm_class_hint or None,
+            app.launch_uri or None,
+        )
+        if wm_class not in resolved:
+            resolved.append(wm_class)
+    if resolved:
+        return tuple(resolved)
+    if app_name.startswith("winpodx-"):
+        return (app_name,)
+    return (resolve_wm_class(app_name),)
 
 
 @dataclass
@@ -1646,23 +1694,9 @@ def launch_app(
             # App flags first so a per-launch extra_args still wins on dup ties.
             extra_args = f"{_ef} {extra_args}".strip() if extra_args else _ef
 
-    if launch_uri:
-        hint = (wm_class_hint or "").strip().lower()
-        if hint and _is_safe_wm_class(hint):
-            app_name = hint
-        else:
-            # Derive a per-app slug so two UWP apps with invalid hints
-            # don't collide on the same pid_file. If the AUMID itself
-            # is malformed, build_rdp_command will reject it shortly;
-            # for pid-file purposes just fall back to the bare bucket.
-            aumid = launch_uri.strip()
-            app_name = _uwp_fallback_wm_class(aumid) if _is_valid_aumid(aumid) else "winpodx-uwp"
-    elif app_executable:
-        from pathlib import PureWindowsPath
+    app_name = _session_app_name(app_executable, launch_uri, wm_class_hint)
 
-        app_name = PureWindowsPath(app_executable).stem.lower()
-    else:
-        app_name = "desktop"
+    resolved_wm_class = resolve_wm_class(app_executable, wm_class_hint, launch_uri)
 
     existing = _find_existing_session(app_name)
     if existing is not None:
@@ -1818,7 +1852,7 @@ def launch_app(
     if is_remoteapp:
         threading.Thread(
             target=_window_reaper,
-            args=(session, session.app_name),
+            args=(session, resolved_wm_class),
             daemon=True,
         ).start()
     # #472 / #702: post-launch window setup -- clear a UWP window's SKIP_TASKBAR
@@ -1829,7 +1863,7 @@ def launch_app(
     # The helper outlives us and does both jobs. RemoteApp only (a full desktop
     # has no RAIL.<wm_class> window to touch).
     if is_remoteapp:
-        setup_args = [sys.executable, "-m", "winpodx.desktop.window_setup", session.app_name]
+        setup_args = [sys.executable, "-m", "winpodx.desktop.window_setup", resolved_wm_class]
         if app_icon:
             setup_args += ["--icon", app_icon]
         if launch_uri is not None:
