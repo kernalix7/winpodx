@@ -44,7 +44,7 @@ winpodx host-open disable       # 기능 전체 끄기
 ## 매끄러운 앱 윈도
 
 - RemoteApp (RAIL) 이 각 앱을 네이티브 Linux 윈도로 렌더링 — 전체 데스크톱 아님
-- `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<stem>` + `StartupWMClass`)
+- `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<resolved-token>` + `StartupWMClass`)
 - 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
 - 멀티세션 RDP: bundled rdprrap 이 독립 세션을 자동 활성화; `cfg.pod.max_sessions` 기본값은 25, 허용 범위는 1–50
 - 실행 중인 세션을 GUI Dashboard (Running-sessions 스트립) 또는 시스템 트레이 메뉴에서 종료
