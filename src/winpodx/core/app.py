@@ -248,9 +248,14 @@ def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
             icon = str(candidate)
             break
 
-    source = data.get("source", default_source)
-    if source not in _VALID_APP_SOURCES:
-        source = default_source
+    source = default_source
+
+    launch_uri = data.get("launch_uri", "") or ""
+    essential = bool(data.get("essential", False))
+    trusted_discovered_hint = bool(data.get("wm_class_hint_trusted", False))
+    wm_class_hint = data.get("wm_class_hint", "") or ""
+    if source == "discovered" and not trusted_discovered_hint:
+        wm_class_hint = ""
 
     return AppInfo(
         name=name,
@@ -261,11 +266,11 @@ def load_app(app_dir: Path, default_source: str = "user") -> AppInfo | None:
         mime_types=data.get("mime_types", []) or [],
         source=source,
         args=data.get("args", "") or "",
-        wm_class_hint=data.get("wm_class_hint", "") or "",
-        launch_uri=data.get("launch_uri", "") or "",
+        wm_class_hint=wm_class_hint,
+        launch_uri=launch_uri,
         description=data.get("description", "") or "",
         hidden=bool(data.get("hidden", False)),
-        essential=bool(data.get("essential", False)),
+        essential=essential,
         exe_hash=str(data.get("exe_hash", "") or ""),
         start_menu_folder=str(data.get("start_menu_folder", "") or ""),
         url_schemes=data.get("url_schemes", []) or [],
@@ -359,6 +364,11 @@ def _find_app_dir(name: str) -> Path | None:
     return None
 
 
+def _load_app_from_known_dir(app_dir: Path) -> AppInfo | None:
+    default_source = "discovered" if _is_within(app_dir, discovered_apps_dir()) else "user"
+    return load_app(app_dir, default_source=default_source)
+
+
 def set_app_hidden(name: str, hidden: bool) -> AppInfo | None:
     """Set an app's ``hidden`` flag in its app.toml and sync its Linux menu entry.
 
@@ -380,7 +390,7 @@ def set_app_hidden(name: str, hidden: bool) -> AppInfo | None:
     data["hidden"] = bool(hidden)
     toml_path.write_text(toml_dumps(data), encoding="utf-8")
 
-    app = load_app(app_dir)
+    app = _load_app_from_known_dir(app_dir)
     if app is None:
         return None
 
@@ -443,7 +453,7 @@ def set_app_rdp_override(name: str, key: str, value: object) -> AppInfo | None:
     else:
         data.pop("rdp", None)
     toml_path.write_text(toml_dumps(data), encoding="utf-8")
-    return load_app(app_dir)
+    return _load_app_from_known_dir(app_dir)
 
 
 def discovered_profile_exists(name: str) -> bool:

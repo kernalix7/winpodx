@@ -60,6 +60,63 @@ def test_load_app_default_source_can_be_overridden(tmp_path):
     assert app.source == "discovered"
 
 
+def test_load_app_source_is_derived_from_containing_tree(tmp_path):
+    app_dir = tmp_path / "user-app"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "custom"\nfull_name = "Custom"\nexecutable = "C:\\\\custom.exe"\n'
+        'source = "discovered"\nwm_class_hint = "custom"\n'
+        "wm_class_hint_trusted = true\n",
+        encoding="utf-8",
+    )
+
+    app = load_app(app_dir, default_source="user")
+
+    assert app is not None
+    assert app.source == "user"
+    assert app.wm_class_hint == "custom"
+
+
+def test_load_app_drops_untrusted_hint_for_discovered_win32(tmp_path):
+    app_dir = tmp_path / "brave"
+    app_dir.mkdir()
+    (app_dir / "app.toml").write_text(
+        'name = "brave"\nfull_name = "Brave"\n'
+        'executable = "C:\\\\Program Files\\\\Brave\\\\brave.exe"\n'
+        'wm_class_hint = "firefox"\n',
+        encoding="utf-8",
+    )
+
+    app = load_app(app_dir, default_source="discovered")
+
+    assert app is not None
+    assert app.wm_class_hint == ""
+
+
+def test_load_app_preserves_user_and_essential_wm_class_hints(tmp_path):
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    (user_dir / "app.toml").write_text(
+        'name = "custom"\nfull_name = "Custom"\nexecutable = "C:\\\\custom.exe"\n'
+        'wm_class_hint = "custom"\n',
+        encoding="utf-8",
+    )
+    essential_dir = tmp_path / "essential"
+    essential_dir.mkdir()
+    (essential_dir / "app.toml").write_text(
+        'name = "file-explorer"\nfull_name = "File Explorer"\n'
+        'executable = "C:\\\\Windows\\\\explorer.exe"\n'
+        'wm_class_hint = "explorer"\nwm_class_hint_trusted = true\nessential = true\n',
+        encoding="utf-8",
+    )
+
+    user = load_app(user_dir)
+    essential = load_app(essential_dir, default_source="discovered")
+
+    assert user is not None and user.wm_class_hint == "custom"
+    assert essential is not None and essential.wm_class_hint == "explorer"
+
+
 def test_load_app_missing(tmp_path):
     app = load_app(tmp_path / "nonexistent")
     assert app is None
@@ -251,6 +308,32 @@ def test_set_app_hidden_toggles_toml_and_desktop(monkeypatch, tmp_path):
     assert app is not None and app.hidden is False
     assert "hidden = false" in (user / "myapp" / "app.toml").read_text()
     assert ("add", "myapp") in calls  # re-added to the Linux menu
+
+
+def test_discovered_mutators_preserve_discovered_hint_sanitization(monkeypatch, tmp_path):
+    import winpodx.core.app as app_mod
+    import winpodx.desktop.entry as entry_mod
+    import winpodx.desktop.icons as icons_mod
+
+    discovered = tmp_path / "discovered"
+    app_dir = discovered / "brave"
+    app_dir.mkdir(parents=True)
+    (app_dir / "app.toml").write_text(
+        'name = "brave"\nfull_name = "Brave"\n'
+        'executable = "C:\\\\Brave\\\\brave.exe"\nwm_class_hint = "firefox"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app_mod, "user_apps_dir", lambda: tmp_path / "user")
+    monkeypatch.setattr(app_mod, "discovered_apps_dir", lambda: discovered)
+    monkeypatch.setattr(entry_mod, "remove_desktop_entry", lambda _name: None)
+    monkeypatch.setattr(icons_mod, "update_icon_cache", lambda: None)
+
+    hidden = app_mod.set_app_hidden("brave", True)
+    overridden = app_mod.set_app_rdp_override("brave", "scale", 140)
+
+    assert hidden is not None and hidden.source == "discovered" and hidden.wm_class_hint == ""
+    assert overridden is not None and overridden.source == "discovered"
+    assert overridden.wm_class_hint == ""
 
 
 def test_set_app_hidden_not_found(monkeypatch, tmp_path):
