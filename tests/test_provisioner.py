@@ -339,6 +339,41 @@ def test_ensure_ready_does_not_auto_apply_runtime_fixes(monkeypatch):
     }
 
 
+def test_ensure_ready_repairs_desktop_entries_on_healthy_fast_path(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    calls: list[bool] = []
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: None)
+    monkeypatch.setattr(provisioner, "_auto_rotate_password", lambda current: current)
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: True)
+    monkeypatch.setattr(provisioner, "_ensure_desktop_entries", lambda: calls.append(True))
+
+    assert provisioner.ensure_ready(cfg) is cfg
+    assert calls == [True]
+
+
+def test_ensure_ready_desktop_entry_repair_failure_is_nonfatal(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    calls: list[bool] = []
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: None)
+    monkeypatch.setattr(provisioner, "_auto_rotate_password", lambda current: current)
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: True)
+
+    def fail_repair() -> None:
+        calls.append(True)
+        raise OSError("read-only applications directory")
+
+    monkeypatch.setattr(provisioner, "_ensure_desktop_entries", fail_repair)
+
+    assert provisioner.ensure_ready(cfg) is cfg
+    assert calls == [True]
+
+
 def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
     """When pod isn't running, the early-apply branch is skipped (later branch handles)."""
     from winpodx.core import provisioner

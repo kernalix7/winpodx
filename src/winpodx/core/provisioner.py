@@ -115,6 +115,7 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
 
     _check_rotation_pending()
     cfg = _auto_rotate_password(cfg)
+    _ensure_desktop_entries_best_effort()
 
     # v0.2.2 (post-rollback Sprint 3): self-heal removed.
     #
@@ -189,8 +190,6 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # (which runs `winpodx app refresh` post-install) and the GUI's
     # Refresh button — both call ``core.discovery.scan`` + ``persist``
     # explicitly. ``ensure_ready`` stays cheap and side-effect-free.
-    _ensure_desktop_entries()
-
     # Self-heal the reverse-open listener: a `pod stop` / tray Quit calls
     # stop_listener(), so a pod-running-but-listener-dead state silently breaks
     # "Open with → Linux app" until the next `pod start`. Launching any app
@@ -1413,9 +1412,17 @@ def _ensure_pod_running(cfg: Config, timeout: int = 300) -> None:
     )
 
 
+def _ensure_desktop_entries_best_effort() -> None:
+    try:
+        _ensure_desktop_entries()
+    except Exception as e:  # noqa: BLE001 -- desktop self-heal must never block launch
+        log.debug("ensure_ready: desktop entry self-heal skipped: %s", e)
+
+
 def _ensure_desktop_entries() -> None:
-    """Register all app definitions as desktop entries if not already done."""
+    """Register app entries and repair stale WinPodX-managed launchers."""
     from winpodx.core.app import list_available_apps
+    from winpodx.core.rdp import resolve_wm_class
     from winpodx.desktop.entry import install_desktop_entry
     from winpodx.desktop.icons import install_winpodx_icon, update_icon_cache
     from winpodx.utils.paths import applications_dir
@@ -1427,8 +1434,32 @@ def _ensure_desktop_entries() -> None:
 
     installed = False
     for app_info in apps:
+        if app_info.hidden:
+            continue
         desktop_file = app_dir / f"winpodx-{app_info.name}.desktop"
-        if not desktop_file.exists():
+        if desktop_file.is_symlink():
+            continue
+        refresh = not desktop_file.exists()
+        if not refresh:
+            try:
+                lines = desktop_file.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeError):
+                continue
+            exec_suffix = f" app run {app_info.name} %u"
+            generated_marker = "X-WinPodX-Managed=true" in lines
+            legacy_signature = (
+                any(line.startswith("Exec=") and line.endswith(exec_suffix) for line in lines)
+                and f"Keywords=windows;winpodx;rdp;{app_info.name};" in lines
+            )
+            managed = generated_marker or legacy_signature
+            expected_wm_class = resolve_wm_class(
+                app_info.executable,
+                getattr(app_info, "wm_class_hint", None) or None,
+                getattr(app_info, "launch_uri", None) or None,
+            )
+            refresh = managed and f"StartupWMClass={expected_wm_class}" not in lines
+
+        if refresh:
             install_desktop_entry(app_info)
             log.info("Registered desktop entry: %s", app_info.full_name)
             installed = True

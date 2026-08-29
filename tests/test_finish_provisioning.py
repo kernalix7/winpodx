@@ -940,3 +940,121 @@ def test_provision_cli_retries_default_is_five(monkeypatch) -> None:
     # default is what applies, which must be 5.
     cli_main._cmd_provision(argparse.Namespace())
     assert captured["retries"] == 5
+
+
+def test_ensure_desktop_entries_refreshes_stale_managed_entry(tmp_path, monkeypatch):
+    # Given a managed entry whose StartupWMClass is stale and an unrelated file.
+    from winpodx.core.app import AppInfo
+
+    app_dir = tmp_path / "applications"
+    app_dir.mkdir()
+    managed = app_dir / "winpodx-notepad.desktop"
+    managed.write_text(
+        "[Desktop Entry]\nExec=winpodx app run notepad %u\n"
+        "Keywords=windows;winpodx;rdp;notepad;\nStartupWMClass=old\n",
+        encoding="utf-8",
+    )
+    unrelated = app_dir / "winpodx-other.desktop"
+    unrelated.write_text("[Desktop Entry]\nExec=other\nStartupWMClass=other\n", encoding="utf-8")
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+    installed: list[str] = []
+
+    monkeypatch.setattr("winpodx.desktop.icons.install_winpodx_icon", lambda: None)
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [app])
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: app_dir)
+    monkeypatch.setattr(
+        "winpodx.desktop.entry.install_desktop_entry",
+        lambda info: installed.append(info.name),
+    )
+    monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+
+    # When provisioning refreshes desktop entries.
+    provisioner._ensure_desktop_entries()
+
+    # Then stale managed entries are refreshed, while unrelated files remain untouched.
+    assert installed == ["notepad"]
+    assert unrelated.read_text(encoding="utf-8") == (
+        "[Desktop Entry]\nExec=other\nStartupWMClass=other\n"
+    )
+
+
+def test_ensure_desktop_entries_does_not_claim_unmanaged_matching_exec(tmp_path, monkeypatch):
+    from winpodx.core.app import AppInfo
+
+    app_dir = tmp_path / "applications"
+    app_dir.mkdir()
+    desktop_file = app_dir / "winpodx-notepad.desktop"
+    original = "[Desktop Entry]\nExec=winpodx app run notepad %u\nStartupWMClass=old\n"
+    desktop_file.write_text(original, encoding="utf-8")
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+    installed: list[str] = []
+
+    monkeypatch.setattr("winpodx.desktop.icons.install_winpodx_icon", lambda: None)
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [app])
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: app_dir)
+    monkeypatch.setattr(
+        "winpodx.desktop.entry.install_desktop_entry",
+        lambda info: installed.append(info.name),
+    )
+    monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+
+    provisioner._ensure_desktop_entries()
+
+    assert installed == []
+    assert desktop_file.read_text(encoding="utf-8") == original
+
+
+def test_ensure_desktop_entries_does_not_follow_symlink(tmp_path, monkeypatch):
+    from winpodx.core.app import AppInfo
+
+    app_dir = tmp_path / "applications"
+    app_dir.mkdir()
+    target = tmp_path / "outside.desktop"
+    original = (
+        "[Desktop Entry]\nX-WinPodX-Managed=true\n"
+        "Exec=winpodx app run notepad %u\nStartupWMClass=old\n"
+    )
+    target.write_text(original, encoding="utf-8")
+    (app_dir / "winpodx-notepad.desktop").symlink_to(target)
+    app = AppInfo(name="notepad", full_name="Notepad", executable="C:\\notepad.exe")
+    installed: list[str] = []
+
+    monkeypatch.setattr("winpodx.desktop.icons.install_winpodx_icon", lambda: None)
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [app])
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: app_dir)
+    monkeypatch.setattr(
+        "winpodx.desktop.entry.install_desktop_entry",
+        lambda info: installed.append(info.name),
+    )
+    monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+
+    provisioner._ensure_desktop_entries()
+
+    assert installed == []
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_ensure_desktop_entries_skips_hidden_apps(tmp_path, monkeypatch):
+    from winpodx.core.app import AppInfo
+
+    app_dir = tmp_path / "applications"
+    app_dir.mkdir()
+    app = AppInfo(
+        name="hidden",
+        full_name="Hidden",
+        executable="C:\\hidden.exe",
+        hidden=True,
+    )
+    installed: list[str] = []
+    monkeypatch.setattr("winpodx.desktop.icons.install_winpodx_icon", lambda: None)
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: [app])
+    monkeypatch.setattr("winpodx.utils.paths.applications_dir", lambda: app_dir)
+    monkeypatch.setattr(
+        "winpodx.desktop.entry.install_desktop_entry",
+        lambda info: installed.append(info.name),
+    )
+    monkeypatch.setattr("winpodx.desktop.icons.update_icon_cache", lambda: None)
+
+    provisioner._ensure_desktop_entries()
+
+    assert installed == []
