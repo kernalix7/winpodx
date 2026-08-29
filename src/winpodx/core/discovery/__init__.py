@@ -470,10 +470,14 @@ def _merge_essentials(scanned: list[DiscoveredApp]) -> list[DiscoveredApp]:
     for spec in ESSENTIAL_APPS:
         slug = spec["name"]
         if slug in seen_slugs:
-            # Mark the existing entry as essential so it's flagged in
-            # the GUI / can never be hidden by the noise denylist.
             for app in out:
                 if app.name == slug:
+                    app.full_name = spec.get("full_name", slug)
+                    app.executable = spec.get("executable", "")
+                    app.args = spec.get("args", "")
+                    app.source = spec.get("source", "win32")
+                    app.wm_class_hint = spec.get("wm_class_hint", "")
+                    app.launch_uri = spec.get("launch_uri", "")
                     app.essential = True
                     break
             continue
@@ -1132,6 +1136,9 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
     slug = _slugify_name(raw_name)
     if not slug:
         return None
+    # The guest is hostile input. Only host-curated essentials receive a
+    # trusted hint later in _merge_essentials().
+    wm_class_hint = ""
 
     # Real file extensions the guest reports this app handles (#545). Validate +
     # normalise to ".ext" lowercase; drop junk so a hostile guest can't smuggle
@@ -1277,7 +1284,10 @@ def persist_discovered(
         # cheap (re-extract only apps whose exe changed = an app update) and
         # keeps an unchanged app's icon stable. Skipped for UWP / hashless
         # entries (exe_hash ""), which always re-write as before.
-        if replace and app.exe_hash and _unchanged_on_disk(app_dir, app.exe_hash):
+        unchanged_on_disk = bool(
+            replace and app.exe_hash and _unchanged_on_disk(app_dir, app.exe_hash)
+        )
+        if unchanged_on_disk and not app.essential:
             # Even when the exe is unchanged (so we keep the icon + skip the
             # rewrite), backfill MIME associations into a TOML that predates the
             # auto-map so existing Office/etc. apps gain file handlers on a plain
@@ -1285,6 +1295,10 @@ def persist_discovered(
             _backfill_mime_types(app_dir / "app.toml", app, mime_enabled)
             written.append(app_dir / "app.toml")
             continue
+
+        # Curated essential metadata must still be repaired, but an unchanged
+        # executable keeps its cached icon when the current scan has none.
+        preserve_existing_icon = unchanged_on_disk and app.essential
 
         # Read the user's prior hidden override BEFORE the rmtree below
         # nukes it; the override (None / True / False) decides what gets
@@ -1295,7 +1309,7 @@ def persist_discovered(
         # rewrite so a user's per-app RDP setting survives re-discovery.
         app.rdp_override = _existing_rdp_override(app_dir)
 
-        if replace and app_dir.exists():
+        if replace and app_dir.exists() and not preserve_existing_icon:
             _safe_rmtree(app_dir, root)
         app_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1323,7 +1337,7 @@ def persist_discovered(
             log.warning("Could not write %s: %s", toml_path, e)
             continue
 
-        if app.icon_bytes:
+        if app.icon_bytes and not preserve_existing_icon:
             icon_ext = _sniff_icon_ext(app.icon_bytes)
             icon_ok = True
             if icon_ext == "png" and not _validate_png_bytes(app.icon_bytes):
@@ -1441,6 +1455,8 @@ def _render_app_toml(app: DiscoveredApp, mime_enabled: bool = True) -> str:
         data["source"] = app.source
     if app.wm_class_hint:
         data["wm_class_hint"] = app.wm_class_hint
+        if app.essential:
+            data["wm_class_hint_trusted"] = True
     if app.launch_uri:
         data["launch_uri"] = app.launch_uri
     if app.exe_hash:

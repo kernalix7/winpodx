@@ -33,6 +33,7 @@ from winpodx.core.discovery import (
     DiscoveryError,
     _entry_to_discovered,
     _is_junk_entry,
+    _merge_essentials,
     _parse_discovery_output,
     _purge_reverse_open_entries,
     _render_app_toml,
@@ -281,6 +282,44 @@ def test_entry_happy_path():
     assert app.full_name == "Example App"
     assert app.executable.endswith("example.exe")
     assert app.source == "win32"
+
+
+def test_entry_drops_untrusted_guest_hints_but_preserves_essential_hint():
+    generic = _entry_to_discovered(
+        _valid_entry(
+            name="Brave",
+            path="C:\\Program Files\\Brave\\brave.exe",
+            wm_class_hint="firefox",
+        )
+    )
+    spoofed_essential = _entry_to_discovered(
+        _valid_entry(
+            name="File Explorer",
+            path="C:\\Malware\\evil.exe",
+            wm_class_hint="firefox",
+        )
+    )
+    generic_uwp = _entry_to_discovered(
+        _valid_entry(
+            name="Host Spoof",
+            path="explorer.exe",
+            source="uwp",
+            launch_uri="Host.Spoof_123!App",
+            wm_class_hint="firefox",
+        )
+    )
+
+    assert generic is not None and generic.wm_class_hint == ""
+    assert spoofed_essential is not None and spoofed_essential.wm_class_hint == ""
+    assert generic_uwp is not None and generic_uwp.wm_class_hint == ""
+    merged = next(
+        app for app in _merge_essentials([spoofed_essential]) if app.name == "file-explorer"
+    )
+    assert merged.executable == "C:\\Windows\\explorer.exe"
+    assert merged.args == "shell:MyComputerFolder"
+    assert merged.wm_class_hint == "explorer"
+    assert merged.source == "win32"
+    assert merged.essential is True
 
 
 def test_entry_missing_name_rejected():
@@ -1193,6 +1232,41 @@ def test_essentials_marked_essential_in_toml(tmp_path):
     persist_discovered([], target_dir=tmp_path, add_essentials=True)
     toml_text = (tmp_path / "file-explorer" / "app.toml").read_text()
     assert "essential = true" in toml_text
+    assert "wm_class_hint_trusted = true" in toml_text
+    calculator_text = (tmp_path / "calculator" / "app.toml").read_text()
+    assert "wm_class_hint_trusted = true" in calculator_text
+
+
+def test_same_hash_essential_profile_is_repaired(tmp_path):
+    app_dir = tmp_path / "file-explorer"
+    app_dir.mkdir()
+    exe_hash = "a" * 64
+    (app_dir / "app.toml").write_text(
+        'name = "file-explorer"\nfull_name = "File Explorer"\n'
+        'executable = "C:\\\\Malware\\\\evil.exe"\nargs = "--evil"\n'
+        'source = "win32"\nwm_class_hint = "firefox"\n'
+        f'exe_hash = "{exe_hash}"\n',
+        encoding="utf-8",
+    )
+    (app_dir / "icon.png").write_bytes(b"existing-icon")
+    scanned = DiscoveredApp(
+        name="file-explorer",
+        full_name="File Explorer",
+        executable="C:\\Malware\\evil.exe",
+        args="--evil",
+        source="win32",
+        wm_class_hint="firefox",
+        exe_hash=exe_hash,
+    )
+
+    persist_discovered([scanned], target_dir=tmp_path, add_essentials=True)
+
+    repaired = (app_dir / "app.toml").read_text(encoding="utf-8")
+    assert 'executable = "C:\\\\Windows\\\\explorer.exe"' in repaired
+    assert 'args = "shell:MyComputerFolder"' in repaired
+    assert 'wm_class_hint = "explorer"' in repaired
+    assert "wm_class_hint_trusted = true" in repaired
+    assert (app_dir / "icon.png").read_bytes() == b"existing-icon"
 
 
 def test_existing_app_promoted_to_essential_when_slug_matches(tmp_path):

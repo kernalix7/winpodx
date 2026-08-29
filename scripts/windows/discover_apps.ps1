@@ -99,18 +99,6 @@ function ConvertTo-IconBase64 {
     }
 }
 
-function Get-WmClassHint {
-    param([string]$ExePath)
-    if (-not $ExePath) { return '' }
-    try {
-        $stem = [System.IO.Path]::GetFileNameWithoutExtension($ExePath)
-        if (-not $stem) { return '' }
-        $safe = ($stem.ToLower() -replace '[^a-z0-9_-]', '')
-        if ($safe.Length -gt 64) { $safe = $safe.Substring(0, 64) }
-        return $safe
-    } catch { return '' }
-}
-
 function Get-DisplayName {
     param([string]$ExePath, [string]$Fallback = '')
     try {
@@ -240,7 +228,7 @@ if ($DryRun) {
             path              = 'C:\Windows\notepad.exe'
             args              = ''
             source            = 'win32'
-            wm_class_hint     = 'notepad'
+            wm_class_hint     = ''
             launch_uri        = ''
             icon_b64          = ''
             start_menu_folder = 'Accessories'
@@ -637,7 +625,7 @@ foreach ($hive in 'HKLM:', 'HKCU:') {
                     path          = $exe
                     args          = ''
                     source        = 'win32'
-                    wm_class_hint = Get-WmClassHint $exe
+                    wm_class_hint = ''
                     launch_uri    = ''
                     icon_b64      = ConvertTo-IconBase64 $exe
                 }
@@ -717,7 +705,7 @@ foreach ($d in $startDirs) {
                         path              = $target
                         args              = [string]$lnk.Arguments
                         source            = 'win32'
-                        wm_class_hint     = Get-WmClassHint $target
+                        wm_class_hint     = ''
                         launch_uri        = ''
                         icon_b64          = ConvertTo-IconBase64 $target
                         start_menu_folder = $smFolder
@@ -938,7 +926,7 @@ foreach ($d in $shimDirs) {
                     path          = $resolved
                     args          = ''
                     source        = 'win32'
-                    wm_class_hint = Get-WmClassHint $resolved
+                    wm_class_hint = ''
                     launch_uri    = ''
                     icon_b64      = ConvertTo-IconBase64 $resolved
                 }
