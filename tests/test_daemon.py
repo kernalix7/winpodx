@@ -354,7 +354,7 @@ def _reaper_env(monkeypatch, scans):
 
 def test_session_window_reaper_reaps_after_window_closes(monkeypatch):
     # Window present on the first scan (arms), gone after -> reaped via kill_session.
-    stop, killed = _reaper_env(monkeypatch, [{"excel"}, set(), set()])
+    stop, killed = _reaper_env(monkeypatch, [{"winpodx-excel"}, set(), set()])
     daemon.run_session_window_reaper(Config(), stop)
     assert killed == ["excel"]
 
@@ -384,6 +384,97 @@ def test_session_window_reaper_never_reaps_unseen_window(monkeypatch):
     monkeypatch.setattr(daemon, "kill_session", lambda name, expected_pid=None: killed.append(name))
 
     daemon.run_session_window_reaper(Config(), stop)
+    assert killed == []
+
+
+def test_session_window_reaper_maps_bare_win32_name_to_rail_class(monkeypatch):
+    # Given bare Win32 and already-resolved UWP/custom identities in .cproc.
+    from winpodx.core import app as app_mod
+    from winpodx.core.app import AppInfo
+    from winpodx.core.process import TrackedProcess
+
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_POLL_SECS", 0.001)
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_DEBOUNCE_SECS", 0.0)
+    monkeypatch.setattr(daemon.shutil, "which", lambda _name: "/usr/bin/wmctrl")
+    sessions = [
+        TrackedProcess("excel", 111),
+        TrackedProcess("winpodx-uwp-calc", 222),
+        TrackedProcess("foo", 333),
+    ]
+    monkeypatch.setattr(daemon, "list_active_sessions", lambda: sessions)
+    monkeypatch.setattr(
+        app_mod,
+        "list_available_apps",
+        lambda: [
+            AppInfo(
+                name="custom",
+                full_name="Custom",
+                executable="C:\\Apps\\foo.exe",
+                wm_class_hint="custom-class",
+            )
+        ],
+    )
+    scans = iter(
+        [
+            {"winpodx-excel", "winpodx-uwp-calc", "custom-class"},
+            set(),
+            set(),
+        ]
+    )
+    monkeypatch.setattr(daemon, "_rail_window_classes", lambda _wmctrl: next(scans))
+    stop = _ScriptedStopEvent(iterations=2)
+    killed: list[str] = []
+
+    def fake_kill(name, expected_pid=None):
+        killed.append(name)
+
+    monkeypatch.setattr(daemon, "kill_session", fake_kill)
+
+    # When the long-lived reaper scans the RAIL windows.
+    daemon.run_session_window_reaper(Config(), stop)
+
+    # Then bare Win32 resolves to the namespaced RAIL class, without changing
+    # identities that were already resolved for UWP or custom classes.
+    assert set(killed) == {"foo", "excel", "winpodx-uwp-calc"}
+
+
+def test_session_window_reaper_resets_state_for_replacement_pid(monkeypatch):
+    import threading
+
+    from winpodx.core import rdp as rdp_mod
+    from winpodx.core.process import TrackedProcess
+
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_POLL_SECS", 0.001)
+    monkeypatch.setattr(daemon, "_WINDOW_REAP_DEBOUNCE_SECS", 0.0)
+    monkeypatch.setattr(daemon.shutil, "which", lambda _name: "/usr/bin/wmctrl")
+    scan_count = 0
+    stop = threading.Event()
+
+    def sessions():
+        pid = 111 if scan_count == 0 else 222
+        return [TrackedProcess("excel", pid)]
+
+    def scan(_wmctrl):
+        nonlocal scan_count
+        scan_count += 1
+        if scan_count == 2:
+            stop.set()
+            return {"new-class"}
+        return {"old-class"}
+
+    resolved = iter((("old-class",), ("new-class",)))
+    monkeypatch.setattr(daemon, "list_active_sessions", sessions)
+    monkeypatch.setattr(daemon, "_rail_window_classes", scan)
+    monkeypatch.setattr(rdp_mod, "resolve_session_wm_classes", lambda _name: next(resolved))
+    killed: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(
+        daemon,
+        "kill_session",
+        lambda name, expected_pid=None: killed.append((name, expected_pid)),
+    )
+
+    daemon.run_session_window_reaper(Config(), stop)
+
     assert killed == []
 
 

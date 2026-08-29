@@ -385,47 +385,47 @@ def run_session_window_reaper(
     if not wmctrl:
         log.debug("session window-reaper: wmctrl absent; disabled")
         return
+    from winpodx.core.rdp import resolve_session_wm_classes
+
     log.info("Session window-reaper started")
-    seen: set[str] = set()  # app_names whose RAIL window has appeared at least once
-    # name -> (armed_at, pid): the monotonic time the window went away AND the
-    # session PID that owned it. Binding to a PID stops a relaunch race -- if the
-    # user closes a doc and immediately reopens (the .cproc is overwritten with a
-    # fresh session's PID), we must reap the OLD session, not the newcomer.
-    gone_since: dict[str, tuple[float, int]] = {}
+    # State is bound to both app identity and PID because a fresh same-app launch
+    # overwrites the .cproc file before its new RAIL window necessarily maps.
+    seen: set[tuple[str, int]] = set()
+    wm_classes_by_session: dict[tuple[str, int], tuple[str, ...]] = {}
+    gone_since: dict[tuple[str, int], float] = {}
     while not stop_event.is_set():
         try:
-            live_pids = {s.app_name: s.pid for s in list_active_sessions()}
-            live = set(live_pids)
+            live = {(s.app_name, s.pid) for s in list_active_sessions()}
             # Forget state for sessions that have ended.
             seen.intersection_update(live)
-            for name in list(gone_since):
-                if name not in live:
-                    gone_since.pop(name, None)
+            for session in list(wm_classes_by_session):
+                if session not in live:
+                    wm_classes_by_session.pop(session, None)
+            for session in list(gone_since):
+                if session not in live:
+                    gone_since.pop(session, None)
 
             classes = _rail_window_classes(wmctrl)
             if classes is not None:
                 now = time.monotonic()
-                for name in live:
-                    if name in classes:
-                        seen.add(name)
-                        gone_since.pop(name, None)
-                    elif name in seen:
-                        armed_at, armed_pid = gone_since.setdefault(name, (now, live_pids[name]))
-                        if armed_pid != live_pids[name]:
-                            # A fresh session replaced the one we armed against
-                            # (its window just hasn't mapped yet). Re-arm on the
-                            # new PID instead of reaping the newcomer.
-                            gone_since[name] = (now, live_pids[name])
-                            continue
+                for session in live:
+                    name, pid = session
+                    if session not in wm_classes_by_session:
+                        wm_classes_by_session[session] = resolve_session_wm_classes(name)
+                    if any(wm_class in classes for wm_class in wm_classes_by_session[session]):
+                        seen.add(session)
+                        gone_since.pop(session, None)
+                    elif session in seen:
+                        armed_at = gone_since.setdefault(session, now)
                         if now - armed_at >= _WINDOW_REAP_DEBOUNCE_SECS:
                             log.info(
                                 "session %r windows gone %.0fs after close; reaping",
                                 name,
                                 _WINDOW_REAP_DEBOUNCE_SECS,
                             )
-                            kill_session(name, expected_pid=armed_pid)
-                            seen.discard(name)
-                            gone_since.pop(name, None)
+                            kill_session(name, expected_pid=pid)
+                            seen.discard(session)
+                            gone_since.pop(session, None)
         except Exception as e:  # noqa: BLE001 -- never kill the monitor
             log.debug("session window-reaper pass failed: %s", e)
         stop_event.wait(_WINDOW_REAP_POLL_SECS)
