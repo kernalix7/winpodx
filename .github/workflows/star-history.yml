@@ -1,0 +1,13 @@
+name: Update star history
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    uses: kernalix7/GH-Star-History-for-Actions/.github/workflows/reusable-star-history.yml@5f5887b0c9f3302b5afe3648ffa8994a245db508
