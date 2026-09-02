@@ -299,11 +299,11 @@ pytest tests/ -n auto --cov=winpodx --cov-report=term-missing:skip-covered --cov
 
 ## Star History
 
-<a href="https://star-history.com/#kernalix7/winpodx&Date">
+<a href="https://github.com/kernalix7/winpodx/tree/star-history">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=kernalix7/winpodx&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kernalix7/winpodx/star-history/chart-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kernalix7/winpodx/star-history/chart.svg" />
+    <img alt="WinPodX GitHub 별 기록" src="https://raw.githubusercontent.com/kernalix7/winpodx/star-history/chart.svg" width="900" />
   </picture>
 </a>
 
