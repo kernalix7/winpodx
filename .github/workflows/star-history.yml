@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   update:
-    uses: kernalix7/GH-Star-History-for-Actions/.github/workflows/reusable-star-history.yml@5f5887b0c9f3302b5afe3648ffa8994a245db508
+    uses: kernalix7/GH-Star-History-for-Actions/.github/workflows/reusable-star-history.yml@9aa57516df1a649cb628f14f0691bb8ae72dec6f
