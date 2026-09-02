@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="chart-title chart-desc" data-mode="date" data-scale="linear" data-legend-position="top-left" style="stroke-width:3; font-family:'GH Star Hand'; background:#ffffff">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="chart-title chart-desc" data-mode="timeline" data-scale="linear" data-legend-position="top-left" style="stroke-width:3; font-family:'GH Star Hand'; background:#ffffff">
   <title id="chart-title">Star History — kernalix7/winpodx</title>
   <desc id="chart-desc">kernalix7/winpodx has 1932 stars as of 2026-09-02. Data before 2026-09-02 is reconstructed from currently active stargazers.</desc>
   <metadata id="project-metadata">
@@ -22,7 +22,7 @@
   <rect width="100%" height="100%" fill="#ffffff"/>
   <text x="50%" y="31" fill="#000000" font-size="22px" font-weight="700" text-anchor="middle">Star History</text>
   <image x="366" y="12" width="22" height="22" href="data:image/jpeg;base64,/9j/2wCEAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDIBCQkJDAsMGA0NGDIhHCEyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMv/AABEIACwALAMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APa9c1zT/DmkTanqc4htohyepYnoqjuT2FfPHiz4x+INdmeHTpn0qxJwkdu375h6tIOR9Fxj1NJ8Y/FsuueLZdOhkJsNMcwxoDw03R2PuD8o9MH1rzaSK5VQWhlhjY4810IDcbuD9MH6EVKHsT3F1NdSmS5kMsh53TSFm/M5Nauj+Lde0CVZNN1W7tgOdqyloz9UOVP5VgLBHjiMt7setJ5ZQkxZVh1Q9DVWQuZn0v8ADz4tweJpo9J1lIrXVG4ikTiK4PoM/db279j2r01utfEVvMVZJYmZCGBUqcFGHIIPY96+sfh34pPivwda31w6/bIibe6xxmRcfN/wIFW/4FUsfS6PlZ2n1HUAQC9xdSlgD/E7n/Fq9q+Ifw4g074ZRTWjb7rSliZ3ZvvqBscAADqSTz6e9cOf7P8ABHjTWbLVbF5fKnZIHVQSkZJIYZ9UZela978X01Wzi8P6lYM+lqpSa4eQvLdAAhcjgAngnk81zTqvmlem3y6p9/TzNeRae9v+B5pptgupxyTSTOoDYVVPT3NXdC0xbqWVrk744HKAg43kf5/WquqXMF3qlxc2MD2EUp/1MbEj9P5VDb3clgg8tisYbcVb+I/SrlGrOno7N/gdVGvhYShzwvy3u+/bQ6efSdOuoXW3WOOT7waM9+x9x/PtWXY+JtS0GJ7W0d0VnLsB/ewF/koqr/a19JGu8hS8nmLheQPT6cV6r8N/hrB4j8LHVNQJTzbhxDkZ3IABn/voPU0Kc6d1N3RWPxFCvaVKNn10tf5HX/Fr4eSeJrZNZ0mIPqlsm2SEcG4jHOB/tDJx65I9K8AuoIbv5ZF8mZD5ZjIIEe0c5B5B6n/69fZmTXJeKvh54c8Vl7i+tDFebf8Aj7tm8uQ49eCG/wCBA10HnX6M+Uxpt18gikLK+dnIOcfqOopU08bmZ5DIVUP9QeuPpmtTxLbnQNYa0tZ5nRGwGlbnt6ADsO3YV6T8NvhxofiOzF9qjXkwiIxbiULGc+uAG/8AHqLsLLucj4R8GX3jfWha2vmLp0EhE96y4Eaf3R6t6DtnJxX1BY2Ftpdhb2FnEIra3jWOJF/hUDApbGxtNLso7Owtora2iGEiiQKq/gKmY80gbP/Z" clip-path="url(#clip-circle-title)" preserveAspectRatio="xMidYMid slice" aria-hidden="true"/>
-  <text x="50%" y="590" fill="#000000" font-size="18px" font-weight="600" text-anchor="middle">Date</text>
+  <text x="50%" y="590" fill="#000000" font-size="18px" font-weight="600" text-anchor="middle">Timeline</text>
   <text x="-250" y="12" dy=".75em" fill="#000000" font-size="18px" font-weight="600" text-anchor="end" transform="rotate(-90)">GitHub Stars</text>
   <g transform="translate(70,60)" pointer-events="all">
     <a href="https://github.com/kernalix7/GH-Star-History-for-Actions" target="_blank" rel="noopener noreferrer" aria-label="GH Star History for Actions project repository">
@@ -30,12 +30,13 @@
     </a>
     <g class="xaxis" transform="translate(0,490)" fill="none" font-size="10" text-anchor="middle">
       <path class="domain" stroke="#000000" d="M0.5,0.5H800.5" filter="url(#xkcdify)"/>
-      <g class="tick" opacity="1" transform="translate(0.5,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">Apr 08</text></g>
-      <g class="tick" opacity="1" transform="translate(125.67006802721089,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">May</text></g>
-      <g class="tick" opacity="1" transform="translate(294.3775510204082,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">June</text></g>
-      <g class="tick" opacity="1" transform="translate(457.6428571428571,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">July</text></g>
-      <g class="tick" opacity="1" transform="translate(626.3503401360545,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">August</text></g>
-      <g class="tick" opacity="1" transform="translate(795.0578231292517,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">September</text></g>
+      <g class="tick" opacity="1" transform="translate(0.5,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em"></text></g>
+      <g class="tick" opacity="1" transform="translate(126.47631645250694,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">3 weeks</text></g>
+      <g class="tick" opacity="1" transform="translate(252.45263290501387,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">6 weeks</text></g>
+      <g class="tick" opacity="1" transform="translate(378.42894935752076,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">9 weeks</text></g>
+      <g class="tick" opacity="1" transform="translate(504.40526581002774,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">13 weeks</text></g>
+      <g class="tick" opacity="1" transform="translate(630.3815822625347,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">16 weeks</text></g>
+      <g class="tick" opacity="1" transform="translate(756.3578987150415,0)"><line stroke="#000000" y2="0"/><text class="axis-tick" y="6" dy="0.71em">19 weeks</text></g>
     </g>
     <g class="yaxis" fill="none" font-size="10" text-anchor="end">
       <path class="domain" stroke="#000000" d="M-1,490.5H0.5V0.5H-1" filter="url(#xkcdify)"/>
