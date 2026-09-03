@@ -1021,16 +1021,16 @@ class BringUpMixin:
     # ----- phase 1: wait pod ready ---------------------------------------
 
     def _dockur_progress(self) -> tuple[str | None, str | None, bool]:
-        """Peek at the dockur container log: ``(qemu_error, progress, installing)``.
+        """Read QEMU errors and fallback progress from the dockur container log.
 
         * ``qemu_error`` — the latest fatal ``ERROR: qemu-system-...`` line if the
           container is failing to boot (e.g. a rejected ``-device``), else None.
           With dockur's ``restart: unless-stopped`` a bad QEMU arg boot-loops, so
           this lets phase 1 fail fast with the real reason instead of waiting out
           the whole budget.
-        * ``progress`` — the latest ``❯`` status line (or ``Downloading
-          Windows NN%`` from the wget dot-rows); full text — the dialog
-          wraps it for the summary display.
+        * ``progress`` — compatibility fallback when ``msg.html`` is unavailable:
+          the latest ``❯`` status line (or ``Downloading Windows NN%`` from the
+          wget dot-rows); full text — the dialog wraps it for the summary display.
         * ``installing`` — True when dockur is actively downloading/installing, so
           phase 1 can extend its budget past the normal pod-ready window.
         """
@@ -1085,6 +1085,7 @@ class BringUpMixin:
         return qemu_error, progress, installing
 
     def _phase1_wait_pod_ready(self) -> bool:
+        from winpodx.core.dockur_progress import DockurProgressReader
         from winpodx.core.pod import PodState, check_rdp_port, pod_status
 
         # No fixed timeout — a fresh install (ISO download + Sysprep) takes
@@ -1095,6 +1096,8 @@ class BringUpMixin:
         # container has actually exited; the user can Cancel at any time.
         self._emit_phase("phase_1_pod", "Waiting for the pod...")
 
+        progress_reader = DockurProgressReader(self.cfg.pod.vnc_port)
+        final_http_progress: str | None = None
         err_streak = 0
         stopped_streak = 0
         while True:
@@ -1105,7 +1108,20 @@ class BringUpMixin:
             except Exception:  # noqa: BLE001
                 state = None
 
-            qemu_error, progress, _installing = self._dockur_progress()
+            qemu_error, log_progress, _installing = self._dockur_progress()
+            progress = log_progress
+
+            if state not in (PodState.STOPPED, PodState.ERROR):
+                if self._is_cancelled():
+                    return self._emit_cancelled()
+                if final_http_progress is not None:
+                    progress = final_http_progress
+                else:
+                    http_progress = progress_reader.poll()
+                    if http_progress is not None:
+                        progress = http_progress.text
+                        if not http_progress.is_loading:
+                            final_http_progress = http_progress.text
 
             # Fail fast on a boot-looping QEMU error (e.g. a rejected -device).
             if qemu_error:

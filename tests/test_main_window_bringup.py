@@ -34,6 +34,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from winpodx.core.config import Config  # noqa: E402
+from winpodx.core.dockur_progress import DockurProgress  # noqa: E402
 from winpodx.core.pod import PodState, PodStatus  # noqa: E402
 from winpodx.gui._main_window_bringup import BringUpMixin  # noqa: E402
 
@@ -73,7 +74,25 @@ def _stub_dockur_progress(monkeypatch):
     Tests that exercise the boot-error path override this per-test."""
     from winpodx.gui._main_window_bringup import BringUpMixin
 
+    def unexpected_http(*args, **kwargs):
+        pytest.fail("phase 1 test attempted a real Dockur HTTP connection")
+
+    class _UnavailableReader:
+        def __init__(self, vnc_port: int) -> None:
+            return None
+
+        def poll(self) -> None:
+            return None
+
     monkeypatch.setattr(BringUpMixin, "_dockur_progress", lambda self: (None, None, False))
+    monkeypatch.setattr(
+        "winpodx.core.dockur_progress.DockurProgressReader",
+        _UnavailableReader,
+    )
+    monkeypatch.setattr(
+        "winpodx.core.dockur_progress.http.client.HTTPConnection",
+        unexpected_http,
+    )
 
 
 def _make_cfg() -> Config:
@@ -797,6 +816,52 @@ def test_phase1_fails_when_container_exits(monkeypatch: pytest.MonkeyPatch) -> N
     ok, msg = harness.bringup_done.emissions[0]
     assert ok is False
     assert "stopped" in msg.lower()
+
+
+def test_phase1_prefers_msg_html_without_bypassing_rdp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg()
+    cfg.pod.vnc_port = 18006
+    ports: list[int] = []
+    polls: list[None] = []
+    rdp_results = iter((False, True))
+
+    class _Reader:
+        def __init__(self, vnc_port: int) -> None:
+            ports.append(vnc_port)
+
+        def poll(self) -> DockurProgress:
+            polls.append(None)
+            return DockurProgress(text="HTTP phase progress", is_loading=False)
+
+    monkeypatch.setattr(
+        "winpodx.core.pod.pod_status",
+        lambda _cfg: PodStatus(state=PodState.RUNNING, ip="127.0.0.1"),
+    )
+    monkeypatch.setattr(
+        "winpodx.core.pod.check_rdp_port",
+        lambda _ip, _port, timeout=3.0: next(rdp_results),
+    )
+    monkeypatch.setattr("winpodx.core.dockur_progress.DockurProgressReader", _Reader)
+    monkeypatch.setattr(
+        BringUpMixin,
+        "_dockur_progress",
+        lambda self: (None, "LOG fallback progress", True),
+    )
+
+    harness = Harness(cfg)
+    monkeypatch.setattr(harness, "_sleep_cancellable", lambda seconds: None)
+
+    assert harness._phase1_wait_pod_ready() is True
+    details = [
+        detail for phase, detail in harness.bringup_phase.emissions if phase == "phase_1_pod"
+    ]
+    assert ports == [18006]
+    assert polls == [None]
+    assert "HTTP phase progress" in details
+    assert "LOG fallback progress" not in details
+    assert details[-1] == "Remote Desktop is up"
 
 
 def test_phase4_does_not_retry_real_script_failure(monkeypatch: pytest.MonkeyPatch) -> None:
