@@ -33,7 +33,7 @@ _VOID_ELEMENTS = frozenset(
 )
 
 
-@dataclass(frozen=True)  # noqa: SLOTS_OK - Python 3.9 uses the manual slots below.
+@dataclass(frozen=True)  # Python 3.9 uses the manual slots below.
 class DockurProgress:
     """Normalized text exposed by dockur's progress document."""
 
