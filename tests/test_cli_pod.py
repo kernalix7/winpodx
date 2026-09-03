@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import io
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -14,6 +15,7 @@ import pytest
 
 from winpodx.cli import pod
 from winpodx.core.config import Config
+from winpodx.core.dockur_progress import DockurProgress
 from winpodx.core.pod import PodState, PodStatus
 from winpodx.core.transport.base import ExecResult
 
@@ -702,6 +704,9 @@ class _ImmediateThread:
         if self.target.__name__ == "_drain":
             self.target(*self.args)
 
+    def join(self, timeout: int) -> None:
+        assert timeout == 3
+
 
 class _LogProcess:
     def __init__(self, command, **kwargs):
@@ -726,6 +731,9 @@ class _LogProcess:
     def wait(self, timeout: int) -> None:
         assert timeout == 3
 
+    def poll(self) -> int | None:
+        return None
+
 
 def test_wait_ready_streams_clean_logs_and_completes_all_phases(
     cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -740,6 +748,13 @@ def test_wait_ready_streams_clean_logs_and_completes_all_phases(
         created.append(process)
         return process
 
+    class _UnavailableReader:
+        def __init__(self, vnc_port: int) -> None:
+            assert vnc_port == 8007
+
+        def poll(self) -> None:
+            return None
+
     monkeypatch.setattr("winpodx.cli.setup_cmd._container_exists_on_backend", lambda config: True)
     monkeypatch.setattr("winpodx.core.pod.pod_status", lambda config: PodStatus(PodState.RUNNING))
     monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *args, **kwargs: True)
@@ -750,6 +765,7 @@ def test_wait_ready_streams_clean_logs_and_completes_all_phases(
     monkeypatch.setattr("winpodx.core.guest_sync.maybe_autosync", lambda config: True)
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(pod.threading, "Thread", _ImmediateThread)
+    monkeypatch.setattr("winpodx.core.dockur_progress.DockurProgressReader", _UnavailableReader)
 
     pod._wait_ready(60, show_logs=True)
 
@@ -765,6 +781,78 @@ def test_wait_ready_streams_clean_logs_and_completes_all_phases(
     assert "Guest synced to the upgraded host" in out
     assert created[0].command == ["podman", "logs", "-f", "--tail", "0", "test-windows"]
     assert created[0].terminated
+
+
+def test_wait_ready_prefers_msg_html_progress_on_configured_port(
+    cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cfg.pod.vnc_port = 18006
+    progress_seen = threading.Event()
+    ports: list[int] = []
+
+    class _Reader:
+        def __init__(self, vnc_port: int) -> None:
+            ports.append(vnc_port)
+
+        def poll(self) -> DockurProgress:
+            progress_seen.set()
+            return DockurProgress(text="HTTP progress primary", is_loading=False)
+
+    monkeypatch.setattr("winpodx.cli.setup_cmd._container_exists_on_backend", lambda config: True)
+    monkeypatch.setattr("winpodx.core.pod.pod_status", lambda config: PodStatus(PodState.RUNNING))
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.wait_for_windows_responsive",
+        lambda config, timeout: progress_seen.wait(1.0),
+    )
+    monkeypatch.setattr(pod, "_wait_for_oem_reboot", lambda config, timeout: True)
+    monkeypatch.setattr("winpodx.core.dockur_progress.DockurProgressReader", _Reader)
+    monkeypatch.setattr(subprocess, "Popen", _LogProcess)
+
+    pod._wait_ready(60, show_logs=True)
+
+    output = capsys.readouterr().out
+    assert ports == [18006]
+    assert "HTTP progress primary" in output
+    assert "50%" not in output
+    assert "OK Windows ready" in output
+    assert "OK OEM reboot pass complete" in output
+
+
+def test_wait_ready_http_progress_does_not_extend_readiness_deadline(
+    cfg: Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    responsive_timeouts: list[int] = []
+
+    class _LoadingReader:
+        def __init__(self, vnc_port: int) -> None:
+            return None
+
+        def poll(self) -> DockurProgress:
+            return DockurProgress(text="Downloading Windows", is_loading=True)
+
+    def wait_for_windows_responsive(config: Config, timeout: int) -> bool:
+        responsive_timeouts.append(timeout)
+        return True
+
+    monkeypatch.setattr("winpodx.cli.setup_cmd._container_exists_on_backend", lambda config: True)
+    monkeypatch.setattr("winpodx.core.pod.pod_status", lambda config: PodStatus(PodState.RUNNING))
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "winpodx.core.provisioner.wait_for_windows_responsive",
+        wait_for_windows_responsive,
+    )
+    monkeypatch.setattr(pod, "_wait_for_oem_reboot", lambda config, timeout: True)
+    monkeypatch.setattr("winpodx.core.dockur_progress.DockurProgressReader", _LoadingReader)
+    monkeypatch.setattr(subprocess, "Popen", _LogProcess)
+    monkeypatch.setattr(pod.threading, "Thread", _ImmediateThread)
+
+    # When
+    pod._wait_ready(60, show_logs=True)
+
+    # Then
+    assert responsive_timeouts == [60]
 
 
 def test_wait_ready_rejects_manual_backend_and_missing_container(

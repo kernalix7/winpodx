@@ -1409,6 +1409,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
 
     log_proc: Popen | None = None
     log_stop = threading.Event()
+    progress_thread: threading.Thread | None = None
 
     # Self-erasing transient line for the clean (non-verbose) view. Owns the
     # download progress + boot heartbeat; permanent lines go through say().
@@ -1430,6 +1431,54 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
     _log_tail = "0" if _already_up else "100"
 
     if show_logs:
+        from winpodx.core.dockur_progress import DockurProgress, DockurProgressReader
+
+        progress_reader = DockurProgressReader(cfg.pod.vnc_port)
+        http_progress: DockurProgress | None = None
+        http_progress_lock = threading.Lock()
+        http_complete = threading.Event()
+        last_http_text: str | None = None
+
+        def _current_http_progress() -> DockurProgress | None:
+            with http_progress_lock:
+                return http_progress
+
+        def _poll_http_progress() -> None:
+            nonlocal http_progress, last_http_text
+
+            progress = progress_reader.poll()
+            with http_progress_lock:
+                http_progress = progress
+            if progress is None:
+                return
+            if not progress.is_loading:
+                http_complete.set()
+            if progress.text == last_http_text:
+                return
+            if verbose:
+                print(f"       [progress] {progress.text}")
+            elif _live.usable:
+                _live.set(f"  {progress.text}")
+            else:
+                print(f"  {progress.text}")
+            last_http_text = progress.text
+
+        def _poll_http_progress_until_done() -> None:
+            while not log_stop.wait(1.0):
+                if log_proc is not None and log_proc.poll() is not None:
+                    return
+                _poll_http_progress()
+                if http_complete.is_set():
+                    return
+
+        _poll_http_progress()
+        if not http_complete.is_set():
+            progress_thread = threading.Thread(
+                target=_poll_http_progress_until_done,
+                daemon=True,
+            )
+            progress_thread.start()
+
         try:
             # --tail surfaces recent context (Windows ISO download, current boot
             # stage) on a fresh boot; 0 on an established pod so we don't replay
@@ -1513,8 +1562,9 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                         line = "(btrfs warning suppressed: NoCoW bind mount in use)"
                     # Always watch dockur's wget ETA to extend the deadline
                     # (#126), whether or not we render the line.
+                    current_http_progress = _current_http_progress()
                     eta_secs = _parse_wget_eta_secs(line)
-                    if eta_secs is not None:
+                    if eta_secs is not None and current_http_progress is None:
                         _maybe_extend_deadline(eta_secs)
 
                     # Mark the download window off the "Downloading Windows"
@@ -1546,6 +1596,8 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                     # permanent output.
                     prog = _format_wget_progress(line)
                     if prog is not None:
+                        if current_http_progress is not None:
+                            continue
                         if _live.usable:
                             _live.set(prog[1])  # in-place, self-erasing
                         else:
@@ -1568,9 +1620,23 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                         print(f"       [container] {_LINT_BLOCK_SUMMARY}")
                         continue
                     if any(noise in line for noise in _CONTAINER_NOISE):
+                        if current_http_progress is not None:
+                            continue
                         # UEFI boot-loader / tun spam: keep a transient
                         # heartbeat so the screen isn't dead, but never scroll.
                         _live.set("  Windows is booting...")
+                        continue
+                    if current_http_progress is not None and any(
+                        marker in line
+                        for marker in (
+                            "Downloading",
+                            "Extracting",
+                            "Adding",
+                            "Building",
+                            "Creating",
+                            "Booting",
+                        )
+                    ):
                         continue
                     # A real dockur line (e.g. "> Extracting Windows image"):
                     # erase the transient line, print it permanently.
@@ -1595,6 +1661,11 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 # isn't (older dockur, or before the first "%" line arrives).
                 last_verbose = [0.0]
                 while not log_stop.is_set():
+                    if http_complete.is_set():
+                        return
+                    if _current_http_progress() is not None:
+                        log_stop.wait(1.0)
+                        continue
                     dl = dl_state["start"]
                     if dl is not None:
                         _maybe_extend_deadline_liveness()
@@ -1738,6 +1809,8 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             )
     finally:
         log_stop.set()
+        if progress_thread is not None:
+            progress_thread.join(timeout=3)
         _live.close()
         if log_proc is not None:
             try:
