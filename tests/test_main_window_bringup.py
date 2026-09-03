@@ -557,10 +557,15 @@ def test_dialog_appends_pod_log_lines() -> None:
 
 def test_dialog_phase_detail_preserves_complete_wrapped_text() -> None:
     _ensure_qapp()
+    from PySide6.QtCore import Qt
+
+    from winpodx.core.dockur_progress import parse_dockur_progress
     from winpodx.gui._main_window_bringup import BringUpProgressDialog
 
-    # Given a phase detail longer than the old 80-character limit.
-    detail = "Windows setup status " * 6 + "DETAIL-END"
+    # Given entity-decoded upstream text that resembles Qt rich text.
+    progress = parse_dockur_progress(b'<p class="loading">&lt;b&gt;DETAIL-END&lt;/b&gt;</p>')
+    assert progress is not None
+    detail = progress.text
     dlg = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
     try:
         # When the dialog renders the active phase.
@@ -569,6 +574,7 @@ def test_dialog_phase_detail_preserves_complete_wrapped_text() -> None:
         # Then Qt receives the complete string and wraps it visually.
         assert dlg.sub_detail.text() == detail
         assert dlg.sub_detail.wordWrap() is True
+        assert dlg.sub_detail.textFormat() == Qt.TextFormat.PlainText
     finally:
         dlg.reject()
 
@@ -825,15 +831,23 @@ def test_phase1_prefers_msg_html_without_bypassing_rdp(
     cfg.pod.vnc_port = 18006
     ports: list[int] = []
     polls: list[None] = []
-    rdp_results = iter((False, True))
+    rdp_results = iter((False, False, False, True))
+    http_results = iter(
+        (
+            DockurProgress(text="HTTP phase progress", is_loading=False),
+            None,
+            DockurProgress(text="HTTP phase progress", is_loading=False),
+            DockurProgress(text="HTTP phase progress", is_loading=False),
+        )
+    )
 
     class _Reader:
         def __init__(self, vnc_port: int) -> None:
             ports.append(vnc_port)
 
-        def poll(self) -> DockurProgress:
+        def poll(self) -> DockurProgress | None:
             polls.append(None)
-            return DockurProgress(text="HTTP phase progress", is_loading=False)
+            return next(http_results)
 
     monkeypatch.setattr(
         "winpodx.core.pod.pod_status",
@@ -858,9 +872,9 @@ def test_phase1_prefers_msg_html_without_bypassing_rdp(
         detail for phase, detail in harness.bringup_phase.emissions if phase == "phase_1_pod"
     ]
     assert ports == [18006]
-    assert polls == [None]
-    assert "HTTP phase progress" in details
-    assert "LOG fallback progress" not in details
+    assert polls == [None, None, None, None]
+    assert details.count("HTTP phase progress") == 2
+    assert "LOG fallback progress" in details
     assert details[-1] == "Remote Desktop is up"
 
 

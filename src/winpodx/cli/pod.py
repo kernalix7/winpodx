@@ -1436,7 +1436,6 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
         progress_reader = DockurProgressReader(cfg.pod.vnc_port)
         http_progress: DockurProgress | None = None
         http_progress_lock = threading.Lock()
-        http_complete = threading.Event()
         last_http_text: str | None = None
 
         def _current_http_progress() -> DockurProgress | None:
@@ -1450,9 +1449,8 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
             with http_progress_lock:
                 http_progress = progress
             if progress is None:
+                last_http_text = None
                 return
-            if not progress.is_loading:
-                http_complete.set()
             if progress.text == last_http_text:
                 return
             if verbose:
@@ -1468,16 +1466,13 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 if log_proc is not None and log_proc.poll() is not None:
                     return
                 _poll_http_progress()
-                if http_complete.is_set():
-                    return
 
         _poll_http_progress()
-        if not http_complete.is_set():
-            progress_thread = threading.Thread(
-                target=_poll_http_progress_until_done,
-                daemon=True,
-            )
-            progress_thread.start()
+        progress_thread = threading.Thread(
+            target=_poll_http_progress_until_done,
+            daemon=True,
+        )
+        progress_thread.start()
 
         try:
             # --tail surfaces recent context (Windows ISO download, current boot
@@ -1564,7 +1559,7 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                     # (#126), whether or not we render the line.
                     current_http_progress = _current_http_progress()
                     eta_secs = _parse_wget_eta_secs(line)
-                    if eta_secs is not None and current_http_progress is None:
+                    if eta_secs is not None:
                         _maybe_extend_deadline(eta_secs)
 
                     # Mark the download window off the "Downloading Windows"
@@ -1661,14 +1656,12 @@ def _wait_ready(timeout: int, show_logs: bool, verbose: bool = False) -> None:
                 # isn't (older dockur, or before the first "%" line arrives).
                 last_verbose = [0.0]
                 while not log_stop.is_set():
-                    if http_complete.is_set():
-                        return
-                    if _current_http_progress() is not None:
-                        log_stop.wait(1.0)
-                        continue
                     dl = dl_state["start"]
                     if dl is not None:
                         _maybe_extend_deadline_liveness()
+                        if _current_http_progress() is not None:
+                            log_stop.wait(1.0)
+                            continue
                         el = int(_time.monotonic() - dl)
                         clock = f"{el // 60}m {el % 60:02d}s"
                         pct = dl_state.get("pct")

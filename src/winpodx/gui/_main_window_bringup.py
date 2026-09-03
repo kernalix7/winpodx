@@ -302,7 +302,7 @@ class BringUpProgressDialog(QDialog):
 
         # Sub-detail: attempt counters / probe outcomes go here. Kept on
         # its own line so the header stays scannable.
-        self.sub_detail = QLabel("")
+        self.sub_detail = QLabel("", textFormat=Qt.TextFormat.PlainText)
         self.sub_detail.setWordWrap(True)
         layout.addWidget(self.sub_detail)
 
@@ -1097,7 +1097,6 @@ class BringUpMixin:
         self._emit_phase("phase_1_pod", "Waiting for the pod...")
 
         progress_reader = DockurProgressReader(self.cfg.pod.vnc_port)
-        final_http_progress: str | None = None
         err_streak = 0
         stopped_streak = 0
         while True:
@@ -1114,14 +1113,9 @@ class BringUpMixin:
             if state not in (PodState.STOPPED, PodState.ERROR):
                 if self._is_cancelled():
                     return self._emit_cancelled()
-                if final_http_progress is not None:
-                    progress = final_http_progress
-                else:
-                    http_progress = progress_reader.poll()
-                    if http_progress is not None:
-                        progress = http_progress.text
-                        if not http_progress.is_loading:
-                            final_http_progress = http_progress.text
+                http_progress = progress_reader.poll()
+                if http_progress is not None:
+                    progress = http_progress.text
 
             # Fail fast on a boot-looping QEMU error (e.g. a rejected -device).
             if qemu_error:

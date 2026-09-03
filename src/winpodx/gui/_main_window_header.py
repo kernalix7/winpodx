@@ -329,7 +329,7 @@ class HeaderMixin:
         # Two lines stacked: most-recent on top, previous below it
         # (one tick of history). The "previous" line is dimmer so the
         # eye snaps to the freshest line first.
-        self.log_bar_line1 = QLabel("")
+        self.log_bar_line1 = QLabel("", textFormat=Qt.TextFormat.PlainText)
         self.log_bar_line1.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT1};"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 10px;"
@@ -337,7 +337,7 @@ class HeaderMixin:
         self.log_bar_line1.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.log_bar_line1)
 
-        self.log_bar_line2 = QLabel("")
+        self.log_bar_line2 = QLabel("", textFormat=Qt.TextFormat.PlainText)
         self.log_bar_line2.setStyleSheet(
             f"background: transparent; color: {C.OVERLAY0};"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 10px;"

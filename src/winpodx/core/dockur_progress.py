@@ -45,14 +45,23 @@ class DockurProgress:
 
 
 class _Target:
-    __slots__ = ("closed", "depth", "is_loading", "parts", "tag")
+    __slots__ = ("closed", "depth", "is_loading", "parts", "tag", "text_chars")
 
     def __init__(self, tag: str, depth: int, is_loading: bool) -> None:
         self.tag = tag
         self.depth = depth
         self.is_loading = is_loading
         self.parts: list[str] = []
+        self.text_chars = 0
         self.closed = False
+
+    def append(self, data: str) -> bool:
+        remaining = _MAX_TEXT_CHARS + 1 - self.text_chars
+        if remaining > 0:
+            part = data[:remaining]
+            self.parts.append(part)
+            self.text_chars += len(part)
+        return len(data) <= remaining
 
 
 class _ProgressParser(HTMLParser):
@@ -77,11 +86,16 @@ class _ProgressParser(HTMLParser):
         class_value = attribute_values.get("class", [None])[0]
         classes = class_value.split() if class_value is not None else []
         is_loading = "loading" in classes
-        target = _Target(tag, len(self.stack), is_loading)
         if element_id == "info":
-            self.info_targets.append(target)
+            if self.info_targets:
+                self.malformed = True
+            else:
+                self.info_targets.append(_Target(tag, len(self.stack), is_loading))
         elif tag == "p" and is_loading:
-            self.loading_targets.append(target)
+            if self.loading_targets:
+                self.malformed = True
+            else:
+                self.loading_targets.append(_Target(tag, len(self.stack), is_loading))
 
         if tag not in _VOID_ELEMENTS:
             self.stack.append(tag)
@@ -109,7 +123,8 @@ class _ProgressParser(HTMLParser):
             self.plain_parts.append(data)
         for target in (*self.info_targets, *self.loading_targets):
             if not target.closed and depth > target.depth:
-                target.parts.append(data)
+                if not target.append(data):
+                    self.malformed = True
 
     def valid(self) -> bool:
         targets = (*self.info_targets, *self.loading_targets)
@@ -157,6 +172,16 @@ def parse_dockur_progress(body: bytes) -> DockurProgress | None:
     return DockurProgress(text=text, is_loading=is_loading)
 
 
+class _PollAttempt:
+    __slots__ = ("done", "error", "expired", "result")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.error: BaseException | None = None
+        self.expired = False
+        self.result: DockurProgress | None = None
+
+
 class DockurProgressReader:
     """Poll dockur progress and suppress values unchanged for 60 seconds."""
 
@@ -164,32 +189,18 @@ class DockurProgressReader:
         self._vnc_port = vnc_port
         self._last_progress: DockurProgress | None = None
         self._first_seen_at: float | None = None
+        self._attempt: _PollAttempt | None = None
+        self._attempt_lock = threading.Lock()
 
-    def poll(self) -> DockurProgress | None:
-        """Fetch one progress document, returning None when unavailable or stale."""
+    def _fetch(self) -> DockurProgress | None:
+        connection: http.client.HTTPConnection | None = None
+        close_failed = False
         try:
             connection = http.client.HTTPConnection(
                 "127.0.0.1",
                 self._vnc_port,
                 timeout=_REQUEST_TIMEOUT_SECONDS,
             )
-        except (OSError, ValueError, http.client.HTTPException):
-            return None
-
-        expired = threading.Event()
-
-        def expire_request() -> None:
-            expired.set()
-            try:
-                connection.close()
-            except (OSError, http.client.HTTPException):
-                return
-
-        deadline = threading.Timer(_REQUEST_TIMEOUT_SECONDS, expire_request)
-        deadline.daemon = True
-        deadline.start()
-        close_failed = False
-        try:
             connection.request("GET", "/msg.html")
             response = connection.getresponse()
             if response.status != 200:
@@ -204,17 +215,65 @@ class DockurProgressReader:
         except (OSError, ValueError, http.client.HTTPException):
             return None
         finally:
-            deadline.cancel()
-            deadline.join()
-            try:
-                connection.close()
-            except (OSError, http.client.HTTPException):
-                close_failed = True
+            if connection is not None:
+                try:
+                    connection.close()
+                except (OSError, http.client.HTTPException):
+                    close_failed = True
 
-        if expired.is_set() or close_failed:
+        if close_failed:
             return None
+        return parse_dockur_progress(body)
 
-        progress = parse_dockur_progress(body)
+    def _run_attempt(self, attempt: _PollAttempt) -> None:
+        try:
+            result = self._fetch()
+        except BaseException as error:  # noqa: BLE001 -- transfer across thread boundary
+            with self._attempt_lock:
+                if not attempt.expired:
+                    attempt.error = error
+        else:
+            with self._attempt_lock:
+                if not attempt.expired:
+                    attempt.result = result
+        finally:
+            attempt.done.set()
+
+    def poll(self) -> DockurProgress | None:
+        """Fetch one progress document, returning None when unavailable or stale."""
+        start_attempt = False
+        with self._attempt_lock:
+            attempt = self._attempt
+            if attempt is not None and attempt.expired:
+                if not attempt.done.is_set():
+                    return None
+                self._attempt = None
+                attempt = None
+            if attempt is None:
+                attempt = _PollAttempt()
+                self._attempt = attempt
+                start_attempt = True
+
+        if start_attempt:
+            threading.Thread(target=self._run_attempt, args=(attempt,), daemon=True).start()
+
+        if not attempt.done.wait(_REQUEST_TIMEOUT_SECONDS):
+            with self._attempt_lock:
+                if not attempt.done.is_set():
+                    attempt.expired = True
+                    return None
+
+        with self._attempt_lock:
+            if self._attempt is attempt:
+                self._attempt = None
+            if attempt.expired:
+                return None
+            error = attempt.error
+            progress = attempt.result
+
+        if error is not None:
+            raise error
+
         if progress is None:
             return None
         now = time.monotonic()

@@ -7,6 +7,7 @@ import pytest
 
 from winpodx.core.dockur_progress import (
     DockurProgress,
+    _ProgressParser,
     parse_dockur_progress,
 )
 
@@ -108,3 +109,33 @@ def test_parse_rejects_untrusted_or_ambiguous_html(body: bytes) -> None:
 
     # Then
     assert result is None
+
+
+def test_parser_does_not_retain_duplicate_progress_targets() -> None:
+    # Given
+    parser = _ProgressParser()
+    body = "".join('<p class="loading">status</p>' for _ in range(300))
+
+    # When
+    parser.feed(body)
+    parser.close()
+
+    # Then
+    assert parser.valid() is False
+    assert len(parser.loading_targets) == 1
+
+
+def test_parser_caps_fragmented_target_text_while_rejecting_overflow() -> None:
+    # Given
+    parser = _ProgressParser()
+    parser.feed('<div id="info">')
+
+    # When
+    for _ in range(600):
+        parser.feed("x")
+    parser.feed("</div>")
+    parser.close()
+
+    # Then
+    assert parser.valid() is False
+    assert sum(len(part) for part in parser.info_targets[0].parts) <= 513

@@ -31,6 +31,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QLabel,
@@ -204,6 +205,8 @@ def test_log_bar_exposes_two_empty_ticker_lines() -> None:
     assert bar.height() == 38
     assert host.log_bar_line1.text() == ""
     assert host.log_bar_line2.text() == ""
+    assert host.log_bar_line1.textFormat() == Qt.TextFormat.PlainText
+    assert host.log_bar_line2.textFormat() == Qt.TextFormat.PlainText
 
 
 # ----- NavigationMixin ---------------------------------------------------

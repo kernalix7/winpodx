@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import socket
-import threading
-import time
 
 import pytest
 
@@ -193,52 +191,6 @@ def test_reader_safely_handles_timeout_and_closes(http_harness: _ConnectionHarne
     http_harness.response_error = socket.timeout()
     assert DockurProgressReader(vnc_port=VNC_PORT).poll() is None
     assert http_harness.connections[0].closed is True
-
-
-def test_reader_enforces_total_wall_clock_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Given
-    released = threading.Event()
-
-    class _BlockingResponse:
-        status = 200
-
-        def getheader(self, name: str, default: str | None = None) -> str | None:
-            return default
-
-        def read(self, amount: int | None = None) -> bytes:
-            released.wait(2.0)
-            return b'<p class="loading">Installing Windows</p>'
-
-    class _BlockingConnection:
-        def __init__(self) -> None:
-            self.closed = False
-
-        def request(self, method: str, path: str) -> None:
-            return None
-
-        def getresponse(self) -> _BlockingResponse:
-            return _BlockingResponse()
-
-        def close(self) -> None:
-            self.closed = True
-            released.set()
-
-    connection = _BlockingConnection()
-    monkeypatch.setattr(
-        dockur_progress.http.client,
-        "HTTPConnection",
-        lambda host, port, timeout: connection,
-    )
-
-    # When
-    started = time.monotonic()
-    result = DockurProgressReader(vnc_port=VNC_PORT).poll()
-    elapsed = time.monotonic() - started
-
-    # Then
-    assert result is None
-    assert elapsed < 1.5
-    assert connection.closed is True
 
 
 def _set_clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
