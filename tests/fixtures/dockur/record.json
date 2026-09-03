@@ -1,0 +1,26 @@
+{
+  "DOCKUR_IMAGE_PIN": "ghcr.io/dockur/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2",
+  "dockur_tag": "v6.05",
+  "base_image": "qemux/qemu:7.48",
+  "endpoint": "/msg.html",
+  "provenance": {
+    "method": "source-derived",
+    "dockur_dockerfile": "https://raw.githubusercontent.com/dockur/windows/v6.05/Dockerfile",
+    "progress_script": "https://raw.githubusercontent.com/qemus/qemu/v7.48/src/progress.sh",
+    "finish_script": "https://raw.githubusercontent.com/qemus/qemu/v7.48/src/finish.sh"
+  },
+  "samples": [
+    {
+      "file": "msg-v6.05-32cc9271-loading.html",
+      "sha256": "33fa31b67828f5b1e4a452c35851a0bda8e91a84c728b288b452b55f50cc051f",
+      "expected_text": "Downloading Windows 11",
+      "is_loading": true
+    },
+    {
+      "file": "msg-v6.05-32cc9271-complete.html",
+      "sha256": "b7b88c2fda5a2cad0c8b209bf8ef8b67d3a9587dcb9db19dc6f6ff8c11894b63",
+      "expected_text": "The virtual machine was booted successfully.",
+      "is_loading": false
+    }
+  ]
+}
