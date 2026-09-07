@@ -16,7 +16,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+from winpodx.gui import theme  # noqa: E402
 from winpodx.gui._ring_gauge import RingGauge, StatBar, _qcolor  # noqa: E402
+from winpodx.gui.theme import FONT_CAPTION  # noqa: E402
 
 
 def _ensure_qapp():
@@ -82,6 +84,24 @@ def test_ring_accepts_none_for_the_unavailable_state() -> None:
     assert gauge._center_text == "n/a"
 
 
+def test_ring_exposes_initial_accessibility_metadata() -> None:
+    _ensure_qapp()
+    gauge = RingGauge("RAM", "#89b4fa")
+
+    assert gauge.accessibleName() == "RAM"
+    assert gauge.accessibleDescription() == "--"
+
+
+@pytest.mark.parametrize(("value", "text"), [(42, "42%"), (None, "n/a")])
+def test_ring_updates_accessibility_description_with_value(value: int | None, text: str) -> None:
+    _ensure_qapp()
+    gauge = RingGauge("CPU", "#89b4fa")
+
+    gauge.set_value(value, text)
+
+    assert gauge.accessibleDescription() == text
+
+
 def test_ring_coerces_an_int_percentage_to_float() -> None:
     _ensure_qapp()
     gauge = RingGauge("CPU", "#89b4fa")
@@ -133,6 +153,138 @@ def test_ring_center_text_is_drawn() -> None:
     assert with_text != without_text
 
 
+def _close(a, b, tol: int = 24) -> bool:
+    return (
+        abs(a.red() - b.red()) <= tol
+        and abs(a.green() - b.green()) <= tol
+        and abs(a.blue() - b.blue()) <= tol
+    )
+
+
+def _pixel_near(image, cx: int, cy: int, radius: int = 3):
+    from PySide6.QtGui import QColor
+
+    colors = []
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            x, y = cx + dx, cy + dy
+            if 0 <= x < image.width() and 0 <= y < image.height():
+                colors.append(QColor(image.pixelColor(x, y)))
+    return colors
+
+
+def test_ring_winui_size_hint_covers_diameter_and_caption() -> None:
+    _ensure_qapp()
+    gauge = RingGauge("RAM", theme.C.BLUE)
+
+    hint = gauge.sizeHint()
+
+    assert hint.width() == 72
+    assert hint.height() >= 72 + FONT_CAPTION
+
+
+def test_ring_arc_at_noon_uses_theme_accent_and_track_is_not_accent() -> None:
+    from PySide6.QtGui import QColor
+
+    _ensure_qapp()
+    gauge = RingGauge("RAM", "#ff00ff")
+    gauge.resize(gauge.sizeHint())
+    gauge.set_value(60, "60%")
+    image = gauge.grab().toImage()
+
+    noon = _pixel_near(image, image.width() // 2, 3)
+    nine = _pixel_near(image, 3, 72 // 2)
+    accent = QColor(theme.C.BLUE)
+
+    assert any(_close(px, accent) for px in noon)
+    assert all(not _close(px, accent) for px in nine)
+
+
+def test_ring_critical_disk_arc_uses_theme_red() -> None:
+    from PySide6.QtGui import QColor
+
+    _ensure_qapp()
+    gauge = RingGauge(
+        "Disk C:",
+        theme.C.BLUE,
+        critical_color=theme.C.RED,
+        critical_pct=85,
+    )
+    gauge.resize(gauge.sizeHint())
+    gauge.set_value(90, "90%")
+    image = gauge.grab().toImage()
+
+    noon = _pixel_near(image, image.width() // 2, 3)
+    assert any(_close(px, QColor(theme.C.RED)) for px in noon)
+
+
+def test_ring_unavailable_paints_an_em_dash_instead_of_na() -> None:
+    _ensure_qapp()
+    gauge = RingGauge("CPU", theme.C.BLUE)
+    size = gauge.sizeHint()
+
+    gauge.set_value(None, "n/a")
+    na = _render(gauge, size.width(), size.height())
+    gauge.set_value(None, "—")
+    dash = _render(gauge, size.width(), size.height())
+    gauge.set_value(0, "n/a")
+    zero = _render(gauge, size.width(), size.height())
+
+    assert na == dash
+    assert na != zero
+
+
+def test_ring_animates_arc_fraction_to_the_target() -> None:
+    _ensure_qapp()
+    gauge = RingGauge("RAM", theme.C.BLUE)
+    gauge.show()
+    gauge.set_value(60, "60%")
+
+    anim = gauge._anim
+    anim.setCurrentTime(anim.duration())
+
+    assert anim.duration() == 250
+    assert gauge._arc_frac == pytest.approx(0.6)
+
+
+def test_ring_detail_mirrors_center_text() -> None:
+    _ensure_qapp()
+    gauge = RingGauge("RAM", theme.C.BLUE)
+
+    gauge.set_value(62, "62%")
+
+    assert gauge._detail == "62%"
+    assert gauge._detail == gauge._center_text
+
+
+def test_ring_size_hint_includes_fontmetrics_caption_band() -> None:
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    _ensure_qapp()
+    gauge = RingGauge("Disk C:", theme.C.BLUE)
+    font = QFont(gauge.font())
+    font.setPixelSize(FONT_CAPTION)
+    band = QFontMetrics(font).height() + 4
+
+    hint = gauge.sizeHint()
+
+    assert hint.height() >= 72 + band
+
+
+@pytest.mark.parametrize("caption", ["RAM", "CPU", "Disk C:"])
+def test_ring_caption_rect_fits_inside_the_gauge(caption: str) -> None:
+    _ensure_qapp()
+    gauge = RingGauge(caption, theme.C.BLUE)
+    gauge.resize(gauge.sizeHint())
+
+    cap = gauge.caption_rect()
+
+    assert cap.y() >= 0
+    assert cap.x() >= 0
+    assert cap.y() + cap.height() <= gauge.height()
+    assert cap.x() + cap.width() <= gauge.width()
+
+
 # --- StatBar --------------------------------------------------------------
 
 
@@ -158,9 +310,9 @@ def test_statbar_accepts_none_and_keeps_detail_text() -> None:
 
 def test_statbar_exposes_and_clears_critical_accessibility_state(monkeypatch) -> None:
     _ensure_qapp()
-    import winpodx.gui._ring_gauge as gauge_mod
+    import winpodx.gui._stat_bar as bar_mod
 
-    monkeypatch.setattr(gauge_mod, "tr", lambda text: f"T<{text}>", raising=False)
+    monkeypatch.setattr(bar_mod, "tr", lambda text: f"T<{text}>", raising=False)
     bar = StatBar(
         "Disk C:",
         "#89b4fa",
@@ -217,3 +369,18 @@ def test_statbar_detail_text_is_drawn() -> None:
     without_detail = _render(bar, width=240, height=60)
 
     assert with_detail != without_detail
+
+
+def test_center_label_falls_back_to_percent_when_text_cannot_fit_the_ring() -> None:
+    _ensure_qapp()
+    gauge = RingGauge("Disk C:", theme.C.BLUE)
+    gauge.set_value(41.0, "26 / 64 GB")
+    assert gauge.center_label() == "41%"
+    assert gauge.toolTip() == "26 / 64 GB"
+
+    gauge.set_value(62.0, "62%")
+    assert gauge.center_label() == "62%"
+    assert gauge.toolTip() == ""
+
+    gauge.set_value(None, "n/a")
+    assert gauge.center_label() == "—"

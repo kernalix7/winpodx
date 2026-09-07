@@ -28,13 +28,9 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.debloat import DebloatCatalog
 from winpodx.core.i18n import tr
+from winpodx.gui import theme
 from winpodx.gui.theme import (
-    BTN_PRIMARY,
-    BTN_SECONDARY,
-    CHECKBOX,
-    DIALOG,
-    RADIO,
-    SCROLL_AREA,
+    CONTROL_HEIGHT_W11,
     SPACE_L,
     SPACE_M,
     SPACE_S,
@@ -112,7 +108,7 @@ class DebloatPickerDialog(QDialog):
         # once instead of a cramped default (#550); still resizable + scrolls.
         self.resize(760, 720)
         self.setModal(True)
-        self.setStyleSheet(DIALOG + CHECKBOX + RADIO + SCROLL_AREA)
+        self.setStyleSheet(theme.DIALOG + theme.CHECKBOX + theme.RADIO + theme.SCROLL_AREA)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 18, 20, 18)
@@ -212,7 +208,7 @@ class DebloatPickerDialog(QDialog):
             badge.setToolTip(_RISK_TOOLTIP.get(item.risk, ""))
             badge.setStyleSheet(
                 "QLabel#riskBadge {"
-                f" background: {_RISK_COLOR.get(item.risk, '#888')};"
+                f" background: {_RISK_COLOR.get(item.risk, C.OVERLAY0)};"
                 f" color: {C.CRUST}; border-radius: 6px;"
                 " padding: 2px 4px; font-size: 11px; font-weight: 500;"
                 " }"
@@ -248,8 +244,12 @@ class DebloatPickerDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Apply
         )
-        buttons.button(QDialogButtonBox.StandardButton.Apply).setStyleSheet(BTN_PRIMARY)
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setStyleSheet(BTN_SECONDARY)
+        apply_btn = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        apply_btn.setStyleSheet(theme.BTN_PRIMARY)
+        cancel_btn.setStyleSheet(theme.BTN_SECONDARY)
+        apply_btn.setMinimumHeight(CONTROL_HEIGHT_W11)
+        cancel_btn.setMinimumHeight(CONTROL_HEIGHT_W11)
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)

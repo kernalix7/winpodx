@@ -2,7 +2,7 @@
 
 WinPodX pod 의 설치 / 업그레이드 / 마이그레이션 / 헬스 유지 전 과정을 코드 경로 단위로 설명. 각 섹션은 한 단계씩 — 누가 발사하나, 무엇을 하나, 코드가 어디 있나, 어떤 실패 모드를 다루나.
 
-> **대상.** WinPodX 의 어떤 코드 경로든 이해하거나 디버그해야 하는 메인테이너 / 고급 사용자. 일상 사용은 [README.ko.md](README.ko.md) 참고.
+> **대상.** WinPodX 의 어떤 코드 경로든 이해하거나 디버그해야 하는 메인테이너 / 고급 사용자. 일상 사용은 [README.ko.md](../README.ko.md) 참고.
 
 ---
 
@@ -83,7 +83,7 @@ WinPodX pod 의 설치 / 업그레이드 / 마이그레이션 / 헬스 유지 �
 
 **흐름.**
 
-1. `install.sh` 가 distro 확인, 누락 의존성 설치 (podman, podman-compose, freerdp, libnotify), Python ≥ 3.9 검증.
+1. `install.sh` 가 distro 확인, 누락 의존성 설치 (podman, podman-compose, freerdp, libnotify), Python ≥ 3.10 검증.
 2. `install.sh` 가 winpodx 소스를 `~/.local/bin/winpodx-app/` 에 추출 + `winpodx` 런처를 `~/.local/bin/winpodx` 에 작성.
 3. `install.sh` 가 `python3 -m winpodx setup --non-interactive` 호출 (`src/winpodx/cli/setup_cmd.py::handle_setup`).
 4. setup 이 `~/.config/winpodx/winpodx.toml` 작성:
@@ -429,7 +429,7 @@ Agent listener: `http://+:8765/` + `netsh http add urlacl` 사전 등록 (User-l
 
 ## 11. Guest sync (`winpodx pod sync-guest`)
 
-**코드.** `src/winpodx/core/guest_sync.py::sync_guest`. 전체 설계 노트: [docs/design/GUEST_SYNC_DESIGN.md](design/GUEST_SYNC_DESIGN.md).
+**코드.** `src/winpodx/core/guest_sync.py::sync_guest`. 전체 설계 노트: [docs/design/GUEST_SYNC_DESIGN.md](GUEST_SYNC_DESIGN.md).
 
 **목표.** 호스트의 WinPodX 를 업그레이드하면 호스트 바이너리는 갱신되지만, 첫 설치 때 staging 된 게스트 측 아티팩트는 사용자가 Windows 를 밀고 재설치하기 전까지 stale 상태로 남음: `C:\OEM\agent.ps1`, urlacl 예약, rdprrap / `shim.exe` / `rcedit.exe`, 헬퍼 스크립트. apply 체인 ([§6](#6-apply-체인-apply_windows_runtime_fixes)) 은 *일부* idempotent 레지스트리 fix 만 재적용할 뿐 `agent.ps1` / urlacl 예약 / 게스트 바이너리는 **갱신 안 함**. Guest sync 가 재설치 없이 이 간극을 메움.
 
@@ -563,7 +563,7 @@ Agent listener: `http://+:8765/` + `netsh http add urlacl` 사전 등록 (User-l
 
 ## 참고
 
-- **[CHANGELOG.ko.md](CHANGELOG.ko.md)** — 릴리스 히스토리.
+- **[CHANGELOG.ko.md](../CHANGELOG.ko.md)** — 릴리스 히스토리.
 - **[AGENT_V2_DESIGN.md](AGENT_V2_DESIGN.md)** — agent 프로토콜 설계 노트.
 - **[TRANSPORT_ABC.md](TRANSPORT_ABC.md)** — transport 추상화 내부.
 - **[LIFECYCLE.md](LIFECYCLE.md)** — English version.

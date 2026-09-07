@@ -15,9 +15,9 @@ import pytest
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QEnterEvent, QKeyEvent, QMouseEvent, QPixmap  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QMenu, QWidget  # noqa: E402
 
 from winpodx.core.app import AppInfo  # noqa: E402
 from winpodx.gui import launcher, launcher_state  # noqa: E402
@@ -360,8 +360,8 @@ def test_long_cjk_name_keeps_the_wrap_label_width_fixed(monkeypatch, tmp_path):
     # #553: a variable-width word-wrap label inside a resizable QScrollArea
     # recurses through heightForWidth until it SIGSEGVs.
     assert label.wordWrap() is True
-    assert label.minimumWidth() == label.maximumWidth() == 180
-    assert label.maximumHeight() == 38
+    assert label.minimumWidth() == label.maximumWidth() == 104
+    assert label.maximumHeight() == 2 * label.fontMetrics().lineSpacing()
 
     win._scroll_area.resize(300, 300)
     win._scroll_area.render(QPixmap(win._scroll_area.size()))
@@ -369,7 +369,7 @@ def test_long_cjk_name_keeps_the_wrap_label_width_fixed(monkeypatch, tmp_path):
     win._scroll_area.resize(640, 300)
     win._scroll_area.render(QPixmap(win._scroll_area.size()))
     assert (label.width(), label.height()) == narrow
-    assert label.width() == 180
+    assert label.width() == 104
 
 
 def test_compact_list_item_styles_and_activation():
@@ -379,12 +379,14 @@ def test_compact_list_item_styles_and_activation():
     assert item.height() == 40
     assert "transparent" in item.styleSheet()
 
+    from winpodx.gui import theme
+
     item.set_selected(True)
-    assert "96,205,255" in item.styleSheet()
+    assert theme.rgba(theme.C.BLUE, 0.15) in item.styleSheet()
     item.enterEvent(QEnterEvent(QPointF(1, 1), QPointF(1, 1), QPointF(1, 1)))
     assert item._hovered is True
     item.set_selected(False)
-    assert "#2B2B2B" in item.styleSheet()
+    assert theme.C.SURFACE0.lower() in item.styleSheet().lower()
     item.leaveEvent(QEvent(QEvent.Type.Leave))
     assert "transparent" in item.styleSheet()
 
@@ -400,14 +402,17 @@ def test_pill_bar_exposes_every_category_and_reports_selection():
     picked = []
     bar = _keep(launcher.PillBar(launcher.CATEGORY_ORDER, picked.append))
     assert list(bar._buttons) == ["All"] + launcher.CATEGORY_ORDER
+    from winpodx.gui import theme
+
     assert bar._active == "All"
-    assert "#60CDFF" in bar._buttons["All"].styleSheet()
+    assert theme.C.BLUE.lower() in bar._buttons["All"].styleSheet().lower()
 
     bar._buttons["Media"].click()
     assert picked == ["Media"]
     assert bar._active == "Media"
-    assert "#60CDFF" in bar._buttons["Media"].styleSheet()
-    assert "#2B2B2B" in bar._buttons["All"].styleSheet()
+    assert theme.C.BLUE.lower() in bar._buttons["Media"].styleSheet().lower()
+    assert bar._buttons["All"].isChecked() is False
+    assert bar._buttons["Media"].isChecked() is True
 
 
 def test_launch_notification_renders_name_and_hides_once(tmp_path):
@@ -945,15 +950,16 @@ def test_pill_focus_ring_ignores_out_of_range_indexes(monkeypatch, tmp_path):
     win._update_pill_styles()
     win._focus_pill_button(len(keys) + 5)
     assert win._pill_bar._active == "All"
-    assert all(
-        "2px solid #60CDFF" not in btn.styleSheet() for btn in win._pill_bar._buttons.values()
-    )
+    from winpodx.gui import theme
+
+    ring = f"2px solid {theme.C.BLUE}"
+    assert all(ring not in btn.styleSheet() for btn in win._pill_bar._buttons.values())
 
     win._pill_focus = len(keys) - 1
     win._update_pill_styles()
     win._focus_pill_button(win._pill_focus)
-    assert "2px solid #60CDFF" in win._pill_bar._buttons[keys[-1]].styleSheet()
-    assert "2px solid #60CDFF" not in win._pill_bar._buttons["All"].styleSheet()
+    assert ring in win._pill_bar._buttons[keys[-1]].styleSheet()
+    assert ring not in win._pill_bar._buttons["All"].styleSheet()
 
 
 def test_focus_leaving_the_window_hides_it(monkeypatch, tmp_path):
@@ -1099,3 +1105,222 @@ def test_launcher_state_falls_back_to_home_without_xdg_state_home(monkeypatch, t
     launcher_state.pin("word")
     path = tmp_path / ".local" / "state" / launcher_state.APP_NAME / "launcher_state.json"
     assert json.loads(path.read_text(encoding="utf-8"))["pinned"] == ["word"]
+
+
+def _launcher_root(win):
+    return win.findChild(QFrame, "launcherRoot")
+
+
+def test_start_flyout_root_and_search_use_fluent_tokens(monkeypatch, tmp_path):
+    from winpodx.gui import theme
+
+    win = _make_window(monkeypatch, tmp_path)
+    root = _launcher_root(win)
+    assert root is not None
+    assert root.objectName() == "launcherRoot"
+    assert win.search_bar.objectName() == "navSearch"
+    assert win.search_bar.minimumHeight() >= 32
+    assert theme.NAV_SEARCH.strip() in win.search_bar.styleSheet()
+
+
+def test_start_flyout_exposes_pinned_heading_and_all_apps_button(monkeypatch, tmp_path):
+    win = _make_window(monkeypatch, tmp_path)
+    heading = win.findChild(QLabel, "pinnedHeading")
+    button = win.findChild(QWidget, "allAppsButton")
+    assert heading is not None
+    assert button is not None
+
+
+def test_reveal_tile_uses_start_tile_qss_and_start_geometry():
+    from winpodx.gui import theme
+
+    entry = launcher.AppEntry(name="Word", slug="word")
+    tile = _keep(launcher.RevealTile(entry, lambda _e: None))
+    sheet = tile.styleSheet()
+    assert "startTile" in sheet
+    assert ":focus" in sheet
+    assert theme.START_TILE.strip() in sheet
+    assert tile.size() == tile.minimumSize() == tile.maximumSize()
+    assert (tile.width(), tile.height()) == (120, 56 + tile._name_label.height())
+    assert tile._name_label.minimumWidth() == tile._name_label.maximumWidth() == 104
+
+
+def test_reveal_tile_two_line_name_fits_inside_tile() -> None:
+    entry = launcher.AppEntry(name="Visual Studio Code", slug="code")
+    tile = _keep(launcher.RevealTile(entry, lambda _e: None))
+    tile.show()
+    _APP.processEvents()
+
+    label = tile._name_label
+    assert label.height() >= 2 * label.fontMetrics().lineSpacing()
+    assert tile.rect().contains(label.geometry())
+
+
+def test_recommended_rows_are_named_after_recents_populate(monkeypatch, tmp_path):
+    launcher_state.record_recent("word")
+    win = _make_window(monkeypatch, tmp_path, show=True)
+    rows = [w for w in win.findChildren(QFrame) if w.objectName() == "recommendedRow"]
+    assert rows
+
+
+def test_recommended_row_is_keyboard_accessible_and_launches_once(monkeypatch, tmp_path):
+    launcher_state.record_recent("word")
+    win = _make_window(monkeypatch, tmp_path, show=True)
+    row = win.findChild(QFrame, "recommendedRow")
+    fired = []
+    win._launch_app = fired.append
+
+    assert row is not None
+    assert row.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert row.accessibleName() == "Word"
+    row.keyPressEvent(_key(Qt.Key.Key_Return))
+    assert [entry.name for entry in fired] == ["Word"]
+
+
+def test_recommended_rows_follow_pinned_tiles_in_tab_order(monkeypatch, tmp_path):
+    launcher_state.pin("word")
+    launcher_state.record_recent("excel")
+    win = _make_window(monkeypatch, tmp_path, show=True)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    pinned = _widgets(win._pinned_row, launcher.RevealTile)
+    row = win.findChild(QFrame, "recommendedRow")
+
+    assert row is not None
+    following = pinned[-1].nextInFocusChain()
+    while following.focusPolicy() == Qt.FocusPolicy.NoFocus:
+        following = following.nextInFocusChain()
+    assert following is row
+
+
+def _visible_rects(widgets):
+    return [w.geometry() for w in widgets if not w.isHidden() and w.parentWidget() is not None]
+
+
+def _no_intersections(rects):
+    return all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1 :])
+
+
+def test_start_sections_lay_out_without_overlap_after_a_repopulate(monkeypatch, tmp_path):
+    # Given
+    for slug in ("word", "excel", "powershell", "settings"):
+        launcher_state.pin(slug)
+    for slug in ("vlc", "firefox", "word"):
+        launcher_state.record_recent(slug)
+    win = _make_window(monkeypatch, tmp_path, show=True)
+
+    # When
+    win._populate_start_sections()
+    win._populate_start_sections()
+    _APP.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    pinned_tiles = [
+        t
+        for t in win.findChildren(launcher.RevealTile)
+        if t.parentWidget() is win._pinned_row.parentWidget()
+    ]
+    orphans = [
+        t
+        for t in win.findChildren(launcher.RevealTile)
+        if t.parentWidget() is None and not t.isHidden()
+    ]
+    pinned_rects = _visible_rects(pinned_tiles)
+    rows = [w for w in win.findChildren(QFrame) if w.objectName() == "recommendedRow"]
+    row_rects = _visible_rects(rows)
+    heading = win.findChild(QLabel, "recommendedHeading")
+
+    # Then
+    assert len(pinned_tiles) == 4
+    assert orphans == []
+    assert all(r.width() == 120 and r.height() >= 72 for r in pinned_rects)
+    assert len({r.top() for r in pinned_rects}) == 1
+    assert _no_intersections(pinned_rects)
+    assert len(row_rects) == 3
+    assert all(r.height() >= 40 for r in row_rects)
+    assert _no_intersections(row_rects)
+    assert heading is not None
+    assert heading.geometry().bottom() < min(r.top() for r in row_rects)
+    assert _no_intersections([t.geometry() for t in _tiles(win)])
+
+
+def test_restyle_launcher_follows_light_and_dark_base(monkeypatch, tmp_path):
+    from winpodx.gui import theme
+
+    win = _make_window(monkeypatch, tmp_path)
+    root = _launcher_root(win)
+    theme.rebuild("light")
+    win._restyle_launcher()
+    assert "#F3F3F3" in root.styleSheet()
+    theme.rebuild("dark")
+    win._restyle_launcher()
+    assert "#1F1F1F" in root.styleSheet()
+
+
+def test_restyle_launcher_refreshes_pills_and_scroll_for_dark(monkeypatch, tmp_path):
+    from winpodx.gui import theme
+
+    win = _make_window(monkeypatch, tmp_path)
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("dark")
+        win._restyle_launcher()
+        for bar in win.findChildren(launcher.PillBar):
+            for name, btn in bar._buttons.items():
+                ss = btn.styleSheet()
+                assert "#F9F9F9" not in ss
+                if name == bar._active:
+                    assert theme.C.BLUE in ss
+                assert btn.minimumHeight() == 32
+                assert btn.maximumHeight() == 32
+        scroll_ss = win._scroll_area.styleSheet()
+        assert theme.C.OVERLAY1 in scroll_ss
+        assert "#F9F9F9" not in scroll_ss
+        assert "#FFFFFF" not in scroll_ss
+    finally:
+        theme.rebuild(previous)
+
+
+def test_launcher_start_flyout_geometry_and_chrome(monkeypatch, tmp_path):
+    win = _make_window(monkeypatch, tmp_path)
+    assert win.width() == 660
+    assert win.height() == 560
+    assert win.search_bar.minimumHeight() >= 36
+    assert win._pill_bar.minimumHeight() == 32
+    for btn in win._pill_bar._buttons.values():
+        assert btn.minimumHeight() == 32
+        assert btn.maximumHeight() == 32
+    assert win._bottom_bar.height() == 48 or win._bottom_bar.minimumHeight() == 48
+    assert not win._winpodx_btn.icon().isNull()
+    assert not win._gear_btn.icon().isNull()
+    tile = launcher.RevealTile(
+        launcher.AppEntry(name="Word", slug="word"),
+        lambda _e: None,
+    )
+    assert tile.width() == 120
+    assert tile.height() >= 72
+
+
+def test_show_launcher_starts_the_theme_manager(monkeypatch, tmp_path):
+    _patch_config(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "list_available_apps", _default_infos)
+    monkeypatch.setattr(launcher, "LauncherWindow", _TrackedLauncherWindow)
+    monkeypatch.setattr(launcher.QApplication, "exec", lambda self: 0)
+
+    started = []
+
+    class _Mgr:
+        scheme_changed = type("Sig", (), {"connect": staticmethod(lambda *_a, **_k: None)})()
+
+        def start(self, app):
+            started.append(app)
+
+    monkeypatch.setattr(launcher.theme_manager, "instance", lambda: _Mgr())
+
+    app = QApplication.instance()
+    org, name = app.organizationName(), app.applicationName()
+    try:
+        assert launcher.show_launcher() == 0
+        assert started
+        assert started[0] is app
+    finally:
+        app.setOrganizationName(org)
+        app.setApplicationName(name)

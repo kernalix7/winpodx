@@ -1211,3 +1211,48 @@ def test_dialog_default_phases_unchanged() -> None:
         assert dlg._active_phase_idx == 0  # pod is row 0 when no pre-phases
     finally:
         dlg.deleteLater()
+
+
+_OLD_HEX = ("#0d1117", "#161b22", "#21262d", "#58a6ff", "#e6edf3")
+
+
+def test_bringup_dialog_has_no_legacy_hex_and_controls_are_32px() -> None:
+    _ensure_qapp()
+    from PySide6.QtWidgets import QWidget
+
+    from winpodx.gui._main_window_bringup import BringUpProgressDialog
+
+    dlg = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
+    try:
+        styles = [dlg.styleSheet() or ""]
+        styles.extend(child.styleSheet() or "" for child in dlg.findChildren(QWidget))
+        joined = "\n".join(styles).lower()
+        for hex_color in _OLD_HEX:
+            assert hex_color not in joined
+        assert dlg.cancel_btn.minimumHeight() >= 32
+    finally:
+        dlg.deleteLater()
+
+
+def test_bringup_dialog_follows_the_scheme_active_when_it_opens() -> None:
+    _ensure_qapp()
+    from winpodx.gui import theme
+    from winpodx.gui._main_window_bringup import BringUpProgressDialog
+
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("dark")
+        dark = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
+        theme.rebuild("light")
+        light = BringUpProgressDialog(None, on_cancel=lambda: None, cfg=None)
+        try:
+            assert "#191919" in dark.styleSheet().lower()
+            assert "#191919" not in light.styleSheet().lower()
+            assert (
+                "#f9f9f9" in light.styleSheet().lower() or "#ffffff" in light.styleSheet().lower()
+            )
+        finally:
+            dark.deleteLater()
+            light.deleteLater()
+    finally:
+        theme.rebuild(previous)

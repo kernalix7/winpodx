@@ -15,7 +15,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 | Interface | Shell CLI + optional launcher/tray | Qt6 GUI + shell CLI | Electron GUI | **Qt6 GUI + CLI + tray** |
 | App scope | Any Windows app | Office only | Any Windows app | Any Windows app |
 | Language | Shell | Shell + Python | TypeScript / Vue / Go | **Python-first + guest PowerShell/Rust shim** |
-| Runtime deps | Shell tools + FreeRDP; VM backend separately | Podman, podman-compose, FreeRDP 3; Python/PySide6 for GUI | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP 3+, Podman 4+ + podman-compose (default)** |
+| Runtime deps | Shell tools + FreeRDP; VM backend separately | Podman, podman-compose, FreeRDP 3; Python/PySide6 for GUI | Electron, Docker/Podman, FreeRDP | **Python 3.10+, FreeRDP 3+, Podman 4+ + podman-compose (default)** |
 | Auto suspend / resume | Yes (optional) | Yes | Not documented | **Yes (idle timeout, opt-in)** |
 | Password rotation | No | No | Not documented | **Yes (7-day, atomic)** |
 | HiDPI auto-detect | Manual scale setting | Host-detected display scaling | User-configured scale | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |

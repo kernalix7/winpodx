@@ -17,9 +17,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
-    QHBoxLayout,
-    QLabel,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -27,29 +26,16 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_empty_panel, make_page_header
-from winpodx.gui.icons import load_icon
-from winpodx.gui.theme import (
-    BTN_GHOST,
-    FONT_HEADER,
-    SCROLL_AREA,
-    SETTINGS_SECTION,
-    SPACE_L,
-    SPACE_M,
-    SPACE_S,
-    SPACE_XL,
-    SPACE_XS,
-    SPACE_XXL,
-    TOOL_ICON_BG,
-    TOOL_ICON_BORDER,
-    TOOL_ICON_FG,
-    C,
-    rgba,
+from winpodx.gui import theme as theme_mod
+from winpodx.gui._main_window_info_cards import _InfoCardsMixin
+from winpodx.gui._main_window_secondary_style import (
+    apply_w11_button,
+    mount_settings_column,
 )
 from winpodx.gui.workers import InfoWorker
 
 
-class InfoPageMixin:
+class InfoPageMixin(_InfoCardsMixin):
     """Info-tab behavior. Mix into ``WinpodxWindow``."""
 
     # Plain "what to install" hints appended to a MISSING dependency row so
@@ -62,27 +48,6 @@ class InfoPageMixin:
         "docker": "install Docker Engine if you prefer the docker backend",
         "flatpak": "install 'flatpak' only if you use the Flatpak FreeRDP fallback",
         "kvm": "enable KVM (load the kvm module; add yourself to the 'kvm' group)",
-    }
-
-    # Status colors drawn from the shared GitHub-Dark palette so the badges
-    # sit calm against the rest of the app rather than reading as loud
-    # saturated fills.
-    _HEALTH_BADGE_COLORS: dict[str, str] = {
-        "ok": C.GREEN,
-        "warn": C.YELLOW,
-        "fail": C.RED,
-        "skip": C.OVERLAY1,
-    }
-
-    # One restrained SVG glyph per section, rendered in a soft tinted chip in
-    # the card header — replaces the old bare blue text headers.
-    _INFO_CARD_ICONS: dict[str, str] = {
-        "health": "check",
-        "system": "hardware",
-        "display": "desktop",
-        "dependencies": "diamond",
-        "pod": "rdp",
-        "config": "gear",
     }
 
     def _build_info_page(self) -> QWidget:
@@ -101,34 +66,37 @@ class InfoPageMixin:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(SCROLL_AREA)
+        scroll.setStyleSheet(theme_mod.SCROLL_AREA)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XXL)
-        layout.setSpacing(SPACE_L)
+        layout = mount_settings_column(content)
 
         refresh_btn = QPushButton(tr("Refresh Info"))
-        refresh_btn.setIcon(load_icon("refresh", C.SUBTEXT0, 16))
-        refresh_btn.setStyleSheet(BTN_GHOST)
+        apply_w11_button(refresh_btn, theme_mod.BTN_GHOST, role="ghost")
+        refresh_btn.setFixedHeight(theme_mod.CONTROL_HEIGHT_W11)
         refresh_btn.clicked.connect(self._refresh_info)
-        layout.addWidget(
-            make_page_header(
+        self._info_refresh_btn = refresh_btn
+        register = getattr(self, "_register_page_header", None)
+        if callable(register):
+            register(
+                5,
                 tr("Info"),
                 tr("A live snapshot of your system, display, dependencies, and pod."),
-                actions_widget=refresh_btn,
+                actions=refresh_btn,
             )
-        )
+        else:
+            refresh_btn.setParent(page)
+            refresh_btn.hide()
 
-        # Containers for the 5 cards. Initial population goes through
-        # _refresh_info which dispatches a worker thread; until that thread
-        # returns, each card shows "Loading...".
+        copy_btn = QPushButton(tr("Copy diagnostics"))
+        apply_w11_button(copy_btn, theme_mod.BTN_PRIMARY, role="primary")
+        copy_btn.clicked.connect(self._copy_diagnostics)
+        self._info_copy_btn = copy_btn
+        layout.addWidget(self._build_about_device_card(action=copy_btn))
+
         self._info_cards: dict[str, QFrame] = {}
         self._info_card_bodies: dict[str, QVBoxLayout] = {}
-        # Health goes first so the user lands on live state before the
-        # static system snapshot. Each probe renders as `[OK] detail` with
-        # a colored badge — matches the `winpodx check` CLI output.
         for key, label in [
             ("health", "Health"),
             ("system", "System"),
@@ -151,158 +119,8 @@ class InfoPageMixin:
         # `done` signal back into a partially-built window and hits the
         # same QMessageBox font-lookup SEGV the Apps refresh path saw.
         QTimer.singleShot(0, self._refresh_info)
+        self._info_page = page
         return page
-
-    def _info_card(self, title: str, key: str = "") -> QFrame:
-        """Card scaffold with an icon-chip title + an empty body we mutate later."""
-        card = QFrame()
-        card.setObjectName("settingsSection")
-        card.setStyleSheet(
-            SETTINGS_SECTION
-            + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
-        )
-        add_shadow(card, blur=14, y=2, alpha=35)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(SPACE_XL, SPACE_L, SPACE_XL, SPACE_XL)
-        layout.setSpacing(SPACE_M)
-
-        # Header: a soft tinted icon chip + a semibold section title. Keeping
-        # the weight restrained (semibold, neutral text colour) reads calmer
-        # than the old loud-blue header it replaces.
-        header = QHBoxLayout()
-        header.setSpacing(SPACE_S)
-
-        chip = QLabel()
-        chip.setFixedSize(30, 30)
-        chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_name = self._INFO_CARD_ICONS.get(key or title.lower(), "diamond")
-        chip.setPixmap(load_icon(icon_name, TOOL_ICON_FG, 16).pixmap(16, 16))
-        chip.setStyleSheet(
-            f"background: {TOOL_ICON_BG}; border: 1px solid {TOOL_ICON_BORDER}; border-radius: 9px;"
-        )
-        header.addWidget(chip, 0)
-
-        title_lbl = QLabel(tr(title))
-        title_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT};"
-            f" font-size: {FONT_HEADER}px; font-weight: 600;"
-        )
-        header.addWidget(title_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
-        layout.addLayout(header)
-
-        accent = QFrame()
-        accent.setFixedHeight(1)
-        accent.setStyleSheet(f"background: {rgba(C.SURFACE2, 0.40)};")
-        layout.addWidget(accent)
-
-        body = QVBoxLayout()
-        body.setSpacing(SPACE_S)
-        layout.addLayout(body)
-
-        # Stash the body layout on the frame for later population.
-        card.setProperty("info_body", body)
-        self._info_card_bodies[title.lower()] = body
-        # Initial placeholder
-        body.addWidget(make_empty_panel(tr("Loading...")))
-        return card
-
-    def _render_health_card(self, probes: list[dict], overall: str) -> None:
-        """Render a colored badge + detail row for each probe.
-
-        Each row reads `[STATUS] probe_name — detail (Nms)` with the badge
-        coloured by status. The overall verdict is shown as a header line so
-        the user gets the gist without reading every row.
-        """
-        body = self._info_card_bodies.get("health")
-        if body is None:
-            return
-        # Clear existing children.
-        while body.count():
-            item = body.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-
-        if not probes:
-            body.addWidget(make_empty_panel(tr("No probes ran (health module unavailable).")))
-            return
-
-        # Overall verdict line: a small status dot + a calm summary, rather
-        # than a single loud coloured sentence.
-        overall_color = self._HEALTH_BADGE_COLORS.get(overall, C.SUBTEXT0)
-        verdict_row = QHBoxLayout()
-        verdict_row.setSpacing(SPACE_S)
-        dot = QLabel()
-        dot.setFixedSize(8, 8)
-        dot.setStyleSheet(f"background: {overall_color}; border-radius: 4px;")
-        verdict_row.addWidget(dot, 0, Qt.AlignmentFlag.AlignVCenter)
-        verdict = QLabel(tr("Overall: {status}").format(status=overall.upper() or tr("UNKNOWN")))
-        verdict.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 13px; font-weight: 500;")
-        verdict_row.addWidget(verdict, 1, Qt.AlignmentFlag.AlignVCenter)
-        verdict_holder = QWidget()
-        verdict_holder.setLayout(verdict_row)
-        body.addWidget(verdict_holder)
-        body.addSpacing(SPACE_XS)
-
-        for p in probes:
-            status = p.get("status", "")
-            color = self._HEALTH_BADGE_COLORS.get(status, C.SUBTEXT0)
-            row = QHBoxLayout()
-            row.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
-            row.setSpacing(SPACE_M)
-            badge = QLabel(status.upper())
-            badge.setFixedWidth(48)
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            badge.setStyleSheet(
-                f"color: {color}; font-size: 11px; font-weight: 500; "
-                f"background: {rgba(color, 0.10)}; border: 1px solid {rgba(color, 0.28)}; "
-                "border-radius: 6px; padding: 2px 6px;"
-            )
-            name = QLabel(p.get("name", ""))
-            name.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
-            name.setFixedWidth(140)
-            detail = QLabel(p.get("detail", ""))
-            detail.setStyleSheet(f"color: {C.SUBTEXT1}; font-size: 12px;")
-            detail.setWordWrap(True)
-            duration = QLabel(f"{int(p.get('duration_ms', 0))}ms")
-            duration.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
-            row.addWidget(badge, 0)
-            row.addWidget(name, 0)
-            row.addWidget(detail, 1)
-            row.addWidget(duration, 0, Qt.AlignmentFlag.AlignVCenter)
-            holder = QWidget()
-            holder.setLayout(row)
-            holder.setStyleSheet(f"background: {rgba(C.MANTLE, 0.45)}; border-radius: 8px;")
-            body.addWidget(holder)
-
-    def _set_info_card_rows(self, key: str, rows: list[tuple[str, str]]) -> None:
-        """Replace the body of an info card with label/value rows."""
-        body = self._info_card_bodies.get(key)
-        if body is None:
-            return
-        # Clear existing children.
-        while body.count():
-            item = body.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-        for label, value in rows:
-            row = QHBoxLayout()
-            row.setContentsMargins(0, SPACE_XS, 0, SPACE_XS)
-            row.setSpacing(SPACE_M)
-            lbl = QLabel(label)
-            lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px;")
-            lbl.setMinimumWidth(140)
-            val = QLabel(value)
-            val.setStyleSheet(f"color: {C.TEXT}; font-size: 12px;")
-            val.setWordWrap(True)
-            row.addWidget(lbl, 0, Qt.AlignmentFlag.AlignTop)
-            row.addStretch()
-            row.addWidget(val, 1, Qt.AlignmentFlag.AlignTop)
-            holder = QWidget()
-            holder.setLayout(row)
-            body.addWidget(holder)
 
     def _refresh_info(self) -> None:
         """Re-run gather_info on a worker thread; populate cards on completion."""
@@ -339,10 +157,20 @@ class InfoPageMixin:
         """Slot fired when the info worker finishes (success or failure)."""
         self._info_busy = False
 
+    def _copy_diagnostics(self) -> None:
+        """Copy the last snapshot as ``key: value`` lines to the clipboard."""
+        snap = getattr(self, "_info_snapshot", None) or {}
+        text = "\n".join(f"{key}: {value}" for key, value in snap.items())
+        QApplication.clipboard().setText(text)
+
     def _apply_info_snapshot(self, info: dict) -> None:
         """Map gather_info output into per-card row pairs."""
+        self._info_snapshot = info
         self._render_health_card(info.get("health", []), info.get("health_overall", ""))
         sys_ = info.get("system", {})
+        version = getattr(self, "_info_version_label", None)
+        if version is not None:
+            version.setText(str(sys_.get("winpodx", "")))
         self._set_info_card_rows(
             "system",
             [

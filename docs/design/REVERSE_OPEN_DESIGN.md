@@ -200,7 +200,7 @@ src/winpodx/
     mime.py                # MIME → Windows extension mapping (curated + xdg.Mime)
     seen_uuids.py          # persistent ring buffer for replay defence
   utils/
-    compat.py              # is_relative_to compatibility helper (3.9+)
+    compat.py              # is_relative_to compatibility helper (3.10+)
   cli/
     host_open.py           # winpodx host-open {refresh,enable,disable,
                            #                    status,add,remove,list}
@@ -289,8 +289,8 @@ list (mirroring `core.rdp.linux_to_unc`'s behaviour for the same
 data). Hardcoded `{home, media}` was a v1 mistake; users who add
 custom mounts via cfg shouldn't have those mounts blocked here.
 
-`utils/compat.py:is_relative_to` provides the check (Python 3.9
-support; `Path.is_relative_to` arrived in 3.9 but `PurePath.is_relative_to`'s
+`utils/compat.py:is_relative_to` provides the check (Python 3.10
+support; `Path.is_relative_to` predates the supported floor, but `PurePath.is_relative_to`'s
 semantics shifted in 3.12 — wrap to keep behaviour identical across
 versions).
 

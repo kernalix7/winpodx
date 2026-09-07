@@ -10,7 +10,7 @@ WinPodX 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.9+) 을 확인 후 설치, WinPodX 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트의 Start Menu 앱을 실제 아이콘과 함께 등록 (`desktop.full_app_scan` opt-in 시 Registry / UWP / Chocolatey / Scoop 포함). 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
+distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.10+) 을 확인 후 설치, WinPodX 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트의 Start Menu 앱을 실제 아이콘과 함께 등록 (`desktop.full_app_scan` opt-in 시 Registry / UWP / Chocolatey / Scoop 포함). 데스크톱 앱에는 Selawik 대체 글꼴이 번들로 들어 있으므로 시스템 글꼴 패키지가 필요 없습니다. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
 
 > **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. WinPodX 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
 
@@ -192,10 +192,9 @@ sudo apt install ./winpodx_<version>_all_debian13.deb   # 본인 환경에 맞�
 
 ### AlmaLinux / Rocky / RHEL 9 & 10
 
-el9 는 `python3-tomli` 위해 EPEL 필요. [최신 release](https://github.com/kernalix7/winpodx/releases/latest) 에서 맞는 `.rpm` 다운로드 후 설치:
+RHEL 9, AlmaLinux 9, Rocky Linux 9에서는 기본 `python3`가 지원 최소 버전보다 낮습니다. el9 패키지는 AppStream의 Python 3.11 스택을 함께 설치합니다. [최신 release](https://github.com/kernalix7/winpodx/releases/latest) 에서 맞는 `.rpm` 다운로드 후 설치:
 
 ```bash
-sudo dnf install epel-release                            # el9 만
 sudo dnf install ./winpodx-<version>-0.noarch.el9.rpm    # 또는 .el10.rpm
 ```
 

@@ -125,7 +125,7 @@ def test_search_indexing_is_an_optin_debloat_item() -> None:
 
     if sys.version_info >= (3, 11):
         import tomllib
-    else:  # pragma: no cover - 3.9 / 3.10 back-fill
+    else:  # pragma: no cover - 3.10 back-fill
         import tomli as tomllib
 
     items_toml = Path(__file__).resolve().parent.parent / "data" / "debloat" / "items.toml"

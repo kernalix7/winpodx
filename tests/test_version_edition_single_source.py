@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _read_pyproject_version() -> str:
     try:
         import tomllib
-    except ModuleNotFoundError:  # Python 3.9 / 3.10
+    except ModuleNotFoundError:  # Python 3.10
         import tomli as tomllib  # type: ignore[no-redef]
     data = tomllib.loads((ROOT / "pyproject.toml").read_text())
     return data["project"]["version"]

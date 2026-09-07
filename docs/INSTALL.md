@@ -10,7 +10,7 @@ Every way to install WinPodX — the one-line installer, distro package managers
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Detects your distro, installs missing system dependencies (Podman 4+ + podman-compose, FreeRDP 3+, KVM, Python 3.9+) with your confirmation, and drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically during first provisioning — discovery scans the guest's Start Menu and registers each visible app with its real icon (`desktop.full_app_scan = true` opts into Registry App Paths and Chocolatey/Scoop shims too). No root required except for the dependency and host-setup steps. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, and Arch. NixOS uses the flake below.
+Detects your distro, installs missing system dependencies (Podman 4+ + podman-compose, FreeRDP 3+, KVM, Python 3.10+) with your confirmation, and drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically during first provisioning — discovery scans the guest's Start Menu and registers each visible app with its real icon (`desktop.full_app_scan = true` opts into Registry App Paths and Chocolatey/Scoop shims too). The desktop app bundles its Selawik fallback font, so it needs no system font package. No root required except for the dependency and host-setup steps. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, and Arch. NixOS uses the flake below.
 
 > **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). WinPodX does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
 
@@ -191,10 +191,9 @@ sudo apt install ./winpodx_<version>_all_debian13.deb   # pick your flavor
 
 ### AlmaLinux / Rocky / RHEL 9 & 10
 
-EPEL is required on el9 for `python3-tomli`. Download the matching `.rpm` from the [latest release](https://github.com/kernalix7/winpodx/releases/latest) and install:
+RHEL 9, AlmaLinux 9, and Rocky Linux 9 ship a default `python3` below the supported floor. The el9 package pulls in the Python 3.11 stack from AppStream. Download the matching `.rpm` from the [latest release](https://github.com/kernalix7/winpodx/releases/latest) and install:
 
 ```bash
-sudo dnf install epel-release                            # el9 only
 sudo dnf install ./winpodx-<version>-0.noarch.el9.rpm    # or .el10.rpm
 ```
 
@@ -310,7 +309,7 @@ python3 -m venv ~/.local/share/winpodx-venv
 ~/.local/share/winpodx-venv/bin/winpodx setup
 ```
 
-The core wheel only requires `tomli` on Python 3.9/3.10. PySide6, docker-py, and reverse-open icon conversion are optional extras; system requirements such as FreeRDP 3+, a container runtime, and KVM are not installed by pip.
+The core wheel requires `tomli` on Python 3.10 because `tomllib` arrives in Python 3.11. PySide6, docker-py, and reverse-open icon conversion are optional extras; system requirements such as FreeRDP 3+, a container runtime, and KVM are not installed by pip.
 
 ### Manual run (no install)
 

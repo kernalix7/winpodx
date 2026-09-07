@@ -100,28 +100,33 @@ winpodx autostart on|off|status   # 로그인 시 Windows pod 자동시작 (opt-
 winpodx language                  # 현재 UI 언어 표시
 winpodx language ko               # UI 언어 설정: auto | en | ko | zh | ja | de | fr | it (auto = 호스트 로케일)
 # `winpodx info` 와 `winpodx check` 는 `winpodx doctor` 의 deprecated alias — 여전히 동작하며 stderr 에 한 줄의 deprecation 경고를 출력합니다.
-winpodx gui                       # Qt6 메인 윈도 실행 (Dashboard / Applications / Devices / Settings / Tools / Terminal)
+winpodx gui                       # Qt6 메인 윈도 실행 (Dashboard / Applications / Settings / Tools / Terminal / Info / Devices / License)
 winpodx tray                      # Qt 시스템 트레이 아이콘 실행
 winpodx config show               # 현재 config 표시
 winpodx config set rdp.scale 140  # config 값 변경
 winpodx config import             # 기존 winapps.conf import
 ```
 
-## GUI
+## Qt6 GUI 둘러보기
 
-`winpodx gui` 로 실행. Qt6 메인 윈도는 Start-menu 스타일 셸 (#460-#471): 페이지당 한 줄인 좌측 세로 네비게이션 사이드바, 커맨드 바 역할도 하는 히어로 검색바, 자체 제작 SVG 아이콘 세트, 좁은/분수 배율 창에서 reflow 되고 화면에 맞춰지는 반응형 레이아웃. 페이지:
+`winpodx gui`로 실행합니다. Qt6 데스크톱 앱은 Fluent 라이트 및 다크 스타일을 갖춘 Windows 11 설정 스타일 NavigationView를 사용합니다. 시스템 색상 방식을 따르며, 실행 전에 `WINPODX_COLOR_SCHEME=light` 또는 `WINPODX_COLOR_SCHEME=dark`를 지정하면 해당 프로세스에만 적용할 수 있습니다. 글꼴은 Segoe UI Variable, Segoe UI, 번들 Selawik, 데스크톱 기본 글꼴 순으로 선택합니다. Selawik은 WinPodX에 포함되어 있으므로 시스템 글꼴 패키지가 필요하지 않습니다.
+
+일반 너비에서는 탐색 창이 320px입니다. 1100px 아래에서는 48px 아이콘 레일로 접힙니다. 햄버거 버튼으로 창을 펼칠 수 있고, 펼친 창은 페이지 위에 겹쳐 표시되며 페이지를 선택하거나 바깥을 클릭하면 닫힙니다. 사용자 지정 제목 표시줄은 최소화, 최대화, 닫기, 끌기, 더블 클릭 최대화를 제공합니다. 실행 전에 `WINPODX_NATIVE_TITLEBAR=1`을 지정하면 창 관리자의 기본 장식을 사용합니다.
+
+페이지 구성:
 
 | 페이지 | 동작 |
 |------|------|
-| **Dashboard** | 홈 화면 — 라이브 Pod / RAM / CPU ring 게이지 + 디스크 사용량, 자동 회복 상태 카드, pinned / recent 워크스페이스 타일, 라이브 RDP 앱 세션을 세션별 종료 버튼과 함께 나열하는 "Running sessions" 스트립, reverse-open 토글 |
-| **Applications** | 설치된 앱 프로필의 grid / list view (구 "Apps"), 검색 + 카테고리 필터, 앱별 실행 (3초 cooldown), Add / Edit / Delete 앱 프로필 다이얼로그 |
-| **Devices** | USB / PCI 장치 패스스루용 2열 호스트 ↔ 게스트 mover (#286) — 왼쪽에서 호스트 장치 선택, 오른쪽에서 Windows 게스트에 attach (USB 는 live hot-plug; PCI 는 안전 확인과 함께 게스트 재시작 필요) |
-| **Settings** | RDP (user / IP / port / scale / DPI / 비밀번호 회전 / 멀티모니터), Container (backend / CPU / RAM / idle timeout), 그리고 reverse-open 패널 (enable 토글, allowlist + denylist, 라이브 daemon 상태, refresh / start / stop 버튼) 한 화면에 |
-| **Tools** | Suspend / Resume / Full Desktop 버튼, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, 그리고 원클릭 Windows Update **활성/비활성** 토글 |
-| **Terminal** | 명령 allowlist 제한된 embedded 셸 (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) + 퀵 버튼 (Status / Logs / Inspect / RDP Test / Clear) |
-| **Info** | 라이브 **Health** 카드 (pod / RDP / agent / OEM / disk / 비밀번호 age / 앱 수) + System / Display / Dependencies / Pod / Config 스냅샷 |
+| **Dashboard** | pod 상태 히어로와 시작, 중지, RAM·CPU·디스크 링, 빠른 작업, 실행 중인 앱, 고정 타일, reverse-open 토글 |
+| **Applications** | 시작 메뉴 앱 타일, 범주별 개수, 검색, 격자 또는 목록 표시, 컨텍스트 작업 |
+| **Settings** | RDP Connection, Hardware, Windows Update, Integration, Localization, Danger zone SettingsCard 그룹. 편집하면 헤더의 Save 버튼에 변경 점이 표시됨 |
+| **Tools** | Pod Management와 시스템 작업 행. pod가 멈췄을 때는 이유와 함께 비활성화되며 RDP Sessions도 제공 |
+| **Terminal / Logs** | 기존의 안전한 명령 제어가 있는 명령 및 로그 화면 |
+| **Info** | About, Copy diagnostics, Health |
+| **Devices** | 검색된 장치와 할당 장치 수, 필터, 위험 PCI 표시가 있는 USB·PCI 그룹. PCI 변경은 여전히 게스트 재시작과 확인이 필요 |
+| **License** | 라이선스 전문과 고지 |
 
-시스템 트레이 (`winpodx tray`) 는 가벼운 대안 — pod 컨트롤, 앱 런처 서브메뉴 (상위 20 + Full Desktop), USB 장치 스위처 (#300, 호스트 USB 장치를 게스트에 attach / detach), 유지보수 서브메뉴 (Clean Locks / Sync Time / Suspend), 라이브 RDP 앱 세션을 종료할 수 있는 running-sessions 서브메뉴, 선택적 idle-monitor 스레드.
+`winpodx launch`는 Windows 앱용 간결한 시작 메뉴 스타일 플라이아웃을 엽니다. 시스템 트레이(`winpodx tray`)는 pod 제어, 최신 앱 실행기, USB 전환, 유지보수, 실행 중인 RDP 세션을 위한 가벼운 대안입니다.
 
 ### Tray 자동 spawn + UNRESPONSIVE 자동 회복 (v0.5.5)
 
@@ -138,7 +143,7 @@ tray 가 pod 상태 30초 주기로 감시. `RUNNING → UNRESPONSIVE` 전이 �
 호스트 USB 또는 (GPU 가 아닌) PCI 장치를 Windows 게스트로 패스스루 (#286). 세 가지 표면이 같은 백엔드를 구동:
 
 * **CLI** — `winpodx device list` 가 각 호스트 장치 + attach 상태 표시; `winpodx device attach <id>` / `winpodx device detach <id>` 로 하나씩 넣고 뺌.
-* **GUI Devices 페이지** — 2열 호스트 ↔ 게스트 mover (왼쪽에서 선택, 오른쪽에서 attach).
+* **GUI Devices 페이지** — 필터, 할당 상태, 연결 또는 해제 작업이 있는 USB·PCI 장치 그룹.
 * **시스템 트레이** — 호스트 USB 장치 원클릭 attach / detach 용 USB 스위처 서브메뉴 (#300).
 
 USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필요. PCI 장치는 부팅 시 추가되고 게스트 재시작 후에만 보이므로 attach 가 안전 확인으로 보호됨; CLI 에서 `--force` 전달 (또는 GUI 에서 다이얼로그 확인) 으로 진행.
@@ -350,7 +355,7 @@ denylist = []                                    # manifest 에서 제외할 앱
 level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW — RAW = DEBUG + pod 로그 (podman logs -f) 를 GUI Terminal 에 interleave
 ```
 
-`winpodx config set <key> <value>` 또는 에디터로 직접 수정 — TOML 은 3.11+ 에서 stdlib (`tomli` on 3.9/3.10) 로 파싱.
+`winpodx config set <key> <value>` 또는 에디터로 직접 수정 — TOML 은 3.11+ 에서 stdlib (`tomli` on 3.10) 로 파싱.
 
 `rdp.media_drive_enabled` 기본값은 호환성을 위해 `true`입니다. `false`로 설정하면 FreeRDP의 `/drive:media,...` 매핑을 생략하여 호스트에 마운트된 이동식 저장장치가 게스트의 `\\tsclient\media`에 나타나지 않습니다. 원시 USB 장치 패스스루 설정은 변경하지 않습니다.
 

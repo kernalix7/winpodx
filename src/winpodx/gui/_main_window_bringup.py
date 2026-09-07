@@ -84,15 +84,13 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
+from winpodx.gui import theme
 from winpodx.gui._widget_helpers import BusyDialog
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
-    BTN_PRIMARY,
-    BTN_SECONDARY,
-    DIALOG,
+    CONTROL_HEIGHT_W11,
     FONT_CAPTION,
-    FONT_SUBHEAD,
-    PLAIN_TEXT,
+    FONT_TITLE,
     SPACE_M,
     SPACE_S,
     C,
@@ -252,7 +250,7 @@ class BringUpProgressDialog(QDialog):
         self.setWindowTitle(tr("Setting up Windows"))
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setMinimumWidth(560)
-        self.setStyleSheet(DIALOG + PLAIN_TEXT)
+        self.setStyleSheet(theme.DIALOG + theme.PLAIN_TEXT)
         self._on_cancel = on_cancel
         self._cfg = cfg
         # The ordered phase rows to render for THIS run. Defaults to the
@@ -295,7 +293,7 @@ class BringUpProgressDialog(QDialog):
         header_row.addWidget(self.header_icon)
 
         self.header = QLabel(tr("Starting..."))
-        self.header.setStyleSheet(f"font-size: {FONT_SUBHEAD}px; font-weight: 600;")
+        self.header.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: 600;")
         self.header.setWordWrap(True)
         header_row.addWidget(self.header, 1)
         layout.addLayout(header_row)
@@ -310,6 +308,8 @@ class BringUpProgressDialog(QDialog):
         # Indeterminate -- min == max == 0.
         self.bar.setMinimum(0)
         self.bar.setMaximum(0)
+        self.bar.setFixedHeight(4)
+        self.bar.setStyleSheet(theme.PROGRESS)
         layout.addWidget(self.bar)
 
         # ----- phase checklist ------------------------------------------
@@ -392,7 +392,8 @@ class BringUpProgressDialog(QDialog):
         footer_layout.addWidget(self.elapsed_label, stretch=1)
 
         self.cancel_btn = QPushButton(tr("Cancel"))
-        self.cancel_btn.setStyleSheet(BTN_SECONDARY)
+        self.cancel_btn.setStyleSheet(theme.BTN_SECONDARY)
+        self.cancel_btn.setMinimumHeight(CONTROL_HEIGHT_W11)
         self.cancel_btn.clicked.connect(self._handle_cancel)
         footer_layout.addWidget(self.cancel_btn)
 
@@ -432,7 +433,7 @@ class BringUpProgressDialog(QDialog):
         # its label so the user knows the request registered.
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setText(tr("Cancelling..."))
-        self.cancel_btn.setStyleSheet(BTN_SECONDARY)
+        self.cancel_btn.setStyleSheet(theme.BTN_SECONDARY)
         try:
             self._on_cancel()
         except Exception:  # noqa: BLE001
@@ -524,7 +525,7 @@ class BringUpProgressDialog(QDialog):
             self.header_icon.setPixmap(load_icon("check", C.GREEN, 20).pixmap(20, 20))
             self.header_icon.show()
             self.header.setStyleSheet(
-                f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.GREEN};"
+                f"font-size: {FONT_TITLE}px; font-weight: 600; color: {C.GREEN};"
             )
             self.sub_detail.setText(tr("Windows is ready — you can launch apps now."))
             self.bar.setMaximum(1)
@@ -533,11 +534,11 @@ class BringUpProgressDialog(QDialog):
             self.header_icon.hide()
             self.header.setText(tr("Bring-up did not complete"))
             self.header.setStyleSheet(
-                f"font-size: {FONT_SUBHEAD}px; font-weight: 600; color: {C.RED};"
+                f"font-size: {FONT_TITLE}px; font-weight: 600; color: {C.RED};"
             )
             self.sub_detail.setText(error_msg or tr("(no error message)"))
         self.cancel_btn.setText(tr("Close"))
-        self.cancel_btn.setStyleSheet(BTN_PRIMARY)
+        self.cancel_btn.setStyleSheet(theme.BTN_PRIMARY)
         self.cancel_btn.setEnabled(True)
         self.cancel_btn.setToolTip("")
         try:

@@ -1,36 +1,33 @@
 # SPDX-License-Identifier: MIT
-"""Self-contained dashboard widgets: a circular ``RingGauge`` and a horizontal
-``StatBar``.
+"""WinUI ``RingGauge`` (and a re-export of ``StatBar``).
 
-Both are pure-Qt custom-painted widgets with no dependency on the main window,
-so they can be dropped into any layout (CPU / RAM / disk usage panels, etc.).
-Colors and metrics come exclusively from :mod:`winpodx.gui.theme` tokens.
+Pure-Qt custom-painted widgets with no dependency on the main window.
+Colors come exclusively from live :mod:`winpodx.gui.theme` tokens.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QLinearGradient,
-    QPainter,
-    QPen,
+from PySide6.QtCore import (
+    Property,
+    QEasingCurve,
+    QPropertyAnimation,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
 )
-from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from winpodx.core.i18n import tr
-from winpodx.gui.theme import (
-    FONT_CAPTION,
-    RADIUS_XS,
-    C,
-)
+from winpodx.gui._stat_bar import StatBar as StatBar
+from winpodx.gui.theme import FONT_BODY, FONT_CAPTION, C
 
-# Geometry tokens (px). Kept local so the widgets stay self-contained.
-_RING_PEN = 8  # arc / track stroke width
-_RING_MIN = 120  # minimum square side for the ring
-_BAR_HEIGHT = 8  # filled-track height for StatBar
-_BAR_MIN_W = 160  # minimum bar width
+_RING_PEN = 6
+_RING_DIAMETER = 72
+_RING_COMPACT = 56
+_CAPTION_GAP = 4
+_ANIM_MS = 250
 
 
 def _qcolor(hex_color: str, alpha: float = 1.0) -> QColor:
@@ -41,88 +38,7 @@ def _qcolor(hex_color: str, alpha: float = 1.0) -> QColor:
 
 
 class RingGauge(QWidget):
-    """Circular progress gauge: a colored arc over a faint track, with a big
-    center value label and a small caption under it."""
-
-    def __init__(self, caption: str, color: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._caption = caption
-        self._color = color
-        self._pct: float | None = None
-        self._center_text = "--"
-        self.setMinimumSize(_RING_MIN, _RING_MIN)
-
-    def sizeHint(self) -> QSize:
-        return QSize(_RING_MIN, _RING_MIN)
-
-    def set_value(self, pct: float | None, center_text: str) -> None:
-        """Update the gauge. ``pct`` 0..100 sweeps the arc; ``None`` shows a
-        faint full-track 'n/a' look."""
-        if pct is not None:
-            pct = max(0.0, min(100.0, float(pct)))
-        self._pct = pct
-        self._center_text = center_text
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: ARG002 - Qt signature
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        side = min(self.width(), self.height())
-        inset = _RING_PEN / 2 + 2
-        ox = (self.width() - side) / 2
-        oy = (self.height() - side) / 2
-        arc_rect = QRectF(ox + inset, oy + inset, side - 2 * inset, side - 2 * inset)
-
-        # Background track ring.
-        track_pen = QPen(_qcolor(C.SURFACE1))
-        track_pen.setWidthF(_RING_PEN)
-        track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(track_pen)
-        painter.drawArc(arc_rect, 0, 360 * 16)
-
-        # Value arc: from 90deg (top) clockwise, proportional to pct.
-        if self._pct is not None and self._pct > 0:
-            gradient = QLinearGradient(arc_rect.topLeft(), arc_rect.bottomRight())
-            gradient.setColorAt(0.0, _qcolor(self._color))
-            gradient.setColorAt(1.0, _qcolor(self._color, 0.7))
-            arc_pen = QPen(gradient, _RING_PEN)
-            arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(arc_pen)
-            # Qt angles are 1/16 degree, CCW positive; negate to go clockwise.
-            span = int(-self._pct / 100.0 * 360 * 16)
-            painter.drawArc(arc_rect, 90 * 16, span)
-
-        # Center value (bold). Size is derived from the ring's actual side so
-        # the text always fits the circle at any window size / display scale
-        # (a fixed pixel size overflowed the ring under fractional HiDPI).
-        value_font = QFont(self.font())
-        value_font.setPixelSize(max(13, int(side * 0.17)))
-        value_font.setBold(True)
-        painter.setFont(value_font)
-        painter.setPen(_qcolor(C.TEXT))
-        value_rect = QRectF(arc_rect)
-        value_rect.setHeight(arc_rect.height() * 0.62)
-        value_rect.moveTop(arc_rect.top() + arc_rect.height() * 0.20)
-        painter.drawText(value_rect, Qt.AlignmentFlag.AlignCenter, self._center_text)
-
-        # Caption below the value (also size-derived).
-        caption_font = QFont(self.font())
-        caption_font.setPixelSize(max(9, int(side * 0.095)))
-        painter.setFont(caption_font)
-        painter.setPen(_qcolor(C.SUBTEXT0))
-        caption_rect = QRectF(arc_rect)
-        caption_rect.setTop(value_rect.bottom())
-        painter.drawText(
-            caption_rect,
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-            self._caption,
-        )
-        painter.end()
-
-
-class StatBar(QWidget):
-    """Horizontal usage bar with a label above and 'used / total' text."""
+    """WinUI ring: accent arc on a subtle track, value in the hole, caption below."""
 
     def __init__(
         self,
@@ -139,24 +55,50 @@ class StatBar(QWidget):
         self._critical_color = critical_color
         self._critical_pct = critical_pct
         self._pct: float | None = None
-        self._detail = "--"
+        self._center_text = "--"
+        self._arc_frac = 0.0
+        self._compact = False
         self.setAccessibleName(caption)
-        self.setAccessibleDescription(self._detail)
-        self.setMinimumWidth(_BAR_MIN_W)
-        self.setMinimumHeight(FONT_CAPTION + _BAR_HEIGHT + 14)
+        self.setAccessibleDescription(self._center_text)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setMinimumSize(self.sizeHint())
+        self._anim = QPropertyAnimation(self, b"arc_fraction", self)
+        self._anim.setDuration(_ANIM_MS)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    @property
+    def _detail(self) -> str:
+        return self._center_text
+
+    def _caption_font(self) -> QFont:
+        font = QFont(self.font())
+        font.setPixelSize(FONT_CAPTION)
+        return font
+
+    def _caption_metrics(self) -> QFontMetrics:
+        return QFontMetrics(self._caption_font())
+
+    def caption_rect(self) -> QRect:
+        """Return the caption band in widget coordinates."""
+        diameter = _RING_COMPACT if self._compact else _RING_DIAMETER
+        height = self._caption_metrics().height()
+        width = max(self.width(), diameter)
+        return QRect(0, diameter + _CAPTION_GAP, width, height)
 
     def sizeHint(self) -> QSize:
-        return QSize(_BAR_MIN_W, FONT_CAPTION + _BAR_HEIGHT + 14)
+        diameter = _RING_COMPACT if self._compact else _RING_DIAMETER
+        band = self._caption_metrics().height() + _CAPTION_GAP + 4
+        return QSize(diameter, diameter + band)
 
-    def set_value(self, pct: float | None, detail: str) -> None:
-        """Update the bar. ``pct`` 0..100 fills the track; ``None`` leaves it
-        empty with the detail text shown."""
-        if pct is not None:
-            pct = max(0.0, min(100.0, float(pct)))
-        self._pct = pct
-        self._detail = detail
-        description = f"{detail} — {tr('WARNING')}" if self._is_critical() else detail
-        self.setAccessibleDescription(description)
+    def set_compact(self, compact: bool) -> None:
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self.setMinimumSize(self.sizeHint())
+        self.updateGeometry()
+        self.update()
+
+    def restyle(self) -> None:
         self.update()
 
     def _is_critical(self) -> bool:
@@ -167,52 +109,87 @@ class StatBar(QWidget):
             and self._pct >= self._critical_pct
         )
 
+    def _get_arc_fraction(self) -> float:
+        return self._arc_frac
+
+    def _set_arc_fraction(self, value: float) -> None:
+        self._arc_frac = float(value)
+        self.update()
+
+    arc_fraction = Property(float, _get_arc_fraction, _set_arc_fraction)
+
+    def set_value(self, pct: float | None, center_text: str) -> None:
+        """Update the gauge. ``pct`` 0..100 sweeps the arc; ``None`` is empty + em dash."""
+        if pct is not None:
+            pct = max(0.0, min(100.0, float(pct)))
+        self._pct = pct
+        self._center_text = center_text
+        description = f"{center_text} — {tr('WARNING')}" if self._is_critical() else center_text
+        self.setAccessibleDescription(description)
+        self.setToolTip("" if self.center_label() == center_text else center_text)
+        target = 0.0 if pct is None else pct / 100.0
+        self._anim.stop()
+        if not self.isVisible():
+            self._set_arc_fraction(target)
+            return
+        self._anim.setStartValue(self._arc_frac)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def _value_font(self) -> QFont:
+        font = QFont(self.font())
+        font.setPixelSize(FONT_BODY)
+        font.setWeight(QFont.Weight.DemiBold)
+        return font
+
+    def center_label(self) -> str:
+        """Text drawn inside the ring: the value if it fits, else the bare percent."""
+        if self._pct is None:
+            return "—"
+        diameter = _RING_COMPACT if self._compact else _RING_DIAMETER
+        inner = diameter - 2 * _RING_PEN - 4
+        if QFontMetrics(self._value_font()).horizontalAdvance(self._center_text) <= inner:
+            return self._center_text
+        return f"{self._pct:.0f}%"
+
     def paintEvent(self, event) -> None:  # noqa: ARG002 - Qt signature
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        w = self.width()
-        # Top row: caption (left) + detail (right).
-        label_font = QFont(self.font())
-        label_font.setPixelSize(FONT_CAPTION)
-        painter.setFont(label_font)
-        label_rect = QRectF(0, 0, w, FONT_CAPTION + 4)
+        diameter = _RING_COMPACT if self._compact else _RING_DIAMETER
+        ox = (self.width() - diameter) / 2
+        inset = _RING_PEN / 2
+        arc_rect = QRectF(ox + inset, inset, diameter - _RING_PEN, diameter - _RING_PEN)
 
+        track_pen = QPen(_qcolor(C.SURFACE1))
+        track_pen.setWidthF(_RING_PEN)
+        track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(track_pen)
+        painter.drawArc(arc_rect, 0, 360 * 16)
+
+        if self._arc_frac > 0:
+            arc_hex = C.RED if self._is_critical() else C.BLUE
+            arc_pen = QPen(_qcolor(arc_hex), _RING_PEN)
+            arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(arc_pen)
+            span = int(-self._arc_frac * 360 * 16)
+            painter.drawArc(arc_rect, 90 * 16, span)
+
+        unavailable = self._pct is None
+        painter.setFont(self._value_font())
+        painter.setPen(_qcolor(C.SUBTEXT0 if unavailable else C.TEXT))
+        ring_box = QRectF(ox, 0, diameter, diameter)
+        painter.drawText(ring_box, Qt.AlignmentFlag.AlignCenter, self.center_label())
+
+        caption_font = self._caption_font()
+        painter.setFont(caption_font)
         painter.setPen(_qcolor(C.SUBTEXT1))
+        caption_rect = QRectF(self.caption_rect())
         painter.drawText(
-            label_rect,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            caption_rect,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
             self._caption,
         )
-        painter.setPen(_qcolor(C.SUBTEXT0))
-        painter.drawText(
-            label_rect,
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            self._detail,
-        )
-
-        # Track (rounded rect) under the labels.
-        track_top = label_rect.bottom() + 6
-        track_rect = QRectF(0, track_top, w, _BAR_HEIGHT)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(_qcolor(C.SURFACE1))
-        painter.drawRoundedRect(track_rect, RADIUS_XS, RADIUS_XS)
-
-        # Filled portion proportional to pct.
-        if self._pct is not None and self._pct > 0:
-            fill_w = max(_BAR_HEIGHT, w * self._pct / 100.0)
-            fill_rect = QRectF(track_rect)
-            fill_rect.setWidth(fill_w)
-            fill_color = self._color
-            critical_color = self._critical_color
-            if self._is_critical() and critical_color is not None:
-                fill_color = critical_color
-
-            gradient = QLinearGradient(fill_rect.topLeft(), fill_rect.topRight())
-            gradient.setColorAt(0.0, _qcolor(fill_color, 0.85))
-            gradient.setColorAt(1.0, _qcolor(fill_color))
-            painter.setBrush(gradient)
-            painter.drawRoundedRect(fill_rect, RADIUS_XS, RADIUS_XS)
         painter.end()
 
 

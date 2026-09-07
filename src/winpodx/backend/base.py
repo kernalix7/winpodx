@@ -19,8 +19,8 @@ log = logging.getLogger(__name__)
 # Go's `time.Time.String()` format that podman / docker emit when you
 # format a timestamp via ``-f '{{.State.StartedAt}}'`` --
 # ``2026-05-21 07:55:40.190529036 +0900 KST`` -- isn't ISO 8601 and
-# Python's ``datetime.fromisoformat`` rejects it across the entire 3.9
-# -> 3.13 range. ``--format '{{json ...}}'`` instead marshals via Go's
+# Python's ``datetime.fromisoformat`` rejects it across the entire 3.10
+# -> 3.14 range. ``--format '{{json ...}}'`` instead marshals via Go's
 # json package which always emits RFC3339Nano (``"2026-05-21T07:55:40.
 # 190529036+09:00"``) -- portable and stable across all podman / docker
 # releases on every distro. The helpers below build the right command
@@ -57,7 +57,7 @@ def _parse_inspect_timestamp(raw: str) -> datetime.datetime | None:
         return None
     date = m.group("date")
     time_ = m.group("time")
-    # Python 3.9/3.10 fromisoformat only accepts 3- or 6-digit fractions;
+    # Python 3.10 fromisoformat only accepts 3- or 6-digit fractions;
     # truncate to 6 and pad so ".5Z" -> ".500000".
     raw_frac = m.group("frac") or ""
     frac = f".{raw_frac[1:7].ljust(6, '0')}" if raw_frac else ""

@@ -945,5 +945,12 @@
   "Signal processing": "Signalverarbeitung",
   "Processing accelerator": "Verarbeitungsbeschleuniger",
   "Instrumentation": "Messgerät",
-  "PCI device": "PCI-Gerät"
+  "PCI device": "PCI-Gerät",
+  "Copy diagnostics": "Diagnose kopieren",
+  "Launch": "Starten",
+  "Maximize": "Maximieren",
+  "Minimize": "Minimieren",
+  "PCI": "PCI",
+  "USB": "USB",
+  "Upstream": "Upstream"
 }

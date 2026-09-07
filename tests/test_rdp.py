@@ -1133,6 +1133,7 @@ def _patch_launch_to_spawn(monkeypatch, tmp_path, cmd):
     monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"))
     monkeypatch.setattr(rdp_mod, "build_rdp_command", lambda *a, **k: (list(cmd), ""))
     monkeypatch.setattr(rdp_mod, "_reaper_thread", lambda _s: None)
+    monkeypatch.setattr(rdp_mod, "_window_reaper", lambda _s, _wm: None)
 
     spawned: list[list[str]] = []
 

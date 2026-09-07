@@ -6,7 +6,7 @@ Thank you for your interest in contributing to WinPodX! This guide will help you
 
 ## Prerequisites
 
-- Python 3.9+ (developed on 3.13; CI covers 3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14)
+- Python 3.10+ (developed on 3.13; CI covers 3.10 / 3.11 / 3.12 / 3.13 / 3.14)
 - FreeRDP 3+
 
 ## Build

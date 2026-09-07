@@ -20,14 +20,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # AlmaLinux 9 ships python3 == 3.9. The spec pulls in python3-tomli
-          # on rhel<=9 so the stdlib-tomllib-absent case is covered. EPEL
-          # provides pyproject-rpm-macros + python3-hatchling + python3-tomli.
+          # AlmaLinux 9's default python3 is 3.9, which winpodx no longer
+          # supports (minimum 3.10). The spec sets %python3_pkgversion 3.11 on
+          # el9, so we build against the python3.11 AppStream stack here. EPEL
+          # provides pyproject-rpm-macros + python3.11-hatchling. tomllib is
+          # stdlib on 3.11, so no python3-tomli fallback is needed.
           - image: almalinux:9
             suffix: el9
             epel: true
-          # AlmaLinux 10 ships python3 >= 3.12 so tomllib is stdlib; the spec
-          # conditional skips the tomli Requires on rhel >= 10. EPEL 10 is
+          # AlmaLinux 10 ships python3 >= 3.12 (tomllib in stdlib); the spec
+          # keeps %python3_pkgversion at its default of 3 there. EPEL 10 is
           # still enabled because python3-hatchling lives there on el10.
           - image: almalinux:10
             suffix: el10
@@ -78,17 +80,19 @@ jobs:
         shell: bash
         run: |
           set -e
-          dnf -y install \
-            python3 python3-pip python3-wheel python3-setuptools \
-            python3-hatchling python3-installer \
-            pyproject-rpm-macros python-rpm-macros \
-            python3-pluggy
-          # el9 default python3 is 3.9 → tomllib is NOT stdlib, so the runtime
-          # Requires: python3-tomli must be resolvable at install time too.
-          # Install here just to keep the build environment symmetric.
+          # el9's default python3 is 3.9 (below winpodx's 3.10 floor); the spec
+          # sets %python3_pkgversion 3.11 there, so build against python3.11's
+          # AppStream stack. el10/Fedora keep the default python3 (>= 3.12).
           if [ "${{ matrix.suffix }}" = "el9" ]; then
-            dnf -y install python3-tomli || true
+            pyprefix="python3.11"
+          else
+            pyprefix="python3"
           fi
+          dnf -y install \
+            "${pyprefix}" "${pyprefix}-pip" "${pyprefix}-wheel" \
+            "${pyprefix}-setuptools" "${pyprefix}-hatchling" \
+            "${pyprefix}-installer" "${pyprefix}-pluggy" \
+            pyproject-rpm-macros python-rpm-macros
 
       - name: Prepare rpmbuild tree
         shell: bash

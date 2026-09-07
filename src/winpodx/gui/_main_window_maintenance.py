@@ -26,7 +26,6 @@ import threading
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -38,33 +37,24 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
+from winpodx.gui._main_window_maintenance_cards import MaintenanceCardsMixin
+from winpodx.gui._main_window_secondary_style import (
+    make_named_settings_group,
+    mount_settings_column,
+    restyle_settings_cards,
+)
 from winpodx.gui._widget_helpers import (
     BusyDialog,
-    add_shadow,
     make_empty_panel,
-    make_page_header,
-    make_section_label,
     make_warning_callout,
 )
-from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
-    ACTION_ROW,
     BTN_DANGER,
     BTN_PRIMARY,
     BTN_SECONDARY,
     SCROLL_AREA,
-    SETTINGS_SECTION,
-    SPACE_L,
-    SPACE_M,
-    SPACE_S,
-    SPACE_XL,
-    SPACE_XXL,
-    TOOL_ICON_BG,
-    TOOL_ICON_BORDER,
-    TOOL_ICON_FG,
+    SPACE_XS,
     C,
-    accent_color,
-    rgba,
 )
 
 log = logging.getLogger(__name__)
@@ -114,7 +104,7 @@ def _confirm_with_callout(
     return dlg.exec() == QDialog.DialogCode.Accepted
 
 
-class MaintenanceMixin:
+class MaintenanceMixin(MaintenanceCardsMixin):
     """Maintenance-tab behavior. Mix into ``WinpodxWindow``."""
 
     def _build_maintenance_page(self) -> QWidget:
@@ -128,41 +118,36 @@ class MaintenanceMixin:
         scroll.setStyleSheet(SCROLL_AREA)
 
         content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
-        layout.setSpacing(SPACE_L)
+        layout = mount_settings_column(content)
 
-        layout.addWidget(make_page_header(tr("Tools"), tr("System maintenance and pod management")))
+        register = getattr(self, "_register_page_header", None)
+        if callable(register):
+            register(3, tr("Tools"), tr("System maintenance and pod management"))
 
         # Each tool group lives in its own card so the page reads as a few
         # calm, contained sections rather than a long flat list of rows.
         pod_tools = [
-            ("pause", tr("Suspend Pod"), tr("Pause container (keeps memory)"), self._on_suspend),
-            ("play", tr("Resume Pod"), tr("Unpause a suspended container"), self._on_resume),
+            (
+                "pause",
+                tr("Suspend Pod"),
+                tr("Pause container (keeps memory)"),
+                self._on_suspend,
+                True,
+            ),
+            ("play", tr("Resume Pod"), tr("Unpause a suspended container"), self._on_resume, True),
             (
                 "desktop",
                 tr("Full Desktop"),
                 tr("Launch full Windows desktop"),
                 self._on_open_desktop,
-            ),
-        ]
-        layout.addWidget(self._make_tool_card(tr("Pod Management"), pod_tools, base_idx=0))
-
-        sys_tools = [
-            ("clean", tr("Clean Locks"), tr("Remove Office lock files"), self._on_cleanup),
-            ("clock", tr("Sync Time"), tr("Force Windows clock sync"), self._on_timesync),
-            ("diamond", tr("Debloat"), tr("Disable telemetry & ads"), self._on_debloat),
-            (
-                "gear",
-                tr("Apply Windows Fixes"),
-                tr("Re-apply network + remote-desktop service fixes to the guest (safe to repeat)"),
-                self._on_apply_fixes,
+                False,
             ),
             (
                 "plus",
                 tr("Grow Disk"),
                 tr("Add space to the Windows disk and extend C: to fill it"),
                 self._on_grow_disk,
+                False,
             ),
             (
                 "refresh",
@@ -172,27 +157,40 @@ class MaintenanceMixin:
                     "guest (no reinstall; agent restarts briefly)"
                 ),
                 self._on_sync_guest,
+                True,
             ),
         ]
-        layout.addWidget(self._make_tool_card(tr("System"), sys_tools, base_idx=3))
+        layout.addWidget(self._make_tool_card(tr("Pod Management"), pod_tools, base_idx=0))
+
+        guest_tools = [
+            ("clean", tr("Clean Locks"), tr("Remove Office lock files"), self._on_cleanup, False),
+            ("clock", tr("Sync Time"), tr("Force Windows clock sync"), self._on_timesync, True),
+            ("diamond", tr("Debloat"), tr("Disable telemetry & ads"), self._on_debloat, True),
+            (
+                "gear",
+                tr("Apply Windows Fixes"),
+                tr("Re-apply network + remote-desktop service fixes to the guest (safe to repeat)"),
+                self._on_apply_fixes,
+                True,
+            ),
+        ]
+        layout.addWidget(self._make_tool_card(tr("System"), guest_tools, base_idx=5))
 
         # The tray's "Terminate Session" menu isn't always reachable --
         # on some DEs (stock GNOME, occasional Wayland startup races) the
         # tray icon never appears. Mirror that capability here so the
         # dashboard is a reliable way to close a live RDP session (#450).
-        sessions_card = QFrame()
-        sessions_card.setObjectName("settingsSection")
-        sessions_card.setStyleSheet(SETTINGS_SECTION)
-        add_shadow(sessions_card)
-        sessions_layout = QVBoxLayout(sessions_card)
-        sessions_layout.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
-        sessions_layout.setSpacing(SPACE_M)
-        sessions_layout.addWidget(make_section_label(tr("RDP Sessions")))
-
+        sessions_card, sessions_layout = make_named_settings_group(tr("RDP Sessions"))
+        self._sessions_title_base = tr("RDP Sessions")
+        self._sessions_title = None
+        for label in sessions_card.findChildren(QLabel):
+            if label.objectName() == "settingsGroupTitle":
+                self._sessions_title = label
+                break
         sessions_box_host = QWidget()
         self._sessions_box = QVBoxLayout(sessions_box_host)
         self._sessions_box.setContentsMargins(0, 0, 0, 0)
-        self._sessions_box.setSpacing(SPACE_M)
+        self._sessions_box.setSpacing(SPACE_XS)
         sessions_layout.addWidget(sessions_box_host)
         layout.addWidget(sessions_card)
 
@@ -208,37 +206,17 @@ class MaintenanceMixin:
         self._sessions_timer.timeout.connect(self._refresh_sessions_panel)
         self._refresh_sessions_panel(force=True)
 
+        signal = getattr(self, "pod_status_updated", None)
+        connect = getattr(signal, "connect", None)
+        if callable(connect):
+            connect(self._sync_tools_pod_state)
+        self._sync_tools_pod_state(getattr(self, "_pod_state", ""))
+
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        self._tools_page = page
         return page
-
-    def _make_tool_card(
-        self,
-        section: str,
-        tools: list,
-        *,
-        base_idx: int,
-    ) -> QFrame:
-        """Wrap a labelled group of tool action rows in a shared section card.
-
-        Mirrors the Settings-page card pattern (rounded ``settingsSection``
-        frame, generous padding, even gaps) so the Tools page reads as a few
-        calm cards instead of a flat list of floating rows.
-        """
-        card = QFrame()
-        card.setObjectName("settingsSection")
-        card.setStyleSheet(SETTINGS_SECTION)
-        add_shadow(card)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
-        layout.setSpacing(SPACE_M)
-        layout.addWidget(make_section_label(section))
-
-        for i, (icon, label, desc, handler) in enumerate(tools):
-            layout.addWidget(self._make_action_row(icon, label, desc, handler, base_idx + i))
-        return card
 
     def _refresh_sessions_panel(self, force: bool = False) -> None:
         """Rebuild the Tools-page list of live RDP sessions (#450).
@@ -263,56 +241,21 @@ class MaintenanceMixin:
         if not force and sig == getattr(self, "_sessions_sig", None):
             return  # unchanged -> skip rebuild (no flicker during polling)
         self._sessions_sig = sig
+        title = getattr(self, "_sessions_title", None)
+        if title is not None:
+            title.setText(f"{self._sessions_title_base} · {len(active)}")
 
         while box.count():
             item = box.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()
                 w.deleteLater()
         if not active:
             box.addWidget(make_empty_panel(tr("No active RDP sessions.")))
             return
         for s in active:
             box.addWidget(self._make_session_row(s.app_name, s.pid))
-
-    def _make_session_row(self, app_name: str, pid: int) -> QFrame:
-        """One live-session row: app name + PID + a Terminate button."""
-        row = QFrame()
-        row.setObjectName("actionRow")
-        row.setStyleSheet(ACTION_ROW)
-        row.setMinimumHeight(68)
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_L, SPACE_S)
-        rl.setSpacing(SPACE_L)
-
-        icon = QLabel()
-        icon.setFixedSize(38, 38)
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setPixmap(load_icon("session", TOOL_ICON_FG, 18).pixmap(18, 18))
-        icon.setStyleSheet(
-            f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
-            f" border: 1px solid {TOOL_ICON_BORDER}; border-radius: 14px;"
-        )
-        rl.addWidget(icon)
-
-        col = QVBoxLayout()
-        col.setSpacing(2)
-        name = QLabel(app_name)
-        name.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
-        )
-        col.addWidget(name)
-        meta = QLabel(tr("PID {pid}").format(pid=pid))
-        meta.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;")
-        col.addWidget(meta)
-        rl.addLayout(col, 1)
-
-        btn = QPushButton(tr("Terminate"))
-        btn.setStyleSheet(BTN_DANGER)
-        btn.setFixedWidth(110)
-        btn.clicked.connect(lambda _checked=False, n=app_name: self._on_terminate_session(n))
-        rl.addWidget(btn)
-        return row
 
     def _on_terminate_session(self, app_name: str) -> None:
         """SIGTERM a tracked RDP session (same path as ``winpodx app kill``)."""
@@ -334,73 +277,10 @@ class MaintenanceMixin:
             )
         self._refresh_sessions_panel(force=True)
 
-    def _make_action_row(
-        self,
-        icon: str,
-        label: str,
-        desc: str,
-        handler: object,
-        color_idx: int,
-    ) -> QFrame:
-        """Build a single tool action row."""
-        row = QFrame()
-        row.setObjectName("actionRow")
-        row.setStyleSheet(ACTION_ROW)
-        row.setMinimumHeight(76)
-        row.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_shadow(row, blur=10, y=2, alpha=26)
-
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(SPACE_L, SPACE_S, SPACE_XL, SPACE_S)
-        rl.setSpacing(SPACE_L)
-
-        color = accent_color(color_idx)
-        icon_circle = QLabel()
-        icon_circle.setFixedSize(38, 38)
-        icon_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # ``icon`` is an SVG icon name from the bundled set (load_icon recolors
-        # it to the calm tool accent); a single legacy glyph map is kept as a
-        # fallback so older callers passing a unicode glyph still resolve.
-        icon_name = {
-            "⏸": "pause",
-            "▶": "play",
-            "▣": "desktop",
-            "✧": "clean",
-            "◷": "clock",
-            "◆": "diamond",
-            "⚙": "gear",
-            "⊕": "plus",
-            "↻": "refresh",
-        }.get(icon, icon)
-        icon_circle.setPixmap(load_icon(icon_name, TOOL_ICON_FG, 18).pixmap(18, 18))
-        icon_circle.setStyleSheet(
-            f"background: {TOOL_ICON_BG}; color: {TOOL_ICON_FG};"
-            f" border: 1px solid {TOOL_ICON_BORDER}; border-left: 2px solid {rgba(color, 0.42)};"
-            f" border-radius: 14px;"
-        )
-        rl.addWidget(icon_circle)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(4)
-        title_lbl = QLabel(label)
-        title_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
-        )
-        text_col.addWidget(title_lbl)
-        desc_lbl = QLabel(desc)
-        desc_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-        text_col.addWidget(desc_lbl)
-        rl.addLayout(text_col)
-        rl.addStretch()
-
-        arrow = QLabel()
-        arrow.setFixedSize(16, 16)
-        arrow.setPixmap(load_icon("chevron-right", C.OVERLAY0, 16).pixmap(16, 16))
-        arrow.setStyleSheet(f"background: transparent; color: {C.OVERLAY0};")
-        rl.addWidget(arrow)
-
-        row.mousePressEvent = lambda ev, h=handler: h()
-        return row
+    def _restyle_tools(self) -> None:
+        root = getattr(self, "_tools_page", None) or getattr(self, "page", None)
+        if root is not None:
+            restyle_settings_cards(root)
 
     def _run_busy_op(
         self,

@@ -30,7 +30,7 @@ explicit instead of relying on memory.
 These run on every PR; they are the floor, not the whole story.
 
 - [ ] `lint` — `ruff check src/ tests/` + `ruff format --check src/ tests/`
-- [ ] `test (3.9 … 3.14)` — `pytest tests/ -v` on every supported Python
+- [ ] `test (3.10 … 3.14)` — `pytest tests/ -v` on every supported Python
 - [ ] `audit` — `pip-audit`
 - [ ] `discover-apps-ps` — PowerShell discovery script syntax
 - [ ] `verify_versions` — `pyproject.toml` ↔ `packaging/rpm/winpodx.spec` ↔ installed metadata agree

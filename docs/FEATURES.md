@@ -68,15 +68,15 @@ The tray, GUI, and CLI are fully translated into 7 languages: English, Korean (�
 - Switch any time with `winpodx language <code>` (e.g. `winpodx language ja`) or the GUI language dropdown
 - Persisted in config under `[ui] language`
 
-## Start-menu GUI & Dashboard
+## Desktop app
 
-The desktop GUI is built around a Start-menu-style layout: a left vertical navigation sidebar (one row per page) with a **Dashboard** home you land on first.
+The Qt6 desktop app is a Windows 11 Settings-style shell. Its navigation pane is 320 px wide, collapses to a 48 px icon rail below 1100 px, and opens as an overlay from the hamburger button when space is tight. Clicking outside an open overlay closes it. The custom title bar supports caption buttons, drag, and double-click maximize; set `WINPODX_NATIVE_TITLEBAR=1` to use native decorations. Light and dark mode follow the OS, or use `WINPODX_COLOR_SCHEME=light|dark` for a process override.
 
-- **Dashboard** shows live Pod / RAM / CPU ring gauges plus disk usage, an auto-recovery status card, pinned and recent workspace tiles, and a reverse-open toggle.
-- The app launcher is now the **Applications** page.
-- A **Devices** page provides the two-column host ↔ guest device mover for USB / PCI passthrough.
-- A unified design system with an in-house SVG icon set (no more unicode-glyph icons), responsive layouts that reflow on narrow or fractionally-scaled windows, and fit-to-screen sizing.
-- A hero search at the top doubles as a command bar.
+- **Dashboard** is the home page for pod state, Start and Stop, RAM, CPU, and disk rings, quick actions, running apps, pinned tiles, and reverse-open.
+- **Applications** shows discovered Start Menu apps as searchable grid or list tiles with category counts and context actions.
+- **Settings** groups RDP Connection, Hardware, Windows Update, Integration, Localization, and Danger zone. Its Save button carries a dirty dot until changes are saved.
+- **Tools**, **Terminal / Logs**, **Info**, **Devices**, and **License** round out the shell. Devices groups USB and PCI entries, supports filtering, marks risky PCI assignments, and shows assignment counts.
+- `winpodx launch` is a compact Start-style flyout. The in-house SVG icon set and bundled Selawik font avoid a system font dependency.
 
 ## Peripherals & Sharing
 
@@ -88,7 +88,7 @@ The desktop GUI is built around a Start-menu-style layout: a left vertical navig
 | **Home directory** | Shared as `\\tsclient\home`: the whole Home via `+home-drive`, or only `pod.home_share` via `/drive:home,<path>` | Enabled |
 | **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders. The guest-side USB shortcut always resolves even when no media is mounted | Enabled |
 | **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
-| **Host USB / PCI passthrough** | Map a host USB or PCI device straight into the Windows guest (`winpodx device list / attach <id> / detach <id>`, GUI Devices tab, tray USB switcher). USB redirects live through usbredir; PCI is boot-added and needs a guest restart + safety confirmation | USB live |
+| **Host USB / PCI passthrough** | Map a host USB or PCI device straight into the Windows guest (`winpodx device list / attach / detach`, GUI Devices page, tray USB switcher). The GUI groups and filters USB and PCI devices, shows assignment state, and flags risky PCI changes. USB redirects live through usbredir; PCI is boot-added and needs a guest restart + safety confirmation | USB live |
 | **Reverse file open** | Linux apps appear in the Windows guest's right-click "Open with…" menu; selecting one round-trips the file open to that discovered host app | Enabled |
 
 ### USB Drive Flow
@@ -118,7 +118,7 @@ winpodx device detach <id>     # detach it again
 
 - **USB** redirects live through usbredir — attach/detach without restarting the guest; a privilege prompt may appear so the host helper can open the device. The legacy `pod.usb_live` key no longer gates this path.
 - **PCI** is boot-added: it needs a guest restart to take effect and asks for a safety confirmation (`--force` on the CLI, or the dialog in the GUI).
-- A **GUI Devices tab** gives you a two-column host ↔ guest mover, and the **system-tray USB switcher** lets you flip a USB device in or out without opening the full window.
+- The **GUI Devices page** groups USB and PCI devices, shows assignment state and filtering, and the **system-tray USB switcher** lets you flip a USB device in or out without opening the full window.
 
 **GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [COMPARISON.md](COMPARISON.md) → WinPodX vs Wine — Wine + DXVK is the right tool when you need GPU.)
 

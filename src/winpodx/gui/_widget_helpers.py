@@ -11,6 +11,7 @@ the main-window class along.
 
 from __future__ import annotations
 
+import html
 from collections.abc import Callable
 from pathlib import Path
 
@@ -37,18 +38,17 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
+from winpodx.gui import theme
+from winpodx.gui._settings_card import (  # noqa: F401
+    make_settings_card,
+    make_settings_group,
+    make_toggle_switch,
+)
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
-    BTN_PRIMARY,
-    BTN_SECONDARY,
-    DIALOG,
-    EMPTY_STATE,
     FONT_BODY,
     FONT_CAPTION,
-    PAGE_SUBTITLE,
-    PAGE_TITLE,
     RADIUS_M,
-    SECTION_LABEL,
     SPACE_L,
     SPACE_M,
     SPACE_S,
@@ -56,6 +56,7 @@ from winpodx.gui.theme import (
     SPACE_XS,
     C,
     avatar_color,
+    rgba,
 )
 
 
@@ -96,6 +97,7 @@ class ElidingLabel(QLabel):
     def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._full = text
+        self.setTextFormat(Qt.TextFormat.PlainText)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.setMinimumWidth(0)
         self.set_full_text(text)
@@ -103,7 +105,7 @@ class ElidingLabel(QLabel):
     def set_full_text(self, text: str) -> None:
         self._full = text or ""
         if self._full:
-            self.setToolTip(self._full)
+            self.setToolTip(html.escape(self._full))
         self.updateGeometry()
         self._apply_elide()
 
@@ -265,8 +267,9 @@ def make_app_avatar(app: AppInfo, size: int, *, radius: int, font_size: int) -> 
     letter = app.full_name[0].upper() if app.full_name else "?"
     avatar.setText(letter)
     avatar.setStyleSheet(
-        f"background: {color};"
-        f" color: {C.CRUST};"
+        f"background: {rgba(color, 0.14)};"
+        f" color: {color};"
+        f" border: 1px solid {rgba(color, 0.22)};"
         f" border-radius: {radius}px;"
         f" font-size: {font_size}px; font-weight: 600;"
     )
@@ -358,7 +361,7 @@ class BusyDialog(QDialog):
         # debloat task window was ~392x139). Give it a comfortable floor so the
         # message + progress bar + ETA hint aren't squeezed.
         self.setMinimumSize(480, 168)
-        self.setStyleSheet(DIALOG)
+        self.setStyleSheet(theme.DIALOG)
         self._cancel_cbs: list[Callable[[], None]] = []
 
         layout = QVBoxLayout(self)
@@ -373,7 +376,8 @@ class BusyDialog(QDialog):
         bar = QProgressBar()
         bar.setRange(0, 0)  # indeterminate
         bar.setTextVisible(False)
-        bar.setFixedHeight(6)
+        bar.setFixedHeight(4)
+        bar.setStyleSheet(theme.PROGRESS)
         layout.addWidget(bar)
 
         if eta_hint:
@@ -385,7 +389,7 @@ class BusyDialog(QDialog):
             row = QHBoxLayout()
             row.addStretch(1)
             self._cancel_btn = QPushButton(tr("Cancel"))
-            self._cancel_btn.setStyleSheet(BTN_SECONDARY)
+            self._cancel_btn.setStyleSheet(theme.BTN_SECONDARY)
             self._cancel_btn.clicked.connect(self._on_cancel_clicked)
             row.addWidget(self._cancel_btn)
             layout.addLayout(row)
@@ -426,9 +430,8 @@ def make_warning_callout(text: str, *, level: str = "warn") -> QFrame:
     frame.setObjectName("winpodxCallout")
     frame.setStyleSheet(
         f"QFrame#winpodxCallout {{"
-        f" background: {C.SURFACE0};"
-        f" border: 1px solid {accent};"
-        f" border-left: 3px solid {accent};"
+        f" background: {rgba(accent, 0.12)};"
+        f" border: 1px solid {rgba(accent, 0.22)};"
         f" border-radius: {RADIUS_M}px; }}"
     )
     row = QHBoxLayout(frame)
@@ -455,13 +458,20 @@ def make_page_heading(title: str, subtitle: str = "") -> QWidget:
     layout.setSpacing(SPACE_XS)
 
     title_lbl = QLabel(title)
-    title_lbl.setStyleSheet(PAGE_TITLE)
+    title_lbl.setObjectName("pageTitle")
+    title_lbl.setStyleSheet(
+        f"background: transparent; color: {theme.C.TEXT}; "
+        f"font-size: {theme.FONT_HERO}px; font-weight: 600;"
+    )
     layout.addWidget(title_lbl)
 
     if subtitle:
         subtitle_lbl = QLabel(subtitle)
         subtitle_lbl.setWordWrap(True)
-        subtitle_lbl.setStyleSheet(PAGE_SUBTITLE)
+        subtitle_lbl.setStyleSheet(
+            f"background: transparent; color: {theme.C.SUBTEXT1}; "
+            f"font-size: {theme.FONT_CAPTION}px; font-weight: 400;"
+        )
         layout.addWidget(subtitle_lbl)
 
     return holder
@@ -476,8 +486,8 @@ def make_page_header(
     """Build the shared page header with optional right-aligned actions."""
     header = QWidget()
     layout = QHBoxLayout(header)
-    layout.setContentsMargins(0, 16, 0, 0)
-    layout.setSpacing(16)
+    layout.setContentsMargins(0, SPACE_L, 0, 0)
+    layout.setSpacing(SPACE_L)
 
     layout.addWidget(make_page_heading(title, subtitle), 1, Qt.AlignmentFlag.AlignTop)
     if actions_widget is not None:
@@ -489,7 +499,7 @@ def make_page_header(
 def make_section_label(text: str) -> QLabel:
     """Build the compact uppercase section label used on dense pages."""
     label = QLabel(text)
-    label.setStyleSheet(SECTION_LABEL)
+    label.setStyleSheet(theme.SECTION_LABEL)
     return label
 
 
@@ -503,15 +513,16 @@ def make_empty_panel(
     """Build a deliberate empty/loading/error state panel."""
     frame = QFrame()
     frame.setObjectName("emptyState")
-    frame.setStyleSheet(EMPTY_STATE)
+    frame.setStyleSheet(theme.EMPTY_STATE)
     # #553: this panel lives inside the app-list QScrollArea(setWidgetResizable
     # =True). Word-wrap QLabels whose wrap width tracks the viewport feed their
     # width back into their height, and on Qt 6.11 that re-enters
     # QBoxLayout::setGeometry -> heightForWidth without bound -> SIGSEGV. Cap the
     # panel and pin the labels to a CONSTANT wrap width so heightForWidth no
     # longer depends on the viewport, breaking the feedback loop.
-    frame.setMaximumWidth(460)
-    _WRAP_W = 400  # 460 - 2 * SPACE_XL side margins
+    panel_w = int(theme.CONTENT_MAX_WIDTH * theme.EMPTY_PANEL_RATIO)
+    frame.setMaximumWidth(panel_w)
+    _WRAP_W = panel_w - 2 * SPACE_XL
 
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
@@ -540,7 +551,7 @@ def make_empty_panel(
     if action_label and action_cb is not None:
         layout.addSpacing(SPACE_M)
         btn = QPushButton(action_label)
-        btn.setStyleSheet(BTN_PRIMARY)
+        btn.setStyleSheet(theme.BTN_PRIMARY)
         btn.clicked.connect(action_cb)
         layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -585,3 +596,73 @@ def actionable_error(
         buttons[box.addButton(label, role)] = label
     box.exec()
     return buttons.get(box.clickedButton(), labels[-1])
+
+
+_FLUID_WRAP = "fluidWrap"
+
+
+def mark_fluid_wrap(label: QLabel) -> None:
+    """Pin a word-wrapped label's width to the live content column (see fit_fluid_wraps).
+
+    Wrapped labels in a resizable scroll area need a *fixed* width (heightForWidth
+    feedback, #553); the width itself is re-derived from the viewport on every
+    reflow instead of being a constant.
+    """
+    label.setWordWrap(True)
+    label.setProperty(_FLUID_WRAP, True)
+    label.setFixedWidth(int(theme.CONTENT_MAX_WIDTH * theme.WRAP_RATIO))
+
+
+def fit_fluid_wraps(root: QWidget, available: int) -> None:
+    """Re-derive every fluid-wrap label width from the live ``available`` column."""
+    changed = False
+    for label in root.findChildren(QLabel):
+        if not label.property(_FLUID_WRAP):
+            continue
+        floor = label.fontMetrics().averageCharWidth() * 24
+        width = max(floor, int((available - _horizontal_inset(label, root)) * theme.WRAP_RATIO))
+        if label.width() != width:
+            label.setFixedWidth(width)
+            changed = True
+    if changed:
+        _drop_size_caches(root)
+
+
+def _horizontal_inset(label: QLabel, root: QWidget) -> int:
+    """Structural left+right space around ``label`` (margins + row siblings) up to ``root``.
+
+    Derived from the layouts rather than ``mapTo`` so it is valid before the page
+    has ever been shown or laid out.
+    """
+    inset = 0
+    node: QWidget = label
+    while node is not root:
+        parent = node.parentWidget()
+        if parent is None:
+            break
+        layout = parent.layout()
+        if layout is not None:
+            margins = layout.contentsMargins()
+            inset += margins.left() + margins.right()
+            if isinstance(layout, QBoxLayout) and layout.direction() in (
+                QBoxLayout.Direction.LeftToRight,
+                QBoxLayout.Direction.RightToLeft,
+            ):
+                for i in range(layout.count()):
+                    sibling = layout.itemAt(i).widget()
+                    if sibling is not None and sibling is not node and not sibling.isHidden():
+                        inset += sibling.minimumSizeHint().width() + layout.spacing()
+        node = parent
+    return inset
+
+
+def _drop_size_caches(root: QWidget) -> None:
+    # Qt skips layout invalidation for hidden widgets (updateGeometry is a
+    # no-op while hidden), so a page that is not on screen keeps reporting the
+    # old wrapped-label minimum. Force every cached QWidgetItem / layout
+    # minimum in the subtree to recompute.
+    for widget in (*root.findChildren(QWidget), root):
+        widget.updateGeometry()
+        layout = widget.layout()
+        if layout is not None:
+            layout.invalidate()

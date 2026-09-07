@@ -15,7 +15,7 @@ Linux 에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 �
 | 인터페이스 | CLI 만 | CLI 만 | Electron GUI | **Qt6 GUI + CLI + 트레이** |
 | 앱 범위 | 모든 Windows 앱 | Office 전용 | 모든 Windows 앱 | 모든 Windows 앱 |
 | 언어 | Shell | Shell + Python | TypeScript / Vue / Go | **Python 우선 + guest PowerShell/Rust shim** |
-| 런타임 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP, Podman** |
+| 런타임 의존성 | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.10+, FreeRDP, Podman** |
 | 자동 suspend / resume | 없음 | 없음 | 문서화 안 됨 | **있음 (idle timeout)** |
 | 비밀번호 회전 | 없음 | 없음 | 문서화 안 됨 | **있음 (7일, atomic)** |
 | HiDPI 자동 감지 | 없음 | 없음 | 문서화 안 됨 | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |

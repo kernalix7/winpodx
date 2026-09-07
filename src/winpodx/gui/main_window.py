@@ -7,11 +7,12 @@ import logging
 import sys
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QMainWindow,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import list_available_apps
 from winpodx.core.config import Config
+from winpodx.gui._frameless import FramelessMixin
 from winpodx.gui._main_window_apps import AppCrudMixin
 from winpodx.gui._main_window_bringup import BringUpMixin
 from winpodx.gui._main_window_dashboard import DashboardMixin
@@ -30,12 +32,20 @@ from winpodx.gui._main_window_license import LicensePageMixin
 from winpodx.gui._main_window_logs import LogsMixin
 from winpodx.gui._main_window_maintenance import MaintenanceMixin
 from winpodx.gui._main_window_nav import NavigationMixin
+from winpodx.gui._main_window_navpane import NavPaneMixin
 from winpodx.gui._main_window_pod import PodStatusMixin
+from winpodx.gui._main_window_secondary_style import _SecondaryStyleMixin
 from winpodx.gui._main_window_settings import SettingsPageMixin
+from winpodx.gui._shell_geometry import ShellGeometryMixin
+from winpodx.gui._title_bar import TitleBar
 from winpodx.gui.theme import (
     GLOBAL_STYLE,
+    PAGE_MARGIN_X,
+    SPACE_XL,
     C,
+    current_scheme,
 )
+from winpodx.gui.theme_manager import instance as theme_manager_instance
 from winpodx.gui.workers import DiscoveryWorker
 
 log = logging.getLogger(__name__)
@@ -53,8 +63,12 @@ class WinpodxWindow(
     LogsMixin,
     MaintenanceMixin,
     NavigationMixin,
+    NavPaneMixin,
     PodStatusMixin,
     SettingsPageMixin,
+    _SecondaryStyleMixin,
+    FramelessMixin,
+    ShellGeometryMixin,
     QMainWindow,
 ):
     """Main window with launcher home and overflow-menu navigation."""
@@ -103,6 +117,8 @@ class WinpodxWindow(
 
         self._setup_signals()
         self._build_ui()
+        theme_manager_instance().scheme_changed.connect(self._on_scheme_changed)
+        self._on_scheme_changed(current_scheme())
         self._fit_to_screen()
         self._start_status_timer()
 
@@ -183,20 +199,37 @@ class WinpodxWindow(
     def _build_ui(self) -> None:
         central = QWidget()
         central.setObjectName("centralRoot")
-        central.setStyleSheet(f"QWidget#centralRoot {{ background: {C.MANTLE}; }}\n" + GLOBAL_STYLE)
+        central.setStyleSheet(f"QWidget#centralRoot {{ background: {C.BASE}; }}\n" + GLOBAL_STYLE)
         self.setCentralWidget(central)
-        # Horizontal shell: left nav sidebar | content column (slim top strip
-        # + stacked pages). Mirrors the Start-menu-style mockup.
-        root = QHBoxLayout(central)
+        self._install_frameless()
+        chrome = QVBoxLayout(central)
+        chrome.setContentsMargins(0, 0, 0, 0)
+        chrome.setSpacing(0)
+        self.title_bar = TitleBar(self)
+        self.title_bar.setVisible(self._frameless_active)
+        chrome.addWidget(self.title_bar)
+        body = QWidget()
+        body.setMouseTracking(True)
+        chrome.addWidget(body, 1)
+        root = QHBoxLayout(body)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        root.addWidget(self._build_sidebar())
+        self.sidebar = self._build_sidebar()
+        root.addWidget(self._mount_nav_pane(body, self.sidebar))
 
         content = QWidget()
+        content.setObjectName("contentLayer")
+        content.setMouseTracking(True)
+        content.setMinimumWidth(0)
+        content.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         content_col = QVBoxLayout(content)
         content_col.setContentsMargins(0, 0, 0, 0)
-        content_col.setSpacing(0)
-        content_col.addWidget(self._build_top_strip())
+        content_col.setSpacing(SPACE_XL)
+        content_col.addWidget(self.page_header)
+        self.page_header.show()
+        self.top_strip = self._build_top_strip()
+        self.top_strip.setParent(central)
+        self.top_strip.hide()
 
         # Clean launcher chrome: the old full-width status banner and the
         # bottom info/log bars are NOT mounted -- the top-strip pod chip carries
@@ -217,6 +250,8 @@ class WinpodxWindow(
         # invariant). Dashboard is the home (index 0); the app launcher moves
         # to "Applications" (index 1). License stays last.
         self.pages = QStackedWidget()
+        self.pages.setMinimumWidth(0)
+        self.pages.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self.pages.addWidget(self._build_dashboard_page())
         self.pages.addWidget(self._build_library_page())
         self.pages.addWidget(self._build_settings_page())
@@ -225,9 +260,17 @@ class WinpodxWindow(
         self.pages.addWidget(self._build_info_page())
         self.pages.addWidget(self._build_devices_page())
         self.pages.addWidget(self._build_license_page())
-        content_col.addWidget(self.pages, 1)
+        page_frame = QWidget()
+        page_frame.setObjectName("pageFrame")
+        frame_layout = QVBoxLayout(page_frame)
+        frame_layout.setContentsMargins(PAGE_MARGIN_X, 0, 0, 0)
+        frame_layout.setSpacing(0)
+        frame_layout.addWidget(self.pages, 1)
+        content_col.addWidget(page_frame, 1)
 
         root.addWidget(content, 1)
+        self._update_page_header(0)
+        self._restyle_shell()
 
     def _fit_to_screen(self) -> None:
         """Open at the preferred size, but never larger than the screen.
@@ -252,6 +295,9 @@ class WinpodxWindow(
                 # own minimum "boxes"), not a magic number, so the window can't
                 # shrink past where buttons / the terminal / forms would clip.
                 self._sync_scroll_minimums()
+                apply_minimum = getattr(self, "_apply_window_minimum", None)
+                if callable(apply_minimum):
+                    apply_minimum()
                 w = max(self.minimumWidth(), min(pref_w, avail.width() - 60))
                 h = max(self.minimumHeight(), min(pref_h, avail.height() - 80))
                 self.resize(w, h)
@@ -260,8 +306,16 @@ class WinpodxWindow(
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt signature
         super().resizeEvent(event)
+        if hasattr(self, "_apply_nav_compact"):
+            self._apply_nav_compact()
+        self._layout_nav_pane()
+        self._reflow_pages()
+
+    def _reflow_pages(self) -> None:
         # Keep responsive page layouts (the Settings + Devices two-column
-        # forms) in step with the live window width as the user drags it.
+        # forms) in step with the live content width -- after a window resize
+        # and after the nav pane toggles (which changes the content width
+        # without a window resizeEvent).
         if hasattr(self, "_reflow_settings"):
             self._reflow_settings()
         if hasattr(self, "_reflow_devices"):
@@ -270,7 +324,9 @@ class WinpodxWindow(
             self._reflow_dashboard()
         if hasattr(self, "_reflow_library"):
             self._reflow_library()
+        self._fit_wrapped_text()
         self._sync_scroll_minimums()
+        self._apply_window_minimum()
 
     def _sync_scroll_minimums(self) -> None:
         """Let the content's own minimum size drive the window minimum.
@@ -286,11 +342,40 @@ class WinpodxWindow(
         """
         from PySide6.QtWidgets import QScrollArea
 
+        from winpodx.gui.theme import NAV_PANE_WIDTH
+
+        sidebar = getattr(self, "sidebar", None)
+        pane_w = 0
+        if sidebar is not None:
+            pane_w = sidebar.width() or NAV_PANE_WIDTH
         for area in self.findChildren(QScrollArea):
             inner = area.widget()
             if inner is not None:
-                # +18 leaves room for the vertical scrollbar.
-                area.setMinimumWidth(inner.minimumSizeHint().width() + 18)
+                wanted = inner.minimumSizeHint().width() + 18
+                area.setMinimumWidth(wanted if pane_w == 0 else 0)
+
+    def _on_scheme_changed(self, _scheme: str) -> None:
+        """Re-apply shell stylesheets after ``theme.rebuild``."""
+        from winpodx.gui import theme as theme_mod
+
+        restyle = getattr(self, "_restyle_shell", None)
+        if callable(restyle):
+            restyle()
+        restyle_dash = getattr(self, "_restyle_dashboard", None)
+        if callable(restyle_dash):
+            restyle_dash()
+        restyle_library = getattr(self, "_restyle_library", None)
+        if callable(restyle_library):
+            restyle_library()
+        restyle_settings = getattr(self, "_restyle_settings", None)
+        if callable(restyle_settings):
+            restyle_settings()
+        restyle_secondary = getattr(self, "_restyle_secondary_pages", None)
+        if callable(restyle_secondary):
+            restyle_secondary()
+        info_bar = getattr(self, "info_bar", None) or getattr(self, "_hidden_info_bar", None)
+        if info_bar is not None:
+            info_bar.setStyleSheet(theme_mod.INFO_BAR)
 
 
 def run_gui() -> None:
@@ -304,7 +389,6 @@ def run_gui() -> None:
     )
     app = QApplication(sys.argv)
     app.setApplicationName("winpodx")
-    app.setStyle("Fusion")
 
     from winpodx.desktop.icons import bundled_data_path
 
@@ -312,22 +396,7 @@ def run_gui() -> None:
     if icon_path is not None:
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    from PySide6.QtGui import QPalette
-
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(C.BASE))
-    palette.setColor(QPalette.ColorRole.WindowText, QColor(C.TEXT))
-    palette.setColor(QPalette.ColorRole.Base, QColor(C.MANTLE))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(C.SURFACE0))
-    palette.setColor(QPalette.ColorRole.Text, QColor(C.TEXT))
-    palette.setColor(QPalette.ColorRole.Button, QColor(C.SURFACE0))
-    palette.setColor(QPalette.ColorRole.ButtonText, QColor(C.TEXT))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(C.BLUE))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(C.CRUST))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(C.SURFACE0))
-    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(C.TEXT))
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(C.OVERLAY0))
-    app.setPalette(palette)
+    theme_manager_instance().start(app)
 
     window = WinpodxWindow()
     window.show()

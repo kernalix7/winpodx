@@ -21,7 +21,6 @@ import logging
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QLabel,
     QScrollArea,
     QTextEdit,
@@ -30,144 +29,19 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import add_shadow, make_page_header, make_section_label
-from winpodx.gui.icons import load_icon
-from winpodx.gui.theme import (
-    FONT_BODY,
-    FONT_CAPTION,
-    FONT_HEADER,
-    RADIUS_XS,
-    SCROLL_AREA,
-    SETTINGS_SECTION,
-    SPACE_L,
-    SPACE_M,
-    SPACE_S,
-    SPACE_XS,
-    SPACE_XXL,
-    TERMINAL,
-    TOOL_ACCENT,
-    TOOL_ICON_FG,
-    C,
-    rgba,
+from winpodx.gui import theme as theme_mod
+from winpodx.gui._main_window_license_acks import _THIRD_PARTY_ACK, build_ack_card
+from winpodx.gui._main_window_logs_ui import log_viewer_qss, viewer_card_qss
+from winpodx.gui._main_window_secondary_style import (
+    make_named_settings_group,
+    make_value_label,
+    mount_settings_column,
+    restyle_settings_cards,
 )
+from winpodx.gui._widget_helpers import make_section_label, make_settings_card
 from winpodx.utils.paths import bundle_dir
 
 log = logging.getLogger(__name__)
-
-
-# Hand-maintained acknowledgments. Each entry: (display_name, license,
-# what-we-use-it-for, upstream_url). Kept short on purpose — the LICENSE
-# file + upstream project pages are the canonical legal source; this is
-# just a "who got us here" summary the user can scan in 10 seconds. The
-# URL lets the user find the upstream source + its full license text.
-#
-# ``rdprrap`` is bundled in ``config/oem/`` and is technically a
-# sibling project authored by the same maintainer (MIT, same
-# copyright). It's listed here for transparency about what's
-# inside the OEM zip — not because it's "third party" in the
-# strict sense. Its own NOTICE file documents that portions are
-# source-level ports of stascorp/rdpwrap (Apache-2.0), which is
-# why that upstream is also listed below.
-_THIRD_PARTY_ACK: tuple[tuple[str, str, str, str], ...] = (
-    (
-        "dockur/windows",
-        "MIT",
-        "Windows-in-Docker base image (pulled from Docker Hub at runtime, not bundled)",
-        "https://github.com/dockur/windows",
-    ),
-    (
-        "dockur/windows-arm",
-        "MIT",
-        "Windows-on-ARM container image for aarch64 hosts (Pi 5, Ampere) — runtime-pulled",
-        "https://github.com/dockur/windows-arm",
-    ),
-    (
-        "FreeRDP 3",
-        "Apache-2.0",
-        "RDP client with RemoteApp/RAIL (system-installed dependency)",
-        "https://github.com/FreeRDP/FreeRDP",
-    ),
-    (
-        "rdprrap",
-        "MIT",
-        "TermService DLL hook for multi-session RDP in the guest "
-        "(same maintainer; bundled in OEM zip)",
-        "https://github.com/kernalix7/rdprrap",
-    ),
-    (
-        "stascorp/rdpwrap",
-        "Apache-2.0",
-        "Source-level ancestor of rdprrap — bundled rdprrap ports portions of rdpwrap",
-        "https://github.com/stascorp/rdpwrap",
-    ),
-    (
-        "llccd/TermWrap",
-        "MIT",
-        "Source-level ancestor of rdprrap's termwrap DLL (per rdprrap NOTICE section 2)",
-        "https://github.com/llccd/TermWrap",
-    ),
-    (
-        "llccd/RDPWrapOffsetFinder",
-        "MIT",
-        "Source-level ancestor of rdprrap's offset-finder tool (per rdprrap NOTICE section 3)",
-        "https://github.com/llccd/RDPWrapOffsetFinder",
-    ),
-    (
-        "PySide6 / Qt 6",
-        "LGPL-3.0-only WITH Qt-LGPL-exception-1.1",
-        "GUI framework — dynamically linked via import; LGPL §4(d) satisfied",
-        "https://doc.qt.io/qtforpython/",
-    ),
-    (
-        "electron/rcedit",
-        "MIT (Copyright 2013 GitHub Inc.)",
-        "Vendored Windows .exe resource editor for embedding per-slug reverse-open icons",
-        "https://github.com/electron/rcedit",
-    ),
-    (
-        "Pillow",
-        "MIT-CMU",
-        "PNG / SVG → ICO conversion for reverse-open (optional, only with the reverse-open extra)",
-        "https://github.com/python-pillow/Pillow",
-    ),
-    (
-        "cairosvg",
-        "LGPL-3.0-or-later",
-        "SVG rasterizer used during ICO build (optional, only with the reverse-open extra)",
-        "https://github.com/Kozea/CairoSVG",
-    ),
-    (
-        "pyxdg",
-        "LGPL-2.0-only",
-        "freedesktop .desktop file parser for host-app discovery (optional, reverse-open extra)",
-        "https://gitlab.freedesktop.org/xdg/pyxdg",
-    ),
-    (
-        "docker (docker-py)",
-        "Apache-2.0",
-        "Python client for the Docker Engine API (optional, only with the docker extra)",
-        "https://github.com/docker/docker-py",
-    ),
-    (
-        "tomli",
-        "MIT",
-        "TOML parser fallback for Python 3.9 / 3.10 (stdlib tomllib used on 3.11+)",
-        "https://github.com/hukkin/tomli",
-    ),
-    (
-        "getrandom (Rust crate)",
-        "MIT OR Apache-2.0",
-        "Crypto-quality randomness for the reverse-open Windows shim "
-        "(statically linked into the vendored .exe)",
-        "https://github.com/rust-random/getrandom",
-    ),
-    (
-        "GitHub Primer Dark",
-        "MIT (Copyright 2013 GitHub Inc.)",
-        "Color palette inspiration for the GUI theme (see src/winpodx/gui/theme.py)",
-        "https://github.com/primer/primitives",
-    ),
-)
 
 
 class LicensePageMixin:
@@ -182,32 +56,28 @@ class LicensePageMixin:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(SCROLL_AREA)
+        scroll.setStyleSheet(theme_mod.SCROLL_AREA)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XXL)
-        layout.setSpacing(SPACE_L)
+        layout = mount_settings_column(content)
 
-        # --- Page header ---------------------------------------------------
-        layout.addWidget(
-            make_page_header(
+        register = getattr(self, "_register_page_header", None)
+        if callable(register):
+            register(
+                7,
                 tr("License"),
                 tr(
                     "WinPodX is MIT-licensed open source. See LICENSE in the source "
                     "tree for the canonical text."
                 ),
             )
-        )
 
-        # --- MIT license text ----------------------------------------------
+        layout.addWidget(self._build_license_summary())
         layout.addWidget(make_section_label(tr("License text")))
         layout.addWidget(self._build_license_section())
 
-        # --- Third-party acknowledgments -----------------------------------
         layout.addWidget(make_section_label(tr("Third-party components")))
-
         ack_intro = QLabel(
             tr(
                 "WinPodX ships and depends on these upstream projects. Each is "
@@ -218,103 +88,81 @@ class LicensePageMixin:
             )
         )
         ack_intro.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;"
+            f"background: transparent; color: {theme_mod.C.SUBTEXT0}; "
+            f"font-size: {theme_mod.FONT_CAPTION}px;"
         )
         ack_intro.setWordWrap(True)
         layout.addWidget(ack_intro)
 
+        ack_group, ack_stack = make_named_settings_group(tr("Upstream"))
         for entry in _THIRD_PARTY_ACK:
-            layout.addWidget(self._build_ack_card(*entry))
+            ack_stack.addWidget(self._build_ack_card(*entry))
+        layout.addWidget(ack_group)
 
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        self._license_page = page
         return page
+
+    def _build_license_summary(self) -> QWidget:
+        holder, layout = make_named_settings_group()
+        layout.addWidget(
+            make_settings_card("", tr("License"), action=make_value_label("MIT"), compact=True)
+        )
+        layout.addWidget(
+            make_settings_card(
+                "", tr("Upstream"), action=make_value_label("dockur/windows"), compact=True
+            )
+        )
+        layout.addWidget(
+            make_settings_card(
+                "",
+                tr("Third-party components"),
+                action=make_value_label(str(len(_THIRD_PARTY_ACK))),
+                compact=True,
+            )
+        )
+        return holder
 
     def _build_license_section(self) -> QFrame:
         """Card wrapping the read-only MIT license text in the terminal panel."""
         card = QFrame()
-        card.setObjectName("settingsSection")
-        card.setStyleSheet(SETTINGS_SECTION)
-        add_shadow(card, blur=12, y=2, alpha=26)
+        card.setObjectName("settingsCard")
+        card.setStyleSheet(viewer_card_qss())
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
+        card_layout.setContentsMargins(
+            theme_mod.SPACE_L, theme_mod.SPACE_L, theme_mod.SPACE_L, theme_mod.SPACE_L
+        )
         card_layout.setSpacing(0)
 
         license_view = QTextEdit()
         license_view.setReadOnly(True)
-        license_view.setStyleSheet(TERMINAL)
+        license_view.setStyleSheet(log_viewer_qss())
+        license_view.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        license_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         license_view.setPlainText(self._read_license_text())
-        license_view.setFixedHeight(260)
+        license_view.setFixedHeight(420)
+        self._license_view = license_view
         card_layout.addWidget(license_view)
         return card
 
+    def _restyle_license(self) -> None:
+        root = getattr(self, "_license_page", None) or getattr(self, "page", None)
+        if root is None:
+            return
+        restyle_settings_cards(root)
+        view = getattr(self, "_license_view", None)
+        if view is not None:
+            view.setStyleSheet(log_viewer_qss())
+            parent = view.parentWidget()
+            if isinstance(parent, QFrame):
+                parent.setStyleSheet(viewer_card_qss())
+
     def _build_ack_card(self, name: str, license_: str, purpose: str, url: str) -> QFrame:
         """Build one third-party acknowledgment card (name + license + link)."""
-        row = QFrame()
-        row.setObjectName("settingsSection")
-        row.setStyleSheet(SETTINGS_SECTION)
-        add_shadow(row, blur=10, y=1, alpha=28)
-        row_layout = QVBoxLayout(row)
-        row_layout.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
-        row_layout.setSpacing(SPACE_S)
-
-        # Header line: project name (medium) + a calm license chip.
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 0)
-        header_row.setSpacing(SPACE_S)
-
-        heading = QLabel(name)
-        heading.setStyleSheet(
-            f"background: transparent; color: {C.TEXT};"
-            f" font-size: {FONT_HEADER}px; font-weight: 500;"
-        )
-        header_row.addWidget(heading, 0)
-
-        chip = QLabel(license_)
-        chip.setStyleSheet(
-            f"background: {rgba(TOOL_ACCENT, 0.12)}; color: {TOOL_ICON_FG};"
-            f" border: 1px solid {rgba(TOOL_ACCENT, 0.26)};"
-            f" border-radius: {RADIUS_XS}px; padding: 1px 7px;"
-            f" font-size: {FONT_CAPTION}px; font-weight: 400;"
-        )
-        header_row.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
-        header_row.addStretch(1)
-        row_layout.addLayout(header_row)
-
-        detail = QLabel(tr(purpose))
-        detail.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT1}; font-size: {FONT_BODY}px;"
-        )
-        detail.setWordWrap(True)
-        row_layout.addWidget(detail)
-
-        # Upstream source link. Rendered as selectable text (not an
-        # auto-opening hyperlink) so winpodx never initiates a network
-        # call — the user copies the URL to find the source + its
-        # license themselves. The globe glyph reads as "external source"
-        # without the loud saturated link-blue.
-        link_row = QHBoxLayout()
-        link_row.setContentsMargins(0, SPACE_XS, 0, 0)
-        link_row.setSpacing(SPACE_S)
-
-        globe = QLabel()
-        globe.setFixedSize(14, 14)
-        globe.setPixmap(load_icon("globe", TOOL_ICON_FG, 14).pixmap(14, 14))
-        globe.setStyleSheet("background: transparent;")
-        globe.setAlignment(Qt.AlignmentFlag.AlignTop)
-        link_row.addWidget(globe, 0, Qt.AlignmentFlag.AlignTop)
-
-        link = QLabel(url)
-        link.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;"
-        )
-        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        link.setWordWrap(True)
-        link_row.addWidget(link, 1)
-        row_layout.addLayout(link_row)
-        return row
+        return build_ack_card(name, license_, purpose, url)
 
     def _read_license_text(self) -> str:
         """Return the project LICENSE contents, or a stub on failure.

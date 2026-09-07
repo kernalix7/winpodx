@@ -21,34 +21,12 @@ from __future__ import annotations
 import logging
 import threading
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QWidget
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
-from winpodx.gui._widget_helpers import make_page_header
-from winpodx.gui.icons import load_icon
-from winpodx.gui.theme import (
-    BTN_GHOST,
-    BTN_PRIMARY,
-    COMBO,
-    INPUT,
-    SPACE_M,
-    SPACE_S,
-    SPACE_XL,
-    SPACE_XXL,
-    TERMINAL,
-    C,
-)
+from winpodx.gui._main_window_logs_ui import build_logs_page, restyle_logs
+from winpodx.gui.theme import C
 
 log = logging.getLogger(__name__)
 
@@ -233,6 +211,15 @@ class LogsMixin:
         if not text:
             return
         self.cmd_input.clear()
+        hist: list[str] = getattr(self, "_cmd_history", None) or []
+        if text in hist:
+            hist.remove(text)
+        hist.insert(0, text)
+        del hist[10:]
+        self._cmd_history = hist
+        model = getattr(self, "_cmd_history_model", None)
+        if model is not None:
+            model.setStringList(hist)
 
         try:
             cmd = shlex.split(text)
@@ -287,148 +274,10 @@ class LogsMixin:
         ]
 
     def _build_logs_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
-        layout.setSpacing(SPACE_M)
+        return build_logs_page(self)
 
-        actions = QWidget()
-        actions_l = QHBoxLayout(actions)
-        actions_l.setContentsMargins(0, 0, 0, 0)
-        actions_l.setSpacing(SPACE_S)
-
-        # Log level dropdown — changes both what gets written to
-        # ``~/.config/winpodx/winpodx.log`` (which the "Live (app)"
-        # button tails) AND what the running CLI / GUI logger emits.
-        # Persists to ``cfg.logging.level`` so subsequent winpodx
-        # invocations honour the choice. Default is INFO; DEBUG
-        # surfaces the chatty per-tick probe / state logs (useful
-        # when triaging an "agent not ready" / "starting" stuck state).
-        level_label = QLabel(tr("Log level:"))
-        level_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;")
-        actions_l.addWidget(level_label)
-        self.input_log_level = QComboBox()
-        self.input_log_level.setStyleSheet(COMBO)
-        self.input_log_level.setFixedWidth(140)
-        for value in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "RAW"):
-            # RAW = DEBUG + ``podman logs -f`` of the pod container
-            # interleaved into this terminal. Useful when the answer
-            # is in dockur / QEMU / Windows-side output, not in the
-            # winpodx Python logger.
-            self.input_log_level.addItem(value, value)
-            if value == "RAW":
-                # Per-item hover hint so the user knows what RAW adds before
-                # selecting it.
-                self.input_log_level.setItemData(
-                    self.input_log_level.count() - 1,
-                    tr(
-                        "RAW = DEBUG plus a live tail of the container's logs "
-                        "(podman logs -f). Use when triaging boot / QEMU issues."
-                    ),
-                    Qt.ItemDataRole.ToolTipRole,
-                )
-        current_level = self.cfg.logging.level
-        idx = self.input_log_level.findData(current_level)
-        if idx >= 0:
-            self.input_log_level.setCurrentIndex(idx)
-        self.input_log_level.setToolTip(
-            tr(
-                "Set the WinPodX logger level. Lower (DEBUG) shows more\n"
-                "detail in the log file + this terminal; higher (ERROR)\n"
-                "shows only errors. Change persists to winpodx.toml so\n"
-                "future CLI / GUI runs honour the choice. Applied live —\n"
-                "no WinPodX restart needed."
-            )
-        )
-        self.input_log_level.currentIndexChanged.connect(self._on_log_level_changed)
-        actions_l.addWidget(self.input_log_level)
-
-        # Route container name through cfg so renamed pods still work.
-        # v0.5.1: dropped the "Live (app)" / "Live (pod)" / "Stop tail"
-        # buttons — the always-on tails started at WinpodxWindow.__init__
-        # already stream into this terminal + the bottom log bar, so
-        # those buttons would be redundant (and prone to fighting with
-        # the always-on tails). What's left is one-shot diagnostics.
-        # Non-command tooltips for the buttons that don't shell out a list.
-        special_tips = {
-            "App log": tr("Show the tail of WinPodX's own log file"),
-            "RDP Test": tr("Probe the RDP port (TCP handshake) for the configured guest"),
-            "Clear": tr("Clear this terminal view"),
-        }
-        quick = self._diagnostic_commands()
-        for label, cmd in quick:
-            btn = QPushButton(tr(label))
-            btn.setStyleSheet(BTN_GHOST)
-            # Tooltip states the actual command the button runs, so the user
-            # can see (and learn) what each shortcut does.
-            if isinstance(cmd, list):
-                btn.setToolTip(tr("Runs: {cmd}").format(cmd=" ".join(cmd)))
-            elif label in special_tips:
-                btn.setToolTip(special_tips[label])
-            if label == "Clear":
-                btn.clicked.connect(lambda: self.log_output.clear())
-            elif label == "RDP Test":
-                btn.clicked.connect(self._on_rdp_test)
-            elif cmd == "tail_app_log":
-                btn.clicked.connect(self._on_tail_app_log)
-            else:
-                btn.clicked.connect(lambda _, c=cmd: self._run_log_cmd(c))
-            actions_l.addWidget(btn)
-
-        layout.addWidget(make_page_header(tr("Terminal"), actions_widget=actions))
-
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet(TERMINAL)
-        # Readable floor derived from the font: keep room for ~40 monospace
-        # columns (one character cell each) so a narrow window scrolls the
-        # terminal rather than crushing its text. This propagates up to the
-        # window's own minimum size, so the window can't shrink past it.
-        cell = self.log_output.fontMetrics().horizontalAdvance("0") or 8
-        self.log_output.setMinimumWidth(cell * 40)
-        # Long log lines scroll horizontally inside the terminal instead of
-        # wrapping into a crushed block.
-        self.log_output.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        layout.addWidget(self.log_output)
-
-        cmd_row = QHBoxLayout()
-        cmd_row.setSpacing(SPACE_S)
-
-        prompt = QLabel()
-        prompt.setFixedSize(16, 16)
-        prompt.setPixmap(load_icon("prompt", C.BLUE, 16).pixmap(16, 16))
-        prompt.setStyleSheet(f"background: transparent; color: {C.BLUE};")
-        cmd_row.addWidget(prompt)
-
-        self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText(
-            tr("Enter command (e.g. podman logs {container})").format(
-                container=self.cfg.pod.container_name
-            )
-        )
-        self.cmd_input.setStyleSheet(
-            INPUT
-            + f"""
-            QLineEdit {{
-                background: {C.CRUST}; color: {C.TEXT};
-                border: 1px solid {C.SURFACE0}; border-radius: 8px;
-                padding: 10px 14px;
-                font-family: 'JetBrains Mono', 'Fira Code', monospace;
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{ border-color: {C.BLUE}; }}
-        """
-        )
-        self.cmd_input.returnPressed.connect(self._on_cmd_enter)
-        cmd_row.addWidget(self.cmd_input)
-
-        run_btn = QPushButton(tr("Run"))
-        run_btn.setStyleSheet(BTN_PRIMARY)
-        run_btn.clicked.connect(self._on_cmd_enter)
-        cmd_row.addWidget(run_btn)
-
-        layout.addLayout(cmd_row)
-        return page
+    def _restyle_logs(self) -> None:
+        restyle_logs(self)
 
     def _on_log_level_changed(self, *_args) -> None:
         """Apply the dropdown's new log level live + persist to config.

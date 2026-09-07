@@ -1,28 +1,24 @@
 # SPDX-License-Identifier: MIT
-"""Sidebar + header-chrome builder mixin for ``WinpodxWindow``.
+"""Unmounted header-chrome builder mixin for ``WinpodxWindow``.
 
-Holds the methods that build the persistent chrome: the left navigation
-sidebar (logo + one checkable row per page), the slim top strip (pod chip
-+ start/stop buttons), the warning banner shown while the pod is not
-running, and the slim info bar. Pulled out of ``main_window.py`` to keep
-that file focused on overall window orchestration.
+The NavigationView pane lives in ``NavPaneMixin``. This mixin keeps the
+legacy top strip (hidden, identity-stable pod widgets), the warning
+banner, the info bar, and the log ticker.
 
 Host-class contract (only listed for readers; not enforced):
     cfg: winpodx.core.config.Config
     apps: list[AppInfo]
     _switch_page(idx) -> None       — defined on the host class.
     _on_start_pod() / _on_stop_pod()  — defined on PodStatusMixin.
-    Widgets created here (nav_buttons, pod_dot, pod_label, agent_dot,
-    rdp_dot, btn_start, btn_stop, banner_icon, banner_text, banner_btn,
-    info_label, info_pod_dot, info_pod_addr) are accessed from sibling
-    mixins via the shared ``self`` instance.
+    Widgets created here (pod_dot, pod_label, agent_dot, rdp_dot,
+    btn_start, btn_stop when the pane has not already created them,
+    banner_icon, banner_text, banner_btn, info_label, info_pod_dot,
+    info_pod_addr) are accessed from sibling mixins via ``self``.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon, QPainter, QPixmap
-from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -33,191 +29,29 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
+from winpodx.gui import theme as theme_mod
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
     BTN_PRIMARY,
     INFO_BAR,
-    NAV_ITEM,
-    POD_CHIP,
-    POD_CTRL,
-    SIDEBAR,
-    SPACE_L,
-    SPACE_M,
-    SPACE_S,
-    SPACE_XS,
     STATUS_BANNER_WARN,
-    TOP_STRIP,
     C,
 )
 
 
 class HeaderMixin:
-    """Builds the top bar, status banner, and info bar."""
-
-    def _build_sidebar(self) -> QWidget:
-        bar = QFrame()
-        bar.setObjectName("sideBar")
-        bar.setFixedWidth(200)
-        bar.setStyleSheet(SIDEBAR)
-
-        layout = QVBoxLayout(bar)
-        layout.setContentsMargins(SPACE_S, SPACE_L, SPACE_S, SPACE_L)
-        layout.setSpacing(SPACE_XS)
-
-        logo_btn = QPushButton("WinPodX")
-        logo_btn.setObjectName("logoHomeButton")
-        logo_btn.setToolTip(tr("Dashboard"))
-        logo_btn.clicked.connect(lambda: self._switch_page(0))
-        logo_btn.setStyleSheet(
-            f"""
-            QPushButton#logoHomeButton {{
-                background: transparent;
-                color: {C.TEXT};
-                border: none;
-                border-radius: 8px;
-                padding: 7px 10px;
-                font-size: 16px;
-                font-weight: 600;
-                letter-spacing: 0px;
-            }}
-            QPushButton#logoHomeButton:hover {{
-                background: {C.SURFACE0};
-            }}
-            """
-        )
-
-        from winpodx.desktop.icons import bundled_data_path
-
-        icon_path = bundled_data_path("winpodx-icon.svg")
-        if icon_path is not None:
-            from PySide6.QtCore import QRectF
-
-            renderer = QSvgRenderer(str(icon_path))
-            size = 24
-            pixmap = QPixmap(size, size)
-            pixmap.fill(Qt.GlobalColor.transparent)
-            painter = QPainter(pixmap)
-            # Preserve the icon's aspect ratio inside a square box -- rendering
-            # a square logo into a 28x24 pixmap stretched it horizontally
-            # ("the logo looks squished"). Fit + center instead.
-            ds = renderer.defaultSize()
-            if ds.width() > 0 and ds.height() > 0:
-                scale = min(size / ds.width(), size / ds.height())
-                w, h = ds.width() * scale, ds.height() * scale
-                renderer.render(painter, QRectF((size - w) / 2, (size - h) / 2, w, h))
-            else:
-                renderer.render(painter)
-            painter.end()
-            logo_btn.setIcon(QIcon(pixmap))
-            logo_btn.setIconSize(QSize(size, size))
-
-        layout.addWidget(logo_btn)
-        layout.addSpacing(SPACE_M)
-
-        # Vertical nav: one checkable row per page, active row highlighted.
-        # Buttons are laid out here, so they render in the sidebar (never as
-        # an un-parented stray widget). _switch_page / shortcuts drive these.
-        self.nav_buttons: list[QPushButton] = []
-        nav_items = [
-            (tr("Dashboard"), 0, "home"),
-            (tr("Applications"), 1, "grid"),
-            (tr("Settings"), 2, "gear"),
-            (tr("Tools"), 3, "clean"),
-            (tr("Terminal / Logs"), 4, "prompt"),
-            (tr("Info"), 5, "pending"),
-            (tr("Devices"), 6, "hardware"),
-            # License last so the nav-position == page-index invariant holds.
-            (tr("License"), 7, "diamond"),
-        ]
-        for label, idx, icon_name in nav_items:
-            btn = QPushButton(label)
-            btn.setObjectName("navItem")
-            btn.setCheckable(True)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setIcon(load_icon(icon_name, C.SUBTEXT1, 18))
-            btn.setIconSize(QSize(18, 18))
-            btn.setStyleSheet(NAV_ITEM)
-            btn.clicked.connect(lambda _checked=False, i=idx: self._switch_page(i))
-            self.nav_buttons.append(btn)
-            layout.addWidget(btn)
-
-        self.nav_buttons[0].setChecked(True)
-        layout.addStretch()
-        return bar
+    """Builds the (hidden) top strip, status banner, and info bar."""
 
     def _build_top_strip(self) -> QWidget:
-        """Slim strip above the pages: right-aligned pod chip + start/stop."""
+        """Hidden compatibility strip; creates pod chrome only if missing."""
         bar = QWidget()
         bar.setObjectName("topStrip")
-        bar.setStyleSheet(TOP_STRIP)
-
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(SPACE_L, 0, SPACE_L, 0)
-        layout.setSpacing(SPACE_S)
-        layout.addStretch()
-
-        chip = QFrame()
-        chip.setObjectName("podChip")
-        chip.setStyleSheet(POD_CHIP)
-        chip_l = QHBoxLayout(chip)
-        chip_l.setContentsMargins(12, 4, 8, 4)
-        chip_l.setSpacing(8)
-
-        self.pod_dot = QLabel()
-        self.pod_dot.setFixedSize(10, 10)
-        self.pod_dot.setPixmap(load_icon("dot", C.SUBTEXT0, 10).pixmap(10, 10))
-        self.pod_dot.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0};")
-        self.pod_dot.setToolTip(tr("Pod state"))
-        chip_l.addWidget(self.pod_dot)
-
-        self.pod_label = QLabel(tr("checking"))
-        self.pod_label.setStyleSheet(
-            f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;"
-        )
-        chip_l.addWidget(self.pod_label)
-
-        # Mini transport indicators — small colored dots next to the pod
-        # chip showing agent + RDP reachability so the user can see at a
-        # glance whether host→guest commands will succeed (agent dot) or
-        # fall back to FreeRDP RemoteApp (RDP dot). Updated by the same
-        # 15s status_timer that drives pod_dot, plus a quick agent probe.
-        self.agent_dot = QLabel("A")
-        self.agent_dot.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: 500;"
-        )
-        self.agent_dot.setToolTip(tr("Guest agent (HTTP /health) — probing…"))
-        chip_l.addWidget(self.agent_dot)
-
-        self.rdp_dot = QLabel("R")
-        self.rdp_dot.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: 500;"
-        )
-        self.rdp_dot.setToolTip(tr("RDP port (3390) — probing…"))
-        chip_l.addWidget(self.rdp_dot)
-
-        ctrl_w = QWidget()
-        ctrl_w.setStyleSheet(POD_CTRL)
-        ctrl_l = QHBoxLayout(ctrl_w)
-        ctrl_l.setContentsMargins(4, 0, 0, 0)
-        ctrl_l.setSpacing(2)
-
-        self.btn_start = QPushButton("")
-        self.btn_start.setIcon(load_icon("play", C.SUBTEXT0, 16))
-        self.btn_start.setIconSize(QSize(16, 16))
-        self.btn_start.setToolTip(tr("Start Pod"))
-        self.btn_start.clicked.connect(self._on_start_pod)
-        ctrl_l.addWidget(self.btn_start)
-
-        self.btn_stop = QPushButton("")
-        self.btn_stop.setIcon(load_icon("stop", C.SUBTEXT0, 16))
-        self.btn_stop.setIconSize(QSize(16, 16))
-        self.btn_stop.setToolTip(tr("Stop Pod"))
-        self.btn_stop.clicked.connect(self._on_stop_pod)
-        ctrl_l.addWidget(self.btn_stop)
-
-        chip_l.addWidget(ctrl_w)
-        layout.addWidget(chip)
-
+        bar.setStyleSheet(theme_mod.TOP_STRIP)
+        bar.hide()
+        if getattr(self, "pod_dot", None) is None:
+            ensure = getattr(self, "_ensure_pod_chrome", None)
+            if ensure is not None:
+                ensure(bar)
         return bar
 
     def _build_status_banner(self) -> QFrame:

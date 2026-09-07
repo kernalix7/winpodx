@@ -1353,8 +1353,8 @@ fi
 PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
 PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]; }; then
-    err "Python 3.9+ required (found $PY_VERSION)"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
+    err "Python 3.10+ required (found $PY_VERSION)"
     exit 1
 fi
 log "Python $PY_VERSION OK"
@@ -1538,7 +1538,7 @@ fi
     warn "pip self-upgrade failed; continuing with the bundled pip."
 
 # Install winpodx itself from the in-place source tree. This resolves
-# winpodx's own declared runtime deps (tomli on 3.9/3.10 via the
+# winpodx's own declared runtime deps (tomli on 3.10 via the
 # python_version marker) from pyproject. We then add the reverse-open
 # icon deps (cairosvg + pyxdg) and, unless --no-gui, PySide6 — pinned to
 # the same ranges pyproject declares so we don't invent versions.

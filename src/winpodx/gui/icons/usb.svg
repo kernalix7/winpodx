@@ -1,0 +1,8 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>
+  <circle cx='12' cy='19' r='2' stroke='currentColor' stroke-width='2' fill='none'/>
+  <path d='M12 17V8' stroke='currentColor' stroke-width='2' fill='none' stroke-linecap='round'/>
+  <path d='M12 8L7 12' stroke='currentColor' stroke-width='2' fill='none' stroke-linecap='round'/>
+  <circle cx='7' cy='13.5' r='1.5' fill='currentColor'/>
+  <path d='M12 10l5-3' stroke='currentColor' stroke-width='2' fill='none' stroke-linecap='round'/>
+  <rect x='15.5' y='4.5' width='3' height='3' stroke='currentColor' stroke-width='2' fill='none'/>
+</svg>

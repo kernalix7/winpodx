@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 
@@ -28,3 +30,18 @@ def _isolate_xdg_and_home(
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+
+
+@pytest.fixture(autouse=True)
+def _restore_gui_theme_scheme():
+    """Undo any ``theme.rebuild()`` a test performed so file order cannot leak schemes."""
+    theme = sys.modules.get("winpodx.gui.theme")
+    before = theme.current_scheme() if theme is not None else None
+    yield
+    theme = sys.modules.get("winpodx.gui.theme")
+    if theme is None:
+        return
+    if before is None:
+        before = theme.SCHEME_LIGHT
+    if theme.current_scheme() != before:
+        theme.rebuild(before)

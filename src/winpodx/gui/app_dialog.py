@@ -22,12 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
+from winpodx.gui import theme
 from winpodx.gui.theme import (
-    BTN_PRIMARY,
-    BTN_SECONDARY,
-    DIALOG,
+    CONTROL_HEIGHT_W11,
     FONT_CAPTION,
-    INPUT,
+    FONT_TITLE,
     SPACE_L,
     SPACE_M,
     SPACE_S,
@@ -67,10 +66,10 @@ class AppProfileDialog(QDialog):
         self.setMinimumSize(580, 540)
         self.resize(600, 560)
         self.setStyleSheet(
-            DIALOG
+            theme.DIALOG
             + f"""
             QLabel {{ color: {C.TEXT}; font-size: 13px; }}
-            {INPUT}
+            {theme.INPUT}
         """
         )
 
@@ -98,7 +97,7 @@ class AppProfileDialog(QDialog):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title = QLabel(tr("Edit App Profile") if edit_mode else tr("New App Profile"))
-        title.setStyleSheet(f"color: {C.TEXT}; font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_TITLE}px; font-weight: 600;")
         title_col.addWidget(title)
         sub = QLabel(tr("Define a Windows application for WinPodX"))
         sub.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 12px;")
@@ -118,24 +117,29 @@ class AppProfileDialog(QDialog):
         form.setHorizontalSpacing(SPACE_L)
 
         self.input_name = QLineEdit(name)
+        self.input_name.setMinimumHeight(CONTROL_HEIGHT_W11)
         self.input_name.setPlaceholderText(tr("e.g. photoshop"))
         if edit_mode:
             self.input_name.setReadOnly(True)
         self.input_name.textChanged.connect(self._update_preview)
 
         self.input_full_name = QLineEdit(full_name)
+        self.input_full_name.setMinimumHeight(CONTROL_HEIGHT_W11)
         self.input_full_name.setPlaceholderText(tr("e.g. Adobe Photoshop 2024"))
         self.input_full_name.textChanged.connect(self._update_preview)
 
         self.input_executable = QLineEdit(executable)
+        self.input_executable.setMinimumHeight(CONTROL_HEIGHT_W11)
         self.input_executable.setPlaceholderText(
             tr(r"e.g. C:\Program Files\Adobe\Photoshop\Photoshop.exe")
         )
 
         self.input_categories = QLineEdit(categories)
+        self.input_categories.setMinimumHeight(CONTROL_HEIGHT_W11)
         self.input_categories.setPlaceholderText(tr("e.g. Graphics, 2DGraphics"))
 
         self.input_mime_types = QLineEdit(mime_types)
+        self.input_mime_types.setMinimumHeight(CONTROL_HEIGHT_W11)
         self.input_mime_types.setPlaceholderText(tr("e.g. image/png, image/jpeg"))
 
         # Per-field inline guidance (Tasks 8 + 9). ``None`` = no helper.
@@ -185,7 +189,8 @@ class AppProfileDialog(QDialog):
         self._icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon_preview.setStyleSheet(f"background: {C.SURFACE0}; border-radius: 10px;")
         choose_btn = QPushButton(tr("Choose Image…"))
-        choose_btn.setStyleSheet(BTN_SECONDARY)
+        choose_btn.setStyleSheet(theme.BTN_SECONDARY)
+        choose_btn.setMinimumHeight(CONTROL_HEIGHT_W11)
         choose_btn.clicked.connect(self._on_choose_icon)
         icon_row = QHBoxLayout()
         icon_row.setSpacing(SPACE_M)
@@ -211,22 +216,32 @@ class AppProfileDialog(QDialog):
         self._validation_lbl.setVisible(False)
         body_l.addWidget(self._validation_lbl)
         body_l.addStretch()
+        layout.addWidget(body)
 
-        btn_row = QHBoxLayout()
+        strip = QFrame()
+        strip.setObjectName("dialogButtonStrip")
+        palette = theme._PALETTE
+        strip.setStyleSheet(
+            f"QFrame#dialogButtonStrip {{ background: {palette.control_fill}; "
+            f"border: none; border-top: 1px solid {palette.divider}; }}"
+        )
+        btn_row = QHBoxLayout(strip)
+        btn_row.setContentsMargins(24, 24, 24, 24)
+        btn_row.setSpacing(SPACE_S)
         btn_row.addStretch()
 
         cancel = QPushButton(tr("Cancel"))
-        cancel.setStyleSheet(BTN_SECONDARY)
+        cancel.setStyleSheet(theme.BTN_SECONDARY)
+        cancel.setMinimumSize(96, CONTROL_HEIGHT_W11)
         cancel.clicked.connect(self._on_cancel)
         btn_row.addWidget(cancel)
 
         save = QPushButton(tr("Save") if edit_mode else tr("Create"))
-        save.setStyleSheet(BTN_PRIMARY)
+        save.setStyleSheet(theme.BTN_PRIMARY)
+        save.setMinimumSize(96, CONTROL_HEIGHT_W11)
         save.clicked.connect(self._on_accept)
         btn_row.addWidget(save)
-
-        body_l.addLayout(btn_row)
-        layout.addWidget(body)
+        layout.addWidget(strip)
 
         # Snapshot of the initial field values so Cancel can detect edits
         # and confirm before discarding (Task 10).

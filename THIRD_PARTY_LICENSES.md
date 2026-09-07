@@ -72,6 +72,18 @@ produces the prebuilt binary whenever that binary is regenerated.
 dependencies only — they stamp the PE VERSIONINFO resource at compile time and
 are not linked into the shipped binary.
 
+### Selawik
+
+- Source: https://github.com/microsoft/Selawik (release 1.01)
+- Copyright: 2015 Microsoft Corporation (www.microsoft.com); Reserved Font Name: Selawik
+- License: SIL Open Font License 1.1 (OFL-1.1) — full text in
+  `src/winpodx/gui/fonts/LICENSE-Selawik.txt`
+- Files: `src/winpodx/gui/fonts/selawk.ttf`, `selawksb.ttf`, `selawkb.ttf`
+- Why: Microsoft's open-source metric-compatible alternative to Segoe UI. The Qt GUI loads
+  the unmodified fonts only when Segoe UI is not installed on the host.
+- Distribution: The OFL text is packaged beside the font files in the Python package. It
+  therefore travels in the wheel, sdist, distro packages, and AppImage.
+
 ## Runtime dependency (always required)
 
 | Package | License | When | Notes |

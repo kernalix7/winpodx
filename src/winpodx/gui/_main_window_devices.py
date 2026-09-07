@@ -18,17 +18,18 @@ CLI never drift.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QBoxLayout,
     QDialog,
     QDialogButtonBox,
     QFrame,
-    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -36,36 +37,56 @@ from PySide6.QtWidgets import (
 from winpodx.core import devices as D
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
+from winpodx.gui import theme as theme_mod
+from winpodx.gui._main_window_devices_cards import DevicesCardsMixin
+from winpodx.gui._main_window_secondary_style import (
+    apply_w11_button,
+    chevron_button_qss,
+    make_ghost_button,
+    mount_settings_column,
+    restyle_settings_cards,
+)
 from winpodx.gui._widget_helpers import (
-    ElidingLabel,
-    add_shadow,
-    columns_want_stack,
-    make_empty_panel,
-    make_page_header,
     make_warning_callout,
     show_toast,
 )
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
-    ACTION_ROW,
-    BTN_GHOST,
+    BTN_DANGER,
     BTN_PRIMARY,
     BTN_SECONDARY,
     FONT_BODY,
-    FONT_CAPTION,
-    FONT_HEADER,
-    RADIUS_M,
-    RADIUS_S,
     SCROLL_AREA,
-    SETTINGS_SECTION,
     SPACE_L,
     SPACE_M,
-    SPACE_S,
     SPACE_XL,
-    SPACE_XXL,
     C,
-    rgba,
 )
+
+
+class _HostColumnSeam:
+    """``_dev_host_col.count()`` seam: USB+PCI rows plus one trailing stretch."""
+
+    def __init__(self, *columns: QVBoxLayout) -> None:
+        self._columns = columns
+
+    def count(self) -> int:
+        widgets = 0
+        stretches = 0
+        for col in self._columns:
+            for i in range(col.count()):
+                item = col.itemAt(i)
+                if item is None:
+                    continue
+                if item.spacerItem() is not None:
+                    stretches += 1
+                    continue
+                if item.widget() is not None:
+                    widgets += 1
+        return widgets + (1 if stretches else 0)
+
+    def parentWidget(self) -> QWidget | None:
+        return self._columns[0].parentWidget() if self._columns else None
 
 
 class _LiveOpSignals(QObject):
@@ -91,117 +112,95 @@ class _LiveOp(QRunnable):
             self.signals.done.emit(str(e))
 
 
-class DevicesMixin:
+class DevicesMixin(DevicesCardsMixin):
     """Devices-tab behavior. Mix into ``WinpodxWindow``."""
 
     def _build_devices_page(self) -> QWidget:
         page = QWidget()
-        outer = QVBoxLayout(page)
-        outer.setContentsMargins(SPACE_XXL, 0, SPACE_XXL, SPACE_XL)
-        outer.setSpacing(SPACE_M)
+        shell = QVBoxLayout(page)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
 
-        refresh = QPushButton(tr("Refresh"))
-        refresh.setStyleSheet(BTN_SECONDARY)
-        refresh.setIcon(load_icon("refresh", C.SUBTEXT1, 16))
-        refresh.setIconSize(QSize(16, 16))
-        refresh.clicked.connect(self._render_devices)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(SCROLL_AREA)
+
+        content = QWidget()
+        outer = mount_settings_column(content)
+
         self._devices_status = QLabel("")
-        self._devices_status.setStyleSheet(
-            f"color: {C.SUBTEXT1}; font-size: {FONT_CAPTION}px; font-weight: 500;"
-            f" background: {rgba(C.SURFACE0, 0.72)};"
-            f" border: 1px solid {rgba(C.SURFACE2, 0.38)};"
-            f" border-radius: {RADIUS_M}px; padding: 7px 12px;"
-        )
+        self._style_devices_status(self._devices_status)
 
-        actions = QWidget()
-        actions_l = QHBoxLayout(actions)
-        actions_l.setContentsMargins(0, 0, 0, 0)
-        actions_l.setSpacing(SPACE_S)
-        actions_l.addWidget(self._devices_status)
-        actions_l.addWidget(refresh)
-
-        outer.addWidget(
-            make_page_header(
+        refresh_btn = make_ghost_button(tr("Refresh"), icon="refresh")
+        refresh_btn.clicked.connect(self._render_devices)
+        self._devices_refresh_btn = refresh_btn
+        register = getattr(self, "_register_page_header", None)
+        if callable(register):
+            register(
+                6,
                 tr("Devices"),
                 tr(
                     "Pass host USB / PCI devices through to the Windows guest. "
                     "USB hot-plugs live; PCI needs a guest restart and confirmation."
                 ),
-                actions_widget=actions,
+                actions=refresh_btn,
             )
-        )
+        else:
+            refresh_btn.setParent(page)
+            refresh_btn.hide()
 
-        # Host / guest columns side by side when wide; stacked vertically when
-        # the page is too narrow (the device rows + Attach buttons clipped off
-        # the right edge otherwise). Direction is toggled by _reflow_devices.
-        columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
-        columns.setSpacing(SPACE_L)
+        columns = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        columns.setSpacing(SPACE_XL)
         self._devices_cols = columns
-        self._dev_host_col, host_card = self._device_column(tr("Host devices"))
-        self._dev_guest_col, guest_card = self._device_column(tr("Assigned to guest"))
-        columns.addWidget(host_card, 1)
-        columns.addWidget(guest_card, 1)
-        outer.addLayout(columns, 1)
+
+        filt = QLineEdit()
+        filt.setObjectName("navSearch")
+        filt.setStyleSheet(
+            theme_mod.NAV_SEARCH
+            + f"\nQLineEdit#navSearch {{ background: {theme_mod.C.SURFACE0}; }}"
+        )
+        filt.setFixedHeight(theme_mod.CONTROL_HEIGHT_W11)
+        filt.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        filt.addAction(
+            load_icon("search", theme_mod.C.SUBTEXT1, 16),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
+        filt.setClearButtonEnabled(True)
+        filt.textChanged.connect(self._apply_device_filter)
+        self._devices_filter = filt
+        columns.addWidget(filt)
+
+        self._dev_usb_col, self._usb_group = self._device_column(tr("USB"))
+        self._dev_pci_col, self._pci_group = self._device_column(tr("PCI"))
+        self._dev_guest_col, self._guest_group = self._device_column(
+            tr("Assigned to guest"), status=True
+        )
+        self._dev_host_col = _HostColumnSeam(self._dev_usb_col, self._dev_pci_col)
+        columns.addWidget(self._usb_group)
+        columns.addWidget(self._pci_group)
+        columns.addWidget(self._guest_group)
+        outer.addLayout(columns)
 
         self._render_devices()
         self._reflow_devices()
+        scroll.setWidget(content)
+        shell.addWidget(scroll)
+        self._devices_page = page
         return page
 
     def _reflow_devices(self) -> None:
-        """Stack the Host / Guest device columns when the page is too narrow
-        for them side by side; restore the row when there's room. Called from
-        the window resizeEvent so it tracks live resizing. Idempotent."""
+        """Keep Host / Guest groups in one left-anchored column.
+
+        Called from the window resizeEvent. Idempotent; DESIGN.md §4 forbids
+        the 50/50 split.
+        """
         cols = getattr(self, "_devices_cols", None)
-        pages = getattr(self, "pages", None)
-        if cols is None or pages is None:
+        if cols is None:
             return
-        # Stack when the two columns can't both get their preferred (content)
-        # width side by side -- measured from the cards' sizeHints, so it adapts
-        # to the device row content + display scale instead of a fixed breakpoint.
-        want = (
-            QBoxLayout.Direction.TopToBottom
-            if columns_want_stack(cols, pages.width())
-            else QBoxLayout.Direction.LeftToRight
-        )
-        if cols.direction() != want:
-            cols.setDirection(want)
-
-    def _device_column(self, heading: str) -> tuple[QVBoxLayout, QWidget]:
-        card = QFrame()
-        card.setObjectName("settingsSection")
-        card.setStyleSheet(SETTINGS_SECTION)
-        add_shadow(card, blur=14, y=2, alpha=35)
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(SPACE_L, SPACE_L, SPACE_L, SPACE_L)
-        lay.setSpacing(SPACE_M)
-
-        head_row = QWidget()
-        head_l = QHBoxLayout(head_row)
-        head_l.setContentsMargins(0, 0, 0, 0)
-        head_l.setSpacing(SPACE_S)
-        head_icon = QLabel()
-        head_icon.setFixedSize(16, 16)
-        head_icon.setPixmap(load_icon("hardware", C.SUBTEXT0, 16).pixmap(16, 16))
-        head_l.addWidget(head_icon)
-        head = QLabel(heading)
-        head.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_HEADER}px; font-weight: 600;")
-        head_l.addWidget(head)
-        head_l.addStretch(1)
-        lay.addWidget(head_row)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet(SCROLL_AREA)
-        inner = QWidget()
-        col = QVBoxLayout(inner)
-        col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(SPACE_S)
-        col.addStretch(1)
-        scroll.setWidget(inner)
-        lay.addWidget(scroll, 1)
-        return col, card
+        if cols.direction() != QBoxLayout.Direction.TopToBottom:
+            cols.setDirection(QBoxLayout.Direction.TopToBottom)
 
     # -- rendering --------------------------------------------------------
 
@@ -210,6 +209,7 @@ class DevicesMixin:
             item = col.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()
                 w.deleteLater()
 
     def _render_devices(self) -> None:
@@ -229,41 +229,59 @@ class DevicesMixin:
         # Batch the repaint: a full clear + rebuild of both columns otherwise
         # paints the empty intermediate state, so the panel visibly flickers
         # whenever the list re-renders (e.g. a USB device yanked while open).
-        _panes = [c.parentWidget() for c in (self._dev_host_col, self._dev_guest_col)]
-        for _p in _panes:
-            if _p is not None:
-                _p.setUpdatesEnabled(False)
+        _panes = []
+        for col in (self._dev_usb_col, self._dev_pci_col, self._dev_guest_col):
+            parent = col.parentWidget()
+            if parent is not None:
+                _panes.append(parent)
+                parent.setUpdatesEnabled(False)
 
-        self._clear_column(self._dev_host_col)
+        self._clear_column(self._dev_usb_col)
+        self._clear_column(self._dev_pci_col)
         self._clear_column(self._dev_guest_col)
 
-        # Left: host devices not currently assigned.
-        # Keep the list deterministic and human-friendly: USB first, then PCI,
-        # with devices ordered by their displayed name and stable hardware ID.
         hosts = D.sort_host_devices(hosts)
-
-        n_host = 0
+        usb_hosts: list[D.HostDevice] = []
+        pci_hosts: list[D.HostDevice] = []
         for h in hosts:
             if h.to_device_config().key in assigned:
                 continue
-            self._dev_host_col.addWidget(self._device_row(h, assigned=False))
-            n_host += 1
-        if n_host == 0:
-            self._dev_host_col.addWidget(self._empty_label(tr("No unassigned devices.")))
-        self._dev_host_col.addStretch(1)
+            if h.dtype == "usb":
+                usb_hosts.append(h)
+            else:
+                pci_hosts.append(h)
+        for h in usb_hosts:
+            self._dev_usb_col.addWidget(self._device_row(h, assigned=False))
+        for h in pci_hosts:
+            self._dev_pci_col.addWidget(self._device_row(h, assigned=False))
+        if not usb_hosts and not pci_hosts:
+            self._dev_usb_col.addWidget(self._empty_label(tr("No unassigned devices.")))
+        self._dev_usb_col.addStretch(1)
+        self._dev_pci_col.addStretch(1)
 
-        # Right: assigned devices (use the live host entry when present so the
-        # safety badge + label stay accurate, else reconstruct from config).
-        if not assigned:
-            self._dev_guest_col.addWidget(self._empty_label(tr("Nothing assigned yet.")))
         guest_hosts = [
             host_by_key.get(key) or D.HostDevice(dtype=dc.dtype, did=dc.did, label=dc.label)
             for key, dc in assigned.items()
         ]
         guest_hosts = D.sort_host_devices(guest_hosts)
+        if not assigned:
+            self._dev_guest_col.addWidget(self._empty_label(tr("Nothing assigned yet.")))
         for host in guest_hosts:
             self._dev_guest_col.addWidget(self._device_row(host, assigned=True))
         self._dev_guest_col.addStretch(1)
+
+        self._set_group_count(self._usb_group, tr("USB"), len(usb_hosts))
+        self._set_group_count(self._pci_group, tr("PCI"), len(pci_hosts))
+        self._set_group_count(self._guest_group, tr("Assigned to guest"), len(guest_hosts))
+
+        total = len(usb_hosts) + len(pci_hosts) + len(guest_hosts)
+        filt = getattr(self, "_devices_filter", None)
+        if filt is not None:
+            filt.setVisible(total > 8)
+            self._apply_device_filter()
+            parent = filt.parentWidget()
+            if parent is not None:
+                parent.updateGeometry()
 
         self._devices_status.setText(tr("Guest running: ") + (tr("yes") if running else tr("no")))
 
@@ -271,75 +289,50 @@ class DevicesMixin:
             if _p is not None:
                 _p.setUpdatesEnabled(True)
 
-    def _empty_label(self, text: str) -> QWidget:
-        return make_empty_panel(text)
+    def _apply_device_filter(self, _text: str = "") -> None:
+        filt = getattr(self, "_devices_filter", None)
+        needle = (filt.text() if filt is not None else "").strip().lower()
+        for col in (self._dev_usb_col, self._dev_pci_col, self._dev_guest_col):
+            for i in range(col.count()):
+                item = col.itemAt(i)
+                if item is None:
+                    continue
+                widget = item.widget()
+                if widget is None or widget.objectName() == "emptyState":
+                    continue
+                title = getattr(widget, "title_label", None)
+                desc = getattr(widget, "desc_label", None)
+                title_txt = title.text() if title is not None else ""
+                desc_txt = desc.text() if desc is not None else ""
+                hay = f"{title_txt} {desc_txt}".lower()
+                widget.setVisible(not needle or needle in hay)
 
-    def _device_row(self, host: D.HostDevice, *, assigned: bool) -> QWidget:
-        safety = D.classify_safety(host)
-        row = QFrame()
-        row.setObjectName("actionRow")
-        row.setStyleSheet(ACTION_ROW)
-        h = QHBoxLayout(row)
-        h.setContentsMargins(SPACE_M, SPACE_M, SPACE_M, SPACE_M)
-        h.setSpacing(SPACE_M)
-
-        badge = QLabel(host.dtype.upper())
-        badge_color = C.GREEN if safety.safe else C.PEACH
-        badge.setStyleSheet(
-            f"background: {rgba(badge_color, 0.16)}; color: {badge_color};"
-            f" border: 1px solid {rgba(badge_color, 0.30)};"
-            f" border-radius: {RADIUS_S}px; padding: 2px 8px;"
-            f" font-size: {FONT_CAPTION}px; font-weight: 600;"
-        )
-        badge.setAlignment(Qt.AlignCenter)
-        h.addWidget(badge, 0, Qt.AlignTop)
-
-        full_label = host.label or tr("(unknown)")
-
-        # Human-readable device name is primary; the stable hardware ID and
-        # passthrough-relevant metadata are shown as secondary information.
-        label_lbl = ElidingLabel(full_label)
-        label_lbl.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_BODY}px; font-weight: 500;")
-
-        meta_parts = [host.did]
-        if host.dtype == "usb":
-            if host.bus:
-                meta_parts.append(tr("Bus {bus}").format(bus=host.bus))
-        else:
-            if host.iommu_group is not None:
-                meta_parts.append(tr("IOMMU {group}").format(group=host.iommu_group))
-            if host.pci_class:
-                meta_parts.append(tr(D.pci_class_name(host.pci_class)))
-
-        metadata = " · ".join(meta_parts)
-        meta_lbl = ElidingLabel(metadata)
-        meta_lbl.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: {FONT_CAPTION}px;")
-
-        text_host = QWidget()
-        text_l = QVBoxLayout(text_host)
-        text_l.setContentsMargins(0, 0, 0, 0)
-        text_l.setSpacing(2)
-        text_l.addWidget(label_lbl)
-        text_l.addWidget(meta_lbl)
-        text_host.setToolTip(f"{full_label}\n{metadata}")
-        h.addWidget(text_host, 1)
-
-        if assigned:
-            btn = QPushButton(tr("← Detach"))
-            btn.setText(btn.text().removeprefix("← "))
-            btn.setIcon(load_icon("chevron-left", C.TEXT, 16))
-            btn.setIconSize(QSize(16, 16))
-            btn.setStyleSheet(BTN_GHOST)
-            btn.clicked.connect(lambda _=False, dev=host: self._on_detach(dev))
-        else:
-            btn = QPushButton(tr("Attach →"))
-            btn.setText(btn.text().removesuffix(" →"))
-            btn.setIcon(load_icon("chevron-right", C.CRUST, 16))
-            btn.setIconSize(QSize(16, 16))
-            btn.setStyleSheet(BTN_PRIMARY)
-            btn.clicked.connect(lambda _=False, dev=host: self._on_attach(dev))
-        h.addWidget(btn)
-        return row
+    def _restyle_devices(self) -> None:
+        root = getattr(self, "_devices_page", None) or getattr(self, "_page", None)
+        if root is None:
+            return
+        restyle_settings_cards(root)
+        status = getattr(self, "_devices_status", None)
+        if status is not None:
+            self._style_devices_status(status)
+        filt = getattr(self, "_devices_filter", None)
+        if filt is not None:
+            filt.setStyleSheet(
+                theme_mod.NAV_SEARCH
+                + f"\nQLineEdit#navSearch {{ background: {theme_mod.C.SURFACE0}; }}"
+            )
+            filt.setFixedHeight(theme_mod.CONTROL_HEIGHT_W11)
+        for btn in root.findChildren(QPushButton):
+            role = btn.property("w11Role") or "secondary"
+            if role == "ghost":
+                btn.setStyleSheet(chevron_button_qss())
+                continue
+            qss = BTN_SECONDARY
+            if role == "danger":
+                qss = BTN_DANGER
+            elif role == "primary":
+                qss = BTN_PRIMARY
+            apply_w11_button(btn, qss, role=role)
 
     # -- actions ----------------------------------------------------------
 

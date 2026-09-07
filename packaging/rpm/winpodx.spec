@@ -7,15 +7,16 @@ Name:           %{pypi_name}
 # bumping it per release is NOT required and has no effect on OBS output.
 # scripts/ci/verify_versions.py guards against drift between this literal and
 # pyproject.toml so a local-build version doesn't masquerade as a stale one.
-Version:        0.10.4
+Version:        0.11.0
 Release:        0
 Summary:        Windows app integration for Linux desktop
 # MIT covers winpodx + bundled rdprrap (same MIT terms).
 # Apache-2.0 covers stascorp/rdpwrap, ported into rdprrap and
 # redistributed inside config/oem/rdprrap-*-windows-x64.zip. See
 # debian/copyright + THIRD_PARTY_LICENSES.md for the full breakdown.
+# OFL-1.1 covers the bundled unmodified Microsoft Selawik UI fallback font.
 # Combined SPDX expression follows Fedora packaging guidelines.
-License:        MIT AND Apache-2.0
+License:        MIT AND Apache-2.0 AND OFL-1.1
 URL:            https://github.com/kernalix7/winpodx
 Source0:        %{name}-%{version}.tar.gz
 
@@ -44,24 +45,30 @@ Recommends:     %{py_flavor}-pyside6
 %endif
 
 %if 0%{?fedora} || 0%{?rhel}
-BuildRequires:  python3 >= 3.9
-BuildRequires:  python3-pip
-BuildRequires:  python3-wheel
-BuildRequires:  python3-setuptools
-BuildRequires:  python3-hatchling
-BuildRequires:  python3-installer
+# RHEL 9's default python3 stack is 3.9, which winpodx no longer supports
+# (minimum is 3.10). el9 ships python3.11 (+ python3.11-* subpackages) in
+# AppStream, so build against and require that there by setting
+# %python3_pkgversion to 3.11 (the Fedora/RHEL convention: python-rpm-macros
+# then rewrites python%{python3_pkgversion}-* and %python3_sitelib to the
+# python3.11 stack). Fedora and el10 keep the macro at its default of 3, so
+# python%{python3_pkgversion} == python3 there (already >= 3.11) and the
+# %pyproject_* macros honour it automatically.
+%if 0%{?rhel} && 0%{?rhel} <= 9
+%global python3_pkgversion 3.11
+%endif
+BuildRequires:  python%{python3_pkgversion} >= 3.10
+BuildRequires:  python%{python3_pkgversion}-pip
+BuildRequires:  python%{python3_pkgversion}-wheel
+BuildRequires:  python%{python3_pkgversion}-setuptools
+BuildRequires:  python%{python3_pkgversion}-hatchling
+BuildRequires:  python%{python3_pkgversion}-installer
 BuildRequires:  pyproject-rpm-macros
 # Fedora 42: pluggy has two providers (pluggy / pluggy1.3). Pin the base one.
-BuildRequires:  python3-pluggy
-Requires:       python3 >= 3.9
-Recommends:     python3-PySide6
-# tomllib is stdlib on Python 3.11+; RHEL 9's default python3 is 3.9, so pull
-# in python3-tomli as the TOML reader fallback. EPEL ships python3-tomli for
-# el9. Fedora's default python3 is already >= 3.11, so this is harmless there
-# (the Python dist-info declares the marker python_version < '3.11').
-%if 0%{?rhel} && 0%{?rhel} <= 9
-Requires:       python3-tomli
-%endif
+BuildRequires:  python%{python3_pkgversion}-pluggy
+Requires:       python%{python3_pkgversion} >= 3.10
+Recommends:     python%{python3_pkgversion}-PySide6
+# No python3-tomli fallback needed: every target now has tomllib in stdlib —
+# el9 via python3.11, el10 via python3.12+, Fedora via its default python3.
 %endif
 
 Requires:       freerdp >= 3.0
@@ -84,6 +91,8 @@ install -Dm755 packaging/scripts/postrm-common.sh \
     %{buildroot}%{_datadir}/winpodx/packaging/postrm-common.sh
 install -Dm755 uninstall.sh \
     %{buildroot}%{_datadir}/winpodx/uninstall.sh
+install -Dm644 src/winpodx/gui/fonts/LICENSE-Selawik.txt \
+    %{buildroot}%{_datadir}/licenses/winpodx/LICENSE-Selawik.txt
 
 %post
 # #255 PR 4: post-install banner pointing users at 'winpodx setup'.
@@ -142,6 +151,7 @@ exit 0
 %files
 %license LICENSE
 %license THIRD_PARTY_LICENSES.md
+%license %{_datadir}/licenses/winpodx/LICENSE-Selawik.txt
 %doc README.md CHANGELOG.md
 %{_bindir}/winpodx
 # Use a glob for dist-info so a pyproject.toml version that has drifted past
@@ -159,5 +169,8 @@ exit 0
 %{_datadir}/winpodx/
 
 %changelog
+* Mon Sep 07 2026 Kim DaeHyun <kernalix7@kodenet.io> - 0.11.0-0
+- Windows 11-style GUI redesign, bundled Selawik font, dockur HTTP progress,
+  tray launcher, PCI names + VFIO group nodes. See the GitHub release notes.
 * Mon Apr 20 2026 Kim DaeHyun <kernalix7@kodenet.io> - 0.1.0-0
 - See https://github.com/kernalix7/winpodx/releases for per-version release notes.

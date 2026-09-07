@@ -100,28 +100,33 @@ winpodx autostart on|off|status   # Start the Windows pod on login (opt-in; off 
 winpodx language                  # Show the current UI language
 winpodx language ko               # Set UI language: auto | en | ko | zh | ja | de | fr | it (auto = host locale)
 # `winpodx info` and `winpodx check` are deprecated aliases of `winpodx doctor` — they still work, printing a one-line deprecation notice on stderr.
-winpodx gui                       # Launch Qt6 main window (Dashboard / Applications / Devices / Settings / Tools / Terminal)
+winpodx gui                       # Launch Qt6 main window (Dashboard / Applications / Settings / Tools / Terminal / Info / Devices / License)
 winpodx tray                      # Launch Qt system tray icon
 winpodx config show               # Show current config
 winpodx config set rdp.scale 140  # Change a config value
 winpodx config import             # Import existing winapps.conf
 ```
 
-## GUI
+## Qt6 GUI tour
 
-Launch with `winpodx gui`. The Qt6 main window is a Start-menu-style shell (#460-#471): a left vertical navigation sidebar with one row per page, a hero search bar that doubles as a command bar, an in-house SVG icon set, and responsive layouts that reflow on narrow / fractionally-scaled windows and fit themselves to the screen. The pages:
+Launch with `winpodx gui`. The Qt6 desktop app uses a Windows 11 Settings-style NavigationView with Fluent light and dark styling. It follows the system color scheme; set `WINPODX_COLOR_SCHEME=light` or `WINPODX_COLOR_SCHEME=dark` before launch to override it for that process. The font order is Segoe UI Variable, Segoe UI, bundled Selawik, then the desktop default. Selawik ships with WinPodX, so it needs no system font package.
+
+At normal widths the navigation pane is 320 px wide. Below 1100 px it collapses to a 48 px icon rail. Use the hamburger button to expand it; the expanded pane overlays the page and closes when you select a page or click outside it. The custom title bar provides minimize, maximize, close, drag, and double-click maximize. Set `WINPODX_NATIVE_TITLEBAR=1` before launch to use the window manager's native decorations instead.
+
+The pages are:
 
 | Page | What it does |
 |------|--------------|
-| **Dashboard** | Home screen — live Pod / RAM / CPU ring gauges + disk usage, an auto-recovery status card, pinned / recent workspace tiles, and a reverse-open toggle |
-| **Applications** | Grid / list view of installed app profiles (formerly "Apps"), search + category filter, per-app launch with 3 s cooldown, Add / Edit / Delete app profile dialogs |
-| **Devices** | Two-column host ↔ guest mover for USB / PCI device passthrough (#286) — pick a host device on the left, attach it to the Windows guest on the right (USB redirects live; PCI needs a guest restart with a safety confirmation) |
-| **Settings** | RDP (user / IP / port / scale / DPI / password rotation / multi-monitor), Container (backend / CPU / RAM / idle timeout / idle action / max sessions), and the reverse-open panel (enable toggle, allowlist + denylist, live daemon status, refresh / start / stop buttons) all in one screen |
-| **Tools** | Suspend / Resume / Full Desktop buttons, Clean Locks / Sync Time / Debloat, Grow Disk / Sync Guest, live RDP sessions with per-session terminate buttons, and a one-click Windows Update **enable / disable** toggle |
-| **Terminal** | Embedded shell limited to a command allowlist (`podman`, `docker`, `winpodx`, `xfreerdp`, `systemctl`, `journalctl`, `ss`, `ip`, `ping`, ...) with quick buttons (Status / Logs / Inspect / RDP Test / Clear) |
-| **Info** | Live **Health** card (pod / RDP / agent / OEM / disk / password age / app count) + System / Display / Dependencies / Pod / Config snapshot |
+| **Dashboard** | Pod-state hero with Start and Stop, RAM, CPU, and disk rings, quick actions, running apps, pinned tiles, and a reverse-open toggle |
+| **Applications** | Start Menu app tiles with category counts, search, grid or list display, and context actions |
+| **Settings** | SettingsCard groups for RDP Connection, Hardware, Windows Update, Integration, Localization, and Danger zone; the header Save button gains a dirty dot after edits |
+| **Tools** | Pod Management and system action rows, disabled with an explanation while the pod is stopped, plus RDP Sessions |
+| **Terminal / Logs** | Command and log view with the existing safe command controls |
+| **Info** | About, Copy diagnostics, and Health |
+| **Devices** | USB and PCI groups with totals for discovered and assigned devices, filtering, and a risky-PCI flag; PCI changes still need a guest restart and confirmation |
+| **License** | License text and acknowledgements |
 
-The system tray (`winpodx tray`) is a lighter-weight alternative — pod controls, app launcher submenu (top 20 + Full Desktop), a USB device switcher (#300, attach / detach host USB devices to the guest), maintenance submenu (Clean Locks / Sync Time / Suspend), a running-sessions submenu that can terminate live RDP app sessions, and an optional idle-monitor thread.
+`winpodx launch` opens a compact Start-style flyout for Windows apps. The system tray (`winpodx tray`) remains the lighter-weight alternative for pod controls, the current app launcher, USB switching, maintenance, and running RDP sessions.
 
 ### Tray auto-spawn + UNRESPONSIVE recovery (v0.5.5)
 
@@ -138,7 +143,7 @@ The tray watches the pod state every 30 s. On a `RUNNING → UNRESPONSIVE` trans
 Pass a host USB or (non-GPU) PCI device through to the Windows guest (#286). Three surfaces drive the same backend:
 
 * **CLI** — `winpodx device list` shows each host device + its attach state; `winpodx device attach <id>` / `winpodx device detach <id>` move one in or out.
-* **GUI Devices page** — a two-column host ↔ guest mover (pick on the left, attach on the right).
+* **GUI Devices page** — USB and PCI device groups with filters, assignment state, and attach or detach actions.
 * **System tray** — a USB switcher submenu (#300) for one-click attach / detach of host USB devices.
 
 USB devices redirect live through usbredir — no restart needed, and a privilege prompt may appear so the host helper can open the device. A PCI device is boot-added and only becomes visible after a guest restart, so the attach is guarded by a safety confirmation; pass `--force` on the CLI (or confirm the dialog in the GUI) to proceed. The legacy `pod.usb_live` key is still accepted but no longer gates usbredir.
@@ -347,7 +352,7 @@ denylist = []                                    # Apps to exclude from the mani
 level = "INFO"                                   # DEBUG | INFO | WARNING | ERROR | CRITICAL | RAW — RAW = DEBUG + pod logs (podman logs -f) interleaved in GUI Terminal
 ```
 
-Edit via `winpodx config set <key> <value>` or directly with your editor — TOML is parsed via the stdlib on Python 3.11+ (`tomli` on 3.9/3.10).
+Edit via `winpodx config set <key> <value>` or directly with your editor — TOML is parsed via the stdlib on Python 3.11+ (`tomli` on 3.10).
 
 `rdp.media_drive_enabled` defaults to `true` for compatibility. Set it to `false` to omit FreeRDP's `/drive:media,...` mapping, preventing mounted host removable storage from appearing at `\\tsclient\media` in the guest. This does not change raw USB device passthrough.
 

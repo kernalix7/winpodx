@@ -19,7 +19,7 @@ from typing import Any
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # Python 3.9, 3.10
+    import tomli as tomllib  # Python 3.10
 
 from winpodx.reverse_open.config import ReverseOpenConfig
 from winpodx.utils.paths import config_dir

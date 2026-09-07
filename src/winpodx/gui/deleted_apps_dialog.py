@@ -24,10 +24,11 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.i18n import tr
+from winpodx.gui import theme
 from winpodx.gui.theme import (
-    BTN_PRIMARY,
-    BTN_SECONDARY,
-    DIALOG,
+    CONTROL_HEIGHT_W11,
+    FONT_TITLE,
+    RADIUS_S,
     SPACE_M,
     SPACE_S,
     C,
@@ -49,14 +50,14 @@ class DeletedAppsDialog(QDialog):
         self._rows: dict[str, QFrame] = {}
         self.setWindowTitle(tr("Deleted Apps"))
         self.setMinimumSize(440, 420)
-        self.setStyleSheet(DIALOG + f"QLabel {{ color: {C.TEXT}; }}")
+        self.setStyleSheet(theme.DIALOG + f"QLabel {{ color: {C.TEXT}; }}")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(SPACE_M)
 
         title = QLabel(tr("Restore deleted apps"))
-        title.setStyleSheet(f"color: {C.TEXT}; font-size: 16px; font-weight: 600;")
+        title.setStyleSheet(f"color: {C.TEXT}; font-size: {FONT_TITLE}px; font-weight: 600;")
         layout.addWidget(title)
         sub = QLabel(
             tr(
@@ -89,24 +90,35 @@ class DeletedAppsDialog(QDialog):
         for slug in sorted(slugs):
             self._add_row(slug)
 
-        btn_row = QHBoxLayout()
+        strip = QFrame()
+        strip.setObjectName("dialogButtonStrip")
+        palette = theme._PALETTE
+        strip.setStyleSheet(
+            f"QFrame#dialogButtonStrip {{ background: {palette.control_fill}; "
+            f"border: none; border-top: 1px solid {palette.divider}; }}"
+        )
+        btn_row = QHBoxLayout(strip)
+        btn_row.setContentsMargins(24, 24, 24, 24)
+        btn_row.setSpacing(SPACE_S)
         self._restore_all_btn = QPushButton(tr("Restore all"))
-        self._restore_all_btn.setStyleSheet(BTN_PRIMARY)
+        self._restore_all_btn.setStyleSheet(theme.BTN_PRIMARY)
+        self._restore_all_btn.setMinimumSize(96, CONTROL_HEIGHT_W11)
         self._restore_all_btn.clicked.connect(self._on_restore_all)
         btn_row.addWidget(self._restore_all_btn)
         btn_row.addStretch()
         close = QPushButton(tr("Close"))
-        close.setStyleSheet(BTN_SECONDARY)
+        close.setStyleSheet(theme.BTN_SECONDARY)
+        close.setMinimumSize(96, CONTROL_HEIGHT_W11)
         close.clicked.connect(self.accept)
         btn_row.addWidget(close)
-        layout.addLayout(btn_row)
+        layout.addWidget(strip)
 
         self._refresh_empty_state()
 
     def _add_row(self, slug: str) -> None:
         row = QFrame()
         row.setStyleSheet(
-            f"QFrame {{ background: {C.SURFACE0}; border-radius: 8px; }}"
+            f"QFrame {{ background: {C.SURFACE0}; border-radius: {RADIUS_S}px; }}"
             f"QFrame:hover {{ background: {C.SURFACE1}; }}"
         )
         rl = QHBoxLayout(row)
@@ -116,7 +128,8 @@ class DeletedAppsDialog(QDialog):
         rl.addWidget(name)
         rl.addStretch()
         restore = QPushButton(tr("Restore"))
-        restore.setStyleSheet(BTN_SECONDARY)
+        restore.setStyleSheet(theme.BTN_SECONDARY)
+        restore.setMinimumHeight(CONTROL_HEIGHT_W11)
         restore.clicked.connect(lambda _=False, s=slug: self._on_restore_one(s))
         rl.addWidget(restore)
         self._list_layout.addWidget(row)

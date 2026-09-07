@@ -34,6 +34,9 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
+    QCheckBox,
+    QComboBox,
+    QFrame,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -45,7 +48,9 @@ from PySide6.QtWidgets import (  # noqa: E402
 from winpodx.core.config import Config  # noqa: E402
 from winpodx.gui._main_window_header import HeaderMixin  # noqa: E402
 from winpodx.gui._main_window_nav import NavigationMixin  # noqa: E402
+from winpodx.gui._main_window_navpane import NavPaneMixin  # noqa: E402
 from winpodx.gui._main_window_settings import SettingsPageMixin  # noqa: E402
+from winpodx.gui.theme import HIT_TARGET, NAV_PANE_WIDTH  # noqa: E402
 
 # ----- shared helpers ----------------------------------------------------
 
@@ -103,8 +108,8 @@ def _keep_english_ui():
 # ----- HeaderMixin -------------------------------------------------------
 
 
-class HeaderHarness(HeaderMixin):
-    """Bare host exposing only what HeaderMixin reads."""
+class HeaderHarness(NavPaneMixin, HeaderMixin):
+    """Bare host exposing pane + header chrome the mixins read."""
 
     def __init__(self, cfg: Config, apps: list) -> None:
         self.cfg = cfg
@@ -134,7 +139,10 @@ def test_sidebar_builds_eight_checkable_rows_with_dashboard_preselected() -> Non
     assert [i for i, b in enumerate(host.nav_buttons) if b.isChecked()] == [0]
     # Each row is parented into the sidebar (never a stray top-level widget).
     assert all(b.parentWidget() is bar for b in host.nav_buttons)
-    assert bar.width() == 200
+    # Phase 2 NavigationView pane is 320px expanded (Win11 Settings), not the
+    # old 200px Start-menu bar.
+    assert bar.objectName() == "navPane"
+    assert bar.width() == NAV_PANE_WIDTH
 
 
 def test_sidebar_rows_and_logo_route_to_their_page_index() -> None:
@@ -910,7 +918,135 @@ def test_settings_card_without_a_glyph_prefix_renders_a_bare_header() -> None:
     assert "Plain Title" in headers
     assert "subtitle" in headers
     assert "Label" in headers
-    assert field.parentWidget() is card
+    rows = card.findChildren(QFrame, "settingsCard")
+    assert len(rows) == 1
+    assert rows[0].action_widget is field
+
+
+def _settings_cards(group: QFrame) -> list[QFrame]:
+    return group.findChildren(QFrame, "settingsCard")
+
+
+def test_settings_card_uses_tooltip_first_line_as_description() -> None:
+    _ensure_qapp()
+    host = SettingsPageMixin()
+    field = QLineEdit("127.0.0.1")
+    field.setToolTip("Address FreeRDP connects to for the Windows guest.\nMore detail.")
+    group = host._settings_card("RDP", "sub", [("Host / IP", field)])
+    group.show()
+
+    card = _settings_cards(group)[0]
+    assert card.desc_label.text() == "Address FreeRDP connects to for the Windows guest."
+    assert not card.desc_label.isHidden()
+    assert 240 <= field.minimumWidth() <= field.maximumWidth() <= 360
+
+
+def test_settings_card_group_emits_one_row_per_field() -> None:
+    _ensure_qapp()
+    host = SettingsPageMixin()
+    user = QLineEdit("alice")
+    host_ip = QComboBox()
+    enabled = QCheckBox("keep-identity")
+    group = host._settings_card(
+        "▣  RDP Connection",
+        "Remote Desktop Protocol settings",
+        [
+            ("Username", user),
+            ("Host / IP", host_ip),
+            ("Enabled", enabled),
+        ],
+    )
+
+    assert group.objectName() == "settingsSection"
+    cards = _settings_cards(group)
+    assert len(cards) == 3
+    assert [card.title_label.text() for card in cards] == ["Username", "Host / IP", "Enabled"]
+    assert cards[0].action_widget is user
+    assert cards[1].action_widget is host_ip
+    assert cards[2].action_widget is enabled
+
+
+def test_settings_card_checkbox_field_becomes_toggle_keeping_identity() -> None:
+    _ensure_qapp()
+    host = SettingsPageMixin()
+    box = QCheckBox("Autostart")
+    group = host._settings_card("Prefs", "sub", [("Autostart", box)])
+
+    card = _settings_cards(group)[0]
+    assert card.action_widget is box
+    assert box.text() == ""
+    assert box.styleSheet() == ""
+    assert box.minimumHeight() >= HIT_TARGET
+
+
+def test_settings_card_heading_strips_emoji_prefix() -> None:
+    _ensure_qapp()
+    host = SettingsPageMixin()
+    group = host._settings_card("▣  RDP Connection", "sub", [("A", QLineEdit())])
+
+    heading = group.findChild(QLabel, "settingsGroupHeading")
+    assert heading is not None
+    assert heading.text() == "RDP Connection"
+
+
+def test_settings_card_shell_wraps_body_in_settings_card() -> None:
+    _ensure_qapp()
+    host = SettingsPageMixin()
+    wrapper, body = host._settings_card_shell("gear", "▣  Hardware", "subtitle")
+
+    assert wrapper.objectName() == "settingsSection"
+    cards = _settings_cards(wrapper)
+    assert len(cards) == 1
+    assert cards[0].objectName() == "settingsCard"
+    heading = wrapper.findChild(QLabel, "settingsGroupHeading")
+    assert heading is not None
+    assert heading.text() == "Hardware"
+    assert body is cards[0].layout()
+
+
+def test_tuning_heading_uses_existing_korean_glyph_key() -> None:
+    import winpodx.core.i18n as i18n_mod
+
+    _ensure_qapp()
+    i18n_mod.set_language("ko")
+    host = SettingsPageMixin()
+    group = host._build_tuning_card(QComboBox(), "summary")
+
+    heading = group.findChild(QLabel, "settingsGroupHeading")
+    translated = i18n_mod.tr("◨  Performance Tuning")
+    assert heading is not None
+    assert heading.text() == translated.removeprefix("◨  ")
+
+
+def test_settings_cards_have_no_drop_shadow() -> None:
+    _ensure_qapp()
+    host = SettingsPageMixin()
+    group = host._settings_card("Title", "sub", [("A", QLineEdit())])
+    shell, _body = host._settings_card_shell("gear", "Shell", "sub")
+
+    assert group.graphicsEffect() is None
+    assert shell.graphicsEffect() is None
+    for card in _settings_cards(group) + _settings_cards(shell):
+        assert card.graphicsEffect() is None
+
+
+def test_settings_restyle_swaps_card_fill_with_scheme() -> None:
+    _ensure_qapp()
+    from winpodx.gui import theme
+
+    host = SettingsPageMixin()
+    group = host._settings_card("Title", "sub", [("A", QLineEdit())])
+    card = _settings_cards(group)[0]
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("light")
+        host._restyle_settings()
+        assert "#FFFFFF" in card.styleSheet()
+        theme.rebuild("dark")
+        host._restyle_settings()
+        assert "#2B2B2B" in card.styleSheet()
+    finally:
+        theme.rebuild(previous)
 
 
 def test_settings_page_offers_off_balanced_max_for_the_disguise_level(hermetic_settings) -> None:
@@ -1072,7 +1208,7 @@ def test_settings_page_keeps_rendering_when_the_reverse_open_panel_fails(
     assert host.budget_warning_label is not None
 
 
-def test_reflow_stacks_the_top_cards_when_the_page_is_too_narrow(hermetic_settings) -> None:
+def test_reflow_keeps_settings_groups_in_one_column(hermetic_settings) -> None:
     _ensure_qapp()
     from PySide6.QtWidgets import QBoxLayout
 
@@ -1084,7 +1220,8 @@ def test_reflow_stacks_the_top_cards_when_the_page_is_too_narrow(hermetic_settin
 
     host.pages.setFixedWidth(4000)
     host._reflow_settings()
-    assert host._settings_cols.direction() == QBoxLayout.Direction.LeftToRight
+    # DESIGN.md §4: never restore a 50/50 split; the single column is the layout.
+    assert host._settings_cols.direction() == QBoxLayout.Direction.TopToBottom
 
 
 def test_reflow_is_a_no_op_before_the_page_exists() -> None:
@@ -1382,3 +1519,116 @@ def test_save_settings_skips_the_recreate_prompt_on_the_manual_backend(
     assert cfg.pod.backend == "manual"
     assert cfg.pod.cpu_cores == 12
     assert host.bringup_calls == []
+
+
+# ----- SettingsPageMixin: dirty indicator + regroup -------------------------
+
+
+def _heading_texts(host: SettingsHarness) -> list[str]:
+    return [
+        lbl.text() for lbl in host._page.findChildren(QLabel, "settingsGroupHeading") if lbl.text()
+    ]
+
+
+def test_save_button_marks_dirty_when_a_form_field_changes(hermetic_settings) -> None:
+    _ensure_qapp()
+    host = _build_page(_make_cfg())
+    btn = host._settings_save_btn
+
+    assert btn.property("dirty") in (None, False)
+    assert not btn.text().startswith("•")
+
+    host.input_user.setText("dirty-user")
+
+    assert btn.property("dirty") is True
+    assert btn.text().startswith("•")
+
+
+def test_save_button_clears_dirty_after_successful_save(
+    hermetic_settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ensure_qapp()
+    cfg = _make_cfg()
+    host = _build_page(cfg)
+    _no_recreate(monkeypatch, cfg)
+    host.input_ip.setText("10.1.2.3")
+    assert host._settings_save_btn.property("dirty") is True
+
+    host._save_settings()
+
+    assert host._settings_save_btn.property("dirty") is False
+    assert not host._settings_save_btn.text().startswith("•")
+
+
+def test_save_button_stays_dirty_when_validation_rejects(
+    hermetic_settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ensure_qapp()
+    host = _build_page(_make_cfg())
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: 0))
+    host.input_cpu.setText("four")
+
+    host._save_settings()
+
+    assert host._settings_save_btn.property("dirty") is True
+    assert host._settings_save_btn.text().startswith("•")
+
+
+def test_immediate_toggles_do_not_mark_the_save_button_dirty(hermetic_settings) -> None:
+    _ensure_qapp()
+    host = _build_page(_make_cfg())
+
+    host.checkbox_mime_assoc.setChecked(not host.checkbox_mime_assoc.isChecked())
+    host.checkbox_autostart_tray.setChecked(True)
+
+    assert host._settings_save_btn.property("dirty") in (None, False)
+    assert not host._settings_save_btn.text().startswith("•")
+
+
+def test_settings_groups_are_ordered_by_why_you_would_change_them(hermetic_settings) -> None:
+    _ensure_qapp()
+    host = _build_page(_make_cfg())
+    headings = _heading_texts(host)
+
+    assert headings[0] == "RDP Connection"
+    assert "Hardware" in headings
+    assert "Windows Update" in headings
+    assert "Applies immediately" in headings
+    assert "Localization" in headings
+    assert headings[-1] == "Danger zone"
+    assert headings.index("Hardware") < headings.index("Windows Update")
+    assert headings.index("Windows Update") < headings.index("Applies immediately")
+    assert headings.index("Applies immediately") < headings.index("Localization")
+
+
+def test_danger_zone_is_the_only_settings_group_using_danger_buttons(
+    hermetic_settings,
+) -> None:
+    _ensure_qapp()
+    from winpodx.gui import theme
+
+    host = _build_page(_make_cfg())
+    danger = None
+    for heading in host._page.findChildren(QLabel, "settingsGroupHeading"):
+        if heading.text() == "Danger zone":
+            danger = heading
+            break
+    assert danger is not None
+    group = danger
+    while group is not None and group.objectName() != "settingsSection":
+        group = group.parentWidget()
+    assert group is not None
+
+    danger_btns = [
+        btn
+        for btn in group.findChildren(QPushButton)
+        if theme.BTN_DANGER.split("{", 1)[0].strip() in btn.styleSheet()
+        or "BTN_DANGER" in btn.styleSheet()
+        or theme.C.RED in btn.styleSheet()
+    ]
+    assert danger_btns
+    for btn in host._page.findChildren(QPushButton):
+        if btn is host._settings_save_btn:
+            continue
+        if theme.C.RED in btn.styleSheet() and btn not in danger_btns:
+            raise AssertionError(f"danger styling outside danger zone: {btn.text()!r}")

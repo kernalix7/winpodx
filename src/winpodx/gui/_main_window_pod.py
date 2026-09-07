@@ -297,6 +297,12 @@ class PodStatusMixin:
         self.pod_dot.setStyleSheet(f"background: transparent; color: {color};")
         self.pod_label.setText(display)
         self.pod_label.setStyleSheet(f"background: transparent; color: {color}; font-size: 12px;")
+        sync = getattr(self, "_sync_pod_pill", None)
+        if callable(sync):
+            sync(state)
+        footer = getattr(self, "_sync_pod_footer", None)
+        if callable(footer):
+            footer(state)
 
         # Info bar no longer repeats the state word (chip + banner own it);
         # it shows the pod IP instead. Keep the colour dot as a glanceable

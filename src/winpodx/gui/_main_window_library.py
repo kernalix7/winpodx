@@ -27,7 +27,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -44,138 +43,85 @@ from PySide6.QtWidgets import (
 
 from winpodx.core.app import AppInfo
 from winpodx.core.i18n import tr
-from winpodx.core.process import kill_session, list_active_sessions
-from winpodx.gui import launcher_state
+from winpodx.core.process import kill_session, list_active_sessions  # noqa: F401
+from winpodx.gui import launcher_state, theme
+from winpodx.gui._main_window_library_chips import LibraryChipsMixin
+from winpodx.gui._main_window_library_start import LibraryStartMixin
+from winpodx.gui._main_window_library_tiles import _AppTile, make_library_list_tile
 from winpodx.gui._widget_helpers import (
-    add_shadow,
-    make_app_avatar,
     make_empty_panel,
     make_section_label,
-    make_source_badge,
 )
 from winpodx.gui.icons import load_icon
 from winpodx.gui.theme import (
-    APP_TILE,
-    BTN_ACCENT,
     BTN_DANGER,
     BTN_GHOST,
     BTN_PRIMARY,
     BTN_SECONDARY,
-    CHECKBOX,
-    FILTER_CHIP,
+    PAGE_MARGIN_X,
     SCROLL_AREA,
-    SEARCH_BAR,
+    SCROLL_GUTTER,
     SPACE_L,
     SPACE_M,
     SPACE_S,
     SPACE_XL,
-    SPACE_XXL,
     VIEW_TOGGLE,
     C,
-    avatar_color,
 )
 
-# Max category chips shown inline before collapsing the rest into a
-# "+N more" overflow menu (Task 4). "All" is always shown and does not
-# count against this cap.
-_MAX_CATEGORY_CHIPS = 8
+
+class _LibraryPage(QWidget):
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        box = getattr(self, "_focus_search", None)
+        if box is not None:
+            box.setFocus(Qt.FocusReason.OtherFocusReason)
 
 
-class _AppTile(QFrame):
-    """Windows-Start-style launcher tile: icon above name, the whole tile is
-    clickable (left-click launches), right-click opens the context menu. No
-    border / badge / launch button on the face -- minimal, like the Start-menu.
-    """
-
-    def __init__(self, app: AppInfo, *, on_launch, on_menu) -> None:
-        super().__init__()
-        self._app = app
-        self._on_launch = on_launch
-        self._on_menu = on_menu
-        self.setObjectName("appTileBtn")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip(app.full_name)
-        self.setStyleSheet(
-            "QFrame#appTileBtn { background: transparent; border: none;"
-            " border-radius: 10px; }"
-            f"QFrame#appTileBtn:hover {{ background: {C.SURFACE1}; }}"
-        )
-        v = QVBoxLayout(self)
-        v.setContentsMargins(SPACE_S, SPACE_M, SPACE_S, SPACE_M)
-        v.setSpacing(SPACE_S)
-        v.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-
-        avatar = make_app_avatar(app, size=48, radius=12, font_size=20)
-        v.addWidget(avatar, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        name = QLabel(app.full_name)
-        name.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        name.setWordWrap(True)
-        name.setFixedWidth(104)
-        name.setStyleSheet(f"background: transparent; color: {C.TEXT}; font-size: 12px;")
-        v.addWidget(name, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(
-            lambda pos: self._on_menu(self._app, self.mapToGlobal(pos))
-        )
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._on_launch(self._app)
-        super().mousePressEvent(event)
-
-
-class LibraryPageMixin:
+class LibraryPageMixin(LibraryChipsMixin, LibraryStartMixin):
     """Builds the Apps page + drives grid/list view + filter state."""
 
     def _build_library_page(self) -> QWidget:
-        page = QWidget()
+        page = _LibraryPage()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(SPACE_XXL, SPACE_XL, SPACE_XXL, SPACE_L)
-        layout.setSpacing(SPACE_L)
+        layout.setContentsMargins(0, 0, PAGE_MARGIN_X - SCROLL_GUTTER, SPACE_XL)
+        layout.setSpacing(SPACE_XL)
 
-        # Launcher hero: one large, centered search is the focal point (Start-
-        # menu feel) -- no redundant page title.
-        hero = QHBoxLayout()
-        hero.addStretch(1)
+        header_actions = QWidget()
+        header_actions.setObjectName("libraryHeaderActions")
+        self._library_header_actions = header_actions
+        right_group = QHBoxLayout(header_actions)
+        right_group.setContentsMargins(0, 0, 0, 0)
+        right_group.setSpacing(SPACE_S)
+        register = getattr(self, "_register_page_header", None)
+        if callable(register):
+            register(1, tr("Applications"), actions=header_actions)
+
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(SPACE_M)
+
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText(tr("Search apps by name..."))
-        self.search_box.setStyleSheet(SEARCH_BAR)
-        self.search_box.setMinimumHeight(46)
-        self.search_box.setMinimumWidth(360)
-        self.search_box.setMaximumWidth(600)
+        self._style_library_search(self.search_box)
         self.search_box.addAction(
             load_icon("search", C.SUBTEXT0, 18),
             QLineEdit.ActionPosition.LeadingPosition,
         )
         self.search_box.setClearButtonEnabled(True)
         self.search_box.textChanged.connect(self._filter_apps)
-        hero.addWidget(self.search_box, 3)
-        hero.addStretch(1)
-        layout.addLayout(hero)
-
-        # Secondary action row -- small + quiet, under the hero search.
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(16)
-
-        left_group = QHBoxLayout()
-        left_group.setContentsMargins(0, 0, 0, 0)
-        left_group.setSpacing(8)
+        page._focus_search = self.search_box
+        toolbar.addWidget(self.search_box, 1)
 
         self.app_count_label = QLabel(
             tr("{shown} of {total} apps").format(shown=len(self.apps), total=len(self.apps))
         )
         self.app_count_label.setStyleSheet(
-            f"background: transparent; color: {C.OVERLAY0}; font-size: 12px;"
+            f"background: transparent; color: {C.SUBTEXT1}; font-size: {theme.FONT_CAPTION}px;"
         )
-        left_group.addWidget(self.app_count_label)
-
-        right_group = QHBoxLayout()
-        right_group.setContentsMargins(0, 0, 0, 0)
-        right_group.setSpacing(8)
+        toolbar.addWidget(self.app_count_label)
 
         toggle_wrap = QWidget()
+        self._view_toggle_wrap = toggle_wrap
         toggle_wrap.setStyleSheet(VIEW_TOGGLE)
         tgl = QHBoxLayout(toggle_wrap)
         tgl.setContentsMargins(0, 0, 0, 0)
@@ -197,12 +143,12 @@ class LibraryPageMixin:
         self.btn_list.setToolTip(tr("List view"))
         self.btn_list.clicked.connect(lambda: self._set_view("list"))
         tgl.addWidget(self.btn_list)
-        right_group.addWidget(toggle_wrap)
+        toolbar.addWidget(toggle_wrap, 0)
 
         self.refresh_btn = QPushButton(tr("Refresh Apps"))
         self.refresh_btn.setIcon(load_icon("refresh", C.TEXT, 16))
         self.refresh_btn.setIconSize(QSize(16, 16))
-        self.refresh_btn.setStyleSheet(BTN_GHOST)
+        self.refresh_btn.setStyleSheet(BTN_SECONDARY)
         self.refresh_btn.setToolTip(tr("Scan the running pod for installed Windows apps"))
         self.refresh_btn.clicked.connect(self._on_refresh_apps)
         right_group.addWidget(self.refresh_btn)
@@ -214,7 +160,7 @@ class LibraryPageMixin:
         self._show_hidden = False
         self.btn_show_hidden = QPushButton(tr("Hidden"))
         self.btn_show_hidden.setCheckable(True)
-        self.btn_show_hidden.setStyleSheet(BTN_GHOST)
+        self.btn_show_hidden.setStyleSheet(BTN_SECONDARY)
         self.btn_show_hidden.setToolTip(
             tr("Show apps filtered by the noise denylist or manually hidden")
         )
@@ -225,7 +171,7 @@ class LibraryPageMixin:
         # slug so discovery won't re-add it; this opens the un-delete list.
         # Hidden when there's nothing to restore.
         self.btn_deleted = QPushButton(tr("Deleted"))
-        self.btn_deleted.setStyleSheet(BTN_GHOST)
+        self.btn_deleted.setStyleSheet(BTN_SECONDARY)
         self.btn_deleted.setToolTip(tr("Restore apps you previously deleted"))
         self.btn_deleted.clicked.connect(self._on_open_deleted_apps)
         self.btn_deleted.setVisible(False)
@@ -238,7 +184,7 @@ class LibraryPageMixin:
         self._selected_names: set[str] = set()
         self.btn_select = QPushButton(tr("Select"))
         self.btn_select.setCheckable(True)
-        self.btn_select.setStyleSheet(BTN_GHOST)
+        self.btn_select.setStyleSheet(BTN_SECONDARY)
         self.btn_select.setToolTip(tr("Select multiple apps to remove at once"))
         self.btn_select.clicked.connect(self._on_toggle_select_mode)
         right_group.addWidget(self.btn_select)
@@ -246,10 +192,11 @@ class LibraryPageMixin:
         add_btn = QPushButton(tr("+  Add App"))
         add_btn.setStyleSheet(BTN_PRIMARY)
         add_btn.clicked.connect(self._on_add_app)
+        self.add_app_btn = add_btn
         right_group.addWidget(add_btn)
 
-        toolbar.addLayout(left_group, 1)
-        toolbar.addLayout(right_group, 0)
+        if not callable(register):
+            toolbar.addWidget(header_actions, 0)
 
         layout.addLayout(toolbar)
         layout.addWidget(self._build_batch_bar())
@@ -257,12 +204,9 @@ class LibraryPageMixin:
         self.refresh_progress = QProgressBar()
         self.refresh_progress.setRange(0, 0)  # indeterminate
         self.refresh_progress.setTextVisible(False)
-        self.refresh_progress.setFixedHeight(3)
+        self.refresh_progress.setFixedHeight(4)
         self.refresh_progress.setVisible(False)
-        self.refresh_progress.setStyleSheet(
-            f"QProgressBar {{ background: {C.SURFACE0}; border: none; border-radius: 1px; }}"
-            f"QProgressBar::chunk {{ background: {C.BLUE}; }}"
-        )
+        self.refresh_progress.setStyleSheet(theme.PROGRESS)
         layout.addWidget(self.refresh_progress)
 
         scroll = QScrollArea()
@@ -302,32 +246,8 @@ class LibraryPageMixin:
         self._commands_section.setVisible(False)
         launcher_layout.addWidget(self._commands_section)
 
-        # "Running" live-session strip -- winpodx knows what's actually running
-        # (RDP session tracking), so surface it at the very top: a chip per live
-        # session with a one-click terminate. Hidden when nothing is running.
-        self._running_section, self._running_row = self._make_launcher_section(tr("Running"))
-        launcher_layout.addWidget(self._running_section)
-
-        self._pinned_section, self._pinned_row = self._make_launcher_section(tr("Pinned"))
-        launcher_layout.addWidget(self._pinned_section)
-
-        self._recent_section, self._recent_row = self._make_launcher_section(tr("Recent"))
-        launcher_layout.addWidget(self._recent_section)
-
-        all_apps_header = QWidget()
-        all_apps_layout = QVBoxLayout(all_apps_header)
-        all_apps_layout.setContentsMargins(0, 0, 0, 0)
-        all_apps_layout.setSpacing(SPACE_M)
-        all_apps_layout.addWidget(make_section_label(tr("Applications")))
-
-        category_wrap = QWidget()
-        self._category_row = QHBoxLayout(category_wrap)
-        self._category_row.setContentsMargins(0, 0, 0, 0)
-        self._category_row.setSpacing(8)
-        self._category_btns: list[QPushButton] = []
+        self._mount_start_sections(launcher_layout)
         self._build_category_chips()
-        all_apps_layout.addWidget(category_wrap)
-        launcher_layout.addWidget(all_apps_header)
 
         self.app_list_layout = QVBoxLayout()
         self.app_list_layout.setContentsMargins(0, 0, 0, 0)
@@ -357,59 +277,13 @@ class LibraryPageMixin:
         section.setVisible(False)
         return section, row
 
-    def _build_category_chips(self) -> None:
-        """Build category filter chips from available apps.
-
-        Shows "All" first, then up to ``_MAX_CATEGORY_CHIPS`` category chips.
-        Any remaining categories collapse into a "+N more" overflow menu so
-        none are silently dropped (Task 4).
-        """
-        cats: set[str] = set()
-        for a in self.apps:
-            cats.update(a.categories)
-        cats_sorted = sorted(cats)
-
-        all_btn = QPushButton("All")
-        all_btn.setCheckable(True)
-        all_btn.setChecked(True)
-        all_btn.setStyleSheet(FILTER_CHIP)
-        all_btn.clicked.connect(lambda: self._set_category(""))
-        self._category_row.addWidget(all_btn)
-        self._category_btns.append(all_btn)
-
-        for cat in cats_sorted[:_MAX_CATEGORY_CHIPS]:
-            btn = QPushButton(cat)
-            btn.setCheckable(True)
-            btn.setStyleSheet(FILTER_CHIP)
-            btn.clicked.connect(lambda _, c=cat: self._set_category(c))
-            self._category_row.addWidget(btn)
-            self._category_btns.append(btn)
-
-        overflow = cats_sorted[_MAX_CATEGORY_CHIPS:]
-        if overflow:
-            more_btn = QPushButton(tr("+{n} more").format(n=len(overflow)))
-            more_btn.setCheckable(True)
-            more_btn.setStyleSheet(FILTER_CHIP)
-            more_btn.setToolTip(tr("More categories"))
-            menu = QMenu(more_btn)
-            for cat in overflow:
-                menu.addAction(cat, lambda _=False, c=cat: self._set_category(c))
-            more_btn.setMenu(menu)
-            self._category_row.addWidget(more_btn)
-            self._category_btns.append(more_btn)
-            self._category_more_btn = more_btn
-            self._overflow_categories = list(overflow)
-        else:
-            self._category_more_btn = None
-            self._overflow_categories = []
-
-        self._category_row.addStretch()
-
     def _clear_layout(self, layout: QHBoxLayout | QVBoxLayout | QGridLayout) -> None:
         while layout.count():
             item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
             elif item.layout():
                 self._clear_layout(item.layout())
 
@@ -438,9 +312,7 @@ class LibraryPageMixin:
 
     def _refresh_launcher_sections(self, filtered: list[AppInfo]) -> None:
         pinned = self._apps_by_names(launcher_state.get_pinned(), filtered)
-        recent = self._apps_by_names(launcher_state.get_recent(), filtered)
-        self._populate_launcher_row(self._pinned_section, self._pinned_row, pinned)
-        self._populate_launcher_row(self._recent_section, self._recent_row, recent)
+        self._populate_pinned_grid(pinned)
 
     def _refresh_launcher_home(self) -> None:
         self._refresh_running_strip()
@@ -453,59 +325,6 @@ class LibraryPageMixin:
                 return a.full_name
         cleaned = stem.removeprefix("winpodx-uwp-").split("_")[0].replace("-", " ").strip()
         return cleaned.title() if cleaned else stem
-
-    def _make_running_chip(self, app_name: str) -> QWidget:
-        chip = QFrame()
-        chip.setObjectName("runChip")
-        chip.setCursor(Qt.CursorShape.PointingHandCursor)
-        chip.setToolTip(tr("Focus window"))
-        chip.setStyleSheet(
-            f"QFrame#runChip {{ background: {C.SURFACE0}; border: 1px solid {C.SURFACE2};"
-            " border-radius: 16px; }"
-            f"QFrame#runChip:hover {{ border-color: {C.GREEN}; }}"
-        )
-        # Left-click the chip body -> raise/focus that app's window (the kill
-        # button consumes its own clicks, so it won't trigger a focus).
-        chip.mousePressEvent = lambda _e, n=app_name: self._focus_session(n)
-        h = QHBoxLayout(chip)
-        h.setContentsMargins(SPACE_M, SPACE_S, SPACE_S, SPACE_S)
-        h.setSpacing(SPACE_S)
-
-        dot = QLabel("●")
-        dot.setStyleSheet(f"color: {C.GREEN}; font-size: 9px; background: transparent;")
-        h.addWidget(dot)
-
-        name = QLabel(self._running_display_name(app_name))
-        name.setStyleSheet(f"color: {C.TEXT}; font-size: 12px; background: transparent;")
-        h.addWidget(name)
-
-        kill_btn = QPushButton("")
-        kill_btn.setIcon(load_icon("close", C.OVERLAY0, 14))
-        kill_btn.setIconSize(QSize(14, 14))
-        kill_btn.setFixedSize(22, 22)
-        kill_btn.setToolTip(tr("Terminate"))
-        kill_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; border-radius: 11px; }"
-            f"QPushButton:hover {{ background: {C.SURFACE2}; }}"
-        )
-        kill_btn.clicked.connect(lambda _=False, n=app_name: self._terminate_session(n))
-        h.addWidget(kill_btn)
-        return chip
-
-    def _refresh_running_strip(self) -> None:
-        """Rebuild the 'Running' strip from the live RDP sessions."""
-        if not hasattr(self, "_running_row"):
-            return
-        self._clear_layout(self._running_row)
-        try:
-            sessions = list_active_sessions()
-        except Exception:  # noqa: BLE001 -- never break the home on enumeration
-            sessions = []
-        self._running_section.setVisible(bool(sessions))
-        for s in sessions:
-            self._running_row.addWidget(self._make_running_chip(s.app_name))
-        if sessions:
-            self._running_row.addStretch()
 
     def _terminate_session(self, app_name: str) -> None:
         try:
@@ -598,19 +417,6 @@ class LibraryPageMixin:
             launcher_state.pin(app.name)
         self._refresh_launcher_home()
 
-    def _set_category(self, category: str) -> None:
-        self._active_category = category
-        more_btn = getattr(self, "_category_more_btn", None)
-        overflow = getattr(self, "_overflow_categories", [])
-        for btn in self._category_btns:
-            if btn is more_btn:
-                # The overflow chip stays highlighted while any of its
-                # collapsed categories is the active filter.
-                btn.setChecked(category in overflow)
-            else:
-                btn.setChecked((category == "" and btn.text() == "All") or btn.text() == category)
-        self._filter_apps(self.search_box.text())
-
     def _set_view(self, mode: str) -> None:
         self._view_mode = mode
         self.btn_grid.setChecked(mode == "grid")
@@ -622,6 +428,7 @@ class LibraryPageMixin:
         self._clear_layout(self.app_list_layout)
 
         if not apps:
+            self._current_grid_cols = self._grid_cols()
             self.app_list_layout.addWidget(self._make_empty_state())
             self.app_list_layout.addStretch()
             return
@@ -688,6 +495,8 @@ class LibraryPageMixin:
         else:
             title = tr("No apps yet")
             body = tr("Add a Windows app profile to get started.")
+            action_label = tr("Refresh Apps")
+            action_cb = getattr(self, "_on_refresh_apps", None)
 
         panel = make_empty_panel(
             title,
@@ -699,15 +508,19 @@ class LibraryPageMixin:
         return panel
 
     def _grid_cols(self) -> int:
-        """Column count for the tile grid, derived from the available width so
-        tiles never force a horizontal scrollbar on narrow / scaled windows."""
+        """Column count from content width: floor(avail / 128), clamped 3..6."""
+        pitch = 104 + 2 * SPACE_S + SPACE_S
+        live = getattr(self, "_live_pages_width", None)
         pages = getattr(self, "pages", None)
-        width = pages.width() if pages is not None else 1100
-        # Reserve for the page margins + the (now always-on) vertical scrollbar,
-        # and budget ~140px per tile (≈120px tile + spacing) so the rightmost
-        # column can't overflow and clip.
-        content = max(300, width - 112)
-        return max(3, min(6, content // 140))
+        width = live() if callable(live) else (pages.width() if pages is not None else 0)
+        wrap = getattr(self, "_pinned_row", None)
+        if wrap is not None and not callable(live):
+            parent = wrap.parentWidget()
+            if parent is not None and parent.width() > pitch * 3:
+                width = parent.width()
+        if width <= 0:
+            width = 1100 - theme.NAV_PANE_WIDTH
+        return max(3, min(6, width // pitch))
 
     def _populate_grid(self, apps: list[AppInfo]) -> None:
         """Grid view - Start-menu-style icon tiles (dense)."""
@@ -718,12 +531,19 @@ class LibraryPageMixin:
         grid.setHorizontalSpacing(SPACE_S)
         grid.setVerticalSpacing(SPACE_S)
         grid.setContentsMargins(0, 0, 0, 0)
-        for col in range(cols):
-            grid.setColumnStretch(col, 1)
+        tile_w = 104 + 2 * SPACE_S
+        for col in range(min(len(apps), cols)):
+            grid.setColumnMinimumWidth(col, tile_w)
+        grid.setColumnStretch(cols, 1)
 
+        row_h = 0
         for i, app in enumerate(apps):
             card = self._make_app_card(app)
             grid.addWidget(card, i // cols, i % cols)
+            row_h = max(row_h, card.height() or card.sizeHint().height())
+        n_rows = (len(apps) + cols - 1) // cols if apps else 0
+        for r in range(n_rows):
+            grid.setRowMinimumHeight(r, row_h)
 
         remainder = len(apps) % cols
         if remainder:
@@ -734,6 +554,8 @@ class LibraryPageMixin:
 
         grid_widget = QWidget()
         grid_widget.setLayout(grid)
+        if n_rows:
+            grid_widget.setMinimumHeight(n_rows * row_h + grid.verticalSpacing() * (n_rows - 1))
         self.app_list_layout.addWidget(grid_widget)
         self.app_list_layout.addStretch()
 
@@ -757,12 +579,18 @@ class LibraryPageMixin:
 
     def _make_app_card(self, app: AppInfo) -> QWidget:
         """A Start-menu-style launcher tile (icon + name, click to launch)."""
-        return _AppTile(app, on_launch=self._launch_app, on_menu=self._show_app_menu)
+        tile = _AppTile(app, on_launch=self._launch_app, on_menu=self._show_app_menu)
+        tile.set_running(app.name in getattr(self, "_running_names", set()))
+        return tile
 
     def _show_app_menu(self, app: AppInfo, global_pos) -> None:
-        """Right-click context menu for a launcher tile: Pin / Edit / Hide /
-        Delete. Launch is the left-click (the whole tile)."""
+        """Right-click context menu for a launcher tile: Launch / Pin / Edit / Hide /
+        Delete. Launch is also the left-click (the whole tile)."""
         menu = QMenu(self)
+        menu.setStyleSheet(theme.GLOBAL_STYLE)
+        if callable(getattr(self, "_launch_app", None)):
+            launch_action = menu.addAction(tr("Launch"))
+            launch_action.triggered.connect(lambda _=False, a=app: self._launch_app(a))
         pin_action = menu.addAction(
             tr("Unpin") if launcher_state.is_pinned(app.name) else tr("Pin")
         )
@@ -790,114 +618,8 @@ class LibraryPageMixin:
         menu.exec(global_pos)
 
     def _make_app_tile(self, app: AppInfo) -> QWidget:
-        """Horizontal app tile with colored accent stripe."""
-        color = avatar_color(app.name)
-
-        tile = QFrame()
-        tile.setObjectName("appTile")
-        tile.setStyleSheet(APP_TILE)
-        tile.setMinimumHeight(86)
-        add_shadow(tile, blur=10, y=2, alpha=28)
-
-        layout = QHBoxLayout(tile)
-        layout.setContentsMargins(0, SPACE_S, SPACE_L, SPACE_S)
-        layout.setSpacing(0)
-
-        # In multi-select mode each tile grows a leading checkbox (#530).
-        if getattr(self, "_select_mode", False):
-            cb = QCheckBox()
-            cb.setChecked(app.name in self._selected_names)
-            # Use the themed indicator (bordered box, blue when checked); the
-            # old bare "margin-left" stylesheet wiped the indicator style so the
-            # box was invisible against the dark tile (#530 follow-up).
-            cb.setStyleSheet(CHECKBOX + "QCheckBox { margin-left: 12px; }")
-            cb.toggled.connect(lambda checked, n=app.name: self._on_tile_checked(n, checked))
-            layout.addWidget(cb)
-            layout.addSpacing(SPACE_S)
-
-        stripe = QFrame()
-        stripe.setFixedWidth(4)
-        stripe.setStyleSheet(f"background: {color}; border-radius: 2px; margin: 8px 0 8px 8px;")
-        layout.addWidget(stripe)
-        layout.addSpacing(SPACE_M)
-
-        avatar = make_app_avatar(app, size=40, radius=10, font_size=16)
-        layout.addWidget(avatar)
-        layout.addSpacing(SPACE_M)
-
-        info = QVBoxLayout()
-        info.setSpacing(2)
-
-        name_lbl = QLabel(app.full_name)
-        name_lbl.setStyleSheet(
-            f"background: transparent; color: {C.TEXT}; font-size: 14px; font-weight: 500;"
-        )
-        name_row = QHBoxLayout()
-        name_row.setContentsMargins(0, 0, 0, 0)
-        name_row.setSpacing(8)
-        name_row.addWidget(name_lbl)
-        badge = make_source_badge(app)
-        if badge is not None:
-            name_row.addWidget(badge)
-        name_row.addStretch()
-        info.addLayout(name_row)
-
-        meta_parts = []
-        if app.categories:
-            meta_parts.append(", ".join(app.categories[:2]))
-        meta_parts.append(app.name)
-        meta_lbl = QLabel(" • ".join(meta_parts))
-        meta_lbl.setStyleSheet(f"background: transparent; color: {C.OVERLAY0}; font-size: 11px;")
-        info.addWidget(meta_lbl)
-
-        layout.addLayout(info)
-        layout.addStretch()
-
-        launch_btn = QPushButton(tr("▶  Launch"))
-        launch_btn.setText(launch_btn.text().removeprefix("▶  "))
-        launch_btn.setIcon(load_icon("play", C.CRUST, 16))
-        launch_btn.setIconSize(QSize(16, 16))
-        launch_btn.setStyleSheet(BTN_ACCENT)
-        launch_btn.setMinimumWidth(116)
-        launch_btn.clicked.connect(lambda: self._launch_app(app))
-        layout.addWidget(launch_btn)
-        layout.addSpacing(8)
-
-        edit_btn = QPushButton(tr("Edit"))
-        edit_btn.setStyleSheet(BTN_SECONDARY)
-        edit_btn.clicked.connect(lambda: self._on_edit_app(app))
-        layout.addWidget(edit_btn)
-        layout.addSpacing(6)
-
-        # Surface "Reset" as a visible button (not just the right-click menu)
-        # when this app is an edited override with a detected twin to fall back
-        # to — the context-menu-only action was too hard to find (#530).
-        if getattr(app, "source", "user") == "user":
-            from winpodx.core.app import discovered_profile_exists
-
-            if discovered_profile_exists(app.name):
-                reset_btn = QPushButton(tr("Reset"))
-                reset_btn.setStyleSheet(BTN_SECONDARY)
-                reset_btn.setToolTip(tr("Restore the auto-detected profile + icon"))
-                reset_btn.clicked.connect(lambda: self._on_reset_app(app))
-                layout.addWidget(reset_btn)
-                layout.addSpacing(6)
-
-        hide_btn = QPushButton(tr("Show") if app.hidden else tr("Hide"))
-        hide_btn.setStyleSheet(BTN_SECONDARY)
-        hide_btn.clicked.connect(lambda: self._on_toggle_app_hidden(app))
-        layout.addWidget(hide_btn)
-        layout.addSpacing(6)
-
-        del_btn = QPushButton("")
-        del_btn.setIcon(load_icon("close", C.PEACH, 16))
-        del_btn.setIconSize(QSize(16, 16))
-        del_btn.setFixedSize(32, 32)
-        del_btn.setStyleSheet(BTN_DANGER)
-        del_btn.clicked.connect(lambda: self._on_delete_app(app))
-        layout.addWidget(del_btn)
-
-        return tile
+        """48px list row: 24px icon, name + category caption, 32px Launch."""
+        return make_library_list_tile(self, app)
 
     def _visible_apps(self) -> list[AppInfo]:
         """Apps that should appear in the grid given the current Hidden toggle.
@@ -1102,6 +824,7 @@ class LibraryPageMixin:
         try:
             self._filter_pending = None
             q = text.lower()
+            self._sync_category_chip_counts()
             self._refresh_commands(q)
             base = self._visible_apps()
             filtered = [a for a in base if q in a.full_name.lower() or q in a.name.lower()]

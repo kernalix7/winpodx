@@ -15,10 +15,9 @@ agent, and the tray spawn. Worker threads are replaced by an inline-running
 under a second.
 
 Covers:
-  - Dashboard: page scaffolding, gauge/bar value formatting, the "n/a"
-    fallbacks and the last-known-value caching for RAM + disk, the pod-state
-    to gauge/recovery-line mapping, workspace tile ordering + wrapping, and
-    the responsive reflow.
+   - Dashboard: hero/metric-bar value formatting, the "n/a" fallbacks and the
+     last-known-value caching for RAM + disk, pod-state to hero/recovery-line
+     mapping, workspace tile ordering + wrapping, and responsive reflow.
   - PodStatusMixin: the launch path (debounce, lock, FreeRDP exit codes), pod
     start/stop, the 15 s polling timer, the transport dots, and every
     pod-state transition the chip renders.
@@ -39,9 +38,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt  # noqa: E402
+from PySide6.QtGui import QKeyEvent  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QBoxLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
     QWidget,
 )
 
@@ -52,7 +59,8 @@ from winpodx.core.i18n import tr  # noqa: E402
 from winpodx.core.stats import ResourceSnapshot  # noqa: E402
 from winpodx.gui import launcher_state  # noqa: E402
 from winpodx.gui._main_window_dashboard import DashboardMixin  # noqa: E402
-from winpodx.gui.theme import C  # noqa: E402
+from winpodx.gui._widget_helpers import ElidingLabel  # noqa: E402
+from winpodx.gui.theme import FOCUS_RING, HIT_TARGET, C  # noqa: E402
 
 # ----- shared helpers ----------------------------------------------------
 
@@ -145,6 +153,11 @@ class DashHarness(DashboardMixin, QWidget):
         self.dashboard_updated = FakeSignal()
         self.launched: list[AppInfo] = []
         self.menued: list[AppInfo] = []
+        self.started_pod = 0
+        self.stopped_pod = 0
+        self.switched: list[int] = []
+        self.opened_desktop = 0
+        self.refreshed_apps = 0
         # Only ``.width()`` is read off ``pages``.
         self.pages = QWidget(self)
         self.pages.resize(1100, 720)
@@ -154,6 +167,21 @@ class DashHarness(DashboardMixin, QWidget):
 
     def _show_app_menu(self, app: AppInfo, pos: Any) -> None:
         self.menued.append(app)
+
+    def _on_start_pod(self) -> None:
+        self.started_pod += 1
+
+    def _on_stop_pod(self) -> None:
+        self.stopped_pod += 1
+
+    def _switch_page(self, index: int) -> None:
+        self.switched.append(index)
+
+    def _on_open_desktop(self) -> None:
+        self.opened_desktop += 1
+
+    def _on_refresh_apps(self) -> None:
+        self.refreshed_apps += 1
 
 
 def _build_dash(
@@ -182,19 +210,186 @@ def _build_dash(
     return host
 
 
+def _dashboard_frame(host: DashHarness, object_name: str) -> QFrame:
+    frame = host.findChild(QFrame, object_name)
+    assert frame is not None, f"Dashboard must expose QFrame#{object_name}"
+    return frame
+
+
+def _label_with_text(parent: QWidget, text: str) -> QLabel:
+    label = next((child for child in parent.findChildren(QLabel) if child.text() == text), None)
+    assert label is not None, f"Dashboard must show {text!r}"
+    return label
+
+
+def _reflow_dashboard_at(host: DashHarness, width: int) -> QScrollArea:
+    scroll = host.findChild(QScrollArea)
+    assert scroll is not None
+    page = scroll.parentWidget()
+    assert page is not None
+    host.pages.resize(width, 720)
+    page.setFixedSize(width, 720)
+    host.resize(width, 720)
+    host.show()
+    QApplication.processEvents()
+    host._reflow_dashboard()
+    QApplication.processEvents()
+    return scroll
+
+
+def _dashboard_layout(host: DashHarness, attribute: str) -> QBoxLayout:
+    layout = getattr(host, attribute, None)
+    assert layout is not None, f"Dashboard must expose {attribute} for responsive reflow"
+    assert isinstance(layout, QBoxLayout), f"{attribute} must be a QBoxLayout"
+    return layout
+
+
 # ----- Dashboard: page scaffolding ---------------------------------------
 
 
-def test_dashboard_page_builds_every_card(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dashboard_page_builds_its_live_status_workspace_and_reverse_open_regions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     host = _build_dash(monkeypatch)
 
-    assert host._gauge_pod is not None
-    assert host._gauge_ram is not None
-    assert host._gauge_cpu is not None
+    assert host.findChild(QFrame, "podStatusHero") is not None
+    assert host.findChild(QLabel, "podStatusLabel") is not None
+    assert host.findChild(QLabel, "podStatusDetail") is not None
+    assert host.findChild(QPushButton, "podPrimaryAction") is not None
+    assert host.findChild(QFrame, "podMetricsCluster") is not None
+    assert hasattr(host, "_bar_ram")
+    assert hasattr(host, "_bar_cpu")
     assert host._bar_disk is not None
     assert host._recovery_label.text()
     assert host._reverse_open_check is not None
     assert host._workspace_holder.count() == 1  # the empty-state panel
+
+
+def test_dashboard_target_anatomy_uses_named_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    surfaces = {
+        name: host.findChild(QFrame, name)
+        for name in (
+            "podStatusHero",
+            "settingsActionList",
+            "settingsActionRow",
+            "workspaceSurface",
+            "reverseOpenRow",
+        )
+    }
+    labels = {name: host.findChild(QLabel, name) for name in ("podStatusLabel", "podStatusDetail")}
+    action = host.findChild(QPushButton, "podPrimaryAction")
+    metrics = host.findChild(QFrame, "podMetricsCluster")
+
+    # Then
+    assert all(surfaces.values())
+    assert all(labels.values())
+    assert action is not None
+    assert metrics is not None
+
+
+def test_dashboard_target_replaces_legacy_settings_section_anatomy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    legacy_sections = host.findChildren(QFrame, "settingsSection")
+
+    # Then
+    assert legacy_sections == []
+
+
+def test_dashboard_owns_one_vertical_scroll_area_without_horizontal_scroll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    scroll_areas = host.findChildren(QScrollArea)
+
+    # Then
+    assert len(scroll_areas) == 1
+    assert scroll_areas[0].horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+
+def test_dashboard_metrics_are_compact_stat_bars_with_accessible_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+    host._apply_snapshot(_snapshot(cpu_pct=37.4, ram_pct=61.8, disk_pct=45.0))
+
+    # When
+    metrics = _dashboard_frame(host, "podMetricsCluster")
+    bars = [getattr(host, name, None) for name in ("_bar_ram", "_bar_cpu", "_bar_disk")]
+
+    # Then
+    assert all(bars)
+    assert all(bar.parentWidget() is metrics for bar in bars)
+    assert host._bar_ram.accessibleName() == tr("RAM")
+    assert "62%" in host._bar_ram.accessibleDescription()
+    assert host._bar_cpu.accessibleName() == tr("CPU")
+    assert "37%" in host._bar_cpu.accessibleDescription()
+    assert host._bar_disk.accessibleName() == tr("Disk C:")
+    gauges = host.findChildren(dash_mod.RingGauge)
+    assert len(gauges) == 3
+    assert {gauge.accessibleName() for gauge in gauges} == {
+        tr("RAM"),
+        tr("CPU"),
+        tr("Disk C:"),
+    }
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("stopped", "Start Pod", "started_pod"),
+        ("running", "Stop Pod", "stopped_pod"),
+    ],
+)
+def test_dashboard_hero_primary_action_routes_only_to_the_matching_pod_operation(
+    monkeypatch: pytest.MonkeyPatch,
+    case: tuple[str, str, str],
+) -> None:
+    # Given
+    state, label, expected_counter = case
+    host = _build_dash(monkeypatch)
+    host._apply_snapshot(_snapshot(pod_state=state))
+
+    # When
+    action = host.findChild(QPushButton, "podPrimaryAction")
+
+    # Then
+    assert action is not None
+    assert action.text() == tr(label)
+    assert action.minimumHeight() >= HIT_TARGET
+    assert action.isEnabled() is True
+    action.click()
+    assert getattr(host, expected_counter) == 1
+    opposite_counter = "stopped_pod" if expected_counter == "started_pod" else "started_pod"
+    assert getattr(host, opposite_counter) == 0
+
+
+@pytest.mark.parametrize("state", ["checking", "paused"])
+def test_dashboard_hero_primary_action_is_disabled_for_transient_pod_states(
+    monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+    host._apply_snapshot(_snapshot(pod_state=state))
+
+    # When
+    action = host.findChild(QPushButton, "podPrimaryAction")
+
+    # Then
+    assert action is not None
+    assert action.isEnabled() is False
 
 
 def test_dashboard_timer_is_armed_at_the_live_refresh_cadence(
@@ -244,6 +439,24 @@ def test_reverse_open_checkbox_defaults_off_without_the_config_block(
     card.setParent(host)
 
     assert host._reverse_open_check.isChecked() is False
+
+
+@pytest.mark.parametrize("width", [1100, 740])
+def test_reverse_open_checkbox_keeps_a_44px_interactive_target_at_each_reflow_width(
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    _reflow_dashboard_at(host, width)
+    checkbox = host._reverse_open_check
+
+    # Then
+    assert checkbox.height() >= HIT_TARGET
+    assert checkbox.minimumHeight() >= HIT_TARGET
+    host.close()
 
 
 # ----- Dashboard: live refresh -------------------------------------------
@@ -352,8 +565,10 @@ def test_apply_snapshot_formats_cpu_ram_and_disk(monkeypatch: pytest.MonkeyPatch
         )
     )
 
-    assert host._gauge_cpu._center_text == "37%"
-    assert host._gauge_ram._center_text == "62%"
+    assert hasattr(host, "_bar_cpu")
+    assert hasattr(host, "_bar_ram")
+    assert host._bar_cpu._detail == "37%"
+    assert host._bar_ram._detail == "62%"
     assert host._bar_disk._detail == "29 / 64 GB"
     assert host._bar_disk._pct == pytest.approx(45.0)
 
@@ -382,9 +597,11 @@ def test_apply_snapshot_falls_back_to_na_with_no_reading_yet(
 
     host._apply_snapshot(_snapshot())
 
-    assert host._gauge_cpu._center_text == tr("n/a")
-    assert host._gauge_cpu._pct is None
-    assert host._gauge_ram._center_text == tr("n/a")
+    assert hasattr(host, "_bar_cpu")
+    assert hasattr(host, "_bar_ram")
+    assert host._bar_cpu._detail == tr("n/a")
+    assert host._bar_cpu._pct is None
+    assert host._bar_ram._detail == tr("n/a")
     assert host._bar_disk._detail == tr("n/a")
     assert host._bar_disk._pct is None
 
@@ -397,8 +614,9 @@ def test_apply_snapshot_keeps_the_last_ram_between_slow_probes(
     host._apply_snapshot(_snapshot(ram_pct=71.0))
     host._apply_snapshot(_snapshot(ram_pct=None))
 
-    assert host._gauge_ram._center_text == "71%"
-    assert host._gauge_ram._pct == pytest.approx(71.0)
+    assert hasattr(host, "_bar_ram")
+    assert host._bar_ram._detail == "71%"
+    assert host._bar_ram._pct == pytest.approx(71.0)
 
 
 def test_apply_snapshot_keeps_the_last_disk_between_slow_probes(
@@ -414,25 +632,26 @@ def test_apply_snapshot_keeps_the_last_disk_between_slow_probes(
 
 
 @pytest.mark.parametrize(
-    ("state", "pct", "text_key"),
+    ("state", "text_key"),
     [
-        ("running", 100.0, "Active"),
-        ("checking", 60.0, "Checking"),
-        ("paused", 50.0, "Paused"),
-        ("stopped", 0.0, "Off"),
-        ("unknown", 0.0, "Unknown"),
-        ("bogus-state", 0.0, "Unknown"),
+        ("running", "Active"),
+        ("checking", "Checking"),
+        ("paused", "Paused"),
+        ("stopped", "Off"),
+        ("unknown", "Unknown"),
+        ("bogus-state", "Unknown"),
     ],
 )
-def test_apply_snapshot_maps_pod_state_to_the_pod_gauge(
-    monkeypatch: pytest.MonkeyPatch, state: str, pct: float, text_key: str
+def test_apply_snapshot_maps_pod_state_to_the_hero_label(
+    monkeypatch: pytest.MonkeyPatch, state: str, text_key: str
 ) -> None:
     host = _build_dash(monkeypatch)
 
     host._apply_snapshot(_snapshot(pod_state=state))
 
-    assert host._gauge_pod._pct == pytest.approx(pct)
-    assert host._gauge_pod._center_text == tr(text_key)
+    label = host.findChild(QLabel, "podStatusLabel")
+    assert label is not None
+    assert label.text() == tr(text_key)
 
 
 @pytest.mark.parametrize(
@@ -456,6 +675,22 @@ def test_apply_snapshot_writes_the_matching_recovery_line(
     assert host._recovery_label.text() == tr(expected)
 
 
+def test_running_snapshot_keeps_hero_ready_copy_distinct_from_recovery_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    host._apply_snapshot(_snapshot(pod_state="running"))
+    detail = host.findChild(QLabel, "podStatusDetail")
+
+    # Then
+    assert detail is not None
+    assert detail.text() == tr("Pod is ready!")
+    assert host._recovery_label.text() == tr("Protected — monitoring active")
+
+
 def test_recovery_line_is_tinted_by_the_state_colour(monkeypatch: pytest.MonkeyPatch) -> None:
     host = _build_dash(monkeypatch)
 
@@ -468,14 +703,15 @@ def test_recovery_line_is_tinted_by_the_state_colour(monkeypatch: pytest.MonkeyP
     assert C.OVERLAY1 in stopped_style
 
 
-def test_apply_snapshot_is_a_noop_before_the_gauges_exist() -> None:
+def test_apply_snapshot_is_a_noop_before_the_dashboard_widgets_exist() -> None:
     _ensure_qapp()
     host = DashHarness(_make_cfg())
 
     # Must not raise: the snapshot signal can land before the page is built.
     host._apply_snapshot(_snapshot(cpu_pct=50.0))
 
-    assert getattr(host, "_gauge_pod", None) is None
+    assert getattr(host, "_bar_cpu", None) is None
+    assert getattr(host, "_bar_ram", None) is None
 
 
 # ----- Dashboard: workspace ----------------------------------------------
@@ -495,6 +731,38 @@ def test_workspace_apps_dedupes_a_pinned_app_that_is_also_recent(
     host = _build_dash(monkeypatch, apps=apps, pinned=("word",), recent=("word", "excel"))
 
     assert [a.name for a in host._workspace_apps()] == ["word", "excel"]
+
+
+def test_workspace_surface_separates_pinned_and_recent_presentations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    apps = [_app("word"), _app("excel"), _app("notepad")]
+    host = _build_dash(
+        monkeypatch,
+        apps=apps,
+        pinned=("word", "excel"),
+        recent=("word", "notepad"),
+    )
+
+    # When
+    _reflow_dashboard_at(host, 1100)
+    surface = _dashboard_frame(host, "workspaceSurface")
+    pinned_section = _dashboard_frame(host, "pinnedWorkspaceSection")
+    recent_section = _dashboard_frame(host, "recentWorkspaceSection")
+    layout = surface.layout()
+    assert layout is not None
+
+    # Then
+    assert layout.indexOf(pinned_section) < layout.indexOf(recent_section)
+    assert _label_with_text(pinned_section, tr("Pinned")) is not None
+    assert _label_with_text(recent_section, tr("Recent")) is not None
+    assert [tile._app.name for tile in pinned_section.findChildren(dash_mod._AppTile)] == [
+        "word",
+        "excel",
+    ]
+    recent_tiles = [tile._app.name for tile in recent_section.findChildren(dash_mod._AppTile)]
+    assert recent_tiles == ["notepad"]
 
 
 def test_workspace_apps_ignores_names_with_no_installed_profile(
@@ -538,6 +806,244 @@ def test_populate_workspace_lays_the_tiles_out_in_a_grid(
     assert [t._app.name for t in tiles] == ["word", "excel", "notepad"]
 
 
+def test_workspace_tile_applies_focus_rule_for_its_live_object_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _build_dash(monkeypatch, apps=[_app("word")], pinned=("word",))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+
+    assert tile.objectName() == "appTileBtn"
+    assert "QFrame#appTileBtn:focus" in tile.styleSheet()
+    assert f"border: {FOCUS_RING};" in tile.styleSheet()
+
+
+def test_workspace_tile_uses_strong_focus_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch, apps=[_app("word")], pinned=("word",))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+
+    assert tile.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_workspace_tile_exposes_full_accessible_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _app("word")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+
+    assert tile.accessibleName() == app.full_name
+
+
+@pytest.mark.parametrize("key", [Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space])
+def test_workspace_tile_activation_key_launches_once(
+    monkeypatch: pytest.MonkeyPatch, key: Qt.Key
+) -> None:
+    app = _app("word")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+    event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+    event.ignore()
+
+    QApplication.sendEvent(tile, event)
+
+    assert host.launched == [app]
+    assert event.isAccepted() is True
+
+
+def test_workspace_tile_activation_autorepeat_does_not_relaunch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _app("word")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+    initial = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Space,
+        Qt.KeyboardModifier.NoModifier,
+        " ",
+        False,
+        1,
+    )
+    repeated = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Space,
+        Qt.KeyboardModifier.NoModifier,
+        " ",
+        True,
+        1,
+    )
+    repeated.ignore()
+
+    QApplication.sendEvent(tile, initial)
+    QApplication.sendEvent(tile, repeated)
+
+    assert host.launched == [app]
+    assert repeated.isAccepted() is True
+
+
+def test_workspace_tile_unrelated_key_preserves_qframe_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _app("word")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_A,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    event.ignore()
+
+    QApplication.sendEvent(tile, event)
+
+    assert host.launched == []
+    assert event.isAccepted() is False
+
+
+def test_workspace_tile_is_reachable_in_tab_chain() -> None:
+    _ensure_qapp()
+    app = _app("word")
+    launched: list[AppInfo] = []
+    container = QWidget()
+    layout = QHBoxLayout(container)
+    before = QPushButton("Before")
+    tile = dash_mod._AppTile(app, on_launch=launched.append, on_menu=lambda _app, _pos: None)
+    after = QPushButton("After")
+    layout.addWidget(before)
+    layout.addWidget(tile)
+    layout.addWidget(after)
+    QWidget.setTabOrder(before, tile)
+    QWidget.setTabOrder(tile, after)
+    container.show()
+    before.setFocus()
+    QApplication.processEvents()
+
+    QTest.keyClick(before, Qt.Key.Key_Tab)
+    assert QApplication.focusWidget() is tile
+    QTest.keyClick(tile, Qt.Key.Key_Tab)
+    assert QApplication.focusWidget() is after
+
+    container.close()
+
+
+@pytest.mark.parametrize("width", [740, 1100])
+def test_workspace_unbroken_name_has_visible_ellipsis_at_dashboard_width(
+    monkeypatch: pytest.MonkeyPatch, width: int
+) -> None:
+    full_name = "PowerPointVeryLongUnbrokenNameWithoutSpaces"
+    app = AppInfo(name="powerpoint", full_name=full_name, executable="C:\\powerpoint.exe")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    host.pages.resize(width, 720)
+    host._reflow_dashboard()
+    QApplication.processEvents()
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+    label = next(child for child in tile.findChildren(QLabel) if child.width() == 104)
+    scroll = host.findChild(QScrollArea)
+
+    assert label.text().endswith("…")
+    assert label.text() != full_name
+    assert tile.toolTip() == full_name
+    assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+
+def test_workspace_spaced_ascii_name_keeps_full_wrapped_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    full_name = "Microsoft PowerPoint Professional"
+    app = AppInfo(name="powerpoint", full_name=full_name, executable="C:\\powerpoint.exe")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+    label = next(child for child in tile.findChildren(QLabel) if child.width() == 104)
+
+    assert label.text() == full_name
+    assert label.wordWrap() is True
+    assert "…" not in label.text()
+    assert tile.toolTip() == full_name
+
+
+@pytest.mark.parametrize("width", [740, 1100])
+def test_workspace_cjk_name_keeps_fixed_width_wrapping(
+    monkeypatch: pytest.MonkeyPatch, width: int
+) -> None:
+    full_name = "超長い名前テスト文字列"
+    app = AppInfo(name="cjk-app", full_name=full_name, executable="C:\\cjk.exe")
+    host = _build_dash(monkeypatch, apps=[app], pinned=(app.name,))
+    host.pages.resize(width, 720)
+    host._reflow_dashboard()
+    QApplication.processEvents()
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    tile = grid.itemAt(0).widget()
+    label = next(child for child in tile.findChildren(QLabel) if child.width() == 104)
+    scroll = host.findChild(QScrollArea)
+
+    assert label.text() == full_name
+    assert label.wordWrap() is True
+    assert tile.toolTip() == full_name
+    assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+
+def test_workspace_wrapped_labels_allocate_font_metric_height(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cjk_name = "メモ帳ノートパッド超長い名前テスト文字列"
+    ascii_name = "Microsoft PowerPoint Professional"
+    cjk = AppInfo(name="cjk-notepad", full_name=cjk_name, executable="C:\\cjk.exe")
+    ppt = AppInfo(name="powerpoint", full_name=ascii_name, executable="C:\\ppt.exe")
+    host = _build_dash(monkeypatch, apps=[cjk, ppt], pinned=(cjk.name, ppt.name))
+    scroll = host.findChild(QScrollArea)
+    page = scroll.parentWidget()
+    wrap_names = (cjk_name, ascii_name)
+
+    try:
+        for width, expected_cols in ((1100, 6), (740, 4)):
+            host.pages.resize(width, 720)
+            page.setFixedSize(width, 720)
+            host.resize(width, 720)
+            host.show()
+            QApplication.processEvents()
+            host._reflow_dashboard()
+            QApplication.processEvents()
+
+            assert host._workspace_cols_cur == expected_cols
+            assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            assert scroll.horizontalScrollBar().maximum() == 0
+
+            grid = host._workspace_holder.itemAt(0).widget().layout()
+            tiles = [
+                grid.itemAt(i).widget()
+                for i in range(grid.count())
+                if isinstance(grid.itemAt(i).widget(), dash_mod._AppTile)
+            ]
+            by_name = {tile._app.full_name: tile for tile in tiles}
+            for full_name in wrap_names:
+                tile = by_name[full_name]
+                label = next(child for child in tile.findChildren(QLabel) if child.width() == 104)
+                wrap_flags = label.alignment() | Qt.TextFlag.TextWordWrap
+                required = (
+                    label.fontMetrics().boundingRect(0, 0, 104, 0, wrap_flags, full_name).height()
+                )
+
+                assert label.text() == full_name
+                assert tile.toolTip() == full_name
+                assert isinstance(label, QLabel)
+                assert not isinstance(label, ElidingLabel)
+                assert label.wordWrap() is True
+                assert label.width() == 104
+                assert required > label.fontMetrics().lineSpacing()
+                assert label.height() >= required, (
+                    f"{full_name!r} at {width}px: allocated {label.height()} < required {required}"
+                )
+                assert tile.rect().contains(label.geometry())
+    finally:
+        host.close()
+
+
 def test_populate_workspace_pads_an_underfull_last_row(monkeypatch: pytest.MonkeyPatch) -> None:
     apps = [_app("word"), _app("excel"), _app("notepad")]
     host = _build_dash(monkeypatch, apps=apps, pinned=tuple(a.name for a in apps))
@@ -549,7 +1055,7 @@ def test_populate_workspace_pads_an_underfull_last_row(monkeypatch: pytest.Monke
 
 
 def test_workspace_tile_left_click_launches_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtCore import QPoint
     from PySide6.QtGui import QMouseEvent
 
     apps = [_app("word")]
@@ -603,6 +1109,125 @@ def test_workspace_columns_fall_back_when_the_page_is_missing() -> None:
 # ----- Dashboard: responsive reflow --------------------------------------
 
 
+def test_dashboard_reflow_keeps_hero_settings_and_reverse_open_horizontal_at_1100(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    scroll = _reflow_dashboard_at(host, 1100)
+    hero_layout = _dashboard_layout(host, "_dashboard_hero_layout")
+    settings_layout = _dashboard_layout(host, "_settings_row_layout")
+    reverse_open_layout = _dashboard_layout(host, "_reverse_open_layout")
+
+    # Then
+    assert hero_layout.direction() == QBoxLayout.Direction.LeftToRight
+    assert settings_layout.direction() == QBoxLayout.Direction.LeftToRight
+    assert reverse_open_layout.direction() == QBoxLayout.Direction.LeftToRight
+    assert host._workspace_cols_cur == 6
+    assert scroll.horizontalScrollBar().maximum() == 0
+    host.close()
+
+
+def test_dashboard_reflow_stacks_hero_settings_and_reverse_open_at_560(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    host = _build_dash(monkeypatch)
+
+    # When
+    scroll = _reflow_dashboard_at(host, 560)
+    hero_layout = _dashboard_layout(host, "_dashboard_hero_layout")
+    settings_layout = _dashboard_layout(host, "_settings_row_layout")
+    reverse_open_layout = _dashboard_layout(host, "_reverse_open_layout")
+
+    # Then
+    assert hero_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert settings_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert reverse_open_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert host._workspace_cols_cur == 3
+    assert scroll.horizontalScrollBar().maximum() == 0
+    host.close()
+
+
+def test_dashboard_at_740_keeps_the_first_pinned_row_inside_the_top_viewport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    apps = [_app(f"app{index}") for index in range(4)]
+    host = _build_dash(monkeypatch, apps=apps, pinned=tuple(app.name for app in apps))
+
+    # When
+    scroll = _reflow_dashboard_at(host, 740)
+    scroll.verticalScrollBar().setValue(0)
+    QApplication.processEvents()
+    pinned_holder = getattr(host, "_pinned_holder", None)
+    assert pinned_holder is not None
+    grid_widget = pinned_holder.itemAt(0).widget()
+    assert grid_widget is not None
+    grid = grid_widget.layout()
+    assert grid is not None
+    viewport = scroll.viewport()
+    tile_rects = {
+        tile: QRect(tile.mapTo(viewport, QPoint()), tile.size())
+        for index in range(grid.count())
+        if isinstance(tile := grid.itemAt(index).widget(), dash_mod._AppTile)
+    }
+    assert len(tile_rects) == 4
+    first_row_top = min(rect.top() for rect in tile_rects.values())
+    first_row = [tile for tile, rect in tile_rects.items() if rect.top() == first_row_top]
+    first_row_rects = [tile_rects[tile] for tile in first_row]
+    label_rects = [
+        QRect(label.mapTo(viewport, QPoint()), label.size())
+        for tile in first_row
+        for label in tile.findChildren(QLabel)
+    ]
+
+    # Then
+    assert scroll.horizontalScrollBar().maximum() == 0
+    assert all(
+        viewport.rect().top() <= rect.top() and rect.bottom() <= viewport.rect().bottom()
+        for rect in (*first_row_rects, *label_rects)
+    )
+    host.close()
+
+
+@pytest.mark.parametrize("width", [740, 1100])
+def test_workspace_tiles_do_not_intersect_at_dashboard_width(
+    monkeypatch: pytest.MonkeyPatch, width: int
+) -> None:
+    apps = [_app(f"app{index}") for index in range(6)]
+    host = _build_dash(monkeypatch, apps=apps, pinned=tuple(app.name for app in apps))
+    _reflow_dashboard_at(host, width)
+    QApplication.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    grid_widget = host._workspace_holder.itemAt(0).widget()
+    grid = grid_widget.layout()
+    tiles = [
+        grid.itemAt(i).widget()
+        for i in range(grid.count())
+        if isinstance(grid.itemAt(i).widget(), dash_mod._AppTile)
+    ]
+    assert len(tiles) == 6
+    visible = [
+        tile
+        for tile in host.findChildren(dash_mod._AppTile)
+        if not tile.isHidden() and tile.width() > 0 and tile.height() > 0
+    ]
+    assert set(visible) <= set(tiles)
+    rects = [tile.geometry() for tile in tiles]
+    for i, left in enumerate(rects):
+        for right in rects[i + 1 :]:
+            assert not left.intersects(right)
+    for tile in tiles:
+        label = next(child for child in tile.findChildren(QLabel) if child.width() == 104)
+        assert tile.height() >= 32 + label.height() + 16
+        assert tile.rect().contains(label.geometry())
+    host.close()
+
+
 def test_reflow_stacks_the_top_row_on_a_narrow_window(monkeypatch: pytest.MonkeyPatch) -> None:
     host = _build_dash(monkeypatch)
     host.pages.resize(200, 720)
@@ -647,3 +1272,291 @@ def test_reflow_is_a_noop_before_the_page_is_built() -> None:
     host._reflow_dashboard()
 
     assert getattr(host, "_dashboard_row1", None) is None
+
+
+# ----- Dashboard: Win11 Settings anatomy ---------------------------------
+
+
+def test_device_card_contains_a_64px_icon_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch)
+
+    hero = _dashboard_frame(host, "podStatusHero")
+    icon = hero.findChild(QLabel, "deviceIcon")
+
+    assert icon is not None
+    assert icon.minimumWidth() == 56
+    assert icon.minimumHeight() == 56
+    assert icon.width() == 56 or icon.sizeHint().width() == 56 or icon.maximumWidth() == 56
+
+
+def test_recovery_card_is_settings_action_row_inside_the_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _build_dash(monkeypatch)
+
+    group = _dashboard_frame(host, "settingsActionList")
+    row = _dashboard_frame(host, "settingsActionRow")
+
+    assert group.isAncestorOf(row)
+
+
+def test_reverse_open_card_is_a_painted_toggle_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _build_dash(monkeypatch)
+
+    card = _dashboard_frame(host, "reverseOpenRow")
+    toggle = host._reverse_open_check
+
+    assert card.isAncestorOf(toggle)
+    assert type(toggle).__name__ == "ToggleSwitch"
+    assert toggle.minimumHeight() >= HIT_TARGET
+
+
+def test_reverse_open_toggle_stays_on_the_title_row_at_1100(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _build_dash(monkeypatch)
+    _reflow_dashboard_at(host, 1100)
+    card = _dashboard_frame(host, "reverseOpenRow")
+    toggle = host._reverse_open_check
+    title = card.title_label
+    title_c = title.mapTo(card, title.rect().center())
+    action_c = toggle.mapTo(card, toggle.rect().center())
+
+    assert card.height() <= 96
+    assert abs(action_c.y() - title_c.y()) <= 24
+    host.close()
+
+
+def test_reverse_open_toggle_stays_on_the_title_row_when_reflow_is_ttb(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _build_dash(monkeypatch)
+    _reflow_dashboard_at(host, 560)
+    card = _dashboard_frame(host, "reverseOpenRow")
+    toggle = host._reverse_open_check
+    title = card.title_label
+    title_c = title.mapTo(card, title.rect().center())
+    action_c = toggle.mapTo(card, toggle.rect().center())
+
+    assert host._reverse_open_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert card.height() <= 96
+    assert abs(action_c.y() - title_c.y()) <= 24
+    host.close()
+
+
+def test_dashboard_restyle_applies_scheme_surface0_to_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winpodx.gui import theme as theme_mod
+
+    host = _build_dash(monkeypatch)
+    surface = _dashboard_frame(host, "workspaceSurface")
+    previous = theme_mod.current_scheme()
+    try:
+        theme_mod.rebuild("light")
+        host._restyle_dashboard()
+        assert theme_mod.C.SURFACE0 == "#FFFFFF"
+        assert "#FFFFFF" in surface.styleSheet()
+
+        theme_mod.rebuild("dark")
+        host._restyle_dashboard()
+        assert theme_mod.C.SURFACE0 == "#2B2B2B"
+        assert "#2B2B2B" in surface.styleSheet()
+    finally:
+        theme_mod.rebuild(previous)
+
+
+def _mix_over(fg: str, bg: str, alpha: float) -> str:
+    value_fg = fg.lstrip("#")
+    value_bg = bg.lstrip("#")
+    fr, fg_, fb = (int(value_fg[i : i + 2], 16) for i in (0, 2, 4))
+    br, bg_, bb = (int(value_bg[i : i + 2], 16) for i in (0, 2, 4))
+    r = round(fr * alpha + br * (1.0 - alpha))
+    g = round(fg_ * alpha + bg_ * (1.0 - alpha))
+    b = round(fb * alpha + bb * (1.0 - alpha))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def test_quick_actions_card_has_four_ghost_buttons(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch)
+    card = _dashboard_frame(host, "quickActions")
+    buttons = card.findChildren(QPushButton)
+    labels = [btn.text() for btn in buttons]
+
+    assert len(buttons) == 4
+    assert labels == [
+        tr("Full Desktop"),
+        tr("Refresh Apps"),
+        tr("Terminal / Logs"),
+        tr("Settings"),
+    ]
+
+
+def test_quick_actions_route_to_existing_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch)
+    card = _dashboard_frame(host, "quickActions")
+    by_label = {btn.text(): btn for btn in card.findChildren(QPushButton)}
+
+    by_label[tr("Full Desktop")].click()
+    by_label[tr("Refresh Apps")].click()
+    by_label[tr("Terminal / Logs")].click()
+    by_label[tr("Settings")].click()
+
+    assert host.opened_desktop == 1
+    assert host.refreshed_apps == 1
+    assert host.switched == [4, 2]
+
+
+def test_hero_ring_captions_fit_inside_gauge_rects(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch)
+    for name in ("_bar_ram", "_bar_cpu", "_bar_disk"):
+        gauge = getattr(host, name)
+        gauge.resize(gauge.sizeHint())
+        cap = gauge.caption_rect()
+        assert cap.y() >= 0
+        assert cap.x() >= 0
+        assert cap.y() + cap.height() <= gauge.height()
+        assert cap.x() + cap.width() <= gauge.width()
+
+
+def test_hero_background_tints_with_pod_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    from winpodx.gui import theme as theme_mod
+
+    host = _build_dash(monkeypatch)
+    hero = _dashboard_frame(host, "podStatusHero")
+    host._apply_snapshot(_snapshot(pod_state="running"))
+    running = _mix_over(theme_mod.C.GREEN, theme_mod.C.SURFACE0, 0.06)
+    assert running.lower() in hero.styleSheet().lower()
+
+    host._apply_snapshot(_snapshot(pod_state="stopped"))
+    stopped = _mix_over(theme_mod.C.SUBTEXT0, theme_mod.C.SURFACE0, 0.06)
+    assert stopped.lower() in hero.styleSheet().lower()
+    assert running.lower() not in hero.styleSheet().lower()
+
+
+def test_pinned_tile_shows_running_badge_for_live_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "winpodx.core.process.list_active_sessions",
+        lambda: [SimpleNamespace(app_name="word")],
+    )
+    apps = [_app("word"), _app("excel")]
+    host = _build_dash(monkeypatch, apps=apps, pinned=("word", "excel"))
+    host.show()
+    QApplication.processEvents()
+    grid = host._workspace_holder.itemAt(0).widget().layout()
+    word = grid.itemAt(0).widget()
+    excel = grid.itemAt(1).widget()
+    word_badge = word.findChild(QLabel, "runningBadge")
+    excel_badge = excel.findChild(QLabel, "runningBadge")
+
+    assert word_badge is not None
+    assert not word_badge.isHidden()
+    assert excel_badge is None or excel_badge.isHidden()
+
+
+def test_empty_workspace_offers_applications_button(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch)
+    panel = host._workspace_holder.itemAt(0).widget()
+    button = next(
+        (child for child in panel.findChildren(QPushButton) if child.text() == tr("Applications")),
+        None,
+    )
+
+    assert panel.objectName() == "emptyState"
+    assert button is not None
+    button.click()
+    assert host.switched == [1]
+
+
+def test_restyle_dashboard_reapplies_quick_actions_and_hero_tint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winpodx.gui import theme as theme_mod
+
+    host = _build_dash(monkeypatch)
+    host._apply_snapshot(_snapshot(pod_state="running"))
+    previous = theme_mod.current_scheme()
+    try:
+        theme_mod.rebuild("light")
+        host._restyle_dashboard()
+        card = _dashboard_frame(host, "quickActions")
+        hero = _dashboard_frame(host, "podStatusHero")
+        tint = _mix_over(theme_mod.C.GREEN, theme_mod.C.SURFACE0, 0.06)
+        assert theme_mod.C.SURFACE0 == "#FFFFFF"
+        assert "#FFFFFF" in card.styleSheet() or tint.lower() in hero.styleSheet().lower()
+        assert tint.lower() in hero.styleSheet().lower()
+    finally:
+        theme_mod.rebuild(previous)
+
+
+def test_stopped_hero_detail_includes_start_pod_next_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _build_dash(monkeypatch)
+
+    host._apply_snapshot(_snapshot(pod_state="stopped"))
+    detail = host.findChild(QLabel, "podStatusDetail")
+
+    assert detail is not None
+    assert tr("Pod is stopped") in detail.text()
+    assert tr("Start Pod") in detail.text()
+    assert host._recovery_label.text() == tr("Pod is stopped")
+
+
+def test_running_now_hidden_without_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("winpodx.core.process.list_active_sessions", lambda: [])
+    host = _build_dash(monkeypatch)
+    section = host.findChild(QFrame, "runningNow")
+
+    assert section is not None
+    assert section.isHidden()
+
+
+def test_running_now_lists_live_sessions_with_terminate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winpodx.core.process import TrackedProcess
+
+    killed: list[str] = []
+    monkeypatch.setattr(
+        "winpodx.core.process.list_active_sessions",
+        lambda: [TrackedProcess(app_name="word", pid=4242)],
+    )
+    monkeypatch.setattr(
+        "winpodx.core.process.kill_session",
+        lambda name, expected_pid=None: killed.append(name) or True,
+    )
+    apps = [_app("word")]
+    host = _build_dash(monkeypatch, apps=apps)
+    host.show()
+    QApplication.processEvents()
+    section = host.findChild(QFrame, "runningNow")
+    assert section is not None
+    assert not section.isHidden()
+    labels = [lbl.text() for lbl in section.findChildren(QLabel)]
+    assert any("word" in text.lower() or "Word" in text for text in labels)
+    assert any("4242" in text for text in labels)
+    terminate = next(
+        (btn for btn in section.findChildren(QPushButton) if btn.text() == tr("Terminate")),
+        None,
+    )
+    assert terminate is not None
+    assert 40 <= terminate.parentWidget().height() <= 48
+    terminate.click()
+    assert killed == ["word"]
+
+
+def test_recovery_row_is_compact_48px(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _build_dash(monkeypatch)
+    host.show()
+    QApplication.processEvents()
+    row = _dashboard_frame(host, "settingsActionRow")
+
+    assert row.minimumHeight() == 48
+    assert row.height() == 48

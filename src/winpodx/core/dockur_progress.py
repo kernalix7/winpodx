@@ -33,12 +33,9 @@ _VOID_ELEMENTS = frozenset(
 )
 
 
-@dataclass(frozen=True)  # Python 3.9 uses the manual slots below.
+@dataclass(frozen=True, slots=True)
 class DockurProgress:
     """Normalized text exposed by dockur's progress document."""
-
-    # Python 3.9 lacks dataclass(slots=True), so declare slots explicitly.
-    __slots__ = ("text", "is_loading")
 
     text: str
     is_loading: bool

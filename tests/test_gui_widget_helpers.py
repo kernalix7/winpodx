@@ -182,7 +182,7 @@ def test_warning_callout_renders_text_and_danger_accent(qapp) -> None:
 
     texts = [label.text() for label in callout.findChildren(QLabel)]
     assert "This removes the disk" in texts
-    assert helpers.C.RED in callout.styleSheet()
+    assert helpers.rgba(helpers.C.RED, 0.12) in callout.styleSheet()
 
 
 def test_page_header_renders_title_subtitle_and_action(qapp) -> None:
@@ -209,9 +209,33 @@ def test_empty_panel_cjk_labels_hold_fixed_width_in_resizable_scroll_area(qapp) 
 
     wrapped = [label for label in panel.findChildren(QLabel) if label.wordWrap()]
     assert [label.text() for label in wrapped] == [title, body]
-    assert all(label.minimumWidth() == label.maximumWidth() == 400 for label in wrapped)
-    assert panel.maximumWidth() == 460
+    assert all(label.minimumWidth() == label.maximumWidth() == 352 for label in wrapped)
+    assert panel.maximumWidth() == 400
     assert panel.findChild(QPushButton).text() == "Retry"
+
+
+def test_busy_dialog_and_empty_panel_follow_theme_rebuild(qapp) -> None:
+    from winpodx.gui import theme
+
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("dark")
+        dialog = helpers.BusyDialog(None, "Scanning", "Looking for applications")
+        panel = helpers.make_empty_panel("No apps", "Add a profile")
+        assert "#2B2B2B" in dialog.styleSheet()
+        assert "#2B2B2B" in panel.styleSheet()
+        assert "#FFFFFF" not in panel.styleSheet()
+        assert "#F9F9F9" not in dialog.styleSheet()
+
+        theme.rebuild("light")
+        dialog = helpers.BusyDialog(None, "Scanning", "Looking for applications")
+        panel = helpers.make_empty_panel("No apps", "Add a profile")
+        assert "#FFFFFF" in panel.styleSheet()
+        assert "#F9F9F9" in dialog.styleSheet()
+        assert "#2B2B2B" not in panel.styleSheet()
+        assert "#2B2B2B" not in dialog.styleSheet()
+    finally:
+        theme.rebuild(previous)
 
 
 def test_actionable_error_returns_clicked_custom_button(qapp, monkeypatch) -> None:
@@ -230,3 +254,36 @@ def test_actionable_error_returns_clicked_custom_button(qapp, monkeypatch) -> No
     )
 
     assert selected == "Retry"
+
+
+def test_fluid_wrap_width_is_derived_from_the_column_even_while_hidden(qapp) -> None:
+    from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout
+
+    from winpodx.gui import theme
+
+    root = QWidget()
+    column = QVBoxLayout(root)
+    column.setContentsMargins(10, 0, 10, 0)
+    row_host = QWidget()
+    row = QHBoxLayout(row_host)
+    row.setContentsMargins(4, 0, 4, 0)
+    row.setSpacing(6)
+    icon = QLabel("i")
+    icon.setFixedWidth(20)
+    label = QLabel("long text " * 40)
+    helpers.mark_fluid_wrap(label)
+    row.addWidget(icon)
+    row.addWidget(label)
+    column.addWidget(row_host)
+
+    assert label.property("fluidWrap") is True
+    assert label.wordWrap()
+    assert label.width() == int(theme.CONTENT_MAX_WIDTH * theme.WRAP_RATIO)
+
+    helpers.fit_fluid_wraps(root, 500)
+    inset = 10 + 10 + 4 + 4 + 20 + 6
+    assert label.width() == int((500 - inset) * theme.WRAP_RATIO)
+    assert root.minimumSizeHint().width() <= 500, "hidden subtree must drop its stale minimum"
+
+    helpers.fit_fluid_wraps(root, 40)
+    assert label.width() == label.fontMetrics().averageCharWidth() * 24

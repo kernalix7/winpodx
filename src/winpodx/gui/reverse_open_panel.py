@@ -22,6 +22,7 @@ import the same module indirectly via the Settings-page wiring.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -159,17 +160,14 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     """
     from PySide6.QtCore import QSize, Qt
     from PySide6.QtWidgets import (
-        QCheckBox,
         QFrame,
-        QGridLayout,
         QHBoxLayout,
         QInputDialog,
         QLabel,
-        QListWidget,
-        QListWidgetItem,
         QMessageBox,
         QPushButton,
         QVBoxLayout,
+        QWidget,
     )
 
     from winpodx.cli.host_open import (
@@ -178,17 +176,19 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         _cmd_start_listener,
         _cmd_stop_listener,
     )
+    from winpodx.gui import theme
+    from winpodx.gui._main_window_secondary_style import make_ghost_button
+    from winpodx.gui._toggle_switch import ToggleSwitch
+    from winpodx.gui._widget_helpers import make_settings_card, mark_fluid_wrap
     from winpodx.gui.icons import load_icon
     from winpodx.gui.theme import (
         BTN_GHOST,
         BTN_PRIMARY,
         BTN_SECONDARY,
-        CHECKBOX,
-        LIST_WIDGET,
-        SETTINGS_SECTION,
-        SPACE_L,
+        CONTROL_HEIGHT_W11,
+        FONT_SUBHEAD,
         SPACE_S,
-        SPACE_XL,
+        SPACE_XS,
         C,
     )
 
@@ -196,18 +196,21 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     card.setObjectName("settingsSection")
     card.setFrameShape(QFrame.Shape.NoFrame)
     card.setStyleSheet(
-        SETTINGS_SECTION
-        + CHECKBOX
-        + LIST_WIDGET
+        theme.SETTINGS_SECTION
+        + theme.CHECKBOX
+        + theme.LIST_WIDGET
         + f"QLabel {{ color: {C.TEXT}; font-size: 13px; background: transparent; }}"
     )
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+    layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(SPACE_S)
 
     title = QLabel(tr("▦  Reverse File Associations"))
     title.setText(title.text().removeprefix("▦  "))
-    title.setStyleSheet(f"color: {C.BLUE}; font-size: 15px; font-weight: 600;")
+    title.setObjectName("settingsGroupHeading")
+    title.setStyleSheet(
+        f"color: {C.TEXT}; font-size: {FONT_SUBHEAD}px; font-weight: 600; background: transparent;"
+    )
     title_row = QHBoxLayout()
     title_row.setContentsMargins(0, 0, 0, 0)
     title_row.setSpacing(SPACE_S)
@@ -221,16 +224,26 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     layout.addLayout(title_row)
 
     sub = QLabel(tr("Linux apps appear in the Windows guest's right-click ‘Open with…’ menu."))
+    sub.setObjectName("settingsGroupCaption")
     sub.setWordWrap(True)
+    mark_fluid_wrap(sub)
     sub.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
     layout.addWidget(sub)
 
-    enable_box = QCheckBox(tr("Enable reverse-open"))
+    enable_box = ToggleSwitch()
     enable_box.setChecked(bool(cfg.reverse_open.enabled))
-    layout.addWidget(enable_box)
+    layout.addWidget(
+        make_settings_card(
+            "reverse-associations",
+            tr("Enable reverse-open"),
+            action=enable_box,
+            object_name="reverseOpenEnableRow",
+        )
+    )
 
     status_label = QLabel("")
     status_label.setWordWrap(True)
+    mark_fluid_wrap(status_label)
     status_label.setStyleSheet(
         f"background: {C.MANTLE}; color: {C.SUBTEXT1}; border-radius: 8px; padding: 8px 10px;"
     )
@@ -246,6 +259,7 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     for b in (btn_start, btn_stop, btn_status):
         b.setStyleSheet(BTN_GHOST)
     for b in (btn_refresh, btn_start, btn_stop, btn_status):
+        b.setMinimumHeight(CONTROL_HEIGHT_W11)
         buttons_row.addWidget(b)
     buttons_row.addStretch()
     layout.addLayout(buttons_row)
@@ -253,61 +267,53 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
     # --- allow / deny lists --------------------------------------------------
     lists_hint = QLabel(tr("Allowlist = only these apps are offered; Denylist = these are hidden."))
     lists_hint.setWordWrap(True)
+    mark_fluid_wrap(lists_hint)
     lists_hint.setStyleSheet(f"color: {C.OVERLAY0}; font-size: 11px;")
     layout.addWidget(lists_hint)
 
-    lists_grid = QGridLayout()
-    lists_grid.setHorizontalSpacing(SPACE_L)
-    lists_grid.setVerticalSpacing(SPACE_S)
+    lists_grid = QVBoxLayout()
+    lists_grid.setSpacing(SPACE_S)
     allow_label = QLabel(tr("Allowlist (empty = all discovered)"))
     deny_label = QLabel(tr("Denylist (apps to hide)"))
     allow_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: 500;")
     deny_label.setStyleSheet(f"color: {C.SUBTEXT0}; font-size: 12px; font-weight: 500;")
-    allow_list = QListWidget()
-    deny_list = QListWidget()
-    for slug in cfg.reverse_open.allowlist:
-        QListWidgetItem(slug, allow_list)
-    for slug in cfg.reverse_open.denylist:
-        QListWidgetItem(slug, deny_list)
-    lists_grid.addWidget(allow_label, 0, 0)
-    lists_grid.addWidget(deny_label, 0, 1)
-    lists_grid.addWidget(allow_list, 1, 0)
-    lists_grid.addWidget(deny_list, 1, 1)
+    allow_host = QWidget()
+    allow_box = QVBoxLayout(allow_host)
+    allow_box.setContentsMargins(0, 0, 0, 0)
+    allow_box.setSpacing(SPACE_XS)
+    deny_host = QWidget()
+    deny_box = QVBoxLayout(deny_host)
+    deny_box.setContentsMargins(0, 0, 0, 0)
+    deny_box.setSpacing(SPACE_XS)
+    lists_grid.addWidget(allow_label)
+    lists_grid.addWidget(allow_host)
 
     allow_btns = QHBoxLayout()
     allow_btns.setSpacing(SPACE_S)
     btn_allow_add = QPushButton(tr("+ Add"))
-    btn_allow_rm = QPushButton(tr("− Remove"))
     btn_allow_add.setText(btn_allow_add.text().removeprefix("+ "))
     btn_allow_add.setIcon(load_icon("plus", C.TEXT, 16))
     btn_allow_add.setIconSize(QSize(16, 16))
-    btn_allow_rm.setText(btn_allow_rm.text().removeprefix("− "))
-    btn_allow_rm.setIcon(load_icon("minus", C.TEXT, 16))
-    btn_allow_rm.setIconSize(QSize(16, 16))
     btn_allow_add.setStyleSheet(BTN_SECONDARY)
-    btn_allow_rm.setStyleSheet(BTN_GHOST)
+    btn_allow_add.setMinimumHeight(CONTROL_HEIGHT_W11)
     allow_btns.addWidget(btn_allow_add)
-    allow_btns.addWidget(btn_allow_rm)
     allow_btns.addStretch()
 
     deny_btns = QHBoxLayout()
     deny_btns.setSpacing(SPACE_S)
     btn_deny_add = QPushButton(tr("+ Add"))
-    btn_deny_rm = QPushButton(tr("− Remove"))
     btn_deny_add.setText(btn_deny_add.text().removeprefix("+ "))
     btn_deny_add.setIcon(load_icon("plus", C.TEXT, 16))
     btn_deny_add.setIconSize(QSize(16, 16))
-    btn_deny_rm.setText(btn_deny_rm.text().removeprefix("− "))
-    btn_deny_rm.setIcon(load_icon("minus", C.TEXT, 16))
-    btn_deny_rm.setIconSize(QSize(16, 16))
     btn_deny_add.setStyleSheet(BTN_SECONDARY)
-    btn_deny_rm.setStyleSheet(BTN_GHOST)
+    btn_deny_add.setMinimumHeight(CONTROL_HEIGHT_W11)
     deny_btns.addWidget(btn_deny_add)
-    deny_btns.addWidget(btn_deny_rm)
     deny_btns.addStretch()
 
-    lists_grid.addLayout(allow_btns, 2, 0)
-    lists_grid.addLayout(deny_btns, 2, 1)
+    lists_grid.addLayout(allow_btns)
+    lists_grid.addWidget(deny_label)
+    lists_grid.addWidget(deny_host)
+    lists_grid.addLayout(deny_btns)
     layout.addLayout(lists_grid)
 
     # --- behaviour wiring ----------------------------------------------------
@@ -347,9 +353,48 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
             )
         _refresh_status_label()
 
+    def _slugs_of(box: QVBoxLayout) -> list[str]:
+        out: list[str] = []
+        for i in range(box.count()):
+            widget = box.itemAt(i).widget()
+            if widget is not None:
+                out.append(widget.title_label.text())
+        return out
+
     def _sync_lists_to_cfg() -> None:
-        cfg.reverse_open.allowlist = [allow_list.item(i).text() for i in range(allow_list.count())]
-        cfg.reverse_open.denylist = [deny_list.item(i).text() for i in range(deny_list.count())]
+        cfg.reverse_open.allowlist = _slugs_of(allow_box)
+        cfg.reverse_open.denylist = _slugs_of(deny_box)
+
+    def _clear_box(box: QVBoxLayout) -> None:
+        while box.count():
+            item = box.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _slug_row(slug: str, box: QVBoxLayout) -> QFrame:
+        btn = make_ghost_button(icon="close")
+        btn.setAccessibleName(tr("− Remove"))
+        btn.clicked.connect(lambda _=False, s=slug, b=box: _remove_from(b, s))
+        return make_settings_card(
+            "list",
+            slug,
+            action=btn,
+            compact=True,
+            object_name="reverseOpenSlugRow",
+        )
+
+    def _fill_box(box: QVBoxLayout, slugs: list[str]) -> None:
+        _clear_box(box)
+        for slug in slugs:
+            box.addWidget(_slug_row(slug, box))
+
+    def _remove_from(box: QVBoxLayout, slug: str) -> None:
+        current = _slugs_of(box)
+        changed, remaining, _msg = remove_slug(current, slug)
+        if changed:
+            _fill_box(box, remaining)
+            _sync_lists_to_cfg()
 
     def _prompt_slug(prefix: str) -> str | None:
         text, ok = QInputDialog.getText(card, prefix, tr("Slug:"))
@@ -367,30 +412,16 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
             return None
         return value_or_err
 
-    def _add_list(target: QListWidget, other: QListWidget, label: str) -> None:
+    def _add_list(target: QVBoxLayout, other: QVBoxLayout, label: str) -> None:
         slug = _prompt_slug(tr("Add to {list}").format(list=label))
         if not slug:
             return
-        current_target = [target.item(i).text() for i in range(target.count())]
-        current_other = [other.item(i).text() for i in range(other.count())]
-        changed, new_target, new_other, msg = add_slug(current_target, current_other, slug)
+        changed, new_target, new_other, msg = add_slug(_slugs_of(target), _slugs_of(other), slug)
         if not changed:
             QMessageBox.information(card, label, msg)
             return
-        target.clear()
-        for s in new_target:
-            QListWidgetItem(s, target)
-        other.clear()
-        for s in new_other:
-            QListWidgetItem(s, other)
-        _sync_lists_to_cfg()
-
-    def _remove_list(target: QListWidget) -> None:
-        item = target.currentItem()
-        if item is None:
-            QMessageBox.information(card, tr("Remove"), tr("Select a slug first."))
-            return
-        target.takeItem(target.row(item))
+        _fill_box(target, new_target)
+        _fill_box(other, new_other)
         _sync_lists_to_cfg()
 
     def _run_cli(handler, **kwargs) -> None:
@@ -420,8 +451,6 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         work on a daemon worker while a :class:`BusyDialog` spins, and
         marshal completion back to the GUI thread.
         """
-        import threading
-
         from PySide6.QtCore import QTimer
 
         from winpodx.gui._widget_helpers import BusyDialog
@@ -443,17 +472,17 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
             except Exception as exc:  # noqa: BLE001 — surfaced on the GUI thread
                 log.exception("host-open refresh raised")
                 error.append(exc)
-
-            def _done() -> None:
+            finally:
                 dlg.finish()
-                if error:
-                    QMessageBox.warning(card, tr("reverse-open"), str(error[0]))
-                _refresh_status_label()
 
-            QTimer.singleShot(0, _done)
-
-        threading.Thread(target=_work, daemon=True).start()
+        # Start the worker only once dlg.exec()'s nested event loop is running,
+        # so the queued accept() from dlg.finish() always lands on a live dialog
+        # (mirrors MaintenanceMixin._run_busy_op).
+        QTimer.singleShot(0, lambda: threading.Thread(target=_work, daemon=True).start())
         dlg.exec()
+        if error:
+            QMessageBox.warning(card, tr("reverse-open"), str(error[0]))
+        _refresh_status_label()
 
     btn_refresh.clicked.connect(_on_refresh_sync)
     btn_start.clicked.connect(
@@ -463,12 +492,12 @@ def build_panel(cfg: Config, parent: QWidget | None = None) -> QWidget:
         lambda: (_run_cli(_cmd_stop_listener, json=False), _refresh_status_label())
     )
     btn_status.clicked.connect(_refresh_status_label)
-    btn_allow_add.clicked.connect(lambda: _add_list(allow_list, deny_list, tr("allowlist")))
-    btn_allow_rm.clicked.connect(lambda: _remove_list(allow_list))
-    btn_deny_add.clicked.connect(lambda: _add_list(deny_list, allow_list, tr("denylist")))
-    btn_deny_rm.clicked.connect(lambda: _remove_list(deny_list))
+    btn_allow_add.clicked.connect(lambda: _add_list(allow_box, deny_box, tr("allowlist")))
+    btn_deny_add.clicked.connect(lambda: _add_list(deny_box, allow_box, tr("denylist")))
     enable_box.stateChanged.connect(_on_enable)
 
+    _fill_box(allow_box, list(cfg.reverse_open.allowlist))
+    _fill_box(deny_box, list(cfg.reverse_open.denylist))
     _refresh_status_label()
 
     return card

@@ -43,6 +43,13 @@ CLAUDE.local.md
 # Backup toolkit (generic, not project-specific)
 tmp-igbkp/
 
+# AI orchestration scratch: per-worker claims/receipts and the uv lockfile.
+# Never part of a release — kept out of git history like the rest of the
+# AI-tooling footprint (CLAUDE.md §8 "AI Tooling Footprint Ban").
+claims/
+receipts/
+uv.lock
+
 # Per-install agent bearer token staged into the OEM bind mount.
 # Never commit — carries a per-install secret.
 config/oem/agent_token.txt

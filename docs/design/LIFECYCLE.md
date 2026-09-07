@@ -77,7 +77,7 @@ The shaded boxes are entry points; everything else is implementation. Each is de
 
 **Flow.**
 
-1. `install.sh` checks distro, installs missing dependencies (podman, podman-compose, freerdp, libnotify), verifies Python ≥ 3.9.
+1. `install.sh` checks distro, installs missing dependencies (podman, podman-compose, freerdp, libnotify), verifies Python ≥ 3.10.
 2. `install.sh` extracts winpodx source to `~/.local/bin/winpodx-app/` and writes the `winpodx` launcher to `~/.local/bin/winpodx`.
 3. `install.sh` runs `python3 -m winpodx setup --non-interactive` (`src/winpodx/cli/setup_cmd.py::handle_setup`).
 4. Setup writes `~/.config/winpodx/winpodx.toml`:

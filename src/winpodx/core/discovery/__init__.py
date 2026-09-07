@@ -36,7 +36,7 @@ import zlib
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # Python 3.9, 3.10
+    import tomli as tomllib  # Python 3.10
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path

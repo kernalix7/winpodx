@@ -25,7 +25,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from winpodx.core.app import list_available_apps
 from winpodx.core.i18n import tr
@@ -38,8 +38,19 @@ class NavigationMixin:
 
     def _switch_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
-        for i, btn in enumerate(getattr(self, "nav_buttons", [])):
+        buttons = getattr(self, "nav_buttons", [])
+        for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
+        focused = QApplication.focusWidget()
+        selected = buttons[index] if 0 <= index < len(buttons) else None
+        if focused in buttons and focused is not selected:
+            focused.clearFocus()
+        if hasattr(self, "_move_nav_indicator"):
+            self._move_nav_indicator(index)
+        if hasattr(self, "_update_page_header"):
+            self._update_page_header(index)
+        if hasattr(self, "_switch_page_light_dismiss"):
+            self._switch_page_light_dismiss()
 
         # Dashboard (page 0): drive the live resource gauges only while it's
         # the visible page -- start the 5 s poll on entry, stop it on exit so
@@ -111,8 +122,10 @@ class NavigationMixin:
             # Search lives on the "Applications" page (index 1); jump there first
             # so the box is visible, then focus + select-all for a retype.
             self._switch_page(1)
-            self.search_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
-            self.search_box.selectAll()
+            box = getattr(self, "search_box", None)
+            if box is not None:
+                box.setFocus(Qt.FocusReason.ShortcutFocusReason)
+                box.selectAll()
 
         search_sc.activated.connect(_focus_search)
 
@@ -175,10 +188,8 @@ class NavigationMixin:
         streaming output into the GUI log. Customize launches the
         wizard (PR 7 of #255; until that lands, falls back to Auto
         with a notice). Skip dismisses without action -- prompt
-        re-fires on next launch.
+         re-fires on next launch.
         """
-        from PySide6.QtWidgets import QMessageBox
-
         box = QMessageBox(self)
         box.setWindowTitle(tr("Set up WinPodX"))
         box.setText(tr("WinPodX has not been set up yet on this account.\n\nRun setup now?"))

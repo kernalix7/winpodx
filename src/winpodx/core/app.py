@@ -11,7 +11,7 @@ from pathlib import Path
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # Python 3.9, 3.10
+    import tomli as tomllib  # Python 3.10
 
 from winpodx.utils.paths import data_dir
 

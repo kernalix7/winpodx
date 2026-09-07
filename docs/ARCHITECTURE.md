@@ -39,17 +39,17 @@ The pod's command channel is a bearer-authed HTTP agent listening on `http://+:8
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.9-3.14 (stdlib only on 3.11+; `tomli` fallback on 3.9/3.10) |
+| Language | Python 3.10-3.14 (stdlib only on 3.11+; `tomli` fallback on 3.10) |
 | CLI | argparse (stdlib) |
 | GUI (optional) | PySide6 (Qt6) |
-| Config | TOML (stdlib `tomllib` on 3.11+ / `tomli` on 3.9/3.10; built-in writer) |
+| Config | TOML (stdlib `tomllib` on 3.11+ / `tomli` on 3.10; built-in writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Guest agent | PowerShell `HttpListener` on `http://+:8765/`, host-published at `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
 | Container | Podman (default) / Docker ([dockur/windows](https://github.com/dockur/windows)); manual RDP is the containerless backend; libvirt was removed in 0.6.0 |
 | Hypervisor | QEMU / KVM (inside the dockur container; host USB / PCI device passthrough is wired at this layer) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, embedded per-slug icon via vendored rcedit) |
 | i18n | `winpodx.core.i18n` (English-source-as-key, flat JSON catalogs per language) |
-| CI | GitHub Actions (lint + test on Python 3.9-3.14 + informational pip-audit) |
+| CI | GitHub Actions (lint + test on Python 3.10-3.14 + informational pip-audit) |
 
 ## Project Structure
 
@@ -67,7 +67,17 @@ winpodx/
 │   ├── backend/           # Podman, Docker, manual
 │   ├── desktop/           # .desktop entries, icons, MIME, tray, notifications
 │   ├── display/           # X11/Wayland detection, DPI scaling
-│   ├── gui/               # Qt6 window/pages, launcher, dialogs, theme
+│   ├── gui/               # Qt6 Settings-style shell, page mixins, launcher, dialogs, theme
+│   │   ├── main_window.py # Shell assembly and page ordering
+│   │   ├── _main_window_navpane*.py, _main_window_header.py
+│   │   ├── _main_window_dashboard*.py, _main_window_library*.py
+│   │   ├── _main_window_settings*.py, _main_window_maintenance*.py
+│   │   ├── _main_window_logs*.py, _main_window_info*.py, _main_window_devices*.py
+│   │   ├── _main_window_license*.py, _main_window_pod.py, _main_window_secondary_style.py
+│   │   ├── _title_bar.py, _frameless.py, _shell_geometry.py
+│   │   ├── theme.py, theme_manager.py, _theme_qss*.py
+│   │   ├── launcher.py, _launcher_*.py, launcher_state.py, launcher_style.py
+│   │   ├── fonts/         # Bundled Selawik fallback and OFL license
 │   │   └── icons/         # Bundled SVG icon loader, rendering, recolour, cache
 │   ├── reverse_open/      # Discovery, ICO conversion, listener daemon, sync transport
 │   ├── setup_wizard/      # Privileged host prep (KVM group, subuid/subgid)

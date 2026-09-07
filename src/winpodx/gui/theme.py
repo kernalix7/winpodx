@@ -1,39 +1,277 @@
 # SPDX-License-Identifier: MIT
-"""winpodx design system: GitHub Dark palette."""
+"""Windows 11 Fluent design tokens and QSS.
+
+``rebuild(scheme)`` mutates ``C`` class attributes and every module-level QSS /
+border string in place via ``globals().update(...)``. Names observed through
+``theme.X`` (attribute access) reflect the new scheme. Callers that bound a
+value at import (``from winpodx.gui.theme import BTN_PRIMARY``) keep the old
+string until they re-read ``theme.BTN_PRIMARY``.
+"""
 
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, Literal
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QFont, QPalette
+    from PySide6.QtWidgets import QApplication
+
+Scheme = Literal["light", "dark"]
+
+SCHEME_LIGHT: Final = "light"
+SCHEME_DARK: Final = "dark"
+
+FONT_FAMILY: Final = (
+    "'Segoe UI Variable', 'Segoe UI', 'Noto Sans', 'Inter', 'DejaVu Sans', sans-serif"
+)
+
+NAV_PANE_WIDTH: Final = 320
+NAV_PANE_COMPACT: Final = 48
+TITLE_BAR_H: Final = 32
+CAPTION_BTN_W: Final = 46
+RESIZE_MARGIN: Final = 6
+MIN_SHRINK_RATIO: Final = 0.6
+WRAP_RATIO: Final = 0.92
+EMPTY_PANEL_RATIO: Final = 0.4
+NAV_ITEM_HEIGHT: Final = 36
+PAGE_MARGIN_TOP: Final = 28
+PAGE_MARGIN_X: Final = 36
+CONTENT_MAX_WIDTH: Final = 1000
+SCROLL_GUTTER: Final = 10
+NAV_INDICATOR: Final = 3
+SETTINGS_ROW_MIN: Final = 68
+CONTROL_HEIGHT_W11: Final = 32
+TOGGLE_W: Final = 40
+TOGGLE_H: Final = 20
+
+SPACE_XS: Final = 4
+SPACE_S: Final = 8
+SPACE_M: Final = 12
+SPACE_L: Final = 16
+SPACE_XL: Final = 24
+SPACE_XXL: Final = 32
+SPACE_XXXL: Final = 48
+
+RADIUS_XS: Final = 2
+RADIUS_S: Final = 4
+RADIUS_M: Final = 4
+RADIUS_L: Final = 8
+RADIUS_XL: Final = 8
+RADIUS_XXL: Final = 8
+
+FONT_CAPTION: Final = 12
+FONT_BODY: Final = 14
+FONT_SUBHEAD: Final = 14
+FONT_HEADER: Final = 16
+FONT_TITLE: Final = 20
+FONT_HERO: Final = 28
+FONT_DISPLAY: Final = 28
+
+CONTROL_HEIGHT: Final = 32
+CONTROL_HEIGHT_L: Final = 36
+# Minimum pointer/touch hit target for primary interactive controls (WCAG 2.5.5).
+HIT_TARGET: Final = 44
+
+
+@dataclass(frozen=True)
+class UnknownColorSchemeError(ValueError):
+    """Raised when ``rebuild`` / ``palette_for`` receive an unknown scheme."""
+
+    __slots__ = ("scheme",)
+    scheme: str
+
+    def __str__(self) -> str:
+        return f"unknown colour scheme: {self.scheme!r}"
+
+
+@dataclass(frozen=True)
+class _FluentPalette:
+    """One Fluent (WinUI 3) colour set, plus the legacy ``C.*`` mapping."""
+
+    rosewater: str
+    flamingo: str
+    pink: str
+    mauve: str
+    red: str
+    maroon: str
+    peach: str
+    yellow: str
+    green: str
+    teal: str
+    sky: str
+    sapphire: str
+    blue: str
+    lavender: str
+    text: str
+    subtext1: str
+    subtext0: str
+    overlay2: str
+    overlay1: str
+    overlay0: str
+    surface2: str
+    surface1: str
+    surface0: str
+    base: str
+    mantle: str
+    crust: str
+    card_stroke: str
+    divider: str
+    subtle_hover: str
+    control_fill: str
+    control_hover: str
+    control_pressed: str
+    control_input_active: str
+    control_disabled: str
+    text_disabled: str
+    nav_pane: str
+    nav_hover: str
+    nav_selected: str
+    success_hover: str
+    success_pressed: str
+    tool_accent: str
+    tool_icon_fg: str
+
+
+_LIGHT = _FluentPalette(
+    rosewater="#E3008C",
+    flamingo="#E3008C",
+    pink="#C239B3",
+    mauve="#744DA9",
+    red="#C42B1C",
+    maroon="#C42B1C",
+    peach="#9D5D00",
+    yellow="#9D5D00",
+    green="#0F7B0F",
+    teal="#0F7B0F",
+    sky="#1975C5",
+    sapphire="#3183CA",
+    blue="#0067C0",
+    lavender="#1975C5",
+    text="#1B1B1B",
+    subtext1="#5D5D5D",
+    subtext0="#8A8A8A",
+    overlay2="#8A8A8A",
+    overlay1="#A0A0A0",
+    overlay0="#767676",
+    surface2="#D9D9D9",
+    surface1="#F9F9F9",
+    surface0="#FFFFFF",
+    base="#F3F3F3",
+    mantle="#F9F9F9",
+    crust="#FFFFFF",
+    card_stroke="rgba(0, 0, 0, 0.0578)",
+    divider="rgba(0, 0, 0, 0.0803)",
+    subtle_hover="rgba(0, 0, 0, 0.0373)",
+    control_fill="#FDFDFD",
+    control_hover="#F9F9F9",
+    control_pressed="#F3F3F3",
+    control_input_active="#FFFFFF",
+    control_disabled="rgba(249, 249, 249, 0.30)",
+    text_disabled="rgba(0, 0, 0, 0.36)",
+    nav_pane="#EBEBEB",
+    nav_hover="rgba(0, 0, 0, 0.05)",
+    nav_selected="rgba(0, 0, 0, 0.06)",
+    success_hover="#198C19",
+    success_pressed="#0C640C",
+    tool_accent="#0067C0",
+    tool_icon_fg="#5D5D5D",
+)
+
+_DARK = _FluentPalette(
+    rosewater="#FF8C9E",
+    flamingo="#FF8C9E",
+    pink="#F472D0",
+    mauve="#B4A0FF",
+    red="#FF99A4",
+    maroon="#FF99A4",
+    peach="#FCE100",
+    yellow="#FCE100",
+    green="#6CCB5F",
+    teal="#6CCB5F",
+    sky="#7BD4FF",
+    sapphire="#4FB8E8",
+    blue="#60CDFF",
+    lavender="#7BD4FF",
+    text="#FFFFFF",
+    subtext1="#C5C5C5",
+    subtext0="#8B8B8B",
+    overlay2="#8B8B8B",
+    overlay1="#6D6D6D",
+    overlay0="#7A7A7A",
+    surface2="#3D3D3D",
+    surface1="#333333",
+    surface0="#2B2B2B",
+    base="#1F1F1F",
+    mantle="#191919",
+    crust="#000000",
+    card_stroke="rgba(255, 255, 255, 0.055)",
+    divider="rgba(255, 255, 255, 0.08)",
+    subtle_hover="rgba(255, 255, 255, 0.0605)",
+    control_fill="#333333",
+    control_hover="#3A3A3A",
+    control_pressed="#272727",
+    control_input_active="#1F1F1F",
+    control_disabled="rgba(255, 255, 255, 0.04)",
+    text_disabled="rgba(255, 255, 255, 0.36)",
+    nav_pane="#1A1A1A",
+    nav_hover="rgba(255, 255, 255, 0.055)",
+    nav_selected="rgba(255, 255, 255, 0.075)",
+    success_hover="#7ED66F",
+    success_pressed="#5BB84F",
+    tool_accent="#8AA4BE",
+    tool_icon_fg="#C5C5C5",
+)
+
+_PALETTES: Final[dict[Scheme, _FluentPalette]] = {
+    SCHEME_LIGHT: _LIGHT,
+    SCHEME_DARK: _DARK,
+}
+
 
 class C:
-    """GitHub Dark palette."""
+    """Fluent palette mapped onto the legacy Catppuccin-style names.
 
-    ROSEWATER = "#ffa198"
-    FLAMINGO = "#ffa198"
-    PINK = "#f778ba"
-    MAUVE = "#bc8cff"
-    RED = "#f85149"
-    MAROON = "#da3633"
-    PEACH = "#ffa657"
-    YELLOW = "#d29922"
-    GREEN = "#74b985"
-    TEAL = "#8ac994"
-    SKY = "#79c0ff"
-    SAPPHIRE = "#388bfd"
-    BLUE = "#58a6ff"
-    LAVENDER = "#a5d6ff"
+    Attributes are mutated in place by ``rebuild`` so ``theme.C.BASE`` (and
+    any ``C`` alias bound at import) always reflects the active scheme.
+    """
 
-    TEXT = "#e6edf3"
-    SUBTEXT1 = "#c9d1d9"
-    SUBTEXT0 = "#8b949e"
-    OVERLAY2 = "#8b949e"
-    OVERLAY1 = "#6e7681"
-    OVERLAY0 = "#656d76"
-    SURFACE2 = "#484f58"
-    SURFACE1 = "#30363d"
-    SURFACE0 = "#21262d"
-    BASE = "#161b22"
-    MANTLE = "#0d1117"
-    CRUST = "#010409"
+    ROSEWATER = _DARK.rosewater
+    FLAMINGO = _DARK.flamingo
+    PINK = _DARK.pink
+    MAUVE = _DARK.mauve
+    RED = _DARK.red
+    MAROON = _DARK.maroon
+    PEACH = _DARK.peach
+    YELLOW = _DARK.yellow
+    GREEN = _DARK.green
+    TEAL = _DARK.teal
+    SKY = _DARK.sky
+    SAPPHIRE = _DARK.sapphire
+    BLUE = _DARK.blue
+    LAVENDER = _DARK.lavender
+    TEXT = _DARK.text
+    SUBTEXT1 = _DARK.subtext1
+    SUBTEXT0 = _DARK.subtext0
+    OVERLAY2 = _DARK.overlay2
+    OVERLAY1 = _DARK.overlay1
+    OVERLAY0 = _DARK.overlay0
+    SURFACE2 = _DARK.surface2
+    SURFACE1 = _DARK.surface1
+    SURFACE0 = _DARK.surface0
+    BASE = _DARK.base
+    MANTLE = _DARK.mantle
+    CRUST = _DARK.crust
+
+
+_SCHEME: Scheme = SCHEME_DARK
+_PALETTE: _FluentPalette = _DARK
+
+
+def nav_pane_color() -> str:
+    return _PALETTE.nav_pane
 
 
 def rgba(hex_color: str, alpha: float) -> str:
@@ -45,702 +283,221 @@ def rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha:.2f})"
 
 
-# --------------------------------------------------------------------------- #
-# Design tokens.
-#
-# These are *named* magic numbers. Use them in new widget code so the design
-# system stays consistent and a future "tighten / loosen everything by N px"
-# pass is a single edit here rather than a grep across every page module.
-#
-# Spacing -- 4 px base unit, 1.5x scale.
-# Used for QVBoxLayout / QHBoxLayout setSpacing, addSpacing(), and layout
-# setContentsMargins.
-# --------------------------------------------------------------------------- #
-SPACE_XS = 4
-SPACE_S = 10
-SPACE_M = 14
-SPACE_L = 20
-SPACE_XL = 30
-SPACE_XXL = 40
-SPACE_XXXL = 52
-
-# Border radius scale. Match button / card / input visual weight.
-RADIUS_XS = 4  # inline chips, badges
-RADIUS_S = 6  # secondary controls, terminal panel
-RADIUS_M = 8  # inputs, buttons, primary controls
-RADIUS_L = 10  # search bar, terminal dock
-RADIUS_XL = 12  # cards, app tiles
-RADIUS_XXL = 14  # settings sections, app cards (grid view)
-
-# Type scale. Keep narrow -- five sizes cover everything from caption to title.
-FONT_CAPTION = 11  # secondary detail, summaries, helper text
-FONT_BODY = 13  # default text, inputs, buttons
-FONT_SUBHEAD = 14  # section labels, search bar
-FONT_HEADER = 15  # card headers
-FONT_TITLE = 18  # page titles
-FONT_HERO = 22  # main window title, top-of-page heroes
-FONT_DISPLAY = 24  # sparse page hero title
-
-CONTROL_HEIGHT = 36
-CONTROL_HEIGHT_L = 40
-CARD_BORDER = f"1px solid {rgba(C.SURFACE2, 0.44)}"
-CARD_BORDER_HOVER = f"1px solid {rgba(C.BLUE, 0.42)}"
-FOCUS_RING = f"1px solid {C.BLUE}"
-ACCENT_GREEN = "#74b985"
-ACCENT_GREEN_HOVER = "#85c694"
-ACCENT_GREEN_PRESSED = "#669f73"
-TOOL_ACCENT = "#8aa4be"
-TOOL_ICON_BG = rgba(TOOL_ACCENT, 0.12)
-TOOL_ICON_BORDER = rgba(TOOL_ACCENT, 0.28)
-TOOL_ICON_FG = "#b8c8d7"
+def _parse_scheme(scheme: str) -> Scheme:
+    if scheme == SCHEME_LIGHT or scheme == SCHEME_DARK:
+        return scheme
+    raise UnknownColorSchemeError(scheme)
 
 
-_AVATAR_PALETTE = [
-    C.BLUE,
-    C.MAUVE,
-    C.PEACH,
-    C.GREEN,
-    C.PINK,
-    C.SKY,
-    C.YELLOW,
-    C.TEAL,
-]
+def _apply_palette(palette: _FluentPalette) -> None:
+    C.ROSEWATER = palette.rosewater
+    C.FLAMINGO = palette.flamingo
+    C.PINK = palette.pink
+    C.MAUVE = palette.mauve
+    C.RED = palette.red
+    C.MAROON = palette.maroon
+    C.PEACH = palette.peach
+    C.YELLOW = palette.yellow
+    C.GREEN = palette.green
+    C.TEAL = palette.teal
+    C.SKY = palette.sky
+    C.SAPPHIRE = palette.sapphire
+    C.BLUE = palette.blue
+    C.LAVENDER = palette.lavender
+    C.TEXT = palette.text
+    C.SUBTEXT1 = palette.subtext1
+    C.SUBTEXT0 = palette.subtext0
+    C.OVERLAY2 = palette.overlay2
+    C.OVERLAY1 = palette.overlay1
+    C.OVERLAY0 = palette.overlay0
+    C.SURFACE2 = palette.surface2
+    C.SURFACE1 = palette.surface1
+    C.SURFACE0 = palette.surface0
+    C.BASE = palette.base
+    C.MANTLE = palette.mantle
+    C.CRUST = palette.crust
 
-_ACCENT_PALETTE = [
-    TOOL_ACCENT,
-]
+
+def current_scheme() -> str:
+    """Return the scheme last applied by ``rebuild`` (``light`` or ``dark``)."""
+    return _SCHEME
+
+
+def rebuild(scheme: str) -> None:
+    """Rebuild ``C`` and every module-level QSS/border string for ``scheme``.
+
+    Already-imported *names* (``from theme import BTN_PRIMARY``) keep the
+    previous string; ``theme.BTN_PRIMARY`` and ``C.*`` update in place.
+    """
+    global _SCHEME, _PALETTE
+    parsed = _parse_scheme(scheme)
+    _PALETTE = _PALETTES[parsed]
+    _apply_palette(_PALETTE)
+    _SCHEME = parsed
+    from winpodx.gui._theme_qss import build_styles
+
+    globals().update(build_styles())
 
 
 def avatar_color(name: str) -> str:
     """Deterministic accent color for an app name."""
-    return _AVATAR_PALETTE[sum(ord(ch) for ch in name) % len(_AVATAR_PALETTE)]
+    palette = (
+        C.BLUE,
+        C.MAUVE,
+        C.PEACH,
+        C.GREEN,
+        C.PINK,
+        C.SKY,
+        C.YELLOW,
+        C.TEAL,
+    )
+    return palette[sum(ord(ch) for ch in name) % len(palette)]
 
 
 def accent_color(index: int) -> str:
     """Muted accent for tool icons."""
-    return _ACCENT_PALETTE[index % len(_ACCENT_PALETTE)]
+    palette = (_PALETTE.tool_accent,)
+    return palette[index % len(palette)]
 
 
-# Global: applied to central widget, cascades to children.
-GLOBAL_STYLE = f"""
-    * {{ background: transparent; }}
-    QLabel {{ background: transparent; }}
-    QToolTip {{
-        background: {C.SURFACE0};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE2};
-        border-radius: {RADIUS_S}px;
-        padding: 6px 8px;
-        font-size: {FONT_CAPTION}px;
-    }}
-    QMenu {{
-        background: {C.SURFACE0};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE2};
-        border-radius: {RADIUS_M}px;
-        padding: 6px;
-    }}
-    QMenu::item {{
-        padding: 7px 18px;
-        border-radius: {RADIUS_S}px;
-    }}
-    QMenu::item:selected {{
-        background: {rgba(C.BLUE, 0.16)};
-        color: {C.BLUE};
-    }}
-    QProgressBar {{
-        background: {C.SURFACE0};
-        border: none;
-        border-radius: 3px;
-        min-height: 6px;
-        max-height: 6px;
-    }}
-    QProgressBar::chunk {{
-        background: {C.BLUE};
-        border-radius: 3px;
-    }}
-"""
+def palette_for(scheme: str) -> QPalette:
+    """Build a Fusion ``QPalette`` for ``scheme`` without mutating module state."""
+    from PySide6.QtGui import QColor, QPalette
 
-POD_CHIP = f"""
-    QFrame#podChip {{
-        background: {C.SURFACE0};
-        border: 1px solid {C.SURFACE1};
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 16px;
-        min-height: 30px;
-        max-height: 30px;
-    }}
-"""
+    colors = _PALETTES[_parse_scheme(scheme)]
+    qp = QPalette()
+    qp.setColor(QPalette.ColorRole.Window, QColor(colors.base))
+    qp.setColor(QPalette.ColorRole.WindowText, QColor(colors.text))
+    qp.setColor(QPalette.ColorRole.Base, QColor(colors.mantle))
+    qp.setColor(QPalette.ColorRole.AlternateBase, QColor(colors.surface0))
+    qp.setColor(QPalette.ColorRole.Text, QColor(colors.text))
+    qp.setColor(QPalette.ColorRole.Button, QColor(colors.surface0))
+    qp.setColor(QPalette.ColorRole.ButtonText, QColor(colors.text))
+    qp.setColor(QPalette.ColorRole.Highlight, QColor(colors.blue))
+    qp.setColor(QPalette.ColorRole.HighlightedText, QColor(colors.crust))
+    qp.setColor(QPalette.ColorRole.ToolTipBase, QColor(colors.surface0))
+    qp.setColor(QPalette.ColorRole.ToolTipText, QColor(colors.text))
+    qp.setColor(QPalette.ColorRole.PlaceholderText, QColor(colors.overlay0))
+    return qp
 
-POD_CTRL = f"""
-    QPushButton {{
-        background: transparent;
-        color: {C.SUBTEXT0};
-        border: none;
-        border-radius: {RADIUS_S}px;
-        padding: 4px 8px;
-        font-size: 16px;
-        min-width: 26px;
-        max-height: 24px;
-    }}
-    QPushButton:hover {{
-        color: {C.TEXT};
-        background: {C.SURFACE1};
-    }}
-    QPushButton:disabled {{
-        color: {C.SURFACE2};
-    }}
-"""
 
-# Status Banner: shown below top bar when pod is stopped/paused.
-STATUS_BANNER_WARN = f"""
-    QFrame#statusBanner {{
-        background: {C.SURFACE0};
-        border-bottom: 1px solid {C.SURFACE1};
-        min-height: 36px;
-        max-height: 36px;
-    }}
-"""
+_FONT_DIR = Path(__file__).with_name("fonts")
+_BUNDLED_FONTS = ("selawk.ttf", "selawksb.ttf", "selawkb.ttf")
+_fonts_loaded = False
 
-# Form Inputs
-INPUT = f"""
-    QLineEdit {{
-        background: {C.MANTLE};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE1};
-        border-radius: {RADIUS_M}px;
-        padding: 9px 13px;
-        font-size: 13px;
-        min-height: 18px;
-        selection-background-color: {C.BLUE};
-        selection-color: {C.CRUST};
-    }}
-    QLineEdit:hover {{
-        border-color: {C.SURFACE2};
-        background: {C.BASE};
-    }}
-    QLineEdit:focus {{
-        border-color: {C.BLUE};
-        background: {C.BASE};
-    }}
-    QLineEdit:read-only {{
-        background: {C.SURFACE0};
-        color: {C.OVERLAY0};
-        border-color: transparent;
-    }}
-"""
 
-COMBO = f"""
-    QComboBox {{
-        background: {C.MANTLE};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE1};
-        border-radius: {RADIUS_M}px;
-        padding: 8px 30px 8px 13px;
-        font-size: 13px;
-        min-height: 20px;
-    }}
-    QComboBox:hover {{
-        border-color: {C.SURFACE2};
-        background: {C.BASE};
-    }}
-    QComboBox:focus {{
-        border-color: {C.BLUE};
-    }}
-    QComboBox::drop-down {{
-        border: none;
-        width: 26px;
-    }}
-    QComboBox::down-arrow {{
-        image: none;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-top: 5px solid {C.SUBTEXT0};
-        width: 0;
-        height: 0;
-        margin-right: 10px;
-    }}
-    QComboBox QAbstractItemView {{
-        background: {C.SURFACE0};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE1};
-        border-radius: 6px;
-        selection-background-color: {C.SURFACE1};
-        selection-color: {C.BLUE};
-        outline: none;
-        padding: 4px;
-    }}
-"""
+def _load_bundled_fonts() -> None:
+    global _fonts_loaded
+    if _fonts_loaded:
+        return
+    from PySide6.QtGui import QFontDatabase
 
-SEARCH_BAR = f"""
-    QLineEdit {{
-        background: {C.SURFACE0};
-        color: {C.TEXT};
-        border: 2px solid transparent;
-        border-radius: {RADIUS_L}px;
-        padding: 10px 16px 10px 14px;
-        font-size: 14px;
-        min-height: 20px;
-    }}
-    QLineEdit:hover {{
-        border-color: {C.SURFACE1};
-    }}
-    QLineEdit:focus {{
-        border-color: {C.BLUE};
-        background: {C.BASE};
-    }}
-"""
+    for name in _BUNDLED_FONTS:
+        path = _FONT_DIR / name
+        if path.is_file():
+            QFontDatabase.addApplicationFont(str(path))
+    _fonts_loaded = True
 
-# Buttons
-BTN_PRIMARY = f"""
-    QPushButton {{
-        background: {rgba(C.BLUE, 0.88)};
-        color: {C.CRUST};
-        font-size: 13px;
-        font-weight: 500;
-        border: 1px solid {rgba(C.LAVENDER, 0.22)};
-        border-radius: {RADIUS_M}px;
-        padding: 8px 18px;
-        min-height: 18px;
-    }}
-    QPushButton:hover {{ background: {C.BLUE}; }}
-    QPushButton:pressed {{
-        background: {C.SAPPHIRE};
-        border: 1px solid {rgba(C.BLUE, 0.34)};
-    }}
-    QPushButton:disabled {{
-        background: {C.SURFACE1};
-        color: {C.OVERLAY0};
-        border: 1px solid transparent;
-    }}
-"""
 
-BTN_SECONDARY = f"""
-    QPushButton {{
-        background: {rgba(C.SURFACE0, 0.72)};
-        color: {C.TEXT};
-        font-size: 13px;
-        font-weight: 400;
-        border: 1px solid {rgba(C.SURFACE2, 0.38)};
-        border-radius: {RADIUS_M}px;
-        padding: 8px 15px;
-        min-height: 18px;
-    }}
-    QPushButton:hover {{
-        background: {rgba(C.SURFACE1, 0.72)};
-    }}
-    QPushButton:pressed {{ background: {C.SURFACE2}; }}
-"""
+def _ui_font_family() -> str | None:
+    """Windows UI face: ``Segoe UI`` when installed, else the bundled Selawik (OFL)."""
+    from PySide6.QtGui import QFontDatabase
 
-BTN_ACCENT = f"""
-    QPushButton {{
-        background: {ACCENT_GREEN};
-        color: {C.CRUST};
-        font-size: 13px;
-        font-weight: 500;
-        border: 1px solid {rgba(C.TEXT, 0.10)};
-        border-radius: {RADIUS_M}px;
-        padding: 7px 16px;
-        min-height: 16px;
-    }}
-    QPushButton:hover {{ background: {ACCENT_GREEN_HOVER}; }}
-    QPushButton:pressed {{ background: {ACCENT_GREEN_PRESSED}; }}
-    QPushButton:disabled {{
-        background: {C.SURFACE1};
-        color: {C.OVERLAY0};
-        border: 1px solid transparent;
-    }}
-"""
+    _load_bundled_fonts()
+    families = set(QFontDatabase.families())
+    for candidate in ("Segoe UI Variable", "Segoe UI", "Selawik"):
+        if candidate in families:
+            return candidate
+    return None
 
-BTN_DANGER = f"""
-    QPushButton {{
-        background: transparent;
-        color: {C.PEACH};
-        font-size: 13px;
-        font-weight: 400;
-        border: 1px solid {rgba(C.RED, 0.24)};
-        border-radius: {RADIUS_M}px;
-        padding: 7px 12px;
-        min-height: 16px;
-    }}
-    QPushButton:hover {{
-        background: {rgba(C.RED, 0.18)};
-        color: {C.RED};
-        border-color: {C.RED};
-    }}
-    QPushButton:pressed {{
-        background: {C.RED};
-        color: {C.CRUST};
-    }}
-    QPushButton:disabled {{
-        color: {C.OVERLAY0};
-        border-color: {C.SURFACE1};
-        background: transparent;
-    }}
-"""
 
-BTN_GHOST = f"""
-    QPushButton {{
-        background: transparent;
-        color: {C.SUBTEXT0};
-        font-size: 12px;
-        font-weight: 400;
-        border: none;
-        border-radius: {RADIUS_S}px;
-        padding: 7px 12px;
-        min-height: 16px;
-    }}
-    QPushButton:hover {{
-        color: {C.TEXT};
-        background: {C.SURFACE0};
-    }}
-    QPushButton:checked {{
-        color: {C.BLUE};
-        background: {rgba(C.BLUE, 0.12)};
-    }}
-    QPushButton:disabled {{
-        color: {C.SURFACE2};
-    }}
-"""
+def ui_font(base: QFont) -> QFont:
+    """The app font: Windows UI face at the desktop's point size (falls back to ``base``)."""
+    from PySide6.QtGui import QFont
 
-# Filter chip.
-FILTER_CHIP = f"""
-    QPushButton {{
-        background: {rgba(C.SURFACE0, 0.72)};
-        color: {C.SUBTEXT0};
-        font-size: 12px;
-        font-weight: 400;
-        border: 1px solid {rgba(C.SURFACE2, 0.36)};
-        border-radius: 13px;
-        padding: 5px 16px;
-        min-height: 18px;
-    }}
-    QPushButton:hover {{
-        color: {C.TEXT};
-        border-color: {C.OVERLAY0};
-        background: {C.SURFACE1};
-    }}
-    QPushButton:checked {{
-        color: {C.BLUE};
-        border-color: {C.BLUE};
-        background: {rgba(C.BLUE, 0.12)};
-        font-weight: 500;
-    }}
-"""
+    family = _ui_font_family()
+    if family is None:
+        return QFont(base)
+    font = QFont(family)
+    if base.pointSize() > 0:
+        font.setPointSize(base.pointSize())
+    elif base.pixelSize() > 0:
+        font.setPixelSize(base.pixelSize())
+    return font
 
-# View toggle (grid/list).
-VIEW_TOGGLE = f"""
-    QPushButton {{
-        background: {C.SURFACE0};
-        color: {C.OVERLAY0};
-        font-size: 14px;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        padding: 6px 10px;
-        min-width: 32px;
-    }}
-    QPushButton:hover {{
-        color: {C.TEXT};
-        background: {rgba(C.BLUE, 0.14)};
-        border-color: {rgba(C.BLUE, 0.26)};
-    }}
-    QPushButton:checked {{
-        color: {C.BLUE};
-        background: {C.SURFACE1};
-    }}
-"""
 
-# App Tile (list view).
-APP_TILE = f"""
-    QFrame#appTile {{
-        background: {rgba(C.SURFACE0, 0.70)};
-        border: {CARD_BORDER};
-        border-top: 1px solid rgba(255, 255, 255, 0.045);
-        border-radius: {RADIUS_L}px;
-    }}
-    QFrame#appTile:hover {{
-        background: {rgba(C.SURFACE1, 0.52)};
-        border: {CARD_BORDER_HOVER};
-    }}
-"""
+def apply_to_app(app: QApplication) -> None:
+    """Set Fusion, the Windows UI face at the desktop size, and the current palette."""
+    app.setStyle("Fusion")
+    app.setFont(ui_font(app.font()))
+    app.setPalette(palette_for(current_scheme()))
 
-# Tool Action Row (maintenance page).
-ACTION_ROW = f"""
-    QFrame#actionRow {{
-        background: {rgba(C.SURFACE0, 0.68)};
-        border: {CARD_BORDER};
-        border-top: 1px solid rgba(255, 255, 255, 0.04);
-        border-radius: {RADIUS_XL}px;
-    }}
-    QFrame#actionRow:hover {{
-        background: {rgba(C.SURFACE1, 0.50)};
-        border-color: {rgba(C.SURFACE2, 0.64)};
-    }}
-"""
 
-# Settings Section
-SETTINGS_SECTION = f"""
-    QFrame#settingsSection {{
-        background: {rgba(C.SURFACE0, 0.70)};
-        border: {CARD_BORDER};
-        border-top: 1px solid rgba(255, 255, 255, 0.045);
-        border-radius: {RADIUS_XXL}px;
-    }}
-"""
+# Populated by ``rebuild`` below. Declared so importers and type checkers see them.
+CARD_BORDER: str
+CARD_BORDER_HOVER: str
+FOCUS_RING: str
+FOCUS_RING_ON_ACCENT: str
+FOCUS_RING_ON_SELECTION: str
+ACCENT_GREEN: str
+ACCENT_GREEN_HOVER: str
+ACCENT_GREEN_PRESSED: str
+TOOL_ACCENT: str
+TOOL_ICON_BG: str
+TOOL_ICON_BORDER: str
+TOOL_ICON_FG: str
+GLOBAL_STYLE: str
+POD_CHIP: str
+POD_CTRL: str
+STATUS_BANNER_WARN: str
+INPUT: str
+COMBO: str
+SEARCH_BAR: str
+BTN_PRIMARY: str
+BTN_SECONDARY: str
+BTN_ACCENT: str
+BTN_DANGER: str
+BTN_GHOST: str
+FILTER_CHIP: str
+VIEW_TOGGLE: str
+APP_TILE: str
+ACTION_ROW: str
+SETTINGS_SECTION: str
+SECTION_CARD: str
+EMPTY_STATE: str
+SECTION_LABEL: str
+PAGE_TITLE: str
+PAGE_SUBTITLE: str
+BADGE: str
+CHECKBOX: str
+RADIO: str
+LIST_WIDGET: str
+SCROLL_AREA: str
+TERMINAL: str
+PLAIN_TEXT: str
+DIALOG: str
+INFO_BAR: str
+SIDEBAR: str
+NAV_ITEM: str
+TOP_STRIP: str
+NAV_PANE: str
+NAV_SEARCH: str
+SETTINGS_CARD: str
+SETTINGS_CARD_HOVER: str
+TOGGLE_SWITCH: str
+HYPERLINK_BTN: str
+START_TILE: str
+PAGE_HEADER: str
+BREADCRUMB: str
+TAB_BAR: str
+SLIDER: str
+SPIN_BOX: str
+PROGRESS: str
 
-SECTION_CARD = SETTINGS_SECTION
 
-EMPTY_STATE = f"""
-    QFrame#emptyState {{
-        background: {rgba(C.SURFACE0, 0.72)};
-        border: 1px dashed {C.SURFACE2};
-        border-radius: {RADIUS_XL}px;
-    }}
-"""
+def _initial_scheme() -> str:
+    override = os.environ.get("WINPODX_COLOR_SCHEME", "").strip().lower()
+    return override if override in (SCHEME_LIGHT, SCHEME_DARK) else SCHEME_LIGHT
 
-SECTION_LABEL = f"""
-    QLabel {{
-        background: transparent;
-        color: {C.SUBTEXT0};
-        font-size: {FONT_CAPTION}px;
-        font-weight: 600;
-        text-transform: uppercase;
-    }}
-"""
 
-PAGE_TITLE = f"""
-    QLabel {{
-        background: transparent;
-        color: {C.TEXT};
-        font-size: 20pt;
-        font-weight: 700;
-    }}
-"""
-
-PAGE_SUBTITLE = f"""
-    QLabel {{
-        background: transparent;
-        color: {C.OVERLAY0};
-        font-size: 11pt;
-        font-weight: 400;
-    }}
-"""
-
-BADGE = f"""
-    QLabel {{
-        border-radius: {RADIUS_S}px;
-        padding: 2px 7px;
-        font-size: {FONT_CAPTION}px;
-        font-weight: 500;
-    }}
-"""
-
-CHECKBOX = f"""
-    QCheckBox {{
-        color: {C.SUBTEXT1};
-        font-size: {FONT_BODY}px;
-        spacing: 8px;
-    }}
-    QCheckBox::indicator {{
-        width: 16px;
-        height: 16px;
-        border-radius: 4px;
-        border: 1px solid {C.SURFACE2};
-        background: {C.MANTLE};
-    }}
-    QCheckBox::indicator:hover {{
-        border-color: {C.BLUE};
-    }}
-    QCheckBox::indicator:checked {{
-        background: {C.BLUE};
-        border-color: {C.BLUE};
-    }}
-    QCheckBox:disabled {{
-        color: {C.OVERLAY0};
-    }}
-"""
-
-RADIO = f"""
-    QRadioButton {{
-        color: {C.SUBTEXT1};
-        font-size: {FONT_BODY}px;
-        spacing: 8px;
-    }}
-    QRadioButton::indicator {{
-        width: 15px;
-        height: 15px;
-        border-radius: 8px;
-        border: 1px solid {C.SURFACE2};
-        background: {C.MANTLE};
-    }}
-    QRadioButton::indicator:checked {{
-        border: 1px solid {C.BLUE};
-        background: {C.CRUST};
-    }}
-"""
-
-LIST_WIDGET = f"""
-    QListWidget {{
-        background: {C.MANTLE};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE1};
-        border-radius: {RADIUS_M}px;
-        padding: 6px;
-        outline: none;
-    }}
-    QListWidget::item {{
-        padding: 6px 8px;
-        border-radius: {RADIUS_S}px;
-    }}
-    QListWidget::item:selected {{
-        background: {rgba(C.BLUE, 0.18)};
-        color: {C.BLUE};
-    }}
-"""
-
-# Scroll Area
-SCROLL_AREA = f"""
-    QScrollArea {{
-        border: none;
-        background: transparent;
-    }}
-    QScrollBar:vertical {{
-        background: transparent;
-        width: 8px;
-        margin: 0;
-        border-radius: 4px;
-    }}
-    QScrollBar::handle:vertical {{
-        background: {C.SURFACE1};
-        min-height: 24px;
-        border-radius: 4px;
-    }}
-    QScrollBar::handle:vertical:hover {{
-        background: {C.SURFACE2};
-    }}
-    QScrollBar::add-line:vertical,
-    QScrollBar::sub-line:vertical {{
-        height: 0;
-    }}
-    QScrollBar::add-page:vertical,
-    QScrollBar::sub-page:vertical {{
-        background: none;
-    }}
-    QScrollBar:horizontal {{
-        background: transparent;
-        height: 8px;
-        margin: 0;
-        border-radius: 4px;
-    }}
-    QScrollBar::handle:horizontal {{
-        background: {C.SURFACE1};
-        min-width: 24px;
-        border-radius: 4px;
-    }}
-    QScrollBar::handle:horizontal:hover {{
-        background: {C.SURFACE2};
-    }}
-    QScrollBar::add-line:horizontal,
-    QScrollBar::sub-line:horizontal {{
-        width: 0;
-    }}
-"""
-
-# Terminal Dock
-TERMINAL = f"""
-    QTextEdit {{
-        background: {C.CRUST};
-        color: {C.SUBTEXT1};
-        font-family: 'JetBrains Mono', 'Fira Code',
-                     'Cascadia Code', monospace;
-        font-size: 12px;
-        border: 1px solid {C.SURFACE0};
-        border-radius: {RADIUS_L}px;
-        padding: 14px;
-        selection-background-color: {C.SURFACE1};
-    }}
-"""
-
-PLAIN_TEXT = f"""
-    QPlainTextEdit {{
-        background: {C.CRUST};
-        color: {C.SUBTEXT1};
-        font-family: 'JetBrains Mono', 'Fira Code',
-                     'Cascadia Code', monospace;
-        font-size: 12px;
-        border: 1px solid {C.SURFACE0};
-        border-radius: {RADIUS_L}px;
-        padding: 12px;
-        selection-background-color: {C.SURFACE1};
-    }}
-"""
-
-DIALOG = f"""
-    QDialog {{
-        background: {C.MANTLE};
-        color: {C.TEXT};
-    }}
-    QLabel {{
-        background: transparent;
-        color: {C.TEXT};
-    }}
-    QToolTip {{
-        background: {C.SURFACE0};
-        color: {C.TEXT};
-        border: 1px solid {C.SURFACE2};
-        border-radius: {RADIUS_S}px;
-        padding: 6px 8px;
-        font-size: {FONT_CAPTION}px;
-    }}
-"""
-
-# Bottom Info Bar
-INFO_BAR = f"""
-    QWidget#infoBar {{
-        background: {C.BASE};
-        border-top: 1px solid rgba(255, 255, 255, 0.04);
-        min-height: 32px;
-        max-height: 32px;
-    }}
-"""
-
-# Left navigation sidebar (vertical nav, Start-menu style).
-SIDEBAR = f"""
-    QFrame#sideBar {{
-        background: {C.BASE};
-        border-right: 1px solid {C.SURFACE1};
-    }}
-"""
-
-# Sidebar nav item: icon + left-aligned label; active row gets a blue wash.
-NAV_ITEM = f"""
-    QPushButton#navItem {{
-        background: transparent;
-        color: {C.SUBTEXT0};
-        border: none;
-        border-radius: {RADIUS_M}px;
-        padding: 9px 12px;
-        text-align: left;
-        font-size: {FONT_BODY}px;
-        font-weight: 500;
-    }}
-    QPushButton#navItem:hover {{
-        background: {rgba(C.SURFACE1, 0.55)};
-        color: {C.TEXT};
-    }}
-    QPushButton#navItem:checked {{
-        background: {rgba(C.BLUE, 0.14)};
-        color: {C.BLUE};
-        font-weight: 600;
-    }}
-"""
-
-# Slim top strip above the pages (right-aligned pod chip + controls).
-TOP_STRIP = f"""
-    QWidget#topStrip {{
-        background: {C.BASE};
-        border-bottom: 1px solid {C.SURFACE1};
-        min-height: 52px;
-        max-height: 52px;
-    }}
-"""
+rebuild(_initial_scheme())

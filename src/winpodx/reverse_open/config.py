@@ -124,7 +124,7 @@ class ReverseOpenConfig:
         self.denylist = [s for s in self.denylist if isinstance(s, str) and _SLUG_RE.fullmatch(s)]
 
         # Validate ISO-8601. ``fromisoformat`` learned to handle the
-        # trailing ``Z`` suffix only in 3.11; we still support 3.9 so
+        # trailing ``Z`` suffix only in 3.11; we still support 3.10 so
         # we normalise ``Z`` → ``+00:00`` before parsing.
         if not isinstance(self.last_synced_at, str):
             self.last_synced_at = ""

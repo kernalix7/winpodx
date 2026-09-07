@@ -287,14 +287,20 @@ def maint(monkeypatch):
     return _MaintHarness(_cfg())
 
 
-def _action_rows(widget) -> list:
-    return [f for f in widget.findChildren(QFrame) if f.objectName() == "actionRow"]
+def _settings_cards(widget) -> list:
+    return widget.findChildren(QFrame, "settingsCard")
 
 
 def test_build_maintenance_page_renders_every_tool_row(maint):
     page = maint.build_page()
-    # 3 Pod-Management rows + 6 System rows, and no session rows (none live).
-    assert len(_action_rows(page)) == 9
+    # Win11 SettingsCard rows replace the old actionRow chrome: 3 Pod-Management
+    # + 6 System actions. Session rows use sessionCard so they are not counted.
+    cards = _settings_cards(page)
+    assert len(cards) == 9
+    for card in cards:
+        assert getattr(card, "title_label", None) is not None
+        assert getattr(card, "action_widget", None) is not None
+        assert card.graphicsEffect() is None
     labels = {lbl.text() for lbl in page.findChildren(QLabel)}
     for expected in ("Suspend Pod", "Resume Pod", "Full Desktop", "Clean Locks"):
         assert expected in labels
@@ -309,8 +315,10 @@ def test_build_maintenance_page_renders_every_tool_row(maint):
 def test_action_row_click_invokes_its_handler(maint):
     fired = []
     row = maint._make_action_row("gear", "Label", "Desc", lambda: fired.append(1), 2)
-    assert row.objectName() == "actionRow"
-    row.mousePressEvent(None)
+    # Win11 SettingsCard: the 32px action control is the click target, not the
+    # whole row's mousePressEvent.
+    assert row.objectName() == "settingsCard"
+    row.action_widget.click()
     assert fired == [1]
 
 
@@ -321,16 +329,140 @@ def test_action_row_maps_legacy_unicode_glyph(maint):
     assert not icon.pixmap().isNull()
 
 
+def _tool_card_by_title(page, title: str):
+    return next(c for c in _settings_cards(page) if c.title_label.text() == title)
+
+
+def _group_titles(page) -> list[str]:
+    return [
+        lbl.text() for lbl in page.findChildren(QLabel) if lbl.objectName() == "settingsGroupTitle"
+    ]
+
+
+def _cards_under_group(page, title: str) -> list:
+    for label in page.findChildren(QLabel):
+        if label.objectName() != "settingsGroupTitle":
+            continue
+        if not label.text().startswith(title):
+            continue
+        section = label.parentWidget()
+        if section is None:
+            continue
+        return [
+            frame
+            for frame in section.findChildren(QFrame, "settingsCard")
+            if getattr(frame, "title_label", None) is not None
+        ]
+    return []
+
+
+def test_tool_rows_use_a_verb_button_not_a_chevron(maint):
+    page = maint.build_page()
+    row = _tool_card_by_title(page, "Debloat")
+    btn = row.action_widget
+    assert btn.property("w11Role") == "secondary"
+    assert btn.text() == "Debloat"
+    assert btn.minimumHeight() >= 32
+    assert "chevron" not in (btn.icon().name() if hasattr(btn.icon(), "name") else "")
+    assert row.minimumHeight() == 68
+
+
+def test_confirm_tool_rows_use_a_verb_button_not_a_chevron(maint):
+    page = maint.build_page()
+    grow = _tool_card_by_title(page, "Grow Disk")
+    assert grow.action_widget.property("w11Role") == "secondary", (
+        "irreversible-but-additive: the confirm dialog carries the danger styling, not the row"
+    )
+    assert grow.action_widget.text() == "Grow Disk"
+    assert grow.action_widget.minimumHeight() >= 32
+    assert grow.minimumHeight() == 68
+
+    sync = _tool_card_by_title(page, "Sync Guest")
+    assert sync.action_widget.property("w11Role") == "secondary"
+    assert sync.action_widget.text() == "Sync Guest"
+    assert sync.action_widget.minimumHeight() >= 32
+
+
+def test_pod_and_guest_groups_split_existing_actions(maint):
+    page = maint.build_page()
+    titles = _group_titles(page)
+    assert any(t == "Pod Management" for t in titles)
+    assert any(t == "System" for t in titles)
+    pod = {c.title_label.text() for c in _cards_under_group(page, "Pod Management")}
+    guest = {c.title_label.text() for c in _cards_under_group(page, "System")}
+    assert pod == {
+        "Suspend Pod",
+        "Resume Pod",
+        "Full Desktop",
+        "Grow Disk",
+        "Sync Guest",
+    }
+    assert guest == {"Clean Locks", "Sync Time", "Debloat", "Apply Windows Fixes"}
+
+
+def test_running_pod_actions_disable_when_pod_is_stopped(maint):
+    page = maint.build_page()
+    maint._sync_tools_pod_state("stopped")
+    debloat = _tool_card_by_title(page, "Debloat")
+    assert not debloat.action_widget.isEnabled()
+    assert debloat.desc_label.text() == "Pod is stopped"
+    clean = _tool_card_by_title(page, "Clean Locks")
+    assert clean.action_widget.isEnabled()
+    desktop = _tool_card_by_title(page, "Full Desktop")
+    assert desktop.action_widget.isEnabled()
+    maint._sync_tools_pod_state("running")
+    assert debloat.action_widget.isEnabled()
+    assert "Disable telemetry" in debloat.desc_label.text()
+
+
+def test_session_row_is_compact_with_terminate_ghost(maint):
+    row = maint._make_session_row("word", 4242)
+    assert row.objectName() == "sessionCard"
+    assert row.minimumHeight() == 48
+    assert row.title_label.text() == "word"
+    assert row.desc_label.text() == "PID 4242"
+    btn = row.action_widget
+    assert btn.property("w11Role") == "ghost"
+    assert btn.text() == "Terminate"
+    assert btn.minimumHeight() >= 32
+    icon = next(lbl for lbl in row.findChildren(QLabel) if not lbl.pixmap().isNull())
+    assert icon.width() == 24
+
+
 def test_sessions_panel_lists_live_sessions(monkeypatch):
     sessions = [TrackedProcess("word", 4242), TrackedProcess("excel", 4243)]
     monkeypatch.setattr("winpodx.core.process.list_active_sessions", lambda: sessions)
     harness = _MaintHarness(_cfg())
     page = harness.build_page()
-    # 9 tool rows + one row per live session.
-    assert len(_action_rows(page)) == 11
+    # Tool actions stay settingsCard; live sessions are compact sessionCard rows.
+    assert len(_settings_cards(page)) == 9
+    session_rows = page.findChildren(QFrame, "sessionCard")
+    assert len(session_rows) == 2
     texts = {lbl.text() for lbl in page.findChildren(QLabel)}
     assert "word" in texts and "excel" in texts
     assert "PID 4242" in texts
+    assert "RDP Sessions · 2" in texts
+
+
+def test_sessions_group_header_shows_zero_count_when_empty(maint):
+    page = maint.build_page()
+    titles = _group_titles(page)
+    assert "RDP Sessions · 0" in titles
+
+
+def test_sessions_panel_force_refresh_renders_fake_session(monkeypatch):
+    monkeypatch.setattr("winpodx.core.process.list_active_sessions", lambda: [])
+    harness = _MaintHarness(_cfg())
+    harness.build_page()
+    monkeypatch.setattr(
+        "winpodx.core.process.list_active_sessions",
+        lambda: [TrackedProcess("notepad", 7)],
+    )
+    harness._refresh_sessions_panel(force=True)
+    rows = harness.page.findChildren(QFrame, "sessionCard")
+    assert len(rows) == 1
+    assert rows[0].graphicsEffect() is None
+    assert getattr(rows[0], "action_widget", None) is not None
 
 
 def test_sessions_panel_skips_rebuild_when_unchanged(monkeypatch):
@@ -1080,7 +1212,7 @@ def test_build_logs_page_wires_the_terminal_widgets(logs):
     page = logs.build_page()
     assert isinstance(logs.log_output, QTextEdit)
     assert logs.log_output.isReadOnly()
-    assert logs.log_output.lineWrapMode() == QTextEdit.LineWrapMode.NoWrap
+    assert logs.log_output.lineWrapMode() == QTextEdit.LineWrapMode.WidgetWidth
     assert logs.log_output.minimumWidth() > 0
     assert "winpodx-windows" in logs.cmd_input.placeholderText()
 
@@ -1090,23 +1222,20 @@ def test_build_logs_page_wires_the_terminal_widgets(logs):
     assert levels == ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "RAW"]
     assert combo.currentData() == "INFO"  # mirrors cfg.logging.level
 
-    labels = [b.text() for b in page.findChildren(QPushButton)]
-    assert labels == [
-        "Status",
-        "Pod logs",
-        "App log",
-        "Inspect",
-        "RDP Test",
-        "Clear",
-        "Run",
-    ]
+    names = {b.accessibleName() or b.text() for b in page.findChildren(QPushButton)}
+    for expected in ("Status", "Pod logs", "App log", "Inspect", "RDP Test", "Clear", "Run"):
+        assert expected in names
 
 
 def test_clear_button_empties_the_terminal(logs):
     page = logs.build_page()
     logs._log_append("noise")
     assert logs.log_output.toPlainText()
-    clear = [b for b in page.findChildren(QPushButton) if b.text() == "Clear"][0]
+    clear = next(
+        b
+        for b in page.findChildren(QPushButton)
+        if b.text() == "Clear" or b.accessibleName() == "Clear"
+    )
     clear.click()
     assert logs.log_output.toPlainText() == ""
 
@@ -1665,6 +1794,11 @@ def _rows(harness, key):
         widget = body.itemAt(i).widget()
         if widget is None:
             continue
+        title = getattr(widget, "title_label", None)
+        action = getattr(widget, "action_widget", None)
+        if title is not None and action is not None:
+            out.append((title.text(), action.text()))
+            continue
         labels = widget.findChildren(QLabel)
         if len(labels) >= 2:
             out.append((labels[0].text(), labels[-1].text()))
@@ -1677,6 +1811,18 @@ def _health_rows(harness):
     for i in range(body.count()):
         widget = body.itemAt(i).widget()
         if widget is None:
+            continue
+        title = getattr(widget, "title_label", None)
+        action = getattr(widget, "action_widget", None)
+        desc = getattr(widget, "desc_label", None)
+        if title is not None:
+            row = []
+            if action is not None:
+                row.append(action.text())
+            row.append(title.text())
+            if desc is not None and desc.text():
+                row.append(desc.text())
+            out.append(row)
             continue
         out.append([lbl.text() for lbl in widget.findChildren(QLabel)])
     return out
@@ -1775,8 +1921,10 @@ def test_render_health_card_shows_a_badge_per_probe(info):
     probes = rows[1:]
     assert [r[0] for r in probes] == ["OK", "WARN", "FAIL"]
     assert [r[1] for r in probes] == ["agent_health", "disk_free", "guest_exec"]
-    assert probes[0][2] == "agent replied"
-    assert probes[2][3] == "41ms"
+    # Duration now lives in the SettingsCard description (Win11 row), not a
+    # fourth QLabel column.
+    assert "agent replied" in probes[0][2]
+    assert "41ms" in probes[2][2]
 
 
 def test_render_health_card_handles_no_probes(info):

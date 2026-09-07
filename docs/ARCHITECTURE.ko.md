@@ -38,17 +38,17 @@ Pod 의 명령 채널은 게스트 안에서 `127.0.0.1:8765` 에 listen 하는 
 
 | 레이어 | 기술 |
 |-------|------|
-| 언어 | Python 3.9+ (3.11+ 는 stdlib 만; 3.9/3.10 은 `tomli` 폴백) |
+| 언어 | Python 3.10+ (3.11+ 는 stdlib 만; 3.10 은 `tomli` 폴백) |
 | CLI | argparse (stdlib) |
 | GUI (선택) | PySide6 (Qt6) |
-| 설정 | TOML (3.11+ 는 stdlib `tomllib` / 3.9/3.10 은 `tomli`; 자체 writer) |
+| 설정 | TOML (3.11+ 는 stdlib `tomllib` / 3.10 은 `tomli`; 자체 writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
 | Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64 인코딩 `/exec` payload) |
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | 하이퍼바이저 | QEMU / KVM (dockur 컨테이너 내부; 호스트 USB / PCI 장치 패스스루가 이 레이어에 연결됨) |
 | Reverse-open shim | Rust (`windows_subsystem = "windows"`, vendored rcedit 로 슬러그별 아이콘 embed) |
 | i18n | `winpodx.core.i18n` (영어 원문을 key 로, 언어별 flat JSON 카탈로그) |
-| CI | GitHub Actions (lint + test on Python 3.9–3.14 + 88% coverage gate + pip-audit) |
+| CI | GitHub Actions (lint + test on Python 3.10–3.14 + 88% coverage gate + pip-audit) |
 
 ## 프로젝트 구조
 
@@ -62,7 +62,18 @@ winpodx/
 │   ├── backend/           # Podman, Docker, manual
 │   ├── desktop/           # .desktop 엔트리, 아이콘, MIME, tray, 알림
 │   ├── display/           # X11/Wayland 감지, DPI 스케일링
-│   ├── gui/               # Qt6 메인 윈도, 앱 다이얼로그, 테마, reverse-open Settings 카드
+│   ├── gui/               # Qt6 설정 스타일 셸, 페이지 믹스인, 실행기, 다이얼로그, 테마
+│   │   ├── main_window.py # 셸 조립과 페이지 순서
+│   │   ├── _main_window_navpane*.py, _main_window_header.py
+│   │   ├── _main_window_dashboard*.py, _main_window_library*.py
+│   │   ├── _main_window_settings*.py, _main_window_maintenance*.py
+│   │   ├── _main_window_logs*.py, _main_window_info*.py, _main_window_devices*.py
+│   │   ├── _main_window_license*.py, _main_window_pod.py, _main_window_secondary_style.py
+│   │   ├── _title_bar.py, _frameless.py, _shell_geometry.py
+│   │   ├── theme.py, theme_manager.py, _theme_qss*.py
+│   │   ├── launcher.py, _launcher_*.py, launcher_state.py, launcher_style.py
+│   │   ├── fonts/         # 번들 Selawik 대체 글꼴과 OFL 라이선스
+│   │   └── icons/         # 번들 SVG 아이콘 로더, 렌더링, 재색칠, 캐시
 │   ├── reverse_open/      # Discovery, ICO 변환, listener daemon, sync transport
 │   └── utils/             # XDG 경로, 의존성, TOML writer, winapps 호환
 ├── data/                  # winpodx GUI desktop 엔트리 + 아이콘 + 설정 예시

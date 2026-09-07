@@ -6,6 +6,7 @@ Fluent Design System with Acrylic/Mica background, Reveal highlight, animations.
 """
 
 import configparser
+import html
 import os
 import subprocess
 import sys
@@ -53,6 +54,8 @@ from PySide6.QtWidgets import (
 )
 
 from winpodx.core.app import list_available_apps
+from winpodx.gui import launcher_state, theme, theme_manager
+from winpodx.gui._launcher_start import LauncherStartMixin
 
 # ---------------------------------------------------------------------------
 # Constants — Fluent Design / Mica Dark palette
@@ -80,19 +83,6 @@ def save_config(cfg: configparser.ConfigParser):
     with open(CONFIG_PATH, "w") as f:
         cfg.write(f)
 
-
-# Mica-dark solid colours
-BG_COLOR = QColor(32, 32, 32)
-SURFACE = QColor(43, 43, 43)
-SURFACE_HOVER = QColor(50, 50, 50)
-SURFACE_PRESS = QColor(39, 39, 39)
-TILE_DEFAULT = QColor(43, 43, 43)
-TILE_HOVER = QColor(50, 50, 50)
-BORDER_SUBTLE = QColor(255, 255, 255, 20)
-BORDER_FOCUS = QColor(96, 205, 255)
-TEXT_PRIMARY = QColor(255, 255, 255)
-TEXT_SECONDARY = QColor(255, 255, 255, 140)
-ACCENT = QColor(96, 205, 255)
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "Productivity": [
@@ -232,37 +222,48 @@ class RevealTile(QFrame):
         self._hover_progress = 0.0
         self._selected = False
 
-        self.setMinimumSize(130, 108)
+        self.setObjectName("startTile")
+        self.setStyleSheet(theme.START_TILE)
+        self.setToolTip(html.escape(entry.name))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
         icon = load_icon(entry.icon)
         self._icon_label = QLabel()
-        self._icon_label.setPixmap(icon.pixmap(36, 36))
+        self._icon_label.setPixmap(icon.pixmap(32, 32))
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_label.setStyleSheet("background: transparent;")
         layout.addWidget(self._icon_label)
 
         self._name_label = QLabel(entry.name)
+        self._name_label.setTextFormat(Qt.TextFormat.PlainText)
         self._name_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         # #553: FIXED (not max) width so the word-wrap label's heightForWidth is
         # a constant and can't feed the viewport width back into its height —
         # that feedback re-enters QBoxLayout::setGeometry without bound on Qt
         # 6.11 (this tile lives in a setWidgetResizable QScrollArea) -> SIGSEGV.
-        self._name_label.setFixedWidth(180)
+        self._name_label.setFixedWidth(104)
         self._name_label.setWordWrap(True)
         self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        self._name_label.setMaximumHeight(38)
         font = QFont("Segoe UI", 10)
         font.setStyleHint(QFont.StyleHint.SansSerif)
         self._name_label.setFont(font)
-        self._name_label.setStyleSheet("color: #FFFFFF;")
+        self._name_label.setStyleSheet(f"color: {theme.C.TEXT}; background: transparent;")
+        self._name_label.ensurePolished()
+        metrics = self._name_label.fontMetrics()
+        wrap_flags = self._name_label.alignment() | Qt.TextFlag.TextWordWrap
+        required = metrics.boundingRect(0, 0, 104, 0, wrap_flags, entry.name).height()
+        label_height = min(max(metrics.lineSpacing(), required), 2 * metrics.lineSpacing())
+        self._name_label.setFixedHeight(label_height)
         layout.addWidget(self._name_label)
+        self.setFixedSize(120, 8 + 32 + 8 + label_height + 8)
+        self._running = False
 
         self._hover_anim = QPropertyAnimation(self, b"hover_progress")
         self._hover_anim.setDuration(120)
@@ -309,42 +310,42 @@ class RevealTile(QFrame):
             self._launch_cb(self._entry)
         super().mousePressEvent(event)
 
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self._launch_cb(self._entry)
+        super().keyPressEvent(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
+        path.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
         painter.setClipPath(path)
         if self._hover_progress > 0:
-            r = int(
-                TILE_DEFAULT.red() + (TILE_HOVER.red() - TILE_DEFAULT.red()) * self._hover_progress
-            )
-            g = int(
-                TILE_DEFAULT.green()
-                + (TILE_HOVER.green() - TILE_DEFAULT.green()) * self._hover_progress
-            )
-            b = int(
-                TILE_DEFAULT.blue()
-                + (TILE_HOVER.blue() - TILE_DEFAULT.blue()) * self._hover_progress
-            )
-            painter.fillPath(path, QColor(r, g, b))
-        else:
-            painter.fillPath(path, QColor(TILE_DEFAULT))
+            fill = QColor(theme.C.SURFACE1)
+            fill.setAlpha(int(180 * self._hover_progress))
+            painter.fillPath(path, fill)
         if self._hovered and self._cursor_pos.x() >= 0:
             gradient = QRadialGradient(self._cursor_pos, 80)
-            gradient.setColorAt(0.0, QColor(255, 255, 255, 30))
-            gradient.setColorAt(0.5, QColor(255, 255, 255, 10))
-            gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
+            glow = QColor(theme.C.TEXT)
+            glow.setAlpha(30)
+            mid = QColor(theme.C.TEXT)
+            mid.setAlpha(10)
+            fade = QColor(theme.C.TEXT)
+            fade.setAlpha(0)
+            gradient.setColorAt(0.0, glow)
+            gradient.setColorAt(0.5, mid)
+            gradient.setColorAt(1.0, fade)
             painter.fillPath(path, QBrush(gradient))
-        painter.setPen(
-            QColor(255, 255, 255, 20) if self._hover_progress < 0.5 else QColor(255, 255, 255, 35)
-        )
-        painter.drawPath(path)
         if self._selected:
-            c = QColor("#60CDFF")
+            c = QColor(theme.C.BLUE)
             c.setAlpha(200)
             painter.setPen(QPen(c, 2))
             painter.drawPath(path)
+        if getattr(self, "_running", False):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.C.GREEN))
+            painter.drawEllipse(self.width() - 10, self.height() - 10, 6, 6)
         painter.end()
         super().paintEvent(event)
 
@@ -359,17 +360,10 @@ class StyledScrollArea(QScrollArea):
         super().__init__(parent)
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
-                background: transparent; width: 6px; margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,0.2); border-radius: 3px; min-height: 30px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
-        """)
+        self.restyle()
+
+    def restyle(self) -> None:
+        self.setStyleSheet(theme.SCROLL_AREA)
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +381,8 @@ class PillBar(QScrollArea):
         self.setWidgetResizable(False)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setFixedHeight(34)
+        self.setMinimumHeight(theme.CONTROL_HEIGHT_W11)
+        self.setFixedHeight(theme.CONTROL_HEIGHT_W11)
         self.setStyleSheet("""
             QScrollArea { background: transparent; border: none; }
             QScrollBar:horizontal { background: transparent; height: 0; }
@@ -403,7 +398,9 @@ class PillBar(QScrollArea):
             btn = QPushButton(cat)
             btn.setFont(QFont(FONT_FAMILY, 12))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedHeight(28)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(theme.CONTROL_HEIGHT_W11)
+            btn.setFixedHeight(theme.CONTROL_HEIGHT_W11)
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             btn.clicked.connect(lambda checked=False, c=cat: self._select(c))
             self._buttons[cat] = btn
@@ -420,26 +417,9 @@ class PillBar(QScrollArea):
 
     def _update_style(self):
         for name, btn in self._buttons.items():
-            if name == self._active:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: rgba(96,205,255,0.12); color: #FFFFFF;
-                        border: 1px solid #60CDFF; border-radius: 6px;
-                        padding: 5px 14px; font-size: 12px;
-                    }
-                """)
-            else:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: #2B2B2B; color: rgba(255,255,255,0.65);
-                        border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-                        padding: 5px 14px; font-size: 12px;
-                    }
-                    QPushButton:hover {
-                        background: #323232; color: #FFFFFF;
-                        border: 1px solid rgba(255,255,255,0.15);
-                    }
-                """)
+            btn.setChecked(name == self._active)
+            btn.setStyleSheet(theme.FILTER_CHIP)
+            btn.setFixedHeight(theme.CONTROL_HEIGHT_W11)
 
 
 # ---------------------------------------------------------------------------
@@ -467,11 +447,14 @@ class LaunchNotification(QWidget):
         shadow.setOffset(0, 4)
         shadow.setColor(QColor(0, 0, 0, 120))
         container.setGraphicsEffect(shadow)
-        container.setStyleSheet("""
-            #notificationFrame {
-                background: #202020; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-            }
-        """)
+        container.setStyleSheet(
+            f"""
+            #notificationFrame {{
+                background: {theme.C.BASE}; border: {theme.CARD_BORDER};
+                border-radius: 10px;
+            }}
+            """
+        )
 
         layout = QHBoxLayout(container)
         layout.setContentsMargins(16, 0, 16, 0)
@@ -484,7 +467,7 @@ class LaunchNotification(QWidget):
 
         self._text_label = QLabel()
         self._text_label.setFont(QFont(FONT_FAMILY, 12))
-        self._text_label.setStyleSheet("color: #FFFFFF; background: transparent;")
+        self._text_label.setStyleSheet(f"color: {theme.C.TEXT}; background: transparent;")
         layout.addWidget(self._text_label)
 
     def show_for(self, app_name: str, app_icon: str):
@@ -544,9 +527,11 @@ class CompactListItem(QFrame):
         layout.addWidget(icon_lbl)
 
         name_lbl = QLabel(entry.name)
+        name_lbl.setTextFormat(Qt.TextFormat.PlainText)
         name_lbl.setFont(QFont(FONT_FAMILY, 12))
-        name_lbl.setStyleSheet("color: #FFFFFF;")
+        name_lbl.setStyleSheet(f"color: {theme.C.TEXT}; background: transparent;")
         layout.addWidget(name_lbl, 1)
+        self._name_label = name_lbl
         self._update_style()
 
     def set_selected(self, sel: bool):
@@ -556,12 +541,13 @@ class CompactListItem(QFrame):
     def _update_style(self):
         if self._selected:
             self.setStyleSheet(
-                "CompactListItem { background: rgba(96,205,255,0.15);"
+                f"CompactListItem {{ background: {theme.rgba(theme.C.BLUE, 0.15)};"
                 " border-radius: 6px; outline: none; }"
             )
         elif self._hovered:
             self.setStyleSheet(
-                "CompactListItem { background: #2B2B2B; border-radius: 6px; outline: none; }"
+                f"CompactListItem {{ background: {theme.C.SURFACE0}; "
+                "border-radius: 6px; outline: none; }"
             )
         else:
             self.setStyleSheet(
@@ -594,7 +580,7 @@ class CompactListItem(QFrame):
 # ---------------------------------------------------------------------------
 
 
-class LauncherWindow(QWidget):
+class LauncherWindow(LauncherStartMixin, QWidget):
     def __init__(self):
         super().__init__()
         self._visible = False
@@ -663,100 +649,27 @@ class LauncherWindow(QWidget):
     def _build_ui(self):
         outer = QFrame(self)
         self._outer = outer
-        outer.setObjectName("outerFrame")
-        # Mica-style: subtle vertical gradient — lighter top, darker bottom
-        outer.setStyleSheet("""
-            QFrame#outerFrame {
-                background: #202020;
-                border-radius: 12px;
-            }
-        """)
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(40)
-        shadow.setOffset(0, 12)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        outer.setGraphicsEffect(shadow)
+        outer.setObjectName("launcherRoot")
 
         layout = QVBoxLayout(outer)
         layout.setContentsMargins(7, 7, 7, 7)
         layout.setSpacing(8)
 
-        # ── Search bar ────────────────────────────────────────────────────
-        search_container = QFrame()
-        search_container.setFixedHeight(38)
-        search_container.setStyleSheet("""
-            QFrame {
-                background: #2B2B2B;
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 6px;
-            }
-        """)
-        search_row = QHBoxLayout(search_container)
-        search_row.setContentsMargins(0, 0, 0, 0)
-        search_row.setSpacing(0)
-
-        winpodx_icon = load_icon("winpodx", "application-x-executable")
-        self._winpodx_btn = QPushButton()
-        self._winpodx_btn.setIcon(winpodx_icon)
-        self._winpodx_btn.setIconSize(QSize(22, 22))
-        self._winpodx_btn.setFixedSize(42, 38)
-        self._winpodx_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._winpodx_btn.setToolTip("WinPodX")
-        self._winpodx_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; border: none;
-                border-radius: 6px 0 0 6px; padding: 0;
-            }
-            QPushButton:hover { background: #323232; }
-            QPushButton:pressed { background: #272727; }
-        """)
-        self._winpodx_btn.clicked.connect(self._launch_winpodx)
-        search_row.addWidget(self._winpodx_btn)
-
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(SEARCH_PLACEHOLDER)
         self.search_bar.setFont(QFont("Segoe UI", 11))
-        self.search_bar.setFixedHeight(38)
-        self.search_bar.setStyleSheet("""
-            QLineEdit {
-                background: transparent; color: #FFFFFF; border: none;
-                padding: 9px 8px; font-size: 13px;
-                selection-background-color: #60CDFF; selection-color: #000000;
-            }
-            QLineEdit:focus { background: #313131; }
-        """)
         self.search_bar.textChanged.connect(self._on_search)
         self.search_bar.returnPressed.connect(self._on_return)
-        search_row.addWidget(self.search_bar, 1)
+        layout.addWidget(self.search_bar)
 
-        # Settings glyph from the active icon theme (was a hardcoded absolute
-        # path to a dev machine, which 404'd everywhere else).
-        gear_icon = QIcon.fromTheme("configure")
-        if gear_icon.isNull():
-            gear_icon = QIcon.fromTheme("open-menu-symbolic")
-        self._gear_btn = QPushButton()
-        self._gear_btn.setIcon(gear_icon)
-        self._gear_btn.setIconSize(QSize(20, 20))
-        self._gear_btn.setFixedSize(38, 38)
-        self._gear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._gear_btn.setToolTip("Settings")
-        self._gear_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; border-radius: 0 6px 6px 0; }
-            QPushButton:hover { background: #323232; }
-            QPushButton:pressed { background: #272727; }
-        """)
-        self._gear_btn.clicked.connect(self._on_gear_clicked)
-        search_row.addWidget(self._gear_btn)
+        self._mount_start_sections(layout)
 
-        layout.addWidget(search_container)
-
-        # ── Category pills ────────────────────────────────────────────────
         pill_row = QHBoxLayout()
         pill_row.setContentsMargins(0, 0, 0, 0)
         pill_row.setSpacing(0)
 
         self._pill_bar = PillBar(CATEGORY_ORDER, self._set_category)
-        self._pill_bar.setFixedHeight(36)
+        self._pill_bar.setFixedHeight(theme.CONTROL_HEIGHT_W11)
         pill_row.addWidget(self._pill_bar, 1)
 
         layout.addLayout(pill_row)
@@ -769,7 +682,6 @@ class LauncherWindow(QWidget):
         self._compact_mode = cfg["Launcher"].getboolean("compact_mode", fallback=False)
         self._compact_index = -1
 
-        # ── Scrollable app grid ───────────────────────────────────────────
         scroll = StyledScrollArea()
         self._grid_container = QWidget()
         self._grid_container.setObjectName("gridContainer")
@@ -786,7 +698,6 @@ class LauncherWindow(QWidget):
         self._content_stack = QStackedWidget()
         self._content_stack.addWidget(scroll)
 
-        # ── Compact list view ─────────────────────────────────────────────
         self._compact_scroll = StyledScrollArea()
         self._compact_container = QWidget()
         self._compact_container.setStyleSheet("background: transparent;")
@@ -799,17 +710,40 @@ class LauncherWindow(QWidget):
 
         layout.addWidget(self._content_stack)
 
+        self._mount_bottom_bar(layout)
+        winpodx_icon = load_icon("winpodx", "application-x-executable")
+        self._winpodx_btn = QPushButton()
+        self._winpodx_btn.setIcon(winpodx_icon)
+        self._winpodx_btn.setToolTip("WinPodX")
+        self._winpodx_btn.clicked.connect(self._launch_winpodx)
+        gear_icon = QIcon.fromTheme("configure")
+        if gear_icon.isNull():
+            gear_icon = QIcon.fromTheme("open-menu-symbolic")
+        self._gear_btn = QPushButton()
+        self._gear_btn.setIcon(gear_icon)
+        self._gear_btn.setToolTip("Settings")
+        self._gear_btn.clicked.connect(self._on_gear_clicked)
+        for btn in (self._winpodx_btn, self._gear_btn):
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(theme.BTN_GHOST)
+            btn.setFixedSize(theme.CONTROL_HEIGHT_W11, theme.CONTROL_HEIGHT_W11)
+            btn.setIconSize(QSize(24, 24))
+        bottom_layout = self._bottom_bar.layout()
+        bottom_layout.addWidget(self._winpodx_btn)
+        bottom_layout.addWidget(self._gear_btn)
+        theme_manager.instance().scheme_changed.connect(self._restyle_launcher)
+        self._restyle_launcher()
+
     def _rebuild_content(self):
         if self._compact_mode:
+            self._set_start_chrome_visible(False)
             self._rebuild_compact()
         else:
             self._rebuild_grid()
+            self._populate_start_sections()
 
     def _rebuild_compact(self):
-        while self._compact_layout.count():
-            item = self._compact_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._clear_box(self._compact_layout)
 
         if self._settings_mode:
             self._rebuild_compact_settings()
@@ -831,7 +765,7 @@ class LauncherWindow(QWidget):
             shown += 1
         if shown == 0:
             lbl = QLabel("No apps found")
-            lbl.setStyleSheet("color: rgba(255,255,255,0.4); padding: 16px; font-size: 12px;")
+            lbl.setStyleSheet(f"color: {theme.C.OVERLAY0}; padding: 16px; font-size: 12px;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._compact_layout.addWidget(lbl)
             shown = 1
@@ -877,10 +811,7 @@ class LauncherWindow(QWidget):
         return apps
 
     def _rebuild_grid(self):
-        while self._grid_layout.count():
-            item = self._grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._clear_box(self._grid_layout)
 
         self._outer_layout.setSpacing(8)
         self._outer_layout.setContentsMargins(7, 7, 7, 7)
@@ -902,7 +833,7 @@ class LauncherWindow(QWidget):
         if not apps:
             empty = QLabel("No apps found")
             empty.setFont(QFont(FONT_FAMILY, 12))
-            empty.setStyleSheet("color: rgba(255,255,255,0.4); padding: 40px;")
+            empty.setStyleSheet(f"color: {theme.C.OVERLAY0}; padding: 40px;")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._grid_layout.addWidget(empty, 0, 0, 1, cols)
 
@@ -930,17 +861,7 @@ class LauncherWindow(QWidget):
 
     def _show_settings_menu(self):
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #2B2B2B; border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 8px; padding: 6px;
-            }
-            QMenu::item {
-                color: #FFFFFF; padding: 8px 32px 8px 12px; border-radius: 4px;
-                font-size: 12px;
-            }
-            QMenu::item:selected { background: rgba(96,205,255,0.12); }
-        """)
+        menu.setStyleSheet(theme.GLOBAL_STYLE)
         action1 = menu.addAction("Clear search on open")
         action1.setCheckable(True)
         action1.setChecked(self._reset_search_on_open)
@@ -988,17 +909,19 @@ class LauncherWindow(QWidget):
         layout.setSpacing(10)
         name_lbl = QLabel(text)
         name_lbl.setFont(QFont(FONT_FAMILY, 12))
-        name_lbl.setStyleSheet("color: #FFFFFF;")
+        name_lbl.setStyleSheet(f"color: {theme.C.TEXT}; background: transparent;")
         layout.addWidget(name_lbl, 1)
         if checked is not None:
             chk = QLabel("✓" if checked else "")
             chk.setFont(QFont(FONT_FAMILY, 12))
-            chk.setStyleSheet("color: #60CDFF;")
+            chk.setStyleSheet(f"color: {theme.C.BLUE};")
             layout.addWidget(chk)
-        item.setStyleSheet("""
-            QFrame { background: transparent; border-radius: 6px; outline: none; }
-            QFrame:hover { background: #2B2B2B; }
-        """)
+        item.setStyleSheet(
+            f"""
+            QFrame {{ background: transparent; border-radius: 6px; outline: none; }}
+            QFrame:hover {{ background: {theme.C.SURFACE0}; }}
+            """
+        )
         if callback:
             item.mousePressEvent = lambda ev, cb=callback: cb()
         return item
@@ -1008,6 +931,7 @@ class LauncherWindow(QWidget):
         self._compact_mode = enabled
         self._content_stack.setCurrentIndex(1 if enabled else 0)
         self._pill_bar.setVisible(not enabled)
+        self._set_start_chrome_visible(not enabled)
         self._outer_layout.setSpacing(0 if enabled else 8)
         try:
             self._rebuild_content()
@@ -1063,6 +987,8 @@ class LauncherWindow(QWidget):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            if entry.slug:
+                launcher_state.record_recent(entry.slug)
             self._notification.show_for(entry.name, entry.icon)
         except Exception as exc:
             print(f"Failed to launch {entry.name}: {exc}", file=sys.stderr)
@@ -1328,13 +1254,15 @@ class LauncherWindow(QWidget):
             return
         for name, btn in self._pill_bar._buttons.items():
             if name == keys[self._pill_focus]:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: rgba(96,205,255,0.12); color: #FFFFFF;
-                        border: 2px solid #60CDFF; border-radius: 6px;
+                btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: {theme.rgba(theme.C.BLUE, 0.12)}; color: {theme.C.TEXT};
+                        border: 2px solid {theme.C.BLUE}; border-radius: 6px;
                         padding: 5px 14px; font-size: 12px;
-                    }
-                """)
+                    }}
+                    """
+                )
             else:
                 self._pill_bar._update_style()
 
@@ -1371,6 +1299,7 @@ def show_launcher() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setOrganizationName("WinPodX")
     app.setApplicationName("WinPodX Launcher")
+    theme_manager.instance().start(app)
     win = LauncherWindow()
     win.show_()
     return app.exec()

@@ -16,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+from winpodx.gui import theme  # noqa: E402
 from winpodx.gui.deleted_apps_dialog import DeletedAppsDialog  # noqa: E402
 
 
@@ -45,6 +46,23 @@ def test_rows_are_created_for_every_slug() -> None:
     dialog, _ = _make(["word", "excel"])
 
     assert set(dialog._rows) == {"word", "excel"}
+
+
+def test_deleted_apps_dialog_rebuild_uses_current_theme() -> None:
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("light")
+        light, _ = _make(["word"])
+        assert theme.C.MANTLE in light.styleSheet()
+        assert "#2B2B2B" not in light.styleSheet()
+        light.deleteLater()
+
+        theme.rebuild("dark")
+        dark, _ = _make(["word"])
+        assert "#191919" in dark.styleSheet()
+        dark.deleteLater()
+    finally:
+        theme.rebuild(previous)
 
 
 def test_rows_are_listed_in_sorted_order() -> None:
@@ -125,3 +143,27 @@ def test_restore_all_is_a_noop_with_no_rows() -> None:
     dialog._on_restore_all()
 
     assert restored == []
+
+
+_OLD_HEX = ("#0d1117", "#161b22", "#21262d", "#58a6ff", "#e6edf3")
+
+
+def test_deleted_apps_dialog_has_no_legacy_hex_and_primary_is_32px() -> None:
+    from PySide6.QtWidgets import QWidget
+
+    dialog, _ = _make(["word"])
+    styles = [dialog.styleSheet() or ""]
+    styles.extend(child.styleSheet() or "" for child in dialog.findChildren(QWidget))
+    joined = "\n".join(styles).lower()
+    for hex_color in _OLD_HEX:
+        assert hex_color not in joined
+    assert dialog._restore_all_btn.minimumHeight() >= 32
+
+
+def test_deleted_apps_dialog_has_a_button_strip() -> None:
+    from PySide6.QtWidgets import QFrame
+
+    dialog, _ = _make(["word"])
+    strip = dialog.findChild(QFrame, "dialogButtonStrip")
+    assert strip is not None
+    assert dialog._restore_all_btn.minimumWidth() >= 96

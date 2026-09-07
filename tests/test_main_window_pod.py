@@ -64,7 +64,7 @@ from winpodx.core.pod import PodState, PodStatus  # noqa: E402
 from winpodx.gui import launcher_state  # noqa: E402
 from winpodx.gui._main_window_license import LicensePageMixin  # noqa: E402
 from winpodx.gui._main_window_pod import PodStatusMixin  # noqa: E402
-from winpodx.gui.theme import C  # noqa: E402
+from winpodx.gui.theme import C, current_scheme, rebuild  # noqa: E402
 
 # ----- shared helpers ----------------------------------------------------
 
@@ -867,9 +867,9 @@ def test_license_page_builds_one_card_per_acknowledgment(
     page = host._build_license_page()
     page.setParent(host)
 
-    cards = [f for f in page.findChildren(QFrame) if f.objectName() == "settingsSection"]
-    # One card for the MIT text plus one per third-party entry.
-    assert len(cards) == len(lic_mod._THIRD_PARTY_ACK) + 1
+    cards = [f for f in page.findChildren(QFrame) if f.objectName() == "settingsCard"]
+    # Win11 SettingsCard: 3 summary rows + MIT viewer + one per third-party entry.
+    assert len(cards) == len(lic_mod._THIRD_PARTY_ACK) + 4
     texts = _labels(page)
     for name, license_, _purpose, url in lic_mod._THIRD_PARTY_ACK:
         assert name in texts
@@ -1139,6 +1139,25 @@ def test_scroll_minimums_track_the_page_content() -> None:
     assert empty.minimumWidth() == 0
 
 
+def test_scroll_minimums_do_not_force_the_window_past_preferred_width() -> None:
+    _ensure_qapp()
+    holder = QWidget()
+    filled = QScrollArea(holder)
+    inner = QLabel("w" * 400, filled)
+    filled.setWidget(inner)
+    sidebar = QFrame()
+    sidebar.setFixedWidth(320)
+    host = SimpleNamespace(
+        findChildren=lambda _cls: [filled],
+        sidebar=sidebar,
+        _preferred_size=(1100, 720),
+    )
+
+    mw_mod.WinpodxWindow._sync_scroll_minimums(host)
+
+    assert filled.minimumWidth() <= 1100 - 320
+
+
 # ----- main_window: the Qt event overrides --------------------------------
 
 
@@ -1238,6 +1257,14 @@ def _stub_run_gui(
         def setStyle(self, style: str) -> None:
             self.style = style
 
+        def setFont(self, font: Any) -> None:
+            self._font = font
+
+        def font(self) -> Any:
+            from PySide6.QtGui import QFont
+
+            return getattr(self, "_font", QFont())
+
         def setWindowIcon(self, icon: Any) -> None:
             self.icon = icon
 
@@ -1264,32 +1291,38 @@ def test_run_gui_builds_the_app_window_and_tray(monkeypatch: pytest.MonkeyPatch,
     icon = tmp_path / "winpodx-icon.svg"
     icon.write_text("<svg/>", encoding="utf-8")
     apps, policies, exits, trays = _stub_run_gui(monkeypatch, icon_path=icon)
+    previous = current_scheme()
+    try:
+        mw_mod.run_gui()
 
-    mw_mod.run_gui()
-
-    (app,) = apps
-    assert app.argv == ["winpodx"]
-    assert app.name == "winpodx"
-    assert app.style == "Fusion"
-    # Fractional scaling must pass through untouched.
-    assert policies == [Qt.HighDpiScaleFactorRoundingPolicy.PassThrough]
-    assert app.icon is not None
-    assert app.palette.color(app.palette.ColorRole.Window) == QColor(C.BASE)
-    assert app.palette.color(app.palette.ColorRole.Highlight) == QColor(C.BLUE)
-    assert app.exec_calls == 1
-    assert exits == [7]
-    assert trays == ["spawned"]
+        (app,) = apps
+        assert app.argv == ["winpodx"]
+        assert app.name == "winpodx"
+        assert app.style == "Fusion"
+        # Fractional scaling must pass through untouched.
+        assert policies == [Qt.HighDpiScaleFactorRoundingPolicy.PassThrough]
+        assert app.icon is not None
+        assert app.palette.color(app.palette.ColorRole.Window) == QColor(C.BASE)
+        assert app.palette.color(app.palette.ColorRole.Highlight) == QColor(C.BLUE)
+        assert app.exec_calls == 1
+        assert exits == [7]
+        assert trays == ["spawned"]
+    finally:
+        rebuild(previous)
 
 
 def test_run_gui_skips_the_window_icon_when_the_bundle_has_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     apps, _policies, exits, trays = _stub_run_gui(monkeypatch, icon_path=None)
+    previous = current_scheme()
+    try:
+        mw_mod.run_gui()
 
-    mw_mod.run_gui()
-
-    (app,) = apps
-    assert app.icon is None
-    assert app.palette is not None
-    assert exits == [7]
-    assert trays == ["spawned"]
+        (app,) = apps
+        assert app.icon is None
+        assert app.palette is not None
+        assert exits == [7]
+        assert trays == ["spawned"]
+    finally:
+        rebuild(previous)

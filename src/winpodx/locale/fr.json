@@ -945,5 +945,12 @@
   "Signal processing": "Traitement du signal",
   "Processing accelerator": "Accélérateur de traitement",
   "Instrumentation": "Instrumentation",
-  "PCI device": "Périphérique PCI"
+  "PCI device": "Périphérique PCI",
+  "Copy diagnostics": "Copier le diagnostic",
+  "Launch": "Lancer",
+  "Maximize": "Agrandir",
+  "Minimize": "Réduire",
+  "PCI": "PCI",
+  "USB": "USB",
+  "Upstream": "Projet amont"
 }

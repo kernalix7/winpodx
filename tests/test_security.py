@@ -376,7 +376,7 @@ class TestTomlWriterEscaping:
         # header into that table, so dumps has to emit scalars first (#692).
         try:
             import tomllib
-        except ModuleNotFoundError:  # Python 3.9 / 3.10
+        except ModuleNotFoundError:  # Python 3.10
             import tomli as tomllib
 
         from winpodx.utils.toml_writer import dumps

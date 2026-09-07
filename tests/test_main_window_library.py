@@ -302,13 +302,13 @@ def test_grid_cols_is_clamped_between_three_and_six() -> None:
     assert h._grid_cols() == 3
     h.pages = _W(4000)  # far too wide -> ceiling
     assert h._grid_cols() == 6
-    h.pages = _W(812)  # (812-112)//140 == 5
+    h.pages = _W(640)  # 640 // 128 == 5
     assert h._grid_cols() == 5
 
 
 def test_grid_cols_falls_back_to_the_default_width_without_a_pages_widget() -> None:
     h = _LogicHarness([])
-    assert h._grid_cols() == 6  # (1100-112)//140 == 7 -> clamped to 6
+    assert h._grid_cols() == 6  # (1100 - 320) // 128 == 6
 
 
 def test_reflow_library_only_refilters_when_the_column_count_changed() -> None:
@@ -321,13 +321,13 @@ def test_reflow_library_only_refilters_when_the_column_count_changed() -> None:
 
     h = _LogicHarness([_app("a")])
     h._view_mode = "grid"
-    h.pages = _W(812)
+    h.pages = _W(640)
     h._current_grid_cols = 5
 
     h._reflow_library()
     assert h.populated == []  # unchanged column count -> no rebuild
 
-    h.pages = _W(1200)  # (1200-112)//140 == 7 -> clamped to 6, differs from 5
+    h.pages = _W(768)  # 768 // 128 == 6, differs from 5
     h._reflow_library()
     assert len(h.populated) == 1
 
@@ -688,8 +688,8 @@ def test_category_chips_are_built_from_the_app_categories(page) -> None:
         ]
     )
     labels = [b.text() for b in host._category_btns]
-    assert labels[0] == "All"
-    assert set(labels[1:]) == {"Graphics", "Office", "Video"}  # sorted + de-duped
+    assert labels[0] == "All 3"
+    assert set(labels[1:]) == {"Graphics 2", "Office 1", "Video 1"}
     assert host._category_more_btn is None
     assert host._overflow_categories == []
 
@@ -1077,10 +1077,10 @@ def test_app_context_menu_actions_route_to_the_crud_handlers(page, monkeypatch) 
 
     host._show_app_menu(host.apps[0], QPoint(0, 0))
     actions = built[-1].actions()
-    # Order is fixed by the source: Pin, Edit, Hide, Delete.
-    actions[1].trigger()
+    assert [a.text() for a in actions[:4]] == ["Launch", "Pin", "Edit", "Hide"]
     actions[2].trigger()
     actions[3].trigger()
+    actions[4].trigger()
 
     assert host.edited == ["word"]
     assert host.hidden_toggles == ["word"]
@@ -1110,6 +1110,9 @@ class _FakeMenu:
     def __init__(self, sink: list) -> None:
         self._actions: list[_FakeAction] = []
         self._sink = sink
+
+    def setStyleSheet(self, _ss: str) -> None:  # noqa: N802 - Qt signature
+        pass
 
     def addAction(self, text: str) -> _FakeAction:  # noqa: N802 - Qt signature
         action = _FakeAction(text)
@@ -1643,3 +1646,432 @@ def test_app_dialog_custom_icon_picker_records_supported_file(monkeypatch, tmp_p
     dlg._on_choose_icon()
 
     assert dlg.chosen_icon_path() == str(icon)
+
+
+# ----- Win11 Start-menu chrome (Phase 3a-2) ------------------------------
+
+
+def test_library_page_exposes_pinned_heading_and_all_apps_button(page) -> None:
+    from PySide6.QtWidgets import QLabel, QPushButton
+
+    host = page([_app("word")])
+
+    heading = host._page.findChild(QLabel, "pinnedHeading")
+    button = host._page.findChild(QPushButton, "allAppsButton")
+    assert heading is not None
+    assert button is not None
+
+
+def test_library_search_box_is_win11_nav_search(page) -> None:
+    from winpodx.gui import theme
+
+    host = page([_app("word")])
+
+    assert host.search_box.minimumHeight() >= 32
+    ss = host.search_box.styleSheet()
+    assert "QLineEdit#navSearch" in ss
+    assert theme.C.SURFACE2 in ss or "border:" in ss
+
+
+def test_app_tile_stylesheet_uses_start_tile_and_focus_ring() -> None:
+    from winpodx.gui import theme
+    from winpodx.gui._main_window_library import _AppTile
+
+    _ensure_qapp()
+    tile = _AppTile(_app("word"), on_launch=lambda _a: None, on_menu=lambda _a, _p: None)
+
+    ss = tile.styleSheet()
+    assert "QFrame#appTileBtn:focus" in ss
+    assert theme.START_TILE.strip() in ss
+
+
+def test_refresh_running_strip_builds_recommended_rows(page, monkeypatch) -> None:
+    from PySide6.QtWidgets import QFrame
+
+    import winpodx.gui._main_window_library as lib
+    from winpodx.core.process import TrackedProcess
+
+    monkeypatch.setattr(
+        lib,
+        "list_active_sessions",
+        lambda: [TrackedProcess(app_name="word", pid=1)],
+    )
+    host = page([_app("word", "Microsoft Word")])
+    host._refresh_running_strip()
+
+    rows = [
+        host._running_row.itemAt(i).widget()
+        for i in range(host._running_row.count())
+        if host._running_row.itemAt(i).widget() is not None
+    ]
+    assert rows
+    assert all(isinstance(w, QFrame) and w.objectName() == "recommendedRow" for w in rows)
+
+
+def test_recommended_row_is_keyboard_accessible_and_launches_once(page) -> None:
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    host = page([_app("word", "Microsoft Word")])
+    row = host._make_recommended_row("Recent", host.apps[0], "word")
+
+    assert row.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert row.accessibleName() == "Microsoft Word"
+    row.keyPressEvent(
+        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+    )
+    assert host.launched == ["word"]
+
+
+def test_recommended_rows_keep_their_height_when_the_page_is_shown(page, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    import winpodx.gui._main_window_library as lib
+    from winpodx.core.process import TrackedProcess
+    from winpodx.gui import launcher_state
+
+    # Given
+    apps = [_app(n, n.title()) for n in ("word", "calc", "paint", "notepad")]
+    monkeypatch.setattr(lib, "list_active_sessions", lambda: [TrackedProcess("word", pid=1)])
+    monkeypatch.setattr(launcher_state, "get_recent", lambda: ["calc", "paint", "notepad"])
+    host = page(apps)
+
+    # When
+    host.resize(780, 720)
+    host.show()
+    host._refresh_running_strip()
+    QApplication.processEvents()
+    rows = [
+        host._running_row.itemAt(i).widget()
+        for i in range(host._running_row.count())
+        if host._running_row.itemAt(i).widget() is not None
+    ]
+    rects = [r.geometry() for r in rows]
+
+    # Then
+    assert len(rows) == 4
+    assert all(r.height() >= 40 for r in rects)
+    assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1 :])
+    assert host._running_section.height() >= 4 * 40 + 3 * 4
+    section_bottom = host._running_section.geometry().bottom()
+    siblings = host._running_section.parentWidget().layout()
+    below = [
+        siblings.itemAt(i).widget()
+        for i in range(siblings.indexOf(host._running_section) + 1, siblings.count())
+        if siblings.itemAt(i).widget() is not None and not siblings.itemAt(i).widget().isHidden()
+    ]
+    assert below
+    assert all(w.geometry().top() > section_bottom for w in below)
+    host.close()
+
+
+def test_restyle_library_swaps_search_surface_with_scheme(page) -> None:
+    from winpodx.gui import theme
+
+    host = page([_app("word")])
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("light")
+        host._restyle_library()
+        assert "#FFFFFF" in host.search_box.styleSheet()
+
+        theme.rebuild("dark")
+        host._restyle_library()
+        assert "#2B2B2B" in host.search_box.styleSheet()
+    finally:
+        theme.rebuild(previous)
+
+
+def test_app_tiles_in_a_grid_do_not_intersect() -> None:
+    from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QWidget
+
+    from winpodx.gui._main_window_library import _AppTile
+
+    _ensure_qapp()
+    names = [
+        "Microsoft Word",
+        "Microsoft Excel",
+        "PowerPoint",
+        "Notepad",
+        "Paint",
+        "Calculator",
+    ]
+    host = QWidget()
+    grid = QGridLayout(host)
+    grid.setHorizontalSpacing(12)
+    grid.setVerticalSpacing(12)
+    for col in range(3):
+        grid.setColumnStretch(col, 1)
+    tiles = []
+    for i, name in enumerate(names):
+        tile = _AppTile(
+            _app(f"a{i}", name),
+            on_launch=lambda _a: None,
+            on_menu=lambda _a, _p: None,
+        )
+        grid.addWidget(tile, i // 3, i % 3)
+        tiles.append(tile)
+    host.resize(600, 400)
+    host.show()
+    QApplication.processEvents()
+
+    rects = [tile.geometry() for tile in tiles]
+    for i, left in enumerate(rects):
+        for right in rects[i + 1 :]:
+            assert not left.intersects(right)
+    for tile in tiles:
+        label = next(child for child in tile.findChildren(QLabel) if child.width() == 104)
+        assert tile.height() >= 32 + label.height() + 16
+        assert tile.rect().contains(label.geometry())
+        assert tile.width() >= 104
+    host.close()
+
+
+def test_library_rebuild_leaves_no_visible_orphan_tiles(page) -> None:
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication, QGridLayout
+
+    from winpodx.gui import launcher_state
+    from winpodx.gui._main_window_library import _AppTile
+
+    apps = [_app(f"a{i}", f"App {i} Title") for i in range(6)]
+    host = page(apps)
+    for app in apps[:4]:
+        launcher_state.pin(app.name)
+    host._page.setParent(host)
+    host.pages = host
+    host.resize(800, 600)
+    host.show()
+    host._refresh_launcher_home()
+    QApplication.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    pinned = [
+        host._pinned_row.itemAt(i).widget()
+        for i in range(host._pinned_row.count())
+        if isinstance(host._pinned_row.itemAt(i).widget(), _AppTile)
+    ]
+    all_apps: list[_AppTile] = []
+    for i in range(host.app_list_layout.count()):
+        item = host.app_list_layout.itemAt(i)
+        widget = item.widget() if item is not None else None
+        if widget is None or not isinstance(widget.layout(), QGridLayout):
+            continue
+        grid = widget.layout()
+        all_apps.extend(
+            grid.itemAt(j).widget()
+            for j in range(grid.count())
+            if isinstance(grid.itemAt(j).widget(), _AppTile)
+        )
+    laid_out = pinned + all_apps
+    visible = [
+        tile
+        for tile in host._page.findChildren(_AppTile)
+        if not tile.isHidden() and tile.width() > 0 and tile.height() > 0
+    ]
+    assert set(visible) <= set(laid_out)
+    for group in (pinned, all_apps):
+        for i, left in enumerate(group):
+            for right in group[i + 1 :]:
+                assert not left.geometry().intersects(right.geometry())
+    host.close()
+
+
+def _pinned_tiles(host):
+    from winpodx.gui._main_window_library import _AppTile
+
+    return [
+        host._pinned_row.itemAt(i).widget()
+        for i in range(host._pinned_row.count())
+        if isinstance(host._pinned_row.itemAt(i).widget(), _AppTile)
+    ]
+
+
+def test_pinned_grid_uses_five_columns_at_content_width_740(page, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    import winpodx.gui._main_window_library as lib
+    from winpodx.core.process import TrackedProcess
+    from winpodx.gui import launcher_state
+
+    monkeypatch.setattr(lib, "list_active_sessions", lambda: [TrackedProcess(app_name="a0", pid=1)])
+    apps = [_app(f"a{i}", f"App {i} Title") for i in range(5)]
+    host = page(apps)
+    for app in apps:
+        launcher_state.pin(app.name)
+    host._page.setParent(host)
+    host.pages = host
+    host.setFixedSize(740, 720)
+    host._page.setFixedWidth(740)
+    host.show()
+    host._refresh_launcher_home()
+    QApplication.processEvents()
+
+    tiles = _pinned_tiles(host)
+    assert len(tiles) == 5
+    ys = {tile.geometry().y() for tile in tiles}
+    assert len(ys) == 1
+    wrap = host._pinned_row.parentWidget()
+    assert wrap is not None
+    assert wrap.height() >= max(t.height() for t in tiles)
+    host.close()
+
+
+def test_pinned_grid_wraps_to_two_rows_at_content_width_420(page) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from winpodx.gui import launcher_state
+
+    apps = [_app(f"a{i}", f"App {i} Title") for i in range(5)]
+    host = page(apps)
+    for app in apps:
+        launcher_state.pin(app.name)
+    host._page.setParent(host)
+    host.pages = host
+    host.setFixedSize(420, 720)
+    host._page.setFixedWidth(420)
+    host.show()
+    host._refresh_launcher_home()
+    QApplication.processEvents()
+
+    tiles = _pinned_tiles(host)
+    assert len(tiles) == 5
+    ys = sorted({tile.geometry().y() for tile in tiles})
+    assert len(ys) == 2
+    wrap = host._pinned_row.parentWidget()
+    assert wrap is not None
+    assert wrap.height() >= 2 * max(t.height() for t in tiles) + 8
+    for i, left in enumerate(tiles):
+        for right in tiles[i + 1 :]:
+            assert not left.geometry().intersects(right.geometry())
+    host.close()
+
+
+def _hex_rgb(value: str) -> tuple[int, int, int]:
+    raw = value.lstrip("#")
+    return (int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16))
+
+
+def _color_near(pixel, target: tuple[int, int, int], *, tol: int = 45) -> bool:
+    return (
+        abs(pixel.red() - target[0]) <= tol
+        and abs(pixel.green() - target[1]) <= tol
+        and abs(pixel.blue() - target[2]) <= tol
+    )
+
+
+def test_app_tile_running_dot_paints_green_at_icon_bottom_right() -> None:
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from winpodx.gui._main_window_library import _AppTile
+    from winpodx.gui.theme import C
+
+    _ensure_qapp()
+    tile = _AppTile(
+        _app("word", "Microsoft Word"),
+        on_launch=lambda _a: None,
+        on_menu=lambda _a, _p: None,
+    )
+    tile.set_running(True)
+    tile.show()
+    QApplication.processEvents()
+
+    dot = tile.findChild(QLabel, "runningDot")
+    assert dot is not None
+    assert not dot.isHidden()
+    image = dot.grab().toImage()
+    center = image.pixelColor(image.width() // 2, image.height() // 2)
+    assert _color_near(center, _hex_rgb(C.GREEN))
+
+    tile.set_running(False)
+    assert dot.isHidden()
+    tile.close()
+
+
+def test_list_row_is_48px_with_32px_launch_button(page) -> None:
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from winpodx.gui.theme import CONTROL_HEIGHT_W11
+
+    host = page([_app("word", "Microsoft Word")])
+    tile = host._make_app_tile(host.apps[0])
+    tile.show()
+    QApplication.processEvents()
+
+    assert tile.height() == 48
+    launch = tile.findChild(QPushButton, "launchBtn")
+    assert launch is not None
+    assert f"min-height: {CONTROL_HEIGHT_W11}px" in launch.styleSheet()
+    assert launch.height() <= CONTROL_HEIGHT_W11 + 2
+    tile.close()
+
+
+def test_recommended_row_caption_is_running_or_recent(page) -> None:
+    from PySide6.QtWidgets import QLabel
+
+    from winpodx.core.i18n import tr
+
+    host = page([_app("word", "Microsoft Word")])
+    running = host._make_recommended_row(tr("Running"), host.apps[0], "word")
+    recent = host._make_recommended_row(tr("Recent"), host.apps[0], "word")
+
+    running_captions = [lbl.text() for lbl in running.findChildren(QLabel)]
+    recent_captions = [lbl.text() for lbl in recent.findChildren(QLabel)]
+    assert tr("Running") in running_captions
+    assert tr("Recent") in recent_captions
+
+
+def test_empty_state_refresh_apps_routes_to_on_refresh_apps(page) -> None:
+    from PySide6.QtWidgets import QPushButton
+
+    from winpodx.core.config import Config
+    from winpodx.core.i18n import tr
+
+    host = page([])
+    host.cfg = Config()
+    host.cfg.pod.initialized = True
+    host._pod_state = "running"
+    routed: list[int] = []
+    host._on_refresh_apps = lambda: routed.append(1)
+
+    panel = host._make_empty_state()
+    buttons = panel.findChildren(QPushButton)
+    assert len(buttons) == 1
+    assert buttons[0].text() == tr("Refresh Apps")
+    buttons[0].click()
+    assert routed == [1]
+
+
+def test_category_chips_append_counts_and_selected_uses_accent_stroke(page) -> None:
+    from winpodx.gui import theme
+
+    host = page(
+        [
+            _app("word", categories=["Office"]),
+            _app("excel", categories=["Office"]),
+            _app("gimp", categories=["Graphics"]),
+        ]
+    )
+    labels = [b.text() for b in host._category_btns]
+    assert labels[0] == "All 3"
+    assert "Office 2" in labels
+    assert "Graphics 1" in labels
+    office = next(b for b in host._category_btns if b.property("category") == "Office")
+    office.click()
+    assert office.isChecked()
+    assert theme.C.BLUE in office.styleSheet()
+    assert "border-bottom" in office.styleSheet()
+
+
+def test_library_page_show_focuses_search(page) -> None:
+    from PySide6.QtGui import QShowEvent
+    from PySide6.QtWidgets import QApplication
+
+    host = page([_app("word")])
+    host._page.setParent(host)
+    host.show()
+    QApplication.processEvents()
+    host._page.showEvent(QShowEvent())
+    QApplication.processEvents()
+
+    assert host.search_box.hasFocus()

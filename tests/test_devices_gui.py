@@ -13,6 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import winpodx.gui._main_window_devices as devices_mod  # noqa: E402
+import winpodx.gui._main_window_devices_cards as devices_cards  # noqa: E402
 from winpodx.cli import device as DC  # noqa: E402
 from winpodx.core import devices as D  # noqa: E402
 from winpodx.core.config import Config  # noqa: E402
@@ -73,7 +74,7 @@ def test_pci_metadata_translates_ui_labels_only(host, monkeypatch, pci_class, cl
         calls.append(text)
         return f"T<{text}>"
 
-    monkeypatch.setattr(devices_mod, "tr", fake_tr)
+    monkeypatch.setattr(devices_cards, "tr", fake_tr)
     row = host._device_row(
         D.HostDevice(
             dtype="pci",
@@ -100,7 +101,7 @@ def test_usb_bus_metadata_is_translated_without_translating_the_device(host, mon
         calls.append(text)
         return f"T<{text}>"
 
-    monkeypatch.setattr(devices_mod, "tr", fake_tr)
+    monkeypatch.setattr(devices_cards, "tr", fake_tr)
     row = host._device_row(
         D.HostDevice(
             dtype="usb",

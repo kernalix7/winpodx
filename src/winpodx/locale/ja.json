@@ -945,5 +945,12 @@
   "Signal processing": "信号処理",
   "Processing accelerator": "処理アクセラレータ",
   "Instrumentation": "計測機器",
-  "PCI device": "PCI デバイス"
+  "PCI device": "PCI デバイス",
+  "Copy diagnostics": "診断情報をコピー",
+  "Launch": "起動",
+  "Maximize": "最大化",
+  "Minimize": "最小化",
+  "PCI": "PCI",
+  "USB": "USB",
+  "Upstream": "アップストリーム"
 }

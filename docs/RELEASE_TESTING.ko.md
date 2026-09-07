@@ -25,7 +25,7 @@ winpodx 버그 대부분은 **게스트측** — Windows VM, FreeRDP/RAIL, OEM �
 모든 PR에서 돌아감; floor이지 전부가 아님.
 
 - [ ] `lint` — `ruff check` + `ruff format --check`
-- [ ] `test (3.9 … 3.14)` — 지원 Python 전체 `pytest tests/ -v`
+- [ ] `test (3.10 … 3.14)` — 지원 Python 전체 `pytest tests/ -v`
 - [ ] `audit` — `pip-audit`
 - [ ] `discover-apps-ps` — PowerShell discovery 스크립트 문법
 - [ ] `verify_versions` — `pyproject.toml` ↔ `packaging/rpm/winpodx.spec` ↔ 설치 메타데이터 일치

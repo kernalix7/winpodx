@@ -9,10 +9,26 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-07
+
+### Added
+
+- **The Qt6 desktop app now uses a Windows 11 Settings-style shell that keeps the controls for a running Windows pod in one place.** Dashboard is the home page, with pod state and Start/Stop controls, RAM, CPU, and disk rings, quick actions, running sessions, pinned app tiles, and the reverse-open switch. Applications presents the discovered Start Menu catalogue as searchable tiles or a list with category counts and context actions. Settings groups connection, hardware, update, integration, localization, and destructive controls, with a header dirty indicator until changes are saved. Tools, Terminal, Info, Devices, and License complete the page set; the Devices page groups USB and PCI devices, shows assignment counts, supports filtering, and flags risky PCI assignments.
+
+- **Provisioning progress now reads dockur's `msg.html` status endpoint before falling back to container logs** (#863). The CLI and GUI can show the current upstream phase without waiting for buffered log output, while retaining the existing log-based path when the HTTP status page is unavailable.
+
 ### Changed
+
+- **The desktop shell now adapts its navigation and window chrome to the available space instead of forcing a fixed launcher layout.** At normal widths it shows a 320 px navigation pane; below 1100 px it becomes a 48 px icon rail, and an expanded pane overlays the page and closes when the user clicks outside it. A custom title bar supplies minimize, maximize, close, drag, and double-click maximize behavior. Set `WINPODX_NATIVE_TITLEBAR=1` to restore system decorations. The Fluent light and dark theme follows the operating system, with `WINPODX_COLOR_SCHEME=light` or `dark` available for a temporary override. The bundled Selawik fallback font keeps the interface readable where Segoe UI Variable and Segoe UI are absent.
+
+- **`winpodx launch` now opens as a compact Start-style flyout** — search, pinned and recent rows, and the full app grid, styled like the desktop app and following the same light/dark scheme.
 
 - **The tray app launcher now stays current and preserves each app's complete launch configuration.** Visible Windows applications are sorted consistently by launcher tier and name, hidden applications are excluded, and the previous 20-app cap is gone. Tray launches now carry launch URIs, window-class hints, default arguments, app icons, and per-app RDP overrides. The menu refreshes both when opened and on the status timer for desktops such as KDE Plasma that do not reliably emit nested-menu signals; if the app catalogue cannot be read, the last working menu remains available. Behavioural tests cover ordering, filtering, launch metadata, action ownership, and failure-safe rebuilding.
 - **Host-device lists now show useful PCI names and passthrough-oriented ordering** (by @silentone12725, #819). PCI entries retain their stable hardware IDs while also showing vendor/model names, localized class labels, and IOMMU metadata. USB peripherals remain first; PCI endpoints are ranked by usefulness across both grouped and ungrouped devices, while every IOMMU group stays adjacent and ordered by PCI address. The CLI and GUI share the same ordering policy.
+
+### Removed
+
+- **Python 3.9 support has been removed; WinPodX now requires Python 3.10 or newer.** The desktop app redesign needs modern dataclass and typing behavior, and Python 3.9 was the only supported runtime that still needed compatibility shims. Python 3.10 continues to install `tomli` because stdlib `tomllib` begins with Python 3.11. On RHEL 9, AlmaLinux 9, and Rocky Linux 9, the el9 package pulls in the Python 3.11 stack from AppStream.
 
 ### Fixed
 

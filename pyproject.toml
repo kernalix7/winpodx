@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "winpodx"
-version = "0.10.4"
+version = "0.11.0"
 description = "Windows app integration for Linux desktop"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     { name = "Kim DaeHyun", email = "kernalix7@kodenet.io" },
 ]
@@ -21,13 +21,18 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Desktop Environment",
 ]
 
 dependencies = [
     # tomllib is stdlib on Python 3.11+; pull in the pure-Python tomli fallback
-    # for 3.9/3.10 so RHEL 9 (python3 == 3.9) can install winpodx without the
-    # python3.11 AppStream module.
+    # for 3.10 (winpodx's minimum) so that interpreter can read TOML without
+    # the stdlib module.
     "tomli>=1.1.0; python_version < '3.11'",
 ]
 
@@ -44,7 +49,7 @@ docker = [
 # discovery layer still works but ICO conversion falls back to a
 # logged warning + no file written.
 reverse-open = [
-    "Pillow>=10.0,<12.0",
+    "Pillow>=10.0,<13.0",
     "cairosvg>=2.7,<3.0",
     "pyxdg>=0.27,<1.0",
 ]
@@ -56,7 +61,7 @@ dev = [
     "pytest-cov>=5.0,<8.0",
     "ruff>=0.4,<1.0",
     "pip-audit>=2.7",
-    "Pillow>=10.0,<12.0",
+    "Pillow>=10.0,<13.0",
 ]
 all = [
     "winpodx[gui,docker,reverse-open,dev]",
@@ -93,7 +98,7 @@ exclude = [
 "THIRD_PARTY_LICENSES.md" = "share/winpodx/THIRD_PARTY_LICENSES.md"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]

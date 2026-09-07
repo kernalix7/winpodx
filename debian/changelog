@@ -1,3 +1,23 @@
+winpodx (0.11.0) unstable; urgency=medium
+
+  * Windows 11-style GUI redesign: a custom frameless title bar with caption
+    buttons (WINPODX_NATIVE_TITLEBAR=1 opts back into the native decoration),
+    an adaptive navigation pane that compacts and overlays on narrow windows,
+    and a Fluent light/dark theme that follows the OS colour scheme.
+  * Bundle the Selawik UI font (SIL Open Font License) so the redesigned GUI
+    renders consistently across desktops, plus a refreshed in-house SVG icon
+    set for navigation, controls, and device pages.
+  * Prefer dockur's msg.html as the primary provisioning progress source, with
+    the CLI and GUI both reading live HTTP progress during first boot.
+  * Add a system-tray app launcher that stays current and preserves each app's
+    full launch configuration (launch URIs, WM_CLASS hints, arguments, icons,
+    per-app RDP overrides).
+  * Host-device lists now show useful PCI vendor/model names and expose each
+    assigned PCI device's VFIO IOMMU-group node to the container so passthrough
+    works when a device shares a group. See CHANGELOG.md for the full notes.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Mon, 07 Sep 2026 09:00:00 +0000
+
 winpodx (0.10.4) unstable; urgency=medium
 
   * Feature + fix release. New: expose only a chosen directory to the guest

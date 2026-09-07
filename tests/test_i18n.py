@@ -69,6 +69,7 @@ def test_pr819_ui_keys_are_translated_with_matching_placeholders(lang: str) -> N
     catalog = i18n._load_catalog(lang)
     keys = {
         "Applications",
+        "Search apps...",
         "Launch an app or pin one from Applications to see it here.",
         "Applications are hidden",
         "Bus {bus}",

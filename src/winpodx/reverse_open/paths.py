@@ -97,14 +97,14 @@ class ReversePathError(ValueError):
 def is_relative_to(path: PurePath, root: PurePath) -> bool:
     """Return whether ``path`` is contained under ``root`` (strict semantics).
 
-    ``Path.is_relative_to`` was added in 3.9 but the implementation
+    ``Path.is_relative_to`` exists on every supported runtime, but its
     semantics shifted in 3.12 to use ``relative_to(walk_up=True)``-
     style traversal, which silently changes behaviour for inputs that
     contain a partial overlap. The reverse-open security validation
     depends on the *strict* "subtree of root" semantics, not the new
     traversal-aware ones -- so we implement the check ourselves on top
     of ``relative_to`` which has stable strict semantics across
-    3.9-3.13+.
+    3.10-3.14+.
 
     Both arguments must already be canonicalised by the caller
     (``Path.resolve(strict=False)`` or equivalent). Symlink and ``..``

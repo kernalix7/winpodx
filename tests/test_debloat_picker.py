@@ -18,6 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 PySide6 = pytest.importorskip("PySide6")
 from winpodx.core.debloat import load_catalog  # noqa: E402
 from winpodx.core.i18n import tr  # noqa: E402
+from winpodx.gui import theme  # noqa: E402
 from winpodx.gui.debloat_picker import _PRESET_DESCRIPTIONS, DebloatPickerDialog  # noqa: E402
 from winpodx.gui.theme import C  # noqa: E402
 
@@ -190,7 +191,7 @@ class TestDialogTooltipStyle:
             tooltip = rules["QToolTip"]
             assert C.SURFACE0 in tooltip
             assert C.TEXT in tooltip
-            assert C.SURFACE2 in tooltip
+            assert "1px solid" in tooltip
         finally:
             dlg.deleteLater()
 
@@ -214,3 +215,57 @@ class TestDialogTooltipStyle:
                 assert not re.match(r"\s*(background|color|font-size|padding)\s*:", css)
         finally:
             dlg.deleteLater()
+
+
+_OLD_HEX = ("#0d1117", "#161b22", "#21262d", "#58a6ff", "#e6edf3")
+
+
+def _joined_styles(widget) -> str:
+    from PySide6.QtWidgets import QWidget
+
+    parts = [widget.styleSheet() or ""]
+    parts.extend(child.styleSheet() or "" for child in widget.findChildren(QWidget))
+    return "\n".join(parts).lower()
+
+
+def test_debloat_picker_has_no_legacy_hex_and_primary_is_32px(qapp, catalog):
+    from PySide6.QtWidgets import QDialogButtonBox, QPushButton
+
+    dlg = DebloatPickerDialog(catalog)
+    try:
+        styles = _joined_styles(dlg)
+        for hex_color in _OLD_HEX:
+            assert hex_color not in styles
+        apply_btn = dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Apply)
+        assert isinstance(apply_btn, QPushButton)
+        assert apply_btn.minimumHeight() >= 32
+    finally:
+        dlg.deleteLater()
+
+
+def test_debloat_picker_rebuild_uses_current_theme(qapp, catalog):
+    from PySide6.QtWidgets import QDialogButtonBox
+
+    previous = theme.current_scheme()
+    try:
+        theme.rebuild("light")
+        light = DebloatPickerDialog(catalog)
+        light_primary = light.findChild(QDialogButtonBox).button(
+            QDialogButtonBox.StandardButton.Apply
+        )
+        assert theme.C.SURFACE0 in light.styleSheet()
+        assert theme.C.BLUE in light_primary.styleSheet()
+        assert "#2B2B2B" not in light.styleSheet()
+        light.deleteLater()
+
+        theme.rebuild("dark")
+        dark = DebloatPickerDialog(catalog)
+        dark_primary = dark.findChild(QDialogButtonBox).button(
+            QDialogButtonBox.StandardButton.Apply
+        )
+        assert theme.C.SURFACE0 in dark.styleSheet()
+        assert theme.C.BLUE in dark_primary.styleSheet()
+        assert "#F9F9F9" not in dark.styleSheet()
+        dark.deleteLater()
+    finally:
+        theme.rebuild(previous)

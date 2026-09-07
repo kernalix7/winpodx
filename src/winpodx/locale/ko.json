@@ -945,5 +945,12 @@
   "Signal processing": "신호 처리",
   "Processing accelerator": "처리 가속기",
   "Instrumentation": "계측 장치",
-  "PCI device": "PCI 장치"
+  "PCI device": "PCI 장치",
+  "Copy diagnostics": "진단 정보 복사",
+  "Launch": "실행",
+  "Maximize": "최대화",
+  "Minimize": "최소화",
+  "PCI": "PCI",
+  "USB": "USB",
+  "Upstream": "업스트림"
 }

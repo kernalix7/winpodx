@@ -1035,6 +1035,7 @@
   "Hot-plugged live: ": "已热插拔：",
   "Guest running: ": "客户机运行中：",
   "  Run `winpodx host-open list` to see the staged apps.": "  运行 `winpodx host-open list` 查看已暂存的应用。",
+  "Search apps...": "搜索应用...",
   "Search apps by name...": "按名称搜索应用...",
   "USB Devices": "USB 设备",
   "Showing '{name}' — added to the Linux app menu.": "正在显示 '{name}' — 已添加到 Linux 应用菜单。",
@@ -1124,7 +1125,6 @@
   "Source-level ancestor of rdprrap's offset-finder tool (per rdprrap NOTICE section 3)": "rdprrap 偏移查找工具的源代码级祖先（见 rdprrap NOTICE 第 3 节）",
   "Source-level ancestor of rdprrap's termwrap DLL (per rdprrap NOTICE section 2)": "rdprrap termwrap DLL 的源代码级祖先（见 rdprrap NOTICE 第 2 节）",
   "Status": "状态",
-  "TOML parser fallback for Python 3.9 / 3.10 (stdlib tomllib used on 3.11+)": "Python 3.9 / 3.10 的 TOML 解析器回退（3.11+ 使用标准库 tomllib）",
   "TermService DLL hook for multi-session RDP in the guest (same maintainer; bundled in OEM zip)": "客户机中多会话 RDP 的 TermService DLL 钩子（同一维护者；附带在 OEM zip 中）",
   "Vendored Windows .exe resource editor for embedding per-slug reverse-open icons": "附带的 Windows .exe 资源编辑器，用于嵌入每个 slug 的 reverse-open 图标",
   "Windows-in-Docker base image (pulled from Docker Hub at runtime, not bundled)": "Windows-in-Docker 基础镜像（运行时从 Docker Hub 拉取，未附带）",
@@ -1157,5 +1157,13 @@
   "Signal processing": "信号处理",
   "Processing accelerator": "处理加速器",
   "Instrumentation": "仪器",
-  "PCI device": "PCI 设备"
+  "PCI device": "PCI 设备",
+  "Copy diagnostics": "复制诊断信息",
+  "Launch": "启动",
+  "Maximize": "最大化",
+  "Minimize": "最小化",
+  "PCI": "PCI",
+  "USB": "USB",
+  "Upstream": "上游项目",
+  "TOML parser fallback for Python 3.10 (stdlib tomllib used on 3.11+)": "Python 3.10 的 TOML 解析器回退（3.11+ 使用标准库 tomllib）"
 }

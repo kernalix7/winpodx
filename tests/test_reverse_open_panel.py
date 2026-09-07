@@ -185,3 +185,122 @@ def test_format_status_line_enabled_running() -> None:
     assert "enabled" in text
     assert "pid 4321" in text
     assert "12 apps cached" in text
+
+
+_OLD_HEX = ("#0d1117", "#161b22", "#21262d", "#58a6ff", "#e6edf3")
+
+
+def test_build_panel_has_no_legacy_hex_and_primary_is_32px() -> None:
+    import os
+
+    import pytest
+
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+
+    from winpodx.gui.reverse_open_panel import build_panel
+
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = build_panel(Config())
+    styles = [panel.styleSheet() or ""]
+    styles.extend(child.styleSheet() or "" for child in panel.findChildren(QWidget))
+    joined = "\n".join(styles).lower()
+    for hex_color in _OLD_HEX:
+        assert hex_color not in joined
+    primary = next(
+        btn for btn in panel.findChildren(QPushButton) if "Refresh" in (btn.text() or "")
+    )
+    assert primary.minimumHeight() >= 32
+
+
+def test_refresh_sync_closes_the_busy_dialog_from_the_worker_thread(monkeypatch) -> None:
+    import os
+    import threading
+
+    import pytest
+
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    import winpodx.cli.host_open as host_open
+    from winpodx.gui import _widget_helpers
+    from winpodx.gui.reverse_open_panel import build_panel
+
+    # Given: the CLI refresh runs on a worker thread and the busy dialog blocks in exec()
+    app = QApplication.instance() or QApplication([])
+    worker_threads: list[str] = []
+    monkeypatch.setattr(
+        host_open,
+        "_cmd_refresh",
+        lambda _ns: worker_threads.append(threading.current_thread().name),
+    )
+    finished: list[bool] = []
+    original_exec = _widget_helpers.BusyDialog.exec
+
+    def _guarded_exec(self):
+        guard = QTimer(self)
+        guard.setSingleShot(True)
+        guard.timeout.connect(lambda: finished.append(False) or self.reject())
+        guard.start(3000)
+        rc = original_exec(self)
+        guard.stop()
+        return rc
+
+    monkeypatch.setattr(_widget_helpers.BusyDialog, "exec", _guarded_exec)
+    monkeypatch.setattr(
+        _widget_helpers.BusyDialog,
+        "accept",
+        lambda self: finished.append(True) or original_accept(self),
+    )
+    original_accept = _widget_helpers.BusyDialog.__bases__[0].accept
+    panel = build_panel(Config())
+    refresh = next(b for b in panel.findChildren(QPushButton) if "Refresh" in (b.text() or ""))
+
+    # When
+    refresh.click()
+    app.processEvents()
+
+    # Then: the worker ran off-thread and the dialog was accepted, not timed out
+    assert worker_threads and worker_threads[0] != threading.main_thread().name
+    assert finished == [True]
+
+
+def test_build_panel_rows_are_settings_cards_with_32px_actions() -> None:
+    import os
+
+    import pytest
+
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QFrame, QLabel, QListWidget, QPushButton
+
+    from winpodx.gui._toggle_switch import ToggleSwitch
+    from winpodx.gui.reverse_open_panel import build_panel
+
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    cfg = Config()
+    cfg.reverse_open.allowlist = ["kate"]
+    cfg.reverse_open.denylist = ["hidden-app"]
+    panel = build_panel(cfg)
+
+    enable = panel.findChild(QFrame, "reverseOpenEnableRow")
+    assert enable is not None
+    assert isinstance(enable.action_widget, ToggleSwitch)
+
+    slugs = panel.findChildren(QFrame, "reverseOpenSlugRow")
+    titles = {row.title_label.text() for row in slugs}
+    assert titles == {"kate", "hidden-app"}
+    for row in slugs:
+        assert row.minimumHeight() == 48
+        assert row.action_widget.property("w11Role") == "ghost"
+        assert row.action_widget.minimumHeight() >= 32
+        icon = next(lbl for lbl in row.findChildren(QLabel) if not lbl.pixmap().isNull())
+        assert icon.width() == 24
+    assert panel.findChildren(QListWidget) == []
+    for btn in panel.findChildren(QPushButton):
+        assert btn.minimumHeight() >= 32

@@ -85,7 +85,7 @@
             meta = {
               description = "Windows app integration for the Linux desktop (FreeRDP RemoteApp + dockur/windows)";
               homepage = "https://github.com/kernalix7/winpodx";
-              license = lib.licenses.mit;
+              license = [ lib.licenses.mit lib.licenses.asl20 lib.licenses.ofl ];
               mainProgram = "winpodx";
               platforms = lib.platforms.linux;
             };
