@@ -222,7 +222,10 @@ def _check_invariants(
 
 
 def _widths(minimum: int) -> tuple[int, ...]:
-    return (minimum, 866, 1000, 1099, 1100, 1101, 1200, 1300, 1400, 1450, 1500)
+    # The breakpoint neighbours (1099/1100/1101) plus the two extremes are what
+    # actually exercise the adaptive shell; the intermediate widths only re-ran
+    # the same code path and dominated CI runtime, so they are not swept.
+    return (minimum, 866, 1099, 1100, 1101, 1500)
 
 
 @pytest.mark.parametrize("page_index", range(_PAGE_COUNT))
@@ -235,7 +238,9 @@ def test_main_window_resize_stress(contract_window: WinpodxWindow, page_index: i
     _settle(window)
     failures: list[str] = []
     widths = _widths(window.minimumWidth())
-    heights = (window.minimumHeight(), 600, 900)
+    # Height only feeds the vertical layout guard; the minimum is the tight case
+    # and one roomy value covers the rest.
+    heights = (window.minimumHeight(), 900)
     for width in widths:
         for height in heights:
             window._nav_user_compact = None
