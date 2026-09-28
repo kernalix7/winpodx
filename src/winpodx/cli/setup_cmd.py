@@ -1152,7 +1152,11 @@ def handle_setup(
     if cfg.pod.backend == "manual":
         from winpodx.setup_wizard.host_state import require_preflight
 
-        require_preflight(cfg, deps=deps)
+        try:
+            require_preflight(cfg, deps=deps)
+        except RuntimeError as exc:
+            print(exc, file=sys.stderr)
+            raise SystemExit(1) from None
 
     # Apply --win-version before the cfg is saved. PodConfig.__post_init__
     # normalises whitespace/case, rejects YAML-breaking characters, and
@@ -1276,7 +1280,11 @@ def handle_setup(
 
         from winpodx.setup_wizard.host_state import require_preflight
 
-        require_preflight(cfg, storage_path=_explicit_storage, iso_path=_iso_arg, deps=deps)
+        try:
+            require_preflight(cfg, storage_path=_explicit_storage, iso_path=_iso_arg, deps=deps)
+        except RuntimeError as exc:
+            print(exc, file=sys.stderr)
+            raise SystemExit(1) from None
 
         # Pick a storage mode for podman/docker before compose is
         # rendered. Three cases:

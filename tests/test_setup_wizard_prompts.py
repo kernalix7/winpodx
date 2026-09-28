@@ -316,7 +316,9 @@ def test_setup_host_pkexec_errors_are_printed_to_stderr(monkeypatch, capsys) -> 
     assert "sudo usermod -aG kvm $USER" in error
 
 
-def test_setup_blocking_preflight_precedes_storage_iso_and_pod(monkeypatch, tmp_path) -> None:
+def test_setup_blocking_preflight_precedes_storage_iso_and_pod(
+    monkeypatch, tmp_path, capsys
+) -> None:
     import argparse
 
     from winpodx.cli import setup_cmd
@@ -355,7 +357,7 @@ def test_setup_blocking_preflight_precedes_storage_iso_and_pod(monkeypatch, tmp_
     ):
         monkeypatch.setattr(setup_cmd, name, lambda *args, name=name, **kwargs: events.append(name))
 
-    with pytest.raises(RuntimeError, match="At least 8 GiB"):
+    with pytest.raises(SystemExit) as exc:
         setup_cmd.handle_setup(
             argparse.Namespace(
                 backend="podman",
@@ -365,11 +367,18 @@ def test_setup_blocking_preflight_precedes_storage_iso_and_pod(monkeypatch, tmp_
             )
         )
 
+    assert exc.value.code == 1
+    stderr = capsys.readouterr().err
+    assert stderr.count("Host preflight failed:") == 1
+    assert "At least 8 GiB" in stderr
+    assert "Traceback" not in stderr
     assert events == [("preflight", tmp_path / "store", "/selected/windows.iso")]
     assert not (tmp_path / "store").exists()
 
 
-def test_manual_backend_still_requires_freerdp_before_config_write(monkeypatch, tmp_path) -> None:
+def test_manual_backend_still_requires_freerdp_before_config_write(
+    monkeypatch, tmp_path, capsys
+) -> None:
     import argparse
 
     from winpodx.cli import setup_cmd
@@ -388,7 +397,12 @@ def test_manual_backend_still_requires_freerdp_before_config_write(monkeypatch, 
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("not reached")),
     )
 
-    with pytest.raises(RuntimeError, match="FreeRDP"):
+    with pytest.raises(SystemExit) as exc:
         setup_cmd.handle_setup(argparse.Namespace(backend="manual", customize=False))
 
+    assert exc.value.code == 1
+    stderr = capsys.readouterr().err
+    assert stderr.count("Host preflight failed:") == 1
+    assert "FreeRDP" in stderr
+    assert "Traceback" not in stderr
     assert not Config.path().exists()

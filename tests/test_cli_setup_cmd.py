@@ -759,11 +759,15 @@ def test_handle_setup_dependency_and_backend_failures(
                 )
             ),
         ),
-        pytest.raises(RuntimeError) as exc,
+        pytest.raises(SystemExit) as exc,
     ):
         setup_cmd.handle_setup(_args(backend="podman"))
-    assert "FreeRDP 3+" in str(exc.value)
-    assert "CPU virtualization" in str(exc.value)
+    assert exc.value.code == 1
+    report = capsys.readouterr().err
+    assert report.count("Host preflight failed:") == 1
+    assert "FreeRDP 3+" in report
+    assert "CPU virtualization" in report
+    assert "Traceback" not in report
 
     monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: True))
     with (
