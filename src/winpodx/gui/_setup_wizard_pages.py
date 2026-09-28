@@ -100,6 +100,8 @@ class ReviewPage(QWidget):
             item = self._stack_host.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
         if reinstall:
             self._warn.setText(
@@ -148,6 +150,11 @@ class ReviewPage(QWidget):
             card.setAccessibleDescription(value)
             stack.addWidget(card)
         self._stack_host.addWidget(group)
+        layout = self.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
+        self.updateGeometry()
 
     def _restyle(self) -> None:
         self._warn.setStyleSheet(

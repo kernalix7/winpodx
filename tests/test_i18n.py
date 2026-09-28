@@ -85,6 +85,98 @@ def test_pr819_ui_keys_are_translated_with_matching_placeholders(lang: str) -> N
         assert _format_fields(catalog[key]) == _format_fields(key)
 
 
+_REINSTALL_WARNING = (
+    "This destroys the Windows disk and installed applications. "
+    "WinPodX settings and app profiles are kept. Backend, storage, "
+    "and installation media stay unchanged."
+)
+_KEPT_SENTENCE = "WinPodX 설정과 앱 프로필은 유지됩니다."
+
+
+def _install_checklist_copy() -> tuple[str, ...]:
+    from winpodx.gui._setup_wizard_pages import _INSTALL_CHECKLIST
+
+    seen: list[str] = []
+    for _phase_id, label, hint, _cancellable in _INSTALL_CHECKLIST:
+        for text in (label, hint):
+            if text and text not in seen:
+                seen.append(text)
+    return tuple(seen)
+
+
+def test_install_checklist_exposes_seven_translatable_strings() -> None:
+    assert len(_install_checklist_copy()) == 7
+
+
+@pytest.mark.parametrize("lang", [lang for lang in i18n.SUPPORTED if lang != "en"])
+def test_install_checklist_strings_are_translated(lang: str) -> None:
+    catalog = i18n._load_catalog(lang)
+
+    for key in _install_checklist_copy():
+        assert key in catalog, f"{lang} is missing {key!r}"
+        assert catalog[key].strip(), f"{lang} has a blank translation for {key!r}"
+        assert catalog[key] != key, f"{lang} falls back to English for {key!r}"
+
+
+def test_korean_reinstall_warning_keeps_retained_sentence_on_one_line() -> None:
+    value = i18n._load_catalog("ko")[_REINSTALL_WARNING]
+
+    assert _KEPT_SENTENCE in value.splitlines()
+
+
+def test_korean_welcome_parenthetical_starts_on_its_own_logical_line() -> None:
+    # Given: the production welcome key in the Korean catalog.
+    key = (
+        "WinPodX runs Windows apps as native Linux windows. This wizard "
+        "checks your host, lets you pick Windows settings, then downloads "
+        "and installs Windows. It usually takes 5-10 minutes (longer on a "
+        "slow connection)."
+    )
+    catalog = i18n._load_catalog("ko")
+
+    # When: the welcome copy is loaded without relying on soft wrapping.
+    value = catalog[key]
+    lines = value.splitlines()
+
+    # Then: the complete parenthetical occupies its own logical line.
+    assert len(lines) == 2
+    assert lines[0].strip() and "(" not in lines[0]
+    assert lines[1].startswith("(") and lines[1].endswith(").")
+    assert _format_fields(value) == _format_fields(key)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "CPU virtualization",
+        "VT-x / AMD-V enabled",
+        "Host RAM",
+        "at least 8 GiB",
+        "Windows storage space",
+        "disk and ISO space",
+        "readable when selected",
+        "FreeRDP",
+        "version 3 or newer",
+        "Container backend",
+        "Podman or Docker usable",
+        "Compose provider",
+        "required to start Windows",
+    ],
+)
+def test_korean_prerequisite_entries_are_explicitly_translated(key: str) -> None:
+    # Given: a prerequisite key that must not rely on English fallback.
+    catalog = i18n._load_catalog("ko")
+
+    # When: the entry is read directly from the Korean catalog.
+    assert key in catalog, f"ko is missing {key!r}"
+    value = catalog[key]
+
+    # Then: every entry is nonblank and translated, except the proper name.
+    assert value.strip(), f"ko has a blank translation for {key!r}"
+    assert key == "FreeRDP" or value.strip() != key, f"ko falls back to English for {key!r}"
+    assert _format_fields(value) == _format_fields(key)
+
+
 def test_config_ui_language_default_and_coerce() -> None:
     cfg = Config()
     assert cfg.ui.language == "auto"
