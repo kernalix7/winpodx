@@ -1560,3 +1560,494 @@ def test_recovery_row_is_compact_48px(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert row.minimumHeight() == 48
     assert row.height() == 48
+
+
+# ----- Dashboard: read-only host version notice --------------------------
+
+
+class _HostStatusFeed:
+    def __init__(self, status: Any) -> None:
+        self.status = status
+        self.calls: list[str] = []
+        self.threads: list[threading.Thread] = []
+        self.refreshing: list[bool] = []
+
+    def __call__(self, package_version: str) -> Any:
+        self.calls.append(package_version)
+        self.threads.append(threading.current_thread())
+        return self.status
+
+
+def _forbid_migration(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("migration must not run or write a marker")
+
+    monkeypatch.setattr("winpodx.cli.migrate.run_migrate", _boom)
+    monkeypatch.setattr("winpodx.cli.migrate._write_installed_version", _boom)
+    monkeypatch.setattr(dash_mod, "run_migrate", _boom, raising=False)
+    monkeypatch.setattr(dash_mod, "_write_installed_version", _boom, raising=False)
+
+
+def _install_host_status(monkeypatch: pytest.MonkeyPatch, status: Any) -> _HostStatusFeed:
+    feed = _HostStatusFeed(status)
+    monkeypatch.setattr(dash_mod, "get_host_version_status", feed, raising=False)
+    return feed
+
+
+def _notice_texts(notice: QFrame) -> str:
+    return "\n".join(label.text() for label in notice.findChildren(QLabel))
+
+
+def _assert_notice_has_no_action(notice: QFrame) -> None:
+    assert notice.findChildren(QPushButton) == []
+
+
+def test_host_version_notice_sits_immediately_below_the_hero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    _install_host_status(
+        monkeypatch, HostVersionStatus(state="outdated", installed_version="1.2.3")
+    )
+    host = _build_dash(monkeypatch)
+
+    # When
+    scroll = host.findChild(QScrollArea)
+    assert scroll is not None
+    layout = scroll.widget().layout()
+    assert layout is not None
+    hero = _dashboard_frame(host, "podStatusHero")
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    quick = _dashboard_frame(host, "quickActions")
+
+    # Then
+    assert layout.indexOf(notice) == layout.indexOf(hero) + 1
+    assert layout.indexOf(quick) == layout.indexOf(notice) + 1
+    _assert_notice_has_no_action(notice)
+
+
+@pytest.mark.parametrize("width", [740, 1100])
+def test_outdated_host_version_notice_is_visible_without_scrolling(
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+) -> None:
+    # Given
+    from winpodx import __version__
+    from winpodx.cli.migrate import HostVersionStatus
+
+    installed = "1.2.3"
+    _forbid_migration(monkeypatch)
+    feed = _install_host_status(
+        monkeypatch, HostVersionStatus(state="outdated", installed_version=installed)
+    )
+    host = _build_dash(monkeypatch)
+
+    # When
+    _reflow_dashboard_at(host, width)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    scroll = host.findChild(QScrollArea)
+    assert scroll is not None
+    scroll.verticalScrollBar().setValue(0)
+    QApplication.processEvents()
+    viewport = scroll.viewport()
+    hero = _dashboard_frame(host, "podStatusHero")
+    notice_rect = QRect(notice.mapTo(viewport, QPoint(0, 0)), notice.size())
+    hero_rect = QRect(hero.mapTo(viewport, QPoint(0, 0)), hero.size())
+    icon = notice.findChild(QLabel, "settingsCardIcon")
+    texts = _notice_texts(notice)
+
+    # Then
+    assert feed.calls
+    assert feed.calls[0] == __version__
+    assert feed.threads[0] is threading.current_thread()
+    assert notice.property("migrationState") == "outdated"
+    assert not notice.isHidden()
+    assert notice.isVisible()
+    assert viewport.rect().contains(notice_rect)
+    assert notice_rect.top() >= hero_rect.bottom()
+    assert installed in texts
+    assert __version__ in texts
+    assert "winpodx migrate" in texts
+    assert icon is not None
+    assert icon.property("iconName") == "warning"
+    assert icon.property("iconColorAttr") == "YELLOW"
+    _assert_notice_has_no_action(notice)
+    host.close()
+
+
+def test_current_host_version_hides_the_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    _install_host_status(
+        monkeypatch, HostVersionStatus(state="current", installed_version="99.0.0")
+    )
+
+    # When
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+
+    # Then
+    assert notice.property("migrationState") == "current"
+    assert notice.isHidden()
+    _assert_notice_has_no_action(notice)
+
+
+def test_unknown_host_version_notice_stays_neutral(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    _install_host_status(monkeypatch, HostVersionStatus(state="unknown", installed_version=None))
+
+    # When
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    icon = notice.findChild(QLabel, "settingsCardIcon")
+    texts = _notice_texts(notice)
+
+    # Then
+    assert notice.property("migrationState") == "unknown"
+    assert not notice.isHidden()
+    assert notice.accessibleName() == tr("Migration status unknown")
+    assert "0.1.7" not in texts
+    assert "migrate" not in texts.lower()
+    assert "winpodx migrate" not in texts
+    assert icon is not None
+    assert icon.property("iconName") != "warning"
+    assert icon.property("iconColorAttr") != "YELLOW"
+    _assert_notice_has_no_action(notice)
+
+
+def test_refresh_transitions_host_version_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    feed = _install_host_status(
+        monkeypatch, HostVersionStatus(state="outdated", installed_version="1.2.3")
+    )
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    assert notice.property("migrationState") == "outdated"
+    assert "1.2.3" in _notice_texts(notice)
+    assert "winpodx migrate" in _notice_texts(notice)
+
+    # When
+    feed.status = HostVersionStatus(state="current", installed_version="99.0.0")
+    host._dashboard_refreshing = False
+    host._refresh_dashboard()
+    assert notice.isHidden()
+    assert notice.property("migrationState") == "current"
+
+    feed.status = HostVersionStatus(state="unknown", installed_version=None)
+    host._dashboard_refreshing = False
+    host._refresh_dashboard()
+    unknown_text = _notice_texts(notice)
+    assert not notice.isHidden()
+    assert notice.property("migrationState") == "unknown"
+    assert notice.accessibleName() == tr("Migration status unknown")
+    assert "0.1.7" not in unknown_text
+    assert "migrate" not in unknown_text.lower()
+    assert "1.2.3" not in unknown_text
+
+    feed.status = HostVersionStatus(state="outdated", installed_version="4.5.6")
+    host._dashboard_refreshing = False
+    host._refresh_dashboard()
+    assert not notice.isHidden()
+    assert "4.5.6" in _notice_texts(notice)
+    assert "winpodx migrate" in _notice_texts(notice)
+    _assert_notice_has_no_action(notice)
+
+
+def test_host_version_notice_refreshes_before_the_resource_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    from winpodx import __version__
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    feed = _install_host_status(
+        monkeypatch, HostVersionStatus(state="current", installed_version="9.9.9")
+    )
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    seen: list[bool] = []
+
+    def _status(package_version: str) -> HostVersionStatus:
+        seen.append(bool(host._dashboard_refreshing))
+        feed.calls.append(package_version)
+        return HostVersionStatus(state="outdated", installed_version="0.4.2")
+
+    monkeypatch.setattr(dash_mod, "get_host_version_status", _status)
+    snap_calls: list[int] = []
+    monkeypatch.setattr(
+        dash_mod,
+        "pod_resource_snapshot",
+        lambda *_args, **_kwargs: snap_calls.append(1) or _snapshot(),
+    )
+    host._dashboard_refreshing = True
+
+    # When
+    host._refresh_dashboard()
+
+    # Then
+    assert seen == [True]
+    assert feed.calls[-1] == __version__
+    assert snap_calls == []
+    assert not notice.isHidden()
+    assert notice.property("migrationState") == "outdated"
+    assert "0.4.2" in _notice_texts(notice)
+
+
+def test_host_version_notice_updates_before_the_refresh_flag_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    _install_host_status(monkeypatch, HostVersionStatus(state="current", installed_version="9.9.9"))
+    host = _build_dash(monkeypatch)
+    seen: list[bool] = []
+
+    def _status(_package_version: str) -> HostVersionStatus:
+        seen.append(bool(host._dashboard_refreshing))
+        return HostVersionStatus(state="outdated", installed_version="0.4.2")
+
+    monkeypatch.setattr(dash_mod, "get_host_version_status", _status)
+    host._dashboard_refreshing = False
+
+    # When
+    host._refresh_dashboard()
+
+    # Then
+    assert seen == [False]
+
+
+def test_host_version_notice_survives_a_failed_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    feed = _install_host_status(
+        monkeypatch, HostVersionStatus(state="outdated", installed_version="2.0.1")
+    )
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("podman is down")
+
+    monkeypatch.setattr(dash_mod, "pod_resource_snapshot", _boom)
+    feed.status = HostVersionStatus(state="unknown", installed_version=None)
+    host.dashboard_updated.emissions.clear()
+    host._dashboard_refreshing = False
+
+    # When
+    host._refresh_dashboard()
+
+    # Then
+    assert host.dashboard_updated.emissions == []
+    assert host._dashboard_refreshing is False
+    assert not notice.isHidden()
+    assert notice.property("migrationState") == "unknown"
+    assert "migrate" not in _notice_texts(notice).lower()
+    assert "2.0.1" not in _notice_texts(notice)
+
+
+def test_dashboard_timer_refreshes_the_host_version_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    from winpodx.cli.migrate import HostVersionStatus
+
+    _forbid_migration(monkeypatch)
+    feed = _install_host_status(
+        monkeypatch, HostVersionStatus(state="current", installed_version="9.9.9")
+    )
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    assert notice.isHidden()
+    feed.status = HostVersionStatus(state="outdated", installed_version="0.8.1")
+    host._dashboard_refreshing = False
+
+    # When
+    host._dashboard_timer.timeout.emit()
+
+    # Then
+    assert not notice.isHidden()
+    assert "0.8.1" in _notice_texts(notice)
+    assert "winpodx migrate" in _notice_texts(notice)
+    _assert_notice_has_no_action(notice)
+
+
+def test_missing_or_malformed_marker_shows_unknown_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    from winpodx.utils.paths import config_dir
+
+    _forbid_migration(monkeypatch)
+    marker = config_dir() / "installed_version.txt"
+    host = _build_dash(monkeypatch)
+    missing = _dashboard_frame(host, "hostVersionNotice")
+    assert missing.property("migrationState") == "unknown"
+    assert not marker.exists()
+
+    payload = b"@@not-a-version\n"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_bytes(payload)
+    host._dashboard_refreshing = False
+
+    # When
+    host._refresh_dashboard()
+
+    # Then
+    texts = _notice_texts(missing)
+    assert missing.property("migrationState") == "unknown"
+    assert not missing.isHidden()
+    assert missing.accessibleName() == tr("Migration status unknown")
+    assert "0.1.7" not in texts
+    assert "migrate" not in texts.lower()
+    assert marker.read_bytes() == payload
+    _assert_notice_has_no_action(missing)
+
+
+@pytest.mark.parametrize("schemes", [("light", "dark"), ("dark", "light")])
+@pytest.mark.parametrize(
+    "status",
+    [
+        dash_mod.HostVersionStatus(state="outdated", installed_version="0.8.1"),
+        dash_mod.HostVersionStatus(state="unknown", installed_version=None),
+        dash_mod.HostVersionStatus(state="current", installed_version="99.0.0"),
+    ],
+    ids=["outdated", "unknown", "current"],
+)
+def test_host_version_notice_restyles_card_and_labels_when_scheme_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    schemes: tuple[str, str],
+    status: dash_mod.HostVersionStatus,
+) -> None:
+    from winpodx.gui import theme
+
+    # Given
+    theme.rebuild(schemes[0])
+    _forbid_migration(monkeypatch)
+    feed = _install_host_status(monkeypatch, status)
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    _reflow_dashboard_at(host, 740)
+    original_text = _notice_texts(notice)
+    feed.calls.clear()
+
+    # When
+    theme.rebuild(schemes[1])
+    host._restyle_dashboard()
+    QApplication.processEvents()
+
+    # Then
+    try:
+        assert notice.styleSheet() == theme.SETTINGS_CARD.replace(
+            "QFrame#settingsCard", "QFrame#hostVersionNotice"
+        )
+        assert f"color: {theme.C.TEXT};" in notice.title_label.styleSheet()
+        assert f"color: {theme.C.SUBTEXT1};" in notice.desc_label.styleSheet()
+        assert notice.isVisible() is (status.state != "current")
+        assert notice.property("migrationState") == status.state
+        assert _notice_texts(notice) == original_text
+        assert feed.calls == []
+        _assert_notice_has_no_action(notice)
+        quick_actions = _dashboard_frame(host, "quickActions")
+        assert theme.C.SURFACE0 in quick_actions.styleSheet()
+    finally:
+        host.close()
+
+
+@pytest.mark.parametrize("schemes", [("light", "dark"), ("dark", "light")])
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            dash_mod.HostVersionStatus(state="outdated", installed_version="0.8.1"),
+            "warning",
+            "YELLOW",
+        ),
+        (
+            dash_mod.HostVersionStatus(state="unknown", installed_version=None),
+            "pending",
+            "SUBTEXT1",
+        ),
+    ],
+    ids=["outdated", "unknown"],
+)
+def test_host_version_notice_repaints_icon_when_scheme_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    schemes: tuple[str, str],
+    case: tuple[dash_mod.HostVersionStatus, str, str],
+) -> None:
+    from winpodx.gui import theme
+    from winpodx.gui.icons import load_icon
+
+    # Given
+    status, icon_name, color_attr = case
+    theme.rebuild(schemes[0])
+    _forbid_migration(monkeypatch)
+    _install_host_status(monkeypatch, status)
+    host = _build_dash(monkeypatch)
+    icon = _dashboard_frame(host, "hostVersionNotice").findChild(QLabel, "settingsCardIcon")
+    assert icon is not None
+    original_image = icon.pixmap().toImage()
+
+    # When
+    theme.rebuild(schemes[1])
+    host._restyle_dashboard()
+
+    # Then
+    try:
+        expected = load_icon(icon_name, getattr(theme.C, color_attr), 20).pixmap(20, 20).toImage()
+        assert icon.pixmap().toImage() == expected
+        assert icon.pixmap().toImage() != original_image
+        assert icon.property("iconName") == icon_name
+        assert icon.property("iconColorAttr") == color_attr
+    finally:
+        host.close()
+
+
+def test_outdated_host_version_notice_translates_guidance_and_accessible_description(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import winpodx.gui._main_window_dashboard_surfaces as surfaces
+    from winpodx import __version__
+
+    # Given
+    _forbid_migration(monkeypatch)
+    _install_host_status(
+        monkeypatch, dash_mod.HostVersionStatus(state="outdated", installed_version="0.8.1")
+    )
+    monkeypatch.setattr(surfaces, "tr", lambda key: f"translated:{key}")
+
+    # When
+    host = _build_dash(monkeypatch)
+    notice = _dashboard_frame(host, "hostVersionNotice")
+    description = notice.desc_label.text()
+
+    # Then
+    try:
+        assert description.startswith("translated:")
+        assert "0.8.1" in description
+        assert __version__ in description
+        assert "winpodx migrate" in description
+        assert "{" not in description
+        assert notice.accessibleDescription() == description
+        assert notice.desc_label.textFormat() == Qt.TextFormat.PlainText
+        _assert_notice_has_no_action(notice)
+    finally:
+        host.close()

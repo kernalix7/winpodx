@@ -19,8 +19,9 @@ import argparse
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from winpodx import __version__
 from winpodx.core.i18n import tr
@@ -437,6 +438,57 @@ def _read_installed_version() -> Optional[str]:
         )
         return None
     return content
+
+
+HostVersionState = Literal["outdated", "current", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class HostVersionStatus:
+    state: HostVersionState
+    installed_version: Optional[str]
+
+
+def _read_installed_version_quiet() -> Optional[str]:
+    path = config_dir() / _VERSION_FILE
+    try:
+        with path.open("rb") as fh:
+            raw = fh.read(_MAX_MARKER_BYTES + 1)
+    except (FileNotFoundError, OSError):
+        return None
+
+    if len(raw) > _MAX_MARKER_BYTES:
+        return None
+
+    try:
+        content = raw.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError:
+        return None
+
+    if not content or not _MARKER_VERSION_RE.fullmatch(content):
+        return None
+    return content
+
+
+def get_host_version_status(package_version: str) -> HostVersionStatus:
+    """Compare the host marker against ``package_version`` (read-only).
+
+    Never writes the marker and never invokes migration. Numeric tuples
+    are zero-padded to equal width before comparison so trailing segment
+    differences (patch, fourth segment) compare correctly; pre-release
+    suffixes share their leading digits and therefore compare equal.
+    """
+    installed = _read_installed_version_quiet()
+    if installed is None:
+        return HostVersionStatus(state="unknown", installed_version=None)
+
+    installed_t = _version_tuple(installed)
+    package_t = _version_tuple(package_version)
+    width = max(len(installed_t), len(package_t))
+    padded_installed = installed_t + (0,) * (width - len(installed_t))
+    padded_package = package_t + (0,) * (width - len(package_t))
+    state: HostVersionState = "outdated" if padded_installed < padded_package else "current"
+    return HostVersionStatus(state=state, installed_version=installed)
 
 
 def _write_installed_version(version: str) -> None:

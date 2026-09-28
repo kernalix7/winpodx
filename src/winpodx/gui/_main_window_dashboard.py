@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx import __version__
+from winpodx.cli.migrate import HostVersionStatus, get_host_version_status
 from winpodx.core.i18n import tr
 from winpodx.core.stats import ResourceSnapshot, pod_resource_snapshot
 from winpodx.gui import theme
@@ -116,6 +118,7 @@ class DashboardMixin(
         body.setSpacing(SPACE_XL)
         inner.setMaximumWidth(CONTENT_MAX_WIDTH + PAGE_MARGIN_X - SCROLL_GUTTER)
         body.addWidget(self._build_status_hero())
+        body.addWidget(self._build_host_version_notice())
         body.addWidget(self._build_quick_actions())
         body.addWidget(self._build_running_now())
         body.addWidget(self._build_reverse_open_card())
@@ -177,6 +180,10 @@ class DashboardMixin(
         if cur is not None and self._workspace_cols() != cur:
             self._populate_workspace()
 
+    def _restyle_dashboard(self) -> None:
+        super()._restyle_dashboard()
+        self._restyle_host_version_notice()
+
     def _on_hero_primary(self) -> None:
         handler = _HERO_ROUTE.get(getattr(self, "_hero_pod_state", ""))
         if handler is not None:
@@ -203,8 +210,16 @@ class DashboardMixin(
                 exc_info=True,
             )
 
+    def _refresh_host_version_notice(self) -> None:
+        notice = getattr(self, "_host_version_notice", None)
+        if notice is None:
+            return
+        status: HostVersionStatus = get_host_version_status(__version__)
+        self._apply_host_version_notice(status)
+
     def _refresh_dashboard(self) -> None:
         """Probe pod resources off-thread; results land via ``dashboard_updated``."""
+        self._refresh_host_version_notice()
         if getattr(self, "_dashboard_refreshing", False):
             return
         self._dashboard_refreshing = True

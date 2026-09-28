@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import NoReturn
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QBoxLayout,
@@ -16,6 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx import __version__
+from winpodx.cli.migrate import HostVersionStatus
 from winpodx.core.i18n import tr
 from winpodx.gui import theme
 from winpodx.gui._main_window_navpane import _app_icon_pixmap
@@ -44,6 +48,11 @@ _RECOVERY_TEXT = {
     "stopped": "Pod is stopped",
     "unknown": "Status unknown",
 }
+
+
+def _unhandled_host_version(state: str) -> NoReturn:
+    raise AssertionError(f"Unhandled host version state: {state}")
+
 
 _QUICK_ACTIONS: tuple[tuple[str, str, str, int | None], ...] = (
     ("Full Desktop", "desktop", "_on_open_desktop", None),
@@ -165,6 +174,89 @@ class _DashboardSurfacesMixin:
         self._dashboard_row1 = row
         outer.addLayout(row, 1)
         return hero
+
+    def _build_host_version_notice(self) -> QFrame:
+        card = make_settings_card(
+            "pending",
+            tr("Migration status unknown"),
+            "",
+            object_name="hostVersionNotice",
+        )
+        card.setAccessibleName(tr("Migration status unknown"))
+        card.setProperty("migrationState", "unknown")
+        card.hide()
+        self._host_version_notice = card
+        return card
+
+    def _apply_host_version_notice(self, status: HostVersionStatus) -> None:
+        card = getattr(self, "_host_version_notice", None)
+        if card is None:
+            return
+        match status.state:
+            case "current":
+                card.hide()
+                card.setProperty("migrationState", "current")
+                card.setAccessibleDescription("")
+            case "outdated":
+                self._show_outdated_host_notice(card, status.installed_version)
+            case "unknown":
+                self._show_unknown_host_notice(card)
+            case unreachable:
+                _unhandled_host_version(unreachable)
+
+    def _show_outdated_host_notice(self, card: QFrame, installed: str | None) -> None:
+        version = installed or ""
+        description = tr(
+            "The host migration marker records {installed}, older than WinPodX {current}.\n"
+            "Review the changes before running {command} manually in a terminal."
+        ).format(installed=version, current=__version__, command="winpodx migrate")
+        card.title_label.setText(tr("Host version outdated"))
+        card.desc_label.setText(description)
+        card.desc_label.setVisible(True)
+        card.desc_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._set_host_notice_icon(card, "warning", "YELLOW")
+        card.setAccessibleName(tr("Host version outdated"))
+        card.setAccessibleDescription(description)
+        card.setProperty("migrationState", "outdated")
+        card.show()
+
+    def _show_unknown_host_notice(self, card: QFrame) -> None:
+        card.title_label.setText(tr("Migration status unknown"))
+        card.desc_label.clear()
+        card.desc_label.setVisible(False)
+        self._set_host_notice_icon(card, "pending", "SUBTEXT1")
+        card.setAccessibleName(tr("Migration status unknown"))
+        card.setAccessibleDescription("")
+        card.setProperty("migrationState", "unknown")
+        card.show()
+
+    def _set_host_notice_icon(self, card: QFrame, name: str, color_attr: str) -> None:
+        icon = card.findChild(QLabel, "settingsCardIcon")
+        if icon is None:
+            return
+        color = getattr(C, color_attr)
+        icon.setPixmap(load_icon(name, color, 20).pixmap(20, 20))
+        icon.setProperty("iconName", name)
+        icon.setProperty("iconColorAttr", color_attr)
+
+    def _restyle_host_version_notice(self) -> None:
+        card = getattr(self, "_host_version_notice", None)
+        if card is None:
+            return
+        _apply_settings_card(card)
+        card.title_label.setStyleSheet(
+            f"background: transparent; color: {theme.C.TEXT}; "
+            f"font-size: {theme.FONT_BODY}px; font-weight: 400;"
+        )
+        card.desc_label.setStyleSheet(
+            f"background: transparent; color: {theme.C.SUBTEXT1}; "
+            f"font-size: {theme.FONT_CAPTION}px; font-weight: 400;"
+        )
+        icon = card.findChild(QLabel, "settingsCardIcon")
+        if icon is not None:
+            self._set_host_notice_icon(
+                card, icon.property("iconName"), icon.property("iconColorAttr")
+            )
 
     def _build_settings_actions(self) -> QFrame:
         group, cards = make_settings_group()

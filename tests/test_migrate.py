@@ -10,17 +10,22 @@ flow through ``run_migrate`` with refresh skipped.
 from __future__ import annotations
 
 import argparse
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from winpodx.cli.migrate import (
     _VERSION_NOTES,
+    HostVersionStatus,
     _detect_installed_version,
     _print_whats_new,
     _prompt_yes,
     _read_installed_version,
     _version_tuple,
     _write_installed_version,
+    get_host_version_status,
     run_migrate,
 )
 
@@ -1265,3 +1270,125 @@ def test_pod_is_running_uses_selected_runtime_and_container(monkeypatch):
 
     assert _pod_is_running(cfg) is True
     assert run.call_args.args[0][:4] == ["docker", "ps", "--filter", "name=custom"]
+
+
+# --- HostVersionStatus / get_host_version_status (read-only host marker API) ---
+
+
+def _marker(tmp_path, raw: bytes):
+    (tmp_path / "installed_version.txt").write_bytes(raw)
+
+
+def test_host_version_status_is_frozen_slotted_dataclass():
+    status = HostVersionStatus(state="current", installed_version="0.11.0")
+    assert status.state == "current"
+    assert status.installed_version == "0.11.0"
+    assert not hasattr(status, "__dict__")  # slots=True
+    with pytest.raises(FrozenInstanceError):
+        setattr(status, "state", "outdated")
+
+
+def test_host_version_status_missing_marker_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    status = get_host_version_status("0.11.0")
+    assert status == HostVersionStatus(state="unknown", installed_version=None)
+    # Read-only: no marker was created.
+    assert not (tmp_path / "installed_version.txt").exists()
+
+
+def test_host_version_status_empty_marker_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"\n")
+    assert get_host_version_status("0.11.0").state == "unknown"
+
+
+def test_host_version_status_oversized_marker_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0" + b"X" * 1024)
+    assert get_host_version_status("0.11.0").state == "unknown"
+
+
+def test_host_version_status_binary_marker_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"\xff\xfe\x00\x01bad")
+    assert get_host_version_status("0.11.0").state == "unknown"
+
+
+def test_host_version_status_unreadable_marker_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    # A directory at the marker path makes open() raise OSError.
+    (tmp_path / "installed_version.txt").mkdir()
+    assert get_host_version_status("0.11.0").state == "unknown"
+
+
+def test_host_version_status_malformed_with_config_exists_unknown(tmp_path, monkeypatch):
+    """No pre-tracker baseline: config existing must NOT yield 'current'."""
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    (tmp_path / "winpodx.toml").write_text("[rdp]\nuser = 'x'\n", encoding="utf-8")
+    _marker(tmp_path, b"not-a-version\n")
+    status = get_host_version_status("0.11.0")
+    assert status.state == "unknown"
+    assert status.installed_version is None
+
+
+def test_host_version_status_invalid_marker_is_quiet(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0; rm -rf /\n")
+    get_host_version_status("0.11.0")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_host_version_status_equal_current(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0\n")
+    assert get_host_version_status("0.11.0") == HostVersionStatus(
+        state="current", installed_version="0.11.0"
+    )
+
+
+def test_host_version_status_fourth_segment_outdated(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0\n")
+    status = get_host_version_status("0.11.0.1")
+    assert status.state == "outdated"
+    assert status.installed_version == "0.11.0"
+
+
+def test_host_version_status_fourth_segment_newer_current(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0.1\n")
+    status = get_host_version_status("0.11.0")
+    assert status.state == "current"
+    assert status.installed_version == "0.11.0.1"
+
+
+def test_host_version_status_patch_outdated(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0\n")
+    assert get_host_version_status("0.11.1").state == "outdated"
+
+
+def test_host_version_status_suffix_equality_current(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.1.8rc1\n")
+    status = get_host_version_status("0.1.8")
+    assert status.state == "current"
+    assert status.installed_version == "0.1.8rc1"
+
+
+def test_host_version_status_marker_bytes_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    raw = b"0.11.0\n"
+    _marker(tmp_path, raw)
+    get_host_version_status("0.11.0.1")
+    assert (tmp_path / "installed_version.txt").read_bytes() == raw
+
+
+def test_host_version_status_does_not_invoke_migration(tmp_path, monkeypatch):
+    monkeypatch.setattr("winpodx.cli.migrate.config_dir", lambda: tmp_path)
+    _marker(tmp_path, b"0.11.0\n")
+    with patch("winpodx.cli.migrate.run_migrate") as migrate_mock:
+        get_host_version_status("0.11.0.1")
+    migrate_mock.assert_not_called()
