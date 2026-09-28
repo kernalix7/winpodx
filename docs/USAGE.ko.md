@@ -109,6 +109,8 @@ winpodx config import             # 기존 winapps.conf import
 
 `winpodx setup --customize`는 에디션과 언어를 고른 뒤 저장 디렉터리와 선택 사항인 읽을 수 있는 로컬 Windows ISO를 묻고, pod 생성 전에 두 값을 검토합니다. Enter를 누르면 기본 저장 디렉터리와 Microsoft ISO 다운로드를 사용합니다. 새 저장 경로는 안전하고 쓰기 가능하며 비어 있어야 합니다. 같은 선택을 비대화형으로 전달하려면 `winpodx setup --storage-path /path/to/storage --win-iso /path/to/windows.iso`를 사용하세요. 기존 설정이나 named volume 저장소는 이 마법사로 이동하거나 교체되지 않습니다. 다른 저장소를 선택하면 `winpodx setup --migrate-storage` 안내와 함께 거부합니다. ISO 선택은 신규 Windows 설치에만 적용됩니다.
 
+`winpodx gui` 첫 실행은 Welcome, Configuration, Prerequisites, Review, Install, Finish 여섯 페이지입니다. Prerequisites는 방금 고른 백엔드, RAM, 디스크, 저장 위치, 선택적 ISO를 검사합니다. Tools의 재설치는 백엔드, 저장 위치, 설치 미디어를 고정하고, 파괴적 확인은 검토 뒤에만 합니다. 로컬 ISO를 골랐다고 완전 오프라인 설치가 되지는 않습니다.
+
 ## Qt6 GUI 둘러보기
 
 `winpodx gui`로 실행합니다. Qt6 데스크톱 앱은 Fluent 라이트 및 다크 스타일을 갖춘 Windows 11 설정 스타일 NavigationView를 사용합니다. 시스템 색상 방식을 따르며, 실행 전에 `WINPODX_COLOR_SCHEME=light` 또는 `WINPODX_COLOR_SCHEME=dark`를 지정하면 해당 프로세스에만 적용할 수 있습니다. 글꼴은 Segoe UI Variable, Segoe UI, 번들 Selawik, 데스크톱 기본 글꼴 순으로 선택합니다. Selawik은 WinPodX에 포함되어 있으므로 시스템 글꼴 패키지가 필요하지 않습니다.
