@@ -943,6 +943,168 @@ def test_tile_checkboxes_drive_the_batch_selection(page) -> None:
     assert host._batch_remove_btn.isEnabled() is False
 
 
+def test_select_all_checks_only_displayed_search_and_category_rows(page) -> None:
+    from PySide6.QtWidgets import QCheckBox
+
+    host = page(
+        [
+            _app("word", "Microsoft Word", categories=["Office"]),
+            _app("excel", "Microsoft Excel", categories=["Office"]),
+            _app("paint", "Microsoft Paint", categories=["Graphics"]),
+            _app("shim", "Microsoft Shim", categories=["Office"], hidden=True),
+        ]
+    )
+    host.search_box.setText("Microsoft")
+    host._set_category("Office")
+    host.btn_select.click()
+
+    host._batch_select_all_btn.click()
+
+    assert host._selected_names == {"word", "excel"}
+    assert [
+        host.app_list_layout.itemAt(i).widget().findChild(QCheckBox).isChecked() for i in range(2)
+    ] == [True, True]
+    assert "2" in host._batch_label.text()
+    assert host._batch_hide_btn.isEnabled()
+    host._batch_select_all_btn.click()
+    assert host._selected_names == {"word", "excel"}
+
+
+def test_select_all_includes_hidden_rows_only_when_displayed(page) -> None:
+    host = page([_app("word"), _app("shim", hidden=True)])
+    host.btn_show_hidden.click()
+    host.btn_select.click()
+
+    host._batch_select_all_btn.click()
+
+    assert host._selected_names == {"word", "shim"}
+
+
+def test_filter_changes_prune_stale_selection_and_disable_empty_select_all(page) -> None:
+    host = page(
+        [
+            _app("word", categories=["Office"]),
+            _app("excel", categories=["Office"]),
+            _app("paint", categories=["Graphics"]),
+        ]
+    )
+    host.btn_select.click()
+    host._batch_select_all_btn.click()
+
+    host.search_box.setText("word")
+    assert host._selected_names == {"word"}
+    assert "1" in host._batch_label.text()
+
+    host._set_category("Graphics")
+    assert host._selected_names == set()
+    assert host._batch_hide_btn.isEnabled() is False
+    assert host._batch_select_all_btn.isEnabled() is False
+
+    host.search_box.clear()
+    assert host._batch_select_all_btn.isEnabled() is True
+    assert host._selected_names == set()
+
+
+def test_hidden_toggle_and_reload_prune_selection_that_is_no_longer_displayed(page) -> None:
+    host = page([_app("word"), _app("shim", hidden=True)])
+    host.btn_show_hidden.click()
+    host.btn_select.click()
+    host._batch_select_all_btn.click()
+
+    host.btn_show_hidden.click()
+    assert host._selected_names == {"word"}
+
+    host.apps = []
+    host._filter_apps("")
+    assert host._selected_names == set()
+    assert host._batch_hide_btn.isEnabled() is False
+    assert host._batch_select_all_btn.isEnabled() is False
+
+
+def test_row_and_label_clicks_toggle_checkbox_without_launching(page) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QCheckBox, QLabel
+
+    host = page([_app("word", "Microsoft Word")])
+    host.btn_select.click()
+    host._page.show()
+    _ensure_qapp().processEvents()
+    tile = host.app_list_layout.itemAt(0).widget()
+    box = tile.findChild(QCheckBox)
+    labels = tile.findChildren(QLabel)
+
+    for target, selected in (
+        (tile, True),
+        (labels[0], False),
+        (labels[-2], True),
+        (labels[-1], False),
+    ):
+        QTest.mouseClick(target, Qt.MouseButton.LeftButton)
+        assert box.isChecked() is selected
+        assert host._selected_names == ({"word"} if selected else set())
+    QTest.mouseClick(box, Qt.MouseButton.LeftButton)
+    assert box.isChecked() is True
+    assert host._selected_names == {"word"}
+    assert host.launched == []
+
+
+def test_row_click_preserves_child_actions_and_non_selection_behavior(page) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QCheckBox, QPushButton
+
+    host = page([_app("word")])
+    host._on_edit_app = lambda app: host.edited.append(app.name)
+    host._on_toggle_app_hidden = lambda app: host.hidden_toggles.append(app.name)
+    host._on_delete_app = lambda app: host.deleted.append(app.name)
+    host._set_view("list")
+    host._page.show()
+    _ensure_qapp().processEvents()
+    tile = host.app_list_layout.itemAt(0).widget()
+    QTest.mouseClick(tile, Qt.MouseButton.LeftButton)
+    assert host.launched == []
+    assert host._selected_names == set()
+
+    host.btn_select.click()
+    _ensure_qapp().processEvents()
+    tile = host.app_list_layout.itemAt(0).widget()
+    box = tile.findChild(QCheckBox)
+    QTest.mouseClick(tile, Qt.MouseButton.RightButton)
+    assert box.isChecked() is False
+    for button in tile.findChildren(QPushButton):
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        assert box.isChecked() is False
+    assert host.launched == ["word"]
+    assert host.edited == ["word"]
+    assert host.hidden_toggles == ["word"]
+    assert host.deleted == ["word"]
+
+
+def test_hide_selected_ignores_stale_and_unselected_visible_names(page, monkeypatch) -> None:
+    import winpodx.core.app as app_mod
+
+    hidden: list[str] = []
+    monkeypatch.setattr(
+        app_mod,
+        "set_app_hidden",
+        lambda name, value: hidden.append(name) or _app(name, hidden=value),
+    )
+    host = page([_app("word"), _app("excel"), _app("paint")])
+    host._reload_apps = lambda: None
+    host.btn_select.click()
+    host.search_box.setText("word")
+    host._on_tile_checked("word", True)
+    host._selected_names.add("paint")
+
+    host._batch_hide_btn.click()
+
+    assert hidden == ["word"]
+    assert host._selected_names == set()
+    assert host._select_mode is False
+    assert host.info_label.text().endswith("1 apps")
+
+
 def test_exit_select_mode_clears_the_selection_and_reenables_grid(page) -> None:
     host = page([_app("word")])
     host.btn_select.click()

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -176,6 +177,7 @@ class LibraryPageMixin(LibraryChipsMixin, LibraryStartMixin):
         # widget) and reveals the batch action bar below the toolbar.
         self._select_mode = False
         self._selected_names: set[str] = set()
+        self._displayed_names: set[str] = set()
         self.btn_select = QPushButton(tr("Select"))
         self.btn_select.setCheckable(True)
         self.btn_select.setStyleSheet(theme.BTN_SECONDARY)
@@ -702,6 +704,10 @@ class LibraryPageMixin(LibraryChipsMixin, LibraryStartMixin):
         self._batch_label.setStyleSheet(f"background: transparent; color: {C.SUBTEXT0};")
         row.addWidget(self._batch_label)
         row.addStretch()
+        self._batch_select_all_btn = QPushButton(tr("Select all"))
+        self._batch_select_all_btn.setStyleSheet(theme.BTN_SECONDARY)
+        self._batch_select_all_btn.clicked.connect(self._on_select_all)
+        row.addWidget(self._batch_select_all_btn)
         self._batch_hide_btn = QPushButton(tr("Hide selected"))
         self._batch_hide_btn.setStyleSheet(theme.BTN_SECONDARY)
         self._batch_hide_btn.setEnabled(False)
@@ -744,16 +750,27 @@ class LibraryPageMixin(LibraryChipsMixin, LibraryStartMixin):
             self._selected_names.discard(name)
         self._update_batch_bar()
 
+    def _on_select_all(self) -> None:
+        self._selected_names.update(self._displayed_names)
+        for i in range(self.app_list_layout.count()):
+            tile = self.app_list_layout.itemAt(i).widget()
+            if tile is not None:
+                box = tile.findChild(QCheckBox)
+                if box is not None:
+                    box.setChecked(True)
+        self._update_batch_bar()
+
     def _update_batch_bar(self) -> None:
         n = len(self._selected_names)
         self._batch_bar.setVisible(self._select_mode)
         self._batch_label.setText(tr("{n} selected").format(n=n))
         self._batch_remove_btn.setEnabled(n > 0)
         self._batch_hide_btn.setEnabled(n > 0)
+        self._batch_select_all_btn.setEnabled(self._select_mode and bool(self._displayed_names))
 
     def _on_batch_hide(self) -> None:
         """Hide all selected apps from the Linux menu (reversible, no confirm)."""
-        names = sorted(self._selected_names)
+        names = sorted(self._selected_names & self._displayed_names)
         if not names:
             return
         from winpodx.core.app import set_app_hidden
@@ -824,6 +841,10 @@ class LibraryPageMixin(LibraryChipsMixin, LibraryStartMixin):
             filtered = [a for a in base if q in a.full_name.lower() or q in a.name.lower()]
             if self._active_category:
                 filtered = [a for a in filtered if self._active_category in a.categories]
+            self._displayed_names = {app.name for app in filtered}
+            if getattr(self, "_select_mode", False):
+                self._selected_names.intersection_update(self._displayed_names)
+                self._update_batch_bar()
             self._refresh_launcher_sections(filtered)
             self._populate_app_view(filtered)
             # "X of Y" so the toolbar count reconciles with the info bar's total

@@ -175,9 +175,22 @@ class _AppTile(QFrame):
         super().keyPressEvent(event)
 
 
+class _SelectableListTile(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self._select_box: QCheckBox | None = None
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self._select_box is not None:
+            self._select_box.toggle()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 def make_library_list_tile(host: _ListTileHost, app: AppInfo) -> QFrame:
     """48px Applications list row: 24px icon, name + category, 32px Launch."""
-    tile = QFrame()
+    tile = _SelectableListTile()
     tile.setObjectName("appTile")
     tile.setStyleSheet(theme.APP_TILE)
     tile.setFixedHeight(_LIST_ROW_H)
@@ -190,9 +203,12 @@ def make_library_list_tile(host: _ListTileHost, app: AppInfo) -> QFrame:
     if getattr(host, "_select_mode", False):
         cb = QCheckBox()
         cb.setChecked(app.name in host._selected_names)
+        cb.setAccessibleName(app.full_name)
         cb.setStyleSheet(theme.CHECKBOX + "QCheckBox { margin-left: 4px; }")
         cb.toggled.connect(lambda checked, n=app.name: host._on_tile_checked(n, checked))
         layout.addWidget(cb)
+        tile._select_box = cb
+        tile.setCursor(Qt.CursorShape.PointingHandCursor)
 
     avatar = make_app_avatar(app, size=_LIST_ICON, radius=4, font_size=10)
     layout.addWidget(avatar)

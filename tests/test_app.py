@@ -660,6 +660,7 @@ def test_batch_hide_hides_selected(monkeypatch, tmp_path):
 
     host = type("H", (), {})()
     host._selected_names = {"word", "excel"}
+    host._displayed_names = {"word", "excel"}
     host._select_mode = True
     host.btn_select = type("B", (), {"setChecked": lambda self, v: None})()
     host.btn_grid = type("G", (), {"setEnabled": lambda self, v: None})()
