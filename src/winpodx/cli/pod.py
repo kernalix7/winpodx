@@ -11,13 +11,18 @@ import threading
 from collections.abc import Callable
 
 from winpodx.cli.main import _emit_deprecation as _deprecate_pod
+from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 
 log = logging.getLogger(__name__)
 
 
 def handle_pod(
-    args: argparse.Namespace, *, on_progress: Callable[[str, str], None] | None = None
+    args: argparse.Namespace,
+    *,
+    on_progress: Callable[[str, str], None] | None = None,
+    reset_config: Config | None = None,
+    expected_config: Config | None = None,
 ) -> None:
     """Route pod subcommands.
 
@@ -46,11 +51,14 @@ def handle_pod(
             on_progress=on_progress,
         )
     elif cmd == "reset":
-        _reset(
+        reset_options = dict(
             redownload_iso=getattr(args, "redownload_iso", False),
             assume_yes=getattr(args, "yes", False),
             on_progress=on_progress,
         )
+        if reset_config is not None or expected_config is not None:
+            reset_options.update(reset_config=reset_config, expected_config=expected_config)
+        _reset(**reset_options)
     elif cmd == "wait-ready":
         _wait_ready(args.timeout, getattr(args, "logs", False), getattr(args, "verbose", False))
     # --- deprecated aliases: guest-side operations ---
@@ -729,6 +737,8 @@ def _reset(
     redownload_iso: bool = False,
     assume_yes: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
+    reset_config: Config | None = None,
+    expected_config: Config | None = None,
 ) -> None:
     """Start the guest over: wipe the disk, reinstall, re-run provisioning.
 
@@ -772,11 +782,81 @@ def _reset(
             print(_report(tr("\nAborted.")))
             return
 
-    # keep_iso is the inverse of the user-facing --redownload-iso; _recreate
-    # takes the confirmation it would otherwise prompt for as already given.
-    _recreate(
-        wipe_storage=True, keep_iso=not redownload_iso, assume_yes=True, on_progress=on_progress
-    )
+    if reset_config is None:
+        if expected_config is not None:
+            print(_report(tr("Cannot reset: no candidate config supplied.")), file=sys.stderr)
+            sys.exit(1)
+        _recreate(
+            wipe_storage=True,
+            keep_iso=not redownload_iso,
+            assume_yes=True,
+            on_progress=on_progress,
+        )
+    else:
+        from winpodx.core.pod import PodState, stop_pod
+        from winpodx.core.pod.disguise import DisguiseImageError, validate_disguise_image
+        from winpodx.setup_wizard.host_state import require_preflight
+
+        original = Config.load()
+        if expected_config is not None and (
+            original.pod.backend,
+            original.pod.storage_path,
+            original.pod.container_name,
+        ) != (
+            expected_config.pod.backend,
+            expected_config.pod.storage_path,
+            expected_config.pod.container_name,
+        ):
+            print(
+                _report(tr("Cannot reset: pod config changed since reinstall began.")),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        try:
+            validate_disguise_image(reset_config)
+            require_preflight(reset_config)
+        except (DisguiseImageError, RuntimeError) as e:
+            print(_report(tr("Cannot reset: {error}").format(error=e)), file=sys.stderr)
+            sys.exit(1)
+
+        status = stop_pod(original)
+        if status.state != PodState.STOPPED:
+            print(
+                _report(tr("Failed to stop pod: {error}").format(error=status.error)),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        try:
+            reset_config.save()
+        except Exception as e:  # noqa: BLE001 — atomic save can fail before or after rename
+            if Config.load() == reset_config and reset_config != original:
+                try:
+                    original.save()
+                except OSError as rollback_error:
+                    print(
+                        _report(
+                            tr("Failed to restore original config: {error}").format(
+                                error=rollback_error
+                            )
+                        ),
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+            print(
+                _report(tr("Failed to save reset config: {error}").format(error=e)),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        _recreate(
+            wipe_storage=True,
+            keep_iso=not redownload_iso,
+            assume_yes=True,
+            on_progress=on_progress,
+            _stopped_config=original,
+        )
 
     print(_report(tr("\nRe-running provisioning on the fresh guest...")))
     from winpodx.cli.main import _cmd_provision
@@ -804,6 +884,7 @@ def _recreate(
     keep_iso: bool = False,
     assume_yes: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
+    _stopped_config: Config | None = None,
 ) -> None:
     """Regenerate compose.yaml + destroy and re-create the container (#254).
 
@@ -820,7 +901,6 @@ def _recreate(
       wiping the disk the changes silently no-op past first boot).
     """
     from winpodx.core.compose import generate_compose
-    from winpodx.core.config import Config
     from winpodx.core.pod import PodState, start_pod, stop_pod
     from winpodx.core.pod.disguise import DisguiseImageError, validate_disguise_image
 
@@ -836,11 +916,12 @@ def _recreate(
 
     # Validate BEFORE anything destructive: the stop/wipe below used to run
     # first, so a later failure left the guest already deleted.
-    try:
-        validate_disguise_image(cfg)
-    except DisguiseImageError as e:
-        print(_report(tr("Cannot recreate: {error}").format(error=e)), file=sys.stderr)
-        sys.exit(1)
+    if _stopped_config is None:
+        try:
+            validate_disguise_image(cfg)
+        except DisguiseImageError as e:
+            print(_report(tr("Cannot recreate: {error}").format(error=e)), file=sys.stderr)
+            sys.exit(1)
 
     if wipe_storage:
         # Refuse to run with a non-empty storage_path that points outside
@@ -874,14 +955,16 @@ def _recreate(
                 print(_report(tr("Aborted (no confirmation).")))
                 sys.exit(2)
 
-    print(_report(tr("Stopping pod...")))
-    stop_pod(cfg)
+    if _stopped_config is None:
+        print(_report(tr("Stopping pod...")))
+        stop_pod(cfg)
 
     if wipe_storage:
+        storage_cfg = _stopped_config if _stopped_config is not None else cfg
         if on_progress is None:
-            _wipe_pod_storage(cfg, keep_iso=keep_iso)
+            _wipe_pod_storage(storage_cfg, keep_iso=keep_iso)
         else:
-            _wipe_pod_storage(cfg, keep_iso=keep_iso, on_progress=on_progress)
+            _wipe_pod_storage(storage_cfg, keep_iso=keep_iso, on_progress=on_progress)
 
     print(_report(tr("Regenerating compose.yaml from current config...")))
     try:

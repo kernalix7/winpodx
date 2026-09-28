@@ -1618,3 +1618,233 @@ def test_wipe_pod_storage_mirrors_outcomes_to_recreate_observer(
     assert all(stage == "recreate" for stage, _ in events)
     rendered = "".join(detail + "\n" for _, detail in events)
     assert rendered == baseline.out
+
+
+@pytest.fixture()
+def reset_case(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    from copy import deepcopy
+
+    baseline = Config()
+    baseline.pod.backend = "podman"
+    baseline.pod.container_name = "original-container"
+    baseline.pod.storage_path = ""
+    candidate = deepcopy(baseline)
+    candidate.pod.win_version = "11"
+    candidate.pod.container_name = "new-container"
+    current = {"config": deepcopy(baseline)}
+    controls = {"save_failure": "", "stop": PodState.STOPPED, "failure": "", "provision": 0}
+    events: list[str] = []
+
+    def save(config: Config) -> None:
+        role = "candidate" if config is candidate else "original"
+        events.append(f"save:{role}")
+        if role == "candidate" and controls["save_failure"] == "before":
+            raise OSError("save failed before replacement")
+        current["config"] = deepcopy(config)
+        if role == "candidate" and controls["save_failure"] == "after":
+            raise OSError("save failed after replacement")
+
+    def compose(config: Config) -> None:
+        assert config.pod.container_name == "new-container"
+        events.append("compose")
+        if controls["failure"] == "compose":
+            raise OSError("compose failed")
+
+    def stop(config: Config) -> PodStatus:
+        assert config.pod.container_name == "original-container"
+        events.append("stop")
+        return PodStatus(controls["stop"], error="stop failed")
+
+    def wipe(config: Config, **kwargs) -> None:
+        assert config.pod.container_name == "original-container"
+        events.append("wipe")
+
+    def start(config: Config) -> PodStatus:
+        assert config.pod.container_name == "new-container"
+        events.append("start")
+        return PodStatus(
+            PodState.ERROR if controls["failure"] == "start" else PodState.STARTING,
+            error="boot failed",
+        )
+
+    def preflight(config: Config) -> None:
+        assert config is candidate
+        events.append("preflight")
+
+    def disguise(config: Config) -> None:
+        assert config is candidate
+        events.append("disguise")
+
+    def provision(args: argparse.Namespace, *, on_progress=None) -> int:
+        events.append("provision")
+        return controls["provision"]
+
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: deepcopy(current["config"])))
+    monkeypatch.setattr(Config, "save", save)
+    monkeypatch.setattr("winpodx.setup_wizard.host_state.require_preflight", preflight)
+    monkeypatch.setattr("winpodx.core.pod.disguise.validate_disguise_image", disguise)
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", stop)
+    monkeypatch.setattr(pod, "_wipe_pod_storage", wipe)
+    monkeypatch.setattr("winpodx.core.compose.generate_compose", compose)
+    monkeypatch.setattr("winpodx.core.pod.start_pod", start)
+    monkeypatch.setattr("winpodx.cli.main._cmd_provision", provision)
+    return SimpleNamespace(
+        baseline=baseline, candidate=candidate, current=current, controls=controls, events=events
+    )
+
+
+def test_handle_pod_forwards_candidate_only_for_reset(
+    monkeypatch: pytest.MonkeyPatch, reset_case: SimpleNamespace
+) -> None:
+    # Given: a caller provides a candidate and baseline to the routed command.
+    reset = MagicMock()
+    recreate = MagicMock()
+    monkeypatch.setattr(pod, "_reset", reset)
+    monkeypatch.setattr(pod, "_recreate", recreate)
+    args = argparse.Namespace(pod_command="reset", yes=True, redownload_iso=False)
+
+    # When: reset and recreate are dispatched with the same optional context.
+    pod.handle_pod(args, reset_config=reset_case.candidate, expected_config=reset_case.baseline)
+    args.pod_command = "recreate"
+    pod.handle_pod(args, reset_config=reset_case.candidate, expected_config=reset_case.baseline)
+
+    # Then: only reset receives the candidate and baseline.
+    reset.assert_called_once_with(
+        redownload_iso=False,
+        assume_yes=True,
+        on_progress=None,
+        reset_config=reset_case.candidate,
+        expected_config=reset_case.baseline,
+    )
+    recreate.assert_called_once_with(wipe_storage=False, keep_iso=False, on_progress=None)
+
+
+@pytest.mark.parametrize("field", ["backend", "storage_path", "container_name"])
+def test_reset_baseline_mismatch_aborts_before_mutation(
+    reset_case: SimpleNamespace, field: str
+) -> None:
+    # Given: persisted pod identity changed since the caller captured its baseline.
+    setattr(reset_case.current["config"].pod, field, "changed")
+
+    # When: reset checks the freshly loaded config against that baseline.
+    assert (
+        _exit_code(
+            lambda: pod._reset(
+                assume_yes=True,
+                reset_config=reset_case.candidate,
+                expected_config=reset_case.baseline,
+            )
+        )
+        == 1
+    )
+
+    # Then: no pod was stopped and neither config nor storage changed.
+    assert reset_case.events == []
+    assert getattr(reset_case.current["config"].pod, field) == "changed"
+
+
+def test_reset_accepts_equivalent_baseline_not_just_same_object(
+    reset_case: SimpleNamespace,
+) -> None:
+    # Given: the baseline is an independent Config with the same stable identity.
+    from copy import deepcopy
+
+    expected = deepcopy(reset_case.baseline)
+    expected.rdp.password = "old-password-from-earlier-snapshot"
+
+    # When: the reset runs against a freshly loaded, separate instance.
+    pod._reset(assume_yes=True, reset_config=reset_case.candidate, expected_config=expected)
+
+    # Then: stopping precedes the candidate save and original-disk wipe.
+    assert reset_case.events == [
+        "disguise",
+        "preflight",
+        "stop",
+        "save:candidate",
+        "wipe",
+        "compose",
+        "start",
+        "provision",
+    ]
+    assert reset_case.current["config"].pod.container_name == "new-container"
+
+
+@pytest.mark.parametrize("failure", ["preflight", "disguise"])
+def test_reset_validation_failure_keeps_pod_config_and_storage(
+    reset_case: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    # Given: a candidate fails one of the existing pre-destructive gates.
+    if failure == "preflight":
+        monkeypatch.setattr(
+            "winpodx.setup_wizard.host_state.require_preflight",
+            MagicMock(side_effect=RuntimeError("host unready")),
+        )
+    else:
+        from winpodx.core.pod.disguise import DisguiseImageError
+
+        monkeypatch.setattr(
+            "winpodx.core.pod.disguise.validate_disguise_image",
+            MagicMock(side_effect=DisguiseImageError("image stale")),
+        )
+
+    # When: reset attempts validation.
+    assert _exit_code(lambda: pod._reset(assume_yes=True, reset_config=reset_case.candidate)) == 1
+
+    # Then: neither stop, save nor wipe was reached.
+    assert "stop" not in reset_case.events
+    assert not any(event.startswith("save:") or event == "wipe" for event in reset_case.events)
+    assert reset_case.current["config"] == reset_case.baseline
+
+
+def test_reset_stop_error_aborts_without_save_or_wipe(reset_case: SimpleNamespace) -> None:
+    # Given: stop_pod reports ERROR rather than STOPPED.
+    reset_case.controls["stop"] = PodState.ERROR
+
+    # When: reset tries to stop the old container.
+    assert _exit_code(lambda: pod._reset(assume_yes=True, reset_config=reset_case.candidate)) == 1
+
+    # Then: old config and disk remain untouched.
+    assert reset_case.events == ["disguise", "preflight", "stop"]
+    assert reset_case.current["config"] == reset_case.baseline
+
+
+@pytest.mark.parametrize("failure", ["before", "after"])
+def test_reset_save_failure_never_wipes_and_restores_only_after_replacement(
+    reset_case: SimpleNamespace, failure: str
+) -> None:
+    # Given: candidate.save fails before or just after an atomic replacement.
+    reset_case.controls["save_failure"] = failure
+
+    # When: reset attempts the candidate save after stopping.
+    assert _exit_code(lambda: pod._reset(assume_yes=True, reset_config=reset_case.candidate)) == 1
+
+    # Then: a replaced file is rolled back; an unchanged file is not rewritten.
+    expected = ["disguise", "preflight", "stop", "save:candidate"]
+    if failure == "after":
+        expected.append("save:original")
+    assert reset_case.events == expected
+    assert reset_case.current["config"] == reset_case.baseline
+
+
+@pytest.mark.parametrize("failure", ["compose", "start", "provision"])
+def test_reset_failure_after_wipe_retains_candidate(
+    reset_case: SimpleNamespace, failure: str
+) -> None:
+    # Given: recreate or provision fails after the original disk has been wiped.
+    if failure == "provision":
+        reset_case.controls["provision"] = 1
+    else:
+        reset_case.controls["failure"] = failure
+
+    # When: the reinstall reaches that failure.
+    if failure == "provision":
+        pod._reset(assume_yes=True, reset_config=reset_case.candidate)
+    else:
+        assert (
+            _exit_code(lambda: pod._reset(assume_yes=True, reset_config=reset_case.candidate)) == 1
+        )
+
+    # Then: candidate remains persisted; rollback is forbidden after wipe begins.
+    assert reset_case.events[:5] == ["disguise", "preflight", "stop", "save:candidate", "wipe"]
+    assert "save:original" not in reset_case.events
+    assert reset_case.current["config"].pod.container_name == "new-container"
