@@ -665,6 +665,7 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
         patch("winpodx.utils.specs.recommend_tier", return_value=tier),
         patch("winpodx.utils.locale.detect_timezone", return_value="UTC"),
         patch("winpodx.cli.setup_cmd._prompt_edition_locale_tuning") as locale_prompt,
+        patch("winpodx.setup_wizard.host_state.require_preflight"),
         patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
         patch("winpodx.cli.setup_cmd._decide_storage_mode") as storage_decision,
         patch("winpodx.cli.setup_cmd._stage_win_iso") as stage_iso,
