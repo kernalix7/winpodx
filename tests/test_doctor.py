@@ -740,6 +740,7 @@ class TestOemDriftFixer:
 
 def _all_ok_legacy(monkeypatch):
     monkeypatch.setattr(doctor, "_check_install_source", lambda: Finding("ok", "src"))
+    monkeypatch.setattr(doctor, "_check_preflight", lambda: [])
     monkeypatch.setattr(doctor, "_check_freerdp", lambda: Finding("ok", "frdp"))
     monkeypatch.setattr(doctor, "_check_kvm", lambda: Finding("ok", "kvm"))
     monkeypatch.setattr(doctor, "_check_container_backend", lambda: [Finding("ok", "be")])

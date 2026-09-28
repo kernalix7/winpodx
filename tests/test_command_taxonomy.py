@@ -90,6 +90,7 @@ class TestDoctorJson:
         ok = Finding("ok", "stub-title", detail="d", suggestion="s")
         for name in (*_DOCTOR_CHEAP_CHECKS, *_DOCTOR_SLOW_CHECKS):
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: ok)
+        monkeypatch.setattr("winpodx.cli.doctor._check_preflight", lambda: [])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_health", lambda: [ok])
 
@@ -111,6 +112,7 @@ class TestDoctorJson:
         ok = Finding("ok", "fine")
         for name in (*_DOCTOR_CHEAP_CHECKS, *_DOCTOR_SLOW_CHECKS):
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: fail)
+        monkeypatch.setattr("winpodx.cli.doctor._check_preflight", lambda: [])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_health", lambda: [ok])
 
@@ -129,6 +131,7 @@ class TestDoctorJson:
         ok = Finding("ok", "t", detail="", suggestion="")
         for name in (*_DOCTOR_CHEAP_CHECKS, *_DOCTOR_SLOW_CHECKS):
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: ok)
+        monkeypatch.setattr("winpodx.cli.doctor._check_preflight", lambda: [])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_health", lambda: [ok])
 
@@ -154,6 +157,7 @@ class TestDoctorQuick:
         ok = Finding("ok", "stub")
         for name in _DOCTOR_CHEAP_CHECKS:
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: ok)
+        monkeypatch.setattr("winpodx.cli.doctor._check_preflight", lambda: [])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
 
         called = []
@@ -185,6 +189,7 @@ class TestDoctorQuick:
         cheap_names = _DOCTOR_CHEAP_CHECKS
         for n in cheap_names:
             monkeypatch.setattr(f"winpodx.cli.doctor.{n}", _make_probe(n))
+        monkeypatch.setattr("winpodx.cli.doctor._check_preflight", lambda: [])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_health", lambda: [])
 
@@ -202,6 +207,7 @@ class TestDoctorQuick:
         ok = Finding("ok", "stub")
         for name in (*_DOCTOR_CHEAP_CHECKS, *_DOCTOR_SLOW_CHECKS):
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: ok)
+        monkeypatch.setattr("winpodx.cli.doctor._check_preflight", lambda: [])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
 
         called = []
