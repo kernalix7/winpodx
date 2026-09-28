@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from winpodx.backend.select import choose_backend
+from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui import theme
 from winpodx.gui._main_window_secondary_style import apply_w11_button
@@ -19,17 +21,23 @@ from winpodx.gui._settings_card import make_settings_card, make_settings_group
 from winpodx.gui._setup_wizard_model import prereq_specs
 from winpodx.gui._setup_wizard_worker import PkexecWorker
 from winpodx.gui._widget_helpers import make_warning_callout
-from winpodx.setup_wizard.host_state import HostState, detect_host_state
+from winpodx.setup_wizard.host_state import HostState, detect_host_state, inspect_preflight
+from winpodx.utils.deps import check_all
 
 
 class PrerequisitesPage(QWidget):
-    """Seven HostState rows; Next is gated on required items."""
+    """Read-only host preflight; Next requires every blocking check to pass."""
 
     can_proceed_changed = Signal(bool)
     refreshed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        if Config.path().exists():
+            self._cfg = Config.load()
+        else:
+            self._cfg = Config()
+            self._cfg.pod.backend = choose_backend(deps=check_all())
         self._state = detect_host_state()
         self._thread: QThread | None = None
         self._worker: PkexecWorker | None = None
@@ -64,7 +72,7 @@ class PrerequisitesPage(QWidget):
         and never needs to be, and gating on the row alone stranded them on a
         failure no action could clear.
         """
-        return not self._state.blocking_failures
+        return self._report.ready
 
     def _restyle(self) -> None:
         apply_w11_button(self._fix_btn, theme.BTN_PRIMARY, role="primary")
@@ -90,10 +98,10 @@ class PrerequisitesPage(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        unfixable: list[str] = []
-        blocking = set(state.blocking_failures)
+        self._report = inspect_preflight(self._cfg)
+        blocking = {issue.key for issue in self._report.failures}
         for spec in prereq_specs():
-            ok = bool(getattr(state, spec.field))
+            ok = bool(getattr(state, spec.field, spec.field not in blocking))
             card = self._cards[spec.field]
             # A row can fail without blocking: kvm group membership is moot
             # once /dev/kvm is already accessible. Red is reserved for the
@@ -108,14 +116,16 @@ class PrerequisitesPage(QWidget):
                 old.deleteLater()
             card.row_layout.addWidget(badge)
             card.action_widget = badge
-            if not ok and spec.unfixable_hint and spec.field not in _fixable_fields(state):
-                unfixable.append(spec.unfixable_hint)
-        if unfixable:
-            self._callout_host.addWidget(make_warning_callout("; ".join(unfixable)))
-        fixable = bool(state.missing_fixable)
+        failures = [
+            f"{tr('Fixable') if issue.fixable else tr('Manual action')}: {tr(issue.detail)}"
+            for issue in self._report.failures
+        ]
+        if failures:
+            self._callout_host.addWidget(make_warning_callout("\n".join(failures)))
+        fixable = any(issue.fixable for issue in self._report.failures)
         self._fix_btn.setVisible(fixable)
         self._fix_btn.setEnabled(fixable and self._thread is None)
-        if not state.in_kvm_group and state.kvm_group_exists:
+        if "in_kvm_group" in blocking:
             self._hint.setText(
                 tr(
                     "kvm group membership requires you to log out and back in "
@@ -161,17 +171,7 @@ class PrerequisitesPage(QWidget):
                 pass
         self._thread = None
         self._worker = None
-        self._fix_btn.setEnabled(bool(self._state.missing_fixable))
-
-
-def _fixable_fields(state: HostState) -> set[str]:
-    mapping = {
-        "kvm-group-membership": "in_kvm_group",
-        "subuid-entry": "subuid_configured",
-        "subgid-entry": "subgid_configured",
-        "kvm-module-persistence": "kvm_module_persistent",
-    }
-    return {mapping[item] for item in state.missing_fixable if item in mapping}
+        self._fix_btn.setEnabled(any(issue.fixable for issue in self._report.failures))
 
 
 def _pkexec_message(error: str) -> str:

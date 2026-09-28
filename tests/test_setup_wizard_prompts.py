@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from winpodx.cli.setup_cmd import _prompt_edition_locale_tuning, _run_full_provision
 from winpodx.core.config import Config
 
@@ -312,3 +314,81 @@ def test_setup_host_pkexec_errors_are_printed_to_stderr(monkeypatch, capsys) -> 
     error = capsys.readouterr().err
     assert "Error: no pkexec" in error
     assert "sudo usermod -aG kvm $USER" in error
+
+
+def test_setup_blocking_preflight_precedes_storage_iso_and_pod(monkeypatch, tmp_path) -> None:
+    import argparse
+
+    from winpodx.cli import setup_cmd
+    from winpodx.setup_wizard.host_state import PreflightIssue, PreflightReport
+    from winpodx.utils.deps import DepCheck
+    from winpodx.utils.specs import HostSpecs
+
+    monkeypatch.setattr(Config, "path", classmethod(lambda cls: tmp_path / "absent.toml"))
+    monkeypatch.setattr(setup_cmd, "import_winapps_config", lambda: None)
+    monkeypatch.setattr(setup_cmd, "_resolve_credentials", lambda *a, **kw: None)
+    monkeypatch.setattr(setup_cmd, "apply_setup_presets", lambda *a: None)
+    monkeypatch.setattr(
+        setup_cmd,
+        "check_all",
+        lambda **kw: {
+            "freerdp": DepCheck("freerdp", True),
+            "podman": DepCheck("podman", True, daemon_reachable=True),
+            "docker": DepCheck("docker", False),
+        },
+    )
+    monkeypatch.setattr("winpodx.backend.select.choose_backend", lambda **kw: "podman")
+    monkeypatch.setattr("winpodx.utils.specs.detect_host_specs", lambda: HostSpecs(8, 16))
+    events = []
+    monkeypatch.setattr(
+        "winpodx.setup_wizard.host_state.inspect_preflight",
+        lambda cfg, **kwargs: (
+            events.append(("preflight", kwargs["storage_path"], kwargs["iso_path"])),
+            PreflightReport((PreflightIssue("ram", "At least 8 GiB RAM is required", False),)),
+        )[1],
+    )
+    for name in (
+        "_decide_storage_mode",
+        "_stage_win_iso",
+        "_generate_compose",
+        "_recreate_container",
+    ):
+        monkeypatch.setattr(setup_cmd, name, lambda *args, name=name, **kwargs: events.append(name))
+
+    with pytest.raises(RuntimeError, match="At least 8 GiB"):
+        setup_cmd.handle_setup(
+            argparse.Namespace(
+                backend="podman",
+                customize=False,
+                storage_path=str(tmp_path / "store"),
+                win_iso="/selected/windows.iso",
+            )
+        )
+
+    assert events == [("preflight", tmp_path / "store", "/selected/windows.iso")]
+    assert not (tmp_path / "store").exists()
+
+
+def test_manual_backend_still_requires_freerdp_before_config_write(monkeypatch, tmp_path) -> None:
+    import argparse
+
+    from winpodx.cli import setup_cmd
+    from winpodx.utils.deps import DepCheck
+
+    monkeypatch.setattr(Config, "path", classmethod(lambda cls: tmp_path / "config.toml"))
+    monkeypatch.setattr(setup_cmd, "import_winapps_config", lambda: None)
+    monkeypatch.setattr(
+        setup_cmd,
+        "check_all",
+        lambda **kwargs: {"freerdp": DepCheck("freerdp", False)},
+    )
+    monkeypatch.setattr(
+        setup_cmd,
+        "_resolve_credentials",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("not reached")),
+    )
+
+    with pytest.raises(RuntimeError, match="FreeRDP"):
+        setup_cmd.handle_setup(argparse.Namespace(backend="manual", customize=False))
+
+    assert not Config.path().exists()

@@ -14,7 +14,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QWheelEvent  # noqa: E402
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget  # noqa: E402
 
 from winpodx.core.config import Config  # noqa: E402
 from winpodx.setup_wizard.host_state import HostState  # noqa: E402
@@ -64,8 +64,23 @@ def _fail_fixable() -> HostState:
 
 
 def _patch_detect(monkeypatch: pytest.MonkeyPatch, detect) -> None:
+    from winpodx.setup_wizard.host_state import PreflightIssue, PreflightReport
+
     monkeypatch.setattr("winpodx.gui._setup_wizard_prereq.detect_host_state", detect)
     monkeypatch.setattr("winpodx.setup_wizard.host_state.detect_host_state", detect)
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.inspect_preflight",
+        lambda *args, **kwargs: PreflightReport(
+            tuple(
+                PreflightIssue(
+                    field,
+                    field,
+                    field in ("in_kvm_group", "subuid_configured", "subgid_configured"),
+                )
+                for field in detect().blocking_failures
+            )
+        ),
+    )
 
 
 def _wait_until(pred, timeout: float = 3.0) -> None:
@@ -172,6 +187,62 @@ def test_prerequisites_block_next_until_required_items_pass(
     assert dlg.prereq.can_proceed() is True
     assert dlg.next_btn.isEnabled() is True
     dlg.close()
+
+
+def test_prerequisites_show_all_unfixable_preflight_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winpodx.setup_wizard.host_state import PreflightIssue, PreflightReport
+
+    _ensure_qapp()
+    _patch_detect(monkeypatch, _ok_state)
+    issues = (
+        PreflightIssue("cpu_virtualization", "Enable virtualization in firmware", False),
+        PreflightIssue("ram", "At least 8 GiB RAM is required", False),
+    )
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.inspect_preflight",
+        lambda *args, **kwargs: PreflightReport(issues),
+    )
+    from winpodx.gui._setup_wizard_prereq import PrerequisitesPage
+
+    page = PrerequisitesPage()
+    page.show()
+    assert not page.can_proceed()
+    assert all(
+        issue.detail in " ".join(label.text() for label in page.findChildren(QLabel))
+        for issue in issues
+    )
+    assert not page._fix_btn.isVisible()
+    page.close()
+
+
+def test_prerequisites_select_docker_when_podman_is_unavailable(monkeypatch, tmp_path) -> None:
+    from winpodx.setup_wizard.host_state import PreflightReport
+    from winpodx.utils.deps import DepCheck
+
+    _ensure_qapp()
+    monkeypatch.setattr(Config, "path", classmethod(lambda cls: tmp_path / "not-installed.toml"))
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.check_all",
+        lambda: {
+            "podman": DepCheck("podman", False),
+            "docker": DepCheck("docker", True),
+        },
+    )
+    monkeypatch.setattr("winpodx.gui._setup_wizard_prereq.detect_host_state", _ok_state)
+    seen = []
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.inspect_preflight",
+        lambda cfg: (seen.append(cfg.pod.backend), PreflightReport(()))[1],
+    )
+    from winpodx.gui._setup_wizard_prereq import PrerequisitesPage
+
+    page = PrerequisitesPage()
+
+    assert seen == ["docker"]
+    assert page.can_proceed()
+    page.close()
 
 
 def test_optional_kvm_module_does_not_block_next(monkeypatch: pytest.MonkeyPatch) -> None:

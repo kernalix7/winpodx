@@ -736,12 +736,36 @@ def test_handle_setup_rejects_invalid_wizard_storage_before_container_creation(
 def test_handle_setup_dependency_and_backend_failures(
     monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: True))
     missing = _deps()
     missing["freerdp"] = DepCheck("freerdp", False, note="missing")
-    with patch("winpodx.cli.setup_cmd.check_all", return_value=missing), pytest.raises(SystemExit):
-        setup_cmd.handle_setup(_args())
+    from winpodx.setup_wizard.host_state import PreflightIssue, PreflightReport
 
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    with (
+        patch("winpodx.cli.setup_cmd.check_all", return_value=missing),
+        patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+        patch("winpodx.cli.setup_cmd._resolve_credentials"),
+        patch("winpodx.utils.specs.detect_host_specs", return_value=SimpleNamespace()),
+        patch(
+            "winpodx.utils.specs.recommend_tier",
+            return_value=SimpleNamespace(cpu_cores=4, ram_gb=6),
+        ),
+        patch(
+            "winpodx.setup_wizard.host_state.inspect_preflight",
+            return_value=PreflightReport(
+                (
+                    PreflightIssue("freerdp", "Install FreeRDP 3+", False),
+                    PreflightIssue("cpu_virtualization", "Enable CPU virtualization", False),
+                )
+            ),
+        ),
+        pytest.raises(RuntimeError) as exc,
+    ):
+        setup_cmd.handle_setup(_args(backend="podman"))
+    assert "FreeRDP 3+" in str(exc.value)
+    assert "CPU virtualization" in str(exc.value)
+
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: True))
     with (
         patch("winpodx.cli.setup_cmd.check_all", return_value=_deps()),
         patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
@@ -750,7 +774,7 @@ def test_handle_setup_dependency_and_backend_failures(
     ):
         setup_cmd.handle_setup(_args(customize=True))
     output = capsys.readouterr().out
-    assert "FreeRDP 3+ is required" in output
+    assert "freerdp" in output
     assert "Invalid choice: invalid" in output
 
 
@@ -770,6 +794,7 @@ def test_handle_setup_rejects_unreachable_selected_daemon(
         ),
         patch("winpodx.cli.setup_cmd._decide_storage_mode"),
         patch("winpodx.cli.setup_cmd._stage_win_iso"),
+        patch("winpodx.setup_wizard.host_state.require_preflight"),
         pytest.raises(SystemExit),
     ):
         setup_cmd.handle_setup(_args())

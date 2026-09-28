@@ -197,6 +197,23 @@ def find_podman_compose() -> str | None:
     return None
 
 
+def check_compose_provider(backend: str) -> bool:
+    """Check the compose command actually used by the selected backend."""
+    if backend == "podman":
+        return find_podman_compose() is not None
+    if backend != "docker" or shutil.which("docker") is None:
+        return False
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "version"], capture_output=True, timeout=3, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def podman_major_version() -> int | None:
     """Return the installed podman's major version (e.g. 5 for "5.7.1"), or None.
 

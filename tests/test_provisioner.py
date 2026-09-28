@@ -369,6 +369,60 @@ def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
     assert early_calls["n"] == 0
 
 
+def test_restored_first_boot_blocks_before_rotation_compose_and_pod_start(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard.host_state import PreflightIssue, PreflightReport
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    calls = []
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: False)
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: calls.append("rotation"))
+    monkeypatch.setattr(provisioner, "_ensure_compose", lambda c: calls.append("compose"))
+    monkeypatch.setattr(provisioner, "_ensure_pod_running", lambda c, t: calls.append("pod"))
+    monkeypatch.setattr(
+        "winpodx.setup_wizard.host_state.inspect_preflight",
+        lambda *args, **kwargs: PreflightReport(
+            (PreflightIssue("cpu_virtualization", "Enable virtualization in firmware", False),)
+        ),
+    )
+
+    with pytest.raises(provisioner.ProvisionError, match="virtualization"):
+        provisioner.ensure_ready(cfg)
+
+    assert calls == []
+
+
+def test_restored_first_boot_starts_pod_after_passing_preflight(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard.host_state import PreflightReport
+
+    cfg = Config()
+    cfg.pod.backend = "docker"
+    events = []
+    states = iter((False, True))
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: next(states))
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: events.append("rotation"))
+    monkeypatch.setattr(provisioner, "_auto_rotate_password", lambda c: c)
+    monkeypatch.setattr(provisioner, "_check_deps", lambda: events.append("deps"))
+    monkeypatch.setattr(provisioner, "_ensure_compose", lambda c: events.append("compose"))
+    monkeypatch.setattr(provisioner, "_ensure_pod_running", lambda c, t: events.append("pod"))
+    monkeypatch.setattr(provisioner, "_ensure_desktop_entries", lambda: None)
+    monkeypatch.setattr("winpodx.core.daemon.ensure_pod_awake", lambda c: None)
+    monkeypatch.setattr("winpodx.cli.host_open.ensure_listener_running", lambda c: None)
+    monkeypatch.setattr(
+        "winpodx.setup_wizard.host_state.inspect_preflight",
+        lambda cfg, **kwargs: (events.append("preflight"), PreflightReport(()))[1],
+    )
+
+    result = provisioner.ensure_ready(cfg, timeout=1)
+
+    assert result is cfg
+    assert events == ["preflight", "rotation", "deps", "compose", "pod"]
+
+
 # --- v0.1.9.3: apply_windows_runtime_fixes public API ---
 
 

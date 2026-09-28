@@ -113,9 +113,6 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     if cfg is None:
         cfg = _ensure_config()
 
-    _check_rotation_pending()
-    cfg = _auto_rotate_password(cfg)
-
     # v0.2.2 (post-rollback Sprint 3): self-heal removed.
     #
     # Previously this block re-applied 4 registry/service payloads
@@ -134,7 +131,19 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # Fixes" (GUI Tools page) — both still call apply_windows_runtime_fixes
     # below, which surfaces per-step success/failure to the caller.
     if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
+        _check_rotation_pending()
+        cfg = _auto_rotate_password(cfg)
         return cfg
+
+    from winpodx.setup_wizard.host_state import require_preflight
+
+    try:
+        require_preflight(cfg)
+    except RuntimeError as exc:
+        raise ProvisionError(str(exc)) from exc
+
+    _check_rotation_pending()
+    cfg = _auto_rotate_password(cfg)
 
     _check_deps()
 

@@ -164,6 +164,7 @@ def _collect_findings(*, quick: bool, do_fix: bool) -> list[Finding]:
 
     # --- cheap / always-on checks ---
     findings.append(_check_install_source())
+    findings.extend(_check_preflight())
     findings.append(_check_freerdp())
     findings.append(_check_kvm())
     findings.append(_check_rootless_subid())
@@ -185,6 +186,19 @@ def _collect_findings(*, quick: bool, do_fix: bool) -> list[Finding]:
         findings.append(_check_oem_drift())
 
     return [f for f in findings if f is not None]
+
+
+def _check_preflight() -> list[Finding]:
+    """Report the same actionable blockers shown before setup and first boot."""
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard.host_state import inspect_preflight
+
+    cfg = Config.load() if Config.path().exists() else Config()
+    report = inspect_preflight(cfg)
+    return [
+        Finding("fail", f"preflight: {issue.key}", suggestion=issue.detail)
+        for issue in report.failures
+    ]
 
 
 # -----------------------------------------------------------------------
@@ -332,8 +346,8 @@ def _check_compose_provider() -> Finding | None:
     """Podman needs a compose provider to create the Windows container.
 
     winpodx creates the container via compose (never a bare ``podman run``),
-    but the standalone ``podman-compose`` binary (or the ``podman compose``
-    plugin) ships separately from ``podman`` itself. Without one, container
+    but the standalone ``podman-compose`` binary ships separately from
+    ``podman`` itself. Without it, container
     creation silently no-ops and the failure only surfaces later as a cryptic
     ``no such container "winpodx-windows"`` from `pod wait-ready` (#753).
     Shares ``utils.deps.find_podman_compose`` with ``setup_cmd``'s and
@@ -352,10 +366,10 @@ def _check_compose_provider() -> Finding | None:
     except Exception:  # noqa: BLE001 — config issues are reported by their own check
         return None
 
-    from winpodx.utils.deps import find_podman_compose
+    from winpodx.utils.deps import check_compose_provider, find_podman_compose
 
-    podman_compose = find_podman_compose()
-    if podman_compose:
+    if check_compose_provider("podman"):
+        podman_compose = find_podman_compose()
         if shutil.which("podman-compose"):
             return Finding("ok", "compose provider: podman-compose")
         # Found off PATH (e.g. a Homebrew install on an immutable distro like
@@ -365,17 +379,6 @@ def _check_compose_provider() -> Finding | None:
             "ok",
             f"compose provider: podman-compose ({os.path.dirname(podman_compose)})",
         )
-
-    try:
-        subprocess.run(
-            ["podman", "compose", "version"],
-            capture_output=True,
-            check=True,
-            timeout=10,
-        )
-        return Finding("ok", "compose provider: podman compose (plugin)")
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        pass
 
     return Finding(
         "warn",

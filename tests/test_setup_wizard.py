@@ -321,3 +321,228 @@ def test_python_m_winpodx_delegates_to_cli_entrypoint(monkeypatch) -> None:
         runpy.run_module("winpodx", run_name="__main__")
 
     assert calls == ["cli"]
+
+
+def test_preflight_reports_every_blocker_and_docker_ignores_rootless_ids() -> None:
+    from winpodx.setup_wizard.host_state import PreflightFacts, assess_preflight
+    from winpodx.utils.deps import DepCheck
+
+    host = HostState(False, True, False, False, False, False, False)
+    deps = {
+        "freerdp": DepCheck("freerdp", False),
+        "docker": DepCheck("docker", False),
+    }
+    facts = PreflightFacts(host, False, 4, 10, 64, 8, "docker", deps, False, False)
+
+    report = assess_preflight(facts)
+
+    assert {item.key for item in report.failures} == {
+        "cpu_virtualization",
+        "dev_kvm_present",
+        "ram",
+        "disk",
+        "freerdp",
+        "backend",
+        "compose",
+    }
+    assert not report.ready
+    assert all(not item.fixable for item in report.failures)
+
+
+def test_preflight_readable_kvm_and_docker_need_no_kvm_group_or_subids() -> None:
+    from winpodx.setup_wizard.host_state import PreflightFacts, assess_preflight
+    from winpodx.utils.deps import DepCheck
+
+    host = HostState(False, False, True, True, False, False, False)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "docker": DepCheck("docker", True, daemon_reachable=True),
+    }
+
+    report = assess_preflight(
+        PreflightFacts(host, True, 16, 100, 64, 8, "docker", deps, True, False)
+    )
+
+    assert report.ready
+    assert "in_kvm_group" not in {item.key for item in report.failures}
+
+
+def test_preflight_podman_reports_both_fixable_subids_and_missing_compose() -> None:
+    from winpodx.setup_wizard.host_state import PreflightFacts, assess_preflight
+    from winpodx.utils.deps import DepCheck
+
+    host = HostState(True, True, True, True, False, False, True)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "podman": DepCheck("podman", True, daemon_reachable=True),
+    }
+    report = assess_preflight(
+        PreflightFacts(host, True, 16, 100, 64, 8, "podman", deps, False, True)
+    )
+
+    assert {item.key for item in report.failures} == {
+        "subuid_configured",
+        "subgid_configured",
+        "compose",
+    }
+    assert {item.key for item in report.failures if item.fixable} == {
+        "subuid_configured",
+        "subgid_configured",
+    }
+
+
+def test_preflight_rootful_podman_does_not_require_subids() -> None:
+    from winpodx.setup_wizard.host_state import PreflightFacts, assess_preflight
+    from winpodx.utils.deps import DepCheck
+
+    host = HostState(True, True, True, True, False, False, True)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "podman": DepCheck("podman", True, daemon_reachable=True),
+    }
+
+    report = assess_preflight(
+        PreflightFacts(host, True, 16, 100, 64, 8, "podman", deps, True, False)
+    )
+
+    assert report.ready
+
+
+def test_preflight_checks_chosen_vm_ram_against_host_capacity() -> None:
+    from winpodx.setup_wizard.host_state import PreflightFacts, assess_preflight
+    from winpodx.utils.deps import DepCheck
+
+    host = HostState(True, True, True, True, True, True, True)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "docker": DepCheck("docker", True, daemon_reachable=True),
+    }
+
+    report = assess_preflight(
+        PreflightFacts(host, True, 16, 100, 64, 8, "docker", deps, True, False, vm_ram_gb=16)
+    )
+
+    assert {issue.key for issue in report.failures} == {"ram"}
+
+
+def test_read_only_preflight_counts_selected_storage_and_local_iso(monkeypatch, tmp_path) -> None:
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard import host_state
+    from winpodx.utils.deps import DepCheck
+    from winpodx.utils.specs import HostSpecs
+
+    cfg = Config()
+    cfg.pod.backend = "docker"
+    cfg.pod.disk_size = "64G"
+    cfg.pod.storage_path = str(tmp_path / "new-storage")
+    iso = tmp_path / "windows.iso"
+    iso.write_bytes(b"ISO")
+    monkeypatch.setattr(
+        host_state,
+        "detect_host_state",
+        lambda: HostState(False, False, True, True, False, False, True),
+    )
+    monkeypatch.setattr(host_state, "_cpu_virtualization_available", lambda: True)
+    monkeypatch.setattr("winpodx.utils.specs.detect_host_specs", lambda: HostSpecs(8, 16))
+    monkeypatch.setattr("winpodx.utils.deps.check_compose_provider", lambda backend: True)
+    monkeypatch.setattr(host_state, "_storage_free_gb", lambda path: 60)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "docker": DepCheck("docker", True, daemon_reachable=True),
+    }
+
+    report = host_state.inspect_preflight(cfg, iso_path=str(iso), deps=deps)
+
+    assert {issue.key for issue in report.failures} == {"disk"}
+    assert not (tmp_path / "new-storage").exists()
+
+
+def test_preflight_reports_missing_local_iso_with_other_failures(monkeypatch, tmp_path) -> None:
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard import host_state
+    from winpodx.utils.deps import DepCheck
+    from winpodx.utils.specs import HostSpecs
+
+    cfg = Config()
+    cfg.pod.backend = "docker"
+    cfg.pod.storage_path = str(tmp_path)
+    monkeypatch.setattr(
+        host_state, "detect_host_state", lambda: HostState(True, True, True, True, True, True, True)
+    )
+    monkeypatch.setattr(host_state, "_cpu_virtualization_available", lambda: True)
+    monkeypatch.setattr("winpodx.utils.specs.detect_host_specs", lambda: HostSpecs(8, 4))
+    monkeypatch.setattr("winpodx.utils.deps.check_compose_provider", lambda backend: True)
+    monkeypatch.setattr(host_state, "_storage_free_gb", lambda path: 100)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "docker": DepCheck("docker", True, daemon_reachable=True),
+    }
+
+    report = host_state.inspect_preflight(cfg, iso_path=str(tmp_path / "missing.iso"), deps=deps)
+
+    assert {issue.key for issue in report.failures} == {"ram", "iso"}
+
+
+def test_preflight_fails_when_named_volume_mount_cannot_be_inspected(monkeypatch, tmp_path) -> None:
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard import host_state
+    from winpodx.utils.deps import DepCheck
+    from winpodx.utils.specs import HostSpecs
+
+    cfg = Config()
+    cfg.pod.backend = "docker"
+    cfg.pod.initialized = True
+    monkeypatch.setattr(
+        "winpodx.core.storage_migration.resolve_named_volume", lambda backend: "winpodx-data"
+    )
+    monkeypatch.setattr(
+        "winpodx.core.storage_migration.get_volume_mountpoint", lambda backend, volume: None
+    )
+    monkeypatch.setattr(
+        "winpodx.core.storage_migration.default_target_path", lambda: tmp_path / "wrong-disk"
+    )
+    monkeypatch.setattr(
+        host_state, "detect_host_state", lambda: HostState(True, True, True, True, True, True, True)
+    )
+    monkeypatch.setattr(host_state, "_cpu_virtualization_available", lambda: True)
+    monkeypatch.setattr("winpodx.utils.specs.detect_host_specs", lambda: HostSpecs(8, 16))
+    monkeypatch.setattr("winpodx.utils.deps.check_compose_provider", lambda backend: True)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "docker": DepCheck("docker", True, daemon_reachable=True),
+    }
+
+    report = host_state.inspect_preflight(cfg, deps=deps)
+
+    assert "disk" in {issue.key for issue in report.failures}
+    assert not (tmp_path / "wrong-disk").exists()
+
+
+def test_preflight_uses_podman_runtime_mode_for_subid_requirements(monkeypatch, tmp_path) -> None:
+    from winpodx.core.config import Config
+    from winpodx.setup_wizard import host_state
+    from winpodx.utils.deps import DepCheck
+    from winpodx.utils.specs import HostSpecs
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    cfg.pod.storage_path = str(tmp_path)
+    monkeypatch.setattr(
+        host_state,
+        "detect_host_state",
+        lambda: HostState(True, True, True, True, False, False, True),
+    )
+    monkeypatch.setattr(host_state, "_cpu_virtualization_available", lambda: True)
+    monkeypatch.setattr("winpodx.utils.specs.detect_host_specs", lambda: HostSpecs(8, 16))
+    monkeypatch.setattr("winpodx.utils.deps.check_compose_provider", lambda backend: True)
+    monkeypatch.setattr(host_state, "_storage_free_gb", lambda path: 100)
+    deps = {
+        "freerdp": DepCheck("freerdp", True),
+        "podman": DepCheck("podman", True, daemon_reachable=True),
+    }
+    monkeypatch.setattr("winpodx.backend.podman.is_rootless_podman", lambda: False)
+    assert host_state.inspect_preflight(cfg, deps=deps).ready
+
+    monkeypatch.setattr("winpodx.backend.podman.is_rootless_podman", lambda: True)
+    report = host_state.inspect_preflight(cfg, deps=deps)
+    assert {item.key for item in report.failures} == {"subuid_configured", "subgid_configured"}

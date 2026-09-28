@@ -38,8 +38,11 @@ class PrereqSpec:
 
 
 def prereq_specs() -> tuple[PrereqSpec, ...]:
-    """The 7 HostState rows, with copy matching the terminal wizard."""
+    """Host setup plus minimum Windows boot requirements."""
     return (
+        PrereqSpec(
+            "cpu_virtualization", tr("CPU virtualization"), tr("VT-x / AMD-V enabled"), True, ""
+        ),
         PrereqSpec(
             "dev_kvm_present",
             tr("/dev/kvm present"),
@@ -89,6 +92,12 @@ def prereq_specs() -> tuple[PrereqSpec, ...]:
             False,
             "",
         ),
+        PrereqSpec("ram", tr("Host RAM"), tr("at least 8 GiB"), True, ""),
+        PrereqSpec("disk", tr("Windows storage space"), tr("disk and ISO space"), True, ""),
+        PrereqSpec("iso", tr("Local Windows ISO"), tr("readable when selected"), True, ""),
+        PrereqSpec("freerdp", tr("FreeRDP"), tr("version 3 or newer"), True, ""),
+        PrereqSpec("backend", tr("Container backend"), tr("Podman or Docker usable"), True, ""),
+        PrereqSpec("compose", tr("Compose provider"), tr("required to start Windows"), True, ""),
     )
 
 

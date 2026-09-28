@@ -1035,10 +1035,6 @@ def handle_setup(
             status = "OK"
         print(f"  {name:<15} [{status}] {dep.note}")
 
-    if not deps["freerdp"].found:
-        print(tr("\nFreeRDP 3+ is required. Install it and try again."))
-        raise SystemExit(1)
-
     print()
 
     existing = import_winapps_config()
@@ -1152,6 +1148,11 @@ def handle_setup(
         else:
             print(tr("Invalid choice: {choice}").format(choice=choice))
             raise SystemExit(1)
+
+    if cfg.pod.backend == "manual":
+        from winpodx.setup_wizard.host_state import require_preflight
+
+        require_preflight(cfg, deps=deps)
 
     # Apply --win-version before the cfg is saved. PodConfig.__post_init__
     # normalises whitespace/case, rejects YAML-breaking characters, and
@@ -1272,6 +1273,10 @@ def handle_setup(
             )
         else:
             _explicit_storage = Path(_storage_path_arg).expanduser() if _storage_path_arg else None
+
+        from winpodx.setup_wizard.host_state import require_preflight
+
+        require_preflight(cfg, storage_path=_explicit_storage, iso_path=_iso_arg, deps=deps)
 
         # Pick a storage mode for podman/docker before compose is
         # rendered. Three cases:

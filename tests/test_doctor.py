@@ -31,6 +31,31 @@ def _stub_new_checks(monkeypatch):
     monkeypatch.setattr(doctor, "_check_missing_desktop_entries", lambda: Finding("ok", "entries"))
     monkeypatch.setattr(doctor, "_check_agent_health", lambda: None)
     monkeypatch.setattr(doctor, "_check_oem_drift", lambda: None)
+    monkeypatch.setattr(doctor, "_check_preflight", lambda: [])
+
+
+def test_doctor_preflight_lists_each_blocker_without_remediation(monkeypatch, tmp_path):
+    from winpodx.setup_wizard.host_state import PreflightIssue, PreflightReport
+
+    monkeypatch.setattr(
+        "winpodx.core.config.Config.path",
+        classmethod(lambda cls: tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr(
+        "winpodx.setup_wizard.host_state.inspect_preflight",
+        lambda cfg: PreflightReport(
+            (
+                PreflightIssue("cpu_virtualization", "Enable virtualization in firmware", False),
+                PreflightIssue("subuid_configured", "Configure /etc/subuid", True),
+            )
+        ),
+    )
+
+    findings = doctor._check_preflight()
+
+    assert [finding.severity for finding in findings] == ["fail", "fail"]
+    assert all(finding.fix_id is None for finding in findings)
+    assert "firmware" in findings[0].suggestion
 
 
 class TestFindingFormatting:
@@ -246,12 +271,12 @@ class TestCheckComposeProvider:
         assert "podman-compose" in f.title
         assert "/home/linuxbrew/.linuxbrew/bin" in f.title
 
-    def test_ok_when_podman_compose_plugin_available(self, monkeypatch):
+    def test_plugin_without_podman_compose_does_not_satisfy_backend(self, monkeypatch):
         monkeypatch.setattr("shutil.which", lambda _name: None)
         monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(returncode=0))
         f = self._run(monkeypatch)
-        assert f.severity == "ok"
-        assert "plugin" in f.title
+        assert f.severity == "warn"
+        assert "compose provider" in f.title
 
     def test_warns_when_no_compose_provider(self, monkeypatch):
         monkeypatch.setattr("shutil.which", lambda _name: None)
