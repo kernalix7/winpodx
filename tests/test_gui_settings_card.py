@@ -8,11 +8,13 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QPoint, QRect  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QCheckBox,
     QFrame,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -147,3 +149,63 @@ def test_settings_card_long_title_elides_instead_of_widening_the_card(qapp: QApp
     assert card.minimumSizeHint().width() < 400
     assert card.title_label.width() < 400
     assert card.title_label.toolTip() == long_title
+
+
+def test_description_has_geometry_when_card_is_added_to_shown_parent(qapp: QApplication) -> None:
+    # Given: a live container, not a tree that will be shown after construction.
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    host.show()
+    qapp.processEvents()
+    try:
+        # When: a populated card is inserted dynamically.
+        card = helpers.make_settings_card("check", "Backend", "podman")
+        layout.addWidget(card)
+        qapp.processEvents()
+
+        # Then: the description is visible below the title, inside the card.
+        title = card.title_label
+        description = card.desc_label
+        bounds = QRect(description.mapTo(card, QPoint()), description.size())
+        assert description.isVisible()
+        assert bounds.width() > 0 and bounds.height() > 0
+        assert bounds.top() > title.mapTo(card, title.rect().bottomLeft()).y()
+        assert card.rect().contains(bounds)
+    finally:
+        host.close()
+        host.deleteLater()
+
+
+@pytest.mark.parametrize("action_below", [False, True])
+def test_action_layout_is_opt_in_when_card_has_an_editor(
+    qapp: QApplication, action_below: bool
+) -> None:
+    # Given: the existing row default or the explicitly requested stacked action.
+    editor = QLineEdit("/srv/windows")
+    options = {"action_below": True} if action_below else {}
+    card = helpers.make_settings_card(
+        "hardware", "Storage", "Description", action=editor, **options
+    )
+    card.resize(560, card.sizeHint().height())
+    try:
+        # When: Qt lays out the real card.
+        card.show()
+        qapp.processEvents()
+
+        # Then: only the opt-in action occupies a full-width row below the copy.
+        action = QRect(editor.mapTo(card, QPoint()), editor.size())
+        title = card.title_label
+        description = card.desc_label
+        copy_bottom = description.mapTo(card, description.rect().bottomLeft()).y()
+        assert action.isValid() and card.rect().contains(action)
+        assert editor.accessibleName() == "Storage"
+        if action_below:
+            assert action.top() > copy_bottom
+            assert action.width() >= card.width() - 2 * (theme.SPACE_L + card.frameWidth())
+        else:
+            assert action.left() > description.mapTo(card, description.rect().topRight()).x()
+            assert action.top() <= copy_bottom
+            assert action.bottom() >= title.mapTo(card, QPoint()).y()
+    finally:
+        card.close()
+        card.deleteLater()

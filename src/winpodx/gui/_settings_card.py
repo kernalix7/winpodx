@@ -63,6 +63,7 @@ def make_settings_card(
     description: str = "",
     *,
     action: QWidget | None = None,
+    action_below: bool = False,
     chevron: bool = False,
     object_name: str = "settingsCard",
     compact: bool = False,
@@ -121,18 +122,22 @@ def make_settings_card(
     desc_lbl.setTextFormat(Qt.TextFormat.PlainText)
     desc_lbl.setWordWrap(True)
     desc_lbl.setMinimumWidth(_DESC_MIN_WIDTH)
+    desc_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     desc_lbl.setStyleSheet(
         f"background: transparent; color: {theme.C.SUBTEXT1}; "
         f"font-size: {theme.FONT_CAPTION}px; font-weight: 400;"
     )
-    desc_lbl.setVisible(bool(description))
     copy.addWidget(title_lbl)
     copy.addWidget(desc_lbl)
+    if description:
+        desc_lbl.setMinimumHeight(desc_lbl.fontMetrics().lineSpacing())
+    else:
+        desc_lbl.hide()
     row.addWidget(copy_host, 1)
 
-    if action is not None:
-        if not action.accessibleName():
-            action.setAccessibleName(title)
+    if action is not None and not action.accessibleName():
+        action.setAccessibleName(title)
+    if action is not None and not action_below:
         row.addWidget(action, 0, Qt.AlignmentFlag.AlignVCenter)
 
     if chevron:
@@ -142,7 +147,17 @@ def make_settings_card(
         row.addWidget(chevron_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
         card.chevron_widget = chevron_lbl
 
-    outer.addWidget(inner, 1)
+    if action_below and action is not None:
+        column = QWidget()
+        column_lay = QVBoxLayout(column)
+        column_lay.setContentsMargins(0, 0, 0, 0)
+        column_lay.setSpacing(theme.SPACE_S)
+        action.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        column_lay.addWidget(inner)
+        column_lay.addWidget(action)
+        outer.addWidget(column, 1)
+    else:
+        outer.addWidget(inner, 1)
 
     card.title_label = title_lbl
     card.desc_label = desc_lbl
