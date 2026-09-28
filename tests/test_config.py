@@ -347,6 +347,33 @@ def test_config_save_load_preserves_explicit_image(tmp_path, monkeypatch):
     assert Config.load().pod.image == explicit_image
 
 
+def test_pod_config_ssd_keeps_explicit_false():
+    pod = PodConfig(ssd=False)
+
+    assert pod.ssd is False
+    pod.__post_init__()
+    assert pod.ssd is False
+
+
+def test_config_save_load_ssd_tri_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cfg = Config()
+
+    cfg.save()
+    assert cfg.pod.ssd is None
+    assert Config.load().pod.ssd is None
+    assert "ssd =" not in Config.path().read_text(encoding="utf-8")
+
+    cfg.pod.ssd = False
+    cfg.save()
+    assert "ssd = false" in Config.path().read_text(encoding="utf-8")
+    assert Config.load().pod.ssd is False
+
+    cfg.pod.ssd = True
+    cfg.save()
+    assert Config.load().pod.ssd is True
+
+
 def test_config_load_libvirt_backend_migrates_to_podman(tmp_path, monkeypatch):
     # libvirt was dropped in 0.6.0 — an existing config with backend=libvirt
     # falls back to podman on load (with a warning).

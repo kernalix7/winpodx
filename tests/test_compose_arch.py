@@ -222,6 +222,19 @@ def test_compose_explicit_ssd_setting_overrides_host_detection(monkeypatch):
     assert 'DISK_ROTATION: "1"' in _build_compose_content(cfg)
 
 
+def test_compose_reloaded_explicit_hdd_ignores_ssd_host(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(_compose_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_compose_module, "host_storage_is_ssd", lambda _p: True)
+    cfg = _cfg()
+    cfg.pod.ssd = False
+    cfg.save()
+
+    content = _build_compose_content(Config.load())
+
+    assert 'DISK_ROTATION: "7200"' in content
+
+
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
 def test_compose_hdd_mode_declares_a_rotational_disk(monkeypatch, arch):
     """#855: ``pod.ssd = False`` must produce a *rotational* guest disk.

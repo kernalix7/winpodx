@@ -306,8 +306,9 @@ def _decide_storage_mode(
     ``explicit_target`` (``winpodx setup --storage-path`` / install.sh
     ``--storage-dir``, #646) picks the bind-mount location for a *fresh*
     install — e.g. a roomier partition. It gets the same fresh-target prep
-    (mkdir + btrfs NoCoW + SSD emulation) as the default path. Relocating an
-    *existing* install is out of scope here — that's ``--migrate-storage``.
+    (mkdir + btrfs NoCoW) as the default path. SSD detection happens later at
+    compose time. Relocating an *existing* install is out of scope here —
+    that's ``--migrate-storage``.
 
     ``non_interactive`` is accepted for call-site symmetry with the rest of the
     setup helpers but is not consulted here; the decision is the same batch or
@@ -407,15 +408,6 @@ def _decide_storage_mode(
             print(tr("    Pod will work, but VM disk operations may be slow."))
             print(tr("    You can retry manually: chattr +C"), target)
     cfg.pod.storage_path = str(target)
-
-    # SSD emulation default (#606): if the host storage device is non-rotational,
-    # present the guest disk as an SSD too (TRIM + no scheduled defrag). Only
-    # flip ON for a confirmed SSD; HDD / undetectable keeps the HDD default.
-    from winpodx.utils.btrfs import host_storage_is_ssd
-
-    if host_storage_is_ssd(target) is True:
-        cfg.pod.ssd = True
-        print(tr("  Host storage is an SSD — the Windows disk will emulate SSD (TRIM, no defrag)."))
 
     return None
 

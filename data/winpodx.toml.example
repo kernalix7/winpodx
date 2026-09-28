@@ -3,7 +3,7 @@
 # this is a reference for hand-editing. Unknown keys are ignored, and any key
 # you omit falls back to the built-in default shown here.
 
-schema_version = 2
+schema_version = 3
 
 [rdp]
 user = ""                 # Windows account user name ("" = the dockur default)
@@ -33,6 +33,7 @@ auto_start = false        # opt-in: auto-start the pod when launching an app
 idle_timeout = 0          # seconds before auto-suspend (0 = disabled)
 boot_timeout = 300        # seconds to wait for first boot before giving up
 disk_size = "64G"         # Windows virtual disk ceiling
+# ssd = false             # optional: true forces SSD, false forces HDD; omitted = host-auto
 disk_autogrow = true      # grow the disk automatically when it fills up
 disk_autogrow_threshold_pct = 80
 disk_autogrow_target_free_pct = 30

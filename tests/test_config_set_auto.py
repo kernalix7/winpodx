@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from winpodx.cli.config_cmd import _resolve_auto_value, _set
@@ -27,6 +32,70 @@ class TestResolveAutoValue:
 
 
 class TestSetAuto:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("true", True), ("false", False), ("auto", None)],
+    )
+    def test_cli_pod_ssd_persists_across_processes(self, tmp_path, monkeypatch, value, expected):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        env = {
+            **os.environ,
+            "XDG_CONFIG_HOME": str(tmp_path),
+            "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+        }
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from winpodx.cli.main import cli; cli()",
+                "config",
+                "set",
+                "pod.ssd",
+                value,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert f"Set pod.ssd = {expected if expected is not None else 'auto'}" in result.stdout
+        assert Config.load().pod.ssd is expected
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("true", True), ("false", False), ("auto", None)],
+    )
+    def test_pod_ssd_accepts_tri_state_from_none(self, tmp_path, monkeypatch, value, expected):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        Config().save()
+
+        _set("pod.ssd", value)
+
+        assert Config.load().pod.ssd is expected
+
+    def test_pod_ssd_auto_resets_explicit_override(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cfg = Config()
+        cfg.pod.ssd = False
+        cfg.save()
+
+        _set("pod.ssd", "auto")
+
+        assert Config.load().pod.ssd is None
+        assert "ssd =" not in Config.path().read_text(encoding="utf-8")
+
+    def test_pod_ssd_rejects_unknown_value(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        Config().save()
+
+        with pytest.raises(SystemExit) as exc:
+            _set("pod.ssd", "invalid")
+
+        assert exc.value.code == 1
+        assert Config.load().pod.ssd is None
+
     def test_auto_writes_detected_value_to_config(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         monkeypatch.setattr("winpodx.utils.locale.detect_timezone", lambda: "Asia/Seoul")

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 """Pin the on-disk config schema_version marker + the migration hook.
 
-0.6.0 introduces the marker without changing the TOML layout, so the
-hook is a no-op today. These tests lock the contract so a 0.7.0+
-migration lands with the seam intact:
+0.6.0 introduced the marker without changing the TOML layout; schema 3
+distinguishes legacy SSD defaults from explicit HDD choices. These tests lock
+the migration seam:
 
 * Config.load() reads ``schema_version`` (missing -> 0 = pre-0.6.0).
 * When the read value differs from SCHEMA_VERSION, _migrate_config()
@@ -36,9 +36,6 @@ def test_config_default_carries_current_schema_version() -> None:
 
 
 def test_migrate_hook_is_noop_at_current_version() -> None:
-    # 0.6.0 introduces the marker without restructuring the file, so the
-    # hook returns the data unchanged. The contract is *the dict is
-    # returned*, not "the same identity" -- future migrations may copy.
     data = {"rdp": {"user": "alice"}, "schema_version": SCHEMA_VERSION}
     out = _migrate_config(dict(data), SCHEMA_VERSION)
     assert out == data
@@ -53,7 +50,6 @@ def test_migrate_hook_from_pre_marker_preserves_settings() -> None:
         "ui": {"language": "ko"},
     }
     out = _migrate_config(dict(data), 0)
-    # Today's hook is a no-op, so all keys round-trip.
     assert out["rdp"] == data["rdp"]
     assert out["pod"] == data["pod"]
     assert out["ui"] == data["ui"]
@@ -120,6 +116,42 @@ def test_legacy_file_round_trip_through_save_keeps_settings(tmp_path: Path) -> N
     assert reloaded.rdp.port == 4001
     assert reloaded.ui.language == "ko"
     assert reloaded.schema_version == SCHEMA_VERSION
+
+
+@pytest.mark.parametrize("old_version", [0, 1, 2])
+def test_legacy_ssd_false_migrates_to_auto_once(tmp_path: Path, old_version: int) -> None:
+    cfg_path = tmp_path / "winpodx.toml"
+    marker = f"schema_version = {old_version}\n" if old_version else ""
+    cfg_path.write_text(f"{marker}[pod]\nssd = false\n", encoding="utf-8")
+
+    with patch.object(Config, "path", classmethod(lambda cls: cfg_path)):
+        cfg = Config.load()
+        assert cfg.pod.ssd is None
+        cfg.save()
+        assert "ssd =" not in cfg_path.read_text(encoding="utf-8")
+        assert Config.load().pod.ssd is None
+
+
+def test_current_schema_explicit_ssd_false_survives_load_and_save(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "winpodx.toml"
+    cfg_path.write_text(
+        f"schema_version = {SCHEMA_VERSION}\n[pod]\nssd = false\n", encoding="utf-8"
+    )
+
+    with patch.object(Config, "path", classmethod(lambda cls: cfg_path)):
+        cfg = Config.load()
+        assert cfg.pod.ssd is False
+        cfg.save()
+        assert "ssd = false" in cfg_path.read_text(encoding="utf-8")
+        assert Config.load().pod.ssd is False
+
+
+def test_legacy_ssd_true_remains_explicit(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "winpodx.toml"
+    cfg_path.write_text("schema_version = 2\n[pod]\nssd = true\n", encoding="utf-8")
+
+    with patch.object(Config, "path", classmethod(lambda cls: cfg_path)):
+        assert Config.load().pod.ssd is True
 
 
 def test_schema_version_not_dropped_by_apply(tmp_path: Path) -> None:

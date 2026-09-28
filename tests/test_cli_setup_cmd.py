@@ -192,7 +192,7 @@ def test_migrate_storage_handles_plan_error_abort_and_failure(tmp_path: Path, ca
     assert "FAIL: rsync failed" in output
 
 
-def test_storage_mode_btrfs_paths_and_ssd(tmp_path: Path, capsys) -> None:
+def test_storage_mode_btrfs_path_keeps_ssd_auto(tmp_path: Path, capsys) -> None:
     cfg = Config()
     cfg.pod.backend = "podman"
     target = tmp_path / "storage"
@@ -200,15 +200,28 @@ def test_storage_mode_btrfs_paths_and_ssd(tmp_path: Path, capsys) -> None:
         patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
         patch("winpodx.utils.btrfs.detect_path_fs", return_value="btrfs"),
         patch("winpodx.utils.btrfs.disable_cow_on_path", return_value=("disabled", "")),
-        patch("winpodx.utils.btrfs.host_storage_is_ssd", return_value=True),
     ):
         setup_cmd._decide_storage_mode(cfg, non_interactive=True, explicit_target=target)
 
     assert cfg.pod.storage_path == str(target)
-    assert cfg.pod.ssd is True
+    assert cfg.pod.ssd is None
     output = capsys.readouterr().out
     assert "applied chattr +C" in output
-    assert "emulate SSD" in output
+    assert "emulate SSD" not in output
+
+
+def test_storage_mode_preserves_explicit_hdd(tmp_path: Path) -> None:
+    cfg = Config()
+    cfg.pod.ssd = False
+    target = tmp_path / "storage"
+    with (
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        patch("winpodx.utils.btrfs.detect_path_fs", return_value="ext4"),
+    ):
+        setup_cmd._decide_storage_mode(cfg, non_interactive=True, explicit_target=target)
+
+    assert cfg.pod.storage_path == str(target)
+    assert cfg.pod.ssd is False
 
 
 def test_storage_mode_named_volume_warns_on_btrfs(tmp_path: Path, capsys) -> None:

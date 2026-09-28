@@ -193,8 +193,18 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
         sys.exit(1)
 
     current = getattr(target, field)
-    if isinstance(current, bool):
-        coerced: str | int | bool = value.lower() in ("true", "1", "yes")
+    if section == "pod" and field == "ssd":
+        ssd_value = value.strip().lower()
+        if ssd_value not in ("true", "false", "auto"):
+            print(
+                tr("Invalid pod.ssd value: {value} (expected true, false, or auto)").format(
+                    value=value
+                )
+            )
+            sys.exit(1)
+        coerced: str | int | bool | None = {"true": True, "false": False, "auto": None}[ssd_value]
+    elif isinstance(current, bool):
+        coerced = value.lower() in ("true", "1", "yes")
     elif isinstance(current, int):
         try:
             coerced = int(value)
@@ -211,7 +221,8 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
     target.__post_init__()
     coerced = getattr(target, field)
     cfg.save()
-    print(tr("Set {key} = {value}").format(key=key, value=coerced))
+    display_value = "auto" if key == "pod.ssd" and coerced is None else coerced
+    print(tr("Set {key} = {value}").format(key=key, value=display_value))
 
     # Budget warning only fires when over-subscribed — default config
     # stays quiet. Applies whenever max_sessions or ram_gb changes.

@@ -30,10 +30,9 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 # (renamed key, moved section, dropped option). The version is written into
 # the file at save() time and read by load(); a missing field reads as 0,
 # the implicit pre-0.6.0 schema. _migrate_config() is the place where actual
-# transforms land -- it is a no-op today (0.6.0 introduced the marker without
-# changing the layout) and starts doing real work in 0.7.0+ as the structure
-# evolves. See docs/design/ROADMAP-0.6.0.md item J.
-SCHEMA_VERSION = 2
+# transforms land. Schema 3 distinguishes explicit pod.ssd=false from the
+# legacy schema-2 default, which meant host-auto. See _migrate_config().
+SCHEMA_VERSION = 3
 
 # "libvirt" was dropped in 0.6.0 (dockur is QEMU/KVM in a container and now
 # covers device passthrough — #286). An existing config with backend="libvirt"
@@ -322,7 +321,7 @@ class PodConfig:
     # Tri-state: None (default) re-asks the host on every pod create, so a
     # migrated disk or a new storage_path is picked up without touching the
     # config; True/False are explicit user overrides set with
-    # `winpodx config set pod.ssd true|false`. Takes effect on next pod create.
+    # `winpodx config set pod.ssd true|false|auto`. Takes effect on next pod create.
     ssd: bool | None = None
     # v0.5.x: guest sync. After a host upgrade, push the refreshed guest
     # artifacts (agent.ps1, urlacl, rdprrap/shim, registry fixes) into the
@@ -593,16 +592,9 @@ class PodConfig:
                 self.disk_max_size = ""
         if not isinstance(self.guest_autosync, bool):
             self.guest_autosync = True
-        # A persisted `ssd = false` is indistinguishable from the pre-0.11.1
-        # default, and that default never actually produced a rotational disk
-        # (dockur's DISK_ROTATION defaults to 1, and our old `-global` override
-        # lost to its per-device property). Treating a stored False as "auto"
-        # therefore preserves the behaviour those users have been getting,
-        # while an explicit True still forces SSD. Anything non-boolean is
-        # auto as well.
+        # Invalid hand-edited values fall back to host-auto. Explicit False
+        # means HDD; only pre-schema-3 files migrate their old False to auto.
         if self.ssd is not None and not isinstance(self.ssd, bool):
-            self.ssd = None
-        if self.ssd is False:
             self.ssd = None
         # storage_path: keep empty (named-volume mode) or coerce to a
         # safe absolute string under the user's home or under a known
@@ -919,9 +911,8 @@ class Config:
             return cfg
 
         # Read the on-disk schema_version (0 = pre-0.6.0, no marker present).
-        # If it predates the current SCHEMA_VERSION, run the migration hook;
-        # the hook is a no-op today but is the seam where future renames /
-        # moves / drops are applied without losing the user's settings.
+        # If it predates the current SCHEMA_VERSION, run the migration hook
+        # before applying values so old defaults do not become explicit choices.
         try:
             from_version = int(data.get("schema_version", 0))
         except (TypeError, ValueError):
@@ -994,7 +985,6 @@ class Config:
                 "disk_autogrow_target_free_pct": self.pod.disk_autogrow_target_free_pct,
                 "disk_autogrow_increment": self.pod.disk_autogrow_increment,
                 "disk_max_size": self.pod.disk_max_size,
-                "ssd": self.pod.ssd,
                 "guest_autosync": self.pod.guest_autosync,
                 "max_sessions": self.pod.max_sessions,
                 "storage_path": self.pod.storage_path,
@@ -1038,6 +1028,10 @@ class Config:
                 "full_app_scan": self.desktop.full_app_scan,
             },
         }
+
+        # TOML has no null; omission keeps host-auto distinct from explicit HDD.
+        if self.pod.ssd is not None:
+            data["pod"]["ssd"] = self.pod.ssd
 
         # Atomic write: create temp file with 0600, fsync, then rename.
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".winpodx-", suffix=".tmp")
@@ -1295,20 +1289,6 @@ def _migrate_config(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     from :data:`SCHEMA_VERSION`. ``from_version=0`` means the file predates the
     marker (pre-0.6.0); any positive value is an older but tagged schema.
 
-    Today this is a no-op: 0.6.0 introduced the marker without changing the
-    layout, so a 0.5.x file reads cleanly as schema 0 and is bumped to 1 on the
-    next save with no key transforms. This function is the seam where future
-    migrations land. Pattern::
-
-        if from_version < 2:
-            # 0.7.0: moved ``pod.idle_timeout`` to ``pod.idle.timeout_secs``.
-            pod = data.setdefault("pod", {})
-            if "idle_timeout" in pod:
-                pod.setdefault("idle", {})["timeout_secs"] = pod.pop("idle_timeout")
-        if from_version < 3:
-            ...
-        return data
-
     Each guarded block is idempotent so a migration that fails halfway and is
     re-run on the next load completes cleanly.
     """
@@ -1321,6 +1301,12 @@ def _migrate_config(data: dict[str, Any], from_version: int) -> dict[str, Any]:
         pod = data.get("pod")
         if isinstance(pod, dict) and pod.get("usb_live") is False:
             pod.pop("usb_live", None)
+    if from_version < 3:
+        # Schema 2 stored False as the default without actually forcing HDD.
+        # Dropping it preserves host-auto; schema-3 False is an explicit override.
+        pod = data.get("pod")
+        if isinstance(pod, dict) and pod.get("ssd") is False:
+            pod.pop("ssd", None)
     return data
 
 
