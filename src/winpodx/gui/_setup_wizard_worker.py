@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import copy
 
 from PySide6.QtCore import QObject, Signal
 
+from winpodx.core.config import Config
 from winpodx.setup_wizard.host_state import HostState
 from winpodx.setup_wizard.pkexec import (
     PkexecAuthDenied,
@@ -57,13 +59,29 @@ class SetupWorker(QObject):
         from winpodx.cli.setup_cmd import apply_setup_presets
         from winpodx.core.config import Config
 
-        cfg = Config.load()
-        apply_setup_presets(cfg, self._args)
-        cfg.save()
+        baseline = Config.load()
+        candidate = copy.deepcopy(baseline)
+        apply_setup_presets(candidate, self._args)
+        _reject_reinstall_identity_change(baseline, self._args)
         handle_pod(
             argparse.Namespace(pod_command="reset", yes=True, redownload_iso=False),
             on_progress=self._on_progress,
+            reset_config=candidate,
+            expected_config=baseline,
         )
+
+
+def _reject_reinstall_identity_change(baseline: Config, args: argparse.Namespace) -> None:
+    """Refuse a reinstall that would move backend, storage, or installation media."""
+    requested_backend = getattr(args, "backend", None)
+    if requested_backend and requested_backend != baseline.pod.backend:
+        raise RuntimeError("reinstall cannot change backend")
+    requested_storage = getattr(args, "storage_path", None)
+    current_storage = baseline.pod.storage_path or ""
+    if requested_storage and requested_storage != current_storage:
+        raise RuntimeError("reinstall cannot change storage")
+    if getattr(args, "win_iso", None):
+        raise RuntimeError("reinstall cannot replace installation media")
 
 
 class PkexecWorker(QObject):

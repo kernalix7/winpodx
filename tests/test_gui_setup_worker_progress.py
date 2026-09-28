@@ -83,8 +83,17 @@ def test_reinstall_worker_emits_reset_progress_before_finished(
     worker.progress.connect(lambda stage, detail: events.append((stage, detail)))
     worker.finished.connect(lambda ok, error: done.append((ok, error)))
 
-    def reset(args: argparse.Namespace, *, on_progress: Callable[[str, str], None]) -> None:
+    def reset(
+        args: argparse.Namespace,
+        *,
+        on_progress: Callable[[str, str], None],
+        reset_config: object,
+        expected_config: object,
+    ) -> None:
         assert vars(args) == {"pod_command": "reset", "yes": True, "redownload_iso": False}
+        assert expected_config is cfg
+        assert reset_config is not cfg
+        assert save.call_count == 0
         for stage, detail in (("recreate", "Stopping pod..."), *_FINISH_PROVISIONING_STAGES):
             on_progress(stage, detail)
             assert events[-1] == (stage, detail)
@@ -99,8 +108,9 @@ def test_reinstall_worker_emits_reset_progress_before_finished(
     # Then: live signals arrive before the existing success/failure completion signal.
     assert events == [("recreate", "Stopping pod..."), *_FINISH_PROVISIONING_STAGES]
     assert done == ([(True, "")] if exit_code == 0 else [(False, "3")])
-    presets.assert_called_once_with(cfg, worker._args)
-    save.assert_called_once_with()
+    presets.assert_called_once()
+    assert presets.call_args.args[1] is worker._args
+    save.assert_not_called()
 
 
 @pytest.mark.parametrize("ready", [True, False])
@@ -120,7 +130,8 @@ def test_reinstall_progress_flows_through_real_reset_and_provision(
     monkeypatch.setattr(Config, "save", Mock())
     monkeypatch.setattr("winpodx.cli.setup_cmd.apply_setup_presets", Mock())
     monkeypatch.setattr("winpodx.core.pod.disguise.validate_disguise_image", Mock())
-    monkeypatch.setattr("winpodx.core.pod.stop_pod", Mock())
+    monkeypatch.setattr("winpodx.setup_wizard.host_state.require_preflight", Mock())
+    monkeypatch.setattr("winpodx.core.pod.stop_pod", Mock(return_value=PodStatus(PodState.STOPPED)))
     monkeypatch.setattr("winpodx.cli.pod._wipe_pod_storage", Mock())
     monkeypatch.setattr("winpodx.core.compose.generate_compose", Mock())
     monkeypatch.setattr(
