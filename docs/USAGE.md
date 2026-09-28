@@ -109,6 +109,8 @@ winpodx config import             # Import existing winapps.conf
 
 `winpodx setup --customize` asks for a storage directory and an optional readable local Windows ISO after edition/language choices, then reviews both before creating the pod. Press Enter for the default storage directory and Microsoft ISO download; a fresh explicit storage target must be safe, writable, and empty. The equivalent non-interactive flags are `winpodx setup --storage-path /path/to/storage --win-iso /path/to/windows.iso`. Existing config or named-volume storage is never relocated or replaced through this wizard; a different storage choice is rejected with a pointer to `winpodx setup --migrate-storage` instead. The ISO choice applies to fresh Windows installs only.
 
+`winpodx gui` first run uses the same choices in six pages: Welcome, Configuration, Prerequisites, Review, Install, and Finish. Prerequisites check the backend, RAM, disk, storage, and optional ISO you just selected. Reinstall from Tools keeps backend, storage, and installation media fixed, and the destructive confirmation happens only after review. A selected local ISO does not by itself make the install fully offline.
+
 ## Qt6 GUI tour
 
 Launch with `winpodx gui`. The Qt6 desktop app uses a Windows 11 Settings-style NavigationView with Fluent light and dark styling. It follows the system color scheme; set `WINPODX_COLOR_SCHEME=light` or `WINPODX_COLOR_SCHEME=dark` before launch to override it for that process. The font order is Segoe UI Variable, Segoe UI, bundled Selawik, then the desktop default. Selawik ships with WinPodX, so it needs no system font package.

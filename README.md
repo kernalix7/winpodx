@@ -126,6 +126,7 @@ winpodx setup --customize  # pick backend, VM settings, storage directory, and o
 
 Setup writes the configuration, verifies the host, provisions Windows, discovers your apps, and registers desktop entries.
 In `--customize`, press Enter at the storage and ISO prompts to keep the default storage directory and download Windows; the wizard reviews both choices before creating the pod. Existing guest storage is not moved or replaced by setup; use `winpodx setup --migrate-storage` to relocate it.
+`winpodx gui` first-run setup uses the same six-page wizard: Welcome, Configuration, Prerequisites, Review, Install, Finish. It selects Podman or Docker, VM specs, edition, storage directory, and an optional local ISO, then checks those exact choices before provisioning. A local ISO does not promise a fully offline install. Reinstall keeps the existing backend, storage, and installation media, and asks for wipe confirmation only after review.
 
 **Updating:** re-run the curl installer to upgrade a curl install in place, keeping your config and VM (this works on Bazzite and other rpm-ostree hosts too). Package and AppImage installs update through whatever you installed them with.
 
