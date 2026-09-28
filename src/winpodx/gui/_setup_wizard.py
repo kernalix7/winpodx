@@ -70,6 +70,9 @@ class _CurrentPageStack(QStackedWidget):
         page = self.currentWidget()
         return super().minimumSizeHint() if page is None else page.minimumSizeHint()
 
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 — Qt override
+        return self.currentWidget() is not None
+
     def heightForWidth(self, width: int) -> int:  # noqa: N802 — Qt override
         page = self.currentWidget()
         if page is None:
@@ -197,15 +200,24 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         return row
 
     def _goto(self, index: int) -> None:
-        self.pages.setCurrentIndex(index)
         if index == 2:
             self.prereq.bind_answers(self.config.answers())
         if index == 3:
             self._answers = self.config.answers()
             self.review.set_answers(self._answers, reinstall=self._reinstall)
             self._wipe_confirmed = False
+        self.pages.setCurrentIndex(index)
+        self._reflow_current_page()
         self._sync_nav()
         self._restyle_rail()
+
+    def _reflow_current_page(self) -> None:
+        page = self.pages.currentWidget()
+        if page is not None:
+            _activate_layout(page)
+        _activate_layout(self.pages)
+        self.pages.updateGeometry()
+        self._scroll.updateGeometry()
 
     def _on_next(self) -> None:
         idx = self.pages.currentIndex()
@@ -334,6 +346,15 @@ class SetupWizardDialog(FramelessMixin, QDialog):
                 f"font-size: {theme.FONT_BODY}px; font-weight: {weight}; "
                 f"padding: {theme.SPACE_S}px {theme.SPACE_S}px;"
             )
+
+
+def _activate_layout(widget: QWidget) -> None:
+    layout = widget.layout()
+    if layout is None:
+        return
+    layout.invalidate()
+    layout.activate()
+    widget.updateGeometry()
 
 
 def _confirm_reinstall_wipe(parent: QWidget, answers: SetupAnswers) -> bool:

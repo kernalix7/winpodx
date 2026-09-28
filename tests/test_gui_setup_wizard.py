@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Iterator
 
 import pytest
 
@@ -12,11 +13,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QRect, QSize, Qt  # noqa: E402
 from PySide6.QtGui import QWheelEvent  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QWidget  # noqa: E402
 
+from winpodx.core import i18n  # noqa: E402
 from winpodx.core.config import Config  # noqa: E402
+from winpodx.gui import theme  # noqa: E402
+from winpodx.gui._setup_wizard import SetupWizardDialog  # noqa: E402
 from winpodx.gui._setup_wizard_model import SetupAnswers  # noqa: E402
 from winpodx.setup_wizard.host_state import HostState  # noqa: E402
 
@@ -616,3 +621,212 @@ def test_reinstall_confirmation_refusal_starts_no_worker(
     assert dlg._thread is None
     assert started == []
     dlg.close()
+
+
+_LONG_STORAGE = "/srv/Windows storage/" + "project-archive/" * 12 + "<guest>"
+_LONG_ISO = "/media/Windows installers/" + "release-archive/" * 12 + "Windows_11.iso"
+
+
+@pytest.fixture(params=[("en", "light"), ("en", "dark"), ("ko", "light"), ("ko", "dark")])
+def shown_wizard(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[SetupWizardDialog]:
+    app = _ensure_qapp()
+    language, scheme = request.param
+    previous_language = i18n.current_language()
+    i18n.set_language(language)
+    theme.rebuild(scheme)
+    _patch_detect(monkeypatch, _ok_state)
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard.collect_answers",
+        lambda _cfg: _answers(storage_path=_LONG_STORAGE, win_iso=_LONG_ISO),
+    )
+    dlg = SetupWizardDialog()
+    dlg.resize(840, 640)
+    dlg.show()
+    app.processEvents()
+    try:
+        yield dlg
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        i18n.set_language(previous_language)
+
+
+@pytest.mark.parametrize("reenter", [False, True])
+def test_review_values_have_geometry_when_navigated_after_show(
+    shown_wizard: SetupWizardDialog, reenter: bool
+) -> None:
+    # Given: a shown 840x640 wizard, optionally returning after editing a choice.
+    dlg = shown_wizard
+    app = _ensure_qapp()
+    dlg.next_btn.click()
+    app.processEvents()
+    if reenter:
+        dlg.next_btn.click()
+        dlg.next_btn.click()
+        app.processEvents()
+        dlg.back_btn.click()
+        dlg.back_btn.click()
+        dlg.config._user.setText("Updated user")
+    dlg.next_btn.click()
+    app.processEvents()
+
+    # When: Next enters Review dynamically rather than before dialog.show().
+    dlg.next_btn.click()
+    app.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    # Then: all twelve full values have distinct, reachable rectangles.
+    assert dlg.size() == QSize(840, 640)
+    assert dlg.pages.currentIndex() == 3
+    assert len(dlg.review.findChildren(QFrame, "settingsSection")) == 1
+    cards = dlg.review.findChildren(QFrame, "settingsCard")
+    assert len(cards) == 12
+    previous_bottom = -1
+    for card in cards:
+        value = card.accessibleDescription()
+        assert value
+        description = next(label for label in card.findChildren(QLabel) if label.text() == value)
+        bounds = QRect(description.mapTo(card, QPoint()), description.size())
+        assert description.isVisible()
+        assert bounds.isValid() and card.rect().contains(bounds)
+        assert description.height() >= description.heightForWidth(description.width())
+        card_bounds = QRect(card.mapTo(dlg.review, QPoint()), card.size())
+        assert card_bounds.top() > previous_bottom
+        previous_bottom = card_bounds.bottom()
+        dlg._scroll.ensureWidgetVisible(description)
+        app.processEvents()
+        viewport = dlg._scroll.viewport()
+        visible_bounds = QRect(description.mapTo(viewport, QPoint()), description.size())
+        assert viewport.rect().contains(visible_bounds)
+    assert cards[-1].accessibleDescription() == ("Updated user" if reenter else "Docker")
+    assert dlg._scroll.horizontalScrollBar().maximum() == 0
+
+
+def test_configuration_timezone_title_and_combo_fit_when_shown(
+    shown_wizard: SetupWizardDialog,
+) -> None:
+    # Given: the shown 840x640 English/Korean light/dark wizard.
+    dlg = shown_wizard
+    app = _ensure_qapp()
+
+    # When: Configuration is opened and the timezone card is scrolled into view.
+    dlg.next_btn.click()
+    app.processEvents()
+    combo = dlg.config._timezone
+    card = next(
+        card
+        for card in dlg.config.findChildren(QFrame, "settingsCard")
+        if card.action_widget is dlg.config._timezone
+    )
+    viewport = dlg._scroll.viewport()
+    assert not viewport.rect().contains(QRect(card.mapTo(viewport, QPoint()), card.size()))
+    dlg._scroll.ensureWidgetVisible(card)
+    app.processEvents()
+
+    # Then: full title and combo fit inside the card, stacked and reachable.
+    title = card.title_label
+    title_bounds = QRect(title.mapTo(card, QPoint()), title.size())
+    combo_bounds = QRect(combo.mapTo(card, QPoint()), combo.size())
+    assert title.isVisible() and combo.isVisible()
+    title_width = title.fontMetrics().horizontalAdvance(i18n.tr("Timezone"))
+    assert title_width <= title.contentsRect().width()
+    assert title_bounds.isValid() and card.rect().contains(title_bounds)
+    assert combo_bounds.isValid() and card.rect().contains(combo_bounds)
+    assert combo_bounds.top() > title_bounds.bottom()
+    assert viewport.rect().contains(QRect(card.mapTo(viewport, QPoint()), card.size()))
+    assert dlg._scroll.verticalScrollBar().value() > 0
+    assert dlg._scroll.horizontalScrollBar().maximum() == 0
+    assert not dlg._scroll.horizontalScrollBar().isVisible()
+    assert dlg.size() == QSize(840, 640)
+
+
+def test_configuration_full_path_previews_when_values_are_long(
+    shown_wizard: SetupWizardDialog,
+) -> None:
+    # Given: long storage and ISO paths in a shown fresh-install dialog.
+    dlg = shown_wizard
+    app = _ensure_qapp()
+
+    # When: the user opens Configuration.
+    dlg.next_btn.click()
+    app.processEvents()
+
+    # Then: editors start at the prefix and full selectable previews wrap below.
+    for editor in (dlg.config._storage, dlg.config._iso):
+        assert not editor.isReadOnly()
+        assert editor.cursorPosition() == 0
+        host = editor.parentWidget()
+        assert host is not None
+        preview = host.findChild(QLabel, "setupPathPreview")
+        assert preview is not None and preview.isVisible()
+        assert preview.text() == editor.text()
+        assert preview.textFormat() == Qt.TextFormat.PlainText
+        assert preview.wordWrap()
+        assert preview.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+        assert editor.accessibleDescription() == editor.text()
+        assert preview.height() >= preview.heightForWidth(preview.width())
+        assert preview.height() > preview.fontMetrics().height()
+        assert preview.geometry().top() > editor.geometry().bottom()
+        dlg._scroll.ensureWidgetVisible(preview)
+        app.processEvents()
+        viewport = dlg._scroll.viewport()
+        assert viewport.rect().contains(QRect(preview.mapTo(viewport, QPoint()), preview.size()))
+    assert dlg.size() == QSize(840, 640)
+    assert dlg._scroll.horizontalScrollBar().maximum() == 0
+
+
+@pytest.mark.parametrize("replacement", ["/new/location", ""])
+def test_path_preview_tracks_keyboard_edits_when_fresh(
+    shown_wizard: SetupWizardDialog, replacement: str
+) -> None:
+    # Given: Configuration with populated path editors.
+    dlg = shown_wizard
+    dlg.next_btn.click()
+    app = _ensure_qapp()
+    app.processEvents()
+    for editor in (dlg.config._storage, dlg.config._iso):
+        # When: the user replaces or clears a path using the keyboard.
+        editor.selectAll()
+        QTest.keyClick(editor, Qt.Key.Key_Backspace)
+        QTest.keyClicks(editor, replacement)
+        app.processEvents()
+
+        # Then: preview/accessibility follow the value without resetting the caret.
+        host = editor.parentWidget()
+        assert host is not None
+        preview = host.findChild(QLabel, "setupPathPreview")
+        assert preview is not None
+        assert editor.text() == replacement
+        assert preview.text() == replacement
+        assert preview.isHidden() == (not replacement)
+        assert editor.accessibleDescription() == replacement
+        assert editor.cursorPosition() == len(replacement)
+
+
+def test_reinstall_paths_stay_unchanged_when_typing() -> None:
+    from winpodx.gui._setup_wizard_config import ConfigurationPage
+
+    # Given: reinstall controls with long existing paths.
+    app = _ensure_qapp()
+    initial = _answers(storage_path=_LONG_STORAGE, win_iso=_LONG_ISO, backend="docker")
+    page = ConfigurationPage(initial, reinstall=True)
+    page.show()
+    app.processEvents()
+    try:
+        # When: keyboard edits are attempted in each read-only path control.
+        for editor in (page._storage, page._iso):
+            editor.selectAll()
+            QTest.keyClicks(editor, "/replacement")
+
+        # Then: backend and both path values remain the original choices.
+        assert not page._backend.isEnabled()
+        assert page._storage.isReadOnly() and page._iso.isReadOnly()
+        assert page.answers().backend == "docker"
+        assert page.answers().storage_path == _LONG_STORAGE
+        assert page.answers().win_iso == _LONG_ISO
+    finally:
+        page.close()
+        page.deleteLater()
