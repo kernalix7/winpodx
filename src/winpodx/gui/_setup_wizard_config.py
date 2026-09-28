@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Configuration page: edition, locale, hardware, username."""
+"""Configuration page: installation source, edition, locale, hardware, username."""
 
 from __future__ import annotations
 
@@ -31,8 +31,20 @@ from winpodx.gui._widget_helpers import guard_wheel_scroll
 class ConfigurationPage(QWidget):
     """Collect the knobs ``apply_setup_presets`` understands."""
 
-    def __init__(self, initial: SetupAnswers, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        initial: SetupAnswers,
+        parent: QWidget | None = None,
+        *,
+        reinstall: bool = False,
+    ) -> None:
         super().__init__(parent)
+        self._backend = _combo((("Podman", "podman"), ("Docker", "docker")), initial.backend)
+        self._backend.setEnabled(not reinstall)
+        self._storage = QLineEdit(initial.storage_path)
+        self._storage.setReadOnly(reinstall)
+        self._iso = QLineEdit(initial.win_iso)
+        self._iso.setReadOnly(reinstall)
         self._edition = _combo(
             ((label, value) for value, label in WIN_VERSION_LABELS.items()),
             initial.win_version,
@@ -57,6 +69,35 @@ class ConfigurationPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(theme.SPACE_L)
+        installation, install_stack = make_settings_group(tr("Installation"))
+        install_stack.addWidget(
+            make_settings_card(
+                "gear",
+                tr("Backend"),
+                tr("Kept from the existing configuration on reinstall.") if reinstall else "",
+                action=self._backend,
+            )
+        )
+        install_stack.addWidget(
+            make_settings_card(
+                "hardware",
+                tr("Storage directory"),
+                tr("Kept on reinstall; storage is not moved.")
+                if reinstall
+                else tr("Leave blank to use the default storage directory."),
+                action=self._storage,
+            )
+        )
+        install_stack.addWidget(
+            make_settings_card(
+                "desktop",
+                tr("Local Windows ISO"),
+                tr("Replacement ISO selection is unavailable on reinstall.")
+                if reinstall
+                else tr("Leave blank to download Windows."),
+                action=self._iso,
+            )
+        )
         windows, win_stack = make_settings_group(tr("Windows"))
         win_stack.addWidget(
             make_settings_card("desktop", tr("Windows edition"), action=self._edition)
@@ -76,6 +117,7 @@ class ConfigurationPage(QWidget):
         acc_stack.addWidget(
             make_settings_card("session", tr("Windows username"), action=self._user)
         )
+        root.addWidget(installation)
         root.addWidget(windows)
         root.addWidget(hardware)
         root.addWidget(account)
@@ -95,6 +137,9 @@ class ConfigurationPage(QWidget):
             disk_size=str(self._disk.currentData() or "64G"),
             rdp_user=self._user.text().strip() or "Docker",
             tuning_profile="auto",
+            backend=str(self._backend.currentData()),
+            storage_path=self._storage.text().strip(),
+            win_iso=self._iso.text().strip(),
         )
 
     def _restyle(self) -> None:
@@ -103,6 +148,7 @@ class ConfigurationPage(QWidget):
             f"font-size: {theme.FONT_CAPTION}px;"
         )
         for combo in (
+            self._backend,
             self._edition,
             self._language,
             self._region,
@@ -115,8 +161,9 @@ class ConfigurationPage(QWidget):
         for spin in (self._cpu, self._ram):
             spin.setStyleSheet(theme.SPIN_BOX)
             spin.setFixedHeight(theme.CONTROL_HEIGHT_W11)
-        self._user.setStyleSheet(theme.INPUT)
-        self._user.setFixedHeight(theme.CONTROL_HEIGHT_W11)
+        for line_edit in (self._user, self._storage, self._iso):
+            line_edit.setStyleSheet(theme.INPUT)
+            line_edit.setFixedHeight(theme.CONTROL_HEIGHT_W11)
 
 
 def _combo(options: Iterable[tuple[str, str]], current: str) -> QComboBox:
