@@ -17,6 +17,28 @@ from winpodx.core.pod.ports import (
 
 
 class TestPortInUse:
+    def test_udp_preflight_binds_requested_address_with_datagram_socket(self, monkeypatch):
+        from winpodx.core.pod import ports
+
+        seen = []
+
+        class SocketProbe:
+            def bind(self, endpoint):
+                seen.append(endpoint)
+                raise OSError("occupied")
+
+            def close(self):
+                seen.append("closed")
+
+        def fake_socket(family, kind):
+            seen.append((family, kind))
+            return SocketProbe()
+
+        monkeypatch.setattr(ports.socket, "socket", fake_socket)
+
+        assert _port_in_use(25000, protocol="udp", bind="0.0.0.0") is True
+        assert seen == [(socket.AF_INET, socket.SOCK_DGRAM), ("0.0.0.0", 25000), "closed"]
+
     def test_bound_port_is_in_use(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -65,6 +87,35 @@ class TestCheckHostPorts:
         cfg.pod.backend = "docker"
         monkeypatch.setattr("winpodx.core.pod.ports._port_in_use", lambda port: False)
         assert check_host_ports(cfg) == []
+
+    def test_extra_tcp_and_udp_ranges_are_checked_with_their_bind_address(self, monkeypatch):
+        cfg = Config()
+        cfg.pod.extra_ports = ["0.0.0.0:25000-25001:30000-30001/udp", "26000/tcp"]
+        cfg.pod.__post_init__()
+        seen = []
+
+        def in_use(port, *, protocol="tcp", bind="127.0.0.1"):
+            seen.append((bind, port, protocol))
+            return bind == "0.0.0.0" and port == 25001
+
+        monkeypatch.setattr("winpodx.core.pod.ports._port_in_use", in_use)
+        monkeypatch.setattr(
+            "winpodx.core.pod.ports._owner_hint",
+            lambda port, protocol="tcp": "other-process",
+        )
+
+        conflicts = check_host_ports(cfg)
+
+        assert ("0.0.0.0", 25000, "udp") in seen
+        assert ("0.0.0.0", 25001, "udp") in seen
+        assert ("127.0.0.1", 26000, "tcp") in seen
+        assert len(conflicts) == 1
+        assert (conflicts[0].bind, conflicts[0].port, conflicts[0].protocol) == (
+            "0.0.0.0",
+            25001,
+            "udp",
+        )
+        assert "0.0.0.0:25001/udp" in format_port_conflict_error(conflicts)
 
 
 class TestOwnerHint:

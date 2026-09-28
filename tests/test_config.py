@@ -374,6 +374,51 @@ def test_config_save_load_ssd_tri_state(tmp_path, monkeypatch):
     assert Config.load().pod.ssd is True
 
 
+def test_extra_ports_default_empty_and_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cfg = Config()
+    assert cfg.pod.extra_ports == []
+    cfg.pod.extra_ports = ["0.0.0.0:27015:27015/udp", "25000/tcp"]
+    cfg.pod.__post_init__()
+    cfg.save()
+
+    assert Config.load().pod.extra_ports == [
+        "127.0.0.1:25000:25000/tcp",
+        "0.0.0.0:27015:27015/udp",
+    ]
+
+
+def test_invalid_extra_ports_in_hand_edited_config_are_dropped(tmp_path, monkeypatch):
+    from winpodx.core.config import SCHEMA_VERSION
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path = Config.path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'schema_version = {SCHEMA_VERSION}\n[pod]\nextra_ports = ["0.0.0.0:1:1/tcp"]\n',
+        encoding="utf-8",
+    )
+
+    assert Config.load().pod.extra_ports == []
+
+
+def test_config_load_rejects_extra_port_colliding_with_custom_rdp_port(tmp_path, monkeypatch):
+    from winpodx.core.config import SCHEMA_VERSION
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path = Config.path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"schema_version = {SCHEMA_VERSION}\n[rdp]\nport = 25000\n"
+        '[pod]\nextra_ports = ["25000:30000/tcp"]\n',
+        encoding="utf-8",
+    )
+
+    cfg = Config.load()
+    assert cfg.rdp.port == 25000
+    assert cfg.pod.extra_ports == []
+
+
 def test_config_load_libvirt_backend_migrates_to_podman(tmp_path, monkeypatch):
     # libvirt was dropped in 0.6.0 — an existing config with backend=libvirt
     # falls back to podman on load (with a warning).
@@ -1005,6 +1050,56 @@ def test_cli_config_set_parses_bool_int_string_and_clamps(monkeypatch, tmp_path,
     cli._set("rdp.user", "bob")
     assert Config.load().rdp.user == "bob"
     assert "Set rdp.user = bob" in capsys.readouterr().out
+
+
+def test_cli_config_set_extra_ports_parses_list_and_recreates(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from winpodx.cli import config_cmd as cli
+
+    applied = []
+    monkeypatch.setattr(
+        cli, "_apply_compose_change", lambda cfg: applied.append(cfg.pod.extra_ports)
+    )
+    cli._set("pod.extra_ports", "0.0.0.0:27015:27015/udp,25000:30000/tcp")
+
+    assert Config.load().pod.extra_ports == [
+        "127.0.0.1:25000:30000/tcp",
+        "0.0.0.0:27015:27015/udp",
+    ]
+    assert applied == [Config.load().pod.extra_ports]
+    cli._set("pod.extra_ports", "")
+    assert Config.load().pod.extra_ports == []
+
+
+def test_cli_config_set_extra_ports_rejects_invalid_without_saving(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    import pytest
+
+    from winpodx.cli import config_cmd as cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._set("pod.extra_ports", "80/tcp")
+
+    assert exc.value.code == 1
+    assert not Config.path().exists()
+
+
+def test_cli_config_set_refuses_rdp_port_colliding_with_extra_forward(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    import pytest
+
+    from winpodx.cli import config_cmd as cli
+
+    cfg = Config()
+    cfg.pod.extra_ports = ["25000:30000/tcp"]
+    cfg.save()
+
+    with pytest.raises(SystemExit) as exc:
+        cli._set("rdp.port", "25000")
+
+    assert exc.value.code == 1
+    assert Config.load().rdp.port == 3390
+    assert Config.load().pod.extra_ports == ["127.0.0.1:25000:30000/tcp"]
 
 
 def test_cli_config_set_auto_timezone_uses_detector(monkeypatch, tmp_path, capsys):

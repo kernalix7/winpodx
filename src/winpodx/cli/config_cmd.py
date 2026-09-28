@@ -20,6 +20,7 @@ _RECREATE_ON_CHANGE = frozenset(
         "disk_size",
         "vnc_port",
         "image",
+        "extra_ports",
     }
 )
 # Keys that only take effect on a *fresh* Windows install (first-boot unattend),
@@ -193,7 +194,19 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
         sys.exit(1)
 
     current = getattr(target, field)
-    if section == "pod" and field == "ssd":
+    if section == "pod" and field == "extra_ports":
+        from winpodx.core.pod.extra_ports import InvalidPortMapping, normalize_extra_ports
+
+        try:
+            coerced: str | int | bool | None | list[str] = normalize_extra_ports(
+                value.split(",") if value.strip() else [],
+                rdp_port=cfg.rdp.port,
+                vnc_port=cfg.pod.vnc_port,
+            )
+        except InvalidPortMapping as exc:
+            print(tr("{error}").format(error=exc))
+            sys.exit(1)
+    elif section == "pod" and field == "ssd":
         ssd_value = value.strip().lower()
         if ssd_value not in ("true", "false", "auto"):
             print(
@@ -202,7 +215,7 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
                 )
             )
             sys.exit(1)
-        coerced: str | int | bool | None = {"true": True, "false": False, "auto": None}[ssd_value]
+        coerced = {"true": True, "false": False, "auto": None}[ssd_value]
     elif isinstance(current, bool):
         coerced = value.lower() in ("true", "1", "yes")
     elif isinstance(current, int):
@@ -213,6 +226,17 @@ def _set(key: str, value: str | None, *, auto: bool = False) -> None:
             sys.exit(1)
     else:
         coerced = value
+
+    if (section, field) in (("rdp", "port"), ("pod", "vnc_port")) and cfg.pod.extra_ports:
+        from winpodx.core.pod.extra_ports import InvalidPortMapping, normalize_extra_ports
+
+        rdp_port = max(1, min(65535, int(coerced))) if section == "rdp" else cfg.rdp.port
+        vnc_port = max(1, min(65535, int(coerced))) if section == "pod" else cfg.pod.vnc_port
+        try:
+            normalize_extra_ports(cfg.pod.extra_ports, rdp_port=rdp_port, vnc_port=vnc_port)
+        except InvalidPortMapping as exc:
+            print(tr("{error}").format(error=exc))
+            sys.exit(1)
 
     setattr(target, field, coerced)
     # Re-run dataclass __post_init__ so clamps (e.g. max_sessions [1,50])

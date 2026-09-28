@@ -31,8 +31,9 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 # the file at save() time and read by load(); a missing field reads as 0,
 # the implicit pre-0.6.0 schema. _migrate_config() is the place where actual
 # transforms land. Explicit pod.ssd booleans keep their meaning at every
-# schema version; omitting the key selects host-auto.
-SCHEMA_VERSION = 3
+# schema version; omitting the key selects host-auto. Schema 4 adds optional
+# pod.extra_ports entries without rewriting existing SSD choices.
+SCHEMA_VERSION = 4
 
 # "libvirt" was dropped in 0.6.0 (dockur is QEMU/KVM in a container and now
 # covers device passthrough — #286). An existing config with backend="libvirt"
@@ -260,6 +261,9 @@ class PodConfig:
     # via the auto-tier (low/mid/high) presets.
     ram_gb: int = 6
     vnc_port: int = 8007
+    # Host port forwards into the guest. Omitted/empty keeps every existing
+    # fixed mapping loopback-only; an explicit 0.0.0.0 prefix opts into LAN.
+    extra_ports: list[str] = field(default_factory=list)
     # Opt-in: pod auto-start on login is OFF by default. `winpodx autostart on`
     # (or the GUI checkbox) flips this True and installs the tray autostart
     # entry, so booting Windows on every login is an explicit user choice
@@ -501,6 +505,13 @@ class PodConfig:
         self.cpu_cores = max(1, min(128, int(self.cpu_cores)))
         self.ram_gb = max(1, min(512, int(self.ram_gb)))
         self.vnc_port = max(1, min(65535, int(self.vnc_port)))
+        from winpodx.core.pod.extra_ports import InvalidPortMapping, normalize_extra_ports
+
+        try:
+            self.extra_ports = normalize_extra_ports(self.extra_ports, vnc_port=self.vnc_port)
+        except InvalidPortMapping as exc:
+            logging.getLogger(__name__).warning("%s; dropping pod.extra_ports", exc)
+            self.extra_ports = []
         self.idle_timeout = max(0, int(self.idle_timeout))
         if self.idle_action not in ("pause", "stop"):
             self.idle_action = "pause"
@@ -930,6 +941,15 @@ class Config:
         _apply(cfg.desktop, data.get("desktop", {}))
         cfg.rdp.__post_init__()
         cfg.pod.__post_init__()
+        from winpodx.core.pod.extra_ports import InvalidPortMapping, normalize_extra_ports
+
+        try:
+            cfg.pod.extra_ports = normalize_extra_ports(
+                cfg.pod.extra_ports, rdp_port=cfg.rdp.port, vnc_port=cfg.pod.vnc_port
+            )
+        except InvalidPortMapping as exc:
+            logging.getLogger(__name__).warning("%s; dropping pod.extra_ports", exc)
+            cfg.pod.extra_ports = []
         cfg.reverse_open.__post_init__()
         cfg.install.__post_init__()
         cfg.logging.__post_init__()
@@ -941,6 +961,8 @@ class Config:
         """Write current config to TOML file with secure permissions."""
         import os
         import tempfile
+
+        from winpodx.core.pod.extra_ports import normalize_extra_ports
 
         path = self.path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -973,6 +995,9 @@ class Config:
                 "cpu_cores": self.pod.cpu_cores,
                 "ram_gb": self.pod.ram_gb,
                 "vnc_port": self.pod.vnc_port,
+                "extra_ports": normalize_extra_ports(
+                    self.pod.extra_ports, rdp_port=self.rdp.port, vnc_port=self.pod.vnc_port
+                ),
                 "auto_start": self.pod.auto_start,
                 "idle_timeout": self.pod.idle_timeout,
                 "idle_action": self.pod.idle_action,

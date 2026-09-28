@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from winpodx.core.agent import AGENT_PORT
 from winpodx.core.config import Config
 from winpodx.core.guest_disk import SMB_HOST_PORT
+from winpodx.core.pod.extra_ports import parse_extra_ports
 
 # Matches the owning-process name out of `ss -H -tlnp` output, e.g.:
 #   LISTEN 0 511 127.0.0.1:3390 0.0.0.0:* users:(("gnome-remote-desktop",pid=1234,fd=7))
@@ -35,6 +36,8 @@ class PortConflict:
     port: int
     label: str
     owner: str = ""
+    bind: str = "127.0.0.1"
+    protocol: str = "tcp"
 
 
 def _required_ports(cfg: Config) -> list[tuple[int, str]]:
@@ -47,17 +50,20 @@ def _required_ports(cfg: Config) -> list[tuple[int, str]]:
     ]
 
 
-def _port_in_use(port: int) -> bool:
-    """True if ``127.0.0.1:port`` can't be bound right now.
+def _port_in_use(port: int, *, protocol: str = "tcp", bind: str = "127.0.0.1") -> bool:
+    """True if the requested host port/protocol/address cannot be bound.
 
     Same bind-test idiom as ``core.usbredir``'s relay listener: a plain
     connect-test would miss a port that's bound but not yet accepting, and
     would false-negative against anything not speaking a known protocol.
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock = socket.socket(
+        socket.AF_INET, socket.SOCK_DGRAM if protocol == "udp" else socket.SOCK_STREAM
+    )
+    if protocol == "tcp":
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        sock.bind(("127.0.0.1", port))
+        sock.bind((bind, port))
         return False
     except OSError:
         return True
@@ -65,7 +71,7 @@ def _port_in_use(port: int) -> bool:
         sock.close()
 
 
-def _owner_hint(port: int) -> str:
+def _owner_hint(port: int, protocol: str = "tcp") -> str:
     """Best-effort name of the process holding ``port``, via ``ss -H -tlnp``.
 
     Empty string when ``ss`` is missing, times out, or the line can't be
@@ -73,7 +79,7 @@ def _owner_hint(port: int) -> str:
     """
     try:
         result = subprocess.run(
-            ["ss", "-H", "-tlnp"],
+            ["ss", "-H", "-ulnp" if protocol == "udp" else "-tlnp"],
             capture_output=True,
             text=True,
             timeout=3,
@@ -107,6 +113,20 @@ def check_host_ports(cfg: Config) -> list[PortConflict]:
     for port, label in _required_ports(cfg):
         if _port_in_use(port):
             conflicts.append(PortConflict(port=port, label=label, owner=_owner_hint(port)))
+    for forward in parse_extra_ports(
+        cfg.pod.extra_ports, rdp_port=cfg.rdp.port, vnc_port=cfg.pod.vnc_port
+    ):
+        for port in range(forward.host_start, forward.host_end + 1):
+            if _port_in_use(port, protocol=forward.protocol, bind=forward.host_bind):
+                conflicts.append(
+                    PortConflict(
+                        port=port,
+                        label=f"extra {forward.protocol.upper()} {forward.canonical()}",
+                        owner=_owner_hint(port, forward.protocol),
+                        bind=forward.host_bind,
+                        protocol=forward.protocol,
+                    )
+                )
     return conflicts
 
 
@@ -114,7 +134,8 @@ def format_port_conflict_error(conflicts: list[PortConflict]) -> str:
     """Render ``conflicts`` into the multi-line message shown to the user."""
     lines = ["Cannot start pod — the following host port(s) are already in use:"]
     for c in conflicts:
-        lines.append(f"  127.0.0.1:{c.port} [{c.label}] ({c.owner or 'unknown process'})")
+        endpoint = f"{c.bind}:{c.port}" + ("/udp" if c.protocol == "udp" else "")
+        lines.append(f"  {endpoint} [{c.label}] ({c.owner or 'unknown process'})")
 
     affected = {c.label for c in conflicts}
     if "RDP" in affected or "VNC" in affected:

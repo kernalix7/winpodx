@@ -21,6 +21,7 @@ from winpodx.core.devices import (
     qemu_device_args,
 )
 from winpodx.core.guest_disk import GUEST_SMB_PORT, SMB_HOST_PORT
+from winpodx.core.pod.extra_ports import parse_extra_ports
 from winpodx.utils.btrfs import host_storage_is_ssd
 from winpodx.utils.paths import bundle_dir, config_dir
 
@@ -86,7 +87,7 @@ name: "winpodx"
       - "127.0.0.1:{vnc_port}:8006"
       - "127.0.0.1:{agent_port}:{agent_port}/tcp"
       - "127.0.0.1:{smb_port}:445/tcp"
-    devices:
+{extra_port_lines}    devices:
 {device_nodes}    cap_add:
       - NET_ADMIN
 {security_opt}"""
@@ -873,6 +874,13 @@ def _build_compose_content(cfg: Config) -> str:
     password = cfg.rdp.password or generate_password()
     template = _build_compose_template(cfg.pod.backend)
     top_volumes, storage_mount = _render_storage_blocks(cfg)
+    extra_ports = parse_extra_ports(
+        cfg.pod.extra_ports, rdp_port=cfg.rdp.port, vnc_port=cfg.pod.vnc_port
+    )
+    guest_ports = sorted(
+        (port for forward in extra_ports for port in forward.guest_ports()),
+        key=lambda port: (int(port.split("/", 1)[0]), port.endswith("/udp")),
+    )
 
     # Bare-metal disguise (#246, T1.5): add the synthetic SMBIOS sensor blob
     # (voltage/temp/fan/cache/slot/port descriptors) via `-smbios file=`. The
@@ -1001,13 +1009,13 @@ def _build_compose_content(cfg: Config) -> str:
         vmx=_vmx_env_for_host(cfg),
         qemu_arguments=qemu_args,
         agent_port=AGENT_PORT,
-        # dockur USER_PORTS = guest ports to forward into the VM (the agent
-        # + the guest SMB share for reverse-open guest-disk access, #616).
-        # COMMA-separated — dockur strips the spaces from a space-separated
-        # list and concatenates the digits into one bad port ("8765 445" ->
-        # "8765445" -> QEMU "Bad host port", container won't boot).
-        user_ports=f"{AGENT_PORT},{GUEST_SMB_PORT}",
+        # dockur USER_PORTS = guest ports to forward in passt mode: fixed
+        # agent + SMB, then each extra guest range member with its protocol.
+        # COMMA-separated — dockur strips spaces and concatenates digits in
+        # a space-separated list ("8765 445" -> "8765445" -> bad host port).
+        user_ports=",".join((str(AGENT_PORT), str(GUEST_SMB_PORT), *guest_ports)),
         smb_port=SMB_HOST_PORT,
+        extra_port_lines="".join(f'      - "{forward.canonical()}"\n' for forward in extra_ports),
         device_nodes=_device_nodes_block(cfg),
         extra_volumes=_extra_volumes_block(cfg),
         security_opt=_security_opt_block(cfg),

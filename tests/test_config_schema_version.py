@@ -149,6 +149,19 @@ def test_current_schema_explicit_ssd_false_survives_load_and_save(tmp_path: Path
         assert Config.load().pod.ssd is False
 
 
+def test_schema_3_upgrade_defaults_to_no_extra_ports_and_preserves_ssd(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "winpodx.toml"
+    cfg_path.write_text("schema_version = 3\n[pod]\nssd = false\n", encoding="utf-8")
+
+    with patch.object(Config, "path", classmethod(lambda cls: cfg_path)):
+        cfg = Config.load()
+        assert cfg.schema_version == SCHEMA_VERSION == 4
+        assert cfg.pod.ssd is False
+        assert cfg.pod.extra_ports == []
+        cfg.save()
+        assert Config.load().pod.ssd is False
+
+
 def test_legacy_ssd_true_remains_explicit(tmp_path: Path) -> None:
     cfg_path = tmp_path / "winpodx.toml"
     cfg_path.write_text("schema_version = 2\n[pod]\nssd = true\n", encoding="utf-8")

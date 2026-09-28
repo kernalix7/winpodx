@@ -29,6 +29,7 @@ win_version = "11"        # 11 | 10 | ltsc11 | ltsc10 | iot11 | tiny11 | tiny10 
 cpu_cores = 4
 ram_gb = 6                # GiB given to the Windows VM
 vnc_port = 8007
+extra_ports = []          # e.g. ["25000:30000/tcp", "0.0.0.0:27015-27017:27015-27017/udp"]
 auto_start = false        # opt-in: auto-start the pod when launching an app
 idle_timeout = 0          # seconds before auto-suspend (0 = disabled)
 boot_timeout = 300        # seconds to wait for first boot before giving up

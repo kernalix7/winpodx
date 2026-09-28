@@ -94,6 +94,38 @@ def test_pod_network_rejects_unknown_values():
     assert "NETWORK:" not in _build_compose_content(cfg)
 
 
+def test_compose_extra_ports_publish_loopback_and_expand_guest_ranges():
+    cfg = _cfg()
+    cfg.pod.extra_ports = ["25000:30000/tcp", "25010-25012:30010-30012/udp"]
+    cfg.pod.__post_init__()
+
+    content = _build_compose_content(cfg)
+
+    assert '      - "127.0.0.1:25000:30000/tcp"' in content
+    assert '      - "127.0.0.1:25010-25012:30010-30012/udp"' in content
+    assert 'USER_PORTS: "8765,445,30000/tcp,30010/udp,30011/udp,30012/udp"' in content
+
+
+def test_compose_lan_exposure_requires_explicit_wildcard_address():
+    cfg = _cfg()
+    cfg.pod.extra_ports = ["0.0.0.0:25000:30000/tcp"]
+    cfg.pod.__post_init__()
+
+    content = _build_compose_content(cfg)
+
+    assert '      - "0.0.0.0:25000:30000/tcp"' in content
+    assert 'USER_PORTS: "8765,445,30000/tcp"' in content
+
+
+def test_compose_default_ports_and_user_ports_remain_unchanged():
+    content = _build_compose_content(_cfg())
+
+    assert 'USER_PORTS: "8765,445"' in content
+    assert '      - "127.0.0.1:3390:3389/tcp"' in content
+    assert '      - "127.0.0.1:8007:8006"' in content
+    assert '      - "0.0.0.0:' not in content
+
+
 def test_pod_network_normalises_case_and_space():
     cfg = _cfg()
     cfg.pod.network = "  USER  "
