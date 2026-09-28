@@ -287,18 +287,6 @@ class MaintenanceMixin(MaintenanceCardsMixin):
 
         from winpodx.gui._setup_wizard import SetupWizardDialog
 
-        if not _confirm_with_callout(
-            self,
-            tr("Reinstall Windows"),
-            tr(
-                "This destroys the Windows disk and everything installed in it, "
-                "then reinstalls Windows with the settings you choose. "
-                "Your WinPodX settings and app profiles are kept."
-            ),
-            tr("This cannot be undone."),
-            level="danger",
-        ):
-            return
         dlg = SetupWizardDialog(self, mode="reinstall", cfg=self.cfg)
         result = dlg.exec()
         if result != QDialog.DialogCode.Accepted:

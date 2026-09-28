@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 """Windows 11 Settings-style setup wizard (left step-rail + content)."""
+# allow: SIZE_OK — single dialog lifecycle; pages and workers already live in separate modules.
 
 from __future__ import annotations
 
@@ -19,10 +20,11 @@ from PySide6.QtWidgets import (
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.gui import theme
+from winpodx.gui._dialog_chrome import ChromeDialog
 from winpodx.gui._frameless import FramelessMixin
 from winpodx.gui._main_window_secondary_style import apply_w11_button
 from winpodx.gui._setup_wizard_config import ConfigurationPage
-from winpodx.gui._setup_wizard_model import collect_answers, to_namespace
+from winpodx.gui._setup_wizard_model import SetupAnswers, collect_answers, to_namespace
 from winpodx.gui._setup_wizard_pages import (
     FinishPage,
     InstallPage,
@@ -33,12 +35,13 @@ from winpodx.gui._setup_wizard_pages import (
 from winpodx.gui._setup_wizard_prereq import PrerequisitesPage
 from winpodx.gui._setup_wizard_worker import SetupWorker
 from winpodx.gui._title_bar import TitleBar
+from winpodx.gui._widget_helpers import make_warning_callout
 from winpodx.gui.theme_manager import instance as theme_manager_instance
 
 _STEPS = (
     "Welcome",
-    "Prerequisites",
     "Configuration",
+    "Prerequisites",
     "Review",
     "Install",
     "Finish",
@@ -98,6 +101,7 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         self._reinstall = mode == "reinstall"
         self.open_apps = False
         self.open_terminal = False
+        self._wipe_confirmed = False
         self._thread: QThread | None = None
         self._worker: SetupWorker | None = None
         self._answers = collect_answers(cfg if self._reinstall else None)
@@ -143,15 +147,15 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         pane_lay.setSpacing(theme.SPACE_L)
         self.pages = _CurrentPageStack()
         self.welcome = WelcomePage(reinstall=self._reinstall)
+        self.config = ConfigurationPage(self._answers, reinstall=self._reinstall)
         self.prereq = PrerequisitesPage()
-        self.config = ConfigurationPage(self._answers)
         self.review = ReviewPage()
         self.install = InstallPage(on_cancel=lambda: None, cfg=self._cfg)
         self.finish = FinishPage()
         for page in (
             self.welcome,
-            self.prereq,
             self.config,
+            self.prereq,
             self.review,
             self.install,
             self.finish,
@@ -160,7 +164,7 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         self.prereq.can_proceed_changed.connect(lambda _ok: self._sync_nav())
         self.finish.open_apps.connect(self._on_open_apps)
         self.finish.open_terminal.connect(self._on_open_terminal)
-        self.finish.retry.connect(lambda: self._goto(2))
+        self.finish.retry.connect(lambda: self._goto(1))
         self.finish.copy_log.connect(lambda: copy_to_clipboard(self.install.log_text()))
         scroll = QScrollArea()
         scroll.setObjectName("wizardScroll")
@@ -194,15 +198,21 @@ class SetupWizardDialog(FramelessMixin, QDialog):
 
     def _goto(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
+        if index == 2:
+            self.prereq.bind_answers(self.config.answers())
         if index == 3:
             self._answers = self.config.answers()
-            self.review.set_answers(self._answers)
+            self.review.set_answers(self._answers, reinstall=self._reinstall)
+            self._wipe_confirmed = False
         self._sync_nav()
         self._restyle_rail()
 
     def _on_next(self) -> None:
         idx = self.pages.currentIndex()
         if idx == 3:
+            if self._reinstall and not _confirm_reinstall_wipe(self, self.config.answers()):
+                return
+            self._wipe_confirmed = True
             self._start_install()
             return
         if idx < 5:
@@ -220,8 +230,13 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         self.back_btn.setVisible(idx > 0 and not installing and not done)
         self.next_btn.setVisible(not installing and not done)
         self.skip_btn.setVisible(self._mode == "first-run" and not installing and not done)
-        self.next_btn.setText(tr("Install") if idx == 3 else tr("Next"))
-        if idx == 1:
+        if idx == 3 and self._reinstall:
+            self.next_btn.setText(tr("Wipe and reinstall"))
+        elif idx == 3:
+            self.next_btn.setText(tr("Install"))
+        else:
+            self.next_btn.setText(tr("Next"))
+        if idx == 2:
             self.next_btn.setEnabled(self.prereq.can_proceed())
         else:
             self.next_btn.setEnabled(True)
@@ -319,3 +334,43 @@ class SetupWizardDialog(FramelessMixin, QDialog):
                 f"font-size: {theme.FONT_BODY}px; font-weight: {weight}; "
                 f"padding: {theme.SPACE_S}px {theme.SPACE_S}px;"
             )
+
+
+def _confirm_reinstall_wipe(parent: QWidget, answers: SetupAnswers) -> bool:
+    """Post-review consent. Cancel and Escape refuse; opening the wizard does not."""
+    storage = answers.storage_path or tr("existing named volume")
+    dlg = ChromeDialog(parent, title=tr("Wipe and reinstall"))
+    dlg.setModal(True)
+    dlg.setMinimumWidth(420)
+    lay = QVBoxLayout(dlg.content_widget)
+    lay.setContentsMargins(20, 18, 20, 16)
+    lay.setSpacing(theme.SPACE_M)
+    lay.addWidget(
+        make_warning_callout(
+            tr("This destroys every Windows file and installed application."),
+            level="danger",
+        )
+    )
+    body = QLabel(
+        tr(
+            "Backend: {backend}\nStorage: {storage}\nWinPodX settings and app profiles are kept."
+        ).format(backend=answers.backend, storage=storage)
+    )
+    body.setWordWrap(True)
+    body.setTextFormat(Qt.TextFormat.PlainText)
+    body.setStyleSheet(
+        f"color: {theme.C.TEXT}; font-size: {theme.FONT_BODY}px; background: transparent;"
+    )
+    lay.addWidget(body)
+    buttons = QHBoxLayout()
+    buttons.addStretch(1)
+    cancel = QPushButton(tr("Cancel"))
+    cancel.setStyleSheet(theme.BTN_SECONDARY)
+    cancel.clicked.connect(dlg.reject)
+    buttons.addWidget(cancel)
+    proceed = QPushButton(tr("Wipe and reinstall"))
+    proceed.setStyleSheet(theme.BTN_DANGER)
+    proceed.clicked.connect(dlg.accept)
+    buttons.addWidget(proceed)
+    lay.addLayout(buttons)
+    return dlg.exec() == QDialog.DialogCode.Accepted

@@ -35,7 +35,7 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
 from winpodx.core.config import Config  # noqa: E402
-from winpodx.setup_wizard.host_state import HostState  # noqa: E402
+from winpodx.setup_wizard.host_state import HostState, PreflightReport  # noqa: E402
 
 # The real finish_provisioning stage slugs on the podman/docker path, in order,
 # each with a distinct detail so log + checklist advancement is verifiable. The
@@ -180,6 +180,10 @@ def test_wizard_install_page_stays_chrome_free_inside_the_framed_wizard(
             on_progress(stage, detail)
 
     monkeypatch.setattr("winpodx.cli.setup_cmd.handle_setup", _fake_handle_setup)
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.inspect_preflight",
+        lambda *_a, **_k: PreflightReport(()),
+    )
     from winpodx.gui._setup_wizard import SetupWizardDialog
     from winpodx.gui._title_bar import TitleBar
 
@@ -214,6 +218,10 @@ def test_wizard_reflects_worker_progress_in_checklist_and_log(
             on_progress(stage, detail)
 
     monkeypatch.setattr("winpodx.cli.setup_cmd.handle_setup", _fake_handle_setup)
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.inspect_preflight",
+        lambda *_a, **_k: PreflightReport(()),
+    )
     from winpodx.gui._setup_wizard import SetupWizardDialog
 
     dlg = SetupWizardDialog(None, mode="first-run")
@@ -255,6 +263,7 @@ def test_reinstall_wizard_streams_handle_pod_progress_before_completion(
 
     calls: list[str] = []
     fake_cfg = Config()
+    fake_cfg.pod.backend = "podman"
     preset_targets: list[Config] = []
     saved: list[Config] = []
     received: list[tuple[argparse.Namespace, Callable[[str, str], None] | None]] = []
@@ -277,10 +286,16 @@ def test_reinstall_wizard_streams_handle_pod_progress_before_completion(
         calls.append("handle_setup")
 
     def _fake_handle_pod(
-        args: argparse.Namespace, *, on_progress: Callable[[str, str], None] | None = None
+        args: argparse.Namespace,
+        *,
+        on_progress: Callable[[str, str], None] | None = None,
+        reset_config: Config | None = None,
+        expected_config: Config | None = None,
     ) -> None:
         calls.append("handle_pod")
         received.append((args, on_progress))
+        assert expected_config is fake_cfg
+        assert reset_config is not fake_cfg
         if on_progress is None:
             return
         for stage, detail in _RESET_PRE_STAGES:
@@ -296,9 +311,14 @@ def test_reinstall_wizard_streams_handle_pod_progress_before_completion(
     monkeypatch.setattr("winpodx.cli.setup_cmd.apply_setup_presets", _fake_presets)
     monkeypatch.setattr("winpodx.cli.setup_cmd.handle_setup", _unexpected_handle_setup)
     monkeypatch.setattr("winpodx.cli.pod.handle_pod", _fake_handle_pod)
+    monkeypatch.setattr("winpodx.gui._setup_wizard._confirm_reinstall_wipe", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        "winpodx.gui._setup_wizard_prereq.inspect_preflight",
+        lambda *_a, **_k: PreflightReport(()),
+    )
     from winpodx.gui._setup_wizard import SetupWizardDialog
 
-    dlg = SetupWizardDialog(None, mode="reinstall")
+    dlg = SetupWizardDialog(None, mode="reinstall", cfg=fake_cfg)
     dlg.show()
     try:
         # Given: a reinstall wizard driven through Welcome -> Review -> Install.
@@ -341,9 +361,9 @@ def test_reinstall_wizard_streams_handle_pod_progress_before_completion(
 
         # Then: the reinstall route ran in order, and both the checklist and
         #       the Finish page report success.
-        assert calls == ["load", "presets", "save", "handle_pod"]
-        assert preset_targets == [fake_cfg]
-        assert saved == [fake_cfg]
+        assert calls == ["load", "presets", "handle_pod"]
+        assert preset_targets[0] is not fake_cfg
+        assert saved == []
         assert f"[reset] {_RESET_DONE_DETAIL}" in dlg.install.log_text()
         assert progress._done is True
         assert len(progress._phase_done_at) == len(_FINISH_PROVISIONING_STAGES)
