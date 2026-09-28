@@ -419,8 +419,16 @@ Retained in `_stat_bar.py` for reuse; not used on the Dashboard.
   `C.MANTLE` body, `QDialogButtonBox` strip -- see Inner controls). Scheme
   changes reach the bar only through `ThemeManager.scheme_changed ->
   title_bar.restyle()`; `ChromeDialog` never restyles the body.
+- **Setup wizard states:** the six-page installer keeps SettingsCard controls.
+  Fresh installs edit backend, storage directory, and optional local ISO.
+  Reinstall renders those three read-only, with the explanation in the card
+  description. Typed paths stay plain text, wrap, and keep the full value in
+  `accessibleDescription`. Field errors use the existing warning callout plus
+  text, never colour alone. Destructive reinstall consent is a `ChromeDialog`
+  after Review; Cancel and Escape refuse and leave Review visible.
 - **Adopters:** `SetupWizardDialog` composes the same policy directly (it
-  predates `ChromeDialog`). `BusyDialog`, standalone `BringUpProgressDialog`,
+  predates `ChromeDialog`). The post-review wipe confirmation uses
+  `ChromeDialog`. `BusyDialog`, standalone `BringUpProgressDialog`,
   `AppProfileDialog`, `DeletedAppsDialog`, `DebloatPickerDialog`, and the two
   inline warning confirms inherit or construct `ChromeDialog`; the setup
   wizard embeds `BringUpProgressDialog(chrome=False)` to avoid nested chrome.
