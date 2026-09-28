@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from winpodx.core.config import Config
+from winpodx.core.config import WIN_VERSION_LABELS, Config
 from winpodx.core.i18n import tr
 from winpodx.gui import theme
 from winpodx.gui._main_window_bringup import BringUpProgressDialog
@@ -94,16 +94,46 @@ class ReviewPage(QWidget):
         root.addLayout(self._stack_host)
         root.addStretch(1)
 
-    def set_answers(self, answers: SetupAnswers) -> None:
+    def set_answers(self, answers: SetupAnswers, *, reinstall: bool = False) -> None:
         """Rebuild the summary cards from the current answers."""
         while self._stack_host.count():
             item = self._stack_host.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
+        if reinstall:
+            self._warn.setText(
+                tr(
+                    "This destroys the Windows disk and installed applications. "
+                    "WinPodX settings and app profiles are kept. Backend, storage, "
+                    "and installation media stay unchanged."
+                )
+            )
+        else:
+            source = (
+                tr("Local ISO does not guarantee an offline install.")
+                if answers.win_iso
+                else tr(
+                    "This downloads Windows and takes roughly 5-10 minutes "
+                    "(longer on a slow connection)."
+                )
+            )
+            self._warn.setText(source)
         group, stack = make_settings_group(tr("Your choices"))
+        storage = answers.storage_path or tr("Default storage directory")
+        iso = (
+            tr("Reuse cached installation media when available; otherwise download.")
+            if reinstall
+            else answers.win_iso or tr("Download from Microsoft")
+        )
         rows = (
-            (tr("Windows edition"), answers.win_version),
+            (tr("Backend"), answers.backend),
+            (tr("Storage directory"), storage),
+            (tr("Windows ISO"), iso),
+            (
+                tr("Windows edition"),
+                WIN_VERSION_LABELS.get(answers.win_version, answers.win_version),
+            ),
             (tr("UI language"), answers.language),
             (tr("Regional format"), answers.region),
             (tr("Keyboard layout"), answers.keyboard),
@@ -114,7 +144,9 @@ class ReviewPage(QWidget):
             (tr("Windows username"), answers.rdp_user),
         )
         for title, value in rows:
-            stack.addWidget(make_settings_card("check", title, value))
+            card = make_settings_card("check", title, value)
+            card.setAccessibleDescription(value)
+            stack.addWidget(card)
         self._stack_host.addWidget(group)
 
     def _restyle(self) -> None:
