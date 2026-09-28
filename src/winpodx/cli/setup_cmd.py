@@ -7,7 +7,7 @@ import argparse
 import os
 import shutil
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from winpodx.cli.disguise import build_disguise_image, disguise_image_is_stale
 from winpodx.core.compose import (
@@ -25,6 +25,9 @@ from winpodx.utils.agent_token import ensure_agent_token, stage_token_to_oem
 from winpodx.utils.compat import import_winapps_config
 from winpodx.utils.deps import check_all, find_podman_compose
 from winpodx.utils.paths import config_dir
+
+if TYPE_CHECKING:
+    from winpodx.setup_wizard.storage import StorageValidationError
 
 COMPOSE_TIMEOUT_DEFAULT_SECS = 1800
 COMPOSE_TIMEOUT_ENV_VAR = "WINPODX_COMPOSE_TIMEOUT_SECS"
@@ -737,12 +740,51 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     cfg.pod.__post_init__()
 
 
+_STORAGE_ERROR_MESSAGES = {
+    "occupied": "Storage directory must be empty: {path}",
+    "unwritable": "Storage directory is not writable: {path}",
+    "inaccessible": "Storage directory is not accessible: {path}",
+    "iso_not_file": "Local ISO is not a file: {path}",
+    "iso_unreadable": "Local ISO is not readable: {path}",
+}
+
+
+def _report_storage_validation_error(exc: StorageValidationError) -> None:
+    """Translate a validator rejection into the CLI's user-facing message."""
+    if exc.key in ("existing_storage", "existing_iso"):
+        print(
+            tr(
+                "Existing guest storage will not be moved or replaced. "
+                "Use `winpodx setup --migrate-storage` to relocate it; "
+                "a local ISO is only for a fresh Windows install."
+            )
+        )
+        return
+    template = _STORAGE_ERROR_MESSAGES.get(exc.key)
+    if template is not None:
+        print(tr(template).format(path=exc.path))
+        return
+    # relative / symlink / unsafe all collapse to the generic invalid-path note.
+    print(tr("Invalid storage directory: {path}").format(path=exc.path))
+
+
 def _prompt_storage_and_iso(
     cfg: Config, args: argparse.Namespace, *, config_existed: bool
 ) -> tuple[Path | None, str | None]:
-    """Collect and review first-install storage and ISO choices before writing anything."""
-    from winpodx.core.config import _sanitise_storage_path
+    """Collect and review first-install storage and ISO choices before writing anything.
+
+    Validation is delegated to :func:`winpodx.setup_wizard.storage.
+    validate_storage_choices` (the shared, Qt-free helper) so the CLI and the
+    upcoming GUI wizard enforce one contract. This function owns only the
+    prompts, the review block, the ``SystemExit`` boundary, and the
+    confirmation -- it never writes to the filesystem.
+    """
     from winpodx.core.storage_migration import default_target_path, resolve_named_volume
+    from winpodx.setup_wizard.storage import (
+        ExistingInstall,
+        StorageValidationError,
+        validate_storage_choices,
+    )
 
     storage_arg = getattr(args, "storage_path", None)
     iso_arg = getattr(args, "win_iso", None)
@@ -778,52 +820,23 @@ def _prompt_storage_and_iso(
     )
     print(tr("  Existing guest storage? Relocate only with `winpodx setup --migrate-storage`."))
 
-    if (config_existed or current is not None or volume is not None) and (
-        (target is not None and (current is None or target.resolve() != current.resolve()))
-        or iso_path is not None
-    ):
-        print(
-            tr(
-                "Existing guest storage will not be moved or replaced. "
-                "Use `winpodx setup --migrate-storage` to relocate it; "
-                "a local ISO is only for a fresh Windows install."
-            )
-        )
-        raise SystemExit(1)
+    # A live install is anything the guest already sits on: a saved config, the
+    # configured bind mount, or a leftover named volume (#767). Passing that as
+    # ``existing`` makes the shared helper reject a *different* target / any ISO.
+    has_existing = config_existed or current is not None or volume is not None
+    existing = ExistingInstall(storage=current, named_volume=volume) if has_existing else None
 
-    fresh_target = target or (default_target_path() if current is None and volume is None else None)
-    if fresh_target is not None and current is None:
-        if (
-            not fresh_target.is_absolute()
-            or _sanitise_storage_path(str(fresh_target)) != str(fresh_target)
-            or fresh_target.is_symlink()
-        ):
-            print(tr("Invalid storage directory: {path}").format(path=fresh_target))
-            raise SystemExit(1)
-        try:
-            if fresh_target.exists() and (not fresh_target.is_dir() or any(fresh_target.iterdir())):
-                print(tr("Storage directory must be empty: {path}").format(path=fresh_target))
-                raise SystemExit(1)
-            ancestor = fresh_target
-            while not ancestor.exists():
-                ancestor = ancestor.parent
-            if not ancestor.is_dir() or not os.access(ancestor, os.W_OK | os.X_OK):
-                print(tr("Storage directory is not writable: {path}").format(path=fresh_target))
-                raise SystemExit(1)
-        except OSError as exc:
-            print(tr("Storage directory is not accessible: {path}").format(path=fresh_target))
-            raise SystemExit(1) from exc
+    # On a genuinely fresh install, validate the implicit default target the
+    # installer will create, even when the user accepted it with Enter.
+    validation_storage = target
+    if validation_storage is None and existing is None:
+        validation_storage = default_target_path()
 
-    if iso_path is not None:
-        try:
-            if not iso_path.is_file():
-                print(tr("Local ISO is not a file: {path}").format(path=iso_path))
-                raise SystemExit(1)
-            with iso_path.open("rb"):
-                pass
-        except OSError as exc:
-            print(tr("Local ISO is not readable: {path}").format(path=iso_path))
-            raise SystemExit(1) from exc
+    try:
+        validate_storage_choices(validation_storage, iso_path, existing=existing)
+    except StorageValidationError as exc:
+        _report_storage_validation_error(exc)
+        raise SystemExit(1) from exc
 
     if _ask(tr("Proceed with these choices? (Y/n): "), default="y").lower() not in (
         "y",
