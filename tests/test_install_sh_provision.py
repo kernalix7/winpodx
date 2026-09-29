@@ -10,6 +10,8 @@ which is exactly the duplication the unification killed.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -144,6 +146,112 @@ def test_deferred_provision_is_not_a_rollback(script: str) -> None:
     assert '[ "$PROVISION_RC" -eq 4 ] || [ "$PROVISION_RC" -eq 5 ]' in script
     # The deferred branch points the user at the recovery command.
     assert "winpodx app refresh" in script
+
+
+@pytest.mark.parametrize("exit_path", ["failure", "interrupt"])
+@pytest.mark.parametrize("compose_owns_oem", [False, True])
+def test_failed_setup_preserves_oem_owner_on_later_rollback(
+    tmp_path: Path, exit_path: str, compose_owns_oem: bool
+) -> None:
+    text = _INSTALL_SH.read_text(encoding="utf-8")
+    rollback = text[
+        text.index("cleanup_install_marker() {") : text.index("# Map generic dependency")
+    ]
+    setup = text[text.index("# --- Run setup ---") : text.index("# NOTE: --win-iso staging")]
+    home = tmp_path / "home"
+    install_dir = home / ".local/bin/winpodx-app"
+    launcher = home / ".local/bin/winpodx-run"
+    symlink = home / ".local/bin/winpodx"
+    compose = home / ".config/winpodx/compose.yaml"
+    container_started = tmp_path / "container-started"
+    (install_dir / "config/oem").mkdir(parents=True)
+    (install_dir / "config/oem/install.bat").write_text("OEM script")
+    launcher.write_text("existing launcher")
+    symlink.write_text("existing command")
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$COMPOSE_OWNS_OEM" = 1 ]; then\n'
+        '    mkdir -p "$(dirname "$COMPOSE_PATH")"\n'
+        '    printf \'      - %s/config/oem:/oem:Z\\n\' "$INSTALL_DIR" > "$COMPOSE_PATH"\n'
+        '    touch "$CONTAINER_STARTED"\n'
+        "fi\n"
+        "exit 17\n"
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        HOME=str(home),
+        INSTALL_DIR=str(install_dir),
+        COMPOSE_PATH=str(compose),
+        COMPOSE_OWNS_OEM=str(int(compose_owns_oem)),
+        CONTAINER_STARTED=str(container_started),
+    )
+    harness = f"""set -euo pipefail
+CONFIG_HOME="$HOME/.config"
+VENV_PY="{fake_python}"
+LAUNCHER="$HOME/.local/bin/winpodx-run"
+SYMLINK="$HOME/.local/bin/winpodx"
+VENV_DIR="$INSTALL_DIR/.venv"
+DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+METAINFO_DIR="$HOME/.local/share/metainfo"
+WINPODX_INSTALL_MARKER="$CONFIG_HOME/winpodx/.install_in_progress"
+IS_FRESH_INSTALL=1
+ROLLBACK_ARMED=1
+SWAP_IN_PROGRESS=0
+UPGRADE_SWAP_DONE=0
+SYMLINK_BACKED_UP=0
+SYMLINK_BACKUP=""
+SETUP_OK=1
+WINPODX_BACKEND=podman
+WINPODX_WIN_VERSION=""
+WINPODX_STORAGE_DIR=""
+WINPODX_WIN_ISO=""
+WINPODX_FREERDP_SOURCE=auto
+WINPODX_MANUAL=0
+log() {{ :; }}
+warn() {{ :; }}
+err() {{ :; }}
+{rollback}
+{setup}
+{("false" if exit_path == "failure" else "cleanup_and_exit_int")}
+"""
+    result = subprocess.run(["bash", "-c", harness], env=env, capture_output=True, text=True)
+    assert result.returncode == (1 if exit_path == "failure" else 130), result.stderr
+    assert container_started.exists() is compose_owns_oem
+    assert install_dir.exists() is compose_owns_oem, (
+        "rollback deleted the install tree backing /oem"
+        if compose_owns_oem
+        else "rollback failed to clean a pre-ownership install"
+    )
+    assert launcher.exists() is compose_owns_oem
+    assert symlink.exists() is compose_owns_oem
+    if compose_owns_oem:
+        assert launcher.read_text() == "existing launcher"
+        assert symlink.read_text() == "existing command"
+
+
+def test_successful_setup_disarms_fresh_install_rollback(script: str) -> None:
+    setup_start = script.index('if WINPODX_NO_PROVISION=1 "$VENV_PY"')
+    desktop_integration = script.index('mkdir -p "$DESKTOP_DIR" "$ICON_DIR"')
+    setup_region = script[setup_start:desktop_integration]
+
+    failure_branch = setup_region.index('if [ "$SETUP_OK" -eq 0 ]; then')
+    success_branch = setup_region.index("\n    else\n", failure_branch)
+    rollback_disarm = setup_region.index("ROLLBACK_ARMED=0", failure_branch)
+    branch_end = setup_region.index("\n    fi", success_branch)
+
+    assert success_branch < rollback_disarm < branch_end
+
+
+def test_missing_appstream_metainfo_is_non_fatal(script: str) -> None:
+    source = "$INSTALL_DIR/data/org.winpodx.WinPodX.metainfo.xml"
+    guard = f'if [ -f "{source}" ]; then'
+    copy = f'cp "{source}"'
+
+    assert guard in script
+    assert script.index(guard) < script.index(copy)
 
 
 # --- #810: dockur ejects the install ISO after the first full shutdown -------

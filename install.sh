@@ -415,8 +415,19 @@ cleanup_install_marker() {
     rm -f "$WINPODX_INSTALL_MARKER" 2>/dev/null || true
 }
 
+protect_install_if_oem_bound() {
+    # setup writes compose before starting the container; an interrupted or
+    # failed setup can still leave /oem bound to this tree.
+    if [ "$IS_FRESH_INSTALL" -eq 1 ] \
+       && [ -f "$CONFIG_HOME/winpodx/compose.yaml" ] \
+       && grep -Fxq -- "      - $INSTALL_DIR/config/oem:/oem:Z" "$CONFIG_HOME/winpodx/compose.yaml"; then
+        ROLLBACK_ARMED=0
+    fi
+}
+
 rollback() {
     cleanup_install_marker
+    protect_install_if_oem_bound
     if [ "$ROLLBACK_ARMED" -ne 1 ]; then
         return 0
     fi
@@ -1750,10 +1761,15 @@ else
     else
         SETUP_OK=0
     fi
+    protect_install_if_oem_bound
     if [ "$SETUP_OK" -eq 0 ]; then
         err "winpodx setup failed. Last output:"
         tail -n 20 "$SETUP_OUT" | sed 's/^/    /' >&2
         warn "Setup did not finish -- run \`winpodx setup\` manually to retry (or see the full error above)."
+    else
+        # Setup may have created a running container whose OEM bind source is
+        # inside this install tree. Later failures must not delete that source.
+        ROLLBACK_ARMED=0
     fi
     rm -f "$SETUP_OUT"
 fi
@@ -1770,9 +1786,11 @@ cp "$INSTALL_DIR/data/winpodx-icon.svg" "$ICON_DIR/winpodx.svg"
 # AppStream metainfo: makes winpodx a real entry in GNOME Software /
 # KDE Discover rather than an unlabelled binary. Packages install the
 # system-wide copy; this is the curl path's per-user equivalent.
-mkdir -p "$METAINFO_DIR"
-cp "$INSTALL_DIR/data/org.winpodx.WinPodX.metainfo.xml" \
-   "$METAINFO_DIR/org.winpodx.WinPodX.metainfo.xml"
+if [ -f "$INSTALL_DIR/data/org.winpodx.WinPodX.metainfo.xml" ]; then
+    mkdir -p "$METAINFO_DIR"
+    cp "$INSTALL_DIR/data/org.winpodx.WinPodX.metainfo.xml" \
+       "$METAINFO_DIR/org.winpodx.WinPodX.metainfo.xml"
+fi
 
 # Ensure index.theme exists (required for KDE icon cache)
 if [ ! -f "$ICON_BASE/index.theme" ]; then
