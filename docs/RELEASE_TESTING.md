@@ -69,7 +69,18 @@ Run on a real install. `winpodx doctor` after each step is a quick health gate.
 
 ### Networking (#735 / #737)
 - [ ] Ports reachable while the pod runs: agent `8765`, RDP `3390`, guest SMB `4445`, web viewer `8007` (rootless falls back to passt; rootful / privileged uses NAT).
-- [ ] Host DNS is unaffected: with the pod up, the host still resolves names (`curl`), and `/etc/resolv.conf` is not overwritten. Watch the Docker backend, where the guest DHCP/DNS can leak onto the host resolver (#737).
+- [ ] Host DNS baseline (#737): confirm the host resolves an external name before
+      pod startup, while running, and after stopping; at each point record
+      `/etc/resolv.conf` contents and symlink target plus the lookup result.
+- [ ] Hyper-V-hosted Linux + Docker evidence — only if DNS breaks. Collect the
+      actual Compose network with `docker network inspect <project-network>`
+      (normally `winpodx_default`), plus `ip -4 addr show`,
+      `ip -4 route show table all`, `ip -4 route get <resolver-ip>`, and the
+      Windows Default Switch IPv4/prefix. Docker vs.
+      Hyper-V overlap is **unconfirmed**; guest DHCP leakage must not be
+      asserted without route/network evidence; `pod.network=user` does not
+      remove Docker bridge attachment. Collection must not change host DNS
+      or networking.
 
 ### Dashboard / GUI / tray
 - [ ] Dashboard Pod / CPU / **RAM** / **Disk** gauges all show numbers (not `n/a`).
