@@ -439,18 +439,19 @@ def _recover_pending_rotation(cfg: Config) -> Config | None:
     old_password, candidate = lines
     try:
         candidate_valid = _verify_windows_password(cfg, candidate)
-        old_valid = False if candidate_valid else _verify_windows_password(cfg, old_password)
     except RotationError:
-        return None
-    recovered_at = datetime.now(timezone.utc).isoformat()
+        candidate_valid = False
     if candidate_valid:
-        cfg.rdp.password = candidate
-        cfg.rdp.password_updated = recovered_at
-    elif old_valid:
-        cfg.rdp.password = old_password
-        cfg.rdp.password_updated = recovered_at
+        recovered_password = candidate
     else:
-        return None
+        try:
+            if not _verify_windows_password(cfg, old_password):
+                return None
+        except RotationError:
+            return None
+        recovered_password = old_password
+    cfg.rdp.password = recovered_password
+    cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
     try:
         cfg.save()
         generate_compose(cfg)

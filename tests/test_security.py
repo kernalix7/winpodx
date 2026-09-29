@@ -608,6 +608,7 @@ class TestPowerShellEscape:
 class TestPasswordTimestamp:
     def test_naive_timestamp_no_crash(self, tmp_path, monkeypatch):
         from winpodx.core.config import Config
+        from winpodx.core.pod import PodState, PodStatus
 
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         cfg = Config()
@@ -615,6 +616,10 @@ class TestPasswordTimestamp:
         cfg.rdp.password_max_age = 7
         cfg.rdp.password_updated = "2020-01-01T00:00:00"  # naive, no timezone
         cfg.pod.backend = "podman"
+        monkeypatch.setattr(
+            "winpodx.core.rotation.pod_status",
+            lambda _cfg: PodStatus(state=PodState.STOPPED),
+        )
 
         from winpodx.core.provisioner import _auto_rotate_password
 

@@ -219,6 +219,39 @@ def test_pending_rotation_restores_verified_old_credential_with_disabled_auto_ro
     assert not marker.exists()
 
 
+def test_pending_rotation_recovers_old_when_candidate_verification_raises(
+    _rotation_cfg, monkeypatch
+):
+    from winpodx.core import rotation
+    from winpodx.core.config import Config
+
+    # Given an interrupted rotation whose saved credential is stale.
+    _rotation_cfg.rdp.password = "stale-password"
+    _rotation_cfg.rdp.password_max_age = 0
+    _rotation_cfg.save()
+    marker = rotation._rotation_marker_path()
+    marker.write_text("old-password\nnew-password\n", encoding="utf-8")
+    attempts: list[str] = []
+
+    def verify(_cfg: Config, password: str) -> bool:
+        attempts.append(password)
+        if password == "new-password":
+            raise rotation.RotationError("Password verification outcome is unknown")
+        return password == "old-password"
+
+    monkeypatch.setattr(rotation, "_verify_windows_password", verify)
+
+    # When readiness recovers the pending rotation.
+    result = rotation.maybe_rotate(_rotation_cfg)
+
+    # Then only the verified old credential is persisted everywhere.
+    assert attempts == ["new-password", "old-password"]
+    assert result.rdp.password == "old-password"
+    assert Config.load().rdp.password == "old-password"
+    assert "old-password" in (Config.path().parent / "compose.yaml").read_text()
+    assert not marker.exists()
+
+
 @pytest.mark.parametrize(
     ("configured_password", "max_age"),
     [("old-password", 0), ("", 1), ("stale-password", 0)],
