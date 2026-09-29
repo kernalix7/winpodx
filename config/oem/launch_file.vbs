@@ -12,9 +12,9 @@
 ' decodes both without any shell involvement.
 '
 ' Flow: decode -> validate -> wait for the UNC to appear on the redirected
-' share (they take a moment to attach) -> one visible, no-wait Run of the
-' target executable with the file. Never shows a dialog: every failure path
-' exits with a fixed code.
+' share (they take a moment to attach) -> one no-wait Exec of the target
+' executable with the file. Never shows a dialog: every failure path exits
+' with a fixed code.
 '
 ' Exit codes: 2 usage, 3 decode, 4 rejected characters, 5 file never
 ' appeared, 6 target launch failed.
@@ -54,14 +54,15 @@ Do While Not fso.FileExists(filePath)
     waited = waited + POLL_INTERVAL_MS
 Loop
 
-Dim shell, cmd
+Dim shell, launched
 Set shell = CreateObject("WScript.Shell")
-cmd = Quote(targetExe) & " " & Quote(filePath)
 On Error Resume Next
-shell.Run cmd, 1, False
+Err.Clear
+Set launched = shell.Exec(QuoteArgument(targetExe) & " " & QuoteArgument(filePath))
 If Err.Number <> 0 Then
     WScript.Quit 6
 End If
+On Error GoTo 0
 
 Function Base64ToUtf8(b64)
     ' MSXML bin.base64 -> raw bytes, then ADODB.Stream re-reads them as
@@ -105,6 +106,16 @@ Function HasUnsafeChars(value)
     Next
 End Function
 
-Function Quote(value)
-    Quote = Chr(34) & value & Chr(34)
+Function QuoteArgument(value)
+    ' Exec receives arguments as a Win32 command-line string. Double
+    ' trailing backslashes so they cannot escape the closing double quote.
+    Dim i, trailingBackslashes
+    trailingBackslashes = 0
+    For i = Len(value) To 1 Step -1
+        If Mid(value, i, 1) <> "\" Then
+            Exit For
+        End If
+        trailingBackslashes = trailingBackslashes + 1
+    Next
+    QuoteArgument = Chr(34) & value & String(trailingBackslashes, "\") & Chr(34)
 End Function

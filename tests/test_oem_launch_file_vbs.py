@@ -28,10 +28,6 @@ def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", _strip_comments(text)).strip().casefold()
 
 
-def _run_calls(flat: str) -> list[str]:
-    return re.findall(r"\.run\b", flat)
-
-
 def _has_poll_bound(flat: str) -> bool:
     if re.search(r"\b8000\b", flat):
         return True
@@ -70,12 +66,40 @@ def test_launch_file_vbs_polls_conditionally_200ms_bounded_8s() -> None:
     assert _has_poll_bound(flat)
 
 
-def test_launch_file_vbs_runs_one_visible_target_without_waiting() -> None:
+def test_launch_file_vbs_execs_one_target_without_waiting() -> None:
     flat = _flat(_text())
     assert "wscript.shell" in flat
-    assert len(_run_calls(flat)) == 1
-    assert re.search(r"\.run\b.*?,\s*1\s*,\s*(?:false|0)\b", flat)
-    assert not re.search(r"\.exec\b", flat)
+    assert len(re.findall(r"\.exec\b", flat)) == 1
+    assert re.search(
+        r"set\s+\w+\s*=\s*\w+\.exec\s*\(\s*quoteargument\s*\(\s*targetexe\s*\)"
+        r"\s*&\s*\"\s\"\s*&\s*quoteargument\s*\(\s*filepath\s*\)\s*\)",
+        flat,
+    )
+    assert "shell.application" not in flat
+    assert not re.search(r"\.shellexecute\b", flat)
+    assert not re.search(r"\.run\b", flat)
+    assert not re.search(r"\.(?:status|exitcode|stdin|stdout|stderr)\b", flat)
+
+
+def test_launch_file_vbs_maps_exec_launch_errors_to_exit_6() -> None:
+    flat = _flat(_text())
+    assert re.search(r"on\s+error\s+resume\s+next", flat)
+    assert re.search(r"err\.clear\b.*?\.exec\b", flat)
+    assert re.search(r"\.exec\b.*?if\s+err\.number\s*<>\s*0\s+then\s+wscript\.quit\s+6", flat)
+
+
+def test_launch_file_vbs_quotes_one_literal_windows_argument() -> None:
+    flat = _flat(_text())
+    assert re.search(r"function\s+quoteargument\s*\(\s*value\s*\)", flat)
+    assert re.search(r"for\s+\w+\s*=\s*len\s*\(\s*value\s*\)\s+to\s+1\s+step\s+-1", flat)
+    assert re.search(r"mid\s*\(\s*value\s*,\s*\w+\s*,\s*1\s*\)\s*<>\s*\"\\\"", flat)
+    assert re.search(
+        r"quoteargument\s*=\s*chr\s*\(\s*34\s*\)\s*&\s*value\s*&\s*"
+        r"string\s*\(\s*trailingbackslashes\s*,\s*\"\\\"\s*\)\s*&\s*"
+        r"chr\s*\(\s*34\s*\)",
+        flat,
+    )
+    assert "expandenvironmentstrings" not in flat
 
 
 def test_launch_file_vbs_uses_fixed_errors() -> None:
