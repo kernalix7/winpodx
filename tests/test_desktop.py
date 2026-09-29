@@ -202,6 +202,21 @@ def test_install_desktop_entry_utf8_korean(tmp_path, monkeypatch):
     assert "\ud55c\uae00 \uba54\ubaa8\uc7a5".encode("utf-8") in raw
 
 
+def test_install_desktop_entry_replaces_read_only_nix_copy(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(entry_mod, "_install_icon", lambda _app: "winpodx")
+    monkeypatch.setattr(entry_mod, "_winpodx_exe", lambda: "winpodx")
+
+    app = AppInfo(name="notepad", full_name="Old Name", executable="C:\\notepad.exe")
+    desktop_path = install_desktop_entry(app)
+    desktop_path.chmod(0o444)
+
+    app.full_name = "New Name"
+    assert install_desktop_entry(app) == desktop_path
+    assert "Name=New Name" in desktop_path.read_text(encoding="utf-8")
+    assert desktop_path.stat().st_mode & 0o777 == 0o644
+
+
 def test_desktop_entry_emits_scheme_handler(tmp_path, monkeypatch):
     # #421/#694: url_schemes become x-scheme-handler/<scheme> MIME entries
     # alongside the file MIME types.
@@ -1265,11 +1280,90 @@ def test_install_winpodx_icon_copies_regular_source(tmp_path, monkeypatch):
     assert installed.read_text(encoding="utf-8") == "<svg id='main'/>"
 
 
+def test_install_winpodx_icon_replaces_read_only_nix_copy(tmp_path, monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    source = tmp_path / "bundle" / "winpodx-icon.svg"
+    source.parent.mkdir()
+    source.write_text("<svg id='new'/>", encoding="utf-8")
+    source.chmod(0o444)
+
+    icon_root = tmp_path / "hicolor"
+    installed = icon_root / "scalable" / "apps" / "winpodx.svg"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("<svg id='old'/>", encoding="utf-8")
+    installed.chmod(0o444)
+
+    monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *parts: source)
+    monkeypatch.setattr(icons_mod, "icons_dir", lambda: icon_root)
+
+    assert icons_mod.install_winpodx_icon() is True
+    assert installed.read_text(encoding="utf-8") == "<svg id='new'/>"
+    assert installed.stat().st_mode & 0o777 == 0o644
+
+
 def test_install_winpodx_icon_returns_false_when_bundle_missing(monkeypatch):
     from winpodx.desktop import icons as icons_mod
 
     monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *parts: None)
     assert icons_mod.install_winpodx_icon() is False
+
+
+def test_install_user_file_failure_preserves_destination(tmp_path, monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    source = tmp_path / "source.svg"
+    source.write_text("new", encoding="utf-8")
+    destination = tmp_path / "destination.svg"
+    destination.write_text("old", encoding="utf-8")
+    destination.chmod(0o444)
+
+    def fail_copy(_source, _target):
+        raise OSError("copy failed")
+
+    monkeypatch.setattr(icons_mod.shutil, "copyfileobj", fail_copy)
+
+    with pytest.raises(OSError, match="copy failed"):
+        icons_mod._install_user_file(source, destination)
+
+    assert destination.read_text(encoding="utf-8") == "old"
+    assert list(tmp_path.glob(".destination.svg.*.tmp")) == []
+
+
+def test_install_user_file_replaces_symlink_without_touching_target(tmp_path):
+    from winpodx.desktop import icons as icons_mod
+
+    source = tmp_path / "source.svg"
+    source.write_text("new", encoding="utf-8")
+    target = tmp_path / "target.svg"
+    target.write_text("target", encoding="utf-8")
+    destination = tmp_path / "destination.svg"
+    destination.symlink_to(target)
+
+    icons_mod._install_user_file(source, destination)
+
+    assert not destination.is_symlink()
+    assert destination.read_text(encoding="utf-8") == "new"
+    assert target.read_text(encoding="utf-8") == "target"
+
+
+def test_install_discovered_icon_replaces_read_only_nix_copy(tmp_path, monkeypatch):
+    source = tmp_path / "source.svg"
+    source.write_text("new", encoding="utf-8")
+    source.chmod(0o444)
+    icon_root = tmp_path / "icons"
+    destination = icon_root / "scalable" / "apps" / "winpodx-demo.svg"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("old", encoding="utf-8")
+    destination.chmod(0o444)
+    monkeypatch.setattr(entry_mod, "icons_dir", lambda: icon_root)
+
+    app = AppInfo(name="demo", full_name="Demo", executable="C:\\demo.exe")
+    app.icon_path = str(source)
+
+    assert entry_mod._install_icon(app) == "winpodx-demo"
+    assert destination.read_text(encoding="utf-8") == "new"
+    assert destination.stat().st_mode & 0o777 == 0o644
 
 
 def test_gui_launcher_returns_false_when_bundle_missing(tmp_path, monkeypatch):
@@ -1289,6 +1383,37 @@ def test_gui_launcher_returns_false_when_bundle_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(icons_mod.Path, "home", classmethod(lambda cls: tmp_path))
 
     assert icons_mod.install_gui_launcher_desktop() is False
+
+
+def test_gui_launcher_replaces_read_only_nix_copy(tmp_path, monkeypatch):
+    from winpodx.desktop import icons as icons_mod
+
+    original_is_file = Path.is_file
+    monkeypatch.setattr(
+        icons_mod.Path,
+        "is_file",
+        lambda self: (
+            False
+            if str(self) == "/usr/share/applications/winpodx.desktop"
+            else original_is_file(self)
+        ),
+    )
+    monkeypatch.setattr(icons_mod.Path, "home", classmethod(lambda cls: tmp_path))
+
+    source = tmp_path / "bundle" / "winpodx.desktop"
+    source.parent.mkdir()
+    source.write_text("[Desktop Entry]\nName=New\n", encoding="utf-8")
+    source.chmod(0o444)
+    monkeypatch.setattr(icons_mod, "bundled_data_path", lambda *parts: source)
+
+    installed = tmp_path / ".local" / "share" / "applications" / "winpodx.desktop"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("[Desktop Entry]\nName=Old\n", encoding="utf-8")
+    installed.chmod(0o444)
+
+    assert icons_mod.install_gui_launcher_desktop() is True
+    assert installed.read_text(encoding="utf-8") == "[Desktop Entry]\nName=New\n"
+    assert installed.stat().st_mode & 0o777 == 0o644
 
 
 def test_ensure_index_theme_creates_minimal_fragment(tmp_path, monkeypatch):

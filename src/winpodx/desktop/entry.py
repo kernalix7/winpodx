@@ -8,9 +8,11 @@ import os
 import shutil
 import struct
 import sys
+import tempfile
 from pathlib import Path
 
 from winpodx.core.app import AppInfo
+from winpodx.desktop.icons import _install_user_file
 from winpodx.desktop.menu import (
     FOLDER_KEY,
     category_for_folder,
@@ -64,6 +66,20 @@ Keywords=windows;winpodx;rdp;desktop;
 Terminal=false
 StartupNotify=true
 """
+
+
+def _write_user_desktop(path: Path, content: str) -> None:
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as target:
+            target.write(content)
+            target.flush()
+            os.fsync(target.fileno())
+        tmp.chmod(0o644)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def update_desktop_database() -> None:
@@ -210,8 +226,7 @@ def install_desktop_entry(app: AppInfo) -> Path:
 
     desktop_path = dest_dir / f"winpodx-{app.name}.desktop"
     # Explicit UTF-8: .desktop spec requires UTF-8; system locale may be C/POSIX.
-    desktop_path.write_text(content, encoding="utf-8")
-    desktop_path.chmod(0o644)
+    _write_user_desktop(desktop_path, content)
 
     # Ensure the folder definition exists so the category resolves to a named
     # submenu rather than "Lost & Found". Idempotent + best-effort: a failure
@@ -247,8 +262,7 @@ def install_desktop_shortcut() -> Path:
     )
 
     desktop_path = dest_dir / f"{DESKTOP_SHORTCUT_STEM}.desktop"
-    desktop_path.write_text(content, encoding="utf-8")
-    desktop_path.chmod(0o644)
+    _write_user_desktop(desktop_path, content)
 
     # Same best-effort folder bootstrap as install_desktop_entry: guarantees
     # the winpodx menu category resolves even if this is the very first
@@ -418,6 +432,6 @@ def _install_icon(app: AppInfo) -> str:
         return "winpodx"
 
     dest_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest, follow_symlinks=False)
+    _install_user_file(src, dest)
 
     return icon_name

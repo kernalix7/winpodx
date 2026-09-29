@@ -4,13 +4,29 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from winpodx.utils.paths import bundle_dir, icons_dir
 
 log = logging.getLogger(__name__)
+
+
+def _install_user_file(src: Path, dest: Path) -> None:
+    fd, tmp_path = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.", suffix=".tmp")
+    tmp = Path(tmp_path)
+    try:
+        with os.fdopen(fd, "wb") as target, src.open("rb") as source:
+            shutil.copyfileobj(source, target)
+            target.flush()
+            os.fsync(target.fileno())
+        tmp.chmod(0o644)
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def bundled_data_path(*parts: str) -> Path | None:
@@ -53,7 +69,7 @@ def install_winpodx_icon() -> bool:
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / "winpodx.svg"
 
-    shutil.copy2(src, dest, follow_symlinks=False)
+    _install_user_file(src, dest)
     log.info("Installed winpodx icon: %s", dest)
     return True
 
@@ -88,7 +104,7 @@ def install_gui_launcher_desktop() -> bool:
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / "winpodx.desktop"
 
-    shutil.copy2(src, dest, follow_symlinks=False)
+    _install_user_file(src, dest)
     log.info("Installed winpodx GUI launcher: %s", dest)
     return True
 
