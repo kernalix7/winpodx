@@ -22,6 +22,7 @@ from winpodx.core.pod import PodState, check_rdp_port, pod_status, start_pod
 # ...)``) keep working. The shim disappears in Step 6 (slim ensure_ready).
 from winpodx.core.rotation import (  # noqa: F401  re-exports
     _ROTATION_PENDING_MARKER,
+    RotationError,
     _auto_rotate_password,
     _change_windows_password,
     _check_rotation_pending,
@@ -130,31 +131,38 @@ def ensure_ready(cfg: Config | None = None, timeout: int = 300) -> Config:
     # invoke `winpodx pod apply-fixes` (CLI) or click "Apply Windows
     # Fixes" (GUI Tools page) — both still call apply_windows_runtime_fixes
     # below, which surfaces per-step success/failure to the caller.
-    if check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3):
-        _check_rotation_pending()
-        cfg = _auto_rotate_password(cfg)
-        return cfg
+    rdp_ready = check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=0.3)
+    if not rdp_ready:
+        from winpodx.setup_wizard.host_state import require_preflight
 
-    from winpodx.setup_wizard.host_state import require_preflight
+        try:
+            require_preflight(cfg)
+        except RuntimeError as exc:
+            raise ProvisionError(str(exc)) from exc
 
-    try:
-        require_preflight(cfg)
-    except RuntimeError as exc:
-        raise ProvisionError(str(exc)) from exc
+        _check_deps()
+
+        if cfg.pod.backend in ("podman", "docker"):
+            _ensure_compose(cfg)
+
+        from winpodx.core.daemon import ensure_pod_awake
+
+        ensure_pod_awake(cfg)
+
+        _ensure_pod_running(cfg, timeout)
 
     _check_rotation_pending()
-    cfg = _auto_rotate_password(cfg)
+    try:
+        cfg = _auto_rotate_password(cfg)
+    except RotationError as e:
+        raise ProvisionError(
+            f"Automatic password rotation failed: {e}. "
+            "Resolve the pending rotation before retrying app launch."
+        ) from e
 
-    _check_deps()
+    if rdp_ready:
+        return cfg
 
-    if cfg.pod.backend in ("podman", "docker"):
-        _ensure_compose(cfg)
-
-    from winpodx.core.daemon import ensure_pod_awake
-
-    ensure_pod_awake(cfg)
-
-    _ensure_pod_running(cfg, timeout)
     # Bug B: after host suspend / long idle the pod can be running but RDP
     # itself is dead while VNC is fine. Probe and try to revive TermService
     # before handing the cfg to the caller — the alternative is the FreeRDP

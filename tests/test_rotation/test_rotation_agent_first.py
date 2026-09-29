@@ -9,6 +9,7 @@ Covers ``_change_windows_password`` after rule #6 was superseded
 from __future__ import annotations
 
 import logging
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -79,6 +80,49 @@ def test_agent_unavailable_falls_back_to_freerdp(_rotate_cfg, monkeypatch):
     assert kwargs.get("timeout") == 120
 
 
+def test_agent_disconnect_after_submission_is_unknown_without_fallback(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+    from winpodx.core.transport.base import TransportUnavailable
+
+    transport = MagicMock()
+    transport.exec.side_effect = TransportUnavailable("connection lost")
+    monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))
+    fallback = MagicMock()
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fallback)
+
+    with pytest.raises(rotation.RotationError, match="outcome is unknown"):
+        rotation._change_windows_password(_rotate_cfg, "new-pw")
+
+    fallback.assert_not_called()
+
+
+def test_agent_server_timeout_result_is_unknown(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    transport = MagicMock()
+    transport.exec.return_value = _fail_result(rc=124, stderr="execution timed out")
+    monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))
+
+    with pytest.raises(rotation.RotationError, match="outcome is unknown"):
+        rotation._change_windows_password(_rotate_cfg, "new-pw")
+
+
+def test_agent_server_timeout_keeps_transaction_pending(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+    from winpodx.core.config import Config
+
+    _rotate_cfg.save()
+    transport = MagicMock()
+    transport.exec.return_value = _fail_result(rc=124, stderr="execution timed out")
+    monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))
+
+    with pytest.raises(rotation.RotationError, match="outcome is unknown"):
+        rotation.rotate_password(_rotate_cfg, "new-pw")
+
+    assert Config.load().rdp.password == "old-password"
+    assert rotation._rotation_marker_path().exists()
+
+
 def test_agent_auth_error_does_not_fall_back(_rotate_cfg, monkeypatch, caplog):
     from winpodx.core import rotation
     from winpodx.core.transport.base import TransportAuthError
@@ -147,7 +191,7 @@ def test_agent_payload_checks_lastexitcode(_rotate_cfg, monkeypatch):
     assert "exit $LASTEXITCODE" in payload
 
 
-def test_freerdp_fallback_channel_failure_returns_false(_rotate_cfg, monkeypatch):
+def test_freerdp_fallback_channel_failure_is_unknown(_rotate_cfg, monkeypatch):
     from winpodx.core import rotation
     from winpodx.core.transport.base import TransportUnavailable
     from winpodx.core.windows_exec import WindowsExecError
@@ -158,12 +202,11 @@ def test_freerdp_fallback_channel_failure_returns_false(_rotate_cfg, monkeypatch
     rin = MagicMock(side_effect=WindowsExecError("freerdp died"))
     monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rin)
 
-    assert rotation._change_windows_password(_rotate_cfg, "new-pw") is False
+    with pytest.raises(rotation.RotationError, match="outcome is unknown"):
+        rotation._change_windows_password(_rotate_cfg, "new-pw")
 
 
-def test_marker_cleared_on_success_via_agent(_rotate_cfg, monkeypatch):
-    """End-to-end via _auto_rotate_password: pre-existing marker is cleared
-    when the agent path succeeds."""
+def test_auto_rotation_with_pending_marker_does_not_call_agent(_rotate_cfg, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
     from winpodx.core import rotation
@@ -185,9 +228,11 @@ def test_marker_cleared_on_success_via_agent(_rotate_cfg, monkeypatch):
     transport.exec.return_value = _ok_result()
     monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))
 
-    rotation._auto_rotate_password(_rotate_cfg)
+    with pytest.raises(rotation.RotationError, match="unresolved"):
+        rotation._auto_rotate_password(_rotate_cfg)
 
-    assert not marker.exists()
+    transport.exec.assert_not_called()
+    assert marker.exists()
 
 
 def test_marker_kept_when_rotation_partially_applied(_rotate_cfg, monkeypatch):
@@ -210,12 +255,186 @@ def test_marker_kept_when_rotation_partially_applied(_rotate_cfg, monkeypatch):
 
     # First exec (apply new pw) succeeds; rollback exec (set old pw back) fails.
     transport = MagicMock()
-    transport.exec.side_effect = [_ok_result(), _fail_result(rc=1, stderr="rollback failed")]
+    transport.exec.side_effect = [
+        _ok_result(),
+        _ok_result(),
+        _fail_result(rc=1, stderr="rollback failed"),
+    ]
     monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))
 
     with patch.object(_rotate_cfg, "save", side_effect=OSError("disk full")):
-        rotation._auto_rotate_password(_rotate_cfg)
+        with pytest.raises(rotation.RotationError, match="rollback is incomplete"):
+            rotation._auto_rotate_password(_rotate_cfg)
 
     marker = rotation._rotation_marker_path()
     assert marker.exists()
     assert marker.stat().st_mode & 0o777 == 0o600
+
+
+# PSCredential construction does not authenticate; require a real local logon.
+
+
+def _agent_transport(monkeypatch) -> MagicMock:
+    transport = MagicMock()
+    monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))
+    return transport
+
+
+def _submitted_payload(transport: MagicMock) -> str:
+    args, _ = transport.exec.call_args
+    return args[0]
+
+
+def _success_sentinel(payload: str) -> str:
+    matches = re.findall(r"""Write-Output\s+(?P<q>['"])(?P<s>.+?)(?P=q)""", payload)
+    assert matches, f"payload prints no success sentinel:\n{payload}"
+    return matches[-1][1]
+
+
+def test_verify_password_authenticates_with_logonuserw(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    transport = _agent_transport(monkeypatch)
+    transport.exec.return_value = _ok_result()
+
+    rotation._verify_windows_password(_rotate_cfg, "new-pw")
+
+    payload = _submitted_payload(transport)
+    assert "LogonUserW" in payload, "verification must call the Win32 LogonUserW API"
+    assert "advapi32" in payload, "LogonUserW must be imported from advapi32.dll"
+    assert "PSCredential" not in payload, (
+        "constructing a PSCredential proves nothing about the password"
+    )
+
+
+def test_verify_password_uses_local_domain_network_logon_default_provider(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    transport = _agent_transport(monkeypatch)
+    transport.exec.return_value = _ok_result()
+
+    rotation._verify_windows_password(_rotate_cfg, "new-pw")
+
+    payload = _submitted_payload(transport)
+    assert re.search(r"""["']\.["']""", payload), (
+        "LogonUserW must authenticate against the local computer domain '.'"
+    )
+    assert re.search(r"LOGON32_LOGON_NETWORK\s*=\s*3", payload), (
+        "network logon type must be 3 (LOGON32_LOGON_NETWORK)"
+    )
+    assert re.search(r"LOGON32_PROVIDER_DEFAULT\s*=\s*0", payload), (
+        "logon provider must default to 0 (LOGON32_PROVIDER_DEFAULT)"
+    )
+
+
+def test_verify_password_closes_token_handle(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    transport = _agent_transport(monkeypatch)
+    transport.exec.return_value = _ok_result()
+
+    rotation._verify_windows_password(_rotate_cfg, "new-pw")
+
+    payload = _submitted_payload(transport)
+    assert "CloseHandle" in payload, "the logon token must be released with CloseHandle"
+    assert "kernel32" in payload, "CloseHandle must be imported from kernel32.dll"
+
+
+def test_verify_password_true_on_zero_rc_with_sentinel(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+    from winpodx.core.transport.base import ExecResult
+
+    transport = _agent_transport(monkeypatch)
+
+    def fake_exec(script, **_kwargs):
+        return ExecResult(rc=0, stdout=_success_sentinel(script) + "\n", stderr="")
+
+    transport.exec.side_effect = fake_exec
+
+    assert rotation._verify_windows_password(_rotate_cfg, "new-pw") is True
+
+
+def test_verify_password_false_on_nonzero_auth_rejection(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    transport = _agent_transport(monkeypatch)
+    transport.exec.return_value = _fail_result(
+        rc=1326, stderr="Logon failure: unknown user name or bad password"
+    )
+
+    assert rotation._verify_windows_password(_rotate_cfg, "wrong-pw") is False
+
+
+# The FreeRDP fallback authenticates with ``cfg.rdp.password``, so verification
+# must temporarily swap in the candidate and restore the caller's config on
+# every exit path (success, rejection, channel exception).
+
+
+def _verify_accepted_result():
+    from winpodx.core.transport.base import ExecResult
+
+    return ExecResult(rc=0, stdout="password accepted\n", stderr="")
+
+
+def _freerdp_unavailable(monkeypatch):
+    from winpodx.core.transport.base import TransportUnavailable
+
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch",
+        MagicMock(side_effect=TransportUnavailable("agent down")),
+    )
+
+
+def test_verify_freerdp_fallback_authenticates_with_candidate(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    _freerdp_unavailable(monkeypatch)
+    seen: list[str] = []
+
+    def rin(cfg, payload, **_kwargs):
+        seen.append(cfg.rdp.password)
+        assert "LogonUserW" in payload
+        return _verify_accepted_result()
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rin)
+
+    assert rotation._verify_windows_password(_rotate_cfg, "candidate-password") is True
+    assert seen == ["candidate-password"]
+    assert _rotate_cfg.rdp.password == "old-password"
+
+
+def test_verify_freerdp_fallback_restores_config_on_rejection(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+
+    _freerdp_unavailable(monkeypatch)
+    seen: list[str] = []
+
+    def rin(cfg, _payload, **_kwargs):
+        seen.append(cfg.rdp.password)
+        return _fail_result(rc=1326, stderr="Logon failure: bad password")
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rin)
+
+    assert rotation._verify_windows_password(_rotate_cfg, "candidate-password") is False
+    assert seen == ["candidate-password"]
+    assert _rotate_cfg.rdp.password == "old-password"
+
+
+def test_verify_freerdp_fallback_restores_config_on_channel_failure(_rotate_cfg, monkeypatch):
+    from winpodx.core import rotation
+    from winpodx.core.windows_exec import WindowsExecError
+
+    _freerdp_unavailable(monkeypatch)
+    seen: list[str] = []
+
+    def rin(cfg, _payload, **_kwargs):
+        seen.append(cfg.rdp.password)
+        raise WindowsExecError("freerdp died")
+
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rin)
+
+    with pytest.raises(rotation.RotationError, match="outcome is unknown"):
+        rotation._verify_windows_password(_rotate_cfg, "candidate-password")
+
+    assert seen == ["candidate-password"]
+    assert _rotate_cfg.rdp.password == "old-password"

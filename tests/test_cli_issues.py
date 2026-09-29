@@ -247,11 +247,15 @@ class TestRotatePasswordAtomicity:
         with (
             patch("winpodx.core.pod.pod_status") as mock_status,
             patch(
-                "winpodx.core.provisioner._change_windows_password",
+                "winpodx.core.rotation._change_windows_password",
                 return_value=True,
             ),
             patch(
-                "winpodx.cli.setup_cmd._generate_compose_to",
+                "winpodx.core.rotation._verify_windows_password",
+                return_value=True,
+            ),
+            patch(
+                "winpodx.core.rotation.generate_compose_to",
                 side_effect=OSError("disk full"),
             ),
         ):
@@ -279,7 +283,11 @@ class TestRotatePasswordAtomicity:
         with (
             patch("winpodx.core.pod.pod_status") as mock_status,
             patch(
-                "winpodx.core.provisioner._change_windows_password",
+                "winpodx.core.rotation._change_windows_password",
+                return_value=True,
+            ),
+            patch(
+                "winpodx.core.rotation._verify_windows_password",
                 return_value=True,
             ),
         ):

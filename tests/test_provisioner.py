@@ -339,6 +339,113 @@ def test_ensure_ready_does_not_auto_apply_runtime_fixes(monkeypatch):
     }
 
 
+def test_ensure_ready_wraps_auto_rotation_failure(monkeypatch):
+    from winpodx.core import provisioner, rotation
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: None)
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        provisioner,
+        "_auto_rotate_password",
+        lambda _cfg: (_ for _ in ()).throw(rotation.RotationError("outcome is unknown")),
+    )
+
+    with pytest.raises(ProvisionError, match="Resolve the pending rotation") as exc_info:
+        provisioner.ensure_ready(cfg)
+
+    assert isinstance(exc_info.value.__cause__, rotation.RotationError)
+
+
+@pytest.mark.parametrize(
+    ("configured_password", "max_age"),
+    [("old-password", 0), ("", 1), ("stale-password", 0)],
+)
+def test_ensure_ready_rejects_unresolved_pending_rotation(
+    tmp_path, monkeypatch, configured_password, max_age
+):
+    from winpodx.core import provisioner, rotation
+    from winpodx.core.config import Config
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cfg = Config()
+    cfg.rdp.password = configured_password
+    cfg.rdp.password_max_age = max_age
+    cfg.save()
+    marker = rotation._rotation_marker_path()
+    original = "old-password\nnew-password\n"
+    marker.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(rotation, "_verify_windows_password", lambda _cfg, _password: False)
+
+    with pytest.raises(ProvisionError, match="Resolve the pending rotation") as exc_info:
+        provisioner.ensure_ready(cfg)
+
+    assert isinstance(exc_info.value.__cause__, rotation.RotationError)
+    assert marker.read_text(encoding="utf-8") == original
+    assert Config.load().rdp.password == configured_password
+
+
+@pytest.mark.parametrize(
+    ("configured_password", "max_age"),
+    [("old-password", 0), ("", 1), ("stale-password", 0)],
+)
+def test_ensure_ready_recovers_pending_rotation_before_launch(
+    tmp_path, monkeypatch, configured_password, max_age
+):
+    from winpodx.core import provisioner, rotation
+    from winpodx.core.config import Config
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cfg = Config()
+    cfg.rdp.password = configured_password
+    cfg.rdp.password_max_age = max_age
+    cfg.save()
+    marker = rotation._rotation_marker_path()
+    marker.write_text("old-password\nnew-password\n", encoding="utf-8")
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        rotation, "_verify_windows_password", lambda _cfg, password: password == "new-password"
+    )
+
+    ready = provisioner.ensure_ready(cfg)
+
+    assert ready.rdp.password == "new-password"
+    assert Config.load().rdp.password == "new-password"
+    assert not marker.exists()
+
+
+def test_ensure_ready_recovers_password_after_pod_start(monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    events: list[str] = []
+    probes = iter((False, True))
+
+    monkeypatch.setattr(provisioner, "_check_rotation_pending", lambda: None)
+    monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: next(probes))
+    monkeypatch.setattr(provisioner, "_check_deps", lambda: None)
+    monkeypatch.setattr("winpodx.core.daemon.ensure_pod_awake", lambda _cfg: events.append("awake"))
+    monkeypatch.setattr(
+        provisioner, "_ensure_pod_running", lambda _cfg, _timeout: events.append("running")
+    )
+    monkeypatch.setattr(
+        provisioner,
+        "_auto_rotate_password",
+        lambda current: events.append("rotation") or current,
+    )
+    monkeypatch.setattr(provisioner, "_ensure_desktop_entries", lambda: None)
+    monkeypatch.setattr("winpodx.cli.host_open.ensure_listener_running", lambda _cfg: None)
+
+    result = provisioner.ensure_ready(cfg, timeout=1)
+
+    assert result is cfg
+    assert events == ["awake", "running", "rotation"]
+
+
 def test_ensure_ready_skips_apply_when_pod_not_running(monkeypatch):
     """When pod isn't running, the early-apply branch is skipped (later branch handles)."""
     from winpodx.core import provisioner
@@ -420,7 +527,7 @@ def test_restored_first_boot_starts_pod_after_passing_preflight(monkeypatch):
     result = provisioner.ensure_ready(cfg, timeout=1)
 
     assert result is cfg
-    assert events == ["preflight", "rotation", "deps", "compose", "pod"]
+    assert events == ["preflight", "deps", "compose", "pod", "rotation"]
 
 
 # --- v0.1.9.3: apply_windows_runtime_fixes public API ---

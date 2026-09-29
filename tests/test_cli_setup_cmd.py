@@ -544,24 +544,20 @@ def test_full_provision_wait_fn_streams_live_lines_as_wait_ready_progress(capsys
     assert ("wait_ready", "      OK Container running") in progress
 
 
-def test_rotate_password_success_writes_config_and_compose(tmp_path: Path, capsys) -> None:
+def test_rotate_password_delegates_to_core_transaction(tmp_path: Path, capsys) -> None:
     cfg = Config()
     cfg.pod.backend = "podman"
     cfg.rdp.password = "old-password"
     cfg.save()
-    generated = MagicMock(side_effect=lambda current, path: path.write_text("compose-new\n"))
     with (
         patch("winpodx.cli.setup_cmd.Config.load", return_value=cfg),
         patch("winpodx.core.pod.pod_status", return_value=PodStatus(PodState.RUNNING)),
-        patch("winpodx.core.provisioner._change_windows_password", return_value=True) as change,
+        patch("winpodx.core.rotation.rotate_password", return_value=True) as rotate,
         patch("winpodx.cli.setup_cmd._generate_password", return_value="new-password"),
-        patch("winpodx.cli.setup_cmd._generate_compose_to", generated),
     ):
         setup_cmd.handle_rotate_password(_args())
 
-    change.assert_called_once_with(cfg, "new-password")
-    assert (Config.path().parent / "compose.yaml").read_text() == "compose-new\n"
-    assert Config.load().rdp.password == "new-password"
+    rotate.assert_called_once_with(cfg, "new-password")
     assert "Password rotated successfully." in capsys.readouterr().out
 
 
@@ -582,7 +578,7 @@ def test_rotate_password_rejects_backend_stopped_and_guest_failure(capsys) -> No
     with (
         patch("winpodx.cli.setup_cmd.Config.load", return_value=cfg),
         patch("winpodx.core.pod.pod_status", return_value=PodStatus(PodState.RUNNING)),
-        patch("winpodx.core.provisioner._change_windows_password", return_value=False),
+        patch("winpodx.core.rotation.rotate_password", return_value=False),
         patch("winpodx.cli.setup_cmd._generate_password", return_value="unused-password"),
         pytest.raises(SystemExit),
     ):
@@ -593,7 +589,9 @@ def test_rotate_password_rejects_backend_stopped_and_guest_failure(capsys) -> No
     assert "Failed to change Windows password" in output
 
 
-def test_rotate_password_rolls_back_when_compose_generation_fails(capsys) -> None:
+def test_rotate_password_reports_unresolved_transaction(capsys) -> None:
+    from winpodx.core.rotation import RotationError
+
     cfg = Config()
     cfg.pod.backend = "podman"
     cfg.rdp.password = "old-password"
@@ -601,15 +599,35 @@ def test_rotate_password_rolls_back_when_compose_generation_fails(capsys) -> Non
     with (
         patch("winpodx.cli.setup_cmd.Config.load", return_value=cfg),
         patch("winpodx.core.pod.pod_status", return_value=PodStatus(PodState.RUNNING)),
-        patch("winpodx.core.provisioner._change_windows_password", return_value=True),
+        patch(
+            "winpodx.core.rotation.rotate_password",
+            side_effect=RotationError("guest outcome unknown"),
+        ),
         patch("winpodx.cli.setup_cmd._generate_password", return_value="new-password"),
-        patch("winpodx.cli.setup_cmd._generate_compose_to", side_effect=OSError("disk full")),
-        pytest.raises(OSError, match="disk full"),
+        pytest.raises(SystemExit),
     ):
         setup_cmd.handle_rotate_password(_args())
     assert cfg.rdp.password == "old-password"
     assert cfg.rdp.password_updated == "old-time"
-    assert "config and compose were not modified" in capsys.readouterr().out
+    assert "Password rotation is unresolved: guest outcome unknown" in capsys.readouterr().out
+
+
+def test_rotate_password_interrupt_reports_pending_state_check(capsys) -> None:
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    cfg.rdp.password = "old-password"
+    with (
+        patch("winpodx.cli.setup_cmd.Config.load", return_value=cfg),
+        patch("winpodx.core.pod.pod_status", return_value=PodStatus(PodState.RUNNING)),
+        patch("winpodx.core.rotation.rotate_password", side_effect=KeyboardInterrupt),
+        patch("winpodx.cli.setup_cmd._generate_password", return_value="new-password"),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        setup_cmd.handle_rotate_password(_args())
+
+    assert "Password rotation interrupted; check pending rotation state before retrying." in (
+        capsys.readouterr().out
+    )
 
 
 def test_register_desktop_entries_installs_apps_and_updates_cache() -> None:

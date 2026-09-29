@@ -17,7 +17,6 @@ from winpodx.core.compose import (
     _yaml_escape,
 )
 from winpodx.core.compose import generate_compose as _generate_compose
-from winpodx.core.compose import generate_compose_to as _generate_compose_to
 from winpodx.core.compose import generate_password as _generate_password
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
@@ -39,7 +38,6 @@ __all__ = [
     "_ensure_oem_token_staged",
     "_find_oem_dir",
     "_generate_compose",
-    "_generate_compose_to",
     "_generate_password",
     "_heal_missing_container_if_needed",
     "_resolve_credentials",
@@ -1587,13 +1585,9 @@ def _recreate_container(cfg: Config) -> None:
 
 
 def handle_rotate_password(args: argparse.Namespace) -> None:
-    """Rotate the Windows RDP password atomically via a temp-file swap."""
-    import os
-    import tempfile
-    from datetime import datetime, timezone
-
+    """Rotate the Windows RDP password through the shared core transaction."""
     from winpodx.core.pod import PodState, pod_status
-    from winpodx.core.provisioner import _change_windows_password
+    from winpodx.core.rotation import RotationError, rotate_password
 
     cfg = Config.load()
 
@@ -1607,36 +1601,20 @@ def handle_rotate_password(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     new_password = _generate_password()
-    old_password = cfg.rdp.password
-    old_password_updated = cfg.rdp.password_updated
 
     print(tr("Changing Windows user password..."))
-    if not _change_windows_password(cfg, new_password):
+    try:
+        rotated = rotate_password(cfg, new_password)
+    except KeyboardInterrupt:
+        print(tr("Password rotation interrupted; check pending rotation state before retrying."))
+        raise
+    except RotationError as e:
+        print(tr("Password rotation is unresolved: {error}").format(error=e))
+        raise SystemExit(1) from e
+
+    if not rotated:
         print(tr("Failed to change Windows password. Is the container fully booted?"))
         raise SystemExit(1)
-
-    # Validate compose template before touching on-disk config
-    compose_path = config_dir() / "compose.yaml"
-    compose_path.parent.mkdir(parents=True, exist_ok=True)
-
-    cfg.rdp.password = new_password
-    cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
-
-    fd, tmp_compose = tempfile.mkstemp(
-        dir=compose_path.parent, prefix=".compose-rotate-", suffix=".tmp"
-    )
-    try:
-        os.close(fd)
-        _generate_compose_to(cfg, Path(tmp_compose))
-
-        cfg.save()
-        os.replace(tmp_compose, str(compose_path))
-    except Exception:
-        Path(tmp_compose).unlink(missing_ok=True)
-        cfg.rdp.password = old_password
-        cfg.rdp.password_updated = old_password_updated
-        print(tr("Password rotation failed; config and compose were not modified."))
-        raise
 
     print(tr("Password rotated successfully."))
     print(tr("New password saved to {path}").format(path=Config.path()))

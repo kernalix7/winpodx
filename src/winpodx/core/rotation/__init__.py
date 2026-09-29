@@ -42,7 +42,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from winpodx.core.compose import generate_compose, generate_password
+from winpodx.core.compose import generate_compose, generate_compose_to, generate_password
 from winpodx.core.config import Config
 from winpodx.core.pod import PodState, pod_status
 from winpodx.utils.paths import config_dir
@@ -60,6 +60,7 @@ __all__ = [
     "_rotation_marker_path",
     "check_pending",
     "maybe_rotate",
+    "rotate_password",
 ]
 
 
@@ -73,6 +74,74 @@ _ROTATION_PENDING_MARKER = "rotation_pending"
 
 def _rotation_marker_path() -> Path:
     return Path(config_dir()) / f".{_ROTATION_PENDING_MARKER}"
+
+
+def _verify_windows_password(cfg: Config, password: str) -> bool:
+    """Return whether Windows accepts ``password`` for the configured user."""
+    if cfg.pod.backend not in ("podman", "docker"):
+        return False
+
+    user = cfg.rdp.user.replace("'", "''")
+    escaped = password.replace("'", "''")
+    # PSCredential construction does not authenticate. Validate against the
+    # local account database and close the returned token immediately.
+    payload = (
+        "$signature = @'\n"
+        "using System;\n"
+        "using System.Runtime.InteropServices;\n"
+        "public static class WinPodxLogon {\n"
+        '    [DllImport("advapi32.dll", EntryPoint="LogonUserW", '
+        "CharSet=CharSet.Unicode, SetLastError=true)]\n"
+        "    public static extern bool LogonUser(string user, string domain, "
+        "string password, int logonType, int logonProvider, out IntPtr token);\n"
+        '    [DllImport("kernel32.dll", SetLastError=true)]\n'
+        "    public static extern bool CloseHandle(IntPtr handle);\n"
+        "}\n"
+        "'@\n"
+        "Add-Type -TypeDefinition $signature\n"
+        "$LOGON32_LOGON_NETWORK = 3\n"
+        "$LOGON32_PROVIDER_DEFAULT = 0\n"
+        "$token = [IntPtr]::Zero\n"
+        "$ok = $false\n"
+        "try {\n"
+        "    $ok = [WinPodxLogon]::LogonUser(\n"
+        f"        '{user}', '.', '{escaped}',\n"
+        "        $LOGON32_LOGON_NETWORK, $LOGON32_PROVIDER_DEFAULT, [ref]$token)\n"
+        "} finally {\n"
+        "    if ($token -ne [IntPtr]::Zero) {\n"
+        "        [WinPodxLogon]::CloseHandle($token) | Out-Null\n"
+        "    }\n"
+        "}\n"
+        "if (-not $ok) { exit 1 }\n"
+        "Write-Output 'password accepted'\n"
+    )
+
+    from winpodx.core.transport import dispatch
+    from winpodx.core.transport.base import TransportAuthError, TransportError, TransportUnavailable
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    try:
+        transport = dispatch(cfg, prefer="agent")
+    except TransportUnavailable:
+        original_password = cfg.rdp.password
+        cfg.rdp.password = password
+        try:
+            result = run_in_windows(cfg, payload, description="verify-password", timeout=30)
+        except WindowsExecError as exc:
+            raise RotationError("Password verification outcome is unknown") from exc
+        finally:
+            cfg.rdp.password = original_password
+    except TransportAuthError:
+        return False
+    else:
+        try:
+            result = transport.exec(payload, description="verify-password", timeout=30)
+        except (TransportAuthError, TransportError) as exc:
+            raise RotationError("Password verification outcome is unknown") from exc
+
+    if result.rc == 124:
+        raise RotationError("Password verification timed out; outcome is unknown")
+    return result.rc == 0 and "password accepted" in result.stdout
 
 
 def _change_windows_password(cfg: Config, new_password: str) -> bool:
@@ -106,23 +175,35 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
     )
 
     from winpodx.core.transport import dispatch
-    from winpodx.core.transport.base import TransportAuthError, TransportUnavailable
+    from winpodx.core.transport.base import TransportAuthError, TransportError, TransportUnavailable
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
         transport = dispatch(cfg, prefer="agent")
-        result = transport.exec(payload, description="rotate-password", timeout=90)
     except TransportUnavailable:
         log.info("Agent unavailable for password rotation; falling back to FreeRDP")
         try:
             result = run_in_windows(cfg, payload, description="rotate-password", timeout=120)
         except WindowsExecError as e:
-            log.warning("Password change channel failure: %s", e)
-            return False
+            raise RotationError(
+                "Password change channel failed after submission; outcome is unknown"
+            ) from e
     except TransportAuthError as e:
         log.warning("Password change auth failure: %s", e)
         return False
+    else:
+        try:
+            result = transport.exec(payload, description="rotate-password", timeout=90)
+        except TransportAuthError as e:
+            log.warning("Password change auth failure: %s", e)
+            return False
+        except TransportError as e:
+            raise RotationError(
+                "Password change channel failed after submission; outcome is unknown"
+            ) from e
 
+    if result.rc == 124:
+        raise RotationError("Password change timed out; outcome is unknown")
     if result.rc != 0:
         log.warning("Password change failed (rc=%d): %s", result.rc, result.stderr.strip())
         return False
@@ -131,9 +212,17 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
 def _auto_rotate_password(cfg: Config) -> Config:
     """Rotate RDP password if older than max_age."""
+    if _rotation_marker_path().exists():
+        recovered = _recover_pending_rotation(cfg)
+        if recovered is None:
+            raise RotationError(
+                "Pending password rotation remains unresolved; restore the "
+                "last known-good guest password manually before retrying"
+            )
+        cfg = recovered
+
     if not cfg.rdp.password:
         return cfg
-
     if cfg.rdp.password_max_age <= 0:
         return cfg
     if cfg.pod.backend not in ("podman", "docker"):
@@ -163,88 +252,162 @@ def _auto_rotate_password(cfg: Config) -> Config:
 
     log.info("Password older than %d days, rotating...", cfg.rdp.password_max_age)
 
-    new_password = generate_password()
-    old_password = cfg.rdp.password
-
-    if not _change_windows_password(cfg, new_password):
+    if not rotate_password(cfg, generate_password()):
         log.warning("Password rotation skipped: could not change Windows password")
-        return cfg
-
-    old_updated = cfg.rdp.password_updated
-    cfg.rdp.password = new_password
-    cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
-
-    try:
-        # Generate compose first. If compose generation fails, the persisted
-        # config still contains the old password, so rollback only has to fix
-        # Windows. If config save fails after compose was written, the rollback
-        # path below rewrites compose with the old password again.
-        generate_compose(cfg)
-        cfg.save()
-        log.info("Password rotated successfully")
-        _clear_rotation_pending()
-    except OSError as e:
-        # Persistence failed but Windows already has the new password. Keep cfg
-        # on the new password for the rollback call so FreeRDP authenticates,
-        # then restore old values in memory and on disk/compose.
-        log.error("Failed to persist config after rotation: %s", e)
-
-        if _change_windows_password(cfg, old_password):
-            cfg.rdp.password = old_password
-            cfg.rdp.password_updated = old_updated
-            try:
-                generate_compose(cfg)
-                cfg.save()
-            except OSError as rollback_error:
-                log.error(
-                    "Password rollback succeeded but persistence restore failed: %s",
-                    rollback_error,
-                )
-            log.warning("Password rotation rolled back after config save failure")
-        else:
-            # Worst case: config holds old password, Windows holds new.
-            cfg.rdp.password = old_password
-            cfg.rdp.password_updated = old_updated
-            _mark_rotation_pending(old_password, new_password)
-            log.error(
-                "CRITICAL: password rotation partially applied. "
-                "Windows now uses the new password, but it could not be "
-                "saved to config and could not be reverted. RDP "
-                "authentication will fail until you run "
-                "`winpodx rotate-password` once the container is healthy."
-            )
 
     return cfg
 
 
-def _mark_rotation_pending(_old_password: str, _new_password: str) -> None:
+def _prepare_rotation_compose(cfg: Config, new_password: str, updated_at: str) -> Path | None:
+    compose_path = Path(config_dir()) / "compose.yaml"
+    compose_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=compose_path.parent,
+        prefix=".compose-rotate-",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    candidate = Path(tmp_path)
+    old_password = cfg.rdp.password
+    old_updated = cfg.rdp.password_updated
+    cfg.rdp.password = new_password
+    cfg.rdp.password_updated = updated_at
+    try:
+        generate_compose_to(cfg, candidate)
+    except KeyboardInterrupt:
+        candidate.unlink(missing_ok=True)
+        raise
+    except OSError as e:
+        log.error("Could not prepare password rotation compose file: %s", e)
+        candidate.unlink(missing_ok=True)
+        return None
+    finally:
+        cfg.rdp.password = old_password
+        cfg.rdp.password_updated = old_updated
+    return candidate
+
+
+def _restore_password_rotation(cfg: Config, old_password: str, old_updated: str) -> bool:
+    try:
+        guest_restored = _change_windows_password(cfg, old_password)
+    except RotationError as e:
+        log.error("Password rollback channel outcome is unknown: %s", e)
+        return False
+    if not guest_restored:
+        log.error("Password rollback was rejected by the guest")
+        return False
+
+    cfg.rdp.password = old_password
+    cfg.rdp.password_updated = old_updated
+    restored = True
+    try:
+        cfg.save()
+    except OSError as e:
+        restored = False
+        log.error("Password rollback restored the guest but not config: %s", e)
+    try:
+        generate_compose(cfg)
+    except OSError as e:
+        restored = False
+        log.error("Password rollback restored the guest but not compose: %s", e)
+    if restored and _clear_rotation_pending():
+        log.warning("Password rotation rolled back after persistence failure")
+        return True
+    return False
+
+
+def rotate_password(cfg: Config, new_password: str) -> bool:
+    """Rotate guest, config, and compose credentials as one transaction."""
+    marker = _rotation_marker_path()
+    if marker.exists():
+        raise RotationError(
+            f"Unresolved pending password rotation at {marker}; run "
+            "`winpodx app run desktop` to trigger automatic recovery, or restore "
+            "the last known-good password manually if recovery cannot converge"
+        )
+    old_password = cfg.rdp.password
+    old_updated = cfg.rdp.password_updated
+    updated_at = datetime.now(timezone.utc).isoformat()
+    candidate = _prepare_rotation_compose(cfg, new_password, updated_at)
+    if candidate is None:
+        return False
+
+    compose_path = Path(config_dir()) / "compose.yaml"
+    try:
+        if not _mark_rotation_pending(old_password, new_password):
+            return False
+        try:
+            changed = _change_windows_password(cfg, new_password)
+        except KeyboardInterrupt:
+            log.error("Password rotation interrupted; guest outcome is unknown")
+            raise
+        if not changed:
+            _clear_rotation_pending()
+            return False
+        try:
+            verified = _verify_windows_password(cfg, new_password)
+        except RotationError:
+            raise
+        if not verified:
+            if not _restore_password_rotation(cfg, old_password, old_updated):
+                raise RotationError(
+                    "Candidate password was not accepted and rollback is incomplete"
+                )
+            return False
+
+        cfg.rdp.password = new_password
+        cfg.rdp.password_updated = updated_at
+        try:
+            cfg.save()
+            os.replace(candidate, compose_path)
+        except KeyboardInterrupt:
+            if not _restore_password_rotation(cfg, old_password, old_updated):
+                log.error("Password rotation interrupted and rollback is incomplete")
+            raise
+        except OSError as e:
+            log.error("Failed to persist password rotation: %s", e)
+            if _restore_password_rotation(cfg, old_password, old_updated):
+                return False
+            raise RotationError("Password rotation rollback is incomplete") from e
+
+        if not _clear_rotation_pending():
+            raise RotationError("Password rotated, but pending marker cleanup failed")
+        log.info("Password rotated successfully")
+        return True
+    finally:
+        candidate.unlink(missing_ok=True)
+
+
+def _mark_rotation_pending(old_password: str, new_password: str) -> bool:
     """Atomically write a 0o600 marker signalling a partial rotation."""
     marker = _rotation_marker_path()
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=marker.parent, prefix=".winpodx-rot-", suffix=".tmp")
+        tmp = Path(tmp_path)
         try:
-            os.fchmod(fd, 0o600)
-            os.write(fd, b"pending\n")
-            os.close(fd)
-            os.rename(tmp_path, marker)
-        except Exception:
-            os.close(fd)
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+            with os.fdopen(fd, "wb") as handle:
+                os.fchmod(handle.fileno(), 0o600)
+                handle.write(f"{old_password}\n{new_password}\n".encode())
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, marker)
+        finally:
+            tmp.unlink(missing_ok=True)
     except OSError as e:
         log.error("Failed to write rotation marker: %s", e)
+        return False
+    return True
 
 
-def _clear_rotation_pending() -> None:
+def _clear_rotation_pending() -> bool:
     marker = _rotation_marker_path()
     try:
         marker.unlink(missing_ok=True)
     except OSError as e:
         log.warning("Could not remove rotation marker: %s", e)
+        return False
+    return True
 
 
 def _check_rotation_pending() -> None:
@@ -252,8 +415,7 @@ def _check_rotation_pending() -> None:
     if marker.exists():
         log.error(
             "Pending password rotation detected (%s). "
-            "Run `winpodx rotate-password` once the container is "
-            "running to bring config and Windows back in sync.",
+            "Readiness will attempt automatic recovery before RDP connects.",
             marker,
         )
 
@@ -263,6 +425,40 @@ def _check_rotation_pending() -> None:
 # functions so existing test patches (``monkeypatch.setattr(provisioner,
 # "_change_windows_password", ...)``) keep working through the provisioner
 # re-export.
+
+
+def _recover_pending_rotation(cfg: Config) -> Config | None:
+    """Converge an interrupted rotation before any new credential is generated."""
+    marker = _rotation_marker_path()
+    try:
+        lines = marker.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if len(lines) != 2:
+        return None
+    old_password, candidate = lines
+    try:
+        candidate_valid = _verify_windows_password(cfg, candidate)
+        old_valid = False if candidate_valid else _verify_windows_password(cfg, old_password)
+    except RotationError:
+        return None
+    recovered_at = datetime.now(timezone.utc).isoformat()
+    if candidate_valid:
+        cfg.rdp.password = candidate
+        cfg.rdp.password_updated = recovered_at
+    elif old_valid:
+        cfg.rdp.password = old_password
+        cfg.rdp.password_updated = recovered_at
+    else:
+        return None
+    try:
+        cfg.save()
+        generate_compose(cfg)
+    except OSError:
+        return None
+    if not _clear_rotation_pending():
+        return None
+    return cfg
 
 
 def maybe_rotate(cfg: Config) -> Config:
