@@ -2,8 +2,9 @@ name: Release
 on:
   push:
     # Only REL-prefixed marker tags create a public release. Version
-    # tags themselves (v0.4.0, v0.4.0rc1) trigger the four packaging
-    # workflows (.deb / RPM / OBS / AUR) via their `v*.*.*` globs but
+    # tags themselves (v0.4.0, v0.4.0rc1) trigger the packaging
+    # workflows (.deb / RPM / OBS / AUR / AppImage / Arch) via their
+    # `v*.*.*` globs but
     # NOT this Release workflow — that's deliberate. kernalix7 found
     # that rapid-iteration tags between v0.1.9 and v0.2.2.1 shipped
     # unverified releases that broke users' working installs
@@ -187,7 +188,7 @@ jobs:
           # a ~120-line "What's Changed" list that credits the owner on nearly
           # every PR and buries the real contributor credits behind it. This
           # step is the SOLE writer of the release body: the packaging
-          # workflows (.deb / RPM / OBS / AppImage) only attach assets, never
+          # workflows (.deb / RPM / OBS / AppImage / Arch) only attach assets, never
           # touch the notes, so the release isn't edited/rewritten repeatedly.
           body: ${{ steps.changelog.outputs.notes }}
           files: |

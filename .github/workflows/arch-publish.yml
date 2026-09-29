@@ -1,0 +1,83 @@
+name: Arch Linux Package
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to build (e.g. v0.11.0)"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    permissions:
+      contents: read
+    steps:
+      - name: Install Arch build prerequisites
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git curl util-linux shadow \
+            python python-build python-installer python-hatchling python-wheel freerdp
+          useradd --create-home --shell /bin/bash builder
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || github.event.repository.default_branch }}
+
+      - name: Build x86_64 package and SHA256 sidecar
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p dist
+          chown builder:builder dist
+          runuser -u builder -- bash scripts/ci/build_arch_package.sh "$TAG" "$GITHUB_WORKSPACE/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winpodx-arch-x86_64
+          path: |
+            dist/*.pkg.tar.zst
+            dist/*.pkg.tar.zst.sha256
+          if-no-files-found: error
+
+  attach:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: winpodx-arch-x86_64
+          path: dist
+
+      - name: Wait for release (release.yml owns creation)
+        id: wait
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          for _ in $(seq 1 48); do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::Release $TAG was not created (REL-$TAG marker absent?). Package and checksum remain workflow artifacts."
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      - name: Attach package and checksum to existing release
+        if: steps.wait.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release upload "$TAG" dist/*.pkg.tar.zst dist/*.pkg.tar.zst.sha256 --clobber \
+            --repo "$GITHUB_REPOSITORY"

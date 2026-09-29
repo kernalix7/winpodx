@@ -87,6 +87,32 @@ yay -S winpodx        # or:
 paru -S winpodx
 ```
 
+## GitHub release package
+
+On a `vX.Y.Z` tag, `arch-publish.yml` also builds an x86_64 package using a
+temporary copy of the PKGBUILD and install scriptlet inside that tag's source
+archive (so manual rebuilds of earlier versions keep the matching recipe).
+It uploads both `winpodx-X.Y.Z-1-x86_64.pkg.tar.zst` and its
+`winpodx-X.Y.Z-1-x86_64.pkg.tar.zst.sha256` sidecar as workflow artifacts.
+When the matching `REL-vX.Y.Z` marker creates the release, the workflow
+attaches both files without changing the release title or notes. The AUR
+template remains `arch=('any')`; only the disposable release-build copy is
+stamped `x86_64` so its package metadata matches its asset filename.
+If the marker comes more than 12 minutes later, the artifacts stay in the
+workflow run; manually dispatch `arch-publish.yml` with the same tag to rebuild
+and attach a matching pair to the existing release.
+
+To verify a downloaded release package before installing it, keep the files
+in the same directory and run:
+
+```bash
+sha256sum -c winpodx-X.Y.Z-1-x86_64.pkg.tar.zst.sha256
+sudo pacman -U winpodx-X.Y.Z-1-x86_64.pkg.tar.zst
+```
+
+The AUR publication remains separate and still needs `AUR_SSH_PRIVATE_KEY`;
+release package building does not use that secret.
+
 ## Notes
 
 - Arch ships `python` rolling (currently 3.13+), so the stdlib `tomllib`
