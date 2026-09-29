@@ -643,7 +643,9 @@ class MaintenanceMixin(MaintenanceCardsMixin):
                 self.app_launch_failed.emit(
                     tr("Debloat failed (rc={rc}): {detail}").format(
                         rc=result.rc,
-                        detail=result.stderr.strip() or result.stdout.strip()[:200],
+                        detail="\n".join(
+                            part for part in (result.stderr.strip(), result.stdout.strip()) if part
+                        ),
                     )
                 )
             self.pod_status_updated.emit("running", cfg.rdp.ip)

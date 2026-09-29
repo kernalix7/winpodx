@@ -871,6 +871,29 @@ def test_debloat_reports_a_nonzero_return_code(maint, picker, busy_dialogs, load
     assert "rc=5" in failure and "Access denied" in failure
 
 
+@pytest.mark.usefixtures("busy_dialogs")
+def test_debloat_preserves_full_diagnostics_when_transport_fails(
+    maint: _MaintHarness, picker: type[_FakePicker], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a failed guest run with diagnostics longer than the old 200-character limit.
+    picker.items = ["scheduled_tasks"]
+    stdout = "FIRST_TASK_DIAGNOSTIC\n" + "task diagnostic\n" * 40 + "LAST_TASK_DIAGNOSTIC"
+    result = WindowsExecResult(rc=1, stdout=stdout, stderr="access denied")
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: maint.cfg))
+    monkeypatch.setattr("winpodx.core.debloat.build_run_script", lambda _c, _s: "x")
+    monkeypatch.setattr("winpodx.core.windows_exec.run_via_transport", lambda *_a, **_k: result)
+
+    # When the accepted picker selection runs through the real handler.
+    maint._on_debloat()
+
+    # Then only failure is emitted, retaining the return code and both complete streams.
+    assert maint.app_launched.emissions == []
+    (failure,) = maint.app_launch_failed.texts()
+    assert "rc=1" in failure
+    assert "access denied" in failure
+    assert stdout in failure
+
+
 def test_debloat_reports_a_payload_build_error(maint, picker, busy_dialogs, load_cfg, monkeypatch):
     from winpodx.core.debloat import DebloatCatalogError
 

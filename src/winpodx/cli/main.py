@@ -1553,9 +1553,10 @@ def _cmd_debloat(args: argparse.Namespace) -> None:
             print(result.stdout.rstrip())
         print(tr("Debloat {verb} complete.").format(verb=verb))
     else:
+        detail = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
         print(
             tr("Debloat {verb} failed (rc={rc}): {detail}").format(
-                verb=verb, rc=result.rc, detail=result.stderr.strip() or result.stdout.strip()
+                verb=verb, rc=result.rc, detail=detail
             )
         )
 

@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Final
 
+import pytest
+
 RegistryValue = tuple[str, str]
 
 DEBLOAT_DIR: Final = Path(__file__).resolve().parents[1] / "scripts" / "windows" / "debloat"
@@ -127,6 +129,26 @@ def test_scheduled_tasks_apply_does_not_terminate_running_tasks() -> None:
 
     # Then
     assert "schtasks /end" not in normalized_script
+
+
+@pytest.mark.parametrize(
+    ("script_path", "action"),
+    [("scheduled_tasks.ps1", "Disable"), ("undo/scheduled_tasks.ps1", "Enable")],
+)
+def test_scheduled_tasks_skip_absent_but_surface_change_failures(
+    script_path: str, action: str
+) -> None:
+    # Given: an apply or undo script with optional scheduled tasks.
+    script = _read_script(script_path)
+
+    # When: the guest's task query and native change status are handled.
+    # Then: only confirmed absence is skipped; failed changes stay visible.
+    assert "Get-ScheduledTask -ErrorAction Stop" in script
+    assert "ContainsKey($task)" in script
+    assert f"schtasks /Change /TN $task /{action} 2>&1" in script
+    assert "if ($LASTEXITCODE -ne 0)" in script
+    assert "throw" in script
+    assert "2>$null" not in script
 
 
 def test_ads_scripts_exclude_pr_only_registry_values() -> None:

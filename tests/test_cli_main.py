@@ -835,6 +835,27 @@ class TestDebloat:
 
         assert "Debloat apply failed (rc=9): denied" in capsys.readouterr().out
 
+    def test_scheduled_task_failure_preserves_full_stdout_and_stderr(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from winpodx.core import windows_exec
+
+        _patch_config(monkeypatch, SimpleNamespace(pod=SimpleNamespace(backend="podman")))
+        stdout = "--- scheduled_tasks ---\n" + "progress\n" * 200 + "=== done: 0/1 succeeded ==="
+        failure = windows_exec.WindowsExecResult(1, stdout, "Access denied to scheduled task")
+        runner = Mock(return_value=failure)
+        monkeypatch.setattr(windows_exec, "run_via_transport", runner)
+
+        main._cmd_debloat(self._args(items="scheduled_tasks"))
+
+        output = capsys.readouterr().out
+        assert "Debloat apply failed (rc=1)" in output
+        assert "--- scheduled_tasks ---" in output
+        assert "=== done: 0/1 succeeded ===" in output
+        assert "Access denied to scheduled task" in output
+        assert "Debloat apply complete." not in output
+        assert "Get-ScheduledTask -ErrorAction Stop" in runner.call_args.args[1]
+
     def test_channel_failure_is_reported(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

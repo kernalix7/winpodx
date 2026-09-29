@@ -25,7 +25,19 @@ $tasks = @(
     "\Microsoft\Windows\WindowsAI\Insights\InsightsDataCollectionTask"
 )
 
+$existingTasks = @{}
+foreach ($scheduledTask in Get-ScheduledTask -ErrorAction Stop) {
+    $existingTasks["$($scheduledTask.TaskPath)$($scheduledTask.TaskName)"] = $true
+}
+
 foreach ($task in $tasks) {
+    if (-not $existingTasks.ContainsKey($task)) {
+        Write-Host "[scheduled_tasks] Skipping absent $task"
+        continue
+    }
     Write-Host "[scheduled_tasks] Re-enabling $task"
-    schtasks /Change /TN $task /Enable 2>$null | Out-Null
+    $detail = schtasks /Change /TN $task /Enable 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "[scheduled_tasks] Failed to enable $task (rc=$LASTEXITCODE): $($detail.Trim())"
+    }
 }
