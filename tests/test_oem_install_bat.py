@@ -43,7 +43,7 @@ def test_install_bat_does_not_self_lock_setup_log() -> None:
 
 def test_install_bat_oem_version_matches_expected_setup_contract() -> None:
     text = INSTALL_BAT.read_text(encoding="utf-8")
-    assert "set WINPODX_OEM_VERSION=31" in text
+    assert "set WINPODX_OEM_VERSION=32" in text
     assert "(echo %WINPODX_OEM_VERSION%)>C:\\winpodx\\oem_version.txt" in text
 
 
@@ -71,6 +71,15 @@ def test_install_bat_stages_agent_keepalive_launcher() -> None:
     # Keep-alive script is part of the launcher-staging loop so it lands in
     # the Public launchers dir like the other wscript-wrapped scripts.
     assert '"agent-keepalive.ps1"' in text
+
+
+def test_install_bat_stages_file_launcher_before_gate() -> None:
+    text = INSTALL_BAT.read_text(encoding="utf-8")
+    loop_start = text.index("for %%F in (")
+    loop_end = text.index(") do (", loop_start)
+    gate = text.index('if exist "C:\\Users\\Public\\winpodx\\launchers\\hidden-launcher.vbs"')
+
+    assert loop_start < text.index('"launch_file.vbs"') < loop_end < gate
 
 
 def test_install_bat_registers_keepalive_scheduled_task() -> None:

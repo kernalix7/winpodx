@@ -306,6 +306,43 @@ def test_is_freerdp_pid_helper_accepts_freerdp_only():
         assert proc_mod.is_freerdp_pid(12345) is True
 
 
+# --- #833: Win32 file opens route through wscript.exe + launch_file.vbs ---
+# The guest wrapper polls for the file, then launches the real target with it.
+# Both the target exe and the UNC are Base64(UTF-8) so spaces/commas survive
+# byte-exact (a raw UNC would be split by FreeRDP's /app: sub-key parser).
+_LAUNCH_FILE_VBS = "C:\\Users\\Public\\winpodx\\launchers\\launch_file.vbs"
+
+
+def _wrapper_payload(arg: str) -> str:
+    # Everything after the launcher path, tolerating an optional wrapping quote.
+    return arg.split(_LAUNCH_FILE_VBS, 1)[1].strip().strip('"')
+
+
+def _decode_file_wrapper(cmd: list[str], *, major: int) -> tuple[str, str, str]:
+    """Return (name_token, target_exe, unc_path) for a wrapped file-open cmd."""
+    import base64
+
+    app_args = [c for c in cmd if c.startswith(("/app:", "/app-cmd:"))]
+    if major >= 3:
+        arg = next((c for c in cmd if c.startswith("/app:program:wscript.exe,name:")), None)
+        assert arg is not None and _LAUNCH_FILE_VBS in arg, (
+            f"expected combined wscript launch_file wrapper, got {app_args}"
+        )
+        name = arg.split(",cmd:", 1)[0].removeprefix("/app:program:wscript.exe,name:")
+    else:
+        arg = next((c for c in cmd if c.startswith("/app-cmd:")), None)
+        assert arg is not None and _LAUNCH_FILE_VBS in arg, (
+            f"expected separate wscript launch_file flags, got {app_args}"
+        )
+        name = next(c for c in cmd if c.startswith("/app-name:")).split(":", 1)[1]
+    target_tok, path_tok = _wrapper_payload(arg).split(" ")
+    return (
+        name,
+        base64.b64decode(target_tok).decode("utf-8"),
+        base64.b64decode(path_tok).decode("utf-8"),
+    )
+
+
 # build_rdp_command tests
 
 
@@ -420,33 +457,125 @@ class TestBuildRdpCommand:
         )
         assert "/app-cmd:shell:Desktop" in cmd
 
-    def test_file_path_with_space_is_quoted_freerdp3(self, cfg, monkeypatch, tmp_path):
-        """#473: a file path containing a space must reach the guest quoted,
-        or the RAIL command line splits and the app gets 'path not found'."""
+    def test_file_open_freerdp3_routes_win32_through_launch_file_vbs(
+        self, cfg, monkeypatch, tmp_path
+    ):
+        # #833: a Win32 file open goes through wscript.exe + launch_file.vbs
+        # instead of the app's own cmd:. Target exe and UNC are Base64(UTF-8),
+        # so a space AND a comma survive byte-exact (a raw UNC would be torn
+        # apart by FreeRDP 3's /app: sub-key comma parser).
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
         monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
-        f = tmp_path / "BRMP Rawa" / "01 KK.xlsx"
+        f = tmp_path / "BRMP, Rawa" / "01 KK.xlsx"
         f.parent.mkdir(parents=True)
         f.touch()
-        cmd, _ = build_rdp_command(cfg, app_executable="excel.exe", file_path=str(f))
-        assert any(',cmd:"\\\\tsclient\\home\\BRMP Rawa\\01 KK.xlsx"' in c for c in cmd)
 
-    def test_file_path_with_space_is_quoted_freerdp2(self, cfg, monkeypatch, tmp_path):
+        cmd, _ = build_rdp_command(cfg, app_executable="excel.exe", file_path=str(f))
+
+        name, target, unc = _decode_file_wrapper(cmd, major=3)
+        assert name == "excel"
+        assert target == "excel.exe"
+        assert unc == "\\\\tsclient\\home\\BRMP, Rawa\\01 KK.xlsx"
+        assert "/wm-class:excel" in cmd
+        assert not any("tsclient" in c for c in cmd)
+
+    def test_file_open_freerdp2_routes_win32_through_launch_file_vbs(
+        self, cfg, monkeypatch, tmp_path
+    ):
         monkeypatch.setattr(
             "winpodx.core.rdp.find_freerdp",
             lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"),
         )
         monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 2)
         monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
-        f = tmp_path / "BRMP Rawa" / "01 KK.xlsx"
+        f = tmp_path / "BRMP, Rawa" / "01 KK.xlsx"
         f.parent.mkdir(parents=True)
         f.touch()
+
         cmd, _ = build_rdp_command(cfg, app_executable="excel.exe", file_path=str(f))
-        assert '/app-cmd:"\\\\tsclient\\home\\BRMP Rawa\\01 KK.xlsx"' in cmd
+
+        assert "/app:wscript.exe" in cmd
+        assert "/app-name:excel" in cmd
+        name, target, unc = _decode_file_wrapper(cmd, major=2)
+        assert name == "excel"
+        assert target == "excel.exe"
+        assert unc == "\\\\tsclient\\home\\BRMP, Rawa\\01 KK.xlsx"
+        assert "/wm-class:excel" in cmd
+        assert not any(c.startswith("/app:program:") for c in cmd)
+        assert not any("tsclient" in c for c in cmd)
+
+    def test_file_wrapper_keeps_exe_commas_and_path_spaces_byte_exact(
+        self, cfg, monkeypatch, tmp_path
+    ):
+        # #833: the old combined form space-replaced commas in the program path
+        # (FreeRDP 3 /app: splits on commas). Base64 lets a comma and a space
+        # through both the target exe and the UNC untouched.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: 3)
+        monkeypatch.setattr("winpodx.core.rdp.Path.home", staticmethod(lambda: tmp_path))
+        f = tmp_path / "My Docs" / "final, v2.docx"
+        f.parent.mkdir(parents=True)
+        f.touch()
+        exe = "C:\\Program Files\\Contoso, Inc\\wordpad.exe"
+
+        cmd, _ = build_rdp_command(cfg, app_executable=exe, file_path=str(f))
+
+        name, target, unc = _decode_file_wrapper(cmd, major=3)
+        assert name == "wordpad"
+        assert target == exe
+        assert unc == "\\\\tsclient\\home\\My Docs\\final, v2.docx"
+
+    @pytest.mark.parametrize("major", [3, 2])
+    def test_app_only_launch_is_not_file_wrapped(self, cfg, monkeypatch, major):
+        # #833 control: no file -> the plain RemoteApp form, never wscript.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+        monkeypatch.setattr("winpodx.core.rdp.freerdp_major_version", lambda: major)
+
+        cmd, _ = build_rdp_command(cfg, app_executable="notepad.exe")
+
+        assert not any("launch_file.vbs" in c for c in cmd)
+        assert not any("wscript.exe" in c for c in cmd)
+        if major >= 3:
+            assert "/app:program:notepad.exe,name:notepad" in cmd
+        else:
+            assert "/app:notepad.exe" in cmd
+            assert "/app-name:notepad" in cmd
+
+    def test_uwp_launch_is_not_file_wrapped(self, cfg, monkeypatch):
+        # #833 control: a UWP AUMID keeps the launch_uwp.vbs wrapper; the file
+        # router must not bleed into the UWP path.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+
+        cmd, _ = build_rdp_command(cfg, launch_uri="Microsoft.WindowsCalculator_8wekyb3d8bbwe!App")
+
+        assert any("launch_uwp.vbs" in c for c in cmd)
+        assert not any("launch_file.vbs" in c for c in cmd)
+
+    def test_desktop_launch_is_not_file_wrapped(self, cfg, monkeypatch):
+        # #833 control: the full-desktop path has no app program at all.
+        monkeypatch.setattr(
+            "winpodx.core.rdp.find_freerdp",
+            lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+        )
+
+        cmd, _ = build_rdp_command(cfg)
+
+        assert not any("launch_file.vbs" in c for c in cmd)
+        assert not any("wscript.exe" in c for c in cmd)
+        assert not any(c.startswith("/app") for c in cmd)
 
     def test_dpi_flag_when_set(self, cfg, monkeypatch):
         monkeypatch.setattr(
@@ -1523,6 +1652,21 @@ def _build_url(monkeypatch, file_path: str, *, major: int = 3):
     return cmd
 
 
+@pytest.mark.parametrize("major", [3, 2])
+def test_url_open_is_not_file_wrapped(monkeypatch, major) -> None:
+    # #833 control: a routable URL keeps flowing verbatim to the app; only real
+    # file paths take the wscript + launch_file.vbs wrapper.
+    cmd = _build_url(monkeypatch, "mailto:foo@bar.com", major=major)
+
+    assert not any("launch_file.vbs" in c for c in cmd)
+    assert not any("wscript.exe" in c for c in cmd)
+    if major >= 3:
+        app = next(c for c in cmd if c.startswith("/app:"))
+        assert 'cmd:"mailto:foo@bar.com"' in app
+    else:
+        assert '/app-cmd:"mailto:foo@bar.com"' in cmd
+
+
 def test_url_scheme_bypasses_unc_freerdp3(monkeypatch) -> None:
     # #421/#694: a mailto: URL is routed to the /app cmd verbatim, not mapped to
     # a \\tsclient\home UNC (which would raise "outside home").
@@ -1545,15 +1689,17 @@ def test_url_comma_quote_sanitized(monkeypatch) -> None:
 
 
 def test_file_url_still_routed_through_unc(monkeypatch, tmp_path) -> None:
-    # file: is denylisted -> stays on the UNC path; linux_to_unc strips file://
+    # file: is denylisted -> stays a real file open: linux_to_unc strips
+    # file:// and #833 routes the result through the launch_file.vbs wrapper.
     from winpodx.core import rdp as rdp_mod
 
     monkeypatch.setattr(rdp_mod.Path, "home", staticmethod(lambda: tmp_path))
     doc = tmp_path / "doc.txt"
     doc.touch()
     cmd = _build_url(monkeypatch, doc.as_uri())  # file:///…/doc.txt
-    app = next(c for c in cmd if c.startswith("/app:"))
-    assert "\\\\tsclient\\home\\doc.txt" in app
+    _name, target, unc = _decode_file_wrapper(cmd, major=3)
+    assert target == "OUTLOOK.EXE"
+    assert unc == "\\\\tsclient\\home\\doc.txt"
 
 
 def test_dangerous_scheme_not_routed_as_url(monkeypatch, tmp_path) -> None:

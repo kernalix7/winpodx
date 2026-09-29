@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -456,6 +457,41 @@ def _is_under_home(path: str) -> bool:
     return False
 
 
+# #833: guest-side launcher that opens a host file with a Win32 app. install.bat
+# stages it on first boot and provisioner._apply_vbs_launchers() re-stages it on
+# existing pods; both target C:\Users\Public\winpodx\launchers\ because Public is
+# writable for the guest agent while C:\OEM is SYSTEM-owned.
+_LAUNCH_FILE_VBS = "C:\\Users\\Public\\winpodx\\launchers\\launch_file.vbs"
+
+
+def _file_wrapper_payload(cfg: Config, app_executable: str, file_path: str) -> str:
+    """RemoteApp cmd payload opening ``file_path`` with ``app_executable``.
+
+    #833: a Win32 file open is ONE wscript.exe RemoteApp invocation of the
+    staged ``launch_file.vbs``. The VBS decodes both Base64 args, polls
+    ``FileExists`` on the UNC (``\\\\tsclient`` shares take a moment to attach),
+    then runs the target exe with it.
+
+    The target executable and the exact UNC travel as two separate
+    Base64(UTF-8) argv tokens so spaces, commas and Unicode in either
+    survive byte-exact: a raw UNC would be torn apart by FreeRDP 3's
+    ``/app:`` sub-key parser (which splits on commas before quotes apply)
+    and by the guest's own command-line tokenisation (#473). Base64 is
+    argv-safe on both FreeRDP 2 and 3 and decodes in the guest without any
+    shell involvement.
+
+    Raises the same ``Cannot open file: ...`` RuntimeError as the raw-UNC
+    path it replaces when ``linux_to_unc`` cannot map the host path.
+    """
+    try:
+        unc_path = linux_to_unc(file_path, cfg.pod.home_share)
+    except ValueError as e:
+        raise RuntimeError(f"Cannot open file: {e}") from e
+    exe_b64 = base64.b64encode(app_executable.encode("utf-8")).decode("ascii")
+    unc_b64 = base64.b64encode(unc_path.encode("utf-8")).decode("ascii")
+    return f"{_LAUNCH_FILE_VBS} {exe_b64} {unc_b64}"
+
+
 def build_rdp_command(
     cfg: Config,
     app_executable: str | None = None,
@@ -681,57 +717,62 @@ def build_rdp_command(
         # ``freerdp_major_version()`` caches the probe so this branch
         # only spawns the version-check subprocess once per process.
         if freerdp_major_version() >= 3:
-            # FreeRDP 3: combined sub-arg form. Comma in ``default_args``
-            # would collide with FreeRDP's sub-arg separator, so it is
-            # sanitised to spaces. ``cmd:`` accepts a UNC path (file
-            # open) or a CLI string (Explorer ``shell:Desktop``).
-            #
-            # ``app_executable`` is interpolated into the same ``/app:``
-            # arg, so a comma in the path would inject a spurious sub-key
-            # (same hazard ``default_args`` is sanitised for below). Strip
-            # commas to spaces here too before building the combined arg.
-            program_token = app_executable.replace(",", " ")
-            app_arg = f"/app:program:{program_token},name:{name_token}"
-            if file_path and url_scheme_of(file_path):
-                # #421/#694: a URL (mailto:, https:, slack:, ...) is handed to
-                # the app verbatim, NOT mapped to a $HOME UNC (linux_to_unc only
-                # maps file paths + would raise). Same comma/quote sanitising as
-                # the UNC path -- a comma splits the /app: value into sub-keys.
-                app_arg += f',cmd:"{sanitize_url_arg(file_path)}"'
-            elif file_path:
-                try:
-                    unc_path = linux_to_unc(file_path, cfg.pod.home_share)
-                except ValueError as e:
-                    raise RuntimeError(f"Cannot open file: {e}") from e
-                # Quote the UNC path so the guest doesn't split it on spaces
-                # ("BRMP Rawa/...xlsx" -> several args -> "path not found", #473).
-                # Also strip commas: FreeRDP 3 splits the /app: value into
-                # sub-keys on commas BEFORE the quotes apply, so a comma in the
-                # filename would inject a spurious sub-key (security review).
-                safe_unc = unc_path.replace(",", " ")
-                app_arg += f',cmd:"{safe_unc}"'
-            elif default_args:
-                sanitized = default_args.replace(",", " ")
-                app_arg += f",cmd:{sanitized}"
-            cmd.append(app_arg)
+            if file_path and not url_scheme_of(file_path):
+                # #833: a real Win32 file open (anything that is NOT a
+                # routable scheme -- including the denylisted file: URI,
+                # which linux_to_unc decodes back to a path) goes through
+                # one wscript.exe invocation of the staged launch_file.vbs
+                # instead of the app's own cmd:. The VBS polls for the
+                # \\tsclient\... UNC to appear, then runs the target exe
+                # with it. Target exe and UNC travel Base64(UTF-8)-encoded
+                # because this combined form splits the /app: value on
+                # commas BEFORE quotes apply -- a raw UNC with a space
+                # (#473) or comma would be torn apart here.
+                cmd.append(
+                    f"/app:program:wscript.exe,name:{name_token},"
+                    f"cmd:{_file_wrapper_payload(cfg, app_executable, file_path)}"
+                )
+            else:
+                # FreeRDP 3: combined sub-arg form. Comma in ``default_args``
+                # would collide with FreeRDP's sub-arg separator, so it is
+                # sanitised to spaces. ``cmd:`` accepts a URL (file
+                # paths were routed to the wrapper branch above) or a CLI
+                # string (Explorer ``shell:Desktop``).
+                #
+                # ``app_executable`` is interpolated into the same ``/app:``
+                # arg, so a comma in the path would inject a spurious sub-key
+                # (same hazard ``default_args`` is sanitised for below). Strip
+                # commas to spaces here too before building the combined arg.
+                program_token = app_executable.replace(",", " ")
+                app_arg = f"/app:program:{program_token},name:{name_token}"
+                if file_path:
+                    # #421/#694: a URL (mailto:, https:, slack:, ...) is handed to
+                    # the app verbatim, NOT mapped to a $HOME UNC (linux_to_unc only
+                    # maps file paths + would raise). Same comma/quote sanitising as
+                    # before -- a comma splits the /app: value into sub-keys.
+                    app_arg += f',cmd:"{sanitize_url_arg(file_path)}"'
+                elif default_args:
+                    sanitized = default_args.replace(",", " ")
+                    app_arg += f",cmd:{sanitized}"
+                cmd.append(app_arg)
         else:
             # FreeRDP 2: separate flags. Commas inside ``/app-cmd:``
             # are safe because each flag is its own argv entry.
-            cmd.append(f"/app:{app_executable}")
-            cmd.append(f"/app-name:{name_token}")
-            if file_path and url_scheme_of(file_path):
-                # #421/#694: URL handed to the app verbatim (see FreeRDP 3 branch).
-                cmd.append(f'/app-cmd:"{sanitize_url_arg(file_path)}"')
-            elif file_path:
-                try:
-                    unc_path = linux_to_unc(file_path, cfg.pod.home_share)
-                except ValueError as e:
-                    raise RuntimeError(f"Cannot open file: {e}") from e
-                # Quote the UNC path so a space in it isn't split into separate
-                # args by the guest when it parses the RAIL command line (#473).
-                cmd.append(f'/app-cmd:"{unc_path}"')
-            elif default_args:
-                cmd.append(f"/app-cmd:{default_args}")
+            if file_path and not url_scheme_of(file_path):
+                # #833: real file open -> the same wscript + launch_file.vbs
+                # wrapper as FreeRDP 3 (see that branch); the Base64 payload
+                # is argv-safe in the separate-flag form too.
+                cmd.append("/app:wscript.exe")
+                cmd.append(f"/app-name:{name_token}")
+                cmd.append(f"/app-cmd:{_file_wrapper_payload(cfg, app_executable, file_path)}")
+            else:
+                cmd.append(f"/app:{app_executable}")
+                cmd.append(f"/app-name:{name_token}")
+                if file_path:
+                    # #421/#694: URL handed to the app verbatim (see FreeRDP 3 branch).
+                    cmd.append(f'/app-cmd:"{sanitize_url_arg(file_path)}"')
+                elif default_args:
+                    cmd.append(f"/app-cmd:{default_args}")
         cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
 

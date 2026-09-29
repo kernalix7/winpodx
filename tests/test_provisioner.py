@@ -568,3 +568,110 @@ class TestWaitForWindowsResponsiveRetries:
         result = wait_for_windows_responsive(cfg, timeout=120)
         assert result is True
         assert len(attempts) >= 2, "must retry rather than bail on first failure"
+
+
+# --- issue #833: launch_file.vbs staging in _apply_vbs_launchers ---
+# Failing-first: production does not yet list launch_file.vbs in the staged
+# tuple, so the byte-exact test goes RED (no such target in the payload) and
+# the missing-source test goes RED (no lookup, so no RuntimeError). Both must
+# stay RED until the staging tuple gains launch_file.vbs.
+_OEM_LAUNCHER_FILES = (
+    "hidden-launcher.vbs",
+    "launch_uwp.vbs",
+    "launch_uwp.ps1",
+    "agent-respawn.ps1",
+    "agent-keepalive.ps1",
+    "rdprrap-activate.ps1",
+)
+
+# Stand-in for the real OEM launch_file.vbs. Deliberately mixes CRLF,
+# double quotes, backslashes and non-ASCII so a Base64 round-trip that
+# mangles bytes would be caught, not just a filename check.
+_FUTURE_LAUNCH_FILE_VBS = (
+    "' winpodx launch_file.vbs -- issue #833\r\n"
+    "Option Explicit\r\n"
+    "Dim shell, args, target\r\n"
+    'Set shell = CreateObject("WScript.Shell")\r\n'
+    "Set args = WScript.Arguments\r\n"
+    'target = "C:\\Users\\Public\\winpodx\\launchers\\launch_file.ps1"\r\n'
+    'shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """" '
+    '& target & """" " & args(0), 0, False\r\n'
+    "' 계열사 파일 열기: no console flash\r\n"
+).encode("utf-8")
+
+_LAUNCH_FILE_TARGET = "C:\\Users\\Public\\winpodx\\launchers\\launch_file.vbs"
+
+
+def _make_fake_oem(root, *, include_launch_file: bool) -> None:
+    """Write a fake ``config/oem`` under ``root`` for bundle_dir() to resolve."""
+    oem = root / "config" / "oem"
+    oem.mkdir(parents=True)
+    for fname in _OEM_LAUNCHER_FILES:
+        (oem / fname).write_text(f"{fname} placeholder\n", encoding="utf-8")
+    if include_launch_file:
+        (oem / "launch_file.vbs").write_bytes(_FUTURE_LAUNCH_FILE_VBS)
+
+
+def _staged_files(payload: str) -> dict[str, bytes]:
+    """Map each ``[IO.File]::WriteAllBytes`` target in the payload to its
+    decoded Base64 body, so tests assert exact bytes rather than the mere
+    presence of a filename."""
+    import base64
+    import re
+
+    staged: dict[str, bytes] = {}
+    lines = payload.splitlines()
+    for i, line in enumerate(lines):
+        m = re.search(r"\[IO\.File\]::WriteAllBytes\('([^']*)', \$bytes\)", line)
+        if not m:
+            continue
+        target = m.group(1)
+        b64_line = lines[i - 1]
+        bm = re.search(r"FromBase64String\('([^']*)'\)", b64_line)
+        assert bm, f"no Base64 line precedes write of {target!r}: {b64_line!r}"
+        staged[target] = base64.b64decode(bm.group(1))
+    return staged
+
+
+def test_apply_vbs_launchers_stages_launch_file_exact_bytes(tmp_path, monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    _make_fake_oem(tmp_path, include_launch_file=True)
+    monkeypatch.setattr(provisioner, "bundle_dir", lambda: tmp_path)
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    captured = _mock_run_in_windows(
+        monkeypatch, rc=0, stdout="vbs_launchers applied + agent respawn queued"
+    )
+
+    provisioner._apply_vbs_launchers(cfg)
+
+    assert len(captured) == 1
+    description, payload = captured[0]
+    assert description == "apply-vbs-launchers"
+
+    staged = _staged_files(payload)
+    assert _LAUNCH_FILE_TARGET in staged, (
+        "launch_file.vbs was not staged into the Public launchers dir; "
+        f"staged targets: {sorted(staged)}"
+    )
+    assert staged[_LAUNCH_FILE_TARGET] == _FUTURE_LAUNCH_FILE_VBS
+
+
+def test_apply_vbs_launchers_raises_when_launch_file_source_missing(tmp_path, monkeypatch):
+    from winpodx.core import provisioner
+    from winpodx.core.config import Config
+
+    _make_fake_oem(tmp_path, include_launch_file=False)
+    monkeypatch.setattr(provisioner, "bundle_dir", lambda: tmp_path)
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    captured = _mock_run_in_windows(monkeypatch)
+
+    with pytest.raises(RuntimeError, match=r"vbs_launchers source missing:.*launch_file\.vbs"):
+        provisioner._apply_vbs_launchers(cfg)
+    # A missing source must abort before any /exec round-trip.
+    assert captured == []

@@ -1,7 +1,7 @@
 @echo off
 REM First-boot OEM setup for winpodx Windows guest. Runs once during dockur's unattended install. Every action must stay idempotent - there is no guest-side re-run channel in 0.1.6 (push/exec bridge planned for a later release).
 
-set WINPODX_OEM_VERSION=31
+set WINPODX_OEM_VERSION=32
 
 echo [WinPodX] Starting post-install configuration (version %WINPODX_OEM_VERSION%)...
 
@@ -446,6 +446,7 @@ for %%F in (
     "agent-respawn.ps1"
     "agent-keepalive.ps1"
     "rdprrap-activate.ps1"
+    "launch_file.vbs"
 ) do (
     copy /Y "%~dp0%%~F" "C:\Users\Public\winpodx\launchers\%%~F" >nul 2>>"%SETUP_LOG%"
     if exist "C:\Users\Public\winpodx\launchers\%%~F" (

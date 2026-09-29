@@ -1067,11 +1067,11 @@ def _apply_guest_share(cfg: Config) -> None:
 
 
 def _apply_vbs_launchers(cfg: Config) -> None:
-    """Push hidden-launcher.vbs / launch_uwp.{vbs,ps1} / agent-respawn.ps1
-    + update HKCU\\Run + auto-respawn the running agent under the new
-    wrapper so existing pods stop flashing PowerShell windows on agent
-    autostart and UWP launches — without needing a user logout or pod
-    restart.
+    """Push hidden-launcher.vbs / launch_uwp.{vbs,ps1} / launch_file.vbs /
+    agent-respawn.ps1 + update HKCU\\Run + auto-respawn the running agent
+    under the new wrapper so existing pods stop flashing PowerShell windows
+    on agent autostart and UWP launches, and gain the #833 file-open
+    RemoteApp wrapper -- without needing a user logout or pod restart.
 
     Migration path for users on v0.3.0-RTM1 / OEM v12 / v13. Fresh installs
     from OEM v14+ already have the files staged via install.bat; this step
@@ -1107,18 +1107,26 @@ def _apply_vbs_launchers(cfg: Config) -> None:
         # session enable` can activate rdprrap on existing pods without
         # forcing a container recreate. See cli.pod._multi_session.
         "rdprrap-activate.ps1",
+        # launch_file.vbs (#833) is the RemoteApp file-open wrapper that
+        # rdp._file_wrapper_payload points wscript.exe at. Staging it here
+        # lets existing pods gain file opens without a container recreate.
+        "launch_file.vbs",
     )
-    sources: dict[str, str] = {}
+    sources: dict[str, bytes] = {}
     for fname in files:
         path = oem_root / fname
         if not path.is_file():
             raise RuntimeError(f"vbs_launchers source missing: {path}")
         try:
-            sources[fname] = path.read_text(encoding="utf-8")
+            # Raw bytes, NOT decoded text (#833): the staged launcher must
+            # land in the guest byte-identical (CRLF line endings, exact
+            # UTF-8 sequence). A text read would normalise newlines and
+            # re-encode, both of which change the bytes.
+            sources[fname] = path.read_bytes()
         except OSError as e:
             raise RuntimeError(f"cannot read {path}: {e}") from e
 
-    # Build a single PS payload that writes all three files + updates
+    # Build a single PS payload that writes all the launcher files + updates
     # HKCU\Run in one /exec round-trip. Each file body is base64-encoded
     # in transit so embedded quotes / newlines / unicode survive the
     # PowerShell here-string boundary cleanly.
@@ -1131,7 +1139,7 @@ def _apply_vbs_launchers(cfg: Config) -> None:
         "if (-not (Test-Path $dir)) { [void](New-Item -ItemType Directory -Force -Path $dir) }",
     ]
     for fname, body in sources.items():
-        b64 = _b64.b64encode(body.encode("utf-8")).decode("ascii")
+        b64 = _b64.b64encode(body).decode("ascii")
         target = f"{target_dir}\\{fname}"
         lines.append(f"$bytes = [Convert]::FromBase64String('{b64}')")
         lines.append(f"[IO.File]::WriteAllBytes('{target}', $bytes)")
