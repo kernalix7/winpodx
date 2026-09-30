@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 """Pin the on-disk config schema_version marker + the migration hook.
 
-0.6.0 introduced the marker without changing the TOML layout; schema 3
-distinguishes legacy SSD defaults from explicit HDD choices. These tests lock
-the migration seam:
+0.6.0 introduced the marker without changing the TOML layout. A persisted
+``pod.ssd`` is an explicit user choice at every schema, so the migration hook
+must never rewrite or drop it (regression #855). These tests lock the seam:
 
 * Config.load() reads ``schema_version`` (missing -> 0 = pre-0.6.0).
 * When the read value differs from SCHEMA_VERSION, _migrate_config()
@@ -119,17 +119,20 @@ def test_legacy_file_round_trip_through_save_keeps_settings(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("old_version", [0, 1, 2])
-def test_legacy_ssd_false_migrates_to_auto_once(tmp_path: Path, old_version: int) -> None:
+def test_legacy_ssd_false_preserved_through_round_trip(tmp_path: Path, old_version: int) -> None:
+    # Regression #855: a persisted explicit `ssd = false` (HDD) is a user
+    # choice, not a legacy default to be erased. Every schema must carry it
+    # through load -> save -> reload unchanged; nothing is migrated away.
     cfg_path = tmp_path / "winpodx.toml"
     marker = f"schema_version = {old_version}\n" if old_version else ""
     cfg_path.write_text(f"{marker}[pod]\nssd = false\n", encoding="utf-8")
 
     with patch.object(Config, "path", classmethod(lambda cls: cfg_path)):
         cfg = Config.load()
-        assert cfg.pod.ssd is None
+        assert cfg.pod.ssd is False
         cfg.save()
-        assert "ssd =" not in cfg_path.read_text(encoding="utf-8")
-        assert Config.load().pod.ssd is None
+        assert "ssd = false" in cfg_path.read_text(encoding="utf-8")
+        assert Config.load().pod.ssd is False
 
 
 def test_current_schema_explicit_ssd_false_survives_load_and_save(tmp_path: Path) -> None:

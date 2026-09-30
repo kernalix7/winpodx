@@ -30,8 +30,8 @@ from winpodx.utils.toml_writer import dumps as toml_dumps
 # (renamed key, moved section, dropped option). The version is written into
 # the file at save() time and read by load(); a missing field reads as 0,
 # the implicit pre-0.6.0 schema. _migrate_config() is the place where actual
-# transforms land. Schema 3 distinguishes explicit pod.ssd=false from the
-# legacy schema-2 default, which meant host-auto. See _migrate_config().
+# transforms land. Explicit pod.ssd booleans keep their meaning at every
+# schema version; omitting the key selects host-auto.
 SCHEMA_VERSION = 3
 
 # "libvirt" was dropped in 0.6.0 (dockur is QEMU/KVM in a container and now
@@ -593,7 +593,7 @@ class PodConfig:
         if not isinstance(self.guest_autosync, bool):
             self.guest_autosync = True
         # Invalid hand-edited values fall back to host-auto. Explicit False
-        # means HDD; only pre-schema-3 files migrate their old False to auto.
+        # always means HDD, including values loaded from older schemas.
         if self.ssd is not None and not isinstance(self.ssd, bool):
             self.ssd = None
         # storage_path: keep empty (named-volume mode) or coerce to a
@@ -911,8 +911,7 @@ class Config:
             return cfg
 
         # Read the on-disk schema_version (0 = pre-0.6.0, no marker present).
-        # If it predates the current SCHEMA_VERSION, run the migration hook
-        # before applying values so old defaults do not become explicit choices.
+        # Apply layout migrations to the raw data before constructing section values.
         try:
             from_version = int(data.get("schema_version", 0))
         except (TypeError, ValueError):
@@ -1301,12 +1300,6 @@ def _migrate_config(data: dict[str, Any], from_version: int) -> dict[str, Any]:
         pod = data.get("pod")
         if isinstance(pod, dict) and pod.get("usb_live") is False:
             pod.pop("usb_live", None)
-    if from_version < 3:
-        # Schema 2 stored False as the default without actually forcing HDD.
-        # Dropping it preserves host-auto; schema-3 False is an explicit override.
-        pod = data.get("pod")
-        if isinstance(pod, dict) and pod.get("ssd") is False:
-            pod.pop("ssd", None)
     return data
 
 
