@@ -619,6 +619,59 @@ class TestDecideStorageModeExplicitTarget:
         assert cfg.pod.storage_path == str(target)
         assert target.is_dir()
 
+    def test_fresh_target_with_existing_guest_data_aborts(self, tmp_path):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        target = Path(tmp_path) / "storage"
+        target.mkdir()
+        guest_disk = target / "data.img"
+        guest_disk.write_bytes(b"guest data")
+        with (
+            patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+            pytest.raises(SystemExit),
+        ):
+            _decide_storage_mode(Config(), non_interactive=True, explicit_target=target)
+
+        assert guest_disk.read_bytes() == b"guest data"
+
+    def test_unwritable_fresh_target_aborts_without_falling_back(self, tmp_path):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        target = Path(tmp_path) / "unwritable"
+        with (
+            patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+            patch.object(Path, "mkdir", side_effect=PermissionError("denied")),
+            pytest.raises(SystemExit) as exc,
+        ):
+            _decide_storage_mode(Config(), non_interactive=True, explicit_target=target)
+
+        assert exc.value.code == 1
+        assert not target.exists()
+
+    def test_relative_fresh_target_aborts_before_directory_creation(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from winpodx.cli.setup_cmd import _decide_storage_mode
+        from winpodx.core.config import Config
+
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+            pytest.raises(SystemExit) as exc,
+        ):
+            _decide_storage_mode(
+                Config(), non_interactive=True, explicit_target=Path("relative/storage")
+            )
+
+        assert exc.value.code == 1
+        assert not (tmp_path / "relative").exists()
+
     def test_explicit_target_ignored_when_already_configured(self, tmp_path):
         from pathlib import Path
 
@@ -735,6 +788,23 @@ class TestStageWinIso:
         _stage_win_iso(cfg, None)
         assert not (tmp_path / "storage" / "custom.iso").exists()
 
+    def test_existing_iso_is_not_overwritten(self, tmp_path):
+        from winpodx.cli.setup_cmd import _stage_win_iso
+        from winpodx.core.config import Config
+
+        storage = tmp_path / "storage"
+        storage.mkdir()
+        existing = storage / "custom.iso"
+        existing.write_bytes(b"installed guest's ISO")
+        source = self._iso(tmp_path)
+        cfg = Config()
+        cfg.pod.storage_path = str(storage)
+
+        with pytest.raises(SystemExit):
+            _stage_win_iso(cfg, str(source))
+
+        assert existing.read_bytes() == b"installed guest's ISO"
+
     def test_stages_to_custom_iso(self, tmp_path):
         from pathlib import Path
 
@@ -775,13 +845,14 @@ class TestStageWinIso:
         assert "--migrate-storage" in out
         assert result is not None  # returned so handle_setup re-prints before banner
 
-    def test_missing_iso_skips(self, tmp_path):
+    def test_missing_iso_aborts(self, tmp_path):
         from winpodx.cli.setup_cmd import _stage_win_iso
         from winpodx.core.config import Config
 
         cfg = Config()
         cfg.pod.storage_path = str(tmp_path / "storage")
-        _stage_win_iso(cfg, str(tmp_path / "nope.iso"))  # must not raise
+        with pytest.raises(SystemExit):
+            _stage_win_iso(cfg, str(tmp_path / "nope.iso"))
         assert not (tmp_path / "storage" / "custom.iso").exists()
 
     def test_same_file_is_noop(self, tmp_path):

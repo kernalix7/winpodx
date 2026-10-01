@@ -317,6 +317,9 @@ def _decide_storage_mode(
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return None
+    if explicit_target is not None and not explicit_target.is_absolute():
+        print(tr("Storage directory must be absolute: {path}").format(path=explicit_target))
+        raise SystemExit(1)
 
     # Case 1: already set explicitly. Trust the user. If they passed a
     # --storage-path that differs from the configured location, it can't be
@@ -380,16 +383,18 @@ def _decide_storage_mode(
     # populated by the next compose-up.
     target = explicit_target if explicit_target is not None else default_target_path()
     try:
+        occupied = target.exists() and (not target.is_dir() or any(target.iterdir()))
+        if target.is_symlink() or occupied:
+            print(tr("Storage directory must be empty: {path}").format(path=target))
+            raise SystemExit(1)
+    except OSError as exc:
+        print(tr("Storage directory is not accessible: {path}").format(path=target))
+        raise SystemExit(1) from exc
+    try:
         target.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        # If we can't create the dir, fall back to named volume (don't
-        # set storage_path) so install still proceeds.
-        print(
-            tr("  Note: could not create {path} ({error}); using named volume instead.").format(
-                path=target, error=e
-            )
-        )
-        return None
+        print(tr("Cannot create storage directory {path}: {error}").format(path=target, error=e))
+        raise SystemExit(1) from e
 
     fs = detect_path_fs(target)
     if fs == "btrfs":
@@ -443,7 +448,13 @@ def _stage_win_iso(cfg: Config, iso_path: str | None) -> list[str] | None:
     src = Path(iso_path).expanduser()
     if not src.is_file():
         print(tr("--win-iso: no such file: {path}").format(path=src))
-        return None
+        raise SystemExit(1)
+    try:
+        with src.open("rb"):
+            pass
+    except OSError as exc:
+        print(tr("--win-iso: unreadable file: {path}").format(path=src))
+        raise SystemExit(1) from exc
     storage = (cfg.pod.storage_path or "").strip()
     if not storage:
         # #767: --win-iso was explicitly passed (iso_path is truthy) but staging
@@ -458,6 +469,9 @@ def _stage_win_iso(cfg: Config, iso_path: str | None) -> list[str] | None:
     if src.resolve() == dst.resolve():
         print(tr("--win-iso: already staged at {dst}").format(dst=dst))
         return None
+    if dst.exists() or dst.is_symlink():
+        print(tr("--win-iso: refusing to overwrite existing {dst}").format(dst=dst))
+        raise SystemExit(1)
     print(tr("Staging local ISO → {dst} (dockur installs from it; no download)…").format(dst=dst))
     try:
         # reflink where supported (btrfs/xfs); falls back to a full copy.
@@ -729,6 +743,102 @@ def _prompt_edition_locale_tuning(cfg: Config) -> None:
     # Re-run validation so any normalization (win_version casing, etc.)
     # lands before compose generation.
     cfg.pod.__post_init__()
+
+
+def _prompt_storage_and_iso(
+    cfg: Config, args: argparse.Namespace, *, config_existed: bool
+) -> tuple[Path | None, str | None]:
+    """Collect and review first-install storage and ISO choices before writing anything."""
+    from winpodx.core.config import _sanitise_storage_path
+    from winpodx.core.storage_migration import default_target_path, resolve_named_volume
+
+    storage_arg = getattr(args, "storage_path", None)
+    iso_arg = getattr(args, "win_iso", None)
+    current = Path(cfg.pod.storage_path).expanduser() if cfg.pod.storage_path else None
+    volume = resolve_named_volume(cfg.pod.backend) if current is None else None
+    storage_default = current or (f"named volume {volume}" if volume else default_target_path())
+
+    storage_answer = _ask(
+        tr("Windows storage directory (Enter = {default}): ").format(
+            default=storage_arg or storage_default
+        )
+    )
+    iso_answer = _ask(
+        tr("Local Windows ISO (optional, Enter = {default}): ").format(
+            default=iso_arg or tr("download from Microsoft")
+        )
+    )
+    selected_storage = storage_answer or storage_arg
+    selected_iso = iso_answer or iso_arg
+    try:
+        target = Path(selected_storage).expanduser() if selected_storage else None
+        iso_path = Path(selected_iso).expanduser() if selected_iso else None
+    except (OSError, RuntimeError) as exc:
+        print(tr("Invalid storage or ISO path: {error}").format(error=exc))
+        raise SystemExit(1) from exc
+
+    print(tr("\nStorage / Windows ISO review:"))
+    print(tr("  Storage: {path}").format(path=target or storage_default))
+    print(
+        tr("  ISO: {source}").format(
+            source=iso_path or tr("download from Microsoft (fresh installs only)")
+        )
+    )
+    print(tr("  Existing guest storage? Relocate only with `winpodx setup --migrate-storage`."))
+
+    if (config_existed or current is not None or volume is not None) and (
+        (target is not None and (current is None or target.resolve() != current.resolve()))
+        or iso_path is not None
+    ):
+        print(
+            tr(
+                "Existing guest storage will not be moved or replaced. "
+                "Use `winpodx setup --migrate-storage` to relocate it; "
+                "a local ISO is only for a fresh Windows install."
+            )
+        )
+        raise SystemExit(1)
+
+    fresh_target = target or (default_target_path() if current is None and volume is None else None)
+    if fresh_target is not None and current is None:
+        if (
+            not fresh_target.is_absolute()
+            or _sanitise_storage_path(str(fresh_target)) != str(fresh_target)
+            or fresh_target.is_symlink()
+        ):
+            print(tr("Invalid storage directory: {path}").format(path=fresh_target))
+            raise SystemExit(1)
+        try:
+            if fresh_target.exists() and (not fresh_target.is_dir() or any(fresh_target.iterdir())):
+                print(tr("Storage directory must be empty: {path}").format(path=fresh_target))
+                raise SystemExit(1)
+            ancestor = fresh_target
+            while not ancestor.exists():
+                ancestor = ancestor.parent
+            if not ancestor.is_dir() or not os.access(ancestor, os.W_OK | os.X_OK):
+                print(tr("Storage directory is not writable: {path}").format(path=fresh_target))
+                raise SystemExit(1)
+        except OSError as exc:
+            print(tr("Storage directory is not accessible: {path}").format(path=fresh_target))
+            raise SystemExit(1) from exc
+
+    if iso_path is not None:
+        try:
+            if not iso_path.is_file():
+                print(tr("Local ISO is not a file: {path}").format(path=iso_path))
+                raise SystemExit(1)
+            with iso_path.open("rb"):
+                pass
+        except OSError as exc:
+            print(tr("Local ISO is not readable: {path}").format(path=iso_path))
+            raise SystemExit(1) from exc
+
+    if _ask(tr("Proceed with these choices? (Y/n): "), default="y").lower() not in (
+        "y",
+        "yes",
+    ):
+        raise SystemExit(1)
+    return target, str(iso_path) if iso_path is not None else None
 
 
 def _run_full_provision(
@@ -1162,6 +1272,15 @@ def handle_setup(
         if not non_interactive and cfg.pod.backend in ("podman", "docker"):
             _prompt_edition_locale_tuning(cfg)
 
+        _storage_path_arg = getattr(args, "storage_path", None)
+        _iso_arg = getattr(args, "win_iso", None)
+        if not non_interactive:
+            _explicit_storage, _iso_arg = _prompt_storage_and_iso(
+                cfg, args, config_existed=config_existed
+            )
+        else:
+            _explicit_storage = Path(_storage_path_arg).expanduser() if _storage_path_arg else None
+
         # Pick a storage mode for podman/docker before compose is
         # rendered. Three cases:
         #   1. cfg.pod.storage_path already set → keep it (returning user
@@ -1174,8 +1293,6 @@ def handle_setup(
         #      the per-user default `~/.local/share/winpodx/storage`,
         #      create the directory, and `chattr +C` on btrfs so the
         #      Windows raw disk image inherits NoCoW from day one.
-        _storage_path_arg = getattr(args, "storage_path", None)
-        _explicit_storage = Path(_storage_path_arg).expanduser() if _storage_path_arg else None
         _w = _decide_storage_mode(
             cfg, non_interactive=non_interactive, explicit_target=_explicit_storage
         )
@@ -1186,7 +1303,7 @@ def handle_setup(
         # so dockur picks it up instead of downloading Windows (#647). Must come
         # after _decide_storage_mode (storage_path resolved) + before
         # _recreate_container below.
-        _w = _stage_win_iso(cfg, getattr(args, "win_iso", None))
+        _w = _stage_win_iso(cfg, _iso_arg)
         if _w:
             _deferred_ignore_warnings.append(_w)
 

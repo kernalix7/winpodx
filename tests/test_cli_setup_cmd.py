@@ -125,6 +125,201 @@ def test_prompt_edition_locale_tuning_rejects_unknown_profile(capsys) -> None:
     assert "unknown profile" in capsys.readouterr().out
 
 
+def test_storage_iso_prompt_enter_keeps_defaults(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    cfg = Config()
+    with (
+        patch("builtins.input", return_value=""),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+    ):
+        storage, iso = setup_cmd._prompt_storage_and_iso(
+            cfg, _args(customize=True), config_existed=False
+        )
+
+    assert storage is None
+    assert iso is None
+    output = capsys.readouterr().out
+    assert "Storage:" in output
+    assert "ISO:" in output
+    assert "download" in output
+    assert "--migrate-storage" in output
+
+
+def test_storage_iso_prompt_routes_custom_path_and_readable_iso(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = Config()
+    target = tmp_path / "custom-storage"
+    iso = tmp_path / "windows.iso"
+    iso.write_bytes(b"iso fixture")
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=[str(target), str(iso), "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+    ):
+        storage, selected_iso = setup_cmd._prompt_storage_and_iso(
+            cfg, _args(customize=True), config_existed=False
+        )
+
+    assert storage == target
+    assert selected_iso == str(iso)
+    assert not target.exists()
+    output = capsys.readouterr().out
+    assert str(target) in output
+    assert str(iso) in output
+
+
+@pytest.mark.parametrize("selected", ["relative/path", "/etc/winpodx", "/"])
+def test_storage_iso_prompt_rejects_invalid_storage_before_creating_pod(
+    selected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = Config()
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=[selected, "", "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(cfg, _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+    assert cfg.pod.storage_path == ""
+
+
+@pytest.mark.parametrize("iso_name", ["missing.iso", "directory"])
+def test_storage_iso_prompt_rejects_missing_or_nonfile_iso(tmp_path: Path, iso_name: str) -> None:
+    if iso_name == "directory":
+        (tmp_path / iso_name).mkdir()
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=["", str(tmp_path / iso_name), "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(Config(), _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+
+
+def test_storage_iso_prompt_rejects_unreadable_iso(tmp_path: Path) -> None:
+    iso = tmp_path / "unreadable.iso"
+    iso.write_bytes(b"iso fixture")
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=["", str(iso), "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        patch.object(Path, "open", side_effect=PermissionError("denied")),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(Config(), _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+
+
+def test_storage_iso_prompt_existing_config_requires_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = Config()
+    cfg.pod.storage_path = str(tmp_path / "existing")
+    chosen = tmp_path / "elsewhere"
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=[str(chosen), "", "y"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(cfg, _args(customize=True), config_existed=True)
+
+    assert exc.value.code == 1
+    assert cfg.pod.storage_path == str(tmp_path / "existing")
+    assert not chosen.exists()
+    output = capsys.readouterr().out
+    assert str(chosen) in output
+    assert "ISO:" in output
+    assert "--migrate-storage" in output
+
+
+def test_storage_iso_prompt_existing_volume_rejects_new_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    chosen = tmp_path / "elsewhere"
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=[str(chosen), "", "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value="winpodx-data"),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(Config(), _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+    assert "--migrate-storage" in capsys.readouterr().out
+    assert not chosen.exists()
+
+
+def test_storage_iso_prompt_existing_volume_rejects_iso(tmp_path: Path, capsys) -> None:
+    iso = tmp_path / "replacement.iso"
+    iso.write_bytes(b"iso fixture")
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=["", str(iso), "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value="winpodx-data"),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(Config(), _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+    assert "--migrate-storage" in capsys.readouterr().out
+
+
+def test_storage_iso_prompt_rejects_nonempty_storage_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / "occupied"
+    target.mkdir()
+    (target / "windows.img").write_bytes(b"guest data")
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=[str(target), "", "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(Config(), _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+    assert (target / "windows.img").read_bytes() == b"guest data"
+
+
+def test_storage_iso_prompt_preserves_explicit_flags_on_enter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / "flag-storage"
+    iso = tmp_path / "flag.iso"
+    iso.write_bytes(b"iso fixture")
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=["", "", "y"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+    ):
+        storage, selected_iso = setup_cmd._prompt_storage_and_iso(
+            Config(),
+            _args(customize=True, storage_path=str(target), win_iso=str(iso)),
+            config_existed=False,
+        )
+
+    assert storage == target
+    assert selected_iso == str(iso)
+
+
+def test_storage_iso_prompt_declined_review_makes_no_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / "new-storage"
+    with (
+        patch("winpodx.cli.setup_cmd._ask", side_effect=[str(target), "", "n"]),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd._prompt_storage_and_iso(Config(), _args(customize=True), config_existed=False)
+
+    assert exc.value.code == 1
+    assert not target.exists()
+
+
 def test_migrate_storage_reports_plan_and_success(tmp_path: Path, capsys) -> None:
     from winpodx.core.storage_migration import MigrationPlan, MigrationResult
 
@@ -429,6 +624,10 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
 ) -> None:
     monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: True))
     monkeypatch.setenv("WINPODX_NO_PROVISION", "1")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    storage_target = tmp_path / "chosen-storage"
+    iso = tmp_path / "windows.iso"
+    iso.write_bytes(b"iso fixture")
     answers = iter(
         [
             "podman",
@@ -437,6 +636,9 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
             "bad-cpu",
             "bad-ram",
             "Asia/Seoul",
+            str(storage_target),
+            str(iso),
+            "y",
         ]
     )
     tier = SimpleNamespace(cpu_cores=6, ram_gb=8, label="high")
@@ -450,8 +652,9 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
         patch("winpodx.utils.specs.recommend_tier", return_value=tier),
         patch("winpodx.utils.locale.detect_timezone", return_value="UTC"),
         patch("winpodx.cli.setup_cmd._prompt_edition_locale_tuning") as locale_prompt,
-        patch("winpodx.cli.setup_cmd._decide_storage_mode"),
-        patch("winpodx.cli.setup_cmd._stage_win_iso"),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        patch("winpodx.cli.setup_cmd._decide_storage_mode") as storage_decision,
+        patch("winpodx.cli.setup_cmd._stage_win_iso") as stage_iso,
         patch("winpodx.cli.setup_cmd._generate_compose") as compose,
         patch("winpodx.cli.setup_cmd._recreate_container") as recreate,
         patch("winpodx.display.scaling.detect_scale_factor", return_value=125),
@@ -471,6 +674,8 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
     assert (saved.rdp.user, saved.rdp.ip) == ("WizardUser", "127.0.0.2")
     assert (saved.rdp.scale, saved.rdp.dpi) == (125, 150)
     locale_prompt.assert_called_once()
+    assert storage_decision.call_args.kwargs["explicit_target"] == storage_target
+    assert stage_iso.call_args.args[1] == str(iso)
     compose.assert_called_once()
     recreate.assert_called_once()
     output = capsys.readouterr().out
@@ -478,6 +683,41 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
     assert "Invalid number, using default: 8" in output
     assert "Setup Complete" in output
     assert "Run `winpodx provision` to finish" in output
+    assert str(storage_target) in output
+    assert str(iso) in output
+
+
+def test_handle_setup_rejects_invalid_wizard_storage_before_container_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: True))
+    with (
+        patch("winpodx.cli.setup_cmd.check_all", return_value=_deps()),
+        patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
+        patch("winpodx.cli.setup_cmd._resolve_credentials"),
+        patch(
+            "winpodx.utils.specs.detect_host_specs",
+            return_value=SimpleNamespace(cpu_threads=8, ram_gb=16),
+        ),
+        patch(
+            "winpodx.utils.specs.recommend_tier",
+            return_value=SimpleNamespace(cpu_cores=4, ram_gb=6, label="mid"),
+        ),
+        patch("winpodx.utils.locale.detect_timezone", return_value="UTC"),
+        patch("winpodx.cli.setup_cmd._prompt_edition_locale_tuning"),
+        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
+        patch("winpodx.cli.setup_cmd._ask", side_effect=["", "", "", "relative/path", ""]),
+        patch("winpodx.cli.setup_cmd._decide_storage_mode") as storage_decision,
+        patch("winpodx.cli.setup_cmd._generate_compose") as compose,
+        patch("winpodx.cli.setup_cmd._recreate_container") as recreate,
+        pytest.raises(SystemExit) as exc,
+    ):
+        setup_cmd.handle_setup(_args(backend="podman", customize=True))
+
+    assert exc.value.code == 1
+    storage_decision.assert_not_called()
+    compose.assert_not_called()
+    recreate.assert_not_called()
 
 
 def test_handle_setup_dependency_and_backend_failures(
