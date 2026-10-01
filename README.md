@@ -121,10 +121,11 @@ chmod +x winpodx-x86_64.AppImage
 
 ```bash
 winpodx setup              # host-detected defaults, no prompts
-winpodx setup --customize  # pick backend, cores, RAM, edition, language, timezone, debloat
+winpodx setup --customize  # pick backend, VM settings, storage directory, and optional local Windows ISO
 ```
 
 Setup writes the configuration, verifies the host, provisions Windows, discovers your apps, and registers desktop entries.
+In `--customize`, press Enter at the storage and ISO prompts to keep the default storage directory and download Windows; the wizard reviews both choices before creating the pod. Existing guest storage is not moved or replaced by setup; use `winpodx setup --migrate-storage` to relocate it.
 
 **Updating:** re-run the curl installer to upgrade a curl install in place, keeping your config and VM (this works on Bazzite and other rpm-ostree hosts too). Package and AppImage installs update through whatever you installed them with.
 

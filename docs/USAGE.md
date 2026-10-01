@@ -86,7 +86,7 @@ winpodx uninstall --purge         # Remove everything including config
 
 # System
 winpodx setup                     # Full setup: config + container + wait-ready + discovery + reverse-open
-winpodx setup --customize         # Wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
+winpodx setup --customize         # Wizard: backend / VM settings / storage directory / optional local Windows ISO
 winpodx setup-host                # Host prep wizard (kvm group, /etc/subuid, kvm module) via one pkexec prompt — AppImage users
 winpodx provision                 # Post-pod-running chain (wait-ready → apply-fixes → discovery → reverse-open) — the single source of truth used by install.sh, setup, migrate, and the GUI bring-up (0.6.0 item B)
 winpodx provision --retries N     # Override discovery retry count (default 5)
@@ -106,6 +106,8 @@ winpodx config show               # Show current config
 winpodx config set rdp.scale 140  # Change a config value
 winpodx config import             # Import existing winapps.conf
 ```
+
+`winpodx setup --customize` asks for a storage directory and an optional readable local Windows ISO after edition/language choices, then reviews both before creating the pod. Press Enter for the default storage directory and Microsoft ISO download; a fresh explicit storage target must be safe, writable, and empty. The equivalent non-interactive flags are `winpodx setup --storage-path /path/to/storage --win-iso /path/to/windows.iso`. Existing config or named-volume storage is never relocated or replaced through this wizard; a different storage choice is rejected with a pointer to `winpodx setup --migrate-storage` instead. The ISO choice applies to fresh Windows installs only.
 
 ## Qt6 GUI tour
 
