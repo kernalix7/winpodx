@@ -119,10 +119,11 @@ chmod +x winpodx-x86_64.AppImage
 
 ```bash
 winpodx setup              # 호스트 자동 감지 기본값, 질문 없음
-winpodx setup --customize  # 백엔드, 코어, RAM, 에디션, 언어, 시간대, 디블로트 선택
+winpodx setup --customize  # 백엔드, VM 설정, 저장 디렉터리, 선택적 로컬 Windows ISO 선택
 ```
 
 setup은 설정을 작성하고 호스트를 점검한 뒤 Windows를 프로비저닝하고, 앱을 찾아 데스크톱 항목까지 등록합니다.
+`--customize`의 저장 위치와 ISO 질문에 Enter를 누르면 기본 저장 디렉터리를 유지하고 Windows를 다운로드합니다. 마법사는 pod를 만들기 전에 두 선택을 검토합니다. 기존 게스트 저장소는 setup으로 이동하거나 교체되지 않습니다. 위치를 옮기려면 `winpodx setup --migrate-storage`를 사용하세요.
 
 **업데이트:** curl로 설치했다면 같은 설치 명령을 다시 실행하면 설정과 VM을 유지한 채 제자리에서 갱신됩니다(Bazzite 등 rpm-ostree 호스트에서도 그대로 동작합니다). 패키지와 AppImage 설치는 설치할 때 쓴 방법으로 업데이트하세요.
 

@@ -55,6 +55,8 @@ Manual 모드는 바이너리 + desktop entry + 아이콘만 설치 — `winpodx
 
 패키지 매니저 설치 후 발화하는 flow 와 동일. wizard 원하지만 `install.sh` 중간에 인터럽트 받기 싫을 때 사용.
 
+터미널 마법사 (`winpodx setup --customize`)는 Windows 디스크의 저장 위치와 읽을 수 있는 로컬 Windows ISO를 사용할지 묻습니다. Enter를 누르면 기본 저장 디렉터리를 유지하고 ISO를 다운로드하며, pod 생성 전에 두 선택을 검토합니다. 명시한 저장 디렉터리는 쓰기 가능하고 비어 있어야 합니다. 잘못되었거나 읽을 수 없는 경로는 Windows 설치를 시작하기 전에 오류와 함께 중단합니다. 이 질문을 통해 기존 설정이나 named volume 저장소를 이동하거나 덮어쓰거나 교체하지 않습니다. 의도적으로 위치를 옮기려면 `winpodx setup --migrate-storage`를 사용하세요. 로컬 ISO는 신규 Windows 설치에만 사용할 수 있습니다. 스크립트에서 쓰는 `winpodx setup --storage-path PATH --win-iso PATH`와 `install.sh --storage-dir PATH`도 그대로 사용할 수 있습니다.
+
 ## 오프라인 / 에어갭 설치
 
 인스톨러는 registry / 패키지 저장소 접근이 없는 머신을 위한 세 가지 선택 플래그 제공:

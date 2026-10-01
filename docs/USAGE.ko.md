@@ -86,7 +86,7 @@ winpodx uninstall --purge         # config 포함 전부 제거
 
 # 시스템
 winpodx setup                     # full 셋업: config + 컨테이너 + wait-ready + discovery + reverse-open
-winpodx setup --customize         # wizard: backend / specs / edition / language / region / keyboard / timezone / tuning
+winpodx setup --customize         # 마법사: 백엔드 / VM 설정 / 저장 디렉터리 / 선택적 로컬 Windows ISO
 winpodx setup-host                # 호스트 준비 wizard (kvm 그룹, /etc/subuid, kvm 모듈) pkexec 한 번 — AppImage 사용자
 winpodx provision                 # pod 기동 후 체인 (wait-ready → apply-fixes → discovery → reverse-open) — install.sh / setup / migrate / GUI 가 모두 호출하는 단일 SoT (0.6.0 item B)
 winpodx provision --retries N     # discovery 재시도 횟수 재정의 (기본 5 — 느린 첫 부팅 게스트용)
@@ -106,6 +106,8 @@ winpodx config show               # 현재 config 표시
 winpodx config set rdp.scale 140  # config 값 변경
 winpodx config import             # 기존 winapps.conf import
 ```
+
+`winpodx setup --customize`는 에디션과 언어를 고른 뒤 저장 디렉터리와 선택 사항인 읽을 수 있는 로컬 Windows ISO를 묻고, pod 생성 전에 두 값을 검토합니다. Enter를 누르면 기본 저장 디렉터리와 Microsoft ISO 다운로드를 사용합니다. 새 저장 경로는 안전하고 쓰기 가능하며 비어 있어야 합니다. 같은 선택을 비대화형으로 전달하려면 `winpodx setup --storage-path /path/to/storage --win-iso /path/to/windows.iso`를 사용하세요. 기존 설정이나 named volume 저장소는 이 마법사로 이동하거나 교체되지 않습니다. 다른 저장소를 선택하면 `winpodx setup --migrate-storage` 안내와 함께 거부합니다. ISO 선택은 신규 Windows 설치에만 적용됩니다.
 
 ## Qt6 GUI 둘러보기
 
