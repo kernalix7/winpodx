@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterator
 
 import pytest
 
@@ -32,12 +33,24 @@ def _isolate_xdg_and_home(
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
 
 
+def _drain_qt_deferred_deletes() -> None:
+    if "PySide6.QtCore" not in sys.modules:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent, QThread
+
+    app = QCoreApplication.instance()
+    if app is None or QThread.currentThread() != app.thread():
+        return
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 @pytest.fixture(autouse=True)
-def _restore_gui_theme_scheme():
+def _restore_gui_theme_scheme(_isolate_xdg_and_home: None) -> Iterator[None]:
     """Undo any ``theme.rebuild()`` a test performed so file order cannot leak schemes."""
     theme = sys.modules.get("winpodx.gui.theme")
     before = theme.current_scheme() if theme is not None else None
     yield
+    _drain_qt_deferred_deletes()
     theme = sys.modules.get("winpodx.gui.theme")
     if theme is None:
         return
