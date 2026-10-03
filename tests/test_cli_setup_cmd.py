@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
@@ -674,29 +675,40 @@ def test_handle_setup_customize_podman_applies_wizard_and_writes_config(
     )
     tier = SimpleNamespace(cpu_cores=6, ram_gb=8, label="high")
     host = SimpleNamespace(cpu_threads=16, ram_gb=32)
-    with (
-        patch("winpodx.cli.setup_cmd.check_all", return_value=_deps()),
-        patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None),
-        patch("winpodx.cli.setup_cmd._ask", side_effect=lambda *args, **kwargs: next(answers)),
-        patch("getpass.getpass", return_value="WizardPassword!"),
-        patch("winpodx.utils.specs.detect_host_specs", return_value=host),
-        patch("winpodx.utils.specs.recommend_tier", return_value=tier),
-        patch("winpodx.utils.locale.detect_timezone", return_value="UTC"),
-        patch("winpodx.cli.setup_cmd._prompt_edition_locale_tuning") as locale_prompt,
-        patch("winpodx.setup_wizard.host_state.require_preflight"),
-        patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None),
-        patch("winpodx.cli.setup_cmd._decide_storage_mode") as storage_decision,
-        patch("winpodx.cli.setup_cmd._stage_win_iso") as stage_iso,
-        patch("winpodx.cli.setup_cmd._generate_compose") as compose,
-        patch("winpodx.cli.setup_cmd._recreate_container") as recreate,
-        patch("winpodx.display.scaling.detect_scale_factor", return_value=125),
-        patch("winpodx.display.scaling.detect_raw_scale", return_value=1.5),
-        patch("winpodx.utils.specs.detect_tuning_capability", return_value=SimpleNamespace()),
-        patch("winpodx.utils.specs.recommend_tuning_profile", return_value="safe"),
-        patch("winpodx.utils.specs.format_tuning_summary", return_value="safe tuning"),
-        patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"),
-        patch("winpodx.cli.setup_cmd._register_all_desktop_entries"),
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(patch("winpodx.cli.setup_cmd.check_all", return_value=_deps()))
+        stack.enter_context(patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None))
+        stack.enter_context(
+            patch("winpodx.cli.setup_cmd._ask", side_effect=lambda *args, **kwargs: next(answers))
+        )
+        stack.enter_context(patch("getpass.getpass", return_value="WizardPassword!"))
+        stack.enter_context(patch("winpodx.utils.specs.detect_host_specs", return_value=host))
+        stack.enter_context(patch("winpodx.utils.specs.recommend_tier", return_value=tier))
+        stack.enter_context(patch("winpodx.utils.locale.detect_timezone", return_value="UTC"))
+        locale_prompt = stack.enter_context(
+            patch("winpodx.cli.setup_cmd._prompt_edition_locale_tuning")
+        )
+        stack.enter_context(patch("winpodx.setup_wizard.host_state.require_preflight"))
+        stack.enter_context(
+            patch("winpodx.core.storage_migration.resolve_named_volume", return_value=None)
+        )
+        storage_decision = stack.enter_context(patch("winpodx.cli.setup_cmd._decide_storage_mode"))
+        stage_iso = stack.enter_context(patch("winpodx.cli.setup_cmd._stage_win_iso"))
+        compose = stack.enter_context(patch("winpodx.cli.setup_cmd._generate_compose"))
+        recreate = stack.enter_context(patch("winpodx.cli.setup_cmd._recreate_container"))
+        stack.enter_context(patch("winpodx.display.scaling.detect_scale_factor", return_value=125))
+        stack.enter_context(patch("winpodx.display.scaling.detect_raw_scale", return_value=1.5))
+        stack.enter_context(
+            patch("winpodx.utils.specs.detect_tuning_capability", return_value=SimpleNamespace())
+        )
+        stack.enter_context(
+            patch("winpodx.utils.specs.recommend_tuning_profile", return_value="safe")
+        )
+        stack.enter_context(
+            patch("winpodx.utils.specs.format_tuning_summary", return_value="safe tuning")
+        )
+        stack.enter_context(patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"))
+        stack.enter_context(patch("winpodx.cli.setup_cmd._register_all_desktop_entries"))
         setup_cmd.handle_setup(_args(customize=True))
 
     saved = Config.load()
