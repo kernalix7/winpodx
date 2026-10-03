@@ -35,6 +35,14 @@ def test_config_default_carries_current_schema_version() -> None:
     assert cfg.schema_version == SCHEMA_VERSION
 
 
+def test_example_schema_marker_matches_current_version() -> None:
+    from winpodx.core import config as cfg_mod
+
+    example = Path(__file__).resolve().parents[1] / "data" / "winpodx.toml.example"
+    data = cfg_mod.tomllib.loads(example.read_text(encoding="utf-8"))
+    assert data["schema_version"] == SCHEMA_VERSION
+
+
 def test_migrate_hook_is_noop_at_current_version() -> None:
     data = {"rdp": {"user": "alice"}, "schema_version": SCHEMA_VERSION}
     out = _migrate_config(dict(data), SCHEMA_VERSION)

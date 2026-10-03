@@ -3,7 +3,7 @@
 # this is a reference for hand-editing. Unknown keys are ignored, and any key
 # you omit falls back to the built-in default shown here.
 
-schema_version = 3
+schema_version = 4
 
 [rdp]
 user = ""                 # Windows account user name ("" = the dockur default)
