@@ -429,6 +429,7 @@ def test_ensure_ready_recovers_password_after_pod_start(monkeypatch):
     monkeypatch.setattr(provisioner, "check_rdp_port", lambda *args, **kwargs: next(probes))
     monkeypatch.setattr(provisioner, "_check_deps", lambda: None)
     monkeypatch.setattr("winpodx.core.daemon.ensure_pod_awake", lambda _cfg: events.append("awake"))
+    monkeypatch.setattr("winpodx.setup_wizard.host_state.require_preflight", lambda _cfg: None)
     monkeypatch.setattr(
         provisioner, "_ensure_pod_running", lambda _cfg, _timeout: events.append("running")
     )
