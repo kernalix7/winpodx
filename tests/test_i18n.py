@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import ast
 from collections import Counter
+from pathlib import Path
 from string import Formatter
 
 import pytest
@@ -94,10 +96,21 @@ _KEPT_SENTENCE = "WinPodX 설정과 앱 프로필은 유지됩니다."
 
 
 def _install_checklist_copy() -> tuple[str, ...]:
-    from winpodx.gui._setup_wizard_pages import _INSTALL_CHECKLIST
+    source = (
+        Path(__file__).resolve().parents[1] / "src" / "winpodx" / "gui" / "_setup_wizard_pages.py"
+    )
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    checklist = next(
+        ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "_INSTALL_CHECKLIST"
+        and node.value is not None
+    )
 
     seen: list[str] = []
-    for _phase_id, label, hint, _cancellable in _INSTALL_CHECKLIST:
+    for _phase_id, label, hint, _cancellable in checklist:
         for text in (label, hint):
             if text and text not in seen:
                 seen.append(text)
