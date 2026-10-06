@@ -341,6 +341,53 @@ $script:WinpodxSchemeDeny = [System.Collections.Generic.HashSet[string]]::new(
         'search-ms', 'hcp', 'its', 'mk', 'ldap', 'help', 'wscript', 'cscript',
         'view-source'))
 
+# Association harvest only: avoid registry-provider round trips for every
+# absent ProgID/Capabilities key. OpenSubKey is read-only; dispose each handle.
+function Get-RegistryValue {
+    param([Microsoft.Win32.RegistryKey]$Hive, [string]$Path, [string]$Name)
+    $key = $null
+    try {
+        $key = $Hive.OpenSubKey($Path)
+        if ($key) { return [string]$key.GetValue($Name) }
+    } catch {
+        [Console]::Error.WriteLine("[discover] registry value read failed ($($_.Exception.GetType().Name))")
+    } finally {
+        if ($key) { $key.Dispose() }
+    }
+    return ''
+}
+
+function Get-RegistrySubKeys {
+    param([Microsoft.Win32.RegistryKey]$Hive, [string]$Path)
+    $key = $null
+    try {
+        $key = $Hive.OpenSubKey($Path)
+        if ($key) { return $key.GetSubKeyNames() }
+    } catch {
+        [Console]::Error.WriteLine("[discover] registry subkey read failed ($($_.Exception.GetType().Name))")
+    } finally {
+        if ($key) { $key.Dispose() }
+    }
+    return @()
+}
+
+function Get-RegistryValues {
+    param([Microsoft.Win32.RegistryKey]$Hive, [string]$Path)
+    $values = @{}
+    $key = $null
+    try {
+        $key = $Hive.OpenSubKey($Path)
+        if ($key) {
+            foreach ($name in $key.GetValueNames()) { $values[$name] = [string]$key.GetValue($name) }
+        }
+    } catch {
+        [Console]::Error.WriteLine("[discover] registry values read failed ($($_.Exception.GetType().Name))")
+    } finally {
+        if ($key) { $key.Dispose() }
+    }
+    return $values
+}
+
 function Add-ExtTo {
     param([hashtable]$Map, [string]$Id, [string]$Ext)
     if (-not $Id -or -not $Ext) { return }
@@ -361,10 +408,11 @@ function Resolve-Identity {
     if (-not $ProgId) { return @() }
     if ($script:WinpodxIdCache.ContainsKey($ProgId)) { return $script:WinpodxIdCache[$ProgId] }
     $ids = New-Object System.Collections.Generic.List[string]
-    foreach ($root in @('HKCU:\SOFTWARE\Classes', 'HKLM:\SOFTWARE\Classes')) {
-        $aumid = [string](Get-ItemProperty -LiteralPath "$root\$ProgId\Application" -ErrorAction SilentlyContinue).AppUserModelID
+    foreach ($hive in @([Microsoft.Win32.Registry]::CurrentUser, [Microsoft.Win32.Registry]::LocalMachine)) {
+        $root = "SOFTWARE\Classes\$ProgId"
+        $aumid = Get-RegistryValue $hive "$root\Application" 'AppUserModelID'
         if ($aumid) { $id = "aumid:$aumid"; if (-not $ids.Contains($id)) { $ids.Add($id) } }
-        $cmd = [string](Get-ItemProperty -LiteralPath "$root\$ProgId\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
+        $cmd = Get-RegistryValue $hive "$root\shell\open\command" ''
         if ($cmd -and $cmd -match '([a-zA-Z]:\\[^"]*?\.exe)') {
             $id = "exe:" + ([System.IO.Path]::GetFileName($Matches[1])).ToLower()
             if (-not $ids.Contains($id)) { $ids.Add($id) }
@@ -381,14 +429,12 @@ function Build-ExtMap {
         # Per-extension current handler (UserChoice) under the user's FileExts.
         # Bounded to extensions the user actually has associations for, so it's
         # fast (a full HKCR\.* scan times out) and matches Settings > Default apps.
-        $fe = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FileExts'
-        if (Test-Path -LiteralPath $fe) {
-            Get-ChildItem -LiteralPath $fe -ErrorAction SilentlyContinue | ForEach-Object {
-                $ext = $_.PSChildName
-                if ($ext -notmatch '^\.[a-z0-9]{1,16}$') { return }
-                $uc = [string](Get-ItemProperty -LiteralPath "$fe\$ext\UserChoice" -ErrorAction SilentlyContinue).ProgId
-                foreach ($id in (Resolve-Identity $uc)) { Add-ExtTo $map $id $ext }
-            }
+        $cu = [Microsoft.Win32.Registry]::CurrentUser
+        $fe = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FileExts'
+        foreach ($ext in (Get-RegistrySubKeys $cu $fe)) {
+            if ($ext -notmatch '^\.[a-z0-9]{1,16}$') { continue }
+            $uc = Get-RegistryValue $cu "$fe\$ext\UserChoice" 'ProgId'
+            foreach ($id in (Resolve-Identity $uc)) { Add-ExtTo $map $id $ext }
         }
         # Per-app DECLARED associations: RegisteredApplications -> Capabilities\
         # FileAssociations (browsers, mail clients, desktop apps that aren't the
@@ -396,37 +442,26 @@ function Build-ExtMap {
         # Capabilities path is relative to the SAME hive root as its
         # RegisteredApplications entry — resolve it there only (probing the
         # other root costs ~50x as much on non-existent cross-hive paths).
-        foreach ($pair in @(
-                @('HKLM:\SOFTWARE\RegisteredApplications', 'HKLM:\'),
-                @('HKCU:\SOFTWARE\RegisteredApplications', 'HKCU:\'))) {
-            $raHive = $pair[0]; $root = $pair[1]
-            if (-not (Test-Path -LiteralPath $raHive)) { continue }
-            $ra = Get-ItemProperty -LiteralPath $raHive -ErrorAction SilentlyContinue
-            if (-not $ra) { continue }
-            foreach ($prop in $ra.PSObject.Properties) {
-                if ($prop.Name -match '^PS') { continue }
-                $capRel = [string]$prop.Value
+        foreach ($hive in @([Microsoft.Win32.Registry]::LocalMachine, $cu)) {
+            $ra = Get-RegistryValues $hive 'SOFTWARE\RegisteredApplications'
+            foreach ($appName in $ra.Keys) {
+                $capRel = $ra[$appName]
                 if (-not $capRel) { continue }
-                $faKey = Join-Path $root ($capRel + '\FileAssociations')
-                if (-not (Test-Path -LiteralPath $faKey)) { continue }
-                $fa = Get-ItemProperty -LiteralPath $faKey -ErrorAction SilentlyContinue
-                if (-not $fa) { continue }
-                foreach ($p in $fa.PSObject.Properties) {
-                    if ($p.Name -match '^PS' -or $p.Name -notlike '.*') { continue }
-                    foreach ($id in (Resolve-Identity ([string]$p.Value))) { Add-ExtTo $map $id ([string]$p.Name) }
+                $fa = Get-RegistryValues $hive "$capRel\FileAssociations"
+                foreach ($ext in $fa.Keys) {
+                    if ($ext -notlike '.*') { continue }
+                    foreach ($id in (Resolve-Identity $fa[$ext])) { Add-ExtTo $map $id $ext }
                 }
             }
         }
         # Per-app SupportedTypes: Applications\<exe>\SupportedTypes (Win32 apps
         # that declare openable types by exe rather than via Capabilities).
-        foreach ($appsHive in @('HKLM:\SOFTWARE\Classes\Applications', 'HKCU:\SOFTWARE\Classes\Applications')) {
-            if (-not (Test-Path -LiteralPath $appsHive)) { continue }
-            Get-ChildItem -LiteralPath $appsHive -ErrorAction SilentlyContinue | ForEach-Object {
-                $stKey = Join-Path $_.PSPath 'SupportedTypes'
-                if (-not (Test-Path -LiteralPath $stKey)) { return }
-                $id = "exe:" + $_.PSChildName.ToLower()
-                $st = Get-ItemProperty -LiteralPath $stKey -ErrorAction SilentlyContinue
-                if ($st) { foreach ($p in $st.PSObject.Properties) { if ($p.Name -notmatch '^PS') { Add-ExtTo $map $id ([string]$p.Name) } } }
+        foreach ($hive in @([Microsoft.Win32.Registry]::LocalMachine, $cu)) {
+            $appsPath = 'SOFTWARE\Classes\Applications'
+            foreach ($exeName in (Get-RegistrySubKeys $hive $appsPath)) {
+                $id = "exe:" + $exeName.ToLower()
+                $st = Get-RegistryValues $hive "$appsPath\$exeName\SupportedTypes"
+                foreach ($ext in $st.Keys) { Add-ExtTo $map $id $ext }
             }
         }
     } catch { }
@@ -477,35 +512,23 @@ function Build-SchemeMap {
     try {
         # Per-scheme current handler (UserChoice) under the user's UrlAssociations
         # -- bounded to protocols the user has a default for (matches Settings).
-        $ua = 'HKCU:\SOFTWARE\Microsoft\Windows\Shell\Associations\UrlAssociations'
-        if (Test-Path -LiteralPath $ua) {
-            Get-ChildItem -LiteralPath $ua -ErrorAction SilentlyContinue | ForEach-Object {
-                $scheme = $_.PSChildName
-                $uc = [string](Get-ItemProperty -LiteralPath "$ua\$scheme\UserChoice" -ErrorAction SilentlyContinue).ProgId
-                foreach ($id in (Resolve-Identity $uc)) { Add-SchemeTo $map $id $scheme }
-            }
+        $cu = [Microsoft.Win32.Registry]::CurrentUser
+        $ua = 'SOFTWARE\Microsoft\Windows\Shell\Associations\UrlAssociations'
+        foreach ($scheme in (Get-RegistrySubKeys $cu $ua)) {
+            $uc = Get-RegistryValue $cu "$ua\$scheme\UserChoice" 'ProgId'
+            foreach ($id in (Resolve-Identity $uc)) { Add-SchemeTo $map $id $scheme }
         }
         # Per-app DECLARED handlers: RegisteredApplications -> Capabilities\
         # URLAssociations (value NAME = scheme, DATA = handler ProgId). Same
         # same-hive-root rule Build-ExtMap uses for FileAssociations.
-        foreach ($pair in @(
-                @('HKLM:\SOFTWARE\RegisteredApplications', 'HKLM:\'),
-                @('HKCU:\SOFTWARE\RegisteredApplications', 'HKCU:\'))) {
-            $raHive = $pair[0]; $root = $pair[1]
-            if (-not (Test-Path -LiteralPath $raHive)) { continue }
-            $ra = Get-ItemProperty -LiteralPath $raHive -ErrorAction SilentlyContinue
-            if (-not $ra) { continue }
-            foreach ($prop in $ra.PSObject.Properties) {
-                if ($prop.Name -match '^PS') { continue }
-                $capRel = [string]$prop.Value
+        foreach ($hive in @([Microsoft.Win32.Registry]::LocalMachine, $cu)) {
+            $ra = Get-RegistryValues $hive 'SOFTWARE\RegisteredApplications'
+            foreach ($appName in $ra.Keys) {
+                $capRel = $ra[$appName]
                 if (-not $capRel) { continue }
-                $uaKey = Join-Path $root ($capRel + '\URLAssociations')
-                if (-not (Test-Path -LiteralPath $uaKey)) { continue }
-                $ub = Get-ItemProperty -LiteralPath $uaKey -ErrorAction SilentlyContinue
-                if (-not $ub) { continue }
-                foreach ($p in $ub.PSObject.Properties) {
-                    if ($p.Name -match '^PS') { continue }
-                    foreach ($id in (Resolve-Identity ([string]$p.Value))) { Add-SchemeTo $map $id ([string]$p.Name) }
+                $ub = Get-RegistryValues $hive "$capRel\URLAssociations"
+                foreach ($scheme in $ub.Keys) {
+                    foreach ($id in (Resolve-Identity $ub[$scheme])) { Add-SchemeTo $map $id $scheme }
                 }
             }
         }

@@ -100,3 +100,44 @@ def test_param_block_stays_first_statement(discover_source: str):
         if ln.strip() and not ln.lstrip().startswith("#")
     ]
     assert lines[0].startswith("[CmdletBinding()]") or lines[0].startswith("param(")
+
+
+def test_association_harvest_avoids_registry_provider(discover_source: str):
+    associations = discover_source.split("function Resolve-Identity {", 1)[1].split(
+        "function Get-AppExtensions {", 1
+    )[0]
+    associations += discover_source.split("function Build-SchemeMap {", 1)[1].split(
+        "function Get-AppUrlSchemes {", 1
+    )[0]
+    assert "[Microsoft.Win32.Registry]::CurrentUser" in discover_source
+    assert "[Microsoft.Win32.Registry]::LocalMachine" in discover_source
+    assert ".OpenSubKey(" in discover_source
+    assert ".GetSubKeyNames()" in discover_source
+    assert ".GetValueNames()" in discover_source
+    assert ".GetValue(" in discover_source
+    assert ".Dispose()" in discover_source
+    for provider_call in ("Get-ItemProperty", "Get-ChildItem", "Test-Path", "Join-Path"):
+        assert provider_call not in associations
+
+
+def test_association_harvest_retains_sources_and_identity_union(discover_source: str):
+    associations = discover_source.split("function Resolve-Identity {", 1)[1].split(
+        "function Get-AppUrlSchemes {", 1
+    )[0]
+    for registry_path in (
+        "FileExts",
+        "UrlAssociations",
+        "RegisteredApplications",
+        "FileAssociations",
+        "SupportedTypes",
+        "UserChoice",
+        "AppUserModelID",
+        "shell\\open\\command",
+    ):
+        assert registry_path in associations
+    assert '"aumid:$aumid"' in associations
+    assert '"exe:"' in associations
+    assert "WinpodxIdCache[$ProgId]" in associations
+    assert "WinpodxSchemeDeny.Contains($s)" in associations
+    assert "Get-AppExtensions $path" in discover_source
+    assert "Get-AppUrlSchemes $path" in discover_source
