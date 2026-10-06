@@ -21,6 +21,7 @@ from winpodx.core.transport.base import (
 )
 from winpodx.core.transport.dispatch import PreferKind, dispatch
 from winpodx.core.transport.freerdp import FreerdpTransport
+from winpodx.core.transport.policy import agent_only, agent_required
 
 __all__ = [
     "SPEC_VERSION",
@@ -34,5 +35,7 @@ __all__ = [
     "TransportError",
     "TransportTimeoutError",
     "TransportUnavailable",
+    "agent_only",
+    "agent_required",
     "dispatch",
 ]
