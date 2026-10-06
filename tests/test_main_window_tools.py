@@ -30,6 +30,9 @@ import os
 import subprocess
 import threading
 import time
+from importlib import import_module
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -130,6 +133,7 @@ def _wait_for(pred, timeout: float = 3.0) -> bool:
     """Poll ``pred`` until true. Bounded; a healthy path returns in ms."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        QApplication.processEvents()
         if pred():
             return True
         time.sleep(0.005)
@@ -256,6 +260,8 @@ def _assert_busy_dialog_closed(dialogs) -> None:
 class _MaintHarness(MaintenanceMixin, QWidget):
     """Bare host exposing exactly what MaintenanceMixin reads."""
 
+    update_status_updated = Signal(str)
+
     def __init__(self, cfg: Config) -> None:
         super().__init__()
         self.cfg = cfg
@@ -270,6 +276,15 @@ class _MaintHarness(MaintenanceMixin, QWidget):
         self._btn_disable_updates = _FakeButton()
         self._btn_retry_updates = _FakeButton()
         self.page = None
+        self._first_install_pending = False
+        self._background_agent_only = False
+        self.paint_threads: list[int] = []
+        self.update_status_updated.connect(self._receive_update_status)
+
+    @Slot(str)
+    def _receive_update_status(self, status: str) -> None:
+        self.paint_threads.append(threading.get_ident())
+        self._on_update_status(status)
 
     def _refresh_pod_status(self) -> None:
         self.pod_refreshes += 1
@@ -1000,6 +1015,99 @@ def test_apply_fixes_reports_a_raise(maint, busy_dialogs, load_cfg, monkeypatch)
 
 
 # ----- Tools: Windows Update tri-state ----------------------------------
+
+
+def test_first_install_update_probe_is_deferred_before_thread_creation(maint, monkeypatch) -> None:
+    # Given a pending first install, even after its config was marked initialized.
+    maint._first_install_pending = True
+    maint.cfg.pod.initialized = True
+    factory = Mock()
+    query = Mock(side_effect=AssertionError("pending guest execution"))
+    monkeypatch.setattr(
+        "winpodx.gui._main_window_maintenance.threading", SimpleNamespace(Thread=factory)
+    )
+    monkeypatch.setattr("winpodx.core.updates.get_update_status", query)
+    # When the update card's initial refresh runs.
+    maint._refresh_update_status()
+    # Then no thread starts and the card stays neutral rather than claiming the pod is down.
+    factory.assert_not_called()
+    query.assert_not_called()
+    assert maint._update_status_label.text() == "Checking..."
+    assert maint._btn_enable_updates.visible is False
+    assert maint._btn_disable_updates.visible is False
+
+
+def test_update_status_worker_marshals_widget_changes_to_gui_thread(
+    maint, monkeypatch, load_cfg
+) -> None:
+    # Given a real worker thread with only the guest query replaced.
+    load_cfg(_cfg())
+    gui_thread = threading.get_ident()
+    queried: list[int] = []
+    monkeypatch.setattr(
+        "winpodx.core.updates.get_update_status",
+        lambda cfg: queried.append(threading.get_ident()) or "enabled",
+    )
+    # When status returns from the worker and the Qt queue drains.
+    maint._refresh_update_status()
+    assert _wait_for(lambda: maint._update_status_label.texts)
+    # Then guest work and widget paint occur on their respective threads.
+    assert len(queried) == 1 and queried[0] != gui_thread
+    assert maint.paint_threads == [gui_thread]
+
+
+@pytest.mark.parametrize("protected", [False, True])
+def test_update_probe_uses_origin_policy_inside_its_worker(maint, monkeypatch, load_cfg, protected):
+    # Given a fresh-origin or established status query running off the GUI thread.
+    from winpodx.core.transport import agent_required
+
+    load_cfg(_cfg())
+    maint._background_agent_only = protected
+    observed: list[bool] = []
+    monkeypatch.setattr(
+        "winpodx.core.updates.get_update_status",
+        lambda cfg: observed.append(agent_required()) or "enabled",
+    )
+    # When the worker runs and its result reaches the card.
+    maint._refresh_update_status()
+    assert _wait_for(lambda: maint._update_status_label.texts)
+    # Then only the fresh-origin worker is strict; the GUI context stays legacy.
+    assert observed == [protected]
+    assert agent_required() is False
+
+
+@pytest.mark.parametrize("protected", [False, True])
+def test_update_worker_agent_flap_preserves_only_established_fallback(
+    maint, monkeypatch, load_cfg, protected
+) -> None:
+    # Given the real update adapter and dispatcher with an unavailable agent.
+    from winpodx.core.transport import HealthStatus
+
+    load_cfg(_cfg(backend="podman", initialized=True))
+    maint._background_agent_only = protected
+    monkeypatch.setattr(
+        "winpodx.core.transport.agent.AgentTransport.health",
+        lambda self: HealthStatus(available=False, detail="offline"),
+    )
+    constructor = Mock(return_value=SimpleNamespace(name="freerdp"))
+    fallback = Mock(return_value=WindowsExecResult(rc=0, stdout="enabled", stderr=""))
+    spawn = Mock(side_effect=AssertionError("real RDP process forbidden"))
+    if protected:
+        constructor.side_effect = AssertionError("protected RDP constructor")
+        fallback.side_effect = AssertionError("protected RDP execution")
+    monkeypatch.setattr(
+        import_module("winpodx.core.transport.dispatch"), "FreerdpTransport", constructor
+    )
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fallback)
+    monkeypatch.setattr("winpodx.core.rdp.subprocess.Popen", spawn)
+    # When health flaps before the worker dispatches its status query.
+    maint._refresh_update_status()
+    assert _wait_for(lambda: maint._update_status_label.texts)
+    # Then strict origin stays unknown, while the established default reaches the legacy seam.
+    assert constructor.call_count == int(not protected)
+    assert fallback.call_count == int(not protected)
+    assert maint._btn_retry_updates.visible is protected
+    spawn.assert_not_called()
 
 
 def test_update_status_enabled_offers_only_disable(maint, load_cfg, monkeypatch):

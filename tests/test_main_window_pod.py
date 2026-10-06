@@ -33,6 +33,7 @@ import os
 import threading
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -62,6 +63,7 @@ from winpodx.core.config import Config  # noqa: E402
 from winpodx.core.i18n import tr  # noqa: E402
 from winpodx.core.pod import PodState, PodStatus  # noqa: E402
 from winpodx.gui import launcher_state  # noqa: E402
+from winpodx.gui._main_window_apps import AppCrudMixin  # noqa: E402
 from winpodx.gui._main_window_license import LicensePageMixin  # noqa: E402
 from winpodx.gui._main_window_pod import PodStatusMixin  # noqa: E402
 from winpodx.gui.theme import C, current_scheme, rebuild  # noqa: E402
@@ -153,7 +155,7 @@ class _FakeSession:
 # ----- PodStatusMixin harness --------------------------------------------
 
 
-class PodHarness(PodStatusMixin):
+class PodHarness(PodStatusMixin, AppCrudMixin):
     """Bare host exposing only what PodStatusMixin reads."""
 
     def __init__(self, cfg: Config, apps: list[AppInfo] | None = None) -> None:
@@ -161,6 +163,16 @@ class PodHarness(PodStatusMixin):
         self.apps = list(apps or [])
         self._pod_state = "checking"
         self._refresh_state = "idle"
+        self._refresh_thread = None
+        self._discovery_automatic = False
+        self._refresh_was_automatic = False
+        self._auto_discovery_attempts = 0
+        self._auto_discovery_generation = 0
+        self._first_install_pending = False
+        self._first_install_setup_succeeded = False
+        self._background_agent_only = False
+        self._last_agent_ok = False
+        self.first_install_health_checked = FakeSignal()
         self._recently_launched: set[str] = set()
         self.pod_status_updated = FakeSignal()
         self.transport_status_updated = FakeSignal()
@@ -181,9 +193,23 @@ class PodHarness(PodStatusMixin):
         self.btn_stop = QPushButton()
         self.refreshed = 0
         self.home_refreshed = 0
+        self.readiness_resumed: list[str] = []
 
-    def _on_refresh_apps(self) -> None:
+    def _reload_apps(self) -> None:
+        self.readiness_resumed.append("apps")
+
+    def _refresh_update_status(self) -> None:
+        self.readiness_resumed.append("updates")
+
+    def _refresh_dashboard(self) -> None:
+        self.readiness_resumed.append("dashboard")
+
+    def _refresh_info(self) -> None:
+        self.readiness_resumed.append("info")
+
+    def _on_refresh_apps(self, *, automatic: bool = False) -> None:
         self.refreshed += 1
+        self._refresh_was_automatic = automatic
 
     def _refresh_launcher_home(self) -> None:
         self.home_refreshed += 1
@@ -671,15 +697,164 @@ def test_pod_status_kicks_discovery_when_running_with_an_empty_library(
 ) -> None:
     host = _pod_host(monkeypatch)
     scheduled: list[tuple] = []
-    monkeypatch.setattr(
-        pod_mod,
-        "QTimer",
-        SimpleNamespace(singleShot=lambda ms, fn: scheduled.append((ms, fn))),
-    )
+    monkeypatch.setattr(pod_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
 
     host._on_pod_status("running", "10.0.0.5")
 
-    assert scheduled == [(2000, host._on_refresh_apps)]
+    assert len(scheduled) == 1
+    delay, callback = scheduled[0]
+    assert delay == 2000
+    callback()
+    assert host.refreshed == 1
+    assert host._refresh_was_automatic is True
+    assert host._discovery_automatic is False
+
+
+def test_initial_discovery_callback_ignores_replaced_pod_cycle(monkeypatch) -> None:
+    # Given two running transitions with an intervening stop.
+    host = _pod_host(monkeypatch)
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(pod_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
+    host._on_pod_status("running", "")
+    host._on_pod_status("stopped", "")
+    host._on_pod_status("running", "")
+    # When the first cycle's callback runs after replacement.
+    scheduled[0][1]()
+    # Then only the current cycle's callback may start discovery.
+    assert host.refreshed == 0
+    scheduled[1][1]()
+    assert host.refreshed == 1
+    assert host._refresh_was_automatic is True
+
+
+def test_initial_discovery_does_not_queue_during_worker_teardown(monkeypatch) -> None:
+    # Given an idle UI whose previous worker reference is still live.
+    host = _pod_host(monkeypatch)
+    host._refresh_thread = _FakeThread()
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(pod_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
+    # When the pod status transitions to running.
+    host._on_pod_status("running", "")
+    # Then no concurrent scan is scheduled.
+    assert scheduled == []
+
+
+def test_first_install_running_does_not_schedule_discovery(monkeypatch) -> None:
+    # Given a fresh install whose config has already been saved as initialized.
+    host = _pod_host(monkeypatch)
+    host._first_install_pending = True
+    host.cfg.pod.initialized = True
+    scheduled = Mock()
+    monkeypatch.setattr(pod_mod.QTimer, "singleShot", scheduled)
+    # When the container starts before setup succeeds.
+    host._on_pod_status("running", "")
+    # Then no automatic guest work is queued.
+    scheduled.assert_not_called()
+    assert host._first_install_pending is True
+
+
+@pytest.mark.parametrize("setup_succeeded", [False, True])
+def test_first_install_transport_health_alone_does_not_release(
+    monkeypatch, setup_succeeded
+) -> None:
+    # Given a health result that may have been queued before provisioning completed.
+    host = _pod_host(monkeypatch)
+    host._first_install_pending = True
+    host._first_install_setup_succeeded = setup_succeeded
+    host._pod_state = "running"
+    # When the ordinary transport-status callback arrives.
+    host._on_transport_status(True, True, "test")
+    # Then only a dedicated post-success health result may release the latch.
+    assert host._first_install_pending is True
+    assert host.readiness_resumed == []
+
+
+@pytest.mark.parametrize("setup_succeeded", [False, True])
+@pytest.mark.parametrize("agent_ok", [False, True])
+def test_first_install_release_requires_success_and_fresh_health(
+    monkeypatch, setup_succeeded, agent_ok
+) -> None:
+    # Given an accepted setup outcome and a still-empty library.
+    host = _pod_host(monkeypatch)
+    host._first_install_pending = True
+    host._first_install_setup_succeeded = setup_succeeded
+    host._background_agent_only = True
+    host._pod_state = "running"
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(pod_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
+    # When a health probe started after setup reports back on the GUI thread.
+    host._on_first_install_health_checked(agent_ok)
+    # Then release and resume occur only when both facts hold.
+    ready = setup_succeeded and agent_ok
+    assert host._first_install_pending is not ready
+    assert host.readiness_resumed == (["apps", "updates", "dashboard", "info"] if ready else [])
+    assert len(scheduled) == int(ready)
+    assert host._background_agent_only is True
+
+
+def test_first_install_early_probe_cannot_certify_later_setup_success(monkeypatch) -> None:
+    # Given a status tick started before provisioning succeeded.
+    host = _pod_host(monkeypatch)
+    host._first_install_pending = True
+    tasks: list = []
+    monkeypatch.setattr(
+        pod_mod,
+        "threading",
+        SimpleNamespace(Thread=lambda **kw: tasks.append(kw["target"]) or Mock()),
+    )
+    monkeypatch.setattr(pod_mod, "pod_status", lambda cfg: PodStatus(PodState.RUNNING))
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeAgent)
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *args, **kwargs: True)
+    host._refresh_pod_status()
+    host._first_install_setup_succeeded = True
+    # When the older worker finishes after the wizard.
+    tasks.pop()()
+    # Then it cannot emit readiness evidence from the earlier tick.
+    assert host.first_install_health_checked.emissions == []
+
+
+def test_first_install_post_success_probe_emits_fresh_health(monkeypatch) -> None:
+    # Given provisioning success and an agent-only health endpoint.
+    host = _pod_host(monkeypatch)
+    host._first_install_pending = True
+    host._first_install_setup_succeeded = True
+    monkeypatch.setattr(pod_mod, "pod_status", lambda cfg: PodStatus(PodState.RUNNING))
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeAgent)
+    monkeypatch.setattr("winpodx.core.pod.check_rdp_port", lambda *args, **kwargs: True)
+    # When the real status worker probes after success.
+    host._refresh_pod_status()
+    # Then the dedicated readiness result carries fresh health.
+    assert host.first_install_health_checked.emissions == [(True,)]
+
+
+def test_pending_restart_rechecks_markers_before_health_releases_latch(monkeypatch) -> None:
+    # Given a successful resume whose fresh-health result is still queued.
+    from winpodx.utils.pending import add_step
+
+    host = _pod_host(monkeypatch)
+    host._first_install_pending = True
+    host._first_install_setup_succeeded = True
+    host._pod_state = "running"
+    add_step("discovery")
+    # When another pending step is recorded before the health result arrives.
+    host._on_first_install_health_checked(True)
+    # Then stale completion evidence cannot release startup work.
+    assert host._first_install_pending is True
+    assert host.readiness_resumed == []
+
+
+def test_agent_ready_transition_queues_only_one_empty_library_scan(monkeypatch) -> None:
+    # Given an established running pod whose agent was unavailable.
+    host = _pod_host(monkeypatch)
+    host._pod_state = "running"
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(pod_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
+    # When health changes to ready and subsequent healthy ticks arrive.
+    for _ in range(2):
+        host._on_transport_status(True, True, "test")
+    # Then the existing bounded-discovery path gets exactly one callback.
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == 2000
 
 
 @pytest.mark.parametrize(
@@ -918,6 +1093,18 @@ class SignalHarness:
         self.log_signal = FakeSignal()
         self.dashboard_updated = FakeSignal()
         self.bringup_started = FakeSignal()
+        self.update_status_updated = FakeSignal()
+        self.first_install_health_checked = FakeSignal()
+        self.pending_setup_resumed = FakeSignal()
+
+    def _on_update_status(self, status: str) -> None:
+        pass
+
+    def _on_first_install_health_checked(self, ready: bool) -> None:
+        pass
+
+    def _on_pending_setup_resumed(self, cleared: bool) -> None:
+        pass
 
     def _on_pod_status(self, state: str, ip: str) -> None:
         pass
@@ -955,6 +1142,9 @@ def test_setup_signals_wires_every_slot() -> None:
     assert host.app_launch_failed.connections == [host._on_app_launch_failed]
     assert host.dashboard_updated.connections == [host._apply_snapshot]
     assert host.bringup_started.connections == [host._open_bringup_dialog]
+    assert host.update_status_updated.connections == [host._on_update_status]
+    assert host.first_install_health_checked.connections == [host._on_first_install_health_checked]
+    assert host.pending_setup_resumed.connections == [host._on_pending_setup_resumed]
     # log_signal fans out to the Terminal history AND the bottom ticker.
     assert host.log_signal.connections == [host._log_append, host._update_log_bar]
 
@@ -1175,6 +1365,10 @@ class WindowShell(mw_mod.WinpodxWindow):
         QMainWindow.__init__(self)
         self.reflowed: list[str] = []
         self.joined = 0
+        self._discovery_automatic = False
+        self._refresh_was_automatic = False
+        self._auto_discovery_generation = 0
+        self._first_install_pending = False
 
     def _reflow_settings(self) -> None:
         self.reflowed.append("settings")
@@ -1216,7 +1410,112 @@ def test_close_event_joins_the_worker_threads_and_accepts() -> None:
         shell.deleteLater()
 
 
+def test_close_event_disarms_pending_discovery_callback(monkeypatch) -> None:
+    # Given a still-running pod with a retry pending when the window closes.
+    _ensure_qapp()
+    shell = WindowShell()
+    shell.apps = []
+    shell._pod_state = "running"
+    scheduled: list[tuple] = []
+    started: list[bool] = []
+
+    def start_refresh(*, automatic: bool = False) -> None:
+        started.append(automatic)
+
+    monkeypatch.setattr(shell, "_on_refresh_apps", start_refresh)
+    monkeypatch.setattr(mw_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
+    shell._queue_auto_discovery(60_000)
+    shell._refresh_was_automatic = True
+    try:
+        # When a captured callback arrives after closeEvent has joined workers.
+        shell.closeEvent(QCloseEvent())
+        scheduled.pop()[1]()
+        # Then no new discovery starts or remains eligible for another retry.
+        assert started == []
+        assert shell._refresh_was_automatic is False
+        assert shell.joined == 1
+    finally:
+        shell.deleteLater()
+
+
 # ----- main_window: run_gui() ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "startup",
+    [
+        ("podman", False, (), True),
+        ("docker", False, (), True),
+        ("podman", True, (), False),
+        ("manual", False, (), False),
+        ("podman", True, ("wait_ready", "discovery"), True),
+        ("docker", True, ("discovery",), True),
+        ("podman", True, ("migrate",), True),
+        ("manual", True, ("discovery",), False),
+    ],
+)
+def test_first_install_constructor_guards_page_probes_before_build(
+    monkeypatch: pytest.MonkeyPatch, startup: tuple[str, bool, tuple[str, ...], bool]
+) -> None:
+    # Given the real window constructor and pages with every external boundary isolated.
+    from winpodx.utils.pending import add_step
+
+    _ensure_qapp()
+    backend, initialized, steps, pending = startup
+    for step in steps:
+        add_step(step)
+    cfg = Config()
+    cfg.pod.backend = backend
+    cfg.pod.initialized = initialized
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: cfg))
+    monkeypatch.setattr(mw_mod, "list_available_apps", lambda: [])
+    for name in ("_on_follow_app_log", "_start_status_timer", "_maybe_run_first_launch_checks"):
+        monkeypatch.setattr(mw_mod.WinpodxWindow, name, lambda self: None)
+    monkeypatch.setattr("winpodx.core.process.list_active_sessions", lambda: [])
+    monkeypatch.setattr("winpodx.cli.device._enumerate_host", lambda: [])
+    monkeypatch.setattr("winpodx.cli.device._guest_running", lambda cfg: False)
+    monkeypatch.setattr("winpodx.utils.locale.detect_timezone", lambda: "UTC")
+    monkeypatch.setattr("winpodx.desktop.autostart.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("winpodx.reverse_open.lifecycle.is_listener_running", lambda: None)
+    monkeypatch.setattr(
+        "winpodx.utils.specs.detect_tuning_capability", Mock(side_effect=RuntimeError)
+    )
+    dashboard = Mock()
+    info = Mock()
+    monkeypatch.setattr(mw_mod.DashboardMixin, "_refresh_dashboard", dashboard)
+    monkeypatch.setattr(mw_mod.InfoPageMixin, "_refresh_info", info)
+    import winpodx.gui._main_window_maintenance as maintenance
+
+    threads = _sync_threads(monkeypatch, maintenance)
+    query = Mock(return_value=None)
+    monkeypatch.setattr("winpodx.core.updates.get_update_status", query)
+    rdp = Mock(side_effect=AssertionError("unsolicited RDP"))
+    monkeypatch.setattr("winpodx.core.transport.freerdp.FreerdpTransport", rdp)
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rdp)
+    monkeypatch.setattr("winpodx.core.rdp.subprocess.Popen", rdp)
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(mw_mod.QTimer, "singleShot", lambda ms, fn: scheduled.append((ms, fn)))
+    # When constructor builds the update card and the queued Info callback is delivered.
+    window = mw_mod.WinpodxWindow()
+    try:
+        window._refresh_info()
+        assert window._first_install_pending is pending
+        assert len(threads) == int(not pending)
+        assert query.call_count == int(not pending)
+        assert dashboard.call_count == int(not pending)
+        assert info.call_count == int(not pending)
+        if pending:
+            window._on_pod_status("running", "")
+            assert window._update_status_label.text() == tr("Checking...")
+            assert window._btn_enable_updates.isHidden()
+            assert window._btn_disable_updates.isHidden()
+            assert window._discovery_automatic is False
+        rdp.assert_not_called()
+    finally:
+        window._dashboard_timer.stop()
+        window._sessions_timer.stop()
+        window.close()
+        window.deleteLater()
 
 
 class _FakeWindow:

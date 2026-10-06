@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
+from types import SimpleNamespace
 
 import pytest
 
@@ -582,6 +584,12 @@ class _PageHarness(LibraryPageMixin, AppCrudMixin, QWidget):
         self._refresh_state = "idle"
         self._refresh_thread = None
         self._refresh_worker = None
+        self._discovery_automatic = False
+        self._refresh_was_automatic = False
+        self._auto_discovery_attempts = 0
+        self._auto_discovery_generation = 0
+        self._first_install_pending = False
+        self._first_install_setup_succeeded = False
         self.launched: list[str] = []
         self.edited: list[str] = []
         self.deleted: list[str] = []
@@ -1623,7 +1631,8 @@ class _FakeThread:
 
 
 class _FakeWorker:
-    def __init__(self) -> None:
+    def __init__(self, *, require_agent: bool = False) -> None:
+        self.require_agent = require_agent
         self.succeeded = _FakeSignal()
         self.failed = _FakeSignal()
         self.finished = _FakeSignal()
@@ -1649,6 +1658,71 @@ def test_refresh_apps_wires_worker_and_keeps_both_references(page, monkeypatch) 
     assert host._refresh_worker.thread is host._refresh_thread
     assert host._refresh_thread.started_count == 1
     assert host.refresh_btn.isEnabled() is False
+
+
+@pytest.mark.parametrize(
+    ("pending", "automatic", "strict"),
+    [(False, False, False), (False, True, True), (True, False, True)],
+)
+def test_first_install_refresh_carries_strict_origin_to_worker(
+    retry_scan, pending, automatic, strict
+) -> None:
+    # Given a manual or automatic request on a fresh or established window.
+    host, _queued, _failures = retry_scan
+    host._first_install_pending = pending
+    # When the real refresh entry point builds its worker.
+    host._on_refresh_apps(automatic=automatic)
+    # Then policy is explicit on the worker, independent of the GUI-thread context.
+    assert host._refresh_worker.require_agent is strict
+    assert host._refresh_was_automatic is automatic
+
+
+def test_first_install_blocks_direct_automatic_refresh(retry_scan) -> None:
+    # Given a still-pending first install.
+    host, _queued, _failures = retry_scan
+    host._first_install_pending = True
+    # When an automatic request arrives without a timer.
+    host._on_refresh_apps(automatic=True)
+    # Then no thread or worker is created.
+    assert host._refresh_thread is None
+    assert host._refresh_state == "idle"
+
+
+def test_first_install_blocks_auto_discovery_scheduling(retry_scan) -> None:
+    # Given a still-pending first install.
+    host, queued, _failures = retry_scan
+    host._first_install_pending = True
+    # When the automatic discovery scheduler is called.
+    host._queue_auto_discovery(2000)
+    # Then no callback is armed.
+    assert queued == []
+    assert host._discovery_automatic is False
+
+
+def test_first_install_blocks_already_queued_discovery(retry_scan) -> None:
+    # Given a callback queued before protection became pending.
+    host, queued, _failures = retry_scan
+    host._queue_auto_discovery(2000)
+    callback = queued.pop()[1]
+    host._first_install_pending = True
+    # When the queued callback arrives.
+    callback()
+    # Then it consumes its origin without starting a guest scan.
+    assert host._refresh_thread is None
+    assert host._discovery_automatic is False
+
+
+def test_auto_discovery_does_not_duplicate_an_existing_timer(retry_scan) -> None:
+    # Given an already queued retry and its generation.
+    host, queued, _failures = retry_scan
+    host._queue_auto_discovery(60_000)
+    generation = host._auto_discovery_generation
+    # When health-ready also asks for discovery.
+    host._queue_auto_discovery(2000)
+    # Then the bounded retry retains its delay and generation.
+    assert len(queued) == 1
+    assert queued[0][0] == 60_000
+    assert host._auto_discovery_generation == generation
 
 
 def test_refresh_apps_ignores_reclick_while_thread_reference_is_live(page, monkeypatch) -> None:
@@ -1699,6 +1773,52 @@ def test_refresh_success_reloads_and_reports_count(page, monkeypatch) -> None:
     assert "3" in host.info_label.text()
 
 
+def test_automatic_discovery_retries_while_windows_is_still_starting(page, monkeypatch) -> None:
+    import winpodx.gui._main_window_apps as apps_mod
+
+    queued: list[tuple[int, Callable[[], None]]] = []
+    monkeypatch.setattr(apps_mod, "QThread", _FakeThread)
+    monkeypatch.setattr(apps_mod, "DiscoveryWorker", _FakeWorker)
+    monkeypatch.setattr(
+        apps_mod.QTimer, "singleShot", lambda delay, callback: queued.append((delay, callback))
+    )
+    host = page([], cls=_CrudHarness)
+    host._pod_state = "running"
+    host._refresh_was_automatic = True
+    host._auto_discovery_attempts = 0
+
+    host._on_refresh_failed("timeout", "ERRCONNECT_ACTIVATION_TIMEOUT")
+
+    assert host._refresh_state == "idle"
+    assert len(queued) == 1
+    delay, callback = queued[0]
+    assert delay == 60_000
+    assert host._discovery_automatic is True
+    assert "retry" in host.info_label.text().lower()
+    callback()
+    assert host._refresh_thread.started_count == 1
+    assert host._refresh_was_automatic is True
+    assert host._discovery_automatic is False
+
+
+def test_automatic_discovery_shows_dialog_after_retry_budget(page, monkeypatch) -> None:
+    import winpodx.gui._main_window_apps as apps_mod
+
+    queued: list[tuple[int, object]] = []
+    monkeypatch.setattr(
+        apps_mod.QTimer, "singleShot", lambda delay, callback: queued.append((delay, callback))
+    )
+    host = page([], cls=_CrudHarness)
+    host._pod_state = "running"
+    host._refresh_was_automatic = True
+    host._auto_discovery_attempts = len(apps_mod._AUTO_DISCOVERY_RETRY_DELAYS_MS)
+
+    host._on_refresh_failed("timeout", "still installing")
+
+    assert queued and queued[0][0] == 0
+    assert host.info_label.text() == "App discovery failed"
+
+
 def test_refresh_failure_defers_dialog_to_timer(page, monkeypatch) -> None:
     import winpodx.gui._main_window_apps as apps_mod
 
@@ -1712,6 +1832,233 @@ def test_refresh_failure_defers_dialog_to_timer(page, monkeypatch) -> None:
 
     assert host._refresh_state == "idle"
     assert len(queued) == 1
+
+
+@pytest.fixture
+def retry_scan(page, monkeypatch):
+    import winpodx.gui._main_window_apps as apps_mod
+
+    host = page([], cls=_CrudHarness)
+    queued: list[tuple[int, Callable[[], None]]] = []
+    failures: list[tuple[str, str]] = []
+    monkeypatch.setattr(apps_mod, "QThread", _FakeThread)
+    monkeypatch.setattr(apps_mod, "DiscoveryWorker", _FakeWorker)
+    monkeypatch.setattr(apps_mod, "show_toast", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        apps_mod.QTimer, "singleShot", lambda delay, callback: queued.append((delay, callback))
+    )
+    monkeypatch.setattr(
+        host, "_show_refresh_failure_dialog", lambda kind, detail: failures.append((kind, detail))
+    )
+    host._refresh_was_automatic = True
+    return host, queued, failures
+
+
+@pytest.mark.parametrize(
+    "kind", ["timeout", "session_disconnected", "agent_unavailable", "pod_not_running"]
+)
+def test_retry_callback_starts_automatic_scan_when_failure_is_transient(retry_scan, kind) -> None:
+    # Given an automatic first-boot scan with no applications yet.
+    host, queued, failures = retry_scan
+    host._on_refresh_failed(kind, "guest still starting")
+    delay, callback = queued.pop()
+    # When the scheduled delay expires.
+    callback()
+    # Then the real refresh entry point owns one automatic worker.
+    assert delay == 60_000
+    assert host._refresh_state == "scanning"
+    assert host._refresh_was_automatic is True
+    assert host._refresh_worker.thread is host._refresh_thread
+    assert host._refresh_thread.started_count == 1
+    assert failures == []
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_retry_callback_does_not_scan_when_pod_stops_or_apps_arrive(retry_scan, populated) -> None:
+    # Given a scheduled first-boot retry whose prerequisites changed.
+    host, queued, _failures = retry_scan
+    host._on_refresh_failed("timeout", "guest still starting")
+    host.apps = [_app("word")] if populated else []
+    host._pod_state = "running" if populated else "stopped"
+    # When the old callback runs.
+    queued.pop()[1]()
+    # Then it does not create a worker or leave automatic origin armed.
+    assert host._refresh_thread is None
+    assert host._discovery_automatic is False
+
+
+def test_manual_refresh_does_not_inherit_pending_automatic_origin(retry_scan) -> None:
+    # Given a pending automatic retry.
+    host, queued, _failures = retry_scan
+    host._on_refresh_failed("timeout", "guest still starting")
+    callback = queued.pop()[1]
+    # When the user clicks Refresh Apps before the delay expires.
+    host.refresh_btn.click()
+    # Then it is manual and the old callback cannot replace its worker.
+    thread = host._refresh_thread
+    assert thread is not None
+    assert host._refresh_was_automatic is False
+    callback()
+    assert host._refresh_thread is thread
+
+
+def test_manual_failure_cancels_old_retry_after_worker_cleanup(retry_scan) -> None:
+    # Given a manual scan that superseded a scheduled automatic retry.
+    host, queued, failures = retry_scan
+    host._on_refresh_failed("timeout", "boot")
+    callback = queued.pop()[1]
+    host._on_refresh_apps()
+    host._on_refresh_failed("timeout", "manual failure")
+    host._cleanup_refresh_worker()
+    # When the stale timer fires after the manual worker has gone.
+    callback()
+    # Then no scan restarts, and the manual failure is actionable.
+    assert host._refresh_thread is None
+    delay, show_failure = queued.pop()
+    assert delay == 0
+    show_failure()
+    assert failures == [("timeout", "manual failure")]
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_success_resets_budget_and_cancels_pending_retry(retry_scan, monkeypatch, count) -> None:
+    # Given a pending retry, including success that discovers zero apps.
+    host, queued, _failures = retry_scan
+    host._on_refresh_failed("timeout", "boot")
+    callback = queued.pop()[1]
+    host._auto_discovery_attempts = 3
+    monkeypatch.setattr("winpodx.gui._main_window_apps.list_available_apps", lambda: [])
+    # When discovery succeeds before the stale callback runs.
+    host._on_refresh_succeeded(count)
+    callback()
+    # Then the budget and origin reset without launching another worker.
+    assert host._auto_discovery_attempts == 0
+    assert host._refresh_was_automatic is False
+    assert host._discovery_automatic is False
+    assert host._refresh_thread is None
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["script_failed", "bad_json", "script_missing", "truncated", "module_missing", "unexpected"],
+)
+def test_permanent_automatic_failure_shows_dialog_without_retry(retry_scan, kind) -> None:
+    # Given an automatic scan that fails permanently.
+    host, queued, failures = retry_scan
+    # When the error is delivered and its deferred dialog executes.
+    host._on_refresh_failed(kind, "permanent failure")
+    delay, callback = queued.pop()
+    callback()
+    # Then no retry or automatic origin survives the failure.
+    assert delay == 0
+    assert failures == [(kind, "permanent failure")]
+    assert host._refresh_thread is None
+    assert host._refresh_was_automatic is False
+    assert host._discovery_automatic is False
+
+
+@pytest.mark.parametrize(
+    ("kind", "detail"),
+    [
+        ("pod_not_running", "ERRCONNECT_LOGON_FAILURE"),
+        ("pod_not_running", "Authentication failed"),
+        ("pod_not_running", "NTSTATUS 0xC000006D"),
+        ("timeout", "ERRCONNECT_ACTIVATION_TIMEOUT after authentication failed"),
+    ],
+)
+def test_auth_failure_is_not_retried_when_legacy_kind_looks_transient(
+    retry_scan, kind, detail
+) -> None:
+    # Given the legacy classifier's transient kind for a credential failure.
+    host, queued, failures = retry_scan
+    # When the worker reports that failure.
+    host._on_refresh_failed(kind, detail)
+    delay, callback = queued.pop()
+    # Then the next callback is an actionable failure, not another scan.
+    assert delay == 0
+    callback()
+    assert failures == [(kind, detail)]
+    assert host._refresh_thread is None
+
+
+@pytest.mark.parametrize("tearing_down", [False, True])
+def test_retry_callback_keeps_existing_worker_when_scan_is_busy(retry_scan, tearing_down) -> None:
+    # Given a scheduled retry while a different worker is active or joining.
+    host, queued, _failures = retry_scan
+    host._on_refresh_failed("timeout", "boot")
+    thread = _FakeThread(host)
+    worker = _FakeWorker()
+    host._refresh_thread = thread
+    host._refresh_worker = worker
+    host._refresh_state = "idle" if tearing_down else "scanning"
+    # When the callback runs during the lifecycle guard window.
+    queued.pop()[1]()
+    # Then neither reference is replaced and pending origin is consumed.
+    assert host._refresh_thread is thread
+    assert host._refresh_worker is worker
+    assert host._discovery_automatic is False
+
+
+def test_retries_stop_after_five_delays_when_every_scan_times_out(retry_scan) -> None:
+    # Given an automatic scan whose actual callbacks keep timing out.
+    host, queued, failures = retry_scan
+    delays: list[int] = []
+    # When every scheduled retry runs and its worker completes unsuccessfully.
+    for _ in range(6):
+        host._on_refresh_failed("timeout", "boot")
+        host._cleanup_refresh_worker()
+        delay, callback = queued.pop()
+        delays.append(delay)
+        callback()
+    # Then all five increasing delays are used, followed by one terminal dialog.
+    assert delays == [60_000, 120_000, 180_000, 240_000, 300_000, 0]
+    assert host._auto_discovery_attempts == 5
+    assert host._refresh_thread is None
+    assert host._refresh_was_automatic is False
+    assert host._discovery_automatic is False
+    assert queued == []
+    assert failures == [("timeout", "boot")]
+
+
+@pytest.mark.parametrize("destination", [None, 1, 4])
+@pytest.mark.parametrize("fresh", [False, True])
+def test_wizard_acceptance_repaints_local_library_before_navigation(
+    page, destination, fresh
+) -> None:
+    from PySide6.QtWidgets import QDialog, QLabel
+
+    from winpodx.gui._main_window_nav import NavigationMixin
+    from winpodx.gui._main_window_pod import PodStatusMixin
+    from winpodx.gui.app_dialog import save_app_profile
+
+    # Given an empty rendered list and locally registered setup results.
+    host = page([], cls=_CrudHarness)
+    host._set_view("list")
+    host.search_box.setText("stale search")
+    for name in ("word", "calc"):
+        save_app_profile({"name": name, "full_name": name.title(), "executable": f"C:\\{name}.exe"})
+    host._first_run_wizard = SimpleNamespace(
+        open_apps=destination == 1, open_terminal=destination == 4, setup_succeeded=True
+    )
+    host._first_install_pending = fresh
+    host._refresh_pod_status = lambda: None
+    host._refresh_update_status = lambda: None
+    host._refresh_dashboard = lambda: None
+    host._refresh_info = lambda: None
+    # When the wizard accepts and a fresh install receives post-success health.
+    NavigationMixin._on_first_run_wizard_finished(host, QDialog.DialogCode.Accepted)
+    if fresh:
+        assert host.apps == []
+        PodStatusMixin._on_first_install_health_checked(host, True)
+    # Then real list widgets, search and count reflect setup, even without navigation.
+    assert _tile_count(host) == 2
+    labels = [label.text() for label in host._page.findChildren(QLabel)]
+    assert "Word" in labels and "Calc" in labels
+    assert host.search_box.text() == ""
+    assert host.app_count_label.text() == "2 of 2 apps"
+    assert host.switched == ([] if destination is None else [destination])
+    assert host._first_install_pending is False
+    host.close()
 
 
 def test_app_dialog_result_trims_fields_and_splits_lists() -> None:

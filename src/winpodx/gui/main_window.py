@@ -47,6 +47,7 @@ from winpodx.gui.theme import (
 )
 from winpodx.gui.theme_manager import instance as theme_manager_instance
 from winpodx.gui.workers import DiscoveryWorker
+from winpodx.utils.pending import list_pending
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ class WinpodxWindow(
     # Thread-safe signals
     pod_status_updated = Signal(str, str)
     transport_status_updated = Signal(bool, bool, str)  # agent_ok, rdp_ok, agent_version
+    first_install_health_checked = Signal(bool)
+    pending_setup_resumed = Signal(bool)
+    update_status_updated = Signal(str)
     app_launched = Signal(str)
     app_launch_failed = Signal(str)
     log_signal = Signal(str, str)
@@ -104,6 +108,15 @@ class WinpodxWindow(
         self._preferred_size = (1100, 720)
 
         self.cfg = Config.load()
+        pending_steps = list_pending()
+        # Config is saved as initialized before provisioning finishes; keep an independent latch.
+        self._first_install_pending = self.cfg.pod.backend in ("podman", "docker") and (
+            not self.cfg.pod.initialized or bool(pending_steps)
+        )
+        self._first_install_needs_setup = self._first_install_pending and not pending_steps
+        self._first_install_setup_succeeded = False
+        self._background_agent_only = self._first_install_pending
+        self._last_agent_ok = False
         self.apps = list_available_apps()
         self._pod_state = "checking"
         self._view_mode = "grid"  # "grid" or "list"
@@ -114,6 +127,10 @@ class WinpodxWindow(
         self._refresh_state = "idle"
         self._refresh_thread: QThread | None = None
         self._refresh_worker: DiscoveryWorker | None = None
+        self._discovery_automatic = False
+        self._refresh_was_automatic = False
+        self._auto_discovery_attempts = 0
+        self._auto_discovery_generation = 0
 
         self._setup_signals()
         self._build_ui()
@@ -151,6 +168,8 @@ class WinpodxWindow(
         abort. Both workers' run() always return (each emits its terminal
         signal from a try/except), so wait() is guaranteed to complete.
         """
+        self._discovery_automatic = False
+        self._refresh_was_automatic = False
         self._join_worker_threads()
         super().closeEvent(event)
 
@@ -171,6 +190,9 @@ class WinpodxWindow(
     def _setup_signals(self) -> None:
         self.pod_status_updated.connect(self._on_pod_status)
         self.transport_status_updated.connect(self._on_transport_status)
+        self.first_install_health_checked.connect(self._on_first_install_health_checked)
+        self.pending_setup_resumed.connect(self._on_pending_setup_resumed)
+        self.update_status_updated.connect(self._on_update_status)
         self.app_launched.connect(self._on_app_launched)
         self.app_launch_failed.connect(self._on_app_launch_failed)
         self.log_signal.connect(self._log_append)
@@ -184,6 +206,14 @@ class WinpodxWindow(
         # Bring-up dialog kick-off: the worker thread emits this and
         # _open_bringup_dialog (BringUpMixin) runs on the GUI thread.
         self.bringup_started.connect(self._open_bringup_dialog)
+
+    def _refresh_dashboard(self) -> None:
+        if not self._first_install_pending:
+            super()._refresh_dashboard()
+
+    def _refresh_info(self) -> None:
+        if not self._first_install_pending:
+            super()._refresh_info()
 
     def _update_log_bar(self, line: str, color: str) -> None:
         """Push the latest log line onto the bottom bar (2-line ticker)."""

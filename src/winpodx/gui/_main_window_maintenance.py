@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import nullcontext
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -480,38 +481,49 @@ class MaintenanceMixin(MaintenanceCardsMixin):
         )
 
     def _refresh_update_status(self) -> None:
+        if self._first_install_pending:
+            self.update_status_updated.emit("")
+            return
+        require_agent = self._background_agent_only
+
         def _do() -> None:
+            from winpodx.core.transport import agent_only
             from winpodx.core.updates import get_update_status
 
             cfg = Config.load()
-            status = get_update_status(cfg)
-            if status == "enabled":
-                self._update_status_label.setText(tr("Windows Update is enabled"))
-                self._btn_enable_updates.setVisible(True)
-                self._btn_disable_updates.setVisible(True)
-                self._btn_retry_updates.setVisible(False)
-                self._btn_enable_updates.setEnabled(False)
-                self._btn_disable_updates.setEnabled(True)
-            elif status == "disabled":
-                self._update_status_label.setText(tr("Windows Update is disabled"))
-                self._btn_enable_updates.setVisible(True)
-                self._btn_disable_updates.setVisible(True)
-                self._btn_retry_updates.setVisible(False)
-                self._btn_enable_updates.setEnabled(True)
-                self._btn_disable_updates.setEnabled(False)
-            else:
-                # Can't reach the guest -- the current state is unknown, so
-                # Enable / Disable would be a guess. Hide them and offer a
-                # re-probe instead of leaving both in an ambiguous state.
-                self._update_status_label.setText(
-                    tr("Can't check status — start the pod, then Retry.")
-                )
-                self._btn_enable_updates.setVisible(False)
-                self._btn_disable_updates.setVisible(False)
-                self._btn_retry_updates.setVisible(True)
-                self._btn_retry_updates.setEnabled(True)
+            with agent_only() if require_agent else nullcontext():
+                status = get_update_status(cfg)
+            self.update_status_updated.emit(status or "")
 
         threading.Thread(target=_do, daemon=True).start()
+
+    @Slot(str)
+    def _on_update_status(self, status: str) -> None:
+        if self._first_install_pending:
+            self._update_status_label.setText(tr("Checking..."))
+            self._btn_enable_updates.setVisible(False)
+            self._btn_disable_updates.setVisible(False)
+            self._btn_retry_updates.setVisible(False)
+        elif status == "enabled":
+            self._update_status_label.setText(tr("Windows Update is enabled"))
+            self._btn_enable_updates.setVisible(True)
+            self._btn_disable_updates.setVisible(True)
+            self._btn_retry_updates.setVisible(False)
+            self._btn_enable_updates.setEnabled(False)
+            self._btn_disable_updates.setEnabled(True)
+        elif status == "disabled":
+            self._update_status_label.setText(tr("Windows Update is disabled"))
+            self._btn_enable_updates.setVisible(True)
+            self._btn_disable_updates.setVisible(True)
+            self._btn_retry_updates.setVisible(False)
+            self._btn_enable_updates.setEnabled(True)
+            self._btn_disable_updates.setEnabled(False)
+        else:
+            self._update_status_label.setText(tr("Can't check status — start the pod, then Retry."))
+            self._btn_enable_updates.setVisible(False)
+            self._btn_disable_updates.setVisible(False)
+            self._btn_retry_updates.setVisible(True)
+            self._btn_retry_updates.setEnabled(True)
 
     def _on_enable_updates(self) -> None:
         self._update_status_label.setText(tr("Enabling Windows Update..."))

@@ -158,6 +158,9 @@ class PodStatusMixin:
         self.status_timer.start(15000)
 
     def _refresh_pod_status(self) -> None:
+        # Capture before spawning: a tick queued before setup success cannot release the latch.
+        check_first_install = self._first_install_pending and self._first_install_setup_succeeded
+
         def _do() -> None:
             try:
                 cfg = Config.load()
@@ -193,8 +196,31 @@ class PodStatusMixin:
             except Exception:  # noqa: BLE001
                 log.debug("rdp probe in status_timer failed", exc_info=True)
             self.transport_status_updated.emit(agent_ok, rdp_ok, agent_version)
+            if check_first_install:
+                self.first_install_health_checked.emit(agent_ok)
 
         threading.Thread(target=_do, daemon=True).start()
+
+    @Slot(bool)
+    def _on_first_install_health_checked(self, agent_ok: bool) -> None:
+        if not (self._first_install_pending and self._first_install_setup_succeeded and agent_ok):
+            return
+        from winpodx.utils.pending import has_pending
+
+        if has_pending():
+            return
+        self._first_install_pending = False
+        self._reload_apps()
+        self._refresh_update_status()
+        self._refresh_dashboard()
+        self._refresh_info()
+        if (
+            not self.apps
+            and self._pod_state == "running"
+            and self._refresh_state == "idle"
+            and self._refresh_thread is None
+        ):
+            self._queue_auto_discovery(2000)
 
     @Slot(bool, bool, str)
     def _on_transport_status(self, agent_ok: bool, rdp_ok: bool, agent_version: str) -> None:
@@ -208,8 +234,18 @@ class PodStatusMixin:
         Reserving red for the launch-breaking case keeps the indicator honest.
         """
         # Cache so the banner (running-but-degraded) can re-derive itself.
+        agent_became_ready = agent_ok and not self._last_agent_ok
         self._last_agent_ok = agent_ok
         self._last_rdp_ok = rdp_ok
+        if (
+            agent_became_ready
+            and not self._first_install_pending
+            and not self.apps
+            and self._pod_state == "running"
+            and self._refresh_state == "idle"
+            and self._refresh_thread is None
+        ):
+            self._queue_auto_discovery(2000)
 
         green = C.GREEN
         red = C.RED
@@ -259,15 +295,21 @@ class PodStatusMixin:
         # before Windows finished Sysprep — once GUI sees the pod
         # come up, kick off a scan in the background.
         if (
-            state == "running"
+            not self._first_install_pending
+            and state == "running"
             and self._pod_state != "running"
             and not self.apps
             and self._refresh_state == "idle"
+            and self._refresh_thread is None
         ):
             log.info("pod is now running and app list is empty — auto-firing discovery")
-            QTimer.singleShot(2000, self._on_refresh_apps)
+            self._auto_discovery_attempts = 0
+            self._queue_auto_discovery(2000)
 
         self._pod_state = state
+        if state != "running":
+            self._discovery_automatic = False
+            self._refresh_was_automatic = False
         # While the library is empty, repaint its empty-state so a first-run
         # install reads as "Setting up Windows…" the moment the pod starts
         # coming up, instead of a stale "Windows isn't running" (#502).

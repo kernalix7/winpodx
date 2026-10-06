@@ -23,11 +23,10 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from winpodx.core.app import list_available_apps
 from winpodx.core.i18n import tr
 from winpodx.gui.theme import C
 
@@ -129,47 +128,33 @@ class NavigationMixin:
         search_sc.activated.connect(_focus_search)
 
     def _maybe_run_first_launch_checks(self) -> None:
-        """v0.2.1: on GUI startup, resume any pending install steps and —
-        if this is genuinely a first run (no apps registered yet) —
-        surface a one-shot Quick Start dialog summarising system state.
-
-        #255: when ``cfg.pod.initialized`` is False, the first-run setup
-        prompt fires *before* the quick-start dialog -- user picks
-        auto / customize / skip, setup runs (auto) or wizard opens
-        (customize), then we proceed to the normal quick-start flow.
-        Both branches stay best-effort and silent on success."""
+        """Resume recorded setup work; only a new install needs the setup wizard."""
         # Startup-time GUI-thread hook (fired once via QTimer from __init__)
         # — a convenient, owned place to register keyboard shortcuts now
         # that nav_buttons + search_box exist.
         self._install_shortcuts()
 
-        from winpodx.utils.pending import has_pending
+        from winpodx.utils.pending import has_pending, list_pending
 
-        if has_pending():
+        pending_steps = list_pending()
+        if self._first_install_pending and self._first_install_needs_setup and not pending_steps:
+            QTimer.singleShot(0, self._show_first_run_setup_prompt)
+            return
+
+        if pending_steps or self._first_install_pending:
 
             def _stream(line: str) -> None:
                 self.log_signal.emit(line, C.SUBTEXT1)
 
             def _do() -> None:
+                from winpodx.core.transport import agent_only
                 from winpodx.utils.pending import resume
 
-                resume(printer=_stream)
-                # After resume, refresh the GUI's app list so any newly-
-                # registered entries appear without manual refresh.
-                self.apps = list_available_apps()
-                self.log_signal.emit(
-                    "[WinPodX] Pending setup resume finished — app list refreshed.",
-                    C.GREEN,
-                )
+                with agent_only():
+                    resume(printer=_stream)
+                self.pending_setup_resumed.emit(not has_pending())
 
             threading.Thread(target=_do, daemon=True).start()
-
-        # #255: first-run setup prompt -- only fires when config exists
-        # but isn't marked initialized (or when config is missing). The
-        # CLI's first-run prompt covers the terminal path; this is the
-        # GUI counterpart.
-        if not getattr(self.cfg.pod, "initialized", False):
-            QTimer.singleShot(0, self._show_first_run_setup_prompt)
             return
 
         # First-launch wizard: only show when no apps have ever been
@@ -179,10 +164,29 @@ class NavigationMixin:
         if not marker.exists() and not self.apps:
             QTimer.singleShot(1500, self._show_quick_start)
 
+    @Slot(bool)
+    def _on_pending_setup_resumed(self, cleared: bool) -> None:
+        from winpodx.core.config import Config
+        from winpodx.utils.pending import has_pending
+
+        if not cleared or has_pending():
+            return
+        self.cfg = Config.load()
+        if self._first_install_pending:
+            self._first_install_setup_succeeded = True
+            self._refresh_pod_status()
+        else:
+            self._reload_apps()
+            self.log_signal.emit(
+                "[WinPodX] Pending setup resume finished — app list refreshed.",
+                C.GREEN,
+            )
+
     def _show_first_run_setup_prompt(self) -> None:
         """First-run setup wizard. Skip dismisses; prompt re-fires next launch."""
         from winpodx.gui._setup_wizard import SetupWizardDialog
 
+        self._first_install_setup_succeeded = False
         self.hide()
         dlg = SetupWizardDialog(self, mode="first-run", cfg=self.cfg)
         dlg.finished.connect(self._on_first_run_wizard_finished)
@@ -200,7 +204,12 @@ class NavigationMixin:
         from winpodx.core.config import Config
 
         self.cfg = Config.load()
-        self.apps = list_available_apps()
+        if self._first_install_pending:
+            self._first_install_setup_succeeded = dlg.setup_succeeded
+            if self._first_install_setup_succeeded:
+                self._refresh_pod_status()
+        else:
+            self._reload_apps()
         if dlg.open_apps:
             self._switch_page(1)
         elif dlg.open_terminal:

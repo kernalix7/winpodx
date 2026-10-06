@@ -24,6 +24,10 @@ Covers:
 from __future__ import annotations
 
 import os
+import threading
+from collections.abc import Callable
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -31,7 +35,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt, Signal, Slot  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QCheckBox,
@@ -223,7 +227,11 @@ def test_log_bar_exposes_two_empty_ticker_lines() -> None:
 class NavHarness(NavigationMixin, QWidget):
     """QWidget host — NavigationMixin parents QShortcuts / dialogs to self."""
 
+    pending_setup_resumed = Signal(bool)
+
     def __init__(self, cfg: Config, *, apps=None, extras: bool = True) -> None:
+        from winpodx.utils.pending import list_pending
+
         QWidget.__init__(self)
         self.cfg = cfg
         self.apps = [] if apps is None else apps
@@ -231,6 +239,16 @@ class NavHarness(NavigationMixin, QWidget):
         self.info_started = 0
         self.info_stopped = 0
         self.refreshed_apps = 0
+        self.reloaded_apps = 0
+        pending_steps = list_pending()
+        self._first_install_pending = cfg.pod.backend in ("podman", "docker") and (
+            not cfg.pod.initialized or bool(pending_steps)
+        )
+        self._first_install_needs_setup = self._first_install_pending and not pending_steps
+        self._first_install_setup_succeeded = False
+        self.pod_refreshes = 0
+        self.resume_results: list[tuple[bool, int]] = []
+        self.pending_setup_resumed.connect(self._receive_pending_setup_result)
 
         self.pages = QStackedWidget(self)
         for _ in range(8):
@@ -274,6 +292,20 @@ class NavHarness(NavigationMixin, QWidget):
 
     def _on_refresh_apps(self) -> None:
         self.refreshed_apps += 1
+
+    def _reload_apps(self) -> None:
+        from winpodx.core.app import list_available_apps
+
+        self.reloaded_apps += 1
+        self.apps = list_available_apps()
+
+    def _refresh_pod_status(self) -> None:
+        self.pod_refreshes += 1
+
+    @Slot(bool)
+    def _receive_pending_setup_result(self, cleared: bool) -> None:
+        self.resume_results.append((cleared, threading.get_ident()))
+        self._on_pending_setup_resumed(cleared)
 
 
 def test_switch_page_moves_the_stack_and_checks_only_that_nav_row() -> None:
@@ -459,19 +491,24 @@ def test_first_launch_checks_resume_pending_setup_in_the_background(
     monkeypatch: pytest.MonkeyPatch, fake_single_shot, inline_worker_threads
 ) -> None:
     _ensure_qapp()
-    monkeypatch.setattr("winpodx.utils.pending.has_pending", lambda: True)
+    from winpodx.utils.pending import add_step, clear
+
+    add_step("discovery")
     resumed: list[bool] = []
 
     def _resume(printer=None):
         if printer is not None:
             printer("[resume] step 1")
         resumed.append(True)
+        clear()
 
     monkeypatch.setattr("winpodx.utils.pending.resume", _resume)
-    monkeypatch.setattr("winpodx.gui._main_window_nav.list_available_apps", lambda: ["a", "b"])
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: ["a", "b"])
 
     cfg = _make_cfg()
+    cfg.pod.backend = "manual"
     cfg.pod.initialized = True
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: cfg))
     host = NavHarness(cfg)
     host._maybe_run_first_launch_checks()
 
@@ -480,6 +517,175 @@ def test_first_launch_checks_resume_pending_setup_in_the_background(
     messages = [args[0] for args in host.log_signal.emissions]
     assert "[resume] step 1" in messages
     assert any("app list refreshed" in m for m in messages)
+
+
+@pytest.mark.parametrize("saved_initialized", [False, True])
+def test_first_install_defers_pending_resume_even_after_config_save(
+    monkeypatch, fake_single_shot, inline_worker_threads, saved_initialized
+) -> None:
+    # Given a fresh-window latch and an on-disk flag that setup may already have flipped.
+    _ensure_qapp()
+    cfg = _make_cfg()
+    cfg.pod.initialized = False
+    host = NavHarness(cfg)
+    cfg.pod.initialized = saved_initialized
+    resume = Mock()
+    monkeypatch.setattr("winpodx.utils.pending.resume", resume)
+    # When startup checks run while the wizard is still pending.
+    host._maybe_run_first_launch_checks()
+    # Then setup owns provisioning; the legacy resume thread does not race it.
+    resume.assert_not_called()
+    assert [fn for _ms, fn in fake_single_shot] == [host._show_first_run_setup_prompt]
+
+
+@pytest.mark.parametrize("remaining", [False, True])
+@pytest.mark.parametrize("steps", [("wait_ready", "discovery"), ("migrate",)])
+def test_pending_restart_runs_scoped_resume_and_queues_gui_result(
+    monkeypatch, fake_single_shot, remaining, steps
+) -> None:
+    # Given initialized config and real pending markers, with guest provisioning isolated.
+    from winpodx.core.transport import agent_required
+    from winpodx.utils.pending import add_step, list_pending
+
+    app = _ensure_qapp()
+    for step in steps:
+        add_step(step)
+    cfg = _make_cfg()
+    cfg.pod.initialized = True
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: cfg))
+    observed: list[tuple[bool, int]] = []
+    restored: list[bool] = []
+    threads: list[threading.Thread] = []
+
+    def provision(*args, **kwargs):
+        observed.append((agent_required(), threading.get_ident()))
+        return {
+            "wait_ready": "timeout" if remaining else "ok",
+            "apply_fixes": {"registry": "ok"},
+            "discovery": 2,
+        }
+
+    def make_thread(*, target: Callable[[], None], daemon: bool) -> threading.Thread:
+        thread = threading.Thread(target=target, daemon=daemon)
+        threads.append(thread)
+        return thread
+
+    monkeypatch.setattr("winpodx.core.provisioner.finish_provisioning", provision)
+    monkeypatch.setattr("winpodx.core.guest_sync.maybe_autosync", lambda cfg: None)
+    monkeypatch.setattr(
+        "winpodx.gui._main_window_nav.threading", SimpleNamespace(Thread=make_thread)
+    )
+    host = NavHarness(cfg)
+    host.pending_setup_resumed.connect(
+        lambda cleared: restored.append(agent_required()), Qt.ConnectionType.DirectConnection
+    )
+    gui_thread = threading.get_ident()
+    # When startup resumes on a real thread, then the GUI event queue receives completion.
+    host._maybe_run_first_launch_checks()
+    for thread in threads:
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+    assert host.resume_results == []
+    app.processEvents()
+    # Then existing config bypasses the first-run wizard and only cleared work requests health.
+    assert len(observed) == 1
+    assert observed[0][0] is True
+    assert observed[0][1] != gui_thread
+    assert restored == [False]
+    assert agent_required() is False
+    assert host.resume_results == [(not remaining, gui_thread)]
+    assert list_pending() == (list(steps) if remaining else [])
+    assert host._first_install_pending is True
+    assert host._first_install_setup_succeeded is not remaining
+    assert host.pod_refreshes == int(not remaining)
+    assert host.reloaded_apps == 0
+    assert fake_single_shot == []
+
+
+def test_pending_restart_cleared_before_startup_still_uses_health_not_wizard(
+    monkeypatch, fake_single_shot, inline_worker_threads
+) -> None:
+    # Given a restart that latched pending work before another process completed it.
+    from winpodx.utils.pending import add_step, clear
+
+    _ensure_qapp()
+    cfg = _make_cfg()
+    cfg.pod.initialized = True
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: cfg))
+    add_step("discovery")
+    host = NavHarness(cfg)
+    clear()
+    provision = Mock(side_effect=AssertionError("completed work must not rerun"))
+    monkeypatch.setattr("winpodx.core.provisioner.finish_provisioning", provision)
+    # When startup checks read the current empty pending list.
+    host._maybe_run_first_launch_checks()
+    # Then the pre-build latch waits for health without entering existing-config setup.
+    assert fake_single_shot == []
+    provision.assert_not_called()
+    assert host.pod_refreshes == 1
+    assert host._first_install_pending is True
+    assert host._first_install_setup_succeeded is True
+
+
+def test_pending_restart_rejects_cleared_result_when_new_marker_arrived(monkeypatch) -> None:
+    # Given a completed resume result whose GUI callback is delayed.
+    from winpodx.utils.pending import add_step
+
+    _ensure_qapp()
+    cfg = _make_cfg()
+    cfg.pod.initialized = True
+    add_step("discovery")
+    host = NavHarness(cfg)
+    # When pending work is present again before that result is delivered.
+    host._on_pending_setup_resumed(True)
+    # Then no readiness probe or local reload is authorized by the stale result.
+    assert host._first_install_pending is True
+    assert host._first_install_setup_succeeded is False
+    assert host.pod_refreshes == 0
+    assert host.reloaded_apps == 0
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+@pytest.mark.parametrize("succeeded", [False, True])
+def test_first_install_wizard_requires_accepted_success_before_health(
+    monkeypatch, accepted, succeeded
+) -> None:
+    # Given a first-run wizard whose Finish page can also accept after failure.
+    _ensure_qapp()
+    from PySide6.QtWidgets import QDialog
+
+    cfg = _make_cfg()
+    cfg.pod.initialized = False
+    host = NavHarness(cfg)
+    host._first_run_wizard = SimpleNamespace(
+        setup_succeeded=succeeded, open_apps=False, open_terminal=accepted and not succeeded
+    )
+    reloaded = _make_cfg()
+    reloaded.pod.initialized = True
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: reloaded))
+    # When the wizard closes.
+    result = QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
+    host._on_first_run_wizard_finished(result)
+    # Then even successful acceptance waits for fresh health before reloading apps.
+    assert host._first_install_pending is True
+    assert host._first_install_setup_succeeded is (accepted and succeeded)
+    assert host.pod_refreshes == int(accepted and succeeded)
+    assert host.reloaded_apps == 0
+
+
+def test_manual_backend_does_not_open_first_install_wizard(monkeypatch, fake_single_shot) -> None:
+    # Given an uninitialized manual-RDP configuration.
+    _ensure_qapp()
+    cfg = _make_cfg()
+    cfg.pod.backend = "manual"
+    cfg.pod.initialized = False
+    host = NavHarness(cfg, apps=[object()])
+    monkeypatch.setattr("winpodx.utils.pending.has_pending", lambda: False)
+    # When first-launch checks run.
+    host._maybe_run_first_launch_checks()
+    # Then manual operation remains outside the container-install latch.
+    assert fake_single_shot == []
+    assert host._first_install_pending is False
 
 
 @pytest.fixture()
@@ -530,6 +736,7 @@ class _FakeSetupWizard:
     def __init__(self, parent, *, mode="first-run", cfg=None) -> None:
         self.open_apps = False
         self.open_terminal = False
+        self.setup_succeeded = False
         self.finished = _FakeFinished()
         _FakeSetupWizard.last = {"mode": mode, "cfg": cfg, "parent": parent}
 
@@ -560,7 +767,7 @@ def test_first_run_setup_prompt_open_apps_switches_to_applications(
     reloaded = _make_cfg()
     reloaded.rdp.user = "reloaded-user"
     monkeypatch.setattr(Config, "load", classmethod(lambda cls: reloaded))
-    monkeypatch.setattr("winpodx.gui._main_window_nav.list_available_apps", lambda: ["word"])
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: ["word"])
 
     class _AcceptApps(_FakeSetupWizard):
         result_code = QDialog.DialogCode.Accepted
@@ -568,13 +775,18 @@ def test_first_run_setup_prompt_open_apps_switches_to_applications(
         def __init__(self, parent, *, mode="first-run", cfg=None) -> None:
             super().__init__(parent, mode=mode, cfg=cfg)
             self.open_apps = True
+            self.setup_succeeded = True
 
     monkeypatch.setattr("winpodx.gui._setup_wizard.SetupWizardDialog", _AcceptApps)
     host = NavHarness(_make_cfg())
+    host._first_install_pending = False
+
     host._show_first_run_setup_prompt()
+
     assert host.cfg is reloaded
     assert host.apps == ["word"]
     assert host.pages.currentIndex() == 1
+    assert host.reloaded_apps == 1
 
 
 def _stub_first_run_checks(monkeypatch: pytest.MonkeyPatch) -> None:

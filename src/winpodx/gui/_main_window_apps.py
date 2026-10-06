@@ -35,6 +35,10 @@ from winpodx.gui.workers import DiscoveryWorker
 # 6 Devices, 7 License. Used by the refresh-failure dialog's "View logs" action
 # (was 3, which is the Tools page).
 _LOGS_PAGE_INDEX = 4
+_AUTO_DISCOVERY_RETRY_DELAYS_MS = (60_000, 120_000, 180_000, 240_000, 300_000)
+_AUTO_DISCOVERY_RETRY_KINDS = frozenset(
+    {"timeout", "session_disconnected", "agent_unavailable", "pod_not_running"}
+)
 
 
 class AppCrudMixin:
@@ -175,8 +179,11 @@ class AppCrudMixin:
             tr("{shown} of {total} apps").format(shown=len(visible), total=len(self.apps))
         )
 
-    def _on_refresh_apps(self) -> None:
+    def _on_refresh_apps(self, *, automatic: bool = False) -> None:
         """Entry point for the "Refresh Apps" button; kicks off the QThread worker."""
+        self._discovery_automatic = False
+        if automatic and self._first_install_pending:
+            return
         # Bail while a scan is in flight. We check BOTH the UI state and the
         # live thread ref. The result slots flip the state back to "idle"
         # (re-enabling the button) the same event-loop tick `thread.finished`
@@ -189,10 +196,11 @@ class AppCrudMixin:
         # prevent.
         if self._refresh_state == "scanning" or self._refresh_thread is not None:
             return
+        self._refresh_was_automatic = automatic
         self._set_refresh_state("scanning")
 
         thread = QThread(self)
-        worker = DiscoveryWorker()
+        worker = DiscoveryWorker(require_agent=automatic or self._first_install_pending)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._on_refresh_succeeded)
@@ -232,6 +240,9 @@ class AppCrudMixin:
     @Slot(int)
     def _on_refresh_succeeded(self, count: int) -> None:
         self._set_refresh_state("idle")
+        self._auto_discovery_attempts = 0
+        self._discovery_automatic = False
+        self._refresh_was_automatic = False
         # NOTE: don't null out _refresh_worker / _refresh_thread here —
         # see v0.2.0.11 comment in `_on_refresh_apps`. Cleanup happens
         # via `_cleanup_refresh_worker` once the thread.finished signal
@@ -277,6 +288,12 @@ class AppCrudMixin:
     @Slot(str, str)
     def _on_refresh_failed(self, kind: str, detail: str) -> None:
         self._set_refresh_state("idle")
+        retry_scheduled = self._schedule_auto_discovery_retry(kind, detail)
+        self._refresh_was_automatic = False
+        if retry_scheduled:
+            self.info_label.setText(tr("Windows is still starting. App discovery will retry."))
+            return
+        self._discovery_automatic = False
         self.info_label.setText(tr("App discovery failed"))
 
         # v0.1.9.1: defer the QMessageBox creation to a clean event-loop tick.
@@ -286,6 +303,41 @@ class AppCrudMixin:
         # pod-not-running discovery failure. Re-dispatching via QTimer
         # unwinds the signal handler stack first.
         QTimer.singleShot(0, lambda: self._show_refresh_failure_dialog(kind, detail))
+
+    def _schedule_auto_discovery_retry(self, kind: str, detail: str) -> bool:
+        """Retry an automatic empty-library scan while Windows is still booting."""
+        if self._first_install_pending or not self._refresh_was_automatic:
+            return False
+        if self.apps or self._pod_state != "running":
+            return False
+        if kind not in _AUTO_DISCOVERY_RETRY_KINDS:
+            return False
+        # Legacy discovery labels credential errors as pod_not_running, too.
+        if any(marker in detail.lower() for marker in ("auth", "logon_failure", "0xc000006d")):
+            return False
+        attempt = self._auto_discovery_attempts
+        if attempt >= len(_AUTO_DISCOVERY_RETRY_DELAYS_MS):
+            return False
+        self._auto_discovery_attempts = attempt + 1
+        self._queue_auto_discovery(_AUTO_DISCOVERY_RETRY_DELAYS_MS[attempt])
+        return True
+
+    def _queue_auto_discovery(self, delay_ms: int) -> None:
+        if self._first_install_pending or self._discovery_automatic:
+            return
+        self._auto_discovery_generation += 1
+        generation = self._auto_discovery_generation
+        self._discovery_automatic = True
+
+        def discover_if_current() -> None:
+            if not self._discovery_automatic or generation != self._auto_discovery_generation:
+                return
+            self._discovery_automatic = False
+            if self._first_install_pending or self.apps or self._pod_state != "running":
+                return
+            self._on_refresh_apps(automatic=True)
+
+        QTimer.singleShot(delay_ms, discover_if_current)
 
     def _show_refresh_failure_dialog(self, kind: str, detail: str) -> None:
         """Show an actionable failure dialog after the signal handler unwinds.
