@@ -538,6 +538,7 @@ def _wait_for_transport_ready(
     import socket
     import time as _time
 
+    from winpodx.core.transport import agent_required
     from winpodx.core.transport import dispatch as _dispatch
 
     deadline = _time.monotonic() + max_wait_sec
@@ -549,11 +550,12 @@ def _wait_for_transport_ready(
         if t is not None and getattr(t, "name", None) == "agent":
             return  # agent transport is the preferred path; ready
         # Agent not up — RDP fallback is fine if the port answers.
-        try:
-            with socket.create_connection((cfg.rdp.ip, cfg.rdp.port), timeout=1.0):
-                return
-        except OSError:
-            pass
+        if not agent_required():
+            try:
+                with socket.create_connection((cfg.rdp.ip, cfg.rdp.port), timeout=1.0):
+                    return
+            except OSError:
+                pass
         if progress_callback:
             try:
                 progress_callback("Waiting for guest transport...")
@@ -608,6 +610,9 @@ def _classify_channel_error(exc: Exception) -> str:
        common during multi-session mid-activation). Retry usually
        works.
     3. ``timeout`` — the transport or guest command exceeded its deadline.
+       ``ERRCONNECT_ACTIVATION_TIMEOUT`` belongs here: the pod is up and
+       RDP accepted the connection, but Windows is not ready to activate
+       a session yet (typical during first-boot setup).
     4. ``script_failed`` — anything else (script crash, malformed
        output, etc.).
     """
@@ -615,12 +620,13 @@ def _classify_channel_error(exc: Exception) -> str:
     pod_down_signals = (
         "connection refused",
         "errconnect_connect_transport_failed",
-        "errconnect_activation_timeout",
         "transport_read_layer",
         "connection reset",
         "transport failed",
         "unavailable",  # agent-transport flag for /health miss
     )
+    if "errconnect_activation_timeout" in msg:
+        return "timeout"
     if any(s in msg for s in pod_down_signals):
         return "pod_not_running"
     session_disconnect_signals = (
@@ -738,7 +744,7 @@ def discover_apps(
     # default 60s timeout and exposes the script's stdout directly via
     # JSON so we don't have to round-trip a result file. Falls back to
     # FreeRDP automatically if /health doesn't answer.
-    from winpodx.core.transport import TransportError, dispatch
+    from winpodx.core.transport import TransportError, agent_required, dispatch
     from winpodx.core.windows_exec import WindowsExecError
 
     def _run_once() -> list[DiscoveredApp]:
@@ -782,11 +788,9 @@ def discover_apps(
         # install completes cleanly: install.bat finishes, agent comes up,
         # then a manual `winpodx app refresh` (or pending-resume on next
         # launch) populates the menu via the agent.
-        import os
-
-        if os.environ.get("WINPODX_REQUIRE_AGENT") == "1":
+        if agent_required():
             raise DiscoveryError(
-                "agent transport required (WINPODX_REQUIRE_AGENT=1) but "
+                "agent transport required but "
                 "guest agent isn't up yet; skipping FreeRDP fallback to "
                 "avoid kicking install.bat's autologon session. "
                 "Re-run `winpodx app refresh` once the agent comes up.",

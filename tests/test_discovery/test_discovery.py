@@ -1663,11 +1663,48 @@ def test_discover_require_agent_rejects_freerdp_fallback(tmp_path, monkeypatch):
     assert excinfo.value.kind == "agent_unavailable"
 
 
+def test_discover_scoped_agent_only_rejects_dispatch_failure_without_rdp(tmp_path, monkeypatch):
+    from winpodx.core.transport import TransportUnavailable, agent_only
+
+    cfg = _make_cfg()
+    script = tmp_path / "discover_apps.ps1"
+    script.write_text("# agent script")
+    monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch",
+        lambda _cfg: (_ for _ in ()).throw(TransportUnavailable("booting")),
+    )
+    monkeypatch.setattr("winpodx.core.discovery.shutil.which", lambda _runtime: "/usr/bin/podman")
+    monkeypatch.setattr("winpodx.core.discovery._ps_script_path", lambda: script)
+    rdp = MagicMock()
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rdp)
+
+    with agent_only(), pytest.raises(DiscoveryError) as excinfo:
+        discover_apps(cfg)
+    assert excinfo.value.kind == "agent_unavailable"
+    rdp.assert_not_called()
+
+
+def test_transport_wait_ignores_rdp_port_when_agent_only(monkeypatch):
+    from winpodx.core import discovery
+    from winpodx.core.transport import agent_only
+
+    clock = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr(discovery.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg: None)
+    port = MagicMock()
+    monkeypatch.setattr("socket.create_connection", port)
+    with agent_only():
+        discovery._wait_for_transport_ready(_make_cfg(), max_wait_sec=1)
+    port.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "message,expected",
     [
         ("connection refused", "pod_not_running"),
-        ("ERRCONNECT_ACTIVATION_TIMEOUT", "pod_not_running"),
+        ("ERRCONNECT_ACTIVATION_TIMEOUT", "timeout"),
+        ("ERRCONNECT_ACTIVATION_TIMEOUT: no result file written", "timeout"),
         ("ERRINFO_RPC_INITIATED_DISCONNECT", "session_disconnected"),
         ("LOGON_FAILURE 0xc000006d", "pod_not_running"),
         ("PowerShell syntax error", "script_failed"),
