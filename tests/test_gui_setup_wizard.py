@@ -383,6 +383,8 @@ def test_install_calls_handle_setup_once_with_collected_values(
     assert args.disk_size
     assert args.tuning_profile == "auto"
     assert args.update_image is False
+    assert args.require_agent is True
+    assert dlg.setup_succeeded is True
     _wait_until(lambda: dlg._thread is None)
     dlg.close()
 
@@ -406,6 +408,7 @@ def test_failure_shows_error_state_without_closing(monkeypatch: pytest.MonkeyPat
     _wait_until(lambda: dlg.pages.currentIndex() == 5)
     assert dlg.isVisible() is True
     assert dlg.finish.is_failure is True
+    assert dlg.setup_succeeded is False
     assert dlg.findChild(QPushButton, "wizardRetry") is not None
     _wait_until(lambda: dlg._thread is None)
     dlg.close()
@@ -527,6 +530,18 @@ def test_setup_answers_to_namespace_maps_backend_storage_and_iso() -> None:
     assert namespace.backend == "docker"
     assert namespace.storage_path == "/srv/winpodx-store"
     assert namespace.win_iso == "/media/Win11_24H2.iso"
+
+
+def test_first_install_namespace_requires_agent_by_default() -> None:
+    from winpodx.gui._setup_wizard_model import to_namespace
+
+    assert to_namespace(_answers()).require_agent is True
+
+
+def test_reinstall_namespace_retains_legacy_policy() -> None:
+    from winpodx.gui._setup_wizard_model import to_namespace
+
+    assert to_namespace(_answers(), require_agent=False).require_agent is False
 
 
 def test_to_namespace_leaves_blank_storage_and_iso_unset() -> None:

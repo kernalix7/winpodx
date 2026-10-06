@@ -165,7 +165,7 @@ def host_spec_summary() -> str:
     )
 
 
-def to_namespace(answers: SetupAnswers) -> argparse.Namespace:
+def to_namespace(answers: SetupAnswers, *, require_agent: bool = True) -> argparse.Namespace:
     """Build the Namespace ``handle_setup`` / ``apply_setup_presets`` consume."""
     return argparse.Namespace(
         backend=answers.backend,
@@ -176,6 +176,7 @@ def to_namespace(answers: SetupAnswers) -> argparse.Namespace:
         migrate_storage=False,
         migrate_storage_target=None,
         non_interactive=True,
+        require_agent=require_agent,
         customize=False,
         cpu_cores=answers.cpu_cores,
         ram_gb=answers.ram_gb,

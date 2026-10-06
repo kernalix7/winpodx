@@ -104,6 +104,7 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         self._reinstall = mode == "reinstall"
         self.open_apps = False
         self.open_terminal = False
+        self.setup_succeeded = False
         self._wipe_confirmed = False
         self._thread: QThread | None = None
         self._worker: SetupWorker | None = None
@@ -256,11 +257,15 @@ class SetupWizardDialog(FramelessMixin, QDialog):
     def _start_install(self) -> None:
         if self._thread is not None:
             return
+        self.setup_succeeded = False
         self._answers = self.config.answers()
         self._goto(4)
         self.install.begin()
         thread = QThread(self)
-        worker = SetupWorker(to_namespace(self._answers), reinstall=self._reinstall)
+        worker = SetupWorker(
+            to_namespace(self._answers, require_agent=not self._reinstall),
+            reinstall=self._reinstall,
+        )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self.install.on_setup_progress)
@@ -273,6 +278,7 @@ class SetupWizardDialog(FramelessMixin, QDialog):
         thread.start()
 
     def _on_setup_finished(self, success: bool, error: str) -> None:
+        self.setup_succeeded = success
         self.install.finish(success, error)
         if success:
             self.finish.show_success()
