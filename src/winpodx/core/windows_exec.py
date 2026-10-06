@@ -97,19 +97,27 @@ def run_via_transport(
     that explicitly need FreeRDP (rotation's password recovery, debug
     probes, etc.).
     """
+    from winpodx.core.transport.policy import agent_required
+
     # Imported lazily so a lightweight subprocess path stays import-cheap.
     try:
         from winpodx.core.transport import TransportError, dispatch
-    except Exception:  # noqa: BLE001 — transport module optional at import time
+    except Exception as e:  # noqa: BLE001 — transport module optional at import time
+        if agent_required():
+            raise WindowsExecError(f"agent transport required but unavailable: {e}") from e
         return run_in_windows(cfg, payload, description=description, timeout=timeout)
 
     try:
         transport = dispatch(cfg)
     except Exception as e:  # noqa: BLE001 — degrade to FreeRDP
+        if agent_required():
+            raise WindowsExecError(f"agent transport required but unavailable: {e}") from e
         log.warning("FreeRDP-fallback: dispatch raised for %r (%s); using FreeRDP", description, e)
         return run_in_windows(cfg, payload, description=description, timeout=timeout)
 
     if transport is None or transport.name != "agent":
+        if agent_required():
+            raise WindowsExecError("agent transport required but not selected")
         # dispatch() already logged the agent-unavailable reason at WARNING;
         # add the op name so the log shows WHICH host->guest call fell back.
         log.warning("FreeRDP-fallback: %r ran over FreeRDP (agent not selected)", description)
@@ -146,6 +154,11 @@ def run_in_windows(
     ``WindowsExecResult`` with the script's own rc otherwise — caller
     inspects ``.ok`` / ``.rc`` to decide success.
     """
+    from winpodx.core.transport.policy import agent_required
+
+    if agent_required():
+        raise WindowsExecError("agent transport required; FreeRDP command execution disabled")
+
     found = find_freerdp()
     if found is None:
         raise WindowsExecError("FreeRDP not found on $PATH")

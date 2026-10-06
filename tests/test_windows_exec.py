@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from winpodx.core.config import Config
+from winpodx.core.transport import TransportUnavailable, agent_only
 from winpodx.core.windows_exec import WindowsExecError, WindowsExecResult, run_in_windows
 
 
@@ -21,6 +22,39 @@ def _cfg(password: str = "secret") -> Config:
     cfg.rdp.user = "User"
     cfg.rdp.password = password
     return cfg
+
+
+@pytest.mark.parametrize("failure", [TransportUnavailable("down"), ImportError("module down")])
+def test_strict_run_via_transport_never_falls_back(monkeypatch, failure):
+    from winpodx.core import windows_exec
+
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch", lambda cfg: (_ for _ in ()).throw(failure)
+    )
+    fallback = MagicMock()
+    monkeypatch.setattr(windows_exec, "run_in_windows", fallback)
+    with agent_only(), pytest.raises(WindowsExecError):
+        windows_exec.run_via_transport(_cfg(), "payload")
+    fallback.assert_not_called()
+
+
+def test_strict_run_via_transport_rejects_non_agent_result(monkeypatch):
+    from winpodx.core import windows_exec
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg: MagicMock(name="freerdp"))
+    fallback = MagicMock()
+    monkeypatch.setattr(windows_exec, "run_in_windows", fallback)
+    with agent_only(), pytest.raises(WindowsExecError):
+        windows_exec.run_via_transport(_cfg(), "payload")
+    fallback.assert_not_called()
+
+
+def test_strict_direct_run_in_windows_rejects_before_credential_probe(monkeypatch):
+    finder = MagicMock()
+    monkeypatch.setattr("winpodx.core.windows_exec.find_freerdp", finder)
+    with agent_only(), pytest.raises(WindowsExecError, match="agent"):
+        run_in_windows(_cfg(), "payload")
+    finder.assert_not_called()
 
 
 def _patch_data_dir(monkeypatch, tmp_path):
