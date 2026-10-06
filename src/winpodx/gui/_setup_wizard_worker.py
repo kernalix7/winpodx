@@ -40,8 +40,10 @@ class SetupWorker(QObject):
                 self._run_reinstall()
             else:
                 from winpodx.cli.setup_cmd import handle_setup
+                from winpodx.core.transport import agent_only
 
-                handle_setup(self._args, on_progress=self._on_progress)
+                with agent_only():
+                    handle_setup(self._args, on_progress=self._on_progress)
         except SystemExit as exc:
             code = exc.code
             if code in (0, None):

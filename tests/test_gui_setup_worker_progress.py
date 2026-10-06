@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import threading
 from collections.abc import Callable
 from unittest.mock import Mock
 
@@ -12,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt, QThread  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 _FINISH_PROVISIONING_STAGES: tuple[tuple[str, str], ...] = (
@@ -35,6 +37,55 @@ def test_setup_worker_exposes_progress_signal() -> None:
     from winpodx.gui._setup_wizard_worker import SetupWorker
 
     assert hasattr(SetupWorker, "progress")
+
+
+@pytest.mark.parametrize("reinstall", [False, True])
+@pytest.mark.parametrize("failure", [None, RuntimeError("setup failed"), SystemExit(3)])
+def test_setup_worker_scopes_agent_policy_and_restores_after_failure(
+    monkeypatch, reinstall, failure
+) -> None:
+    # Given real QThread execution and a setup boundary that can fail.
+    _ensure_qapp()
+    from winpodx.core.transport import agent_required
+    from winpodx.gui._setup_wizard_worker import SetupWorker
+
+    observed: list[tuple[bool, int]] = []
+    restored: list[bool] = []
+    done: list[tuple[bool, str]] = []
+
+    def setup(*args, **kwargs) -> None:
+        observed.append((agent_required(), threading.get_ident()))
+        if failure is not None:
+            raise failure
+
+    monkeypatch.setattr("winpodx.cli.setup_cmd.handle_setup", setup)
+    monkeypatch.setattr(SetupWorker, "_run_reinstall", setup)
+    worker = SetupWorker(argparse.Namespace(require_agent=not reinstall), reinstall=reinstall)
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.finished.connect(
+        lambda ok, error: done.append((ok, error)), Qt.ConnectionType.DirectConnection
+    )
+    worker.finished.connect(
+        lambda *_args: restored.append(agent_required()), Qt.ConnectionType.DirectConnection
+    )
+    worker.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+    gui_thread = threading.get_ident()
+    # When first-run or reinstall setup runs on its own thread.
+    thread.start()
+    try:
+        assert thread.wait(3000)
+    finally:
+        thread.quit()
+        thread.wait()
+    # Then the entire first-run call is strict, reinstall stays legacy, and policy restores.
+    assert len(observed) == 1
+    assert observed[0][0] is not reinstall
+    assert observed[0][1] != gui_thread
+    assert restored == [False]
+    assert agent_required() is False
+    assert done == ([(True, "")] if failure is None else [(False, str(failure))])
 
 
 def test_setup_worker_forwards_handle_setup_stage_callbacks(
