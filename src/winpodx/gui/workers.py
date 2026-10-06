@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 
 from PySide6.QtCore import QObject, Signal, Slot
 
@@ -17,11 +18,16 @@ class DiscoveryWorker(QObject):
     failed = Signal(str, str)
     finished = Signal()
 
+    def __init__(self, *, require_agent: bool = False) -> None:
+        super().__init__()
+        self._require_agent = require_agent
+
     @Slot()
     def run(self) -> None:
         try:
             from winpodx.core import discovery as discovery_mod
             from winpodx.core.config import Config
+            from winpodx.core.transport import agent_only
         except ImportError as exc:
             self.failed.emit("module_missing", str(exc))
             self.finished.emit()
@@ -29,7 +35,8 @@ class DiscoveryWorker(QObject):
 
         try:
             cfg = Config.load()
-            apps = discovery_mod.discover_apps(cfg)
+            with agent_only() if self._require_agent else nullcontext():
+                apps = discovery_mod.discover_apps(cfg)
         except Exception as exc:  # noqa: BLE001 - worker surfaces all errors to UI
             kind = getattr(exc, "kind", None)
             if not kind:

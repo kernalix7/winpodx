@@ -9,13 +9,19 @@ test, so each patch targets the defining module.
 from __future__ import annotations
 
 import os
+import threading
+from importlib import import_module
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
+
+from PySide6.QtCore import Qt, QThread  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from winpodx.gui import workers  # noqa: E402
 
@@ -69,6 +75,83 @@ def test_discovery_success_emits_persisted_count(discovery_ok) -> None:
 
     assert ok == [(2,)]
     assert len(done) == 1
+
+
+@pytest.mark.parametrize("protected", [False, True])
+@pytest.mark.parametrize("fails", [False, True])
+def test_discovery_worker_scopes_policy_on_actual_thread(
+    monkeypatch, discovery_ok, protected, fails
+) -> None:
+    # Given a real discovery worker whose guest boundary reports policy or raises.
+    from winpodx.core.transport import agent_required
+
+    app = QApplication.instance() or QApplication([])
+    observed: list[tuple[bool, int]] = []
+    restored: list[bool] = []
+
+    def discover(cfg):
+        observed.append((agent_required(), threading.get_ident()))
+        if fails:
+            raise RuntimeError("discovery failed")
+        return discovery_ok
+
+    monkeypatch.setattr("winpodx.core.discovery.discover_apps", discover)
+    worker = workers.DiscoveryWorker(require_agent=protected)
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.finished.connect(
+        lambda: restored.append(agent_required()), Qt.ConnectionType.DirectConnection
+    )
+    worker.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+    gui_thread = threading.get_ident()
+    # When the worker executes independently of the GUI context.
+    thread.start()
+    try:
+        assert thread.wait(3000)
+    finally:
+        thread.quit()
+        thread.wait()
+    # Then policy applies on the worker thread and is restored before completion.
+    assert len(observed) == 1
+    assert observed[0][0] is protected
+    assert observed[0][1] != gui_thread
+    assert restored == [False]
+    assert agent_required() is False
+    assert app is QApplication.instance()
+
+
+def test_protected_discovery_worker_never_reaches_rdp_when_agent_is_missing(
+    monkeypatch, tmp_path
+) -> None:
+    # Given real discovery and dispatch, with an offline agent and forbidden process boundaries.
+    from winpodx.core import discovery
+    from winpodx.core.config import Config
+    from winpodx.core.transport import HealthStatus
+
+    cfg = Config()
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls: cfg))
+    script = tmp_path / "discover.ps1"
+    script.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(discovery, "_ps_script_path", lambda: script)
+    monkeypatch.setattr(discovery, "shutil", SimpleNamespace(which=lambda runtime: runtime))
+    monkeypatch.setattr(discovery, "_wait_for_transport_ready", Mock())
+    monkeypatch.setattr(
+        "winpodx.core.transport.agent.AgentTransport.health",
+        lambda self: HealthStatus(available=False, detail="offline"),
+    )
+    rdp = Mock(side_effect=AssertionError("unsolicited RDP"))
+    monkeypatch.setattr(import_module("winpodx.core.transport.dispatch"), "FreerdpTransport", rdp)
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rdp)
+    monkeypatch.setattr("winpodx.core.rdp.subprocess.Popen", rdp)
+    worker = workers.DiscoveryWorker(require_agent=True)
+    failed, finished = _collect(worker.failed), _collect(worker.finished)
+    # When a queued automatic worker encounters the unavailable agent.
+    worker.run()
+    # Then it reports the retryable agent failure without constructing or launching RDP.
+    assert failed[0][0] == "agent_unavailable"
+    assert finished == [()]
+    rdp.assert_not_called()
 
 
 def test_discovery_falls_back_to_app_count_when_persisted_has_no_len(
