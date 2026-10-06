@@ -847,7 +847,9 @@ def _prompt_storage_and_iso(
 def _run_full_provision(
     cfg: Config,
     on_progress: Callable[[str, str], None] | None = None,
-) -> None:
+    *,
+    require_agent: bool = False,
+) -> str | None:
     """Drive the post-container-create provisioning so a standalone
     `winpodx setup` finishes like a complete install instead of stopping at
     "container created".
@@ -858,7 +860,7 @@ def _run_full_provision(
     assembly that used to live here — wait-ready, apply-fixes, discovery,
     reverse-open — moved into the helper, parameter-gated. We pass the same
     parameters the old inline code used: 3600s wait, soft agent settle
-    (require_agent=False so a slow first boot doesn't crash setup), discovery
+    (require_agent=False by default for established setups), discovery
     with five retries for non-timeout transient failures, reverse-open gated
     on cfg.reverse_open.enabled.
 
@@ -869,9 +871,14 @@ def _run_full_provision(
     they always did.
 
     Skipped for non-podman/docker backends (the helper short-circuits too).
+
+    Returns a translated deferral message when setup must not report success
+    (readiness timeout, or discovery that failed). ``None`` means the caller
+    may print the success banner. A completed scan that found zero apps is
+    still success: the warning below is the signal, not a deferral.
     """
     if cfg.pod.backend not in ("podman", "docker"):
-        return
+        return None
 
     print("\n" + "=" * 40)
     print(tr(" Provisioning Windows (first boot)"))
@@ -913,10 +920,10 @@ def _run_full_provision(
         except SystemExit as exc:
             return exc.code in (0, None)
 
-    results = finish_provisioning(
+    raw_results = finish_provisioning(
         cfg,
         wait_timeout=3600,
-        require_agent=False,
+        require_agent=require_agent,
         with_reverse_open=getattr(cfg.reverse_open, "enabled", False),
         with_discovery=True,
         retries=5,
@@ -924,7 +931,14 @@ def _run_full_provision(
         wait_fn=_rich_wait,
     )
 
-    if results.get("wait_ready") == "timeout":
+    from winpodx.utils.pending import add_step
+
+    wait_ready = raw_results.get("wait_ready")
+    discovery_value = raw_results.get("discovery", "")
+    discovery = discovery_value if isinstance(discovery_value, str) else ""
+    if wait_ready == "timeout":
+        add_step("wait_ready")
+        add_step("discovery")
         print(
             tr(
                 "\n  wait-ready did not complete. Remaining steps will "
@@ -937,15 +951,46 @@ def _run_full_provision(
     # failure -- finish_provisioning treats it as best-effort. Without this,
     # setup prints the generic "complete" banner even when the Windows app
     # menu is going to be empty, and the user has no idea why.
-    discovery_result = results.get("discovery", "")
-    if discovery_result.startswith("failed:") or discovery_result == "0 apps":
+    if discovery.startswith("failed:") or discovery == "0 apps":
         print(
             tr(
                 "\n  WARNING: Windows app discovery did not find any applications "
                 "({detail}). The Windows app menu may be empty. Run "
                 "`winpodx app refresh` once the guest has fully settled to retry."
-            ).format(detail=discovery_result)
+            ).format(detail=discovery)
         )
+    if wait_ready == "timeout":
+        return tr(
+            "Windows is still installing. Setup will resume automatically "
+            "the next time you open WinPodX. Do not launch apps until the "
+            "Windows desktop appears."
+        )
+    if discovery.startswith("failed:"):
+        add_step("discovery")
+        detail = discovery.removeprefix("failed:").strip()
+        lowered = detail.lower()
+        boot_delay = any(
+            marker in lowered
+            for marker in (
+                "timeout",
+                "unavailable",
+                "unreachable",
+                "connection refused",
+                "pod_not_running",
+            )
+        )
+        if boot_delay:
+            return tr(
+                "Windows app discovery did not finish because the guest is not "
+                "ready yet. Setup will retry automatically the next time you "
+                "open WinPodX."
+            )
+        return tr(
+            "Windows app discovery failed ({detail}). This may be a permanent "
+            "guest-script failure, not a boot delay. Check the guest, then run "
+            "`winpodx app refresh`."
+        ).format(detail=detail)
+    return None
 
 
 _PRESET_POD_FIELDS = (
@@ -1455,7 +1500,13 @@ def handle_setup(
                 )
             )
     else:
-        _run_full_provision(cfg, on_progress=on_progress)
+        deferred = _run_full_provision(
+            cfg, on_progress=on_progress, require_agent=getattr(args, "require_agent", False)
+        )
+        if deferred is not None:
+            # String code, not 1: SetupWorker shows str(exc.code). An int would
+            # surface as "1". Uncaught CLI prints this text and exits 1, no traceback.
+            raise SystemExit(deferred)
         print(tr("\nSetup + provisioning complete. Launch with `winpodx app run desktop`."))
 
 

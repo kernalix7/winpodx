@@ -500,6 +500,176 @@ def test_recreate_container_docker_failure_raises(tmp_path: Path, capsys) -> Non
     assert "Failed to start container: pull denied" in capsys.readouterr().out
 
 
+def _gui_setup_outcome(exc: SystemExit) -> tuple[bool, str]:
+    """Mirror SetupWorker: a non-zero SystemExit.code is the text the GUI shows."""
+    code = exc.code
+    if code in (0, None):
+        return True, ""
+    return False, str(code)
+
+
+def test_full_provision_records_resume_when_windows_is_still_booting() -> None:
+    from winpodx.utils.pending import list_pending
+
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    finish = MagicMock(return_value={"wait_ready": "timeout"})
+    with patch("winpodx.core.provisioner.finish_provisioning", finish):
+        deferred = setup_cmd._run_full_provision(cfg)
+
+    assert deferred is not None
+    assert "still installing" in deferred
+    assert list_pending() == ["wait_ready", "discovery"]
+
+
+def _stub_setup_until_provision(stack: ExitStack, *, provision_result: dict[str, str]) -> None:
+    """Stub every host-touching setup seam and return one provision result."""
+    stack.enter_context(patch("winpodx.cli.setup_cmd.check_all", return_value=_deps()))
+    stack.enter_context(patch("winpodx.cli.setup_cmd.import_winapps_config", return_value=None))
+    stack.enter_context(patch("winpodx.backend.select.choose_backend", return_value="podman"))
+    stack.enter_context(patch("winpodx.cli.setup_cmd._generate_password", return_value="generated"))
+    stack.enter_context(
+        patch("winpodx.utils.specs.detect_host_specs", return_value=SimpleNamespace())
+    )
+    stack.enter_context(
+        patch(
+            "winpodx.utils.specs.recommend_tier",
+            return_value=SimpleNamespace(cpu_cores=4, ram_gb=6),
+        )
+    )
+    stack.enter_context(patch("winpodx.cli.setup_cmd._decide_storage_mode"))
+    stack.enter_context(patch("winpodx.cli.setup_cmd._stage_win_iso"))
+    stack.enter_context(patch("winpodx.setup_wizard.host_state.require_preflight"))
+    stack.enter_context(patch("winpodx.cli.setup_cmd._generate_compose"))
+    stack.enter_context(patch("winpodx.cli.setup_cmd._recreate_container"))
+    stack.enter_context(patch("winpodx.display.scaling.detect_scale_factor", return_value=100))
+    stack.enter_context(patch("winpodx.display.scaling.detect_raw_scale", return_value=1.0))
+    stack.enter_context(
+        patch("winpodx.utils.specs.detect_tuning_capability", return_value=SimpleNamespace())
+    )
+    stack.enter_context(patch("winpodx.utils.specs.recommend_tuning_profile", return_value="safe"))
+    stack.enter_context(patch("winpodx.utils.specs.format_tuning_summary", return_value="safe"))
+    stack.enter_context(patch("winpodx.cli.setup_cmd._ensure_oem_token_staged"))
+    stack.enter_context(patch("winpodx.cli.setup_cmd._register_all_desktop_entries"))
+    stack.enter_context(
+        patch(
+            "winpodx.core.provisioner.finish_provisioning",
+            return_value=provision_result,
+        )
+    )
+
+
+def test_handle_setup_exits_when_readiness_times_out(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    from winpodx.utils.pending import list_pending
+
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    monkeypatch.delenv("WINPODX_NO_PROVISION", raising=False)
+    with ExitStack() as stack, pytest.raises(SystemExit) as exc:
+        _stub_setup_until_provision(stack, provision_result={"wait_ready": "timeout"})
+        setup_cmd.handle_setup(_args(backend="podman"), on_progress=lambda _stage, _detail: None)
+
+    succeeded, shown = _gui_setup_outcome(exc.value)
+    assert succeeded is False
+    assert isinstance(exc.value.code, str)
+    assert "still installing" in shown
+    assert list_pending() == ["wait_ready", "discovery"]
+    captured = capsys.readouterr()
+    assert "Setup + provisioning complete" not in captured.out
+    assert "Traceback" not in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_handle_setup_exits_when_discovery_fails(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    from winpodx.utils.pending import list_pending
+
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    monkeypatch.delenv("WINPODX_NO_PROVISION", raising=False)
+    with ExitStack() as stack, pytest.raises(SystemExit) as exc:
+        _stub_setup_until_provision(
+            stack,
+            provision_result={"wait_ready": "ok", "discovery": "failed: script exploded"},
+        )
+        setup_cmd.handle_setup(_args(backend="podman"), on_progress=lambda _stage, _detail: None)
+
+    succeeded, shown = _gui_setup_outcome(exc.value)
+    assert succeeded is False
+    assert isinstance(exc.value.code, str)
+    assert "discovery failed" in shown
+    assert "not ready yet" not in shown
+    assert list_pending() == ["discovery"]
+    output = capsys.readouterr().out
+    assert "not ready yet" not in output
+    assert "Setup + provisioning complete" not in output
+
+
+def test_handle_setup_keeps_zero_app_discovery_as_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    from winpodx.utils.pending import list_pending
+
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    monkeypatch.delenv("WINPODX_NO_PROVISION", raising=False)
+    with ExitStack() as stack:
+        _stub_setup_until_provision(
+            stack,
+            provision_result={"wait_ready": "ok", "discovery": "0 apps"},
+        )
+        setup_cmd.handle_setup(_args(backend="podman"), on_progress=lambda _stage, _detail: None)
+
+    assert list_pending() == []
+    output = capsys.readouterr().out
+    assert "WARNING" in output
+    assert "app refresh" in output
+    assert "Setup + provisioning complete" in output
+
+
+def test_handle_setup_exits_when_discovery_times_out(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    from winpodx.utils.pending import list_pending
+
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    monkeypatch.delenv("WINPODX_NO_PROVISION", raising=False)
+    with ExitStack() as stack, pytest.raises(SystemExit) as exc:
+        _stub_setup_until_provision(
+            stack,
+            provision_result={
+                "wait_ready": "ok",
+                "discovery": "failed: ERRCONNECT_ACTIVATION_TIMEOUT",
+            },
+        )
+        setup_cmd.handle_setup(_args(backend="podman"), on_progress=lambda _stage, _detail: None)
+
+    succeeded, shown = _gui_setup_outcome(exc.value)
+    assert succeeded is False
+    assert "not ready yet" in shown
+    assert "permanent" not in shown
+    assert list_pending() == ["discovery"]
+    assert "Setup + provisioning complete" not in capsys.readouterr().out
+
+
+def test_handle_setup_succeeds_when_discovery_finds_apps(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    from winpodx.utils.pending import list_pending
+
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    monkeypatch.delenv("WINPODX_NO_PROVISION", raising=False)
+    with ExitStack() as stack:
+        _stub_setup_until_provision(
+            stack,
+            provision_result={"wait_ready": "ok", "discovery": "3 apps"},
+        )
+        setup_cmd.handle_setup(_args(backend="podman"), on_progress=lambda _stage, _detail: None)
+
+    assert list_pending() == []
+    output = capsys.readouterr().out
+    assert "Setup + provisioning complete" in output
+    assert "WARNING" not in output
+
+
 def test_full_provision_forwards_options_and_reports_warnings(capsys) -> None:
     cfg = Config()
     cfg.pod.backend = "podman"
@@ -516,6 +686,28 @@ def test_full_provision_forwards_options_and_reports_warnings(capsys) -> None:
     output = capsys.readouterr().out
     assert "wait-ready did not complete" in output
     assert "app discovery did not find any applications" in output
+
+
+def test_full_provision_forwards_strict_request_without_changing_default() -> None:
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    finish = MagicMock(return_value={"wait_ready": "ok", "discovery": "3 apps"})
+    with patch("winpodx.core.provisioner.finish_provisioning", finish):
+        setup_cmd._run_full_provision(cfg, require_agent=True)
+        assert finish.call_args.kwargs["require_agent"] is True
+        setup_cmd._run_full_provision(cfg)
+        assert finish.call_args.kwargs["require_agent"] is False
+
+
+def test_handle_setup_forwards_optional_require_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: False))
+    monkeypatch.delenv("WINPODX_NO_PROVISION", raising=False)
+    with ExitStack() as stack:
+        _stub_setup_until_provision(stack, provision_result={"wait_ready": "ok"})
+        finish = stack.enter_context(patch("winpodx.core.provisioner.finish_provisioning"))
+        finish.return_value = {"wait_ready": "ok", "discovery": "3 apps"}
+        setup_cmd.handle_setup(_args(backend="podman", require_agent=True))
+        assert finish.call_args.kwargs["require_agent"] is True
 
 
 def test_full_provision_wait_fn_streams_live_lines_as_wait_ready_progress(capsys) -> None:
