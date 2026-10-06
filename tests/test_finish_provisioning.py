@@ -723,22 +723,27 @@ def test_wait_fn_timeout_returns_results_without_downstream(monkeypatch):
 
 
 def test_require_agent_exports_env_around_apply_and_discovery(monkeypatch):
-    # #271: require_agent must export WINPODX_REQUIRE_AGENT=1 so the
-    # env-honouring guest-side code (discovery, migrate apply transport)
-    # refuses the FreeRDP fallback. The first item-B cut only gated the
-    # one-shot settle re-probe, so discovery still fell back to FreeRDP.
+    # Given: no user env override. When: require-agent provisioning runs.
+    # Then: apply/discovery see scoped strict policy without process-env mutation.
     import os
+    from concurrent.futures import ThreadPoolExecutor
 
-    seen_env: dict[str, str | None] = {}
+    from winpodx.core.transport import agent_required
+
+    seen: dict[str, bool | str | None] = {}
 
     def record_env_apply(cfg):
-        seen_env["apply"] = os.environ.get("WINPODX_REQUIRE_AGENT")
+        seen["apply"] = agent_required()
+        seen["env_apply"] = os.environ.get("WINPODX_REQUIRE_AGENT")
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            seen["other_thread"] = pool.submit(agent_required).result()
         return {"max_sessions": "ok"}
 
     monkeypatch.setattr(provisioner, "apply_windows_runtime_fixes", record_env_apply)
 
     def record_env_discovery(cfg, *, retries, require_agent=False, on_progress=None):
-        seen_env["discovery"] = os.environ.get("WINPODX_REQUIRE_AGENT")
+        seen["discovery"] = agent_required()
+        seen["env_discovery"] = os.environ.get("WINPODX_REQUIRE_AGENT")
         return 5
 
     monkeypatch.setattr(provisioner, "_run_discovery_with_retry", record_env_discovery)
@@ -755,9 +760,14 @@ def test_require_agent_exports_env_around_apply_and_discovery(monkeypatch):
 
     monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
     finish_provisioning(_cfg(), require_agent=True, with_reverse_open=False)
-    assert seen_env["apply"] == "1"
-    assert seen_env["discovery"] == "1"
-    # Restored (unset) after the chain.
+    assert seen == {
+        "apply": True,
+        "discovery": True,
+        "other_thread": False,
+        "env_apply": None,
+        "env_discovery": None,
+    }
+    assert agent_required() is False
     assert os.environ.get("WINPODX_REQUIRE_AGENT") is None
 
 

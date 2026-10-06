@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -30,6 +31,7 @@ from winpodx.core.rotation import (  # noqa: F401  re-exports
     _mark_rotation_pending,
     _rotation_marker_path,
 )
+from winpodx.core.transport.policy import agent_only
 from winpodx.utils.paths import (  # noqa: F401  config_dir used by other helpers in this module
     bundle_dir,
     config_dir,
@@ -472,15 +474,9 @@ def finish_provisioning(
       multi-minute hang. Injection (not import) keeps ``core`` cli-free. Must
       return True when the guest is ready, False on timeout/failure.
 
-    When ``require_agent`` is True the function also exports
-    ``WINPODX_REQUIRE_AGENT=1`` for the duration of the apply-fixes + discovery
-    stages, so the env-honouring guest-side callers (``core.discovery``,
-    ``migrate``'s apply transport) refuse the FreeRDP RemoteApp fallback and
-    raise ``agent_unavailable`` rather than racing FreeRDP into install.bat's
-    autologon session (#271 / agent-first install). Without that propagation
-    the ``require_agent`` flag would gate only the one-shot settle re-probe and
-    discovery would still fall back to FreeRDP — the regression that shipped in
-    the first cut of item B.
+    With ``require_agent=True``, apply-fixes and discovery run under a
+    task-local agent-only policy; no process environment is changed. Without
+    propagation, discovery could still fall back to FreeRDP during first boot.
 
     Returns a results dict whose keys are the stage names and whose values
     are short human-readable status strings, so callers can log / surface
@@ -576,17 +572,7 @@ def finish_provisioning(
         results["agent_settle"] = "ok" if settled else "not-up (proceeding)"
         _progress("agent_settle", results["agent_settle"])
 
-    # When the caller demands agent-first, export WINPODX_REQUIRE_AGENT for
-    # the apply + discovery stages so the env-honouring guest-side code
-    # (core.discovery, migrate's apply transport) refuses the FreeRDP fallback
-    # and defers instead of racing FreeRDP into install.bat's autologon
-    # session (#271). Saved + restored so we don't leak the override into the
-    # caller's environment. ``require_agent=False`` leaves the env untouched —
-    # FreeRDP fallback stays allowed (install.sh's old soft behaviour).
-    _prev_require_agent = os.environ.get("WINPODX_REQUIRE_AGENT")
-    if require_agent:
-        os.environ["WINPODX_REQUIRE_AGENT"] = "1"
-    try:
+    with agent_only() if require_agent else nullcontext():
         # --- Stage 3: apply-fixes ------------------------------------------
         # No gate — apply_windows_runtime_fixes is idempotent and surfaces its
         # own per-helper success/failure map.
@@ -618,13 +604,6 @@ def finish_provisioning(
         else:
             results["discovery"] = "skipped"
             _progress("discovery", "skipped")
-    finally:
-        # Restore the caller's WINPODX_REQUIRE_AGENT (unset if it wasn't set).
-        if _prev_require_agent is None:
-            os.environ.pop("WINPODX_REQUIRE_AGENT", None)
-        else:
-            os.environ["WINPODX_REQUIRE_AGENT"] = _prev_require_agent
-
     # --- Stage 5: reverse-open ---------------------------------------------
     if with_reverse_open and getattr(cfg.reverse_open, "enabled", False):
         _progress("reverse_open", "starting listener + pushing manifest")
