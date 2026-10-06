@@ -25,6 +25,7 @@ from winpodx.core.transport.base import (
     TransportUnavailable,
 )
 from winpodx.core.transport.freerdp import FreerdpTransport
+from winpodx.core.transport.policy import agent_required
 
 assert SPEC_VERSION == 1, "dispatch() built against Transport spec v1"
 
@@ -52,6 +53,25 @@ def dispatch(cfg: Config, *, prefer: Optional[PreferKind] = None) -> Transport:
     The dispatcher does NOT cache instances; each call returns a fresh
     Transport so state stays on cfg, not on the dispatcher.
     """
+    if prefer not in (None, "agent", "freerdp"):
+        raise ValueError(f"unknown prefer kind: {prefer!r}")
+
+    if agent_required():
+        if prefer == "freerdp":
+            raise TransportUnavailable(
+                "agent transport required; FreeRDP command transport disabled"
+            )
+        agent = AgentTransport(cfg)
+        try:
+            status = agent.health()
+        except Exception as e:  # noqa: BLE001 — strict mode must never degrade to FreeRDP
+            raise TransportUnavailable(
+                f"agent transport required but health probe failed: {e}"
+            ) from e
+        if not status.available:
+            raise TransportUnavailable(f"agent transport required but unavailable: {status.detail}")
+        return agent
+
     if prefer == "freerdp":
         return FreerdpTransport(cfg)
 
@@ -63,9 +83,6 @@ def dispatch(cfg: Config, *, prefer: Optional[PreferKind] = None) -> Transport:
                 f"agent transport explicitly requested but unavailable: {status.detail}"
             )
         return agent
-
-    if prefer is not None:
-        raise ValueError(f"unknown prefer kind: {prefer!r}")
 
     # Default policy: try agent first.
     agent = AgentTransport(cfg)
