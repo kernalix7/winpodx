@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import configparser
 import logging
 import os
 import shutil
@@ -110,35 +111,101 @@ def install_gui_launcher_desktop() -> bool:
 
 
 def _ensure_index_theme(icon_dir: Path) -> None:
-    """Ensure index.theme exists so gtk cache and KDE Plasma can discover icons."""
+    """Merge installed app directories into hicolor metadata without replacing user values."""
     index = icon_dir / "index.theme"
-    if index.exists():
-        return
+    try:
+        existing = index.exists()
+        data_roots = (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+        sources = (
+            [index]
+            if existing
+            else [
+                Path(root) / "icons/hicolor/index.theme"
+                for root in data_roots
+                if root and Path(root).is_absolute()
+            ]
+        )
+        theme = configparser.ConfigParser(interpolation=None, delimiters=("=",))
+        theme.optionxform = str
+        for source in sources:
+            if not source.exists():
+                continue
+            seed = configparser.ConfigParser(interpolation=None, delimiters=("=",))
+            seed.optionxform = str
+            try:
+                seed.read_string(source.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, configparser.Error) as exc:
+                if existing:
+                    raise
+                log.debug("Skipping icon theme seed %s: %s", source, type(exc).__name__)
+                continue
+            if existing or seed.has_section("Icon Theme"):
+                theme = seed
+                break
 
-    system_index = Path("/usr/share/icons/hicolor/index.theme")
-    if system_index.exists():
+        before = {section: dict(theme[section]) for section in theme}
+        if not theme.has_section("Icon Theme"):
+            theme.add_section("Icon Theme")
+        header = theme["Icon Theme"]
+        for key, value in (
+            ("Name", "Hicolor"),
+            ("Comment", "Fallback icon theme"),
+            ("Hidden", "true"),
+        ):
+            header.setdefault(key, value)
+
+        installed = {"scalable/apps": 64}
+        for apps in sorted(icon_dir.glob("*x*/apps")):
+            width, _, height = apps.parent.name.partition("x")
+            if apps.is_dir() and width.isdecimal() and width == height and int(width) > 0:
+                installed[apps.relative_to(icon_dir).as_posix()] = int(width)
+        declared = header.get("Directories", "")
+        directories = [part.strip() for part in declared.split(",")]
+        for directory, default_size in installed.items():
+            if directory not in directories:
+                declared += ("," if declared and not declared.endswith(",") else "") + directory
+                directories.append(directory)
+            if not theme.has_section(directory):
+                theme.add_section(directory)
+            section = theme[directory]
+            scalable = directory == "scalable/apps"
+            section.setdefault("Type", "Scalable" if scalable else "Fixed")
+            section.setdefault("Context", "Applications")
+            sizes = {"Size": default_size}
+            if scalable:
+                sizes.update(MinSize=1, MaxSize=512)
+            for key, default in sizes.items():
+                try:
+                    value = section.getint(key, fallback=0)
+                except ValueError:
+                    value = 0
+                if value <= 0:
+                    section[key] = str(default)
+            if scalable:
+                size = section.getint("Size")
+                if section.getint("MinSize") > size:
+                    section["MinSize"] = str(size)
+                if section.getint("MaxSize") < size:
+                    section["MaxSize"] = str(size)
+        header["Directories"] = declared
+        if existing and before == {section: dict(theme[section]) for section in theme}:
+            return
+
         icon_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(system_index, index)
-        log.info("Copied system index.theme to %s", index)
-        return
-
-    icon_dir.mkdir(parents=True, exist_ok=True)
-    index.write_text(
-        "[Icon Theme]\n"
-        "Name=Hicolor\n"
-        "Comment=Fallback icon theme\n"
-        "Hidden=true\n"
-        "Directories=scalable/apps\n"
-        "\n"
-        "[scalable/apps]\n"
-        "Size=64\n"
-        "MinSize=1\n"
-        "MaxSize=512\n"
-        "Context=Applications\n"
-        "Type=Scalable\n",
-        encoding="utf-8",
-    )
-    log.info("Created minimal index.theme at %s", index)
+        fd, tmp_path = tempfile.mkstemp(dir=icon_dir, prefix=".index.theme.", suffix=".tmp")
+        tmp = Path(tmp_path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as target:
+                theme.write(target, space_around_delimiters=False)
+                target.flush()
+                os.fchmod(target.fileno(), 0o644)
+                os.fsync(target.fileno())
+            os.replace(tmp, index)
+        finally:
+            tmp.unlink(missing_ok=True)
+        log.info("Updated icon theme index: %s", index)
+    except (OSError, UnicodeError, configparser.Error) as exc:
+        log.warning("Could not repair icon theme index %s: %s", index, type(exc).__name__)
 
 
 def refresh_icon_cache() -> None:
@@ -162,7 +229,7 @@ def update_icon_cache() -> None:
 
 
 def _do_refresh_icon_cache() -> None:
-    icon_dir = Path.home() / ".local/share/icons/hicolor"
+    icon_dir = icons_dir()
     _ensure_index_theme(icon_dir)
     try:
         result = subprocess.run(
