@@ -16,13 +16,15 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 
 def _install_in_progress() -> bool:
-    """Return True while ``install.sh`` is running.
+    """Return True while ``install.sh`` or GUI setup is running.
 
     install.sh writes its own PID into the marker and removes it via
     EXIT/INT/TERM trap. We treat the marker as "live" only when both
@@ -59,6 +61,58 @@ def _install_in_progress() -> bool:
     except OSError:
         return True
     return True
+
+
+def _remove_install_marker(marker: Path, owner: os.stat_result, contents: str) -> None:
+    """Remove only the recorded file and contents, never a replacement owner."""
+    try:
+        if (
+            os.path.samestat(owner, marker.stat())
+            and marker.read_text(encoding="utf-8") == contents
+        ):
+            marker.unlink()
+    except FileNotFoundError:
+        # Another owner already removed it; there is nothing left to release.
+        return
+
+
+@contextmanager
+def track_installation() -> Iterator[None]:
+    """Publish setup activity, borrowing a live marker or owning a fresh one."""
+    xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    marker = Path(xdg) / "winpodx" / ".install_in_progress"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            owned = marker.open("x", encoding="utf-8")
+        except FileExistsError:
+            if _install_in_progress():
+                yield
+                return
+            try:
+                with marker.open(encoding="utf-8") as stale:
+                    owner = os.fstat(stale.fileno())
+                    contents = stale.read()
+                    if not _install_in_progress():
+                        _remove_install_marker(marker, owner, contents)
+            except FileNotFoundError:
+                continue
+        else:
+            break
+
+    # Keep the file open so its inode cannot be reused before ownership cleanup.
+    with owned:
+        owner = os.fstat(owned.fileno())
+        contents = str(os.getpid())
+        try:
+            owned.write(contents)
+            owned.flush()
+            yield
+        finally:
+            try:
+                _remove_install_marker(marker, owner, contents)
+            except OSError as exc:
+                log.warning("Could not remove installation marker: %s", exc)
 
 
 def _tray_already_running() -> bool:

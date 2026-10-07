@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import configparser
+import os
 from pathlib import Path
 
 import pytest
@@ -1673,6 +1674,126 @@ def test_install_marker_states(tmp_path, monkeypatch):
     stale = time.time() - 7201
     os.utime(marker, (stale, stale))
     assert spawn_mod._install_in_progress() is False
+
+
+def test_track_installation_marks_active_and_cleans_on_success() -> None:
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    # Given an isolated installation with no shell-owned marker.
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+    assert not marker.exists()
+
+    # When GUI installation owns the shared PID marker.
+    with spawn_mod.track_installation():
+        assert spawn_mod._install_in_progress() is True
+        assert int(marker.read_text(encoding="utf-8").strip()) == os.getpid()
+
+    # Then completion removes its marker, rather than leaving a stale live PID.
+    assert not marker.exists()
+    assert spawn_mod._install_in_progress() is False
+
+
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("setup failed"), SystemExit(3)], ids=["runtime-error", "system-exit"]
+)
+def test_track_installation_cleans_marker_when_work_raises(
+    failure: RuntimeError | SystemExit,
+) -> None:
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+
+    with pytest.raises(type(failure)) as raised, spawn_mod.track_installation():
+        assert spawn_mod._install_in_progress() is True
+        raise failure
+
+    assert raised.value is failure
+    assert not marker.exists()
+    assert spawn_mod._install_in_progress() is False
+
+
+@pytest.mark.parametrize("owner_alive", [False, True], ids=["dead-pid", "ttl-stale"])
+def test_track_installation_activates_inactive_marker(
+    monkeypatch: pytest.MonkeyPatch, owner_alive: bool
+) -> None:
+    import time
+
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    # Given an inactive legacy marker in the isolated config directory.
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker_pid = os.getpid() if owner_alive else os.getpid() + 1
+    marker.write_text(f"{marker_pid}\n", encoding="utf-8")
+    if owner_alive:
+        stale = time.time() - 7201
+        os.utime(marker, (stale, stale))
+    else:
+        real_kill = os.kill
+
+        def check_liveness(pid: int, sig: int) -> None:
+            if pid == marker_pid and sig == 0:
+                raise ProcessLookupError
+            real_kill(pid, sig)
+
+        monkeypatch.setattr(spawn_mod.os, "kill", check_liveness)
+    assert spawn_mod._install_in_progress() is False
+
+    # When an installation starts, the real reader sees it throughout the scope.
+    with spawn_mod.track_installation():
+        assert spawn_mod._install_in_progress() is True
+
+    # Then either removing or restoring the inactive marker is acceptable.
+    assert spawn_mod._install_in_progress() is False
+
+
+def test_track_installation_preserves_preexisting_marker() -> None:
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    # Given a live marker already owned by an outer installer.
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    original = f"{os.getpid()}\n"
+    marker.write_text(original, encoding="utf-8")
+    original_inode = marker.stat().st_ino
+
+    with spawn_mod.track_installation():
+        assert spawn_mod._install_in_progress() is True
+        assert marker.read_text(encoding="utf-8") == original
+
+    assert marker.stat().st_ino == original_inode
+    assert marker.read_text(encoding="utf-8") == original
+    assert spawn_mod._install_in_progress() is True
+
+
+def test_track_installation_preserves_replacement_marker() -> None:
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+
+    with spawn_mod.track_installation():
+        # When another installer replaces the file without changing the PID.
+        original = marker.read_bytes()
+        replacement = marker.with_suffix(".replacement")
+        replacement.write_bytes(original)
+        replacement_inode = replacement.stat().st_ino
+        replacement.replace(marker)
+
+    assert marker.stat().st_ino == replacement_inode
+    assert marker.read_bytes() == original
+    assert spawn_mod._install_in_progress() is True
+
+
+def test_track_installation_preserves_marker_when_owner_pid_changes() -> None:
+    from winpodx.desktop import tray_spawn as spawn_mod
+
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+    replacement_pid = str(os.getpid() + 1)
+
+    with spawn_mod.track_installation():
+        marker.write_text(replacement_pid, encoding="utf-8")
+
+    assert marker.read_text(encoding="utf-8") == replacement_pid
 
 
 def test_tray_running_guard_handles_result_timeout_and_missing(monkeypatch):
