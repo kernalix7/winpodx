@@ -1420,6 +1420,7 @@ def test_gui_launcher_replaces_read_only_nix_copy(tmp_path, monkeypatch):
 def test_ensure_index_theme_creates_minimal_fragment(tmp_path, monkeypatch):
     from winpodx.desktop import icons as icons_mod
 
+    monkeypatch.setenv("XDG_DATA_DIRS", str(tmp_path / "empty-system-data"))
     original_exists = Path.exists
     monkeypatch.setattr(
         icons_mod.Path,
@@ -1444,6 +1445,7 @@ def test_refresh_icon_cache_runs_exact_commands_and_alias(tmp_path, monkeypatch)
 
     from winpodx.desktop import icons as icons_mod
 
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / ".local/share"))
     monkeypatch.setattr(icons_mod.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(icons_mod.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
     calls: list[list[str]] = []
