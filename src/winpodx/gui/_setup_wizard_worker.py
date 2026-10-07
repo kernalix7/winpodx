@@ -9,6 +9,7 @@ import copy
 from PySide6.QtCore import QObject, Signal
 
 from winpodx.core.config import Config
+from winpodx.desktop.tray_spawn import track_installation
 from winpodx.setup_wizard.host_state import HostState
 from winpodx.setup_wizard.pkexec import (
     PkexecAuthDenied,
@@ -36,14 +37,15 @@ class SetupWorker(QObject):
     def run(self) -> None:
         """Blocking install. Emits ``finished(success, error)`` on the worker thread."""
         try:
-            if self._reinstall:
-                self._run_reinstall()
-            else:
-                from winpodx.cli.setup_cmd import handle_setup
-                from winpodx.core.transport import agent_only
+            with track_installation():
+                if self._reinstall:
+                    self._run_reinstall()
+                else:
+                    from winpodx.cli.setup_cmd import handle_setup
+                    from winpodx.core.transport import agent_only
 
-                with agent_only():
-                    handle_setup(self._args, on_progress=self._on_progress)
+                    with agent_only():
+                        handle_setup(self._args, on_progress=self._on_progress)
         except SystemExit as exc:
             code = exc.code
             if code in (0, None):

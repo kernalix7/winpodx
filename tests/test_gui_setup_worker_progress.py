@@ -5,6 +5,7 @@ import argparse
 import os
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -86,6 +87,61 @@ def test_setup_worker_scopes_agent_policy_and_restores_after_failure(
     assert restored == [False]
     assert agent_required() is False
     assert done == ([(True, "")] if failure is None else [(False, str(failure))])
+
+
+@pytest.mark.parametrize("reinstall", [False, True], ids=["first-run", "reinstall"])
+@pytest.mark.parametrize(
+    "failure",
+    [None, RuntimeError("setup failed"), SystemExit(3)],
+    ids=["success", "runtime-error", "system-exit"],
+)
+def test_setup_worker_tracks_installation_until_before_finished(
+    monkeypatch: pytest.MonkeyPatch, reinstall: bool, failure: RuntimeError | SystemExit | None
+) -> None:
+    # Given the real worker thread, shared marker reader, and isolated guest boundary.
+    _ensure_qapp()
+    from winpodx.desktop import tray_spawn as spawn_mod
+    from winpodx.gui._setup_wizard_worker import SetupWorker
+
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+    observed: list[tuple[bool, bool, int]] = []
+    done: list[tuple[bool, str, bool, bool]] = []
+
+    def setup(
+        _args: argparse.Namespace | SetupWorker,
+        *,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> None:
+        observed.append((spawn_mod._install_in_progress(), marker.is_file(), threading.get_ident()))
+        if failure is not None:
+            raise failure
+
+    def finished(ok: bool, error: str) -> None:
+        done.append((ok, error, marker.exists(), spawn_mod._install_in_progress()))
+
+    monkeypatch.setattr("winpodx.cli.setup_cmd.handle_setup", setup)
+    monkeypatch.setattr(SetupWorker, "_run_reinstall", setup)
+    worker = SetupWorker(argparse.Namespace(require_agent=not reinstall), reinstall=reinstall)
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.finished.connect(finished, Qt.ConnectionType.DirectConnection)
+    worker.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+    gui_thread = threading.get_ident()
+
+    # When either installation path completes or raises on its own QThread.
+    thread.start()
+    try:
+        assert thread.wait(3000)
+    finally:
+        thread.quit()
+        thread.wait()
+
+    # Then errors remain visible and cleanup precedes the terminal signal, never guest work.
+    assert done == [(failure is None, "" if failure is None else str(failure), False, False)]
+    assert len(observed) == 1
+    assert observed[0][2] != gui_thread
+    assert observed[0][:2] == (True, True)
 
 
 def test_setup_worker_forwards_handle_setup_stage_callbacks(
