@@ -289,7 +289,7 @@ def run_tray() -> None:
     # Cache the previous state across refresh ticks so the tray can drive
     # state-transition behaviour — currently the RUNNING → UNRESPONSIVE
     # auto-recovery flow + its notifications. Holds the PodState value of
-    # the most recent observation, or None at startup.
+    # the most recent eligible observation, or None at startup / when deferred.
     state_cache: dict[str, object] = {"prev": None, "recovery_inflight": False}
 
     def _trigger_unresponsive_recovery(cfg: Config) -> None:
@@ -308,6 +308,7 @@ def run_tray() -> None:
             notify_pod_needs_manual_restart,
             notify_pod_recovered,
         )
+        from winpodx.desktop.tray_spawn import _install_in_progress
 
         if state_cache["recovery_inflight"]:
             return
@@ -318,23 +319,28 @@ def run_tray() -> None:
                 result = try_recover_rdp(cfg)
             except Exception as e:  # noqa: BLE001 — must not crash the tray
                 log.warning("Recovery worker crashed: %s", e)
-                notify_pod_needs_manual_restart(f"recovery worker error: {e}")
-                return
+                if _install_in_progress():
+                    state_cache["prev"] = None
+                else:
+                    notify_pod_needs_manual_restart(f"recovery worker error: {e}")
+            else:
+                if _install_in_progress():
+                    state_cache["prev"] = None
+                    return
+                if result.success:
+                    notify_pod_recovered()
+                    return
+
+                detail = ""
+                if result.action == RecoveryAction.AGENT_UNREACHABLE:
+                    detail = "agent unreachable"
+                elif result.action == RecoveryAction.RDP_STILL_DOWN:
+                    detail = "RDP still down after TermService restart"
+                if result.detail:
+                    detail = f"{detail} — {result.detail}" if detail else result.detail
+                notify_pod_needs_manual_restart(detail)
             finally:
                 state_cache["recovery_inflight"] = False
-
-            if result.success:
-                notify_pod_recovered()
-                return
-
-            detail = ""
-            if result.action == RecoveryAction.AGENT_UNREACHABLE:
-                detail = "agent unreachable"
-            elif result.action == RecoveryAction.RDP_STILL_DOWN:
-                detail = "RDP still down after TermService restart"
-            if result.detail:
-                detail = f"{detail} — {result.detail}" if detail else result.detail
-            notify_pod_needs_manual_restart(detail)
 
         threading.Thread(target=worker, name="winpodx-pod-recovery", daemon=True).start()
 
@@ -356,13 +362,9 @@ def run_tray() -> None:
             # `notify_pod_recovered` or `notify_pod_needs_manual_restart`
             # when it completes, so we don't need to drive those here.
             prev = state_cache["prev"]
-            if (
-                s.state == PodState.UNRESPONSIVE
-                and prev != PodState.UNRESPONSIVE
-                and not state_cache["recovery_inflight"]
-            ):
-                # Suppress UNRESPONSIVE-driven recovery while install.sh
-                # is running. [3/4] "Waiting for Windows activation" and
+            if s.state == PodState.UNRESPONSIVE:
+                # Suppress UNRESPONSIVE-driven recovery during shell or GUI
+                # installation. [3/4] "Waiting for Windows activation" and
                 # [4/4] "Waiting for OEM reboot pass" both legitimately
                 # have RDP down for several minutes while Windows is in
                 # Sysprep or rebooting -- firing TermService restart
@@ -371,12 +373,17 @@ def run_tray() -> None:
                 # "Pod stopped responding" notifications.
                 from winpodx.desktop.tray_spawn import _install_in_progress
 
-                if not _install_in_progress():
-                    from winpodx.desktop.notify import notify_pod_unresponsive
+                if _install_in_progress():
+                    state_cache["prev"] = None
+                elif not state_cache["recovery_inflight"]:
+                    state_cache["prev"] = s.state
+                    if prev != PodState.UNRESPONSIVE:
+                        from winpodx.desktop.notify import notify_pod_unresponsive
 
-                    notify_pod_unresponsive(s.ip or cfg.rdp.ip)
-                    _trigger_unresponsive_recovery(cfg)
-            state_cache["prev"] = s.state
+                        notify_pod_unresponsive(s.ip or cfg.rdp.ip)
+                        _trigger_unresponsive_recovery(cfg)
+            else:
+                state_cache["prev"] = s.state
         except Exception as e:
             log.warning("Failed to get pod status: %s", e)
             status_action.setText(tr("Pod: error"))

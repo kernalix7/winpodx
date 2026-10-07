@@ -30,6 +30,7 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from winpodx.desktop import tray
+from winpodx.desktop.tray_spawn import _install_in_progress as _read_install_marker
 
 TRAY_SRC = Path(tray.__file__)
 
@@ -482,6 +483,163 @@ def test_sleep_listener_schedules_refresh_only_after_resume(tray_runtime) -> Non
     assert tray_runtime.tray.show_count == shows_before
     listener.onPrepareForSleep(False)
     assert tray_runtime.tray.show_count == shows_before + 1
+
+
+@pytest.fixture
+def installation_recovery(
+    tray_runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> SimpleNamespace:
+    from winpodx.core.pod.recovery import RecoveryAction, RecoveryResult
+
+    marker = Path(os.environ["XDG_CONFIG_HOME"]) / "winpodx" / ".install_in_progress"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    recovery = MagicMock(return_value=RecoveryResult(True, RecoveryAction.RESTARTED_TERMSERVICE))
+    notifications = MagicMock()
+    monkeypatch.setattr("winpodx.desktop.tray_spawn._install_in_progress", _read_install_marker)
+    monkeypatch.setattr("winpodx.core.pod.recovery.try_recover_rdp", recovery)
+    monkeypatch.setattr(
+        "winpodx.desktop.notify.notify_pod_unresponsive", notifications.unresponsive
+    )
+    monkeypatch.setattr("winpodx.desktop.notify.notify_pod_recovered", notifications.recovered)
+    monkeypatch.setattr(
+        "winpodx.desktop.notify.notify_pod_needs_manual_restart", notifications.manual_restart
+    )
+    return SimpleNamespace(
+        runtime=tray_runtime, marker=marker, recover=recovery, notify=notifications
+    )
+
+
+def test_auto_recovery_skips_when_installation_active(
+    installation_recovery: SimpleNamespace,
+) -> None:
+    from winpodx.core.pod import PodState
+
+    installation_recovery.marker.write_text(str(os.getpid()), encoding="utf-8")
+    runtime = installation_recovery.runtime
+    runtime.pod_state = PodState.UNRESPONSIVE
+
+    runtime.timer.timeout.emit()
+
+    installation_recovery.recover.assert_not_called()
+    assert installation_recovery.notify.mock_calls == []
+    assert runtime.tray.messages == []
+
+
+def test_auto_recovery_resumes_when_installation_ends_while_unresponsive(
+    installation_recovery: SimpleNamespace,
+) -> None:
+    from winpodx.core.pod import PodState
+
+    # Given a suppressed poll during installation, with RDP still unresponsive.
+    installation_recovery.marker.write_text(str(os.getpid()), encoding="utf-8")
+    runtime = installation_recovery.runtime
+    runtime.pod_state = PodState.UNRESPONSIVE
+    runtime.timer.timeout.emit()
+    installation_recovery.recover.assert_not_called()
+    assert installation_recovery.notify.mock_calls == []
+
+    # When installation ends without an intervening RUNNING status.
+    installation_recovery.marker.unlink()
+    runtime.timer.timeout.emit()
+
+    # Then the next poll can recover and notify normally.
+    installation_recovery.recover.assert_called_once_with(runtime.cfg)
+    assert installation_recovery.notify.mock_calls == [
+        call.unresponsive("10.0.0.2"),
+        call.recovered(),
+    ]
+
+
+@pytest.mark.parametrize("success", [True, False], ids=["success", "failure"])
+def test_auto_recovery_suppresses_late_result_when_installation_starts(
+    installation_recovery: SimpleNamespace, success: bool
+) -> None:
+    from winpodx.core.pod import PodState
+    from winpodx.core.pod.recovery import RecoveryAction, RecoveryResult
+
+    # Given recovery that starts before installation but returns after it starts.
+    def recover(_cfg: SimpleNamespace) -> RecoveryResult:
+        installation_recovery.marker.write_text(str(os.getpid()), encoding="utf-8")
+        action = RecoveryAction.RESTARTED_TERMSERVICE if success else RecoveryAction.RDP_STILL_DOWN
+        return RecoveryResult(success, action)
+
+    installation_recovery.recover.side_effect = recover
+    runtime = installation_recovery.runtime
+    runtime.pod_state = PodState.UNRESPONSIVE
+
+    runtime.timer.timeout.emit()
+
+    installation_recovery.recover.assert_called_once_with(runtime.cfg)
+    assert installation_recovery.notify.mock_calls == [call.unresponsive("10.0.0.2")]
+    assert runtime.tray.messages == []
+
+
+def test_auto_recovery_suppresses_late_exception_when_installation_starts(
+    installation_recovery: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    from winpodx.core.pod import PodState
+    from winpodx.core.pod.recovery import RecoveryResult
+
+    failure = RuntimeError("agent transport crashed")
+
+    def recover(_cfg: SimpleNamespace) -> RecoveryResult:
+        installation_recovery.marker.write_text(str(os.getpid()), encoding="utf-8")
+        raise failure
+
+    installation_recovery.recover.side_effect = recover
+    runtime = installation_recovery.runtime
+    runtime.pod_state = PodState.UNRESPONSIVE
+
+    with caplog.at_level(logging.WARNING, logger=tray.__name__):
+        runtime.timer.timeout.emit()
+
+    installation_recovery.recover.assert_called_once_with(runtime.cfg)
+    assert any(
+        record.name == tray.__name__ and str(failure) in record.getMessage()
+        for record in caplog.records
+    )
+    assert installation_recovery.notify.mock_calls == [call.unresponsive("10.0.0.2")]
+    assert runtime.tray.messages == []
+
+
+@pytest.mark.parametrize(
+    ("success", "crash"),
+    [(True, False), (False, False), (False, True)],
+    ids=["success", "failure", "exception"],
+)
+def test_auto_recovery_can_run_again_after_installation_ends(
+    installation_recovery: SimpleNamespace, success: bool, crash: bool
+) -> None:
+    from winpodx.core.pod import PodState
+    from winpodx.core.pod.recovery import RecoveryAction, RecoveryResult
+
+    def recover(_cfg: SimpleNamespace) -> RecoveryResult:
+        installation_recovery.marker.write_text(str(os.getpid()), encoding="utf-8")
+        if crash:
+            raise RuntimeError("agent transport crashed")
+        action = RecoveryAction.RESTARTED_TERMSERVICE if success else RecoveryAction.RDP_STILL_DOWN
+        return RecoveryResult(success, action)
+
+    # Given a completed recovery attempt followed by an installation-active poll.
+    installation_recovery.recover.side_effect = recover
+    runtime = installation_recovery.runtime
+    runtime.pod_state = PodState.UNRESPONSIVE
+    runtime.timer.timeout.emit()
+    runtime.timer.timeout.emit()
+    installation_recovery.recover.assert_called_once_with(runtime.cfg)
+    installation_recovery.notify.reset_mock()
+
+    # When installation ends, with RDP still down and recovery now able to succeed.
+    installation_recovery.marker.unlink()
+    installation_recovery.recover.side_effect = None
+    runtime.timer.timeout.emit()
+
+    # Then no stale inflight state blocks a new recovery or its normal notifications.
+    assert installation_recovery.recover.call_args_list == [call(runtime.cfg), call(runtime.cfg)]
+    assert installation_recovery.notify.mock_calls == [
+        call.unresponsive("10.0.0.2"),
+        call.recovered(),
+    ]
 
 
 def test_unresponsive_transition_recovers_and_notifies(
