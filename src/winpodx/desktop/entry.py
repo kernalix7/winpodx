@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from winpodx.core.app import AppInfo
+from winpodx.desktop._svg_export import _export_png_svg
 from winpodx.desktop.icons import _install_user_file
 from winpodx.desktop.menu import (
     FOLDER_KEY,
@@ -393,8 +394,8 @@ def _remove_stale_icon_copies(icon_name: str, *, keep: Path) -> None:
 def _install_icon(app: AppInfo) -> str:
     """Install app icon into the hicolor icon theme. Returns the icon name.
 
-    SVG icons go to scalable/apps/; a PNG goes to the sized directory matching
-    its real dimensions. Other formats fall back to the default winpodx icon.
+    SVG icons go to scalable/apps/; a PNG keeps its sized fallback and, when
+    suitable, gains a lossless raster SVG wrapper. Other formats use winpodx.
     """
     icon_name = f"winpodx-{app.name}"
 
@@ -433,5 +434,11 @@ def _install_icon(app: AppInfo) -> str:
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     _install_user_file(src, dest)
+
+    if suffix == ".png":
+        try:
+            _export_png_svg(dest, icons_dir() / "scalable" / "apps" / f"{icon_name}.svg")
+        except OSError as e:
+            log.debug("Could not export desktop SVG for %s; keeping PNG fallback: %s", icon_name, e)
 
     return icon_name
