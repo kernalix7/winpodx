@@ -69,9 +69,9 @@ _THIRD_PARTY_ACK: tuple[tuple[str, str, str, str], ...] = (
         "https://github.com/llccd/RDPWrapOffsetFinder",
     ),
     (
-        "PySide6 / Qt 6",
-        "LGPL-3.0-only WITH Qt-LGPL-exception-1.1",
-        "GUI framework — dynamically linked via import; LGPL §4(d) satisfied",
+        "PySide6",
+        "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only",
+        "GUI framework; dynamically loaded; see bundled license and source notices",
         "https://doc.qt.io/qtforpython/",
     ),
     (
@@ -94,7 +94,7 @@ _THIRD_PARTY_ACK: tuple[tuple[str, str, str, str], ...] = (
     ),
     (
         "pyxdg",
-        "LGPL-2.0-only",
+        "GNU Library GPL v2 (see COPYING)",
         "freedesktop .desktop file parser for host-app discovery (optional, reverse-open extra)",
         "https://gitlab.freedesktop.org/xdg/pyxdg",
     ),
