@@ -9,6 +9,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-11
+
+Packaging correction candidate. Native prototype packages preserve the pinned archive; public 0.12.1 package verification and external OBS synchronization remain release gates.
+
+### Packaging
+
+- Packaging normalizers rewrote the pinned rdprrap ZIP metadata in 0.12.0 DEBs and OBS Fedora RPMs. Although its internal files were unchanged, OEM SHA256 verification rejected the archive, leaving the single-session fallback.
+- The correction preserves the original opaque ZIP bytes and existing SHA256 pin; verification and security checks are not relaxed.
+- Application source code and normal Windows-app/data payloads are unchanged; this correction adds no features or Windows usage rights.
+- The stale OBS server SPEC omitted installed menu, icon, AppStream, and cleanup-helper resources. The repository SPEC already includes them; external recipe synchronization requires valid maintainer permissions and may remain blocked pending authorization.
+- Existing OBS authentication required interactive password input, so external recipe synchronization is blocked. No credentials or permissions were changed. New release tags and public correction packages remain pending; the stale server recipe must not be presented as corrected.
+
+### Upgrade guidance
+
+- Affected 0.12.0 DEB and OBS Fedora users should use corrected 0.12.1 packages once available. Installing a corrected host package alone does not repair an already-provisioned guest.
+- No existing user data or live Windows VM has been patched. Existing 0.12.0 tags and release assets are preserved.
+
 ## [0.12.0] - 2026-10-10
 
 Setup, desktop icons, guest discovery, and redistribution notices are updated.
