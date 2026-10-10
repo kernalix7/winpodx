@@ -10,9 +10,11 @@ WinPodX 설치하는 모든 방법 — 원라인 인스톨러, distro 패키지 
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-distro 를 감지하고, 누락된 시스템 의존성 (Podman, FreeRDP, KVM, Python 3.10+) 을 확인 후 설치, WinPodX 를 `~/.local/bin/winpodx-app/` 에 배치. Windows 앱 메뉴는 pod 첫 부팅 시 자동으로 채워짐 — discovery 가 실행 중인 Windows 게스트의 Start Menu 앱을 실제 아이콘과 함께 등록 (`desktop.full_app_scan` opt-in 시 Registry / UWP / Chocolatey / Scoop 포함). 데스크톱 앱에는 Selawik 대체 글꼴이 번들로 들어 있으므로 시스템 글꼴 패키지가 필요 없습니다. 의존성 설치 단계 외에는 root 불필요. openSUSE, Fedora (Atomic Desktops 포함: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, Arch, NixOS 에서 동작.
+distro를 감지하고 누락된 시스템 의존성(Podman, FreeRDP, KVM, Python 3.10+)을 확인 후 설치하며, WinPodX를 `~/.local/bin/winpodx-app/`에 배치합니다. 프로비저닝 중 게스트 Start Menu에서 발견한 앱을 아이콘과 함께 등록합니다. 설치나 앱 발견이 실패하면 메뉴가 비어 있을 수 있으므로, 게스트 준비 후 `winpodx app refresh`로 다시 검색하세요. 데스크톱 앱에는 Selawik 대체 글꼴이 포함됩니다. 의존성 설치·호스트 설정 외에는 root가 필요 없습니다. openSUSE, Fedora(Atomic Desktops 포함), Debian/Ubuntu, RHEL 계열, Arch를 지원하며, NixOS는 아래 flake를 사용합니다.
 
-> **Windows 라이선스.** dockur 가 pod 첫 부팅 시 Microsoft 에서 Windows ISO 를 다운로드. 결과로 만들어진 Windows 게스트의 사용은 Microsoft 의 Software License Terms (첫 활성화 시 표시되는 EULA) 의 적용을 받음. WinPodX 는 Windows 를 재배포하지 않음, 본인 머신에서의 설치를 오케스트레이션할 뿐. 활성화는 본인의 Windows 라이선스 키로 — Home / Pro / Enterprise 모두 dockur 가 지원.
+> **Windows 라이선스.** WinPodX는 사용자 컴퓨터에서 설치를 진행하며 Windows를 재배포하지 않습니다. 사용 목적에 필요한 Windows 라이선스와 권한을 Microsoft의 해당 조건에 따라 보유해야 합니다.
+>
+> **Windows 사용 권한을 확인하세요.** 정품 인증만으로 해당 사용에 필요한 가상화·원격 액세스·다중 사용자 권한이 모두 입증되지는 않습니다. 에디션, 라이선스 채널, 관할 지역, 사용 목적에 적용되는 Microsoft 라이선스 조건과 보유 권한을 확인하세요. WinPodX의 MIT 라이선스와 rdprrap은 Windows 사용 권한을 확장하지 않습니다.
 
 기본적으로 인스톨러는 **가장 최신의 GitHub release** 에 pin. 프리릴리스 / 개발 버전은 opt-in.
 
@@ -47,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Manual 모드는 바이너리 + desktop entry + 아이콘만 설치 — `winpodx setup` / `pod wait-ready` / 앱 디스커버리 / reverse-open 설정 전부 skip. 다음 `winpodx` 실행 (CLI 또는 GUI) 시 first-run prompt 가 3가지 옵션 제공:
+Manual 모드는 바이너리·desktop entry·아이콘만 설치하며 프로비저닝을 건너뜁니다. 다음 bare `winpodx` 실행은 터미널 설정 선택 세 가지를 제공하고, `winpodx gui`는 여섯 페이지 설치 마법사를 엽니다:
 
 - **Auto** — 호스트 감지 default, non-interactive (= 기본 `install.sh` 가 했을 것)
 - **Customize** — wizard 모드 (모든 knob 선택); `winpodx setup --customize` 와 동등
@@ -105,7 +107,7 @@ GUI 첫 실행도 같은 선택을 여섯 페이지에서 받습니다: Welcome,
 
 ## Windows 언어 선택
 
-기본은 **영어 (미국)**. installer 실행 후 `~/.config/winpodx/winpodx.toml` 편집해서 표시 언어, 지역 형식, 키보드 레이아웃 설정 가능 (또는 fresh install 전에 미리 생성):
+Windows 설치 언어는 기본적으로 호스트 로케일을 따릅니다. installer 실행 후 `~/.config/winpodx/winpodx.toml`을 편집해 표시 언어, 지역 형식, 키보드 레이아웃을 설정할 수 있습니다(또는 신규 설치 전에 미리 생성):
 
 ```toml
 [pod]
@@ -141,11 +143,11 @@ keyboard = "ko-KR"
 
 미리 빌드된 RPM 과 `.deb` 패키지가 모든 [GitHub Release](https://github.com/kernalix7/winpodx/releases/latest) 에 첨부됨 — openSUSE/Fedora RPM 은 [openSUSE Build Service (`home:Kernalix7/winpodx`)](https://build.opensuse.org/package/show/home:Kernalix7/winpodx) 에서, 나머지는 GitHub Actions 에서. [`winpodx` AUR 패키지](https://aur.archlinux.org/packages/winpodx) 는 v0.5.2 부터 라이브 — Arch 사용자는 `yay -S winpodx` 또는 `paru -S winpodx` 로 설치.
 
-> **패키지 매니저 설치 후엔 `winpodx setup` 한번 실행.** 패키지 payload 는 바이너리 + 데스크탑 entry + 아이콘 + man page 만 — Windows VM provisioning 자동 트리거하는 post-install 훅 없음. 이유: (a) `winpodx setup` 가 인터랙티브 (backend / 자격증명 prompt), (b) `winpodx pod start` 는 ~7.5 GB Windows ISO 다운로드 + Sysprep + OEM apply (보통 회선 5–10분) 트리거, (c) `apt install` / `dnf install` / `yay -S` 가 root 로 돌며 사용자 네임스페이스 rootless podman provisioning 발화시키면 곤란. curl 원라이너는 동일한 `winpodx setup --non-interactive` + `winpodx pod wait-ready` 체인을 자체 실행해서 수동 setup 단계 안 보임. 첫 실행 흐름:
+> **패키지 매니저 설치 후 `winpodx setup`을 한 번 실행하세요.** 패키지는 앱과 데스크톱 통합을 설치하며 Windows 프로비저닝을 자동으로 시작하지 않습니다. `winpodx setup`은 기본적으로 자동 감지 설정을 사용하고, `--customize`는 터미널 마법사를 엽니다. 준비 대기, 게스트 수정, 앱 발견, reverse-open 설정을 포함하는 공통 프로비저닝 흐름을 실행합니다. curl 인스톨러는 이 흐름을 직접 호출합니다:
 >
 > ```bash
-> winpodx setup                # 인터랙티브: backend / 자격증명 / 사양 / locale
-> winpodx app run desktop      # 첫 호출시 pod 자동 provision (~5–10분)
+> winpodx setup                # 자동 감지 기본값으로 프로비저닝
+> winpodx app run desktop      # 준비된 Windows 데스크톱 실행
 > ```
 
 ### openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll
@@ -224,9 +226,11 @@ yay -S winpodx-git
 
 ## AppImage (Thin 번들: Python + Qt + FreeRDP + WinPodX; 호스트 컨테이너 런타임 필요)
 
-distro 무관 WinPodX AppImage 가 태그 release 마다 asset 으로 ship 됨. **0.6.0 에서 Thin AppImage 로 재설계 (item A).** 0.6.0 이전엔 ~296 MB fat 번들이 컨테이너 stack 전부 (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive lib) 를 AppImage 의 `PATH` / `LD_LIBRARY_PATH` 에 실음. 이미 podman 이 있는 distro 에선 호스트 stack 을 가려서 망가뜨림 — Ubuntu 26.04 의 `it seems that you do not have podman installed` (#357), Fedora Bluefin 의 aardvark-dns 가 던지는 `OPENSSL_3.4.0 not found` (#363) 등. 0.6.0 은 컨테이너 stack 전체를 AppImage 에서 제거해 **근본 원인을 제거**. 현 번들은 안전하게 묶을 수 있는 것만 — Python 3, WinPodX, Qt6 (PySide6), FreeRDP 3 클라이언트 (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — 표준 `PATH` 해석으로 호스트 컨테이너 런타임 사용. 컨테이너 stack 제거만으론 ~274 MB 였고(≈296 MB fat 에서), 진짜 용량은 PySide6 의 Qt6 전체 번들(QtWebEngine 만 ~195 MB; winpodx 는 QtCore/QtGui/QtWidgets/QtSvg/QtDBus 만 사용)이라 안 쓰는 Qt6 모듈도 strip(`packaging/appimage/slim-pyside6.sh`)해서 **~110 MB** 로 줄입니다.
+WinPodX는 0.6.0부터 Thin x86_64 AppImage 모델을 사용합니다. Python, WinPodX, PySide6의 필요한 Qt6 모듈, FreeRDP 클라이언트를 포함하고 컨테이너 런타임은 호스트 것을 사용합니다. 이전 Fat 번들은 컨테이너 도구와 라이브러리까지 포함해 호스트 스택과 충돌할 수 있었습니다 (#357, #363). 사용하지 않는 Qt 모듈은 `packaging/appimage/slim-pyside6.sh`로 제거합니다.
 
-> **FreeRDP 클라이언트 소스.** FreeRDP 클라이언트 소스는 선택 가능, auto-discovery 는 Flatpak 클라이언트 (`com.freerdp.FreeRDP`) 를 우선하고 네이티브 클라이언트 (`PATH` 의 `xfreerdp` / `wlfreerdp` / `sdl-freerdp`) 를 fallback 으로 사용 (#366 / #393).
+0.12.0 후보 레시피는 Ubuntu 24.04의 FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, Python `3.11.17+20261009`, PySide6 `6.12.0`을 사용합니다. 출처 수집기는 소유 패키지, 라이선스 텍스트, wheel URL, 다운로드 해시를 기록합니다. 구현된 소스 파이프라인은 Qt/PySide, CPython, PyPI, Ubuntu, AppImage 런타임 원본을 SHA256 검증·미러링해 소스/용도 색인, 라이선스, 입력 잠금, 레시피와 함께 `winpodx-appimage-sources.tar.gz`에 담고, 태그 빌드에서 바이너리와 함께 아카이브, `PROVENANCE.json`, `SOURCE-OFFER.txt`, `SHA256SUMS`를 첨부합니다. 각 아티팩트에는 고유한 출처 및 소스 제공 기록이 있으며, 이는 포괄적인 법적 적합성이나 보안 승인을 의미하지 않습니다. 잠기지 않은 Alpine apk 입력은 런타임 재구성의 한계입니다. 모든 네이티브 구성 요소의 바이트 단위 동일 재구성을 주장하지 않습니다.
+
+> **FreeRDP 클라이언트 선택.** 클라이언트 소스는 설정할 수 있습니다. auto 모드는 RAIL 최소 버전을 충족한 네이티브 `xfreerdp`를 우선합니다. 그렇지 않으면 Flatpak을 시도하고, Flatpak이 없으면 네이티브 클라이언트를 대안으로 유지합니다.
 
 호스트 측 요구사항:
 
@@ -286,7 +290,7 @@ nix profile install github:kernalix7/winpodx
 inputs.winpodx.url = "github:kernalix7/winpodx";
 ```
 
-wrapper 가 FreeRDP, podman / podman-compose, iproute2, libnotify 를 bundle 해서 기본 Podman 백엔드는 바로 동작. Docker 백엔드는 Docker 가 호스트에 설치되어 있어야 함; manual 백엔드는 직접 제공하는 RDP 호스트에 연결.
+wrapper가 FreeRDP, Podman, podman-compose, iproute2, libnotify를 `PATH`에 추가합니다. 호스트의 KVM과 rootless 컨테이너 설정도 필요합니다. Docker 백엔드는 호스트에 Docker가 설치되어 있어야 하며, manual 백엔드는 직접 제공하는 RDP 호스트에 연결합니다.
 
 ## 소스에서
 

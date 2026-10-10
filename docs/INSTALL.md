@@ -10,9 +10,11 @@ Every way to install WinPodX — the one-line installer, distro package managers
 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Detects your distro, installs missing system dependencies (Podman 4+ + podman-compose, FreeRDP 3+, KVM, Python 3.10+) with your confirmation, and drops winpodx into `~/.local/bin/winpodx-app/`. The Windows-app menu populates automatically during first provisioning — discovery scans the guest's Start Menu and registers each visible app with its real icon (`desktop.full_app_scan = true` opts into Registry App Paths and Chocolatey/Scoop shims too). The desktop app bundles its Selawik fallback font, so it needs no system font package. No root required except for the dependency and host-setup steps. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, and Arch. NixOS uses the flake below.
+Detects your distro, installs missing system dependencies (Podman 4+ + podman-compose, FreeRDP 3+, KVM, Python 3.10+) with your confirmation, and drops winpodx into `~/.local/bin/winpodx-app/`. Provisioning scans the guest's Start Menu and registers discovered apps with their icons (`desktop.full_app_scan = true` opts into Registry App Paths and Chocolatey/Scoop shims too). If installation or discovery fails, the menu may remain empty; retry after the guest is ready with `winpodx app refresh`. The desktop app bundles its Selawik fallback font, so it needs no system font package. No root required except for the dependency and host-setup steps. Works on openSUSE, Fedora (including Atomic Desktops: Silverblue, Kinoite, Sericea, Bluefin, Bazzite), Debian/Ubuntu, RHEL-family, and Arch. NixOS uses the flake below.
 
-> **Windows licensing.** dockur downloads a Windows ISO from Microsoft at first pod boot. Your use of the resulting Windows guest is governed by Microsoft's Software License Terms (the EULA shown on first activation). WinPodX does not redistribute Windows; it only orchestrates the install on your machine. Bring your own Windows license key for activation — Home / Pro / Enterprise are all supported by dockur.
+> **Windows licensing.** WinPodX orchestrates installation on your machine and does not redistribute Windows. You must hold the Windows license and entitlements required for your intended use under Microsoft's applicable terms.
+>
+> **Check your Windows usage rights.** Activation alone does not establish all applicable virtualization, remote-access, or multi-user rights. Check the Microsoft license terms and entitlements for your edition, licensing channel, jurisdiction, and intended use. WinPodX's MIT license and rdprrap do not extend those Windows rights.
 
 By default the installer pins to the **latest published GitHub release**. Pre-release / development versions stay opt-in.
 
@@ -47,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
 ```
 
-Manual mode installs the binary + desktop entry + icon only -- no `winpodx setup`, no `winpodx provision`, no app discovery, no reverse-open setup. The next time you run bare `winpodx` or `winpodx gui`, the first-run prompt offers three options:
+Manual mode installs the binary + desktop entry + icon only -- no `winpodx setup`, no `winpodx provision`, no app discovery, no reverse-open setup. The next bare `winpodx` invocation offers three terminal setup options; `winpodx gui` opens the six-page setup wizard:
 
 - **Auto** -- host-detected defaults, non-interactive (= what default `install.sh` would have done)
 - **Customize** -- wizard mode (pick every knob); equivalent to `winpodx setup --customize`
@@ -103,7 +105,7 @@ For booting your own custom ISO with programs pre-installed, see [Advanced: Cust
 
 ## Choosing the Windows language
 
-By default, Windows installs in **English (US)**. You can configure the display language, regional format, and keyboard layout by editing `~/.config/winpodx/winpodx.toml` after running the installer (or by creating it beforehand for a fresh install):
+By default, Windows installation language follows the host locale. You can configure the display language, regional format, and keyboard layout by editing `~/.config/winpodx/winpodx.toml` after running the installer (or by creating it beforehand for a fresh install):
 
 ```toml
 [pod]
@@ -221,9 +223,11 @@ yay -S winpodx-git
 
 ## AppImage (Thin bundle: Python + Qt + FreeRDP + winpodx; host container runtime required)
 
-A distro-agnostic x86_64 AppImage of WinPodX ships as a release asset on each published release. **0.6.0 redesigned this as a Thin AppImage (item A).** Pre-0.6.0 the AppImage was a ~296 MB fat bundle that carried the entire container stack (Podman + podman-compose + conmon + crun + netavark + aardvark-dns + pasta + passt + slirp4netns + transitive libs) into the AppImage's `PATH` / `LD_LIBRARY_PATH`. That shadowed and poisoned the host's working stack on every distro that already had a podman — `it seems that you do not have podman installed` on Ubuntu 26.04 (#357), `OPENSSL_3.4.0 not found` from aardvark-dns on Fedora Bluefin (#363), and similar elsewhere. 0.6.0 **removes the root cause** by dropping the entire container stack from the AppImage. The current bundle carries only what is safe to bundle — Python 3, winpodx, Qt6 (PySide6), and the FreeRDP 3 client (`xfreerdp`, `wlfreerdp`, `sdl-freerdp`) — and uses the host's container runtime via standard `PATH` resolution. Dropping the container stack alone only reached ~274 MB, though — the real bulk is PySide6, which bundles the whole Qt6 stack (QtWebEngine alone is ~195 MB) while winpodx uses only QtCore/QtGui/QtWidgets/QtSvg/QtDBus — so the unused Qt6 modules are stripped too (`packaging/appimage/slim-pyside6.sh`), bringing the AppImage to **~110 MB**.
+WinPodX uses a Thin x86_64 AppImage model introduced in 0.6.0. It bundles Python, WinPodX, selected Qt6 modules through PySide6, and FreeRDP clients, while using the host's container runtime. The earlier Fat bundle included container tools and libraries that could conflict with the host stack (#357, #363). Unused Qt modules are removed by `packaging/appimage/slim-pyside6.sh`.
 
-> **FreeRDP client source.** The FreeRDP client source is selectable, and auto-discovery prefers the Flatpak client (`com.freerdp.FreeRDP`) with the native client (`xfreerdp` / `wlfreerdp` / `sdl-freerdp` on `PATH`) as a fallback (#366 / #393).
+The 0.12.0 candidate recipe uses Ubuntu 24.04 FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, Python `3.11.17+20261009`, and PySide6 `6.12.0`. Its provenance collector records package ownership, license texts, wheel URLs, and download hashes. The implemented source pipeline SHA256-verifies and mirrors Qt/PySide, CPython, PyPI, Ubuntu, and AppImage runtime originals into `winpodx-appimage-sources.tar.gz`, with a source/use index, licenses, input locks, and recipes; tag builds attach the archive, `PROVENANCE.json`, `SOURCE-OFFER.txt`, and `SHA256SUMS` alongside the binary. Each artifact has its own provenance and source-delivery record; this is not blanket legal or security clearance. Unlocked Alpine apk inputs limit runtime reconstruction, and byte-identical reconstruction of every native component is not claimed.
+
+> **FreeRDP client selection.** The client source is configurable. Auto mode prefers native `xfreerdp` when it meets the RAIL version floor; otherwise it tries Flatpak, with the native client retained as fallback when Flatpak is absent.
 
 Host-side requirements:
 
