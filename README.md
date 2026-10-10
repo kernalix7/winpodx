@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 > ### Status: Beta
 >
-> WinPodX is in active development, **v0.12.0**.
+> WinPodX is in active development, **v0.12.1**.
 >
 > - A six-page Windows-style setup wizard in the desktop app (Welcome, Configuration, Prerequisites, Review, Install, Finish), with storage directory and a local Windows ISO picked from one place
 > - Setup progress in CLI and GUI, shared GUI dialog chrome, and localized installer messages

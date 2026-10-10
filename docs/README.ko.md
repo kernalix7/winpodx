@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 > ### 상태: 베타
 >
-> WinPodX는 활발히 개발 중이며 현재 버전은 **v0.12.0**입니다.
+> WinPodX는 활발히 개발 중이며 현재 버전은 **v0.12.1**입니다.
 >
 > - 데스크톱 앱의 6 페이지 Windows 스타일 setup 마법사 (Welcome, Configuration, Prerequisites, Review, Install, Finish). 저장소 디렉터리와 로컬 Windows ISO를 한 곳에서 선택
 > - CLI·GUI 설치 진행 표시, GUI 대화 상자 공통 창 장식, 지역화된 설치 메시지

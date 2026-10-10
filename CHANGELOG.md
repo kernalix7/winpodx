@@ -9,6 +9,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-11
+
+Packaging correction candidate. Native prototype packages preserve the pinned archive; public 0.12.1 package verification and external OBS synchronization remain release gates.
+
+### Packaging
+
+- Packaging normalizers rewrote the pinned rdprrap ZIP metadata in 0.12.0 DEBs and OBS Fedora RPMs. Although its internal files were unchanged, OEM SHA256 verification rejected the archive, leaving the single-session fallback.
+- The correction preserves the original opaque ZIP bytes and existing SHA256 pin; verification and security checks are not relaxed.
+- Application source code and normal Windows-app/data payloads are unchanged; this correction adds no features or Windows usage rights.
+- The stale OBS server SPEC omitted installed menu, icon, AppStream, and cleanup-helper resources. The repository SPEC already includes them; external recipe synchronization requires valid maintainer permissions and may remain blocked pending authorization.
+- Existing OBS authentication required interactive password input, so external recipe synchronization is blocked. No credentials or permissions were changed. New release tags and public correction packages remain pending; the stale server recipe must not be presented as corrected.
+
+### Upgrade guidance
+
+- Affected 0.12.0 DEB and OBS Fedora users should use corrected 0.12.1 packages once available. Installing a corrected host package alone does not repair an already-provisioned guest.
+- No existing user data or live Windows VM has been patched. Existing 0.12.0 tags and release assets are preserved.
+
 ## [0.12.0] - 2026-10-10
 
 Setup, desktop icons, guest discovery, and redistribution notices are updated.
@@ -47,6 +64,26 @@ WinPodX requires Python 3.10 or newer.
 ### Reports
 
 - Thanks @mikeshb for #886: guest-to-host copying worked after upgrading to FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, and the reporter closed the issue. The exact cause is unproven.
+
+### Contributors / Thanks for
+
+Code and release maintenance: @kernalix7.
+
+Thanks for reports, feature requests, and testing that informed this release and follow-up investigation. This acknowledgment does not mean every referenced issue is fixed.
+
+- @realahmed7777: setup/storage feedback (#767) and the hide-all-apps request (#814).
+- @kroese: the improvement review and suggestions (#838).
+- @MirzaAyBaig12: declarative guest port forwarding (#826) and the NixOS setup report (#867).
+- @GameSoul7Eugene: the virtualization preflight request (#850).
+- @Zeik0s: the migration-warning request (#834).
+- @pnogaret2019-code: the connectivity report (#737).
+- @Hossam-Majrashi: the Arch Linux release-package request (#869).
+- @ismikes: the scheduled-task debloat report (#866).
+- @mathys-lopinto: the first file-open/tsclient readiness report (#833).
+- @h3nr1-d14z: the AppStream install-resource report (#871) and rollback/OEM-mount report (#872).
+- @t57541119-glitch: startup and cross-distribution troubleshooting feedback (#875).
+- @flomine: the password-rotation consistency report (#873).
+- @mikeshb: the guest-to-host file-copy report and FreeRDP upgrade retest (#886).
 
 ## [0.11.0] - 2026-09-07
 

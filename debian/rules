@@ -10,6 +10,9 @@ export PYBUILD_SYSTEM=pyproject
 # here so .deb builds don't need pytest in Build-Depends on every target.
 override_dh_auto_test:
 
+override_dh_strip_nondeterminism:
+	dh_strip_nondeterminism -Xrdprrap-0.3.0-windows-x64.zip
+
 # The icon ships as data/winpodx-icon.svg but winpodx.desktop declares
 # Icon=winpodx, so it has to land as winpodx.svg. dh_install cannot rename,
 # hence the explicit install here rather than a line in winpodx.install.
