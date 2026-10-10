@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from winpodx.core import discovery as discovery_module
 from winpodx.core.app import load_app
 from winpodx.core.config import Config
 from winpodx.core.discovery import (
@@ -45,6 +46,12 @@ from winpodx.core.discovery import (
     persist_discovered,
 )
 
+# Captured at import time, before the module-wide autouse ``_skip_transport_wait``
+# swaps ``discovery._wait_for_transport_ready`` for a no-op. The readiness test
+# below holds this genuine reference so it can exercise the real poll loop
+# instead of the no-op that made the old test vacuous (QA audit finding).
+_REAL_WAIT_FOR_TRANSPORT_READY = discovery_module._wait_for_transport_ready
+
 
 @pytest.fixture(autouse=True)
 def _skip_transport_wait(monkeypatch):
@@ -57,6 +64,8 @@ def _skip_transport_wait(monkeypatch):
     pays the full 30 s — 242 s of suite time across seven tests.
 
     tests/test_migrate.py:612 already patches this helper for the same reason.
+    The one test that must assert on the real loop reaches past this swap via
+    the module-level ``_REAL_WAIT_FOR_TRANSPORT_READY`` reference.
     """
     monkeypatch.setattr(
         "winpodx.core.discovery._wait_for_transport_ready",
@@ -1686,16 +1695,26 @@ def test_discover_scoped_agent_only_rejects_dispatch_failure_without_rdp(tmp_pat
 
 
 def test_transport_wait_ignores_rdp_port_when_agent_only(monkeypatch):
-    from winpodx.core import discovery
     from winpodx.core.transport import agent_only
 
-    clock = iter([0.0, 0.0, 2.0])
-    monkeypatch.setattr(discovery.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda cfg: None)
+    cfg = _make_cfg()
+    clock = MagicMock(side_effect=[0.0, 0.0, 2.0])
+    monkeypatch.setattr(discovery_module.time, "monotonic", clock)
+    dispatch = MagicMock(return_value=None)
+    monkeypatch.setattr("winpodx.core.transport.dispatch", dispatch)
+    sleep = MagicMock()
+    monkeypatch.setattr(discovery_module.time, "sleep", sleep)
     port = MagicMock()
     monkeypatch.setattr("socket.create_connection", port)
+
     with agent_only():
-        discovery._wait_for_transport_ready(_make_cfg(), max_wait_sec=1)
+        _REAL_WAIT_FOR_TRANSPORT_READY(cfg, max_wait_sec=1)
+
+    # The real loop ran: it consulted the transport and the clock, then let
+    # the 2 s poll interval elapse. In agent-only mode it must never fall back
+    # to an RDP-port probe.
+    dispatch.assert_called_once_with(cfg)
+    sleep.assert_called_once_with(2)
     port.assert_not_called()
 
 
