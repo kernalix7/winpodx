@@ -229,6 +229,16 @@ def _placeholder_image(size: int) -> "object":
     return img
 
 
+# Defensive resource bounds for the pure-Python XPM fallback. Host icon
+# assets can be untrusted, and the header's
+# ``W H NCOLORS CPP`` are untrusted. A 69-byte XPM can otherwise request a
+# multi-gigabyte RGBA allocation (CWE-789 / CWE-400) — independent of any
+# Pillow advisory, so it survives a patched Pillow.
+_MAX_XPM_BYTES = 1024 * 1024  # 1 MiB read/decode ceiling
+_MAX_XPM_DIMENSION = 4096  # per-axis pixel cap
+_MAX_XPM_PIXELS = 4096 * 1024  # 4194304 total-pixel cap
+
+
 def _decode_xpm_rgba(src: Path) -> "object | None":
     """Decode an XPM file to an RGBA Pillow image in pure Python, or None.
 
@@ -245,18 +255,32 @@ def _decode_xpm_rgba(src: Path) -> "object | None":
     ``#RGB`` / ``#RRGGBB`` / ``#RRRRGGGGBBBB`` hex or an X11 colour name via
     Pillow's ``ImageColor``), then map every ``cpp``-char pixel key to a
     colour. No external dependency, so it works identically everywhere
-    including the AppImage. Returns None on any malformed input so the caller
-    can still write a placeholder.
+    including the AppImage.
+
+    The header's geometry is hostile until proven otherwise: the file is read
+    through a ``_MAX_XPM_BYTES`` window, ``w``/``h`` are capped by
+    ``_MAX_XPM_DIMENSION`` and ``w * h`` by ``_MAX_XPM_PIXELS``, and every
+    pixel row must be at least ``w * cpp`` characters long — all before any
+    allocation. Returns None on any malformed input so the caller can still
+    write a placeholder.
     """
     import re
 
     from PIL import Image, ImageColor
 
+    # Bounded read: pull at most cap+1 bytes so an oversized file is refused
+    # without loading or decoding it. Latin-1 maps bytes 1:1, so the raw-byte
+    # length is also the decoded text length.
     try:
-        text = src.read_text(encoding="latin-1")
+        with src.open("rb") as fh:
+            raw = fh.read(_MAX_XPM_BYTES + 1)
     except OSError as exc:
         log.debug("cannot read XPM %s: %s", src, exc)
         return None
+    if len(raw) > _MAX_XPM_BYTES:
+        log.debug("XPM %s: %d bytes exceeds %d-byte cap", src, len(raw), _MAX_XPM_BYTES)
+        return None
+    text = raw.decode("latin-1")
 
     # Quoted string literals, in order: [values, <NCOLORS colours>, <H rows>].
     literals = re.findall(r'"((?:[^"\\]|\\.)*)"', text)
@@ -269,8 +293,23 @@ def _decode_xpm_rgba(src: Path) -> "object | None":
         return None
     if w <= 0 or h <= 0 or cpp <= 0 or ncolors <= 0:
         return None
+    # Refuse hostile geometry before any allocation or palette walk.
+    if w > _MAX_XPM_DIMENSION or h > _MAX_XPM_DIMENSION:
+        log.debug("XPM %s: %dx%d exceeds %d dimension cap", src, w, h, _MAX_XPM_DIMENSION)
+        return None
+    if w * h > _MAX_XPM_PIXELS:
+        log.debug("XPM %s: %d pixels exceeds %d cap", src, w * h, _MAX_XPM_PIXELS)
+        return None
     if len(literals) < 1 + ncolors + h:
         log.debug("XPM %s: truncated (need %d literals)", src, 1 + ncolors + h)
+        return None
+
+    # Each pixel row must be long enough for the declared width; a short row
+    # is malformed input, not "pad the remainder transparent".
+    rows = literals[1 + ncolors : 1 + ncolors + h]
+    required = w * cpp
+    if any(len(row) < required for row in rows):
+        log.debug("XPM %s: row shorter than %d chars (w*cpp)", src, required)
         return None
 
     def _parse_color(value: str) -> tuple[int, int, int, int]:
@@ -306,7 +345,7 @@ def _decode_xpm_rgba(src: Path) -> "object | None":
     img = Image.new("RGBA", (w, h))
     px = img.load()
     transparent = (0, 0, 0, 0)
-    for y, row in enumerate(literals[1 + ncolors : 1 + ncolors + h]):
+    for y, row in enumerate(rows):
         for x in range(w):
             key = row[x * cpp : x * cpp + cpp]
             px[x, y] = palette.get(key, transparent)
