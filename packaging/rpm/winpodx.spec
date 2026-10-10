@@ -1,5 +1,11 @@
 %global pypi_name winpodx
 
+%if 0%{?fedora}
+# The bundled rdprrap ZIP is SHA256-pinned; preserve its upstream bytes while
+# keeping the other add-determinism handlers and distribution options active.
+%global add_determinism_options %{?add_determinism_options} --handler=-zip
+%endif
+
 Name:           %{pypi_name}
 # OBS's _service chain runs `set_version` on every build and rewrites this
 # Version: line from the @PARENT_TAG@ tarball filename (e.g. winpodx-0.5.9
