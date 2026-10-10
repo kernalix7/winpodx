@@ -53,6 +53,14 @@ from winpodx.utils.paths import data_dir
 
 log = logging.getLogger(__name__)
 
+# Byte ceilings for the guest-written result and progress files (RS-01 /
+# CWE-400). Both are read off the tsclient share, so a hostile guest could
+# otherwise grow them without bound and make the host allocate the whole
+# file before utf-8-sig decoding. The result JSON is normally kilobytes;
+# progress lines are tiny and only ever consumed best-effort.
+_RESULT_FILE_LIMIT = 64 * 1024 * 1024  # 64 MiB
+_PROGRESS_FILE_LIMIT = 4 * 1024 * 1024  # 4 MiB
+
 
 class WindowsExecError(RuntimeError):
     """Raised when a Windows-guest PowerShell exec attempt fails to even
@@ -128,6 +136,20 @@ def run_via_transport(
     except TransportError as e:
         raise WindowsExecError(str(e)) from e
     return WindowsExecResult(rc=result.rc, stdout=result.stdout, stderr=result.stderr)
+
+
+def _read_progress_text(path: Path) -> str:
+    """Best-effort bounded read of the guest progress tail file.
+
+    Reads at most ``_PROGRESS_FILE_LIMIT`` bytes, so a runaway or hostile
+    guest cannot make the host allocate an unbounded buffer (RS-01). The
+    utf-8-sig decode still consumes PowerShell's BOM; ``errors="replace"``
+    keeps the tail usable when the byte cap splits a multi-byte character.
+    Used by both the streaming loop and the final drain.
+    """
+    with path.open("rb") as fh:
+        data = fh.read(_PROGRESS_FILE_LIMIT)
+    return data.decode("utf-8-sig", errors="replace")
 
 
 def run_in_windows(
@@ -299,7 +321,7 @@ def run_in_windows(
                             f"FreeRDP timed out after {timeout}s waiting for the script to complete"
                         )
                     try:
-                        current = progress_path.read_text(encoding="utf-8-sig")
+                        current = _read_progress_text(progress_path)
                     except OSError:
                         current = ""
                     if len(current) > last_size:
@@ -320,7 +342,7 @@ def run_in_windows(
             proc = subprocess.CompletedProcess(cmd_parts, popen.returncode, stdout, stderr)
             # One final progress drain after the worker exits.
             try:
-                final = progress_path.read_text(encoding="utf-8-sig")
+                final = _read_progress_text(progress_path)
                 if len(final) > last_size:
                     for raw_line in final[last_size:].splitlines():
                         line = raw_line.strip()
@@ -359,7 +381,11 @@ def run_in_windows(
         # caught this — kernalix7's apply-fixes returned "result file
         # unparseable: Unexpected UTF-8 BOM" when the wrapper actually
         # *had* succeeded.
-        raw = result_path.read_text(encoding="utf-8-sig")
+        with result_path.open("rb") as fh:
+            raw_bytes = fh.read(_RESULT_FILE_LIMIT + 1)
+        if len(raw_bytes) > _RESULT_FILE_LIMIT:
+            raise WindowsExecError(f"result file exceeds {_RESULT_FILE_LIMIT}-byte limit")
+        raw = raw_bytes.decode("utf-8-sig")
         data = json.loads(raw)
     except (json.JSONDecodeError, OSError) as e:
         raise WindowsExecError(f"result file unparseable: {e}") from e
