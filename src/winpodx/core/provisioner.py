@@ -1094,6 +1094,13 @@ def _apply_vbs_launchers(cfg: Config) -> None:
         # session enable` can activate rdprrap on existing pods without
         # forcing a container recreate. See cli.pod._multi_session.
         "rdprrap-activate.ps1",
+        # rdprrap-NOTICES.txt is the L1 supplemental copyright/license
+        # notice for the rdprrap ZIP's compiled crate graph (legal-audit
+        # 0.12.0). It must accompany the guest-installed binaries, so it
+        # is staged alongside rdprrap-activate.ps1 and the activator copies
+        # it into C:\winpodx\rdprrap before any binary use. Required: a
+        # missing source aborts the payload rather than applying without it.
+        "rdprrap-NOTICES.txt",
         # launch_file.vbs (#833) is the RemoteApp file-open wrapper that
         # rdp._file_wrapper_payload points wscript.exe at. Staging it here
         # lets existing pods gain file opens without a container recreate.

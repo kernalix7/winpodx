@@ -108,6 +108,30 @@ if (-not (Test-Path -LiteralPath $installer)) {
     Append-Log 'extract OK'
 }
 
+# L1 (legal-audit 0.12.0): the rdprrap ZIP's bundled crate notice omits the
+# real iced-project / Microsoft copyright holders. The remediation ships a
+# supplemental notice (rdprrap-NOTICES.txt) that MUST accompany the installed
+# binaries, so stage it into $rdprrapDir before any binary use. $PSScriptRoot
+# is C:\OEM at OEM time (install.bat stages it there) and
+# C:\Users\Public\winpodx\launchers at runtime (provisioner._apply_vbs_launchers
+# stages it alongside this script). A missing source is fatal: installing the
+# binary without its notice would ship a payload that is not notice-complete.
+$noticeSrc = Join-Path -Path $PSScriptRoot -ChildPath 'rdprrap-NOTICES.txt'
+$noticeDst = Join-Path -Path $rdprrapDir -ChildPath 'rdprrap-NOTICES.txt'
+if (-not (Test-Path -LiteralPath $noticeSrc)) {
+    Append-Log "FAIL: rdprrap-NOTICES.txt not found beside activator ($noticeSrc)"
+    Set-Status 'notice-missing'
+    exit 1
+}
+try {
+    Copy-Item -LiteralPath $noticeSrc -Destination $noticeDst -Force -ErrorAction Stop
+    Append-Log "rdprrap-NOTICES.txt staged -> $noticeDst"
+} catch {
+    Append-Log "FAIL: Copy-Item rdprrap-NOTICES.txt: $($_.Exception.Message)"
+    Set-Status 'notice-copy-failed'
+    exit 1
+}
+
 # Run the installer up to 3 times. Captures full stdout+stderr so a
 # final installer-failed surfaces actionable diagnostics.
 $installOk = $false

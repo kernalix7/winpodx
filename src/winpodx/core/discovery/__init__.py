@@ -63,6 +63,10 @@ DEFAULT_DISCOVERY_TIMEOUT = 300
 # Upper bound so a runaway guest enumerator can't fill the user's disk.
 _MAX_APPS = 500
 _MAX_ICON_BYTES = 1_048_576  # 1 MiB per icon
+# base64 expands 3 bytes -> 4 chars; cap the *encoded* string before any
+# decode so a hostile guest can't hand us a multi-gigabyte icon_b64 that
+# base64.b64decode would materialise in full (RS-01 / CWE-400).
+_MAX_ICON_B64_LEN = 4 * ((_MAX_ICON_BYTES + 2) // 3)
 _MAX_NAME_LEN = 255
 _MAX_PATH_LEN = 1024
 
@@ -1125,7 +1129,7 @@ def _entry_to_discovered(entry: dict[str, Any]) -> DiscoveredApp | None:
 
     icon_b64 = entry.get("icon_b64", "")
     icon_bytes = b""
-    if isinstance(icon_b64, str) and icon_b64:
+    if isinstance(icon_b64, str) and icon_b64 and len(icon_b64) <= _MAX_ICON_B64_LEN:
         try:
             icon_bytes = base64.b64decode(icon_b64, validate=True)
         except (binascii.Error, ValueError):

@@ -55,13 +55,16 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 > ### 상태: 베타
 >
-> WinPodX는 활발히 개발 중이며 현재 버전은 **v0.11.0**입니다.
+> WinPodX는 활발히 개발 중이며 현재 버전은 **v0.12.0**입니다.
 >
-> - Windows 11 설정 앱 스타일 데스크톱 앱 — 반응형 탐색, 사용자 지정 창 장식, 데스크톱의 라이트/다크 설정을 따르는 테마
-> - pod 상태, 리소스 사용량, 실행 중인 앱, 고정 앱을 한 화면에 모은 Dashboard
-> - CLI와 GUI에서 dockur HTTP 프로비저닝 진행 상태를 우선 표시하고, 실패 시 로그로 대체
-> - 간결한 시작 메뉴 스타일 플라이아웃이 된 `winpodx launch`와 새로 고친 트레이 실행기
-> - 최소 Python 버전이 3.10으로 상향
+> - 데스크톱 앱의 6 페이지 Windows 스타일 setup 마법사 (Welcome, Configuration, Prerequisites, Review, Install, Finish). 저장소 디렉터리와 로컬 Windows ISO를 한 곳에서 선택
+> - CLI·GUI 설치 진행 표시, GUI 대화 상자 공통 창 장식, 지역화된 설치 메시지
+> - 첫 GUI 프로비저닝은 게스트 에이전트를 요구하며, 필요하면 60/120/180/240/300초 지연으로 앱 발견을 자동 재시도
+> - GUI 설치 동안 복구 알림 묵음이 유지되며, 설치 외 실행의 복구 토스트 동작은 그대로
+> - 설치된 PNG를 SVG로 감싸되 벡터화하지 않음; hicolor `index.theme`을 복구하고 `.desktop`의 `Icon=`은 테마 이름 유지
+> - AppImage 소스 제공 구현: SHA256 검증된 원본, 색인, 라이선스, 입력 잠금, 레시피를 `winpodx-appimage-sources.tar.gz`에 담고, 태그 빌드에서 바이너리와 함께 `PROVENANCE.json`, `SOURCE-OFFER.txt`, `SHA256SUMS` 첨부. 각 아티팩트에는 고유한 출처 및 소스 제공 기록이 있으며, 이는 포괄적인 법적 적합성이나 보안 승인을 의미하지 않습니다.
+> - 옵트인 `[pod] extra_ports`는 `["25000:30000/tcp"]` 같은 포트 매핑 문자열 목록 사용
+> - reverse-open shim의 잠금 파일·빌드 목록을 기록하고 크레이트 및 Rust 표준 라이브러리 고지를 게스트에도 전달
 >
 > 전체 변경 내역은 [CHANGELOG](CHANGELOG.ko.md)에 있습니다.
 

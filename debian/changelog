@@ -1,3 +1,15 @@
+winpodx (0.12.0) unstable; urgency=medium
+
+  * Add the first-run setup wizard, configurable storage and local Windows ISO.
+  * Restore agent-only discovery, suppress installation recovery notifications,
+    and repair SVG desktop icon compatibility and hicolor theme metadata.
+  * Bound guest responses and reverse-open inputs; preserve binary notices and
+    ship the QEMU disguise build recipe in installed package payloads.
+  * Record AppImage build provenance and corresponding-source delivery.
+    See CHANGELOG.md for details and verification limits.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Sat, 10 Oct 2026 04:40:31 +0000
+
 winpodx (0.11.0) unstable; urgency=medium
 
   * Windows 11-style GUI redesign: a custom frameless title bar with caption

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "winpodx"
-version = "0.11.0"
+version = "0.12.0"
 description = "Windows app integration for Linux desktop"
 readme = "README.md"
 license = "MIT"
@@ -48,19 +48,19 @@ docker = [
 # discovery layer still works but ICO conversion falls back to a
 # logged warning + no file written.
 reverse-open = [
-    "Pillow>=10.0,<13.0",
-    "cairosvg>=2.7,<3.0",
+    "Pillow>=12.3,<13.0",
+    "cairosvg>=2.9,<3.0",
     "pyxdg>=0.27,<1.0",
 ]
 dev = [
-    "pytest>=7.0,<9.0",
+    "pytest>=9.0.3,<10.0",
     # `pytest tests/ -n auto`. Safe to shard only because the autouse fixture
     # in tests/conftest.py gives every test its own HOME + XDG_* tmp dir.
     "pytest-xdist>=3.0,<4.0",
     "pytest-cov>=5.0,<8.0",
     "ruff>=0.4,<1.0",
     "pip-audit>=2.7",
-    "Pillow>=10.0,<13.0",
+    "Pillow>=12.3,<13.0",
 ]
 all = [
     "winpodx[gui,docker,reverse-open,dev]",
@@ -78,19 +78,39 @@ Funding = "https://ko-fi.com/kernalix7"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/winpodx"]
-# Keep Cargo build artifacts out of the wheel. The shim is checked in
-# pre-built under shim/bin/; everything under target/ is regenerable
-# and would otherwise inflate the wheel by ~5 MB per accidental build.
+# Hatchling matches shared-data files against exclude patterns by their
+# *destination* path (share/winpodx/...), so the patterns below are written
+# against that layout. They keep rebuild-only material out of the runtime
+# payload while the sdist (default full VCS tree) retains every source:
+# - the shim ships pre-built under shim/bin/ (plus its notices); the Rust
+#   rebuild sources (Cargo.toml/build.rs/src/, regenerable target/) and
+#   Cargo.lock stay sdist-only;
+# - scripts/ci and gen_web_i18n.py are dev/CI helpers, not guest payload.
+# Unknown future notice files (LICENSE*/NOTICE*/build-provenance*) under the
+# shim are NOT excluded — only the exact rebuild sources are.
 exclude = [
-    "config/oem/reverse-open/shim/target",
-    "config/oem/reverse-open/shim/target/**",
-    "config/oem/reverse-open/shim/Cargo.lock",
+    "share/winpodx/config/oem/reverse-open/shim/.gitignore",
+    "share/winpodx/config/oem/reverse-open/shim/Cargo.toml",
+    "share/winpodx/config/oem/reverse-open/shim/Cargo.lock",
+    "share/winpodx/config/oem/reverse-open/shim/build.rs",
+    "share/winpodx/config/oem/reverse-open/shim/src",
+    "share/winpodx/config/oem/reverse-open/shim/src/**",
+    "share/winpodx/config/oem/reverse-open/shim/target",
+    "share/winpodx/config/oem/reverse-open/shim/target/**",
+    "share/winpodx/scripts/ci",
+    "share/winpodx/scripts/ci/**",
+    "share/winpodx/scripts/gen_web_i18n.py",
 ]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "data" = "share/winpodx/data"
 "config" = "share/winpodx/config"
-"scripts" = "share/winpodx/scripts"
+# Guest scripts only: scripts/ci + gen_web_i18n.py are dev/CI helpers and stay
+# out of the wheel (the excludes above guard a future re-broadening).
+"scripts/windows" = "share/winpodx/scripts/windows"
+# QEMU disguise build recipe (five source files, never a patched binary or
+# image) so `winpodx disguise build-image` works from an installed copy.
+"packaging/qemu-disguise" = "share/winpodx/packaging/qemu-disguise"
 "uninstall.sh" = "share/winpodx/uninstall.sh"
 "LICENSE" = "share/winpodx/LICENSE"
 "README.md" = "share/winpodx/README.md"

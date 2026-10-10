@@ -1402,11 +1402,22 @@ copy_from_local() {
         rm -rf "$WORK_DIR"
     fi
     mkdir -p "$WORK_DIR"
-    for item in src data config scripts install.sh uninstall.sh pyproject.toml README.md LICENSE; do
+    # THIRD_PARTY_LICENSES.md and the QEMU disguise recipe must survive this
+    # route: the wheel built from the copy maps both, and dropping them here
+    # silently strips the aggregate notices and `winpodx disguise build-image`
+    # from --source / repo-rerun installs.
+    for item in src data config scripts install.sh uninstall.sh pyproject.toml README.md LICENSE THIRD_PARTY_LICENSES.md; do
         if [ -e "$src/$item" ]; then
             cp -r "$src/$item" "$WORK_DIR/"
         fi
     done
+    # Only the qemu-disguise recipe comes across from packaging/ (the OBS/AUR/
+    # RPM/AppImage channels are not runtime payload), staged at
+    # packaging/qemu-disguise so the layout matches the wheel's shared data.
+    if [ -d "$src/packaging/qemu-disguise" ]; then
+        mkdir -p "$WORK_DIR/packaging"
+        cp -r "$src/packaging/qemu-disguise" "$WORK_DIR/packaging/"
+    fi
 }
 
 # Resolve the install ref. Default (empty WINPODX_REF) -> latest release.

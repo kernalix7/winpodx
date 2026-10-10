@@ -1,0 +1,44 @@
+WinPodX reverse-open shim 0.6.0 — Windows GNU x86_64 build
+==========================================================
+
+This notice describes the NEW binary SHA-256
+f79f95408006b1caa0a0c638f8a6395dcf3d9e70ba04a63a08fb11fe67e0bc22.
+It does not claim to identify dependencies of the previous, historically
+unrecorded binary. Exact source, target-specific graph, locked registry
+checksums, toolchain and rebuild instructions are in BUILDINFO.json; the
+unchanged source is in ../Cargo.toml, ../build.rs and ../src/main.rs.
+
+Statically linked direct/transitive registry crates for x86_64-pc-windows-gnu:
+
+* getrandom 0.2.17 — MIT OR Apache-2.0; MIT option selected. Original
+  copyright and full permission terms: licenses/getrandom-0.2.17/LICENSE-MIT.
+* cfg-if 1.0.4 — MIT OR Apache-2.0; MIT option selected. Original copyright
+  and full permission terms: licenses/cfg-if-1.0.4/LICENSE-MIT.
+
+Rust standard-library/runtime code is statically linked. Preserve the exact
+installed Rust 1.99.0-nightly toolchain's original complete per-component
+copyright inventory at licenses/rust-std-1.99.0-nightly/COPYRIGHT-library.html
+and its accompanying original license terms under
+licenses/rust-std-1.99.0-nightly/licenses/. This is intentionally broader
+than attempting to guess which standard-library objects survived LTO. The
+HTML inventory identifies its own exceptional components and rights holders;
+no new copyright attribution is asserted here.
+
+Build-time only (not the target binary's Cargo normal-dependency graph):
+winresource 0.1.31, toml 1.1.3+spec-1.1.0, serde_core 1.0.229,
+serde_spanned 1.1.1, toml_datetime 1.1.1+spec-1.1.0,
+toml_parser 1.1.3+spec-1.1.0, winnow 1.0.4, version_check 0.9.5.
+The locked graph also contains registry packages unused for this Windows
+release target. Do not infer that every lockfile package is linked.
+
+The Windows system DLLs named in the PE import table are imported, not
+distributed with this executable. MinGW-w64 CRT/linker support is supplied
+by the recorded cross-toolchain; its installed runtime package identifies
+its license as SUSE-Public-Domain. The complete matching Rust std inventory
+includes applicable GCC exception and GPL text conservatively, but this
+statement does not assert a particular static GCC object contribution.
+
+WinPodX's own MIT license is at the repository root LICENSE. rcedit.exe is
+another, separate binary with its own adjacent LICENSE-rcedit.txt; it is not
+part of the shim's compiled dependency graph. Guest notice-copy behavior
+and downstream archive inclusion must be verified separately.

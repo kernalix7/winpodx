@@ -1,20 +1,28 @@
 PySide6 / Qt for Python — third-party redistribution notice
-===========================================================
+==========================================================
 
-The WinPodX "fat" AppImage bundles the PySide6 (Qt for Python) runtime so the
-Qt6 GUI works without a system Qt install. This directory ships the license
-texts that PySide6's own wheels do not carry, to satisfy the LGPL-3.0
-redistribution obligation.
+The WinPodX Thin AppImage bundles the PySide6 (Qt for Python) runtime so
+the Qt6 GUI works without a system Qt install. This directory ships the
+license texts that PySide6's own wheels do not carry (verified: neither
+the dist-info nor the PySide6/ tree contains them), to satisfy the
+redistribution obligation. The exact versions bundled are recorded at
+build time in PROVENANCE.json / SOURCE-OFFER.txt (next to the AppImage
+and at usr/share/doc/winpodx/ inside it) — including the ACTUAL Qt
+version, read from the shipped libQt6Core.so.6 bytes, not assumed from
+the wheel version.
 
 Bundled components and their licenses:
 
-  - PySide6 (Qt for Python bindings)         LGPL-3.0-or-later
-    incl. PySide6-Essentials, PySide6-Addons  (with the Qt for Python
-                                               exceptions — see qt.io/qt-for-python)
-  - shiboken6 (PySide6's binding generator     LGPL-3.0-or-later
-    runtime)
-  - Qt 6 libraries loaded by PySide6           LGPL-3.0-only / -or-later
-    (QtCore, QtGui, QtWidgets, QtSvg, QtDBus)  (parts also available under GPL-3.0)
+  - PySide6 (Qt for Python bindings)         LGPL-3.0-only OR
+    incl. PySide6-Essentials, PySide6-      GPL-2.0-only OR
+    Addons, PySide6-Pdf, PySide6-WebEngine   GPL-3.0-only
+    (with the Qt for Python exceptions —
+    see qt.io/qt-for-python)
+  - shiboken6 (PySide6's binding generator   LGPL-3.0-only OR
+    runtime)                                 GPL-2.0-only OR GPL-3.0-only
+  - Qt 6 libraries loaded by PySide6          LGPL-3.0-only / -or-later
+    (QtCore, QtGui, QtWidgets, QtSvg,       (parts also available under
+    QtDBus)                                  GPL-3.0)
 
 License texts in this directory:
 
@@ -22,9 +30,28 @@ License texts in this directory:
   - GPL-3.0-only.txt    GNU General Public License v3.0
                         (the LGPL v3 incorporates the GPL v3 by reference)
 
-LGPL relinking: WinPodX does not statically link or modify the Qt/PySide6
-binaries. The AppImage is a self-contained SquashFS that is user-extractable
-via `--appimage-extract`, so an end user can replace the bundled PySide6/Qt
-shared objects with their own build — satisfying the LGPL's relinking right.
+Corresponding source (exact archives, checksums in SOURCE-OFFER.txt):
 
-Upstream: https://www.qt.io/qt-for-python  ·  https://pypi.org/project/PySide6/
+  - Qt (the version bundled by the PySide6 wheel):
+    https://download.qt.io/official_releases/qt/<MAJOR>.<MINOR>/<VERSION>/single/qt-everywhere-src-<VERSION>.tar.xz
+  - PySide6 / shiboken6:
+    https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-<VERSION>-src/pyside-setup-everywhere-src-<VERSION>.tar.xz
+
+Replacing / relinking (LGPL): the AppImage is a SquashFS you can unpack
+and re-pack. Run `./winpodx-x86_64.AppImage --appimage-extract` (or set
+APPIMAGE_EXTRACT_AND_RUN=1 to run unpacked), replace
+`squashfs-root/opt/python/lib/python3.11/site-packages/PySide6/Qt/lib/libQt6*.so*`
+or `PySide6/*.abi3.so` with your own build of the corresponding source
+    above, then run from `squashfs-root/AppRun` or re-pack with appimagetool
+(pass `--runtime-file` with the pinned Type 2 runtime listed in
+SOURCE-OFFER.txt). Extractability alone is not claimed to satisfy the
+LGPL. The release also delivers winpodx-appimage-sources.tar.gz beside the
+binary with equivalent network access: mirrored source bytes, patches,
+notices and build inputs. SHA256SUMS binds that archive to the AppImage;
+pip's report records resolved wheel hashes, not a pre-install hash lock.
+These are engineering delivery records, not a complete legal assessment.
+
+Upstream: https://www.qt.io/qt-for-python · https://pypi.org/project/PySide6/
+
+This is an engineering redistribution notice, not legal advice or a
+legal guarantee.

@@ -9,6 +9,45 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-10
+
+Setup, desktop icons, guest discovery, and redistribution notices are updated.
+WinPodX requires Python 3.10 or newer.
+
+### Added
+
+- Six-page Windows-style GUI setup and reinstall wizard: Welcome, Configuration, Prerequisites, Review, Install, Finish (#884).
+- Storage-directory and optional local Windows ISO selection in the wizard and `winpodx setup --customize` (#849, #879). Existing storage relocation remains explicit; a local ISO alone does not make installation offline.
+- Opt-in `[pod] extra_ports` accepts mapping strings such as `["25000:30000/tcp", "0.0.0.0:27015-27017:27015-27017/udp"]`; see `data/winpodx.toml.example`.
+
+### Changed
+
+- Setup progress, shared GUI dialog chrome, and localized installer messages are updated (#884).
+- First GUI provisioning requires the guest agent. Automatic discovery retries use 60/120/180/240/300-second delays (#885); failed installation does not guarantee a populated menu.
+- GUI installation suppresses recovery notifications until the install flow ends (#887).
+- AppImage provenance collection records FreeRDP/dpkg ownership, license texts, wheel URLs and download hashes. `pip --report` records hashes; it is not prevalidated hash locking.
+- The candidate AppImage recipe pins Ubuntu 24.04, FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, Python `3.11.17+20261009`, and appimagetool `1.9.1`. The pipeline SHA256-verifies and mirrors source originals into `winpodx-appimage-sources.tar.gz`; tag builds attach it with `PROVENANCE.json`, `SOURCE-OFFER.txt`, and `SHA256SUMS` alongside the binary. Each artifact has its own provenance and source-delivery record; this is not blanket legal or security clearance.
+- Nix removes the unused Python libvirt dependency and raw `postInstall` copy, using wheel shared data instead.
+
+### Fixed
+
+- Dependency floors raised to pytest `9.0.3`, Pillow `12.3`, and CairoSVG `2.9`; exact AppImage inputs are recorded in its manifest.
+- Installed PNG icons are embedded losslessly in SVG wrappers for desktop compatibility (#890). Original raster and private icons are unchanged; this is not vectorization.
+- Desktop icon installation repairs hicolor `index.theme`; `.desktop` `Icon=` remains a theme name.
+- Guest HTTP replies, result/progress files, encoded icons, and XPM dimensions have explicit size limits. Reverse-open rejects malformed UTF-8 and lone surrogates and handles stat/read races.
+- The five host-side QEMU disguise recipe sources are included in the wheel; local-copy installs retain that recipe and aggregate third-party notices.
+
+### Notices
+
+- rdprrap remains 0.3.0, with a supplemental notice for 17 crates copied into the guest. Historical rdprrap notices remain unchanged.
+- Exact publication commits remain unresolved only for `native-windows-derive 1.0.5` and `native-windows-gui 1.0.13`; unchanged MIT `LICENSE` and Gabriel Dube attribution are verified across 2019 creation and 2022 publication anchors.
+- `pelite-macros 0.1.1` source commit `432e769bf3152f21452a4b8908639f5ed1595912` resolves and has the identical license; the supplement records that revision.
+- Shim `BUILDINFO.json` records locked inputs and two identical clean builds, SHA256 `f79f95408006b1caa0a0c638f8a6395dcf3d9e70ba04a63a08fb11fe67e0bc22`. MIT crate texts and Rust standard-library notices accompany guest copies.
+
+### Reports
+
+- Thanks @mikeshb for #886: guest-to-host copying worked after upgrading to FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, and the reporter closed the issue. The exact cause is unproven.
+
 ## [0.11.0] - 2026-09-07
 
 The first release since 0.10.4, covering roughly two months of work: a rebuilt

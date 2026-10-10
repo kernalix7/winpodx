@@ -57,13 +57,16 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh
 
 > ### Status: Beta
 >
-> WinPodX is in active development, **v0.11.0**.
+> WinPodX is in active development, **v0.12.0**.
 >
-> - A Windows 11 Settings-style desktop app: adaptive navigation, custom window chrome, and a theme that follows your desktop's light or dark scheme
-> - Dashboard for pod state, resource use, running apps, and pinned apps in one view
-> - dockur HTTP provisioning progress in the CLI and GUI, with a log-based fallback
-> - `winpodx launch` as a compact Start-style flyout, plus a refreshed tray launcher
-> - Python 3.10 is the new minimum
+> - A six-page Windows-style setup wizard in the desktop app (Welcome, Configuration, Prerequisites, Review, Install, Finish), with storage directory and a local Windows ISO picked from one place
+> - Setup progress in CLI and GUI, shared GUI dialog chrome, and localized installer messages
+> - First GUI provisioning requires the guest agent; automatic discovery retries use 60/120/180/240/300-second delays when needed
+> - Install-time recovery notifications stay suppressed for the duration of a GUI install, without changing recovery-toast behaviour for non-install launches
+> - Installed PNG icons gain SVG wrappers without vectorization; hicolor `index.theme` is repaired, and `.desktop` `Icon=` values remain theme names
+> - AppImage source delivery is implemented: SHA256-verified originals, indexes, licenses, input locks, and recipes form `winpodx-appimage-sources.tar.gz`; tag builds attach it with `PROVENANCE.json`, `SOURCE-OFFER.txt`, and `SHA256SUMS` alongside the binary. Each artifact has its own provenance and source-delivery record; this is not blanket legal or security clearance.
+> - Opt-in `[pod] extra_ports` accepts port-mapping strings, for example `["25000:30000/tcp"]`
+> - Reverse-open shim builds have a recorded lockfile and build inventory; crate and Rust standard-library notices accompany guest copies
 >
 > Full detail in the [CHANGELOG](CHANGELOG.md).
 

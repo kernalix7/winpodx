@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# Stage system-level FreeRDP 3+ binaries into an existing python-
-# appimage AppDir so the resulting AppImage runs on hosts that do not
-# have a FreeRDP 3 client installed.
+# Stage system-level FreeRDP 3+ binaries into an existing AppDir so the
+# resulting AppImage runs on hosts that do not have a FreeRDP 3 client
+# installed.
+#
+# Base: pinned Ubuntu 24.04 (noble updates/security) -- see
+# provenance_pins.py UBUNTU_DIGEST + FREERDP_DPKG_PINS. The caller (CI
+# workflow or local builder) must run this inside that exact image with
+# the pinned packages installed; every file copied below is recorded in
+# a conveyed-files manifest (sha256<TAB>src<TAB>dst) that
+# provenance_collect.py turns into fail-closed dpkg provenance.
 #
 # Thin AppImage (0.6.0 item A): the container stack (podman /
 # podman-compose / conmon / crun / netavark / aardvark-dns / pasta /
@@ -22,29 +29,39 @@
 #   Wayland session (RAIL would break otherwise).
 # - glibc + libdl / libpthread / libc / libm / libresolv / libnsl /
 #   libcrypt + ld-linux likewise stay on the host. Bundling glibc into
-#   an AppImage is a well-known footgun; the runner-side Fedora glibc
+#   an AppImage is a well-known footgun; the build-side Ubuntu glibc
 #   would conflict with the user-side glibc on every reasonable distro.
+#   provenance_collect.py additionally enforces a GLIBC_2.39 symbol
+#   ceiling on every conveyed ELF.
 #
 # Usage:
-#   bundle-system-bins.sh <AppDir>
+#   bundle-system-bins.sh <AppDir> [manifest-out]
 #
-# Must be invoked from a Fedora 41+ environment that already has the
-# packages below installed via dnf. See appimage-publish.yml workflow
-# for the CI variant.
+# The manifest (default: <AppDir>/../conveyed-files.tsv) is REQUIRED by
+# the provenance collector -- a build without it cannot prove what it
+# ships, so it fails closed downstream.
 set -euo pipefail
 
-APPDIR="${1:?usage: $0 <AppDir>}"
+APPDIR="${1:?usage: $0 <AppDir> [manifest-out]}"
 if [ ! -d "$APPDIR" ]; then
     echo "[bundle] AppDir not found: $APPDIR" >&2
     exit 1
 fi
+MANIFEST="${2:-$(dirname "$APPDIR")/conveyed-files.tsv}"
+: > "$MANIFEST"
+
+record() {
+    # record <src-abs-path> <dst-rel-path>: hash + append manifest line.
+    local src="$1" dst="$2" sha
+    sha="$(sha256sum "$src" | cut -d' ' -f1)"
+    printf '%s\t%s\t%s\n' "$sha" "$src" "$dst" >> "$MANIFEST"
+}
 
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 
-# Binaries to bundle. Names match the Fedora package layout; the
-# script tolerates missing entries so it can be re-used on newer
-# distros where the FreeRDP 3 binary naming shifts (xfreerdp /
-# xfreerdp3 / wlfreerdp / sdl-freerdp).
+# Binaries to bundle. Names match the Ubuntu 24.04 package layout
+# (freerdp3-x11: xfreerdp3; freerdp3-wayland: wlfreerdp3); the list
+# tolerates missing entries so it stays re-usable where naming shifts.
 #
 # Thin AppImage: only FreeRDP 3 client binaries here. The container
 # stack (podman / podman-compose / conmon / crun / netavark /
@@ -61,9 +78,10 @@ BINARIES=(
 
 echo "[bundle] Copying binaries into $APPDIR/usr/bin/ ..."
 for bin in "${BINARIES[@]}"; do
-    for path in "/usr/bin/$bin" "/usr/libexec/podman/$bin" "/usr/libexec/$bin"; do
+    for path in "/usr/bin/$bin" "/usr/libexec/$bin"; do
         if [ -f "$path" ]; then
             cp -L "$path" "$APPDIR/usr/bin/"
+            record "$path" "usr/bin/$bin"
             echo "  + $bin (from $path)"
             break
         fi
@@ -71,16 +89,15 @@ for bin in "${BINARIES[@]}"; do
 done
 
 # Defensive sweep: if the FreeRDP package shipped any /usr/bin/*freerdp*
-# binary we didn't enumerate, grab it. Fedora package naming for the
-# FreeRDP 3 client has changed across releases (xfreerdp / xfreerdp3 /
-# freerdp / sdl-freerdp + arch suffix); this catches whichever variant
-# is present in the install.
+# binary we didn't enumerate, grab it (and record it -- the provenance
+# collector fail-closes on any unrecorded conveyed byte).
 echo "[bundle] Defensive freerdp glob:"
 for path in /usr/bin/*freerdp* /usr/libexec/*freerdp*; do
     if [ -f "$path" ]; then
         base="$(basename "$path")"
         if [ ! -f "$APPDIR/usr/bin/$base" ]; then
             cp -L "$path" "$APPDIR/usr/bin/"
+            record "$path" "usr/bin/$base"
             echo "  + $base (from $path, defensive)"
         fi
     fi
@@ -88,8 +105,7 @@ done
 
 # Library exclude list -- these MUST come from the host even on
 # distro-agnostic AppImages. Bundling them is either a crash hazard
-# (glibc family) or a desktop-integration hazard (X / Wayland /
-# GL stack).
+# (glibc family) or a desktop-integration hazard (X / Wayland / GL).
 HOST_LIBS_REGEX='^/(usr/)?(lib(64)?(/[^/]+)?)/('\
 'ld-linux[^/]*\.so[^/]*'\
 '|libc\.so[^/]*'\
@@ -132,7 +148,8 @@ copy_lib() {
     if [[ "$lib" =~ $HOST_LIBS_REGEX ]]; then
         return 0
     fi
-    cp -L "$lib" "$APPDIR/usr/lib/" 2>/dev/null || true
+    cp -L "$lib" "$APPDIR/usr/lib/" 2>/dev/null || return 0
+    record "$lib" "usr/lib/$base"
 }
 
 # ldd-traverse every bundled binary + every lib we copy in (transitive).
@@ -166,3 +183,4 @@ echo "[bundle] Bundled binaries:"
 ls -1 "$APPDIR/usr/bin" | sed 's/^/  /'
 echo "[bundle] Bundled libraries: $(ls "$APPDIR/usr/lib" | wc -l) files"
 echo "[bundle] AppDir size: $(du -sh "$APPDIR" | cut -f1)"
+echo "[bundle] Conveyed manifest: $MANIFEST ($(wc -l < "$MANIFEST") files)"
