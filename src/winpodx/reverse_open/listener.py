@@ -295,13 +295,22 @@ class Listener:
             return
 
         try:
-            text = path.read_text(encoding="utf-8")
+            with path.open("rb") as request_file:
+                raw = request_file.read(self._cfg.max_request_bytes + 1)
         except OSError:
             return
 
+        # The guest may grow a request after the initial size check.
+        if len(raw) > self._cfg.max_request_bytes:
+            self._stats.rejected_oversize += 1
+            log.warning("listener: oversize request %s", path.name)
+            _safe_unlink(path)
+            return
+
         try:
+            text = raw.decode("utf-8")
             data = _load_json_depth_limited(text, self._cfg.max_request_depth)
-        except (ValueError, json.JSONDecodeError):
+        except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
             self._stats.rejected_malformed_json += 1
             log.warning("listener: malformed JSON in %s", path.name)
             _safe_unlink(path)
@@ -621,7 +630,11 @@ def _validate_schema(data: object) -> str | None:
         return "path field not a string"
     if "\x00" in path:
         return "path field contains NUL"
-    if len(path.encode("utf-8")) > 4096:
+    try:
+        path_bytes = path.encode("utf-8")
+    except UnicodeEncodeError:
+        return "path field is not valid UTF-8"
+    if len(path_bytes) > 4096:
         return "path field exceeds 4096 bytes"
     if origin == "launch":
         # Launch-only: run the app with no file (the user clicked the app's
