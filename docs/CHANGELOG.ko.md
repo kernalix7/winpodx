@@ -9,6 +9,45 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-10
+
+설치, 데스크톱 아이콘, 게스트 앱 발견, 재배포 고지를 갱신했습니다.
+WinPodX는 Python 3.10 이상을 요구합니다.
+
+### Added
+
+- GUI 설치·재설치에 여섯 페이지 Windows 스타일 마법사 추가: Welcome, Configuration, Prerequisites, Review, Install, Finish (#884).
+- 마법사와 `winpodx setup --customize`에서 저장 디렉터리와 선택적 로컬 Windows ISO 지정 (#849, #879). 기존 저장소 이동은 명시적으로 수행하며, 로컬 ISO만으로 오프라인 설치가 되지는 않습니다.
+- 옵트인 `[pod] extra_ports`는 `["25000:30000/tcp", "0.0.0.0:27015-27017:27015-27017/udp"]` 같은 매핑 문자열 목록 사용. `data/winpodx.toml.example` 참고.
+
+### Changed
+
+- 설치 진행 표시, GUI 대화 상자 공통 창 장식, 지역화된 설치 메시지 갱신 (#884).
+- 첫 GUI 프로비저닝은 게스트 에이전트를 요구합니다. 자동 앱 발견은 60/120/180/240/300초 지연으로 재시도합니다 (#885). 설치 실패 뒤 메뉴가 채워지는 것은 보장되지 않습니다.
+- GUI 설치 흐름이 끝날 때까지 복구 알림 억제 (#887).
+- AppImage 출처 수집기가 FreeRDP/dpkg 소유 패키지, 라이선스 텍스트, wheel URL과 다운로드 해시를 기록합니다. `pip --report`는 해시 기록이며 사전 검증된 해시 잠금이 아닙니다.
+- AppImage 후보 레시피는 Ubuntu 24.04, FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, Python `3.11.17+20261009`, appimagetool `1.9.1`을 고정합니다. 파이프라인은 소스 원본을 SHA256 검증·미러링해 `winpodx-appimage-sources.tar.gz`에 담고, 태그 빌드에서 바이너리와 함께 `PROVENANCE.json`, `SOURCE-OFFER.txt`, `SHA256SUMS`를 첨부합니다. 각 아티팩트에는 고유한 출처 및 소스 제공 기록이 있으며, 이는 포괄적인 법적 적합성이나 보안 승인을 의미하지 않습니다.
+- Nix에서 사용하지 않는 Python libvirt 의존성과 raw `postInstall` 복사를 제거하고 wheel 공유 데이터를 사용합니다.
+
+### Fixed
+
+- 의존성 최소 버전을 pytest `9.0.3`, Pillow `12.3`, CairoSVG `2.9`로 상향합니다. 정확한 AppImage 입력은 해당 매니페스트에 기록합니다.
+- 데스크톱 호환성을 위해 설치된 PNG를 손실 없이 SVG로 감쌉니다 (#890). 원본 래스터와 비공개 아이콘은 유지하며, 벡터화하지 않습니다.
+- 데스크톱 아이콘 설치 시 hicolor `index.theme`을 복구합니다. `.desktop`의 `Icon=`은 테마 이름을 유지합니다.
+- 게스트 HTTP 응답, 결과·진행 파일, 인코딩된 아이콘, XPM 치수에 명시적 크기 제한 적용. reverse-open은 잘못된 UTF-8과 단독 서로게이트를 거부하고 stat/read 경합을 처리합니다.
+- 호스트용 QEMU disguise 레시피 소스 다섯 개를 wheel에 포함합니다. 로컬 복사 설치도 레시피와 통합 서드파티 고지를 보존합니다.
+
+### Notices
+
+- rdprrap은 0.3.0을 유지하며, 크레이트 17개의 보충 고지를 게스트로 복사합니다. 기존 rdprrap 고지는 그대로 유지합니다.
+- 정확한 배포 커밋이 미해결인 것은 `native-windows-derive 1.0.5`와 `native-windows-gui 1.0.13`뿐입니다. MIT `LICENSE`와 Gabriel Dube 표기는 2019년 생성·2022년 배포 기준점에서 변경 없이 확인되었습니다.
+- `pelite-macros 0.1.1`의 소스 커밋 `432e769bf3152f21452a4b8908639f5ed1595912`는 조회 가능하며 라이선스도 동일합니다. 보충 고지는 이 리비전을 기록합니다.
+- shim `BUILDINFO.json`은 잠긴 입력과 동일한 결과를 낸 두 번의 클린 빌드를 기록합니다. SHA256은 `f79f95408006b1caa0a0c638f8a6395dcf3d9e70ba04a63a08fb11fe67e0bc22`입니다. MIT 크레이트 텍스트와 Rust 표준 라이브러리 고지를 게스트에도 전달합니다.
+
+### Reports
+
+- #886 제보자 @mikeshb에게 감사드립니다. FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`로 갱신한 뒤 게스트→호스트 복사가 정상 동작했고, 제보자가 이슈를 닫았습니다. 정확한 원인은 입증되지 않았습니다.
+
 ## [0.11.0] - 2026-09-07
 
 0.10.4 이후 첫 릴리즈로, 약 두 달간의 작업을 담았습니다: 새로 만든 데스크톱 앱,
