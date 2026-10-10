@@ -18,10 +18,10 @@ Why /exec rather than a dedicated agent endpoint: ``agent.ps1``
 already implements bearer-auth POST /exec for arbitrary PowerShell;
 adding a new endpoint for the file-blob transfer would duplicate the
 auth + body-handling code with no functional gain. /exec's 60-second
-default timeout is bumped to 180 s here to cover the worst case of
-~50 apps with ICOs (each ICO is ~30 KB; the encoded payload is well
-under the agent's 64 KB body cap per request — total snippet stays
-within ~3 MB even with that many apps).
+default timeout is bumped to 180 s here for file and registry work.
+The snippet includes binaries, icons and original license inventories;
+its size depends on that payload. The shipped guest reader has no 64 KiB
+request-body ceiling, and the host response cap is a separate boundary.
 
 Failure modes (caller decides how to surface):
 
@@ -42,7 +42,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from winpodx.core.agent import AgentClient, AgentError
@@ -120,6 +120,26 @@ _HOST_RCEDIT_PATH: tuple[str, ...] = (
     "rcedit.exe",
 )
 
+# License/notice/provenance files that must accompany the staged binaries
+# on the guest (legal L3: "copy the WinPodX MIT, LICENSE-rcedit.txt and
+# complete linked-crate notices with the guest payload"). Each entry is
+# ``(source parts relative to bundle_dir(), destination name relative to
+# the guest bin dir)``. The source tree is trusted, so these names are
+# literal; the guest destination is always routed under ``$binDir``.
+_HOST_NOTICE_FILES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("LICENSE",), "LICENSE"),
+    ((*_HOST_BUNDLE_SUBDIR, "shim", "bin", "LICENSE-rcedit.txt"), "LICENSE-rcedit.txt"),
+    (
+        (*_HOST_BUNDLE_SUBDIR, "shim", "bin", "THIRD_PARTY_NOTICES.txt"),
+        "THIRD_PARTY_NOTICES.txt",
+    ),
+    ((*_HOST_BUNDLE_SUBDIR, "shim", "bin", "BUILDINFO.json"), "BUILDINFO.json"),
+)
+# Nested licence inventory (per-crate MIT texts, rust-std copyright + terms,
+# lockfile provenance). Every regular file is copied recursively, retaining
+# its sub-path under ``licenses/`` on the guest.
+_HOST_LICENSES_SUBDIR: tuple[str, ...] = (*_HOST_BUNDLE_SUBDIR, "shim", "bin", "licenses")
+
 # Agent /exec default is 60s; bumped for the sync payload because the
 # guest also runs register-apps.ps1 which iterates per-app + writes
 # registry per ext. Empirically ~30s for 50 apps; double that as headroom.
@@ -143,6 +163,24 @@ class SyncResult:
 
 class SyncError(RuntimeError):
     """Sync attempt reached the guest but failed before / during register."""
+
+
+@dataclass(frozen=True)
+class _SyncPayload:
+    """Everything :func:`_build_sync_script` serializes into the guest snippet.
+
+    Groups the per-run blobs so the renderer takes one argument instead of
+    growing a positional list every time the payload gains a component.
+    ``notices_b64`` maps a guest-relative POSIX path (e.g.
+    ``licenses/<crate>/LICENSE-MIT``) to base64 of the raw bundle bytes.
+    """
+
+    apps_json_text: str
+    icons_b64: dict[str, str]
+    host_scripts: dict[str, str]
+    shim_b64: str
+    rcedit_b64: str
+    notices_b64: dict[str, str] = field(default_factory=dict)
 
 
 def _read_manifest(stage_dir: Path) -> dict:
@@ -245,35 +283,108 @@ def _read_host_rcedit_exe() -> bytes:
         raise SyncError(f"cannot read rcedit binary {path}: {exc}") from exc
 
 
-def _build_sync_script(
-    apps_json_text: str,
-    icons_b64: dict[str, str],
-    host_scripts: dict[str, str],
-    shim_b64: str,
-    rcedit_b64: str,
-) -> str:
+def _read_bytes(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise SyncError(f"cannot read {path}: {exc}") from exc
+
+
+def _validate_guest_rel(rel: str) -> str:
+    """Reject any bundle-derived name that could escape the guest bin dir.
+
+    The source tree is trusted, so this is a defensive guard: no absolute
+    paths, no ``.``/``..`` segments, no drive/ADS colons, no backslashes.
+    """
+    if not rel or rel != rel.strip() or rel.startswith("/"):
+        raise SyncError(f"unsafe bundle notice path: {rel!r}")
+    for part in rel.split("/"):
+        if part in ("", ".", "..") or ":" in part or "\\" in part:
+            raise SyncError(f"unsafe bundle notice path: {rel!r}")
+    return rel
+
+
+def _read_host_notices() -> dict[str, bytes]:
+    """Read the notice/provenance payload that must accompany the EXEs.
+
+    Returns ``{guest-relative POSIX path: raw bytes}`` covering the WinPodX
+    MIT license, the rcedit license, the shim third-party notices and
+    BUILDINFO, plus every regular file under ``licenses/`` (retained as a
+    nested tree). Raises :class:`SyncError` if any required notice is
+    missing — an incomplete notice payload is a broken bundle, not
+    something to sync silently.
+    """
+    base = bundle_dir()
+    out: dict[str, bytes] = {}
+    for parts, dest in _HOST_NOTICE_FILES:
+        path = base.joinpath(*parts)
+        if not path.is_file():
+            raise SyncError(
+                f"bundle notice missing: {path}; the reverse-open notice payload "
+                "is incomplete (broken bundle) — reinstall or rebuild it"
+            )
+        out[_validate_guest_rel(dest)] = _read_bytes(path)
+
+    licenses_dir = base.joinpath(*_HOST_LICENSES_SUBDIR)
+    if not licenses_dir.is_dir():
+        raise SyncError(f"bundle notice directory missing: {licenses_dir}")
+    found = 0
+    for path in sorted(licenses_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        dest = "licenses/" + path.relative_to(licenses_dir).as_posix()
+        out[_validate_guest_rel(dest)] = _read_bytes(path)
+        found += 1
+    if found == 0:
+        raise SyncError(f"bundle notice directory empty: {licenses_dir}")
+    return out
+
+
+def _ps_single_quote(value: str) -> str:
+    """Return ``value`` as a PowerShell single-quoted literal.
+
+    Only ``'`` needs escaping (doubled); the base64 alphabet and the
+    validated relative paths contain no other metacharacter.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _notice_entry_line(rel: str, b64: str) -> str:
+    win_rel = rel.replace("/", "\\")
+    return f"  @{{ rel = {_ps_single_quote(win_rel)}; b64 = {_ps_single_quote(b64)} }};"
+
+
+def _build_sync_script(payload: _SyncPayload) -> str:
     """Render the PowerShell snippet that runs on the guest via /exec.
 
     The snippet base64-decodes every payload (apps.json text, ICOs,
-    register / unregister PowerShell scripts, and the Rust shim
-    ``.exe``) and writes them to ``C:\\Users\\Public\\winpodx\\
-    reverse-open\\`` before running ``register-apps.ps1``. This makes
-    the sync entirely self-contained — no dependence on dockur having
-    staged the OEM bundle, so the feature works on pods that were
-    created before this PR landed.
+    register / unregister PowerShell scripts, the Rust shim ``.exe``,
+    rcedit ``.exe``, and the license/notice/provenance files) and writes
+    them to ``C:\\Users\\Public\\winpodx\\reverse-open\\`` before running
+    ``register-apps.ps1``. This makes the sync entirely self-contained —
+    no dependence on dockur having staged the OEM bundle, so the feature
+    works on pods that were created before this landed.
 
-    Atomicity: the shim ``.exe`` is written via the binary writer
-    (raw bytes, not text-encoded) because UTF-8 decoding a PE binary
-    would corrupt it. The two ``.ps1`` scripts are written via
-    text-mode atomic writes for consistency with the user-readable
-    intent of the files.
+    Atomicity: every binary — the two ``.exe`` files and all notices —
+    goes through the binary writer (raw bytes, not text-encoded) because
+    UTF-8 decoding a PE binary or a license file would alter bytes. The
+    two ``.ps1`` scripts are written via text-mode atomic writes for
+    consistency with the user-readable intent of the files.
     """
-    apps_b64 = base64.b64encode(apps_json_text.encode("utf-8")).decode("ascii")
+    apps_b64 = base64.b64encode(payload.apps_json_text.encode("utf-8")).decode("ascii")
     icon_entries = "\n".join(
-        f"  @{{ slug = '{slug}'; b64 = '{b64}' }};" for slug, b64 in sorted(icons_b64.items())
+        f"  @{{ slug = '{slug}'; b64 = '{b64}' }};"
+        for slug, b64 in sorted(payload.icons_b64.items())
     )
-    register_b64 = base64.b64encode(host_scripts["register"].encode("utf-8")).decode("ascii")
-    unregister_b64 = base64.b64encode(host_scripts["unregister"].encode("utf-8")).decode("ascii")
+    register_b64 = base64.b64encode(payload.host_scripts["register"].encode("utf-8")).decode(
+        "ascii"
+    )
+    unregister_b64 = base64.b64encode(payload.host_scripts["unregister"].encode("utf-8")).decode(
+        "ascii"
+    )
+    notice_entries = "\n".join(
+        _notice_entry_line(rel, b64) for rel, b64 in sorted(payload.notices_b64.items())
+    )
 
     # The PowerShell snippet keeps every string parameter inside
     # single-quoted literals (only ' itself needs escaping; the
@@ -306,6 +417,9 @@ def _build_sync_script(
         "\n"
         "function Write-BinaryAtomic($Path, $Base64) {\n"
         "    $bytes = [Convert]::FromBase64String($Base64)\n"
+        "    $parent = Split-Path -Parent $Path\n"
+        "    if ($parent -and -not (Test-Path -LiteralPath $parent)) "
+        "{ New-Item -ItemType Directory -Path $parent -Force | Out-Null }\n"
         '    $tmp = "$Path.tmp"\n'
         "    [IO.File]::WriteAllBytes($tmp, $bytes)\n"
         "    Move-Item -LiteralPath $tmp -Destination $Path -Force\n"
@@ -314,8 +428,19 @@ def _build_sync_script(
         f"Write-TextAtomic $appsJson '{apps_b64}'\n"
         f"Write-TextAtomic $register '{register_b64}'\n"
         f"Write-TextAtomic $unregister '{unregister_b64}'\n"
-        f"Write-BinaryAtomic $shimExe '{shim_b64}'\n"
-        f"Write-BinaryAtomic $rcEditExe '{rcedit_b64}'\n"
+        f"Write-BinaryAtomic $shimExe '{payload.shim_b64}'\n"
+        f"Write-BinaryAtomic $rcEditExe '{payload.rcedit_b64}'\n"
+        "\n"
+        "# Copy the notices/provenance into $binDir (same dir as the per-app\n"
+        "# shims) with the nested licences/ tree retained. Raw bytes, so a\n"
+        "# guest copy is bit-identical to the host bundle.\n"
+        "$noticeEntries = @(\n"
+        f"{notice_entries}\n"
+        ")\n"
+        "foreach ($n in $noticeEntries) {\n"
+        "    $dst = Join-Path $binDir $n.rel\n"
+        "    Write-BinaryAtomic $dst $n.b64\n"
+        "}\n"
         "\n"
         "# Write each ICO.\n"
         "$icons = @(\n"
@@ -354,13 +479,19 @@ def sync_to_guest(cfg: Config, stage_dir: Path) -> SyncResult:
     shim_b64 = base64.b64encode(shim_bytes).decode("ascii")
     rcedit_bytes = _read_host_rcedit_exe()
     rcedit_b64 = base64.b64encode(rcedit_bytes).decode("ascii")
-    script = _build_sync_script(
-        stage_dir.joinpath("apps.json").read_text(encoding="utf-8"),
-        icons_b64,
-        host_scripts,
-        shim_b64,
-        rcedit_b64,
+    notices_bytes = _read_host_notices()
+    notices_b64 = {
+        rel: base64.b64encode(data).decode("ascii") for rel, data in notices_bytes.items()
+    }
+    payload = _SyncPayload(
+        apps_json_text=stage_dir.joinpath("apps.json").read_text(encoding="utf-8"),
+        icons_b64=icons_b64,
+        host_scripts=host_scripts,
+        shim_b64=shim_b64,
+        rcedit_b64=rcedit_b64,
+        notices_b64=notices_b64,
     )
+    script = _build_sync_script(payload)
     client = AgentClient(cfg)
     try:
         result = client.exec(script, timeout=_SYNC_TIMEOUT_SEC)
