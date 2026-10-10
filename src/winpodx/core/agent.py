@@ -26,7 +26,7 @@ import json
 import logging
 import socket
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -45,6 +45,15 @@ log = logging.getLogger(__name__)
 # constant). Changing the port means editing here AND those PS1/BAT files.
 AGENT_PORT = 8765
 _EXEC_RESPONSE_GRACE = 5.0
+
+# Byte ceilings for guest agent replies (RS-01 / CWE-400). A compromised or
+# spoofed guest could otherwise stream an unbounded body and make the host
+# allocate it before the reply is ever validated. ``/health`` is a tiny status
+# document so 64 KiB is already two orders of magnitude above normal; ``/exec``
+# can legitimately carry large script output, so 64 MiB — matching the
+# discovery stdout cap (``discovery.HARD_STDOUT_CAP``).
+HEALTH_RESPONSE_LIMIT = 64 * 1024  # 64 KiB
+EXEC_RESPONSE_LIMIT = 64 * 1024 * 1024  # 64 MiB
 
 
 class AgentError(RuntimeError):
@@ -75,6 +84,25 @@ class AgentTimeoutError(AgentError):
     listener was up and replied with headers but the work itself
     exceeded the per-request budget.
     """
+
+
+class _ReadableResponse(Protocol):
+    def read(self, size: int = -1, /) -> bytes: ...
+
+
+def _read_capped(resp: _ReadableResponse, limit: int, error_type: type[AgentError]) -> bytes:
+    """Read a guest response body, refusing anything above ``limit`` bytes.
+
+    Reads at most ``limit + 1`` bytes so an oversized reply is detected
+    without draining the peer, then raises ``error_type`` before any
+    decode or JSON parse happens (RS-01). Shared by ``health`` and
+    ``exec``, which differ only in the ``AgentError`` subclass they
+    surface.
+    """
+    raw = resp.read(limit + 1)
+    if len(raw) > limit:
+        raise error_type(f"agent response body exceeds {limit}-byte limit")
+    return raw
 
 
 @dataclass(frozen=True)
@@ -113,6 +141,8 @@ class AgentClient:
     # instance from cfg.rdp.ip (see _default_base_url).
     DEFAULT_BASE_URL = f"http://127.0.0.1:{AGENT_PORT}"
     HEALTH_TIMEOUT = 5.0
+    HEALTH_RESPONSE_LIMIT = HEALTH_RESPONSE_LIMIT
+    EXEC_RESPONSE_LIMIT = EXEC_RESPONSE_LIMIT
 
     def __init__(
         self,
@@ -210,7 +240,7 @@ class AgentClient:
         try:
             with urllib_request.urlopen(req, timeout=self.HEALTH_TIMEOUT) as resp:
                 status = resp.status
-                raw = resp.read()
+                raw = _read_capped(resp, self.HEALTH_RESPONSE_LIMIT, AgentUnavailableError)
         except urllib_error.HTTPError as e:
             # 4xx (other than auth) and 5xx come back here.
             if e.code in (401, 403):
@@ -263,7 +293,7 @@ class AgentClient:
         try:
             with urllib_request.urlopen(req, timeout=urlopen_timeout) as resp:
                 status = resp.status
-                raw = resp.read()
+                raw = _read_capped(resp, self.EXEC_RESPONSE_LIMIT, AgentError)
         except urllib_error.HTTPError as e:
             if e.code in (401, 403):
                 raise AgentAuthError(f"/exec returned {e.code}") from e
