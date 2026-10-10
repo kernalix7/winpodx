@@ -716,6 +716,7 @@ def _make_fake_oem(root, *, include_launch_file: bool) -> None:
     oem.mkdir(parents=True)
     for fname in _OEM_LAUNCHER_FILES:
         (oem / fname).write_text(f"{fname} placeholder\n", encoding="utf-8")
+    (oem / "rdprrap-NOTICES.txt").write_bytes(b"Synthetic fixture license notice\n")
     if include_launch_file:
         (oem / "launch_file.vbs").write_bytes(_FUTURE_LAUNCH_FILE_VBS)
 

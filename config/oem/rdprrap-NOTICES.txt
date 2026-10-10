@@ -1,0 +1,723 @@
+rdprrap 0.3.0 — supplemental compiled-dependency notices (WinPodX legal-audit L1)
+====================================================================================
+
+Purpose
+-------
+This is a WinPodX-owned supplemental attribution file that closes the content
+defect recorded as finding L1 in the WinPodX 0.12.0 pre-publication license
+audit (.rtrt/tmp/release-0.12.0/legal-audit.md). The third-party notice
+generated inside the bundled rdprrap ZIP attributes a single MIT block to 25
+crate/version entries but reproduces only the placeholder text
+"Copyright (c) <year> <copyright holders>". That placeholder does not name a
+rights holder and cannot satisfy the retention condition of the MIT grant.
+This file supplies the original copyright notice and the full, verbatim MIT
+license text for the 17 external crates in that block, together with the
+provenance of each text.
+
+Immutable artifact identity
+---------------------------
+  ZIP (shipped, unmodified): config/oem/rdprrap-0.3.0-windows-x64.zip
+  ZIP SHA-256:               22f2c25230d40bfaa3290bc0ab43d66ae4314eb09c9545ed983f3a7e95b1fbb3
+  Version pin:               config/oem/rdprrap_version.txt
+                             (version=0.3.0, filename and SHA-256 match above)
+
+Declared dependency manifest
+----------------------------
+  rdprrap-0.3.0-windows-x64/THIRD_PARTY_LICENSES.txt
+  (inside the ZIP above; the MIT block spanning lines 366-398 lists 25
+  entries: 8 rdprrap-owned workspace crates plus the 17 external crates
+  reproduced below.)
+
+Scope and non-claims
+--------------------
+  - The 8 rdprrap-owned crates (listed below) are MIT-licensed under the
+    ZIP's own top-level LICENSE (Copyright (c) 2026 Kim DaeHyun); that text
+    ships inside the ZIP and is not duplicated here.
+  - This file does not independently prove the compiled binary dependency
+    graph. The graph is declared by the ZIP's generated manifest named above;
+    this file reproduces the licensing data for the external entries in it.
+  - Where a crate is offered under a choice ("MIT OR Apache-2.0"), the MIT
+    alternative is reproduced here as a valid, complete grant.
+  - The ZIP itself, its version pin, and the upstream rdprrap release were not
+    modified, rebuilt, or re-pinned by producing this file.
+
+Per-crate provenance (source URL / archive SHA-256 / license path / text SHA-256)
+--------------------------------------------------------------------------------
+  iced-x86 1.21.0   [declared license: MIT]
+    archive:     https://static.crates.io/crates/iced-x86/iced-x86-1.21.0.crate
+    archive sha: 7c447cff8c7f384a7d4f741cfcff32f75f3ad02b406432e8d6c878d56b1edf6b
+    license in .crate: (none packaged in .crate)
+    license source: https://raw.githubusercontent.com/icedland/iced/c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt
+    source ref:     c50f29b7bc305696895c075f3fc7719751426b12 (LICENSE.txt)
+    text sha:       93a47598376fd3f276b631e75149340087153c6ff1635a53c5790249e9124e2d
+    note:           Published .crate archive does not bundle a license file; text is the upstream license at the exact revision recorded in the crate's .cargo_vcs_info.json (src/rust/iced-x86).
+
+  native-windows-derive 1.0.5   [declared license: MIT]
+    archive:     https://static.crates.io/crates/native-windows-derive/native-windows-derive-1.0.5.crate
+    archive sha: 76134ae81020d89d154f619fd2495a2cecad204276b1dc21174b55e4d0975edd
+    license in .crate: (none packaged in .crate)
+    license source: https://raw.githubusercontent.com/gabdube/native-windows-gui/a6c96e8de5d01fe7bb566d737622dfead3cd1aed/LICENSE
+    source ref:     a6c96e8de5d01fe7bb566d737622dfead3cd1aed (LICENSE)
+    text sha:       c2f89f904cffbf8c06c376a24a5a713151d97ba66f6367874574cab6f94e4d5c
+    note:           Published .crate archive does not bundle a license file, and its recorded revision a2a11d52b508167e8b122581ac996affcb4af494 is not available from the official repository. The LICENSE text is byte-identical across the surviving history from its 2019-11-07 creation through commit 62eb75b9805717b9b57708e07e73daed11c4e6db (2022-06-21T13:20:14Z, before this crate's publication) and the recorded default-branch commit; git blob c8c1643d507d2b9f7f51fefabc3093fa77fd3f0b. The exact published source tree remains unverified. The crate's own Cargo.toml and crates.io version metadata declare MIT.
+
+  native-windows-gui 1.0.13   [declared license: MIT]
+    archive:     https://static.crates.io/crates/native-windows-gui/native-windows-gui-1.0.13.crate
+    archive sha: 4f7003a669f68deb6b7c57d74fff4f8e533c44a3f0b297492440ef4ff5a28454
+    license in .crate: (none packaged in .crate)
+    license source: https://raw.githubusercontent.com/gabdube/native-windows-gui/a6c96e8de5d01fe7bb566d737622dfead3cd1aed/LICENSE
+    source ref:     a6c96e8de5d01fe7bb566d737622dfead3cd1aed (LICENSE)
+    text sha:       c2f89f904cffbf8c06c376a24a5a713151d97ba66f6367874574cab6f94e4d5c
+    note:           Published .crate archive does not bundle a license file, and its recorded revision 2e983ce20e8b395e1ad920ed02d458a61e3a75fe is not available from the official repository. The LICENSE text is byte-identical across the surviving history from its 2019-11-07 creation through commit d5f9a97dc171d5efdbd7ba0cf6cbd9e515c15ff0 (2022-09-05T10:04:55Z, before this crate's publication) and the recorded default-branch commit; git blob c8c1643d507d2b9f7f51fefabc3093fa77fd3f0b. The exact published source tree remains unverified. The crate's own Cargo.toml and crates.io version metadata declare MIT.
+
+  newline-converter 0.2.2   [declared license: MIT]
+    archive:     https://static.crates.io/crates/newline-converter/newline-converter-0.2.2.crate
+    archive sha: 1f71d09d5c87634207f894c6b31b6a2b2c64ea3bdcf71bd5599fdbbe1600c00f
+    license in .crate: (none packaged in .crate)
+    license source: https://raw.githubusercontent.com/spitfire05/rnc/d483abc9c2575232e1ae61ec144fca778a3d918b/LICENSE
+    source ref:     d483abc9c2575232e1ae61ec144fca778a3d918b (LICENSE)
+    text sha:       839f5673919156cb28681428932482b0a8f08faa74224950c792e50ee01385bb
+    note:           Published .crate archive does not bundle a license file; text is the upstream repository LICENSE at the exact revision recorded in the crate's .cargo_vcs_info.json. Upstream release tag lib-0.2.2 corresponds to this version.
+
+  pelite-macros 0.1.1   [declared license: MIT]
+    archive:     https://static.crates.io/crates/pelite-macros/pelite-macros-0.1.1.crate
+    archive sha: 7a7cf3f8ecebb0f4895f4892a8be0a0dc81b498f9d56735cb769dc31bf00815b
+    license in .crate: (none packaged in .crate)
+    license source: https://raw.githubusercontent.com/CasualX/pelite/432e769bf3152f21452a4b8908639f5ed1595912/license.txt
+    source ref:     432e769bf3152f21452a4b8908639f5ed1595912 (license.txt)
+    text sha:       1365d50f7e842b1e743ba450b43eb711d748dd04f04554c43b39dd4715d30e11
+    note:           Published .crate archive does not bundle a license file. The official repository resolves the exact revision recorded in .cargo_vcs_info.json, 432e769bf3152f21452a4b8908639f5ed1595912 (2020-09-05T01:42:01Z, Release v0.9.0). Its license.txt is byte-identical to the previously recorded default-branch text; git blob b79fbc7b3f3e40bbcb3734d122d47d683a589937. The original copyright and full MIT terms below are unchanged.
+
+  plotters-backend 0.3.7   [declared license: MIT]
+    archive:     https://static.crates.io/crates/plotters-backend/plotters-backend-0.3.7.crate
+    archive sha: df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a
+    license in .crate: LICENSE
+    license source: https://raw.githubusercontent.com/plotters-rs/plotters/v0.3.7/LICENSE
+    source ref:     v0.3.7 (LICENSE)
+    text sha:       cab8ff38785be68c4c914b6a01f871711b7c983e98c8f5c5f7057e31c46fe05c
+    note:           The .crate archive's LICENSE entry is a 10-byte workspace symlink artifact (literal text "../LICENSE"), not the license text; the verbatim text is the upstream repository LICENSE at tag v0.3.7.
+
+  plotters 0.3.7   [declared license: MIT]
+    archive:     https://static.crates.io/crates/plotters/plotters-0.3.7.crate
+    archive sha: 5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747
+    license in .crate: LICENSE
+    license source: https://raw.githubusercontent.com/plotters-rs/plotters/v0.3.7/LICENSE
+    source ref:     v0.3.7 (LICENSE)
+    text sha:       cab8ff38785be68c4c914b6a01f871711b7c983e98c8f5c5f7057e31c46fe05c
+    note:           The .crate archive's LICENSE entry is a 10-byte workspace symlink artifact (literal text "../LICENSE"), not the license text; the verbatim text is the upstream repository LICENSE at tag v0.3.7.
+
+  windows-core 0.58.0   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-core/windows-core-0.58.0.crate
+    archive sha: 6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-implement 0.58.0   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-implement/windows-implement-0.58.0.crate
+    archive sha: 2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-interface 0.58.0   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-interface/windows-interface-0.58.0.crate
+    archive sha: 053c4c462dc91d3b1504c6fe5a726dd15e216ba718e84a0e46a88fbe5ded3515
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-link 0.2.1   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-link/windows-link-0.2.1.crate
+    archive sha: f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-result 0.2.0   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-result/windows-result-0.2.0.crate
+    archive sha: 1d1043d8214f791817bab27572aaa8af63732e11bf84aa21a45a78d6c317ae0e
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-strings 0.1.0   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-strings/windows-strings-0.1.0.crate
+    archive sha: 4cd9b125c486025df0eabcb585e62173c6c9eddcec5d117d3b6e8c30e2ee4d10
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-sys 0.61.2   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-sys/windows-sys-0.61.2.crate
+    archive sha: ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows-targets 0.52.6   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows-targets/windows-targets-0.52.6.crate
+    archive sha: 9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows 0.58.0   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows/windows-0.58.0.crate
+    archive sha: dd04d41d93c4992d421894c18c8b43496aa748dd4c081bac0dc93eb0489272b6
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+  windows_x86_64_msvc 0.52.6   [declared license: MIT OR Apache-2.0]
+    archive:     https://static.crates.io/crates/windows_x86_64_msvc/windows_x86_64_msvc-0.52.6.crate
+    archive sha: 589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec
+    license in .crate: license-mit, license-apache-2.0
+    license source: bundled in .crate at column above
+    text sha:       c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+rdprrap-owned workspace crates covered by the ZIP LICENSE (not reproduced here)
+--------------------------------------------------------------------------------
+  - endpwrap-dll 0.3.0
+  - offset-finder 0.3.0
+  - patcher 0.3.0
+  - rdprrap-check 0.3.0
+  - rdprrap-conf 0.3.0
+  - rdprrap-installer 0.3.0
+  - termwrap-dll 0.3.0
+  - umwrap-dll 0.3.0
+
+Full license texts
+==================
+
+====================================================================================
+crate:            iced-x86 1.21.0
+declared license: MIT
+archive:          https://static.crates.io/crates/iced-x86/iced-x86-1.21.0.crate
+archive SHA-256:  7c447cff8c7f384a7d4f741cfcff32f75f3ad02b406432e8d6c878d56b1edf6b
+license source:   https://raw.githubusercontent.com/icedland/iced/c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt
+text SHA-256:     93a47598376fd3f276b631e75149340087153c6ff1635a53c5790249e9124e2d
+====================================================================================
+
+https://github.com/icedland/iced
+Copyright (C) 2018-present iced project and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+====================================================================================
+crate:            native-windows-derive 1.0.5
+declared license: MIT
+archive:          https://static.crates.io/crates/native-windows-derive/native-windows-derive-1.0.5.crate
+archive SHA-256:  76134ae81020d89d154f619fd2495a2cecad204276b1dc21174b55e4d0975edd
+license source:   https://raw.githubusercontent.com/gabdube/native-windows-gui/a6c96e8de5d01fe7bb566d737622dfead3cd1aed/LICENSE
+text SHA-256:     c2f89f904cffbf8c06c376a24a5a713151d97ba66f6367874574cab6f94e4d5c
+====================================================================================
+
+MIT License
+
+Copyright (c) 2019 Gabriel Dube
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+====================================================================================
+crate:            native-windows-gui 1.0.13
+declared license: MIT
+archive:          https://static.crates.io/crates/native-windows-gui/native-windows-gui-1.0.13.crate
+archive SHA-256:  4f7003a669f68deb6b7c57d74fff4f8e533c44a3f0b297492440ef4ff5a28454
+license source:   https://raw.githubusercontent.com/gabdube/native-windows-gui/a6c96e8de5d01fe7bb566d737622dfead3cd1aed/LICENSE
+text SHA-256:     c2f89f904cffbf8c06c376a24a5a713151d97ba66f6367874574cab6f94e4d5c
+====================================================================================
+
+MIT License
+
+Copyright (c) 2019 Gabriel Dube
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+====================================================================================
+crate:            newline-converter 0.2.2
+declared license: MIT
+archive:          https://static.crates.io/crates/newline-converter/newline-converter-0.2.2.crate
+archive SHA-256:  1f71d09d5c87634207f894c6b31b6a2b2c64ea3bdcf71bd5599fdbbe1600c00f
+license source:   https://raw.githubusercontent.com/spitfire05/rnc/d483abc9c2575232e1ae61ec144fca778a3d918b/LICENSE
+text SHA-256:     839f5673919156cb28681428932482b0a8f08faa74224950c792e50ee01385bb
+====================================================================================
+
+MIT License
+
+Copyright (c) 2020 Michał Borejszo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+====================================================================================
+crate:            pelite-macros 0.1.1
+declared license: MIT
+archive:          https://static.crates.io/crates/pelite-macros/pelite-macros-0.1.1.crate
+archive SHA-256:  7a7cf3f8ecebb0f4895f4892a8be0a0dc81b498f9d56735cb769dc31bf00815b
+license source:   https://raw.githubusercontent.com/CasualX/pelite/432e769bf3152f21452a4b8908639f5ed1595912/license.txt
+text SHA-256:     1365d50f7e842b1e743ba450b43eb711d748dd04f04554c43b39dd4715d30e11
+====================================================================================
+
+Copyright (c) 2016-2018 Casper <CasualX@users.noreply.github.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+====================================================================================
+crate:            plotters-backend 0.3.7
+declared license: MIT
+archive:          https://static.crates.io/crates/plotters-backend/plotters-backend-0.3.7.crate
+archive SHA-256:  df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a
+license source:   https://raw.githubusercontent.com/plotters-rs/plotters/v0.3.7/LICENSE
+text SHA-256:     cab8ff38785be68c4c914b6a01f871711b7c983e98c8f5c5f7057e31c46fe05c
+====================================================================================
+
+MIT License
+
+Copyright (c) 2019-2021 Hao Hou <haohou302@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+====================================================================================
+crate:            plotters 0.3.7
+declared license: MIT
+archive:          https://static.crates.io/crates/plotters/plotters-0.3.7.crate
+archive SHA-256:  5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747
+license source:   https://raw.githubusercontent.com/plotters-rs/plotters/v0.3.7/LICENSE
+text SHA-256:     cab8ff38785be68c4c914b6a01f871711b7c983e98c8f5c5f7057e31c46fe05c
+====================================================================================
+
+MIT License
+
+Copyright (c) 2019-2021 Hao Hou <haohou302@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+====================================================================================
+crate:            windows-core 0.58.0
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-core/windows-core-0.58.0.crate
+archive SHA-256:  6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-implement 0.58.0
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-implement/windows-implement-0.58.0.crate
+archive SHA-256:  2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-interface 0.58.0
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-interface/windows-interface-0.58.0.crate
+archive SHA-256:  053c4c462dc91d3b1504c6fe5a726dd15e216ba718e84a0e46a88fbe5ded3515
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-link 0.2.1
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-link/windows-link-0.2.1.crate
+archive SHA-256:  f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-result 0.2.0
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-result/windows-result-0.2.0.crate
+archive SHA-256:  1d1043d8214f791817bab27572aaa8af63732e11bf84aa21a45a78d6c317ae0e
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-strings 0.1.0
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-strings/windows-strings-0.1.0.crate
+archive SHA-256:  4cd9b125c486025df0eabcb585e62173c6c9eddcec5d117d3b6e8c30e2ee4d10
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-sys 0.61.2
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-sys/windows-sys-0.61.2.crate
+archive SHA-256:  ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows-targets 0.52.6
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows-targets/windows-targets-0.52.6.crate
+archive SHA-256:  9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows 0.58.0
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows/windows-0.58.0.crate
+archive SHA-256:  dd04d41d93c4992d421894c18c8b43496aa748dd4c081bac0dc93eb0489272b6
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+====================================================================================
+crate:            windows_x86_64_msvc 0.52.6
+declared license: MIT OR Apache-2.0
+archive:          https://static.crates.io/crates/windows_x86_64_msvc/windows_x86_64_msvc-0.52.6.crate
+archive SHA-256:  589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec
+license source:   bundled in the .crate archive (license-mit, license-apache-2.0)
+text SHA-256:     c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+====================================================================================
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+------------------------------------------------------------------------------------
+End of supplemental notices.

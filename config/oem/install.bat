@@ -283,7 +283,8 @@ mkdir "%RDPRRAP_DIR%" 2>nul
 
 REM --- Diagnostic logs ------------------------------------------------------
 REM Status marker (one-line classification, machine-readable):
-REM   enabled / extract-failed / installer-failed / not-activated / missing-bundle
+REM   enabled / extract-failed / installer-failed / not-activated / missing-bundle /
+REM   notice-missing / notice-copy-failed
 REM Detailed log (full timestamps + retry-by-retry stderr/stdout) so when
 REM something fails users / `winpodx pod apply-fixes` have something to
 REM root-cause from. The marker fits a single grep, the log is the deep dive.
@@ -368,6 +369,31 @@ if not exist "%RDPRRAP_EXE%" (
     (echo extract-failed)>"%RDPRRAP_STATUS%"
     goto :rdprrap_done
 )
+
+REM --- Supplemental rdprrap notice (L1 legal-audit 0.12.0) ------------------
+REM The bundled ZIP's crate notice omits the real iced-project / Microsoft
+REM copyright holders. The host ships rdprrap-NOTICES.txt beside the zip and
+REM it MUST accompany the extracted binaries in C:\winpodx\rdprrap. Stage it
+REM before activation; a missing or failed copy is a notice-incomplete
+REM install: we record the marker and bail to :rdprrap_done WITHOUT stamping
+REM .installed_version (this script's "root install complete" claim), so the
+REM next boot retries and the state stays recoverable.
+set "RDPRRAP_NOTICE_SRC=%~dp0rdprrap-NOTICES.txt"
+set "RDPRRAP_NOTICE_DST=%RDPRRAP_DIR%\rdprrap-NOTICES.txt"
+if not exist "%RDPRRAP_NOTICE_SRC%" (
+    (echo FINAL: notice-copy-failed - %RDPRRAP_NOTICE_SRC% missing)>>"%RDPRRAP_LOG%"
+    echo [WinPodX] WARNING: rdprrap-NOTICES.txt missing from OEM bundle; not claiming notice-complete install.
+    (echo notice-copy-failed)>"%RDPRRAP_STATUS%"
+    goto :rdprrap_done
+)
+copy /Y "%RDPRRAP_NOTICE_SRC%" "%RDPRRAP_NOTICE_DST%" >>"%RDPRRAP_LOG%" 2>&1
+if not exist "%RDPRRAP_NOTICE_DST%" (
+    (echo FINAL: notice-copy-failed - staging to %RDPRRAP_NOTICE_DST% failed)>>"%RDPRRAP_LOG%"
+    echo [WinPodX] WARNING: failed to stage rdprrap-NOTICES.txt; not claiming notice-complete install.
+    (echo notice-copy-failed)>"%RDPRRAP_STATUS%"
+    goto :rdprrap_done
+)
+(echo notice staged: %RDPRRAP_NOTICE_DST%)>>"%RDPRRAP_LOG%"
 
 REM --- Delegate install / TermService cycle / verify to rdprrap-activate.ps1
 REM Single source of truth - same script `winpodx pod multi-session on`
