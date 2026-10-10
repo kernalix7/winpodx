@@ -26,8 +26,8 @@
           python = pkgs.python3;
 
           # Runtime CLI tools winpodx shells out to. Podman is the default
-          # backend so it ships in the wrapper PATH; docker/libvirt stay
-          # opt-in via the host to keep the closure bounded.
+          # backend so it ships in the wrapper PATH; docker stays opt-in via
+          # the host to keep the closure bounded.
           runtimeBins = [
             pkgs.freerdp
             pkgs.iproute2
@@ -51,7 +51,6 @@
             dependencies = with python.pkgs; [
               pyside6
               docker
-              libvirt
             ];
 
             nativeCheckInputs = with python.pkgs; [
@@ -62,13 +61,11 @@
               export WINPODX_BUNDLE_DIR=$PWD
             '';
 
-            # scripts/, config/ and data/ live at the repo root rather than
-            # inside the Python package; ship them under share/ and point the
-            # runtime at it so bundle_dir() resolves correctly for the wheel.
-            postInstall = ''
-              mkdir -p $out/share/winpodx
-              cp -r scripts config data $out/share/winpodx/
-            '';
+            # scripts/, config/ and data/ ship via the wheel's shared-data
+            # (share/winpodx); the wrapper below points bundle_dir() at it.
+            # No raw postInstall `cp -r` — it would reintroduce the
+            # wheel-excluded dev/CI payload (scripts/ci, gen_web_i18n.py,
+            # shim rebuild sources).
 
             makeWrapperArgs = [
               "--prefix"
