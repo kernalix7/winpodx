@@ -14,9 +14,11 @@ from winpodx.core.pod import PodState, check_rdp_port, pod_status
 # H3
 
 
-def test_check_rdp_port_still_accepts_port_and_timeout():
-    # Port 1 is privileged/reserved, so connect fails quickly.
+def test_check_rdp_port_still_accepts_port_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    connect = MagicMock(side_effect=ConnectionRefusedError)
+    monkeypatch.setattr("winpodx.core.pod.health.socket.create_connection", connect)
     assert check_rdp_port("127.0.0.1", 1, timeout=0.1) is False
+    connect.assert_called_once_with(("127.0.0.1", 1), timeout=0.1)
 
 
 # H4
