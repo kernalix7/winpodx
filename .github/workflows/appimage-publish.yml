@@ -32,16 +32,22 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade build
 
-      - name: Pre-install appimagetool (extract-and-wrap, FUSE-free)
-        # GitHub Actions ubuntu-24.04 runners cannot mount AppImages
-        # via FUSE in the sandboxed environment. Download appimagetool
-        # ourselves, extract its squashfs payload, and put a thin
-        # wrapper on PATH at /usr/local/bin/appimagetool that exec's
-        # into the extracted AppRun.
+      - name: Install pinned appimagetool 1.9.1 + pinned Type 2 runtime
+        # Supply-chain: appimagetool and the Type 2 runtime are pinned by
+        # exact URL + SHA256 (mirrored in packaging/appimage/provenance_pins.py
+        # -- tests/test_appimage_provenance.py asserts lockstep). appimagetool
+        # is driven with --runtime-file so it NEVER downloads a floating
+        # runtime itself. Fail closed on any hash mismatch.
         run: |
+          set -euo pipefail
           cd /tmp
-          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool.AppImage
+          curl -fsSL \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage" \
+            -o appimagetool.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool.AppImage" \
+            | sha256sum -c -
           chmod +x appimagetool.AppImage
+          # GitHub runners cannot mount AppImages via FUSE: extract-and-wrap.
           ./appimagetool.AppImage --appimage-extract >/dev/null
           sudo mv squashfs-root /opt/appimagetool
           sudo tee /usr/local/bin/appimagetool >/dev/null <<'WRAPPER'
@@ -49,45 +55,55 @@ jobs:
           exec /opt/appimagetool/AppRun "$@"
           WRAPPER
           sudo chmod +x /usr/local/bin/appimagetool
+          # Type 2 runtime: `continuous` release whose target commit is
+          # 8f39b89e2ac31e1640b3d3f7e9a5108e6ce805fa (pinned in provenance_pins.py).
+          curl -fsSL \
+            "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64" \
+            -o /tmp/runtime-x86_64
+          echo "156f4bdbde9c52d01814600013e0a273f0118dc2de98975f3c8c63427ec79074  /tmp/runtime-x86_64" \
+            | sha256sum -c -
           appimagetool --version || true
 
       - name: Build winpodx wheel
         run: python -m build --wheel --outdir dist
 
-      - name: Stage AppDir with portable Python + winpodx
-        # Bypass python-appimage entirely -- it does its own
-        # appimagetool download that ignores our PATH wrapper and
-        # silently fails on CI. Instead: drop a python-build-standalone
-        # portable Python 3.11 into AppDir, install winpodx into its
-        # site-packages, write AppRun + desktop + icon, then hand off
-        # to bundle-system-bins.sh for the FreeRDP overlay.
+      - name: Stage AppDir with pinned portable Python + locked wheels
+        # Bypass python-appimage entirely -- it does its own appimagetool
+        # download that ignores our PATH wrapper and silently fails on CI.
+        # Instead: drop a pinned python-build-standalone portable Python 3.11
+        # into AppDir, install winpodx + the LOCKED runtime wheel closure into
+        # its site-packages (pip --report records every wheel URL + sha256),
+        # write AppRun + desktop + icon, then hand off to bundle-system-bins.sh
+        # for the FreeRDP overlay + provenance collection.
         #
-        # Thin AppImage (0.6.0 item A): we no longer pip-install
-        # podman-compose into the bundled interpreter, and the dnf step
-        # below no longer installs the podman stack. Rootless podman
-        # cannot be bundled (host systemd / subuid integration); the
-        # AppImage now requires the user to install podman / docker /
-        # libvirt from the host package manager. See #357 / #363 for the
-        # root cause this redesign removes.
+        # Thin AppImage (0.6.0 item A): no container stack is bundled or
+        # pip-installed; the user installs podman/docker from their distro
+        # (#357 / #363 root-cause removal).
         run: |
           set -euo pipefail
-          mkdir -p AppDir/opt AppDir/usr/bin AppDir/usr/lib
-          # Portable Python 3.11 with linked OpenSSL, gnu-linux x86_64.
-          # Pinned to a known-good astral-sh python-build-standalone release.
-          # Bump the tag + version pair together when refreshing.
-          PYBUILD_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20240909/cpython-3.11.10+20240909-x86_64-unknown-linux-gnu-install_only.tar.gz"
+          mkdir -p AppDir/opt AppDir/usr/bin AppDir/usr/lib provenance-out
+          # Portable Python 3.11.17+20261009 (pinned URL + SHA256; lockstep with
+          # provenance_pins.py PYTHON_PIN -- the old 3.11.10+20240909 pin is
+          # retired). Fail closed on mismatch.
+          PYBUILD_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.11.17%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz"
+          PYBUILD_SHA256="035b0ccfe7f3d38ab3ddab505290d200c6a265b95fbd5fac76c358751d6bb6a8"
           curl -fsSL "${PYBUILD_URL}" -o /tmp/python-standalone.tar.gz
-          # Supply-chain: verify against the upstream .sha256 sidecar
-          # (astral-sh publishes one per asset). The portable interpreter
-          # executes winpodx's code -- a tampered asset would run with the
-          # user's RDP password + agent token, so fail closed on mismatch.
-          curl -fsSL "${PYBUILD_URL}.sha256" -o /tmp/python-standalone.sha256
-          echo "$(cat /tmp/python-standalone.sha256)  /tmp/python-standalone.tar.gz" | sha256sum -c -
+          echo "${PYBUILD_SHA256}  /tmp/python-standalone.tar.gz" | sha256sum -c -
           tar -xzf /tmp/python-standalone.tar.gz -C AppDir/opt/
           # Tarball extracts to AppDir/opt/python/ on the install_only build.
-          AppDir/opt/python/bin/python3 -m pip install --upgrade pip
+          # LOCKED runtime wheel closure (parent QA-verified resolution:
+          # PySide6 6.12.0 / Pillow 12.3.0 / CairoSVG 2.9.1 + transitives).
+          # pip --report records every resolved wheel's exact URL + sha256 --
+          # the hash manifest artifact for this build.
           WHEEL="$(ls -t dist/winpodx-*.whl | head -n1)"
-          AppDir/opt/python/bin/python3 -m pip install --no-cache-dir "${WHEEL}[gui,reverse-open]"
+          AppDir/opt/python/bin/python3 -m pip install --no-cache-dir \
+              --report "$PWD/provenance-out/pip-report.json" \
+              "${WHEEL}[gui,reverse-open]" \
+              PySide6==6.12.0 shiboken6==6.12.0 \
+              Pillow==12.3.0 CairoSVG==2.9.1 pyxdg==0.28 \
+              cairocffi==1.7.1 cffi==2.1.1 cssselect2==0.10.1 \
+              defusedxml==0.7.1 pycparser==3.11 \
+              tinycss2==1.5.1 webencodings==0.6.1
           # AppRun
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
@@ -113,27 +129,43 @@ jobs:
           # Symlink common icon location too (some launchers look here)
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           cp packaging/appimage/recipe/winpodx.png AppDir/usr/share/icons/hicolor/256x256/apps/winpodx.png
-          # License texts (LGPL/GPL/Apache/PSF redistribution obligation --
-          # the fat AppImage redistributes third-party binaries, so their
-          # license + NOTICE texts must travel with it). winpodx's own MIT
-          # LICENSE + the aggregate THIRD_PARTY_LICENSES.md go at the doc
-          # root; the Fedora-bundled binaries' texts are added by the
-          # docker step below under third-party/. PyPI deps (PySide6/Qt,
-          # Pillow, cairosvg, pyxdg) already carry their license in their
-          # site-packages *.dist-info inside AppDir/opt/python.
+          # License texts. winpodx's own MIT LICENSE + the aggregate
+          # THIRD_PARTY_LICENSES.md go at the doc root; every third-party
+          # component's ORIGINAL texts are copied BY RELATIVE PATH under
+          # third-party/ (never collapsed into one file):
           mkdir -p AppDir/usr/share/doc/winpodx/third-party
           cp LICENSE THIRD_PARTY_LICENSES.md AppDir/usr/share/doc/winpodx/
-          # python-build-standalone ships its license files; surface them.
-          find AppDir/opt/python -maxdepth 3 -iname "LICENSE*" -path "*python*" \
-              -exec cp {} AppDir/usr/share/doc/winpodx/third-party/python-LICENSE.txt \; 2>/dev/null || true
-          # LGPL compliance (legal gate): the fat AppImage REDISTRIBUTES the
-          # PySide6/Qt6 binaries (LGPL-3.0), so their license text must travel
-          # with it. The PySide6 wheels do NOT ship the LGPL/GPL texts (verified:
-          # neither the dist-info nor the PySide6/ tree carries them), so we
-          # vendor the verbatim texts + a NOTICE in-repo under
-          # packaging/appimage/licenses/pyside6/ and copy those in. HARD-FAIL if
-          # the vendored texts are missing, so the compliance artifact can't be
-          # dropped silently.
+          # Portable Python: the tarball's own CPython license, at its
+          # in-tree relative path.
+          mkdir -p AppDir/usr/share/doc/winpodx/third-party/python/lib/python3.11
+          cp AppDir/opt/python/lib/python3.11/LICENSE.txt \
+             AppDir/usr/share/doc/winpodx/third-party/python/lib/python3.11/LICENSE.txt
+          # python-build-standalone license inventory: LICENSE + one
+          # LICENSE.<dep>.txt per linked third-party library, fetched from
+          # the repo at the pinned release tag. Fail closed if the inventory
+          # comes back empty.
+          mkdir -p provenance-out/license-inventory AppDir/usr/share/doc/winpodx/third-party/python-build-standalone
+          paths=$(curl -fsSL \
+              "https://api.github.com/repos/astral-sh/python-build-standalone/git/trees/20261009" \
+              | python3 -c "import json,sys; print('\n'.join(e['path'] for e in json.load(sys.stdin)['tree'] if e['path'].startswith('LICENSE')))")
+          count=0
+          for p in ${paths}; do
+              curl -fsSL \
+                "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261009/${p}" \
+                -o "provenance-out/license-inventory/${p}"
+              cp "provenance-out/license-inventory/${p}" \
+                 "AppDir/usr/share/doc/winpodx/third-party/python-build-standalone/${p}"
+              count=$((count+1))
+          done
+          if [ "${count}" -lt 20 ]; then
+              echo "::error::python-build-standalone license inventory: expected >=20 LICENSE files at tag 20261009, got ${count} -- refusing to ship an unattributable Python runtime." >&2
+              exit 1
+          fi
+          # LGPL compliance (fail-closed): the PySide6 wheels do NOT ship the
+          # LGPL/GPL texts (verified: neither dist-info nor the PySide6 tree
+          # carries them), so the verbatim texts + NOTICE are vendored in-repo
+          # under packaging/appimage/licenses/pyside6/ and copied in. HARD-FAIL
+          # if the vendored texts are missing.
           mkdir -p AppDir/usr/share/doc/winpodx/third-party/pyside6
           cp packaging/appimage/licenses/pyside6/*.txt \
               AppDir/usr/share/doc/winpodx/third-party/pyside6/
@@ -144,91 +176,113 @@ jobs:
           fi
           du -sh AppDir
 
+      - name: Collect wheel provenance (fail-closed)
+        # Records the resolved wheel closure (URLs + sha256 from pip's JSON
+        # report), license texts per wheel (dist-info or the vendored PySide6
+        # fallback), the ACTUAL bundled Qt version (read from the shipped
+        # libQt6Core.so.6 bytes), and exact PyPI sdist URLs for every
+        # copyleft/unknown-license wheel. Any gap blocks the build.
+        run: |
+          python3 packaging/appimage/provenance_collect.py wheels \
+            --site-packages AppDir/opt/python/lib/python3.11/site-packages \
+            --pip-report provenance-out/pip-report.json \
+            --vendored packaging/appimage/licenses \
+            --out provenance-out
+
       - name: Slim PySide6 — drop unused Qt6 modules
         # PySide6 wheels bundle the entire Qt6 stack (QtWebEngine ~100 MB+,
         # QtQuick/QtQml, Qt3D, QtCharts, QtMultimedia + FFmpeg, QtPdf, …).
         # winpodx links only QtCore/QtGui/QtWidgets/QtSvg/QtDBus, so the rest
-        # is dead weight — this was the real reason the "Thin" AppImage was
-        # still ~270 MB (dropping the podman stack only saved ~20 MB). The
-        # prune removes ~500 MB uncompressed (the bulk of the AppImage).
+        # is dead weight. The prune removes ~500 MB uncompressed.
         run: |
           bash packaging/appimage/slim-pyside6.sh \
             AppDir/opt/python/lib/python3.11/site-packages/PySide6
           du -sh AppDir
 
-      - name: Bundle FreeRDP via Fedora 41
-        # Thin-bundle stage: pulls only the FreeRDP 3 client binaries +
-        # libwinpr out of a Fedora 41 container and traverses ldd to bring
-        # in transitive lib deps. Host-critical libs (glibc, libX11,
-        # libwayland, libGL, ...) stay on the host -- they cannot be
-        # bundled without breaking desktop integration or hard-crashing
-        # on glibc mismatch.
+      - name: Bundle FreeRDP via pinned Ubuntu 24.04 + collect dpkg provenance
+        # Thin-bundle stage: pulls the FreeRDP 3 client binaries + libs out
+        # of a PINNED Ubuntu 24.04 image (digest-pinned, exact dpkg versions
+        # -- apt fails if the pinned version is unavailable) and traverses
+        # ldd for transitive deps. Host-critical libs (glibc, libX11,
+        # libwayland, libGL, ...) stay on the host.
         #
-        # The container stack (podman / podman-compose / conmon / crun /
-        # netavark / aardvark-dns / slirp4netns / passt / pasta) is
-        # intentionally NOT installed here -- 0.6.0 item A drops it.
-        # Rootless podman needs host systemd / subuid integration that
-        # an AppImage can't carry; bundling it caused #357 (shadowed
-        # host podman-compose) and #363 (LD_LIBRARY_PATH-poisoned
-        # systemd-run / aardvark-dns). The AppImage now requires the
-        # user to install a container runtime from the host package
-        # manager (same model as install.sh).
+        # Every conveyed file is recorded in a sha256 manifest; the
+        # fail-closed provenance collector then maps each file to its dpkg
+        # owner + exact version + copyright/common-license texts (copied into
+        # the AppDir) + the signed-archive source URLs, enforces the
+        # GLIBC_2.39 symbol ceiling, and records the actual
+        # `xfreerdp3 --version`. NO RDP connection is made -- only the
+        # client's --version banner runs.
+        #
+        # The container stack (podman / conmon / crun / netavark / passt /
+        # slirp4netns) is intentionally NOT installed -- 0.6.0 item A (#357 /
+        # #363).
         run: |
+          set -euo pipefail
           docker run --rm \
               -v "$PWD/AppDir:/AppDir" \
-              -v "$PWD/packaging/appimage:/scripts" \
-              fedora:41 bash -c '
+              -v "$PWD/packaging/appimage:/scripts:ro" \
+              -v "$PWD/provenance-out:/provout" \
+              docker.io/library/ubuntu:24.04@sha256:f610ab94648195aa356059f5b41d6085c9d4d903c072430cdd1af7bdb646106b bash -c '
                   set -euo pipefail
-                  dnf install -y --setopt=install_weak_deps=False \
-                      freerdp \
-                      freerdp-libs \
-                      libwinpr \
-                      file
-                  echo "[provenance] freerdp binaries provided:"
-                  rpm -ql freerdp | grep -E "^(/usr/bin|/usr/libexec)/.*freerdp.*" || true
-                  bash /scripts/bundle-system-bins.sh /AppDir
-                  # License + NOTICE texts for the bundled FreeRDP stack
-                  # (Apache-2.0). VENDORED in-repo at
-                  # packaging/appimage/licenses/ (mounted at /scripts/licenses),
-                  # harvested verbatim from the Fedora rpm payloads -- see
-                  # that dir`s README for provenance + refresh steps. We do
-                  # NOT read them off the installed filesystem: the fedora
-                  # image installs with `tsflags=nodocs`, which strips
-                  # /usr/share/licenses, and every attempt to defeat that on
-                  # the CI runner silently produced nothing.
-                  #
-                  # Thin AppImage: only the FreeRDP stack`s license texts
-                  # ride along now; the container-stack license dirs (podman
-                  # / podman-compose / conmon / crun / netavark / passt /
-                  # slirp4netns) stay vendored in-repo for provenance but are
-                  # no longer copied into the AppImage because their binaries
-                  # are no longer bundled.
-                  dst=/AppDir/usr/share/doc/winpodx/third-party
-                  mkdir -p "$dst"
-                  src=/scripts/licenses
-                  # REQUIRED FreeRDP-stack license texts -- fail the build if
-                  # missing. Apache-2.0 redistribution obligation: freerdp-libs
-                  # + libwinpr ship the combined FreeRDP license.
-                  for pkg in freerdp-libs libwinpr; do
-                      if [ ! -d "$src/$pkg" ]; then
-                          echo "FATAL: vendored license dir $src/$pkg missing -- cannot ship a" >&2
-                          echo "license-compliant AppImage. Re-run packaging/appimage/licenses refresh." >&2
-                          exit 1
-                      fi
-                      cp -rL "$src/$pkg" "$dst/$pkg"
-                  done
-                  echo "[provenance] bundled license dirs:"
-                  ls -1 "$dst" || true
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update -qq
+                  # Fail-closed exact dpkg versions (lockstep with
+                  # provenance_pins.py FREERDP_DPKG_PINS + SUPPORT_DPKG_PINS).
+                  apt-get install -y --no-install-recommends \
+                      freerdp3-x11=3.32.1+dfsg-0ubuntu0.24.04.1 \
+                      freerdp3-wayland=3.32.1+dfsg-0ubuntu0.24.04.1 \
+                      libfreerdp3-3=3.32.1+dfsg-0ubuntu0.24.04.1 \
+                      libfreerdp-client3-3=3.32.1+dfsg-0ubuntu0.24.04.1 \
+                      libwinpr3-3=3.32.1+dfsg-0ubuntu0.24.04.1 \
+                      libssl3t64=3.0.13-0ubuntu3.16 \
+                      python3 binutils
+                  # Signed source index for apt-get source --print-uris
+                  # (all three pockets: transitive libs source from the
+                  # base noble pocket, the FreeRDP stack from updates).
+                  printf "deb-src http://archive.ubuntu.com/ubuntu noble main universe\ndeb-src http://archive.ubuntu.com/ubuntu noble-updates main universe\ndeb-src http://security.ubuntu.com/ubuntu noble-security main universe\n" \
+                      > /etc/apt/sources.list.d/src.list
+                  apt-get update -qq
+                  bash /scripts/bundle-system-bins.sh /AppDir /provout/conveyed-files.tsv
+                  python3 /scripts/provenance_collect.py dpkg \
+                      --conveyed /provout/conveyed-files.tsv \
+                      --appdir /AppDir \
+                      --out /provout \
+                      --download-sources
               '
+          ls -la provenance-out provenance-out/ubuntu-src
 
-      - name: Repack as thin AppImage
+      - name: Mirror and SHA-verify corresponding sources and static runtime notices
+        run: |
+          python3 packaging/appimage/provenance_delivery.py mirror \
+            --provdir provenance-out --appdir AppDir
+
+      - name: Merge provenance (PROVENANCE.json + SOURCE-OFFER.txt)
+        # Emits the machine-readable PROVENANCE.json and the human-readable
+        # SOURCE-OFFER.txt (exact corresponding-source URLs + checksums +
+        # LGPL replacement directions), copies both into the AppDir at
+        # usr/share/doc/winpodx/ and into the artifact output dir.
+        run: |
+          python3 packaging/appimage/provenance_collect.py merge \
+            --provdir provenance-out \
+            --appdir AppDir \
+            --out provenance-out
+          ls -la provenance-out/PROVENANCE.json provenance-out/SOURCE-OFFER.txt
+          python3 packaging/appimage/provenance_delivery.py bundle --provdir provenance-out
+
+      - name: Repack as thin AppImage (pinned runtime)
+        # --runtime-file: appimagetool must NEVER fetch a floating runtime;
+        # the pinned, SHA256-verified Type 2 runtime from the earlier step
+        # is used verbatim.
         env:
           ARCH: x86_64
         run: |
           OUT="winpodx-x86_64.AppImage"
-          appimagetool AppDir "${OUT}"
+          appimagetool --runtime-file /tmp/runtime-x86_64 AppDir "${OUT}"
           chmod +x "${OUT}"
           ls -lh "${OUT}"
+          python3 packaging/appimage/provenance_delivery.py hashes \
+            --provdir provenance-out --binary "${OUT}"
 
       - name: Locate built AppImage
         id: locate
@@ -241,22 +295,51 @@ jobs:
           echo "appimage_path=${APPIMAGE}" >> "$GITHUB_OUTPUT"
           ls -lh "${APPIMAGE}"
 
-      - name: Upload as workflow artefact (always)
+      - name: Upload AppImage as workflow artefact (always)
         uses: actions/upload-artifact@v4
         with:
           name: winpodx-appimage-x86_64
           path: ${{ steps.locate.outputs.appimage_path }}
           if-no-files-found: error
 
+      - name: Upload provenance + input locks as workflow artefacts (always)
+        # workflow_dispatch builds never attach a release; the provenance
+        # record + input locks are still emitted as build artifacts.
+        uses: actions/upload-artifact@v4
+        with:
+          name: winpodx-appimage-provenance
+          path: |
+            provenance-out/PROVENANCE.json
+            provenance-out/SOURCE-OFFER.txt
+            provenance-out/conveyed-files.tsv
+            provenance-out/dpkg-provenance.json
+            provenance-out/wheels-provenance.json
+            provenance-out/pip-report.json
+            provenance-out/license-inventory/
+          if-no-files-found: error
+
+      - name: Upload Ubuntu source archives as workflow artefact (always)
+        # Mirror of the orig + Debian source archives (checksum-verified by
+        # apt against the signed Sources index) -- keeps the source offer
+        # independent of upstream availability.
+        uses: actions/upload-artifact@v4
+        with:
+          name: winpodx-appimage-source-archives
+          path: |
+            provenance-out/winpodx-appimage-sources.tar.gz
+            provenance-out/SHA256SUMS
+          if-no-files-found: error
+
       # Single-writer rule: release.yml (REL- marker tag) is the SOLE creator
       # of the GitHub Release and the only writer of its title/notes. This
-      # workflow only attaches the AppImage to an already-created release —
-      # it never creates or edits the notes. (softprops/action-gh-release
-      # would create-or-update the release even with only `files:` set, which
-      # contributed to the "edited N times" churn; `gh release upload` to an
-      # existing release does not.) Wait up to 12 min for release.yml — which
-      # runs the full test suite first — to create the release; skip
-      # gracefully if it never appears (the AppImage stays a build artifact).
+      # workflow only attaches the AppImage + provenance to an
+      # already-created release -- it never creates or edits the notes.
+      # (softprops/action-gh-release would create-or-update the release even
+      # with only `files:` set, which contributed to the "edited N times"
+      # churn; `gh release upload` to an existing release does not.) Wait up
+      # to 12 min for release.yml -- which runs the full test suite first --
+      # to create the release; skip gracefully if it never appears (the
+      # AppImage stays a build artifact).
       - name: Wait for release (release.yml owns creation)
         if: github.event_name == 'push'
         id: wait
@@ -276,11 +359,19 @@ jobs:
           echo "::warning::Release $tag never appeared (REL-$tag marker tag not pushed?). Skipping AppImage upload; it remains as a build artifact."
           echo "exists=false" >> "$GITHUB_OUTPUT"
 
-      - name: Attach AppImage to GitHub Release (tag push only)
+      - name: Attach AppImage + provenance to GitHub Release (tag push only)
+        # Tag-push path only: attaches when all gates above passed. The
+        # AppImage travels with PROVENANCE.json + SOURCE-OFFER.txt so the
+        # source offer is published NEXT TO the binary, not only inside it.
         if: github.event_name == 'push' && steps.wait.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" \
-            "${{ steps.locate.outputs.appimage_path }}" --clobber \
+            "${{ steps.locate.outputs.appimage_path }}" \
+            "provenance-out/PROVENANCE.json" \
+            "provenance-out/SOURCE-OFFER.txt" \
+            "provenance-out/winpodx-appimage-sources.tar.gz" \
+            "provenance-out/SHA256SUMS" \
+            --clobber \
             --repo "${{ github.repository }}"
