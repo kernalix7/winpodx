@@ -56,7 +56,8 @@ class TestMetainfoSource:
 
 class TestRpmSpec:
     @pytest.fixture(scope="class")
-    def spec(self) -> str:
+    @staticmethod
+    def spec() -> str:
         return _read("packaging/rpm/winpodx.spec")
 
     @pytest.mark.parametrize(
