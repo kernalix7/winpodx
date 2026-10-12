@@ -46,7 +46,9 @@ BuildRequires:  %{py_flavor}-wheel
 BuildRequires:  %{py_flavor}-setuptools
 BuildRequires:  %{py_flavor}-hatchling
 BuildRequires:  python-rpm-macros
+BuildRequires:  hicolor-icon-theme
 Requires:       %{py_flavor} >= 3.11
+Requires:       hicolor-icon-theme
 Recommends:     %{py_flavor}-pyside6
 %endif
 
