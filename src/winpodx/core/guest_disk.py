@@ -185,9 +185,9 @@ def _kio_fuse_mount(cfg: Config) -> Path | None:
 def _gvfs_mount(cfg: Config) -> Path | None:
     """Mount via gvfs (GNOME) and return the FUSE path, or None.
 
-    Fallback for non-KDE hosts. NOTE: gvfs rejects a non-standard SMB port,
-    so this only succeeds when the host publishes the share on the default
-    445 — on the 4445 default it will fail and the caller falls through.
+    Fallback for non-KDE hosts. The URI already embeds the user, so ``gio
+    mount`` prompts for Domain then Password; we send an empty Domain line
+    followed by the password.
     """
     existing = _find_existing_mount()
     if existing is not None:
@@ -197,7 +197,7 @@ def _gvfs_mount(cfg: Config) -> Path | None:
     try:
         proc = subprocess.run(
             ["gio", "mount", uri],
-            input=password + "\n\n\n",
+            input="\n" + password + "\n",
             text=True,
             capture_output=True,
             timeout=30,

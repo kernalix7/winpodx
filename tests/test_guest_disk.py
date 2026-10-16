@@ -272,7 +272,7 @@ def test_gvfs_mount_passes_password_on_stdin_and_finds_mount(monkeypatch, tmp_pa
     assert guest_disk._gvfs_mount(cfg) == mount
     run.assert_called_once_with(
         ["gio", "mount", guest_disk.smb_uri(cfg)],
-        input="secret\n\n\n",
+        input="\nsecret\n",
         text=True,
         capture_output=True,
         timeout=30,
