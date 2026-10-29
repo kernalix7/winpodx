@@ -3,7 +3,7 @@
   "repository": "kernalix7/winpodx",
   "repositoryId": "1204405167",
   "repositoryCreatedAt": "2026-04-08",
-  "updatedAt": "2026-10-28T03:25:46.568Z",
+  "updatedAt": "2026-10-29T03:26:01.492Z",
   "observedFrom": "2026-09-02",
   "backfill": {
     "generatedAt": "2026-09-02T05:08:22.435Z",
@@ -939,6 +939,11 @@
     {
       "date": "2026-10-28",
       "count": 2119,
+      "source": "observed"
+    },
+    {
+      "date": "2026-10-29",
+      "count": 2120,
       "source": "observed"
     }
   ]
