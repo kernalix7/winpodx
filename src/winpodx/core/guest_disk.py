@@ -75,9 +75,11 @@ def _kio_fuse_dbus_service_present() -> bool:
 
 
 def kio_fuse_available() -> bool:
-    """True if KDE's kio-fuse (the mount backend that handles the custom SMB
-    port) is installed. gvfs can't use the non-standard port, so kio-fuse is
-    the real runtime dependency for reverse-open guest-disk access (#616)."""
+    """True if KDE's kio-fuse mount backend is installed.
+
+    GVfs also supports the custom SMB port, so kio-fuse is not required
+    when the GNOME fallback is available.
+    """
     import glob
     import shutil
 
@@ -143,10 +145,8 @@ def smb_uri(cfg: Config, *, with_password: bool = False) -> str:
 def _kio_fuse_mount(cfg: Config) -> Path | None:
     """Mount via KDE's kio-fuse and return the real FUSE path, or None.
 
-    kio-fuse (KDE) honours a non-standard SMB port — unlike gvfs, which
-    rejects ``smb://host:4445/…`` with "Invalid argument" — so it's the
-    primary path for the unprivileged host port rootless podman forces
-    (#616). ``mountUrl`` returns a real path under
+    kio-fuse honours the non-standard SMB port required by rootless podman.
+    It is tried before the GVfs fallback. ``mountUrl`` returns a real path under
     ``$XDG_RUNTIME_DIR/kio-fuse-XXXX/`` that any host app can open, and the
     mount is live (edits write straight back to the guest file).
 
@@ -212,9 +212,9 @@ def _gvfs_mount(cfg: Config) -> Path | None:
 def ensure_guest_mount(cfg: Config) -> Path | None:
     """Mount the guest ``C:\\`` SMB share on the host and return its FUSE path.
 
-    Userspace mount — no sudo. Tries KDE's kio-fuse first (it honours the
-    non-standard host port rootless podman forces), then gvfs (GNOME; default
-    port only). Idempotent. Returns ``None`` (with a logged reason) when no
+    Userspace mount — no sudo. Tries KDE's kio-fuse first, then GNOME's GVfs;
+    both support the non-standard host SMB port required by rootless podman.
+    Idempotent. Returns ``None`` (with a logged reason) when no
     backend can reach the share — the reverse-open listener then rejects the
     guest request cleanly instead of raising.
     """
