@@ -444,16 +444,9 @@ class PodConfig:
     # attached/detached live over QMP without a recreate (see core/devices.py).
     # Empty by default — nothing is passed through unless the user assigns it.
     devices: list[str] = field(default_factory=list)
-    # Live USB hot-plug (#286), default ON. Binds the host USB bus
-    # (``/dev/bus/usb``) into the container so ``winpodx device attach <usb>``
-    # hot-plugs a device into the running guest with no restart, via dockur's
-    # built-in QEMU ``-monitor`` (see core/devices.live_attach).
-    #
-    # This does NOT use a custom ``-qmp`` socket or ``device_cgroup_rules`` —
-    # both crash-looped Windows boot on rootless Podman (socket bind-permission;
-    # cgroup controller unavailable rootless). Reusing dockur's own monitor +
-    # a plain ``/dev/bus/usb`` bind avoids that. Set False to keep the USB bus
-    # out of the container (smaller surface; USB then only via the drive share).
+    # Optional raw host USB bus bind, default ON. If /dev/bus/usb is unavailable,
+    # omit the mount with a warning instead of blocking Windows VM setup.
+    # Host-side usbredir is independent of this legacy bus mount.
     usb_live: bool = True
     # Bare-metal compatibility mode (#246), 3 levels, DEFAULT "balanced". Hides
     # the KVM/QEMU hypervisor from the guest so software that refuses to run

@@ -150,7 +150,9 @@ tray 가 pod 상태 30초 주기로 감시. `RUNNING → UNRESPONSIVE` 전이 �
 * **GUI Devices 페이지** — 필터, 할당 상태, 연결 또는 해제 작업이 있는 USB·PCI 장치 그룹.
 * **시스템 트레이** — 호스트 USB 장치 원클릭 attach / detach 용 USB 스위처 서브메뉴 (#300).
 
-USB 장치는 live hot-plug (`cfg.pod.usb_live`, 기본 on) — 재시작 불필요. PCI 장치는 부팅 시 추가되고 게스트 재시작 후에만 보이므로 attach 가 안전 확인으로 보호됨; CLI 에서 `--force` 전달 (또는 GUI 에서 다이얼로그 확인) 으로 진행.
+USB 장치는 usbredir로 실시간 리디렉션하므로 재시작이 필요 없으며, 호스트 도우미가 장치를 열기 위한 권한 확인이 나타날 수 있습니다. PCI 장치는 부팅 시 추가되어 게스트 재시작 후에만 보이므로 attach 시 안전 확인을 받습니다. CLI에서 `--force`를 전달하거나 GUI 대화 상자에서 확인하세요. 기존 `pod.usb_live` 키는 계속 지원하지만 usbredir의 동작 여부를 결정하지 않습니다.
+
+`pod.usb_live = true`는 선택적인 `/dev/bus/usb` 원시 버스 바인드 마운트를 활성화합니다. Incus/LXC 컨테이너처럼 해당 디렉터리가 없는 환경에서는 compose 생성 시 마운트를 생략하고 stderr와 로그에 경고를 남깁니다. KVM·TUN 접근 등 다른 필수 조건을 충족하면 Windows VM 설치를 계속할 수 있습니다. 기본값은 `true`로 유지하며, `false`이면 경고 없이 마운트를 비활성화합니다. PCI 패스스루의 장치 노드와 필요한 SELinux 설정은 유지합니다. 이 검사는 compose를 다시 생성할 때 적용하며, 호스트 패키지 업그레이드만으로 기존 compose 파일을 다시 쓰지는 않습니다.
 
 ## bare-metal 호환 모드 (하이퍼바이저 숨김)
 

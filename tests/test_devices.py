@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import logging
 import types
+from pathlib import Path
 
 import pytest
 
@@ -408,14 +410,29 @@ def test_hmp_command_unreachable_raises(monkeypatch):
 # --- compose integration -------------------------------------------------
 
 
-def test_compose_default_wires_usb_bus():
-    # usb_live defaults ON: the default compose binds /dev/bus/usb (validated
-    # to boot rootless) but uses NO custom -qmp socket / device_cgroup_rules
-    # (both crash-looped boot). Live attach reuses dockur's own monitor.
+@pytest.fixture
+def usb_bus(tmp_path, monkeypatch):
+    """Redirect only the host USB directory probe to private test state."""
+    bus = tmp_path / "usb-bus"
+    original_is_dir = Path.is_dir
+
+    def is_dir(path):
+        return original_is_dir(bus if path == Path("/dev/bus/usb") else path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    return bus
+
+
+@pytest.mark.parametrize("backend", ["podman", "docker"])
+def test_compose_with_host_usb_bus_preserves_required_devices(usb_bus, caplog, backend):
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
-    out = _build_compose_content(Config())
+    usb_bus.mkdir()
+    cfg = Config()
+    cfg.pod.backend = backend
+    with caplog.at_level(logging.WARNING, logger="winpodx.core.pod.compose"):
+        out = _build_compose_content(cfg)
     assert "- /dev/kvm" in out and "- /dev/net/tun" in out
     assert "- /dev/bus/usb:/dev/bus/usb" in out
     # SELinux hosts (openSUSE Tumbleweed / Fedora / RHEL) deny container_t
@@ -425,50 +442,62 @@ def test_compose_default_wires_usb_bus():
     assert "-qmp" not in out
     assert "device_cgroup_rules" not in out
     assert "usb-host" not in out  # never boot-added
+    assert "qmp.sock" not in out
+    assert not any("/dev/bus/usb" in record.message for record in caplog.records)
 
 
-def test_compose_usb_live_off_is_clean():
+def test_compose_usb_live_off_is_clean(usb_bus, caplog):
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     c = Config()
     c.pod.usb_live = False
     c.pod.__post_init__()
-    out = _build_compose_content(c)
+    with caplog.at_level(logging.WARNING, logger="winpodx.core.pod.compose"):
+        out = _build_compose_content(c)
     assert "/dev/bus/usb" not in out
     assert "-qmp" not in out
     # No device exposure -> keep full SELinux confinement on the container.
     assert "label=disable" not in out
+    assert not any("/dev/bus/usb" in record.message for record in caplog.records)
 
 
-def test_compose_usb_live_opt_in_wires_usb_bus_only():
-    # Explicit opt-in wires ONLY the /dev/bus/usb bind. Live attach reuses
-    # dockur's own `-monitor`, so NO custom -qmp socket/bind-mount (that
-    # crash-looped boot), NO device_cgroup_rules (rootless-incompatible), and
-    # USB is never boot-added.
+@pytest.mark.parametrize("backend", ["podman", "docker"])
+@pytest.mark.parametrize("bus_state", ["missing", "not-directory"])
+def test_compose_without_usb_bus_warns_but_writes_vm_configuration(
+    usb_bus, caplog, backend, bus_state
+):
     from winpodx.core.config import Config
-    from winpodx.core.pod.compose import _build_compose_content
+    from winpodx.core.pod.compose import generate_compose
+    from winpodx.utils.paths import config_dir
 
-    c = Config()
-    c.pod.usb_live = True
-    c.pod.__post_init__()
-    out = _build_compose_content(c)
-    assert "- /dev/bus/usb:/dev/bus/usb" in out
-    assert "- label=disable" in out  # SELinux confinement lifted for usbfs access
-    assert "-qmp" not in out  # reuse dockur's monitor, no custom socket
-    assert "qmp.sock" not in out  # no bind-mounted socket
-    assert "device_cgroup_rules" not in out
-    assert "usb-host" not in out  # USB never boot-added
+    if bus_state == "not-directory":
+        usb_bus.touch()
+    cfg = Config()
+    cfg.pod.backend = backend
+    with caplog.at_level(logging.WARNING, logger="winpodx.core.pod.compose"):
+        generate_compose(cfg)
+    out = (config_dir() / "compose.yaml").read_text()
+    assert "/dev/bus/usb" not in out
+    assert "label=disable" not in out
+    assert "- /dev/kvm" in out and "- /dev/net/tun" in out
+    assert ":/storage:Z" in out and ":/oem:Z" in out
+    assert "127.0.0.1:3390:3389/tcp" in out
+    assert cfg.pod.usb_live is True
+    usb_warnings = [record for record in caplog.records if "/dev/bus/usb" in record.message]
+    assert len(usb_warnings) == 1
+    assert usb_warnings[0].levelno == logging.WARNING
 
 
-def test_compose_pci_boot_adds_vfio_usb_stays_live(monkeypatch):
+def test_compose_pci_boot_adds_vfio_usb_stays_live(monkeypatch, usb_bus):
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     monkeypatch.setattr(D, "_iommu_group_for", lambda addr: "14")
+    usb_bus.mkdir()
 
     c = Config()
-    c.pod.usb_live = True  # opt-in so the QMP socket is wired alongside PCI
+    c.pod.usb_live = True
     c.pod.devices = ["usb|1234:5678|Dongle", "pci|0000:01:00.0|Card"]
     c.pod.__post_init__()
     out = _build_compose_content(c)
@@ -485,16 +514,16 @@ def test_compose_pci_boot_adds_vfio_usb_stays_live(monkeypatch):
     assert "- label=disable" in out
 
 
-def test_compose_pci_only_still_lifts_selinux(monkeypatch):
-    # Even with usb_live off, an assigned PCI device exposes VFIO device nodes,
-    # which container_t can't open on SELinux hosts -> label=disable applies.
+@pytest.mark.parametrize("usb_live", [False, True], ids=["disabled", "bus-missing"])
+def test_compose_pci_without_usb_bus_still_lifts_selinux(monkeypatch, usb_bus, usb_live):
+    # An absent or disabled USB bus must not remove PCI's required SELinux policy.
     from winpodx.core.config import Config
     from winpodx.core.pod.compose import _build_compose_content
 
     monkeypatch.setattr(D, "_iommu_group_for", lambda addr: "14")
 
     c = Config()
-    c.pod.usb_live = False
+    c.pod.usb_live = usb_live
     c.pod.devices = ["pci|0000:01:00.0|Card"]
     c.pod.__post_init__()
     out = _build_compose_content(c)

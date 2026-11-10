@@ -1,4 +1,5 @@
 {
+  "Host USB bus /dev/bus/usb is unavailable. Skipping the optional USB mount; Windows VM setup can continue without USB bus passthrough.": "호스트 USB 버스 /dev/bus/usb를 사용할 수 없습니다. 선택적인 USB 마운트를 생략합니다. USB 버스 패스스루 없이 Windows VM 설치를 계속할 수 있습니다.",
   "Bare-metal compatibility": "베어메탈 호환",
   "Hide the KVM/QEMU hypervisor so GPU passthrough (Nvidia code 43) and apps that refuse to run in a VM work. Not an anti-cheat bypass.": "KVM/QEMU 하이퍼바이저를 숨겨 GPU 패스스루(Nvidia 코드 43)와 VM 실행을 거부하는 앱이 동작하게 합니다. 안티치트 우회가 아닙니다.",
   "\n  Could not start pod: {error}": "\n  pod을 시작할 수 없습니다: {error}",

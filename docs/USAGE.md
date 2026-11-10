@@ -152,6 +152,8 @@ Pass a host USB or (non-GPU) PCI device through to the Windows guest (#286). Thr
 
 USB devices redirect live through usbredir — no restart needed, and a privilege prompt may appear so the host helper can open the device. A PCI device is boot-added and only becomes visible after a guest restart, so the attach is guarded by a safety confirmation; pass `--force` on the CLI (or confirm the dialog in the GUI) to proceed. The legacy `pod.usb_live` key is still accepted but no longer gates usbredir.
 
+`pod.usb_live = true` enables an optional raw `/dev/bus/usb` bind mount. If that directory is unavailable, for example inside an Incus/LXC container, compose generation skips the mount and prints a warning to stderr and the log. Windows VM setup can continue when its other prerequisites, including KVM and TUN access, are met. The default stays `true`; `false` still disables the mount without a warning. PCI passthrough keeps its device nodes and required SELinux settings. This guard applies when compose is regenerated; upgrading the host package does not rewrite an existing compose file.
+
 ## Bare-metal compatibility mode (hide the hypervisor)
 
 Some software refuses to run under a detected hypervisor — most notably Nvidia's consumer GPU drivers (they fault with **code 43** when they see KVM, the common GPU-passthrough blocker) and apps with launch-gate VM checks. `cfg.pod.disguise_level` (#246) hides the KVM/QEMU signature from the guest so it presents as a physical PC. It has **three levels, default `balanced`**:

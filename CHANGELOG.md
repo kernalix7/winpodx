@@ -12,6 +12,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Fixed
 
 - GNOME reverse-open of guest-local files now answers the GVfs Domain prompt before the password (#896, #898). Thanks @DBVamsi.
+- Skip the optional USB bus mount with a warning when `/dev/bus/usb` is unavailable, allowing Windows VM setup to continue when its other prerequisites are met. Keep the `usb_live` default and PCI passthrough behavior, and avoid disabling SELinux confinement for a bus that is not mounted (#907). Reported by @kernalix7.
 
 ## [0.12.1] - 2026-10-12
 
