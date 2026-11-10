@@ -10,7 +10,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, Signal, Slot  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QBoxLayout,
@@ -58,7 +58,7 @@ class _MaintHost(MaintenanceMixin, QWidget):
         return None
 
 
-class _DevicesHost(DevicesMixin):
+class _DevicesHost(DevicesMixin, QWidget):
     pass
 
 
@@ -107,8 +107,14 @@ def devices_host(qapp, monkeypatch, tmp_path):
         ],
     )
     host = _DevicesHost()
-    host._page = host._build_devices_page()
-    return host
+    try:
+        host._page = host._build_devices_page()
+        host._page.setParent(host)
+        yield host
+    finally:
+        host.close()
+        host.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 class _StalledInfoWorker(QObject):
@@ -160,6 +166,7 @@ def test_device_row_is_compact_48px_with_secondary_attach(devices_host) -> None:
         D.HostDevice(dtype="usb", did="1234:5678", label="ACME Dongle", bus="003"),
         assigned=False,
     )
+    row.setParent(devices_host)
     assert row.minimumHeight() == 48
     assert row.title_label.text() == "ACME Dongle"
     assert "1234:5678" in row.desc_label.text()
@@ -188,6 +195,7 @@ def test_risky_device_row_shows_warning_glyph_with_flag_tooltip(devices_host) ->
         ),
         assigned=True,
     )
+    row.setParent(devices_host)
     warn = row.findChild(QLabel, "riskGlyph")
     assert warn is not None
     assert "Why this is flagged" in (warn.toolTip() or "")
@@ -227,21 +235,27 @@ def test_devices_filter_matches_substring_across_groups(qapp, monkeypatch, tmp_p
     ]
     monkeypatch.setattr(DC, "_enumerate_host", lambda: hosts)
     host = _DevicesHost()
-    host._page = host._build_devices_page()
-    filt = host._devices_filter
-    assert not filt.isHidden()
-    assert filt.minimumHeight() >= 32
-    filt.setText("Stick 2")
-    qapp.processEvents()
-    visible = [
-        frame for frame in host._page.findChildren(QFrame, "deviceCard") if not frame.isHidden()
-    ]
-    assert len(visible) == 1
-    assert visible[0].title_label.text() == "Stick 2"
+    try:
+        host._page = host._build_devices_page()
+        host._page.setParent(host)
+        filt = host._devices_filter
+        assert not filt.isHidden()
+        assert filt.minimumHeight() >= 32
+        filt.setText("Stick 2")
+        qapp.processEvents()
+        visible = [
+            frame for frame in host._page.findChildren(QFrame, "deviceCard") if not frame.isHidden()
+        ]
+        assert len(visible) == 1
+        assert visible[0].title_label.text() == "Stick 2"
+    finally:
+        host.close()
+        host.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_reflow_devices_stays_a_single_column(devices_host) -> None:
-    pages = QWidget()
+    pages = QWidget(devices_host)
     pages.resize(1100, 600)
     devices_host.pages = pages
     devices_host._reflow_devices()

@@ -35,6 +35,14 @@ ruff format --check src/ tests/
 pytest tests/ -n auto --cov=winpodx --cov-report=term-missing:skip-covered
 ```
 
+Qt 테스트 수신자는 실제 코드와 같은 `QObject`/`QWidget` 실행 문맥을 사용하세요.
+테스트 위젯의 루트는 fixture가 소유하도록 부모 위젯에 연결하거나 명시적으로 추적하세요.
+위젯을 닫아도 파괴된다는 보장은 없습니다. `deleteLater()`로 삭제를 예약하고,
+`QApplication`과 소유 위젯의 Python 래퍼가 살아 있는 동안 `DeferredDelete`를 처리하세요.
+비동기 작업은 `sleep` 대신 `threading.Event`로 제어하고, `finally`에서 워커를 해제하고
+종료를 기다리세요. 패치를 복원하거나 위젯을 파괴하기 전에 큐에 남은 GUI 결과도
+처리해야 합니다. 잠들어 기다리는 것만으로는 Qt 신호가 전달되지 않습니다.
+
 `pytest`는 Linux CI 러너에서 돌며 Windows 게스트를 실행할 수 없습니다. 게스트를
 건드리는 변경(`config/oem/`, `scripts/windows/`, reverse-open shim, `compose`
 포트/QEMU args, 에이전트, 설치 흐름, RAIL 실행)은 머지 전 **실제 Windows 게스트

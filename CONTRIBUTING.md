@@ -35,6 +35,15 @@ ruff format --check src/ tests/
 pytest tests/ -n auto --cov=winpodx --cov-report=term-missing:skip-covered
 ```
 
+Match production's `QObject`/`QWidget` receiver context and keep test widget roots
+under fixture ownership: parent them to the owning widget or track them for
+explicit disposal. Closing a widget does not guarantee destruction. Schedule
+`deleteLater()` and drain `DeferredDelete` while `QApplication` and the owner
+wrapper are still alive.
+For asynchronous operations, use `threading.Event` gates rather than sleeps;
+release and join the worker in `finally`, then process queued GUI results before
+restoring patches or destroying widgets. Sleeping alone does not deliver Qt signals.
+
 `pytest` runs on a Linux CI runner and cannot exercise the Windows guest. Any
 change that touches the guest (`config/oem/`, `scripts/windows/`, the
 reverse-open shim, `compose` ports/QEMU args, the agent, install flow, RAIL
