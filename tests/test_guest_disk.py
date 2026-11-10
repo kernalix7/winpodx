@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -258,25 +259,73 @@ def test_gvfs_mount_returns_existing_without_command(monkeypatch, tmp_path) -> N
     run.assert_not_called()
 
 
-def test_gvfs_mount_passes_password_on_stdin_and_finds_mount(monkeypatch, tmp_path) -> None:
+@pytest.mark.skipif(sys.platform == "win32", reason="GIO executable fixture requires POSIX")
+@pytest.mark.parametrize(
+    ("server_password", "provided_password", "succeeds"),
+    [
+        pytest.param("fixture-password", "fixture-password", True, id="authenticated"),
+        pytest.param("fixture-password", "wrong-password", False, id="rejected"),
+        pytest.param("  café-密碼  ", "  café-密碼  ", True, id="password-preserved"),
+    ],
+)
+def test_gvfs_mount_credential_exchange_controls_guest_file_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    server_password: str,
+    provided_password: str,
+    succeeds: bool,
+) -> None:
     from winpodx.core import guest_disk
     from winpodx.core.config import Config
 
-    cfg = Config()
-    cfg.rdp.password = "secret"
-    mount = tmp_path / "mounted"
-    existing = iter([None, mount])
-    monkeypatch.setattr(guest_disk, "_find_existing_mount", lambda: next(existing))
-    run = MagicMock(return_value=MagicMock(returncode=0, stderr=""))
-    monkeypatch.setattr(guest_disk.subprocess, "run", run)
-    assert guest_disk._gvfs_mount(cfg) == mount
-    run.assert_called_once_with(
-        ["gio", "mount", guest_disk.smb_uri(cfg)],
-        input="secret\n\n\n",
-        text=True,
-        capture_output=True,
-        timeout=30,
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gio = bin_dir / "gio"
+    # Protocol peer for a user-only URI, not a real GIO/GVfs or SMB mount.
+    # A wrong Domain/Password exchange must not expose the guest file tree.
+    gio.write_text(
+        f"""#!{sys.executable}
+import os
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+
+uri = urlsplit(sys.argv[2])
+if sys.argv[1] != "mount" or uri.scheme != "smb" or uri.username != "FixtureUser":
+    raise SystemExit(2)
+domain = sys.stdin.readline().removesuffix("\\n")
+password = sys.stdin.readline().removesuffix("\\n")
+if domain or password != {server_password!r}:
+    raise SystemExit(1)
+mount = (
+    Path(os.environ["XDG_RUNTIME_DIR"])
+    / "gvfs"
+    / "smb-share:server=127.0.0.1,port=4445,share=winpodx-c"
+)
+guest_file = mount / "Users" / "Public" / "probe.txt"
+guest_file.parent.mkdir(parents=True)
+guest_file.write_text("fixture payload\\n", encoding="utf-8")
+""",
+        encoding="utf-8",
     )
+    gio.chmod(0o700)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    cfg = Config()
+    cfg.rdp.user = "FixtureUser"
+    cfg.rdp.password = provided_password
+
+    mount = guest_disk._gvfs_mount(cfg)
+
+    if succeeds:
+        assert mount is not None
+        guest_file = guest_disk.guest_win_path_to_host(r"C:\Users\Public\probe.txt", mount)
+        assert guest_file is not None
+        assert guest_file.read_text(encoding="utf-8") == "fixture payload\n"
+    else:
+        assert mount is None
 
 
 def test_gvfs_mount_handles_missing_gio(monkeypatch) -> None:

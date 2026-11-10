@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- GNOME reverse-open of guest-local files now answers the GVfs Domain prompt before the password (#896, #898). Thanks @DBVamsi.
+
 ## [0.12.1] - 2026-10-12
 
 Packaging correction for the pinned rdprrap archive and OBS desktop-integration resources.

@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- GNOME에서 게스트 로컬 파일을 reverse-open할 때 GVfs의 Domain 질문에 답한 뒤 비밀번호를 전달하도록 수정했습니다 (#896, #898). @DBVamsi 기여.
+
 ## [0.12.1] - 2026-10-12
 
 고정 rdprrap 아카이브와 OBS 데스크톱 통합 리소스의 패키징 정정입니다.

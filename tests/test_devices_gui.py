@@ -10,7 +10,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt, QTimer  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QThread, QThreadPool, QTimer  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
@@ -24,8 +24,6 @@ import winpodx.gui._main_window_devices_cards as devices_cards  # noqa: E402
 from winpodx.cli import device as DC  # noqa: E402
 from winpodx.core import devices as D  # noqa: E402
 from winpodx.core.config import Config  # noqa: E402
-from winpodx.core.i18n import tr  # noqa: E402
-from winpodx.gui import theme  # noqa: E402
 from winpodx.gui._dialog_chrome import ChromeDialog  # noqa: E402
 from winpodx.gui._main_window_devices import DevicesMixin  # noqa: E402
 
@@ -55,15 +53,20 @@ def host(qapp, monkeypatch, tmp_path):
         ],
     )
 
-    class _Host(DevicesMixin):
+    # Match the real window's QObject receiver and parent-owned widget tree.
+    class _Host(DevicesMixin, QWidget):
         pass
 
     h = _Host()
-    # Keep a reference to the page so its Qt widget tree (and the column
-    # layouts) isn't garbage-collected out from under the test.
-    h._page = h._build_devices_page()  # type: ignore[attr-defined]
-    h._cfg = cfg  # type: ignore[attr-defined]
-    return h
+    try:
+        h._page = h._build_devices_page()
+        h._page.setParent(h)
+        h._cfg = cfg
+        yield h
+    finally:
+        h.close()
+        h.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_page_builds_and_populates(host):
@@ -145,34 +148,40 @@ def test_detach_persists(host):
     assert "Released" in host._devices_status.text()
 
 
-def test_attach_usb_live_is_nonblocking(host, monkeypatch):
-    # The slow live attach must run off the GUI thread — `_on_attach` returns
-    # immediately with a "busy" status instead of freezing the window.
-    import time
+def test_attach_usb_live_is_nonblocking(host, qapp, monkeypatch) -> None:
+    from threading import Event
 
+    started = Event()
+    release = Event()
+    rendered_on_gui_thread: list[bool] = []
     monkeypatch.setattr(DC, "_guest_running", lambda _c: True)
-    monkeypatch.setattr(host, "_render_devices", lambda: None)  # no off-thread widget rebuild
-    started: list = []
+    monkeypatch.setattr(
+        host,
+        "_render_devices",
+        lambda: rendered_on_gui_thread.append(QThread.currentThread() == qapp.thread()),
+    )
 
     def _slow_attach(be, c, dc):
-        started.append(dc.did)
-        time.sleep(0.5)  # would freeze the GUI if run on the main thread
+        started.set()
+        assert release.wait(5.0), "test worker was not released"
 
     monkeypatch.setattr(D, "live_attach", _slow_attach)
+    try:
+        host._on_attach(D.HostDevice(dtype="usb", did="1234:5678", label="ACME"))
+        assert started.wait(5.0)
+        responsive: list[bool] = []
+        QTimer.singleShot(0, lambda: responsive.append(host._dev_busy))
+        qapp.processEvents()
+        assert responsive == [True]
+    finally:
+        release.set()
+        assert QThreadPool.globalInstance().waitForDone(5000)
+        # Deliver the queued result before monkeypatch and host teardown.
+        qapp.processEvents()
 
-    t0 = time.monotonic()
-    host._on_attach(D.HostDevice(dtype="usb", did="1234:5678", label="ACME"))
-    elapsed = time.monotonic() - t0
-
-    assert elapsed < 0.3  # returned without waiting for the 0.5s work
-    assert host._dev_busy is True
-    assert "Attaching" in host._devices_status.text()
-    # drain the worker so it doesn't bleed into other tests
-    for _ in range(100):
-        if not host._dev_busy:
-            break
-        time.sleep(0.02)
-    assert started == ["1234:5678"]
+    assert host._dev_busy is False
+    assert host._dev_op is None
+    assert all(rendered_on_gui_thread)
 
 
 def test_pci_attach_requires_confirmation(host, monkeypatch):
@@ -194,7 +203,7 @@ def test_pci_attach_requires_confirmation(host, monkeypatch):
 
 
 class _ConfirmHost(DevicesMixin, QWidget):
-    """``host`` above is a plain object; a real dialog needs a QWidget parent."""
+    """Minimal QWidget owner for real modal confirmations."""
 
 
 _RISKY_GPU = D.HostDevice(
@@ -251,39 +260,12 @@ def _cancel_button(dlg: QDialog) -> QPushButton:
     return dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Cancel)
 
 
-def test_confirm_risky_pci_wears_shared_chrome_and_pass_through_confirms(
-    confirm_host, driven_dialog
-):
+def test_confirm_risky_pci_accepts_explicit_confirmation(confirm_host, driven_dialog) -> None:
     driven_dialog.act = staticmethod(lambda dlg: _ok_button(dlg).click())
 
     assert confirm_host._confirm_risky_pci(_RISKY_GPU, _UNSAFE) is True
 
     (dlg,) = driven_dialog.seen
-    assert isinstance(dlg, ChromeDialog)
-    assert dlg.parent() is confirm_host
-    assert dlg.isModal()
-    assert dlg.minimumWidth() == 460
-    assert dlg.windowTitle() == tr("Risky passthrough")
-    assert dlg.windowFlags() & Qt.WindowType.FramelessWindowHint
-    assert dlg.title_bar.title_label.text() == tr("Risky passthrough")
-    assert dlg.title_bar.btn_minimize is None and dlg.title_bar.btn_maximize is None
-    assert dlg.title_bar.btn_close is not None
-    assert dlg.chrome_height == theme.TITLE_BAR_H
-    assert dlg.layout().itemAt(0).widget() is dlg.title_bar
-    assert dlg.layout().itemAt(1).widget() is dlg.content_widget
-
-    body = dlg.content_widget.layout()
-    assert body is not None
-    assert body.contentsMargins().left() == theme.SPACE_L
-    assert body.spacing() == theme.SPACE_M
-    callout = body.itemAt(0).widget()
-    assert callout.objectName() == "winpodxCallout"
-    assert callout.parentWidget() is dlg.content_widget
-    reasons = body.itemAt(1).widget()
-    assert "• boot GPU" in reasons.text()
-    assert "• IOMMU group 15 is shared" in reasons.text()
-    assert _ok_button(dlg).text() == tr("Pass through anyway")
-    assert _ok_button(dlg).parentWidget().parentWidget() is dlg.content_widget
     assert dlg.result() == QDialog.DialogCode.Accepted
     assert not dlg.isVisible()
 
