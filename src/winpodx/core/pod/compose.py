@@ -21,6 +21,7 @@ from winpodx.core.devices import (
     qemu_device_args,
 )
 from winpodx.core.guest_disk import GUEST_SMB_PORT, SMB_HOST_PORT
+from winpodx.core.i18n import tr
 from winpodx.core.pod.extra_ports import parse_extra_ports
 from winpodx.utils.btrfs import host_storage_is_ssd
 from winpodx.utils.paths import bundle_dir, config_dir
@@ -718,14 +719,22 @@ def _extra_volumes_block(cfg: Config) -> str:
     accompanying ``security_opt: label=disable`` (see :func:`_security_opt_block`)
     lifts that confinement so QEMU can open the node. No QMP socket is wired
     here — live attach reuses dockur's own ``-monitor`` (see core/devices).
-    Empty when usb_live=False.
+    Empty when USB is disabled or the host USB bus directory is unavailable.
     """
     if not getattr(cfg.pod, "usb_live", True):
+        return ""
+    if not Path("/dev/bus/usb").is_dir():
+        logging.getLogger(__name__).warning(
+            tr(
+                "Host USB bus /dev/bus/usb is unavailable. Skipping the optional USB mount; "
+                "Windows VM setup can continue without USB bus passthrough."
+            )
+        )
         return ""
     return "      - /dev/bus/usb:/dev/bus/usb\n"
 
 
-def _security_opt_block(cfg: Config) -> str:
+def _security_opt_block(cfg: Config, *, usb_mounted: bool) -> str:
     """Build the indented YAML ``security_opt:`` body for device passthrough.
 
     On SELinux hosts the container's ``container_t`` domain cannot open the
@@ -736,15 +745,14 @@ def _security_opt_block(cfg: Config) -> str:
     same read succeed). ``label=disable`` drops SELinux confinement for this
     one container so QEMU can grab the device.
 
-    Scoped to when a passthrough device path is actually exposed (usb_live or
-    a PCI device), so a user who turns the feature off keeps full SELinux
-    confinement. Harmless no-op on non-SELinux hosts (AppArmor / none):
+    Scoped to when a passthrough device path is actually exposed (a mounted USB
+    bus or a PCI device), so an unavailable USB bus keeps SELinux confinement.
+    Harmless no-op on non-SELinux hosts (AppArmor / none):
     Podman just passes the flag through with no effect. Backend-agnostic —
     Docker on SELinux hosts hits the same wall.
     """
-    usb = getattr(cfg.pod, "usb_live", True)
     pci = any(d.dtype == "pci" for d in parse_entries(cfg.pod.devices))
-    if not (usb or pci):
+    if not (usb_mounted or pci):
         return ""
     return "    security_opt:\n      - label=disable\n"
 
@@ -976,6 +984,7 @@ def _build_compose_content(cfg: Config) -> str:
         disk_type, adapter, vga, mtu = "", "", "", ""
         usb_env = ""
 
+    extra_volumes = _extra_volumes_block(cfg)
     return template.format(
         ram=cfg.pod.ram_gb,
         cpu=cfg.pod.cpu_cores,
@@ -1017,8 +1026,8 @@ def _build_compose_content(cfg: Config) -> str:
         smb_port=SMB_HOST_PORT,
         extra_port_lines="".join(f'      - "{forward.canonical()}"\n' for forward in extra_ports),
         device_nodes=_device_nodes_block(cfg),
-        extra_volumes=_extra_volumes_block(cfg),
-        security_opt=_security_opt_block(cfg),
+        extra_volumes=extra_volumes,
+        security_opt=_security_opt_block(cfg, usb_mounted=bool(extra_volumes)),
     )
 
 
