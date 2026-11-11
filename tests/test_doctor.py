@@ -351,6 +351,9 @@ class TestHandleDoctor:
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: ok)
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_health", lambda: [ok])
+        # _check_x11 takes quick=; stub it separately so the report stays
+        # independent of the host's real X11 state.
+        monkeypatch.setattr("winpodx.cli.doctor._check_x11", lambda quick=False: ok)
 
         handle_doctor(argparse.Namespace())  # no sys.exit -> success
         out = capsys.readouterr().out
@@ -376,6 +379,7 @@ class TestHandleDoctor:
             monkeypatch.setattr(f"winpodx.cli.doctor.{name}", lambda: fail)
         monkeypatch.setattr("winpodx.cli.doctor._check_container_backend", lambda: [ok])
         monkeypatch.setattr("winpodx.cli.doctor._check_container_health", lambda: [ok])
+        monkeypatch.setattr("winpodx.cli.doctor._check_x11", lambda quick=False: ok)
 
         with pytest.raises(SystemExit) as exc:
             handle_doctor(argparse.Namespace())
@@ -742,6 +746,7 @@ def _all_ok_legacy(monkeypatch):
     monkeypatch.setattr(doctor, "_check_install_source", lambda: Finding("ok", "src"))
     monkeypatch.setattr(doctor, "_check_preflight", lambda: [])
     monkeypatch.setattr(doctor, "_check_freerdp", lambda: Finding("ok", "frdp"))
+    monkeypatch.setattr(doctor, "_check_x11", lambda quick=False: Finding("ok", "x11"))
     monkeypatch.setattr(doctor, "_check_kvm", lambda: Finding("ok", "kvm"))
     monkeypatch.setattr(doctor, "_check_container_backend", lambda: [Finding("ok", "be")])
     # Stub the rootless subuid/subgid probe so the "all OK" path is independent
@@ -804,3 +809,22 @@ class TestHandleDoctorFix:
         with pytest.raises(SystemExit) as exc:
             handle_doctor(_ns(fix=True))
         assert exc.value.code == 1
+
+
+def test_missing_x11_is_advisory_and_does_not_fail_a_healthy_install(monkeypatch, capsys):
+    import json
+
+    actual_check = doctor._check_x11
+    _all_ok_legacy(monkeypatch)
+    monkeypatch.setattr(doctor, "_check_x11", actual_check)
+    for name in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE"):
+        monkeypatch.delenv(name, raising=False)
+
+    handle_doctor(_ns(quick=True, json=True))
+
+    findings = json.loads(capsys.readouterr().out)
+    assert [
+        (finding["severity"], finding["fix_id"])
+        for finding in findings
+        if finding["severity"] != "ok"
+    ] == [("warn", None)]

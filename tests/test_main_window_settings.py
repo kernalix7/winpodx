@@ -795,6 +795,7 @@ def _stub_first_run_checks(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda cfg: {
             "backend": "ok",
             "freerdp": "ok",
+            "x11": "configured",
             "pod_state": "running",
             "rdp_port": "open",
             "apps_count": 0,

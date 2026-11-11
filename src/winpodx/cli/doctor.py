@@ -73,7 +73,8 @@ def handle_doctor(args: argparse.Namespace) -> None:
     --json   Serialise the Finding list to JSON (severity, title, detail,
              suggestion, fix_id) instead of the human-readable report.
     --quick  Skip slow probes (container health / guest exec) and run only
-             the cheap local checks: freerdp, kvm, backend-on-PATH,
+             the cheap local checks: freerdp, x11 (resolved without opening
+             an X client), kvm, backend-on-PATH,
              config-state, pending-setup, autostart, initialized-flag,
              stale-locks, missing-desktop-entries.
              Useful for quick pre-flight checks where a 10-second timeout
@@ -166,6 +167,7 @@ def _collect_findings(*, quick: bool, do_fix: bool) -> list[Finding]:
     findings.append(_check_install_source())
     findings.extend(_check_preflight())
     findings.append(_check_freerdp())
+    findings.append(_check_x11(quick=quick))
     findings.append(_check_kvm())
     findings.append(_check_rootless_subid())
     findings.append(_check_compose_provider())
@@ -269,6 +271,95 @@ def _check_freerdp() -> Finding:
         detail=dep.note
         or "Looked for xfreerdp3 / xfreerdp / sdl-freerdp3 / sdl-freerdp; none resolved.",
         suggestion="Install via your distro package manager (freerdp / freerdp3 / freerdp-x11).",
+    )
+
+
+def _check_x11(quick: bool = False) -> Finding:
+    """#911: explain why Windows RemoteApp windows may not appear.
+
+    Uses the shared ``display.x11`` resolver. Full mode probes with a real Xlib handshake
+    so authentication failures are not mislabelled as a missing XWayland
+    bridge; ``--quick`` stays probe-free (no X client is opened) and only
+    reports the resolved environment. Every X11 problem is advisory: Windows
+    VM setup and agent-only CLI operations do not need X11, so this never
+    returns a ``fail`` finding, and there is deliberately no fixer — WinPodX
+    never installs or starts an X11 bridge.
+
+    An unverified result is reported as a warn, never as OK: remote
+    (SSH/TCP) displays are not probed over the network, and hosts without a
+    native Xlib (Flatpak-only) cannot be verified from here.
+    """
+    from winpodx.display.x11 import resolve_x11_environment
+
+    x11 = resolve_x11_environment(probe=not quick)
+    display = x11.env.get("DISPLAY", "")
+    detail_display = f"DISPLAY={display}" if display else ""
+    if x11.usable is True:
+        detail = (
+            tr("DISPLAY={display} (recovered from the Wayland session)").format(display=display)
+            if x11.recovered
+            else detail_display
+        )
+        return Finding("ok", tr("X11 display accessible"), detail=detail)
+    if x11.problem == "missing":
+        return Finding(
+            "warn",
+            tr("no X11 display configured"),
+            detail=tr(
+                "Windows VM setup and agent-only CLI do not need X11, but Windows "
+                "RemoteApp windows (xfreerdp) do: under Wayland they need an "
+                "X11/XWayland bridge for this user session."
+            ),
+            suggestion=tr(
+                "Set up the X11 bridge for your session (host responsibility; "
+                "WinPodX does not install or start one) and re-run `winpodx doctor` — "
+                "see 'Wayland and X11' in docs/INSTALL.md."
+            ),
+        )
+    if x11.problem == "authentication":
+        return Finding(
+            "warn",
+            tr("X11 display rejected authentication"),
+            detail=tr(
+                "{detail_display} answered but failed the X authority check. This is an "
+                "authentication problem, not a missing XWayland bridge; XAUTHORITY "
+                "must match the running X server."
+            ).format(detail_display=detail_display),
+            suggestion=tr(
+                "Fix the X authority for this session (correct XAUTHORITY / cookie) "
+                "and re-run `winpodx doctor`."
+            ),
+        )
+    if x11.problem == "unreachable":
+        return Finding(
+            "warn",
+            tr("X11 display present but not reachable"),
+            detail=tr(
+                "{detail_display} is configured but no X server answered; the local "
+                "bridge (XWayland / xwayland-satellite) may not be running."
+            ).format(detail_display=detail_display),
+            suggestion=tr("Start your session's X11 bridge and re-run `winpodx doctor`."),
+        )
+    # problem == "unverified", or a present-but-unprobed --quick result:
+    # never report either as OK.
+    return Finding(
+        "warn",
+        tr("X11 display not verified"),
+        detail=(
+            tr(
+                "{detail_display} could not be verified from here: it points at a "
+                "remote display, or no native Xlib is available (for example a "
+                "Flatpak-only host). WinPodX does not probe remote displays over "
+                "the network."
+            ).format(detail_display=detail_display)
+            if x11.problem == "unverified"
+            else tr("(not probed: --quick opens no X client)")
+        ),
+        suggestion=tr(
+            "Windows apps will use this display as configured; run full "
+            "`winpodx doctor` (without --quick) on a session with a local "
+            "display for a real handshake check."
+        ),
     )
 
 

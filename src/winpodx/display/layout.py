@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +35,16 @@ log = logging.getLogger(__name__)
 _MONITOR_RE = re.compile(r"(?P<w>\d+)/\d+x(?P<h>\d+)/\d+\+(?P<x>\d+)\+(?P<y>\d+)")
 
 
-def _run_xrandr_listmonitors() -> str | None:
-    """Return ``xrandr --listmonitors`` stdout, or ``None``. Never raises."""
-    if not os.environ.get("DISPLAY") or shutil.which("xrandr") is None:
+def _run_xrandr_listmonitors(environ: Mapping[str, str] | None = None) -> str | None:
+    """Return ``xrandr --listmonitors`` stdout, or ``None``. Never raises.
+
+    ``environ`` (#911): the child environment to read DISPLAY from and hand to
+    xrandr -- defaults to the process environment. Callers that recovered an
+    XWayland display without mutating ``os.environ`` pass their snapshot here so
+    the layout probe sees the same display the RDP client will use.
+    """
+    env = os.environ if environ is None else environ
+    if not env.get("DISPLAY") or shutil.which("xrandr") is None:
         return None
     try:
         result = subprocess.run(
@@ -45,6 +53,7 @@ def _run_xrandr_listmonitors() -> str | None:
             text=True,
             timeout=4,
             check=False,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError) as e:
         log.debug("xrandr --listmonitors failed to run: %s", e)
@@ -189,16 +198,17 @@ def has_mixed_scale() -> bool | None:
     return _MIXED_SCALE_CACHE["value"]
 
 
-def detect_x_screen_extent() -> tuple[int, int] | None:
+def detect_x_screen_extent(*, environ: Mapping[str, str] | None = None) -> tuple[int, int] | None:
     """Return the multi-monitor bounding box ``(width, height)`` in pixels.
 
     Reads the live X screen via ``xrandr --listmonitors`` (the layout xfreerdp
-    sees). Returns ``None`` when there's a single monitor (no spanning needed),
-    when xrandr is unavailable / there's no X display, or when parsing fails —
-    in every such case the caller should fall back to a single-monitor desktop.
-    Never raises.
+    sees). ``environ`` (#911) selects the environment DISPLAY/XAUTHORITY come
+    from; defaults to the process environment. Returns ``None`` when there's a
+    single monitor (no spanning needed), when xrandr is unavailable / there's no
+    X display, or when parsing fails — in every such case the caller should fall
+    back to a single-monitor desktop. Never raises.
     """
-    output = _run_xrandr_listmonitors()
+    output = _run_xrandr_listmonitors(environ)
     if output is None:
         return None
     parsed = parse_monitor_extent(output)

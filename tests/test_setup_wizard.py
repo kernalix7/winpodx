@@ -7,6 +7,8 @@ import runpy
 import sys
 from unittest.mock import patch
 
+import pytest
+
 from winpodx.setup_wizard import HostState, detect_host_state
 from winpodx.setup_wizard.pkexec import _build_apply_script
 
@@ -288,8 +290,6 @@ def test_apply_via_pkexec_runs_single_exact_privileged_argv(monkeypatch) -> None
 
 def test_apply_via_pkexec_maps_return_codes_to_typed_errors(monkeypatch) -> None:
     import subprocess
-
-    import pytest
 
     from winpodx.setup_wizard import pkexec
 

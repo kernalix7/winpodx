@@ -9,10 +9,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- doctor, setup, GUI에 참고용 X11 디스플레이 진단을 추가했습니다. 전체 doctor는 로컬 연결과 인증을 검사하며, 빠른 검사는 X 클라이언트를 열지 않습니다. 브리지 설치·기동은 호스트 설정으로 유지합니다 (#911). @kernalix7 기여.
+
 ### Fixed
 
 - GNOME에서 게스트 로컬 파일을 reverse-open할 때 GVfs의 Domain 질문에 답한 뒤 비밀번호를 전달하도록 수정했습니다 (#896, #898). @DBVamsi 기여.
 - `/dev/bus/usb`를 사용할 수 없으면 선택적인 USB 버스 마운트를 생략하고 경고해, 다른 필수 조건을 충족한 Windows VM 설치를 계속할 수 있도록 수정했습니다. `usb_live` 기본값과 PCI 패스스루 동작을 유지하며, 마운트하지 않은 USB 버스 때문에 SELinux 격리를 해제하지 않습니다 (#907). @kernalix7 제보.
+- Wayland 사용자 세션에 구성된 로컬 `DISPLAY` / `XAUTHORITY`를 xfreerdp RemoteApp과 창 보정 작업에서 재사용하도록 수정했습니다. 전역 환경변수나 생성된 런처를 변경하지 않으며 명시적인 설정을 우선합니다. Windows VM 설치와 에이전트 전용 CLI는 X11에 의존하지 않습니다 (#911). @kernalix7 기여.
 
 ## [0.12.1] - 2026-10-12
 

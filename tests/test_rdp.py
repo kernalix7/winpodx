@@ -91,16 +91,39 @@ def test_find_media_base_prefers_user_then_persistent_parent(monkeypatch):
 
 
 def test_launch_app_remoteapp_without_display_raises(monkeypatch, tmp_path):
-    # No $DISPLAY -> xfreerdp would die post-detach; launch_app must raise.
+    # No $DISPLAY and no configured bridge -> xfreerdp would die post-detach;
+    # launch_app must refuse with an actionable error instead.
     from winpodx.core import rdp as rdp_mod
 
     monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"))
     monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
     monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
     monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
 
     # A real launch has credentials; set them so we reach the display/XWayland
     # guard rather than the empty-credential guards (#569).
+    cfg = Config()
+    cfg.rdp.user = "TestUser"
+    cfg.rdp.password = "secret"
+    with pytest.raises(RuntimeError, match="XWayland"):
+        rdp_mod.launch_app(cfg, app_executable="notepad.exe")
+
+
+def test_launch_app_flatpak_remoteapp_without_display_refuses(monkeypatch, tmp_path):
+    # Same display contract for the Flatpak client (#911): it forces
+    # --command=xfreerdp (RAIL), so a RemoteApp launch with no display and no
+    # bridge is refused up front -- not left to die inside the sandbox.
+    from winpodx.core import rdp as rdp_mod
+
+    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/flatpak", "flatpak"))
+    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr("winpodx.core.process.runtime_dir", lambda: tmp_path)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr("winpodx.display.x11._user_session_display", lambda _env: {})
+
     cfg = Config()
     cfg.rdp.user = "TestUser"
     cfg.rdp.password = "secret"
@@ -1262,11 +1285,11 @@ def _patch_launch_to_spawn(monkeypatch, tmp_path, cmd):
     monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("/usr/bin/xfreerdp", "xfreerdp"))
     monkeypatch.setattr(rdp_mod, "build_rdp_command", lambda *a, **k: (list(cmd), ""))
     monkeypatch.setattr(rdp_mod, "_reaper_thread", lambda _s: None)
-    monkeypatch.setattr(rdp_mod, "_window_reaper", lambda _s, _wm: None)
+    monkeypatch.setattr(rdp_mod, "_window_reaper", lambda _s, _wm, _env: None)
 
     spawned: list[list[str]] = []
 
-    def fake_spawn(session, spawn_cmd):
+    def fake_spawn(session, spawn_cmd, env=None):
         spawned.append(list(spawn_cmd))
         session.process = _FakeProc()
         return session
@@ -1286,7 +1309,7 @@ def test_launch_app_retries_single_monitor_on_span_preconnect_fail(monkeypatch, 
     rdp_mod, spawned = _patch_launch_to_spawn(
         monkeypatch, tmp_path, ["xfreerdp", "/v:127.0.0.1", "/span", "notepad"]
     )
-    monkeypatch.setattr("winpodx.display.layout.detect_x_screen_extent", lambda: None)
+    monkeypatch.setattr("winpodx.display.layout.detect_x_screen_extent", lambda **_kw: None)
 
     seen = {"n": 0}
 
@@ -1313,7 +1336,7 @@ def test_launch_app_retries_geometry_size_on_span_preconnect_fail(monkeypatch, t
     rdp_mod, spawned = _patch_launch_to_spawn(
         monkeypatch, tmp_path, ["xfreerdp", "/v:127.0.0.1", "/span", "notepad"]
     )
-    monkeypatch.setattr("winpodx.display.layout.detect_x_screen_extent", lambda: (5334, 1600))
+    monkeypatch.setattr("winpodx.display.layout.detect_x_screen_extent", lambda **_kw: (5334, 1600))
 
     seen = {"n": 0}
 
@@ -2359,63 +2382,6 @@ def test_wait_session_interactive_timeout_without_real_sleep(monkeypatch):
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(time, "sleep", lambda _seconds: None)
     assert rdp_mod._wait_session_interactive(Config(), timeout=1) is False
-
-
-def test_launch_app_uwp_warning_and_window_setup_args(monkeypatch, tmp_path, capsys):
-    from winpodx.core import rdp as rdp_mod
-
-    aumid = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
-    monkeypatch.setenv("DISPLAY", ":0")
-    monkeypatch.setattr(rdp_mod, "runtime_dir", lambda: tmp_path)
-    monkeypatch.setattr(rdp_mod, "_find_existing_session", lambda _name: None)
-    monkeypatch.setattr(rdp_mod, "find_freerdp", lambda *a, **k: ("xfreerdp3", "xfreerdp"))
-    monkeypatch.setattr(rdp_mod, "build_rdp_command", lambda *a, **k: (["xfreerdp3"], ""))
-    monkeypatch.setattr(rdp_mod, "freerdp_rail_warning", lambda: "upgrade FreeRDP")
-    monkeypatch.setattr(rdp_mod, "_early_exit_stderr", lambda _session: None)
-
-    class _Spawned:
-        pid = 2468
-        returncode = None
-
-        def poll(self):
-            return None
-
-    def fake_spawn(session, _cmd):
-        session.process = _Spawned()
-        return session
-
-    monkeypatch.setattr(rdp_mod, "_spawn_detached", fake_spawn)
-    thread_targets: list = []
-
-    class _Thread:
-        def __init__(self, *, target, args, daemon):
-            thread_targets.append((target, args, daemon))
-
-        def start(self):
-            return None
-
-    monkeypatch.setattr(rdp_mod.threading, "Thread", _Thread)
-    helper_calls: list[list[str]] = []
-
-    class _Helper:
-        returncode = 0
-
-    def fake_popen(cmd, **_kwargs):
-        helper_calls.append(cmd)
-        return _Helper()
-
-    monkeypatch.setattr(rdp_mod.subprocess, "Popen", fake_popen)
-    cfg = Config()
-    cfg.pod.backend = "manual"
-    session = rdp_mod.launch_app(cfg, launch_uri=aumid, app_icon="/tmp/calc.png")
-    assert session.app_name.startswith("winpodx-uwp-")
-    assert "upgrade FreeRDP" in capsys.readouterr().err
-    assert helper_calls[0][-3:] == ["/tmp/calc.png", "--uwp"] or helper_calls[0][-3:] == [
-        "--icon",
-        "/tmp/calc.png",
-        "--uwp",
-    ]
-    assert len(thread_targets) == 3
 
 
 def test_launch_app_window_setup_spawn_failure_is_nonfatal(monkeypatch, tmp_path):

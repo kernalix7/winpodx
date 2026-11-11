@@ -339,8 +339,13 @@ def _reaper_env(monkeypatch, scans):
     monkeypatch.setattr(daemon, "_WINDOW_REAP_DEBOUNCE_SECS", 0.0)
     monkeypatch.setattr(daemon.shutil, "which", lambda _n: "/usr/bin/wmctrl")
     monkeypatch.setattr(daemon, "list_active_sessions", lambda: [TrackedProcess("excel", 111)])
+    # Hermetic #911 resolution: no host session manager leak, no busctl spawn.
+    monkeypatch.setattr("winpodx.display.x11._user_session_display", lambda _env: {})
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
     it = iter(scans)
-    monkeypatch.setattr(daemon, "_rail_window_classes", lambda _w: next(it, set()))
+    monkeypatch.setattr(daemon, "_rail_window_classes", lambda _w, _e: next(it, set()))
     stop = threading.Event()
     killed: list[str] = []
 
@@ -369,11 +374,15 @@ def test_session_window_reaper_never_reaps_unseen_window(monkeypatch):
     monkeypatch.setattr(daemon, "_WINDOW_REAP_DEBOUNCE_SECS", 0.0)
     monkeypatch.setattr(daemon.shutil, "which", lambda _n: "/usr/bin/wmctrl")
     monkeypatch.setattr(daemon, "list_active_sessions", lambda: [TrackedProcess("excel", 111)])
+    monkeypatch.setattr("winpodx.display.x11._user_session_display", lambda _env: {})
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
 
     stop = threading.Event()
     calls = {"n": 0}
 
-    def _scan(_w):
+    def _scan(_w, _e):
         calls["n"] += 1
         if calls["n"] >= 4:
             stop.set()

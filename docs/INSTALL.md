@@ -383,6 +383,39 @@ yay -S winpodx        # or: paru -S winpodx
 
 Whichever path you used, check what you're running with `winpodx --version`. If the guest ever falls behind the host (e.g. a package-manager upgrade that hasn't started the pod since), `winpodx doctor` flags the version drift and `winpodx guest sync --force` re-pushes the guest-side scripts — though this normally happens on its own the next time the pod starts.
 
+## Wayland and X11 (Windows RemoteApp windows)
+
+Windows **RemoteApp** windows are drawn by WinPodX's preferred `xfreerdp` client (RAIL), which needs X11. The Flatpak path explicitly selects `xfreerdp`. Native SDL/RAIL support and client-selection changes are tracked separately in #299; this fix does not change client selection or claim that upstream SDL lacks RAIL.
+
+On a Wayland session this means the host needs a working X11/XWayland path:
+
+- Most desktop environments ship built-in **XWayland** — nothing to do.
+- Wayland sessions without usable XWayland need a bridge such as **`xwayland-satellite`**, with `DISPLAY` and any required `XAUTHORITY` available. This is **one-time host setup**: WinPodX does not install or start a bridge or its OS dependencies. Do not disable access control with `xhost +` or expose X11 over TCP. Recovered variables reach FreeRDP and X11 window helpers, not the parent process's global environment.
+- A missing X11 display is an **advisory**, not a blocker: Windows VM setup and agent-only CLI operations work without it — only RemoteApp windows (and, depending on your setup, the full-desktop client) need it.
+
+Inside LXC/Incus, forwarding only a Wayland socket does **not** provide X11 access. Configure a local bridge, or securely provide the existing X11 socket and matching authentication inside the container.
+
+If a working bridge starts after the GUI/tray, publish its environment from a shell where X11 already works:
+
+```bash
+systemctl --user import-environment DISPLAY
+if [ -n "${XAUTHORITY:-}" ]; then
+    systemctl --user import-environment XAUTHORITY
+fi
+```
+
+This updates the current user manager only; configure the bridge/session to publish these values on each login. WinPodX reads the same user's systemd environment through `busctl` when a Wayland caller lacks `DISPLAY`. It does not guess display numbers or evaluate shell files. Without `busctl` or a user manager, export the correct variables before starting WinPodX. Explicit nonempty caller settings take precedence.
+
+`winpodx doctor` reports the display state so you can tell the situations apart:
+
+- **missing** — no `DISPLAY` in this session and nothing recoverable from the Wayland session manager;
+- **recovered** — `DISPLAY`/`XAUTHORITY` were recovered from your Wayland user session (WinPodX never writes them back into the global environment);
+- **unreachable** — a display is configured but no X server answers (the bridge may not be running);
+- **authentication** — the X server answered but rejected the X authority check: this is an authentication problem (a stale/incorrect `XAUTHORITY`), **not** a missing XWayland bridge;
+- **unverified** — the display points at a remote host (SSH/TCP) or no native Xlib is available (for example a Flatpak-only host); WinPodX does not probe remote displays over the network, so it reports this without claiming success.
+
+Run full `winpodx doctor` (without `--quick`) for a real Xlib handshake check; `--quick` and the GUI quick checks resolve the environment without opening an X client.
+
 ## Uninstall
 
 One canonical script -- same behavior regardless of how WinPodX was installed (curl / wheel / deb / rpm / aur).

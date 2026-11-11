@@ -357,6 +357,39 @@ sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm
 
 어느 경로든 `winpodx --version`으로 실행 버전을 확인할 수 있습니다. guest가 host보다 뒤처지면 `winpodx doctor`가 version drift를 알리고 `winpodx guest sync --force`로 guest 스크립트를 다시 push할 수 있지만, 보통 다음 pod 시작 때 자동 동기화됩니다.
 
+## Wayland와 X11 (Windows RemoteApp 창)
+
+Windows **RemoteApp** 창은 WinPodX가 우선하는 `xfreerdp` 클라이언트(RAIL)가 그리며, X11이 필요합니다. Flatpak 경로도 `xfreerdp`를 명시적으로 선택합니다. 네이티브 SDL/RAIL 지원과 클라이언트 선택 정책 변경은 #299에서 별도로 다룹니다. 이번 수정은 클라이언트 선택을 바꾸거나 upstream SDL에 RAIL 지원이 없다고 단정하지 않습니다.
+
+Wayland 세션에서는 호스트에 동작하는 X11/XWayland 경로가 필요합니다:
+
+- 대부분의 데스크톱 환경은 **XWayland**를 내장하고 있으므로 할 일이 없습니다.
+- 사용 가능한 XWayland가 없는 Wayland 세션에는 **`xwayland-satellite`** 같은 브리지와 올바른 `DISPLAY`, 필요한 `XAUTHORITY`가 있어야 합니다. 이는 **일회성 호스트 설정**이며 WinPodX가 브리지나 운영체제 의존성을 설치·시작하지는 않습니다. `xhost +`로 접근 제어를 끄거나 X11을 TCP로 노출하지 마세요. 복구한 변수는 FreeRDP와 X11 창 보정 작업에 전달하며 부모 프로세스의 전역 환경을 바꾸지 않습니다.
+- X11 디스플레이가 없는 것은 차단 조건이 아니라 **참고 정보**입니다. Windows VM 설치와 agent 전용 CLI는 X11 없이도 동작하며, RemoteApp 창(및 설정에 따라 전체 데스크톱 클라이언트)만 이를 필요로 합니다.
+
+LXC/Incus에서 Wayland 소켓만 전달해도 X11에 접근할 수 있게 되는 것은 **아닙니다**. 로컬 브리지를 구성하거나 기존 X11 소켓과 그에 맞는 인증 정보를 컨테이너 안에서 안전하게 사용할 수 있도록 설정해야 합니다.
+
+GUI·트레이보다 늦게 시작된 브리지의 환경은 X11이 이미 동작하는 셸에서 다음과 같이 등록할 수 있습니다:
+
+```bash
+systemctl --user import-environment DISPLAY
+if [ -n "${XAUTHORITY:-}" ]; then
+    systemctl --user import-environment XAUTHORITY
+fi
+```
+
+이 명령은 현재 사용자 관리자만 갱신하므로 로그인할 때마다 브리지·세션이 값을 등록하도록 설정해야 합니다. WinPodX는 Wayland 호출 프로세스에 `DISPLAY`가 없을 때 `busctl`로 같은 사용자의 systemd 환경을 읽습니다. 디스플레이 번호를 추측하거나 셸 파일을 실행하지 않습니다. `busctl`이나 사용자 관리자가 없으면 WinPodX를 시작하기 전에 올바른 변수를 내보내세요. 호출 프로세스에 명시한 비어 있지 않은 설정을 우선합니다.
+
+`winpodx doctor`가 디스플레이 상태를 알려 상황을 구별할 수 있게 해 줍니다:
+
+- **missing** — 이 세션에 `DISPLAY`가 없고 Wayland 사용자 세션에서도 복구할 수 없는 상태;
+- **recovered** — Wayland 사용자 세션에서 `DISPLAY`/`XAUTHORITY`를 복구한 상태(WinPodX는 전역 환경을 변경하지 않습니다);
+- **unreachable** — 디스플레이는 구성되어 있지만 X 서버가 응답하지 않는 상태(브리지가 실행 중이 아닐 수 있습니다);
+- **authentication** — X 서버는 응답했지만 X authority 검사를 거부한 상태. 브리지가 없어서가 아니라 인증 문제(오래되었거나 잘못된 `XAUTHORITY`)입니다;
+- **unverified** — 디스플레이가 원격(SSH/TCP)이거나 네이티브 Xlib가 없는 상태(예: Flatpak 전용 호스트). WinPodX는 원격 디스플레이를 네트워크로 검사하지 않으며 연결·인증 성공으로 보고하지 않습니다.
+
+실제 Xlib 핸드셰이크 검사는 `--quick` 없이 `winpodx doctor` 전체 실행으로 하세요. `--quick`과 GUI 빠른 검사는 X 클라이언트를 열지 않고 환경만 해석합니다.
+
 ## 언인스톨
 
 설치 경로 (curl / pip / deb / rpm / aur) 무관하게 동일한 canonical 스크립트 하나.
