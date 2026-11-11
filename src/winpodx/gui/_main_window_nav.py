@@ -234,6 +234,7 @@ class NavigationMixin:
                 backend=self.cfg.pod.backend, status=snapshot["backend"]
             ),
             tr("  · FreeRDP: {status}").format(status=snapshot["freerdp"]),
+            tr("  · X11 display: {status}").format(status=snapshot["x11"]),
             tr("  · Pod state: {status}").format(status=snapshot["pod_state"]),
             tr("  · RDP listener: {status}").format(status=snapshot["rdp_port"]),
             tr("  · Discovered apps: {count}").format(count=snapshot["apps_count"]),

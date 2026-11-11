@@ -1091,6 +1091,25 @@ def handle_setup(
             status = "OK"
         print(f"  {name:<15} [{status}] {dep.note}")
 
+    # Display access is advisory, not a Windows installation prerequisite.
+    from winpodx.display.x11 import resolve_x11_environment
+
+    x11 = resolve_x11_environment()
+    if x11.env.get("DISPLAY"):
+        status = "CONFIGURED"
+        note = (
+            tr("X11 display recovered from the Wayland session (not verified here).")
+            if x11.recovered
+            else tr("X11 display configured (not verified here).")
+        )
+    else:
+        status = "MISSING"
+        note = tr(
+            "Windows VM setup can continue without X11. RemoteApp needs an "
+            "X11/XWayland bridge; see 'Wayland and X11' in docs/INSTALL.md."
+        )
+    print(f"  {'x11':<15} [{status}] {note}")
+
     print()
 
     existing = import_winapps_config()

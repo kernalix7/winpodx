@@ -23,6 +23,11 @@ X11-only things once the window appears:
   stop showing FreeRDP's icon.
 
 Both are clean no-ops off X11 / when their tools are missing.
+
+``rdp.launch_app`` spawns the helper with the resolved X11 environment (#911)
+as its ``env``, so the ctypes ``XOpenDisplay`` / ``wmctrl`` calls below see the
+recovered bridge's DISPLAY/XAUTHORITY even when the (short-lived) launching
+process itself has no DISPLAY. Nothing here mutates any environment.
 """
 
 from __future__ import annotations

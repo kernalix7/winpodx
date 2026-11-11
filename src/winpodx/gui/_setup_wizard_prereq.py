@@ -27,6 +27,28 @@ from winpodx.setup_wizard.host_state import HostState, detect_host_state, inspec
 from winpodx.utils.deps import check_all
 
 
+def _x11_advisory() -> str:
+    """Nonblocking, probe-free guidance for the session's RemoteApp display."""
+    try:
+        from winpodx.display.x11 import resolve_x11_environment
+
+        x11 = resolve_x11_environment()
+    except Exception:  # noqa: BLE001
+        return ""
+    if x11.problem == "missing":
+        return tr(
+            "No X11 display: Windows VM setup can continue, but Windows "
+            "RemoteApp windows need an X11/XWayland bridge for this session "
+            "(host responsibility; WinPodX does not install or start one). "
+            "See 'Wayland and X11' in docs/INSTALL.md."
+        )
+    if x11.recovered:
+        return tr(
+            "X11 display recovered from the Wayland session for RemoteApp (not verified here)."
+        )
+    return ""
+
+
 class PrerequisitesPage(QWidget):
     """Read-only host preflight; Next requires every blocking check to pass."""
 
@@ -47,6 +69,7 @@ class PrerequisitesPage(QWidget):
         self._thread: QThread | None = None
         self._worker: PkexecWorker | None = None
         self._cards: dict[str, QFrame] = {}
+        self._x11_note = _x11_advisory()
         self._hint = QLabel("")
         self._hint.setWordWrap(True)
         self._callout_host = QVBoxLayout()
@@ -102,6 +125,7 @@ class PrerequisitesPage(QWidget):
         if revision != self._revision:
             return
         self._report = report
+        self._x11_note = _x11_advisory()
         self._paint(self._state, probe=False)
 
     def _restyle(self) -> None:
@@ -156,6 +180,8 @@ class PrerequisitesPage(QWidget):
         ]
         if failures:
             self._callout_host.addWidget(make_warning_callout("\n".join(failures)))
+        if self._x11_note:
+            self._callout_host.addWidget(make_warning_callout(self._x11_note))
         fixable = any(issue.fixable for issue in self._report.failures)
         self._fix_btn.setVisible(fixable)
         self._fix_btn.setEnabled(fixable and self._thread is None)

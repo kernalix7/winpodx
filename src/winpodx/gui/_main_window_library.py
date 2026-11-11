@@ -339,14 +339,22 @@ class LibraryPageMixin(LibraryChipsMixin, LibraryStartMixin):
         import shutil
         import subprocess
 
+        from winpodx.display.x11 import resolve_x11_environment
+
         try:
             if shutil.which("wmctrl"):
-                subprocess.run(["wmctrl", "-x", "-a", app_name], timeout=3, check=False)
+                subprocess.run(
+                    ["wmctrl", "-x", "-a", app_name],
+                    timeout=3,
+                    check=False,
+                    env=resolve_x11_environment().env,
+                )
             elif shutil.which("xdotool"):
                 subprocess.run(
                     ["xdotool", "search", "--class", app_name, "windowactivate"],
                     timeout=3,
                     check=False,
+                    env=resolve_x11_environment().env,
                 )
         except Exception:  # noqa: BLE001 -- best-effort, never break the UI
             pass

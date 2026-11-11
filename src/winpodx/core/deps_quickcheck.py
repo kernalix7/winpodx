@@ -13,6 +13,7 @@ import shutil
 from typing import Any
 
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 
 
 def collect_first_run_checks(cfg: Config) -> dict[str, Any]:
@@ -42,6 +43,19 @@ def collect_first_run_checks(cfg: Config) -> dict[str, Any]:
         out["freerdp"] = "OK" if freerdp.found else "missing — install freerdp 3+"
     except Exception:  # noqa: BLE001
         out["freerdp"] = "unknown"
+
+    # X11 is advisory; quick checks do not open an X client.
+    try:
+        from winpodx.display.x11 import resolve_x11_environment
+
+        x11 = resolve_x11_environment()
+        out["x11"] = (
+            tr("configured (not verified — run `winpodx doctor`)")
+            if x11.env.get("DISPLAY")
+            else tr("missing — VM setup can continue; RemoteApp needs X11/XWayland")
+        )
+    except Exception:  # noqa: BLE001
+        out["x11"] = "unknown"
 
     # Pod state
     try:

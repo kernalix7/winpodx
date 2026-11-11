@@ -44,17 +44,17 @@ def test_parse_extent_garbage_returns_none() -> None:
 
 def test_detect_extent_none_for_single_monitor(monkeypatch) -> None:
     # Single monitor -> None (no span / explicit size needed).
-    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda: _SINGLE)
+    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda _environ=None: _SINGLE)
     assert layout.detect_x_screen_extent() is None
 
 
 def test_detect_extent_returns_bbox_for_dual(monkeypatch) -> None:
-    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda: _DUAL)
+    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda _environ=None: _DUAL)
     assert layout.detect_x_screen_extent() == (5334, 1600)
 
 
 def test_detect_extent_none_when_xrandr_unavailable(monkeypatch) -> None:
-    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda: None)
+    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda _environ=None: None)
     assert layout.detect_x_screen_extent() is None
 
 
@@ -222,5 +222,7 @@ def test_detect_monitor_scales_prefers_kde(monkeypatch) -> None:
 
 
 def test_detect_extent_none_when_xrandr_output_is_unparseable(monkeypatch) -> None:
-    monkeypatch.setattr(layout, "_run_xrandr_listmonitors", lambda: "Monitors: 2\ninvalid")
+    monkeypatch.setattr(
+        layout, "_run_xrandr_listmonitors", lambda _environ=None: "Monitors: 2\ninvalid"
+    )
     assert layout.detect_x_screen_extent() is None

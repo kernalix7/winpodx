@@ -12,11 +12,14 @@ import shutil
 import subprocess
 import sys
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from winpodx.core.config import Config
+from winpodx.core.i18n import tr
 from winpodx.core.url_schemes import sanitize_url_arg, url_scheme_of
+from winpodx.display.x11 import resolve_x11_environment
 from winpodx.utils.paths import runtime_dir
 
 log = logging.getLogger(__name__)
@@ -294,11 +297,9 @@ def freerdp_major_version() -> int:
 def _find_native_freerdp() -> tuple[str, str] | None:
     """First available native FreeRDP binary.
 
-    ``xfreerdp`` first: it is the only client with working RAIL.
-    ``sdl-freerdp`` has none (FreeRDP #9078) and ``wlfreerdp`` is
-    deprecated with broken RAIL repaint, so neither is a Wayland
-    substitute -- pure-Wayland needs XWayland. SDL stays as a
-    full-desktop-only fallback.
+    WinPodX prefers ``xfreerdp`` for its current RemoteApp path and keeps SDL
+    as a fallback. Native SDL RAIL support and client policy are tracked in
+    #299; this preference is not a claim about upstream SDL capabilities.
     """
     probes: tuple[tuple[tuple[str, ...], str], ...] = (
         (("xfreerdp3", "xfreerdp"), "xfreerdp"),
@@ -314,10 +315,9 @@ def _find_native_freerdp() -> tuple[str, str] | None:
 
 # Flatpak `run` options for com.freerdp.FreeRDP. Two things have to be right or
 # the client silently degrades inside the sandbox:
-#   * --command=xfreerdp — the app's DEFAULT command is the SDL client, which
-#     has NO RAIL (FreeRDP #9078); without this, a RemoteApp launch opens the
-#     full Windows desktop / login screen instead of a single app window. We
-#     force the X11 xfreerdp binary, the only one with working RAIL.
+#   * --command=xfreerdp — preserve WinPodX's current X11 RemoteApp path rather
+#     than the app's default SDL command. Native SDL RAIL policy is tracked
+#     separately in #299.
 #   * the sockets / device / network / filesystem holes every winpodx RDP flag
 #     needs, so clipboard / sound / printer / display / drive-redirection
 #     (\\tsclient\home + \\tsclient\media) and the localhost RDP connection all
@@ -1211,8 +1211,17 @@ def _drain_window_setup_log(helper: subprocess.Popen) -> None:
         log.debug("window_setup helper: %s", text)
 
 
-def _spawn_detached(session: RDPSession, cmd: list[str]) -> RDPSession:
+def _spawn_detached(
+    session: RDPSession,
+    cmd: list[str],
+    env: Mapping[str, str] | None = None,
+) -> RDPSession:
     """Acquire the PID lock and spawn a detached FreeRDP client for ``session``.
+
+    ``env`` (#911): the child environment for the client -- the resolved X11
+    snapshot from :func:`launch_app` so a recovered display reaches xfreerdp
+    without mutating ``os.environ``. ``None`` keeps the historical
+    inherit-``os.environ`` behaviour.
 
     Returns ``session`` with ``.process`` set, or — if the lock is already held
     by a concurrent launch — the live existing session (``.process is None`` on
@@ -1255,7 +1264,10 @@ def _spawn_detached(session: RDPSession, cmd: list[str]) -> RDPSession:
         # its own parser's warning; the WLOG_FILTER env var is read first and does.
         # Only this one WLog tag is raised to FATAL -- other diagnostics are intact,
         # and the delivered RemoteApplicationCmdLine bytes are unchanged (#680 nit).
-        spawn_env = {**os.environ, "WLOG_FILTER": "com.winpr.commandline:FATAL"}
+        spawn_env = {
+            **(os.environ if env is None else env),
+            "WLOG_FILTER": "com.winpr.commandline:FATAL",
+        }
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
@@ -1529,16 +1541,21 @@ _WINDOW_REAP_APPEAR_TIMEOUT = 40  # give the first RAIL window this long to map
 _WINDOW_REAP_DEBOUNCE = 6.0  # windows must stay gone this long before reaping
 
 
-def _count_rail_windows(wmctrl: str, target: str) -> int | None:
+def _count_rail_windows(
+    wmctrl: str, target: str, env: Mapping[str, str] | None = None
+) -> int | None:
     """Count mapped ``RAIL.<wm_class>`` windows; ``None`` when the scan failed.
 
     Mirrors ``_relist_uwp_taskbar``'s match: ``wmctrl -lx`` column 3 is
     ``<res_name>.<res_class>``, and FreeRDP RAIL windows use res_name ``RAIL``
-    with res_class == the ``/wm-class`` token (our app_name slug).
+    with res_class == the ``/wm-class`` token (our app_name slug). ``env``
+    (#911) is the child environment for wmctrl -- the resolved X11 snapshot, so
+    a reaper in a Wayland process with no DISPLAY still sees the recovered
+    bridge's windows. ``None`` inherits the process environment.
     """
     try:
         proc = subprocess.run(
-            [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
+            [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False, env=env
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1555,7 +1572,9 @@ def _count_rail_windows(wmctrl: str, target: str) -> int | None:
     return count
 
 
-def _window_reaper(session: RDPSession, wm_class: str) -> None:
+def _window_reaper(
+    session: RDPSession, wm_class: str, env: Mapping[str, str] | None = None
+) -> None:
     """Reap a RAIL session when its windows close, even though xfreerdp stays
     connected (#680: "app sessions never terminate after closing").
 
@@ -1580,6 +1599,9 @@ def _window_reaper(session: RDPSession, wm_class: str) -> None:
     wmctrl = shutil.which("wmctrl")
     if not wmctrl:
         return
+    # Scan the display this client actually uses, even if the user manager's
+    # environment changes after launch.
+    scan_env = resolve_x11_environment().env if env is None else env
     target = f"RAIL.{wm_class}"
 
     # Phase 1 -- arm: wait for the first window to map. If none ever appears,
@@ -1589,7 +1611,7 @@ def _window_reaper(session: RDPSession, wm_class: str) -> None:
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             return  # process already exited; _reaper_thread handles cleanup
-        if _count_rail_windows(wmctrl, target):
+        if _count_rail_windows(wmctrl, target, scan_env):
             appeared = True
             break
         time.sleep(_WINDOW_REAP_POLL)
@@ -1599,7 +1621,7 @@ def _window_reaper(session: RDPSession, wm_class: str) -> None:
     # Phase 2 -- watch: reap once windows stay gone for the debounce window.
     gone_since: float | None = None
     while proc.poll() is None:
-        count = _count_rail_windows(wmctrl, target)
+        count = _count_rail_windows(wmctrl, target, scan_env)
         if count is None:
             gone_since = None  # transient scan failure -> don't treat as gone
         elif count == 0:
@@ -1731,17 +1753,25 @@ def launch_app(
         multimon_override=multimon_override,
     )
 
-    # See find_freerdp(): only xfreerdp has working RAIL, and it needs $DISPLAY.
+    # WinPodX's native/Flatpak xfreerdp RemoteApp path needs X11. Reuse a
+    # configured bridge without changing this process's environment. Keep SDL
+    # and full-desktop launches unchanged; native SDL policy is tracked in #299.
     is_remoteapp = launch_uri is not None or app_executable is not None
     found = find_freerdp(prefer=getattr(cfg.rdp, "freerdp_source", "auto"))
     kind = found[1] if found else ""
-    if is_remoteapp and kind == "xfreerdp" and not os.environ.get("DISPLAY"):
-        raise RuntimeError(
-            "RemoteApp requires xfreerdp, which needs an X display. "
-            "On Wayland, enable XWayland (e.g. your compositor's built-in "
-            "support, or xwayland-satellite for niri/river) and ensure "
-            "$DISPLAY is set."
-        )
+    child_env = None
+    if is_remoteapp and kind in ("xfreerdp", "flatpak"):
+        child_env = resolve_x11_environment().env
+        if not child_env.get("DISPLAY"):
+            raise RuntimeError(
+                tr(
+                    "No X11 display is available to this RemoteApp launch. On Wayland, "
+                    "enable or start XWayland (built into your compositor, or "
+                    "xwayland-satellite), and publish DISPLAY and any required "
+                    "XAUTHORITY to the user session. WinPodX can reuse a configured "
+                    "local bridge; it does not install or start one."
+                )
+            )
 
     # #332: don't fire the RemoteApp (RAIL) connection while the guest
     # session is still at the logon / lock screen. dockur's autologon
@@ -1769,7 +1799,7 @@ def launch_app(
     # only after the settle window below, so a failed spawn can be retried
     # (single-monitor, dropping /span) without the first reaper unlinking the
     # retry's PID file.
-    session = _spawn_detached(RDPSession(app_name=app_name), cmd)
+    session = _spawn_detached(RDPSession(app_name=app_name), cmd, child_env)
     if session.process is None:
         # A concurrent launch already owns this app -- return its live session.
         return session
@@ -1799,7 +1829,10 @@ def launch_app(
 
         session.pid_file.unlink(missing_ok=True)
         cmd = [flag for flag in cmd if flag not in ("/span", "/multimon")]
-        extent = detect_x_screen_extent()
+        # Probe the X-screen extent with the SAME resolved environment the
+        # client runs with (#911): xrandr must see the display xfreerdp will
+        # use, and a Wayland launcher must not mutate os.environ to get there.
+        extent = detect_x_screen_extent(environ=child_env)
         if extent is not None and not any(f.startswith("/size:") for f in cmd):
             width, height = extent
             cmd.append(f"/size:{width}x{height}")
@@ -1818,7 +1851,7 @@ def launch_app(
                 "the span."
             )
         log.info("Relaunching RDP: %s", _redact_cmd_for_log(cmd))
-        session = _spawn_detached(RDPSession(app_name=app_name), cmd)
+        session = _spawn_detached(RDPSession(app_name=app_name), cmd, child_env)
         if session.process is None:
             return session
         early = _early_exit_stderr(session)
@@ -1840,7 +1873,7 @@ def launch_app(
     if is_remoteapp:
         threading.Thread(
             target=_window_reaper,
-            args=(session, session.app_name),
+            args=(session, session.app_name, child_env),
             daemon=True,
         ).start()
     # #472 / #702: post-launch window setup -- clear a UWP window's SKIP_TASKBAR
@@ -1860,7 +1893,9 @@ def launch_app(
         # icon injection does not take, there was previously nothing at all to
         # look at, which is how #702 stayed undiagnosable across two releases.
         # A separate thread drains it so the short-lived launcher can still
-        # exit immediately.
+        # exit immediately. The helper runs the ctypes X11 icon work in its own
+        # process, so hand it the resolved X11 environment (#911) instead of
+        # relying on (or mutating) the launcher's environment.
         try:
             helper = subprocess.Popen(
                 setup_args,
@@ -1868,6 +1903,7 @@ def launch_app(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                env=child_env,
             )
         except OSError as e:
             log.debug("window_setup helper spawn failed: %s", e)

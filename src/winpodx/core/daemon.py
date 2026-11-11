@@ -15,10 +15,12 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 from winpodx.core.config import Config
 from winpodx.core.process import kill_session, list_active_sessions
+from winpodx.display.x11 import resolve_x11_environment
 
 log = logging.getLogger(__name__)
 
@@ -333,14 +335,21 @@ _WINDOW_REAP_POLL_SECS = 3.0
 _WINDOW_REAP_DEBOUNCE_SECS = 6.0
 
 
-def _rail_window_classes(wmctrl: str) -> set[str] | None:
+def _rail_window_classes(wmctrl: str, env: Mapping[str, str] | None = None) -> set[str] | None:
     """Set of res_class tokens for mapped ``RAIL.<class>`` windows; ``None`` on
     scan error. FreeRDP RAIL windows are res_name ``RAIL`` + res_class == the
-    app_name slug, so ``wmctrl -lx`` column 3 is ``RAIL.<app_name>``.
+    app_name slug, so ``wmctrl -lx`` column 3 is ``RAIL.<app_name>``. ``env``
+    (#911) is the child environment for wmctrl (the resolved X11 snapshot);
+    ``None`` inherits the process environment.
     """
     try:
         proc = subprocess.run(
-            [wmctrl, "-lx"], capture_output=True, text=True, timeout=4, check=False
+            [wmctrl, "-lx"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -402,7 +411,12 @@ def run_session_window_reaper(
                 if name not in live:
                     gone_since.pop(name, None)
 
-            classes = _rail_window_classes(wmctrl)
+            # #911: scan with the resolved X11 environment, not the (possibly
+            # DISPLAY-less) tray environment. Re-resolved each pass so an
+            # XWayland bridge configured after the tray started is picked up
+            # without a restart (the resolver has no negative cache); scans
+            # that still fail are "unknown", never "gone".
+            classes = _rail_window_classes(wmctrl, resolve_x11_environment().env)
             if classes is not None:
                 now = time.monotonic()
                 for name in live:
