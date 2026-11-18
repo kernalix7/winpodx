@@ -437,6 +437,7 @@
   "Launch App": "Lancer l'application",
   "Launch Error": "Erreur de lancement",
   "Launch failed: {error}": "Échec du lancement : {error}",
+  "Launch failed": "Échec du lancement",
   "Launch full Windows desktop": "Lancer le bureau Windows complet",
   "Launch {app}": "Lancer {app}",
   "Launching Windows desktop... (stderr log: {log})": "Lancement du bureau Windows... (journal stderr : {log})",

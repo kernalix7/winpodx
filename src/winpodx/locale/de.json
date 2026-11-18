@@ -437,6 +437,7 @@
   "Launch App": "App starten",
   "Launch Error": "Startfehler",
   "Launch failed: {error}": "Start fehlgeschlagen: {error}",
+  "Launch failed": "Start fehlgeschlagen",
   "Launch full Windows desktop": "Vollständigen Windows-Desktop starten",
   "Launch {app}": "{app} starten",
   "Launching Windows desktop... (stderr log: {log})": "Windows-Desktop wird gestartet... (stderr-Log: {log})",

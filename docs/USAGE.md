@@ -136,7 +136,9 @@ The pages are:
 
 Since v0.5.5 the tray spawns itself automatically from the GUI window and from CLI subcommands (except `setup` / `gui` / `launch` / `tray`), so a user who only ever runs `winpodx app run` still gets the system-tray indicator + the UNRESPONSIVE auto-recovery driver. A flock under `$XDG_RUNTIME_DIR/winpodx/tray.lock` prevents stacked instances when the user manually re-launches the tray.
 
-The tray context menu now starts with **Open Dashboard** (one-click to the main GUI window). **Quit** confirms via a dialog and on confirmation runs `stop_pod` + `pkill -f 'winpodx gui'` + `app.quit` so a stray click can't cycle the pod's ~30 s restart.
+The tray context menu starts with **Open Dashboard** (one-click to the main GUI window). App entries, **Full Desktop**, and double-clicking the tray icon run the same readiness preflight as CLI app launches: a stopped pod is started and RDP readiness is awaited before the session opens. This work happens in the background, notifications are delivered on the Qt thread, and failures are recorded in the log instead of blocking silently.
+
+**Quit WinPodX** confirms first, then stops accepting new launches and waits for pending readiness and pod work to finish without freezing the GUI. Only then does it stop the pod and the reverse-open listener, close dashboard processes, and exit, so a launch that was already waiting on readiness cannot bring the pod back after Quit.
 
 To launch the tray at every login, open the GUI → Settings → tick **"Launch WinPodX tray at login (system tray icon + idle-stall auto-recovery)"**. The toggle writes / removes `~/.config/autostart/winpodx-tray.desktop` via the XDG autostart spec; portable across KDE / GNOME / XFCE / Cinnamon. The file is the source of truth — you can also drop it by hand to opt out without launching the GUI. Toggle applies immediately; no Save Settings click needed.
 
