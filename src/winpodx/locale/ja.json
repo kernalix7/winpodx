@@ -437,6 +437,7 @@
   "Launch App": "アプリを起動",
   "Launch Error": "起動エラー",
   "Launch failed: {error}": "起動に失敗しました: {error}",
+  "Launch failed": "起動に失敗しました",
   "Launch full Windows desktop": "フルの Windows デスクトップを起動",
   "Launch {app}": "{app} を起動",
   "Launching Windows desktop... (stderr log: {log})": "Windows デスクトップを起動しています... (stderr ログ: {log})",

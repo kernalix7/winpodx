@@ -438,6 +438,7 @@
   "Launch App": "앱 실행",
   "Launch Error": "실행 오류",
   "Launch failed: {error}": "실행 실패: {error}",
+  "Launch failed": "실행 실패",
   "Launch full Windows desktop": "전체 Windows 데스크톱 실행",
   "Launch {app}": "{app} 실행",
   "Launching Windows desktop... (stderr log: {log})": "Windows 데스크톱을 실행하는 중... (stderr 로그: {log})",

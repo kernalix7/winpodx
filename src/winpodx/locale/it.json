@@ -437,6 +437,7 @@
   "Launch App": "Avvia app",
   "Launch Error": "Errore di avvio",
   "Launch failed: {error}": "Avvio non riuscito: {error}",
+  "Launch failed": "Avvio non riuscito",
   "Launch full Windows desktop": "Avvia il desktop completo di Windows",
   "Launch {app}": "Avvia {app}",
   "Launching Windows desktop... (stderr log: {log})": "Avvio del desktop Windows... (log stderr: {log})",

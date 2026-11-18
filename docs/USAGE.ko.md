@@ -136,7 +136,9 @@ winpodx config import             # 기존 winapps.conf import
 
 v0.5.5 부터 tray 가 GUI 창과 pod 를 건드리는 모든 CLI 서브커맨드 (`setup` / `gui` / `tray` 제외) 에서 자동 spawn — `winpodx app run` 만 쓰는 사용자도 시스템 트레이 아이콘 + UNRESPONSIVE 자동 회복 드라이버 활용 가능. `$XDG_RUNTIME_DIR/winpodx/tray.lock` flock 으로 중복 인스턴스 차단.
 
-트레이 컨텍스트 메뉴 최상단에 **Open Dashboard** (메인 GUI 창 원클릭). **Quit** 가 다이얼로그로 확인 후 `stop_pod` + `pkill -f 'winpodx gui'` + `app.quit` 실행 — 실수 클릭으로 pod ~30초 재시작 비용 발생 방지.
+트레이 컨텍스트 메뉴는 **Open Dashboard**(메인 GUI 창 원클릭)로 시작합니다. 앱 항목, **Full Desktop**, 트레이 아이콘 더블클릭은 CLI 앱 실행과 동일한 준비 단계를 거칩니다. 정지된 pod를 시작하고 RDP 준비를 기다린 뒤 세션을 엽니다. 이 작업은 백그라운드에서 수행하며 알림은 Qt 스레드로 전달되고, 실패는 조용히 막히지 않고 로그에 기록됩니다.
+
+**Quit WinPodX**는 먼저 확인을 받은 뒤 새 실행 요청을 받지 않고, GUI를 멈추지 않은 채 진행 중인 준비·pod 작업이 끝나기를 기다립니다. 그 다음에 pod와 reverse-open 리스너를 중지하고 대시보드 프로세스를 닫은 뒤 종료합니다. 따라서 이미 준비를 기다리던 실행이 Quit 이후 pod를 다시 시작하지 않습니다.
 
 매 로그인 시 tray 자동 실행하려면 GUI → Settings → **"Launch WinPodX tray at login (system tray icon + idle-stall auto-recovery)"** 체크. 토글이 XDG autostart 스펙 통해 `~/.config/autostart/winpodx-tray.desktop` 작성/삭제; KDE / GNOME / XFCE / Cinnamon 모두 portable. 파일이 source of truth — GUI 안 띄우고 손으로 떼서 opt out 가능. 토글 즉시 적용, Save Settings 클릭 불필요.
 

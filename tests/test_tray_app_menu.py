@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from inspect import getsource
 
 import pytest
 
@@ -324,11 +323,3 @@ def test_refresh_tray_apps_menu_repeated_refreshes_keep_a_flat_menu_without_dupl
     names = _direct_app_names(menu)
     assert names == [f"app-{index:02d}" for index in range(1, 55)]
     assert len(names) == len(set(names))
-
-
-def test_run_tray_wires_app_menu_to_open_and_timer_refresh() -> None:
-    source = getsource(tray.run_tray)
-
-    assert "apps_menu.aboutToShow.connect(_rebuild_apps_menu)" in source
-    assert "_refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop)" in source
-    assert "(_rebuild_apps_menu, _rebuild_sessions_menu, _rebuild_devices_menu)" in source

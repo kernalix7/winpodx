@@ -1,18 +1,17 @@
 # SPDX-License-Identifier: MIT
-"""Tray single-instance lock + the #573 Plasma submenu invariants.
+"""Tray locking, menu behavior, and the asynchronous launch/quit lifecycle.
 
 ``desktop/tray.py`` keeps everything except ``_acquire_tray_lock`` nested
-inside the 840-line ``run_tray()``, so the flock is the only import-testable
-unit -- and it is load-bearing: it is the second line of defence against a
-duplicate tray when ``pgrep`` is unavailable (``tray_spawn`` runs the first).
+inside ``run_tray()``, so the flock is the only import-testable unit -- and it
+is load-bearing: it is the second line of defence against a duplicate tray
+when ``pgrep`` is unavailable (``tray_spawn`` runs the first).
 
-The submenu rules that regressed repeatedly under KDE/Plasma (#573 and its
-follow-ups) live in ``run_tray()`` closures, so they get source-shape guards
-in the established style of ``test_tray_sleep_listener.py`` -- CI has no
-display and no StatusNotifier host.
+The behavioural tests drive the real ``run_tray()`` closures against an
+offscreen QApplication. Launching from the tray must preflight pod readiness on
+a background worker without blocking the Qt event loop, deliver results through
+queued signal delivery on the GUI thread, and finish in-flight readiness before
+the final stop on Quit (#901).
 
-No PySide6 import here on purpose: Qt is lazy inside ``run_tray()``, and this
-file must keep running on a CLI-only install.
 """
 
 from __future__ import annotations
@@ -20,23 +19,22 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
 import pytest
 
-pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+pytest.importorskip("PySide6")
 
 from winpodx.desktop import tray
 from winpodx.desktop.tray_spawn import _install_in_progress as _read_install_marker
 
-TRAY_SRC = Path(tray.__file__)
-
-
-def _src() -> str:
-    return TRAY_SRC.read_text(encoding="utf-8")
+_REAL_THREAD = threading.Thread
 
 
 def _runtime_lock() -> Path:
@@ -117,41 +115,6 @@ def test_run_tray_returns_early_when_another_tray_owns_the_lock(
     assert "already running" in caplog.text
 
 
-# --- #573: Plasma DBusMenu submenu invariants --------------------------------
-
-
-def test_session_submenu_actions_are_parented() -> None:
-    # A parentless QAction is GC'd when the rebuild closure returns, leaving a
-    # submenu that DBusMenu exports with ZERO children -- it won't open.
-    src = _src()
-    assert 'QAction(tr("(no active sessions)"), sessions_menu)' in src
-    assert 'QAction(tr("Terminate: {name}").format(name=s.app_name), sessions_menu)' in src
-
-
-def test_device_submenu_actions_are_parented() -> None:
-    src = _src()
-    assert 'QAction(tr("(no USB devices detected)"), devices_menu)' in src
-    assert "QAction(host.label or dc.did, devices_menu)" in src
-
-
-def test_both_submenus_refresh_on_open() -> None:
-    src = _src()
-    assert "sessions_menu.aboutToShow.connect(_rebuild_sessions_menu)" in src
-    assert "devices_menu.aboutToShow.connect(_rebuild_devices_menu)" in src
-
-
-def test_timer_tick_rebuilds_both_submenus_and_cannot_raise() -> None:
-    # Plasma does not reliably deliver a *nested* submenu's aboutToShow, so the
-    # periodic tick is the fallback -- and an uncaught exception in a QTimer
-    # slot aborts app.exec(), taking the whole tray down.
-    src = _src()
-    loop = "for _rebuild in (_rebuild_apps_menu, _rebuild_sessions_menu, _rebuild_devices_menu):"
-    assert loop in src
-    tail = src[src.index(loop) :]
-    assert "try:" in tail[:200]
-    assert "except Exception" in tail[:400]
-
-
 # --- run_tray behavioural coverage -------------------------------------------
 
 
@@ -199,6 +162,12 @@ class _ImmediateThread:
     def start(self) -> None:
         self.target(*self.args, **self.kwargs)
 
+    def is_alive(self) -> bool:
+        return False
+
+    def join(self, timeout: float | None = None) -> None:
+        pass
+
 
 def _find_action(menu, text: str):
     for action in menu.actions():
@@ -240,9 +209,11 @@ def tray_runtime(monkeypatch: pytest.MonkeyPatch):
         assigned=[],
         start=MagicMock(return_value=SimpleNamespace(error="")),
         stop=MagicMock(return_value=SimpleNamespace(error="")),
+        ready=MagicMock(),
         launch=MagicMock(),
         kill=MagicMock(return_value=True),
         assign=MagicMock(),
+        notification_threads=[],
         unassign=MagicMock(),
         attach=MagicMock(),
         detach=MagicMock(),
@@ -287,6 +258,7 @@ def tray_runtime(monkeypatch: pytest.MonkeyPatch):
 
         def showMessage(self, title, message, icon, timeout=10000) -> None:
             self.messages.append((title, message, icon, timeout))
+            state.notification_threads.append(QtCore.QThread.currentThread())
 
     class FakeBus:
         def __init__(self) -> None:
@@ -302,6 +274,8 @@ def tray_runtime(monkeypatch: pytest.MonkeyPatch):
     bus = FakeBus()
     _FakeTimer.instances = []
     _ImmediateThread.instances = []
+    state.ready.return_value = cfg
+    state.real_timer = QtCore.QTimer
     monkeypatch.setattr(tray, "_acquire_tray_lock", lambda: True)
     monkeypatch.setattr(tray, "tr", lambda text: text)
     monkeypatch.setattr(QtCore, "QTimer", _FakeTimer)
@@ -310,6 +284,7 @@ def tray_runtime(monkeypatch: pytest.MonkeyPatch):
     # run_tray() builds QApplication(sys.argv) unconditionally; Qt permits one per
     # process, so any earlier GUI test in the same xdist worker makes it raise.
     qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    state.gui_thread = QtCore.QThread.currentThread()
     monkeypatch.setattr(QtWidgets, "QApplication", lambda *_a, **_k: qapp)
     monkeypatch.setattr("threading.Thread", _ImmediateThread)
     monkeypatch.setattr("winpodx.core.config.Config.load", lambda: cfg)
@@ -323,6 +298,7 @@ def tray_runtime(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("winpodx.core.process.list_active_sessions", lambda: state.sessions)
     monkeypatch.setattr("winpodx.core.process.kill_session", state.kill)
     monkeypatch.setattr("winpodx.core.rdp.launch_app", state.launch)
+    monkeypatch.setattr("winpodx.core.provisioner.ensure_ready", state.ready)
     monkeypatch.setattr(
         "winpodx.display.detector.display_info",
         lambda: {"session_type": "wayland", "desktop_environment": "KDE"},
@@ -359,7 +335,12 @@ def tray_runtime(monkeypatch: pytest.MonkeyPatch):
     yield state
     captured.hide()
     captured.setContextMenu(None)
+    state.menu.close()
+    state.menu.deleteLater()
+    captured._winpodx_sleep_listener.deleteLater()
+    captured.deleteLater()
     qapp.processEvents()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
 
 
 def test_run_tray_builds_status_apps_and_background_services(tray_runtime) -> None:
@@ -382,31 +363,6 @@ def test_pod_actions_call_start_stop_and_restart_with_loaded_config(tray_runtime
     assert tray_runtime.start.call_args_list == [call(tray_runtime.cfg), call(tray_runtime.cfg)]
     assert tray_runtime.stop.call_args_list == [call(tray_runtime.cfg), call(tray_runtime.cfg)]
     assert _find_action(tray_runtime.menu, "Pod: running (10.0.0.2)") is not None
-
-
-def test_app_desktop_and_double_click_launch_real_handlers(tray_runtime) -> None:
-    from PySide6.QtWidgets import QSystemTrayIcon
-
-    _find_action(tray_runtime.menu, "Microsoft Word").trigger()
-    _find_action(tray_runtime.menu, "Full Desktop").trigger()
-    tray_runtime.tray.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
-
-    assert tray_runtime.launch.call_args_list == [
-        call(
-            tray_runtime.cfg,
-            r"C:\Office\word.exe",
-            launch_uri=None,
-            wm_class_hint=None,
-            default_args=None,
-            app_icon=None,
-            rdp_overrides=None,
-        ),
-        call(tray_runtime.cfg),
-        call(tray_runtime.cfg),
-    ]
-    messages = [(title, message) for title, message, _icon, _timeout in tray_runtime.tray.messages]
-    assert ("WinPodX", "Launching Microsoft Word...") in messages
-    assert ("WinPodX", "Opening desktop...") in messages
 
 
 def test_sessions_submenu_rebuilds_and_kills_selected_session(tray_runtime) -> None:
@@ -723,43 +679,28 @@ def test_visibility_retry_reshows_icon_when_host_appears(tray_runtime) -> None:
     assert retry_timer.stopped
 
 
-def test_dashboard_launch_failure_shows_warning(
-    tray_runtime, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("entry", ["Microsoft Word", "Full Desktop", "double-click"])
+def test_rdp_failure_after_readiness_is_reported_without_escaping(
+    tray_runtime, entry: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    def fail_to_spawn(*_args, **_kwargs):
-        raise OSError("launcher unavailable")
-
-    monkeypatch.setattr("subprocess.Popen", fail_to_spawn)
-
-    _find_action(tray_runtime.menu, "Open Dashboard").trigger()
-
-    title, message, _icon, _timeout = tray_runtime.tray.messages[-1]
-    assert title == "WinPodX"
-    assert message == "Could not open dashboard: launcher unavailable"
-
-
-def test_app_and_desktop_launch_failures_show_critical_messages(tray_runtime) -> None:
-    tray_runtime.launch.side_effect = RuntimeError("RDP unavailable")
-
-    _find_action(tray_runtime.menu, "Microsoft Word").trigger()
-    _find_action(tray_runtime.menu, "Full Desktop").trigger()
-
-    messages = [(title, message) for title, message, _icon, _timeout in tray_runtime.tray.messages]
-    assert messages[-2:] == [
-        ("WinPodX Error", "RDP unavailable"),
-        ("WinPodX Error", "RDP unavailable"),
-    ]
-
-
-def test_double_click_launch_failure_is_reported_without_escaping(tray_runtime) -> None:
     from PySide6.QtWidgets import QSystemTrayIcon
 
+    # The fixture worker runs inline, so an uncaught failure would escape
+    # through the Qt slot and abort the tray event loop.
     tray_runtime.launch.side_effect = RuntimeError("guest offline")
 
-    tray_runtime.tray.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
+    with caplog.at_level(logging.WARNING, logger=tray.__name__):
+        if entry == "double-click":
+            tray_runtime.tray.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
+        else:
+            _find_action(tray_runtime.menu, entry).trigger()
 
-    title, message, _icon, _timeout = tray_runtime.tray.messages[-1]
-    assert (title, message) == ("WinPodX Error", "guest offline")
+    assert tray_runtime.ready.call_count == 1
+    assert tray_runtime.launch.call_count == 1
+    _title, message, icon, _timeout = tray_runtime.tray.messages[-1]
+    assert icon == QSystemTrayIcon.MessageIcon.Critical
+    assert "guest offline" in message
+    assert "guest offline" in caplog.text
 
 
 def test_recovery_worker_exception_requests_manual_restart(
@@ -807,9 +748,11 @@ def test_quit_confirmed_stops_services_and_application(
 ) -> None:
     from PySide6.QtWidgets import QMessageBox
 
-    quit_app = MagicMock()
-    stop_listener = MagicMock()
-    run = MagicMock()
+    order: list[str] = []
+    quit_app = MagicMock(side_effect=lambda: order.append("quit"))
+    stop_listener = MagicMock(side_effect=lambda: order.append("listener"))
+    pkill = MagicMock(side_effect=lambda *_args, **_kwargs: order.append("pkill"))
+    tray_runtime.stop.side_effect = lambda _cfg: order.append("pod")
     monkeypatch.setattr(tray_runtime.app, "quit", quit_app)
     monkeypatch.setattr(
         QMessageBox,
@@ -817,11 +760,250 @@ def test_quit_confirmed_stops_services_and_application(
         lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
     )
     monkeypatch.setattr("winpodx.reverse_open.lifecycle.stop_listener", stop_listener)
-    monkeypatch.setattr("subprocess.run", run)
+    monkeypatch.setattr("subprocess.run", pkill)
 
     _find_action(tray_runtime.menu, "Quit WinPodX").trigger()
 
+    # #691: the listener is stopped deliberately and before the collateral pkill.
+    assert order == ["pod", "listener", "pkill", "quit"]
     assert tray_runtime.stop.call_args_list == [call(tray_runtime.cfg)]
-    assert stop_listener.call_count == 1
-    assert run.call_args.args[0] == ["pkill", "-f", r"python.*winpodx.*gui"]
-    assert quit_app.call_count == 1
+    assert pkill.call_args.args[0] == ["pkill", "-f", r"python.*winpodx.*gui"]
+    assert not tray_runtime.menu.isEnabled()
+
+
+# --- #901: readiness preflight, GUI-thread results, ordered shutdown ---------
+
+
+def _use_real_threads(monkeypatch: pytest.MonkeyPatch) -> list[threading.Thread]:
+    """Undo the fixture's inline worker so tray work really runs off the GUI thread."""
+    threads: list[threading.Thread] = []
+
+    def create(*args, **kwargs):
+        thread = _REAL_THREAD(*args, **kwargs)
+        threads.append(thread)
+        return thread
+
+    monkeypatch.setattr(threading, "Thread", create)
+    return threads
+
+
+def _drop_threads(threads: list[threading.Thread]) -> None:
+    for thread in threads:
+        thread.join(10)
+
+
+def _wait_until(app, predicate: Callable[[], bool], timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.001)
+    assert predicate(), "timed out waiting for the tray to settle"
+
+
+def _trigger_entry(tray_runtime: SimpleNamespace, entry: str) -> None:
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    if entry == "double-click":
+        tray_runtime.tray.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
+    else:
+        _find_action(tray_runtime.menu, entry).trigger()
+
+
+@pytest.mark.parametrize("entry", ["Microsoft Word", "Full Desktop", "double-click"])
+def test_launch_preflights_readiness_before_opening_rdp(
+    tray_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+    entry: str,
+) -> None:
+    from winpodx.core.pod import PodState
+
+    entered = threading.Event()
+    release = threading.Event()
+    launched_states: list[PodState] = []
+    threads = _use_real_threads(monkeypatch)
+
+    def ready(cfg):
+        entered.set()
+        release.wait(10)
+        tray_runtime.pod_state = PodState.RUNNING
+        return tray_runtime.cfg
+
+    def open_session(_cfg, *_args, **_kwargs):
+        launched_states.append(tray_runtime.pod_state)
+
+    tray_runtime.ready.side_effect = ready
+    tray_runtime.launch.side_effect = open_session
+    try:
+        _trigger_entry(tray_runtime, entry)
+        assert entered.wait(10)
+
+        # A blocked preflight must not stall the Qt event loop.
+        heartbeat: list[bool] = []
+        tray_runtime.real_timer.singleShot(0, lambda: heartbeat.append(True))
+        _wait_until(tray_runtime.app, lambda: bool(heartbeat))
+
+        assert tray_runtime.launch.call_count == 0
+        assert tray_runtime.ready.call_count == 1
+        release.set()
+        _wait_until(tray_runtime.app, lambda: bool(launched_states))
+        _wait_until(tray_runtime.app, lambda: bool(tray_runtime.tray.messages))
+
+        assert launched_states == [PodState.RUNNING]
+        assert tray_runtime.tray.messages
+        assert all(
+            thread is tray_runtime.gui_thread for thread in tray_runtime.notification_threads
+        )
+    finally:
+        release.set()
+        _drop_threads(threads)
+        tray_runtime.app.processEvents()
+
+
+def test_readiness_failure_prevents_rdp_and_is_reported_on_the_gui_thread(
+    tray_runtime, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    from winpodx.core.provisioner import ProvisionError
+
+    threads = _use_real_threads(monkeypatch)
+
+    def fail(_cfg):
+        raise ProvisionError("guest readiness unavailable")
+
+    tray_runtime.ready.side_effect = fail
+    try:
+        with caplog.at_level(logging.WARNING, logger=tray.__name__):
+            _trigger_entry(tray_runtime, "Full Desktop")
+            _wait_until(tray_runtime.app, lambda: bool(tray_runtime.tray.messages))
+
+        tray_runtime.launch.assert_not_called()
+        _title, message, icon, _timeout = tray_runtime.tray.messages[-1]
+        assert icon == QSystemTrayIcon.MessageIcon.Critical
+        assert "guest readiness unavailable" in message
+        assert "guest readiness unavailable" in caplog.text
+        assert len(tray_runtime.notification_threads) == 1
+        assert tray_runtime.notification_threads[0] is tray_runtime.gui_thread
+    finally:
+        _drop_threads(threads)
+        tray_runtime.app.processEvents()
+
+
+def test_tray_launches_serialize_readiness_and_rdp(
+    tray_runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from winpodx.core.pod import PodState
+
+    state_lock = threading.Lock()
+    second_entered = threading.Event()
+    order: list[str] = []
+    ready_calls = 0
+    launches = 0
+    inflight = 0
+    peak_inflight = 0
+    threads = _use_real_threads(monkeypatch)
+
+    def ready(_cfg):
+        nonlocal ready_calls, inflight, peak_inflight
+        with state_lock:
+            call = ready_calls
+            ready_calls += 1
+            inflight += 1
+            peak_inflight = max(peak_inflight, inflight)
+            if call:
+                second_entered.set()
+        try:
+            if call == 0:
+                # Serialized launches keep the second worker blocked on the
+                # launch lock, so this times out. A racing preflight would
+                # enter here at the same time and set the event immediately.
+                second_entered.wait(0.5)
+            order.append(f"readiness-{call}")
+            tray_runtime.pod_state = PodState.RUNNING
+            return tray_runtime.cfg
+        finally:
+            with state_lock:
+                inflight -= 1
+
+    def open_session(_cfg, *_args, **_kwargs):
+        nonlocal launches, inflight, peak_inflight
+        with state_lock:
+            inflight += 1
+            peak_inflight = max(peak_inflight, inflight)
+        order.append("rdp")
+        launches += 1
+        with state_lock:
+            inflight -= 1
+
+    tray_runtime.ready.side_effect = ready
+    tray_runtime.launch.side_effect = open_session
+    try:
+        _trigger_entry(tray_runtime, "Microsoft Word")
+        _trigger_entry(tray_runtime, "Full Desktop")
+        _wait_until(tray_runtime.app, lambda: launches == 2)
+
+        assert peak_inflight == 1
+        assert order == ["readiness-0", "rdp", "readiness-1", "rdp"]
+    finally:
+        _drop_threads(threads)
+        tray_runtime.app.processEvents()
+
+
+def test_quit_waits_for_in_flight_readiness_before_final_stop(
+    tray_runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    order: list[str] = []
+    threads = _use_real_threads(monkeypatch)
+
+    def ready(_cfg):
+        entered.set()
+        release.wait(10)
+        order.append("readiness")
+        return tray_runtime.cfg
+
+    def quit_app() -> None:
+        order.append("quit")
+        finished.set()
+
+    tray_runtime.ready.side_effect = ready
+    tray_runtime.stop.side_effect = lambda _cfg: order.append("pod-stop")
+    monkeypatch.setattr(tray_runtime.app, "quit", quit_app)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        "winpodx.reverse_open.lifecycle.stop_listener",
+        lambda: order.append("listener-stop"),
+    )
+    monkeypatch.setattr("subprocess.run", lambda *_args, **_kwargs: order.append("pkill"))
+    try:
+        _trigger_entry(tray_runtime, "Full Desktop")
+        assert entered.wait(10)
+        _find_action(tray_runtime.menu, "Quit WinPodX").trigger()
+        assert not tray_runtime.menu.isEnabled()
+
+        # Quit must keep the GUI alive and refuse new launches while it waits.
+        _trigger_entry(tray_runtime, "double-click")
+        heartbeat: list[bool] = []
+        tray_runtime.real_timer.singleShot(0, lambda: heartbeat.append(True))
+        _wait_until(tray_runtime.app, lambda: bool(heartbeat))
+        assert order == []
+
+        release.set()
+        _wait_until(tray_runtime.app, finished.is_set)
+
+        # The final stop happened after readiness, and its result never launched.
+        assert order == ["readiness", "pod-stop", "listener-stop", "pkill", "quit"]
+        tray_runtime.launch.assert_not_called()
+        assert tray_runtime.ready.call_count == 1
+    finally:
+        release.set()
+        _drop_threads(threads)
+        tray_runtime.app.processEvents()

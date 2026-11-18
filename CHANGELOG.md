@@ -18,6 +18,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - GNOME reverse-open of guest-local files now answers the GVfs Domain prompt before the password (#896, #898). Thanks @DBVamsi.
 - Skip the optional USB bus mount with a warning when `/dev/bus/usb` is unavailable, allowing Windows VM setup to continue when its other prerequisites are met. Keep the `usb_live` default and PCI passthrough behavior, and avoid disabling SELinux confinement for a bus that is not mounted (#907). Reported by @kernalix7.
 - Reuse a configured Wayland user's local `DISPLAY` / `XAUTHORITY` in xfreerdp RemoteApp launches and window helpers without modifying global environment variables or generated launchers. Explicit settings take precedence; Windows VM setup and agent-only CLI remain independent of X11 (#911). Thanks @kernalix7.
+- Tray app entries, **Full Desktop**, and double-clicking the tray icon now run the same readiness preflight as CLI app launches before opening RDP, with failures recorded in the log and reported by notification instead of blocking silently. The tray stays responsive while readiness runs, and Quit waits for in-flight readiness before the final pod stop so a pending launch cannot restart the pod afterwards (#901). Thanks @danielabelski.
 
 ## [0.12.1] - 2026-10-12
 

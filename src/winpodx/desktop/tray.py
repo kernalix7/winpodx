@@ -192,7 +192,7 @@ def run_tray() -> None:
         return
 
     try:
-        from PySide6.QtCore import QTimer
+        from PySide6.QtCore import QObject, QTimer, Signal, Slot
         from PySide6.QtGui import QAction
         from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
     except ImportError:
@@ -201,10 +201,13 @@ def run_tray() -> None:
         print(pyside6_install_hint())
         sys.exit(1)
 
+    import threading
+
     from winpodx.core import devices as D
     from winpodx.core.config import Config
     from winpodx.core.pod import PodState, pod_status, start_pod, stop_pod
     from winpodx.core.process import list_active_sessions
+    from winpodx.core.provisioner import ensure_ready
     from winpodx.core.rdp import launch_app
     from winpodx.display.detector import display_info
 
@@ -234,6 +237,34 @@ def run_tray() -> None:
     tray.setToolTip(tr("WinPodX - Windows App Integration"))
 
     menu = QMenu()
+
+    # Quit coordination. ``closing`` is set once the user confirms Quit: it
+    # stops new work from being queued, aborts launches that are still in
+    # readiness, and suppresses notifications from landing in a dying tray.
+    # Every finite background task is tracked so the shutdown path can join
+    # them before the final pod stop -- otherwise a launch that is mid-way
+    # through ensure_ready() could start (or restart) the pod *after* Quit
+    # already stopped it, leaving a container running with no tray and no UI.
+    closing = threading.Event()
+    idle_stop = threading.Event()
+    launch_lock = threading.Lock()
+    workers_lock = threading.RLock()
+    worker_threads: list[threading.Thread] = []
+
+    def _start_worker(target: Callable[[], None], name: str = "winpodx-tray-worker") -> None:
+        # Registration and start() happen under the lock so the shutdown
+        # thread can never observe a registered-but-not-yet-started thread
+        # (join() on that raises RuntimeError) and never misses one that
+        # raced past the ``closing`` check. The lock is reentrant because a
+        # slot delivered synchronously on this thread can start another
+        # worker while the lock is already held.
+        with workers_lock:
+            if closing.is_set():
+                return
+            worker_threads[:] = [worker for worker in worker_threads if worker.is_alive()]
+            worker = threading.Thread(target=target, name=name, daemon=True)
+            worker_threads.append(worker)
+            worker.start()
 
     dashboard_action = QAction(tr("Open Dashboard"), menu)
     menu.addAction(dashboard_action)
@@ -301,8 +332,6 @@ def run_tray() -> None:
         Re-entry is guarded via ``state_cache['recovery_inflight']`` so
         a flapping pod doesn't pile up overlapping recovery threads.
         """
-        import threading
-
         from winpodx.core.pod.recovery import RecoveryAction, try_recover_rdp
         from winpodx.desktop.notify import (
             notify_pod_needs_manual_restart,
@@ -342,9 +371,11 @@ def run_tray() -> None:
             finally:
                 state_cache["recovery_inflight"] = False
 
-        threading.Thread(target=worker, name="winpodx-pod-recovery", daemon=True).start()
+        _start_worker(worker, "winpodx-pod-recovery")
 
     def refresh_status() -> None:
+        if closing.is_set():
+            return
         cfg = Config.load()
         try:
             s = pod_status(cfg)
@@ -430,46 +461,75 @@ def run_tray() -> None:
         except Exception as e:  # noqa: BLE001 -- never crash the tray event loop
             log.debug("tray re-assert failed: %s", e)
 
-    def _run_in_thread(fn, success_msg: str, error_msg: str) -> None:
-        """Run a pod operation in a background thread to avoid blocking UI."""
-        import threading
+    class _TraySignals(QObject):
+        """GUI-thread receiver for results produced by tray worker threads.
+
+        Widgets may only be touched from the thread that owns them, and
+        ``QTimer.singleShot`` created inside a worker is not a reliable hop
+        back to the GUI thread. Signals emitted on a QObject whose affinity is
+        the GUI thread are delivered through a queued connection, so these
+        slots run inside ``app.exec()`` on the main thread.
+        """
+
+        message = Signal(str, str, bool)
+        refresh = Signal()
+        quit_requested = Signal()
+
+        @Slot(str, str, bool)
+        def show_message(self, title: str, detail: str, failed: bool) -> None:
+            if closing.is_set():
+                return
+            icon = (
+                QSystemTrayIcon.MessageIcon.Critical
+                if failed
+                else QSystemTrayIcon.MessageIcon.Information
+            )
+            tray.showMessage(title, detail, icon)
+
+        @Slot()
+        def refresh_status(self) -> None:
+            refresh_status()
+
+        @Slot()
+        def quit_app(self) -> None:
+            app.quit()
+
+    # Parented to the tray icon so the receiver cannot be garbage-collected
+    # while app.exec() is running (the #573 lesson), which would silently drop
+    # the queued deliveries.
+    worker_signals = _TraySignals(tray)
+    worker_signals.message.connect(worker_signals.show_message)
+    worker_signals.refresh.connect(worker_signals.refresh_status)
+    worker_signals.quit_requested.connect(worker_signals.quit_app)
+
+    def _run_in_thread(fn: Callable[[], object], success_msg: str, error_msg: str) -> None:
+        """Run a pod operation off the GUI thread and report the outcome."""
 
         def wrapper() -> None:
             try:
                 result = fn()
-                if hasattr(result, "error") and result.error:
-                    QTimer.singleShot(
-                        0,
-                        lambda: tray.showMessage(
-                            "WinPodX",
-                            tr("{msg}: {detail}").format(msg=error_msg, detail=result.error),
-                            QSystemTrayIcon.MessageIcon.Critical,
-                        ),
+                detail = getattr(result, "error", "")
+                if detail:
+                    # Durable trace: the toast is transient and Quit removes
+                    # it, so the failure must also reach winpodx.log (#901).
+                    log.warning("tray background operation failed: %s", detail)
+                    worker_signals.message.emit(
+                        "WinPodX",
+                        tr("{msg}: {detail}").format(msg=error_msg, detail=detail),
+                        True,
                     )
                 else:
-                    QTimer.singleShot(
-                        0,
-                        lambda: tray.showMessage(
-                            "WinPodX",
-                            success_msg,
-                            QSystemTrayIcon.MessageIcon.Information,
-                        ),
-                    )
-            except Exception:
-                import traceback
-
-                err_detail = traceback.format_exc().splitlines()[-1]
-                QTimer.singleShot(
-                    0,
-                    lambda msg=err_detail: tray.showMessage(
-                        "WinPodX",
-                        tr("{msg}: {detail}").format(msg=error_msg, detail=msg),
-                        QSystemTrayIcon.MessageIcon.Critical,
-                    ),
+                    worker_signals.message.emit("WinPodX", success_msg, False)
+            except Exception as e:  # noqa: BLE001 -- never escape a tray worker
+                log.warning("tray background operation failed: %s", e)
+                worker_signals.message.emit(
+                    "WinPodX Error",
+                    tr("{msg}: {detail}").format(msg=error_msg, detail=e),
+                    True,
                 )
-            QTimer.singleShot(0, refresh_status)
+            worker_signals.refresh.emit()
 
-        threading.Thread(target=wrapper, daemon=True).start()
+        _start_worker(wrapper, "winpodx-tray-op")
 
     def on_start() -> None:
         cfg = Config.load()
@@ -500,38 +560,43 @@ def run_tray() -> None:
 
     apps_menu = QMenu(tr("Launch App"))
 
-    def make_launcher(app_info: AppInfo) -> Callable[[], None]:
-        def launcher() -> None:
-            cfg = Config.load()
-            try:
-                launch_app(
-                    cfg,
-                    app_info.executable,
-                    **_tray_launch_kwargs(app_info),
-                )
-                tray.showMessage(
-                    "WinPodX",
-                    tr("Launching {name}...").format(name=app_info.full_name),
-                    QSystemTrayIcon.MessageIcon.Information,
-                )
-            except RuntimeError as e:
-                tray.showMessage(
-                    "WinPodX Error",
-                    str(e),
-                    QSystemTrayIcon.MessageIcon.Critical,
-                )
-            QTimer.singleShot(2000, refresh_status)
+    def _launch_from_tray(app_info: AppInfo | None = None) -> None:
+        """Launch through the readiness preflight, off the GUI thread (#901).
 
-        return launcher
+        Matches `winpodx app run`: start/wait for the pod, repair RDP, then
+        hand the *returned* config to ``launch_app``. Per-app overrides are
+        forwarded unchanged.
+        """
+
+        def launch() -> None:
+            # Readiness rotates the guest password and may start the pod, so
+            # overlapping tray clicks must not interleave.
+            with launch_lock:
+                if closing.is_set():
+                    return
+                cfg = ensure_ready(Config.load())
+                # Readiness can take minutes. If Quit was confirmed while it
+                # ran, the shutdown path is about to stop the pod again --
+                # spawning FreeRDP now would either fail against the stopping
+                # pod or hand the user a window that dies on quit.
+                if closing.is_set():
+                    return
+                if app_info is None:
+                    launch_app(cfg)
+                else:
+                    launch_app(cfg, app_info.executable, **_tray_launch_kwargs(app_info))
+
+        if app_info is None:
+            success_msg = tr("Opening desktop...")
+        else:
+            success_msg = tr("Launching {name}...").format(name=app_info.full_name)
+        _run_in_thread(launch, success_msg, tr("Launch failed"))
+
+    def make_launcher(app_info: AppInfo) -> Callable[[], None]:
+        return lambda: _launch_from_tray(app_info)
 
     def on_desktop() -> None:
-        try:
-            launch_app(Config.load())
-            tray.showMessage(
-                "WinPodX", tr("Opening desktop..."), QSystemTrayIcon.MessageIcon.Information
-            )
-        except RuntimeError as e:
-            tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
+        _launch_from_tray()
 
     def _rebuild_apps_menu() -> None:
         _refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop)
@@ -743,36 +808,27 @@ def run_tray() -> None:
 
     quit_action = QAction(tr("Quit WinPodX"), menu)
 
-    def _confirmed_quit() -> None:
-        """Tear down GUI + pod before closing the tray.
+    def _finish_quit() -> None:
+        """Tear down GUI + pod after every pending readiness task has settled.
 
-        User asked the tray Quit to be a real exit -- stop the Windows
-        pod, close any dashboard window the user may have open, then
-        exit the tray itself. A QMessageBox confirms first so a stray
-        click doesn't cycle the pod (~30s recreate cost + RDP session
-        loss).
+        Runs on its own thread: a launch that is inside ``ensure_ready()`` can
+        be waiting on a pod start or password rotation for minutes, and the
+        tray must stay responsive while it drains (the menu is disabled
+        instead of freezing the icon). Joining first is what makes the final
+        stop final -- ``ensure_ready()`` starts the pod, so stopping before it
+        returns would let readiness recreate the container after Quit (#901).
         """
-        from PySide6.QtWidgets import QMessageBox
-
-        reply = QMessageBox.question(
-            None,
-            "WinPodX",
-            tr(
-                "Quit WinPodX completely?\n\nThis stops the Windows container "
-                "and closes any open dashboard window."
-            ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
+        with workers_lock:
+            pending = list(worker_threads)
+        if pending:
+            log.info("tray quit: waiting for %d background task(s) to settle", len(pending))
+        for worker in pending:
+            worker.join()
 
         # 1. Stop the Windows pod (best-effort -- a running session
         #    survives a tray-quit only if the user explicitly chose to,
-        #    which is what the confirmation above is for).
+        #    which is what the confirmation is for).
         try:
-            from winpodx.core.pod import stop_pod
-
             stop_pod(Config.load())
         except Exception as e:  # noqa: BLE001
             log.debug("stop_pod during tray-quit failed: %s", e)
@@ -811,11 +867,47 @@ def run_tray() -> None:
                 timeout=5,
                 check=False,
             )
-        except (FileNotFoundError, _sp.TimeoutExpired):
+        except (OSError, _sp.TimeoutExpired):
             pass
 
-        # 4. Quit the tray itself.
-        app.quit()
+        # 4. Quit the tray itself -- marshalled onto the GUI thread, since
+        #    QApplication.quit() must not be called from this worker.
+        worker_signals.quit_requested.emit()
+
+    def _confirmed_quit() -> None:
+        """Ask, then hand the teardown to ``_finish_quit``.
+
+        User asked the tray Quit to be a real exit -- stop the Windows
+        pod, close any dashboard window the user may have open, then
+        exit the tray itself. A QMessageBox confirms first so a stray
+        click doesn't cycle the pod (~30s recreate cost + RDP session
+        loss).
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        if closing.is_set():
+            return
+        reply = QMessageBox.question(
+            None,
+            "WinPodX",
+            tr(
+                "Quit WinPodX completely?\n\nThis stops the Windows container "
+                "and closes any open dashboard window."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # From here on the tray is one-way: no new background work, no late
+        # notifications, no restarts from a readiness that is still running.
+        closing.set()
+        idle_stop.set()
+        timer.stop()
+        tray_retry_timer.stop()
+        menu.setEnabled(False)
+        threading.Thread(target=_finish_quit, name="winpodx-tray-shutdown", daemon=False).start()
 
     quit_action.triggered.connect(_confirmed_quit)
     menu.addAction(quit_action)
@@ -892,9 +984,7 @@ def run_tray() -> None:
         except Exception as e:  # noqa: BLE001 -- never crash the tray
             log.warning("auto-start failed: %s", e)
 
-    import threading
-
-    threading.Thread(target=_autostart_pod, daemon=True).start()
+    _start_worker(_autostart_pod, "winpodx-pod-autostart")
 
     # systemd-logind PrepareForSleep listener (issue #TBD). On host
     # resume the QEMU guest sees a wall-clock jump and its RDP TCP
@@ -913,7 +1003,7 @@ def run_tray() -> None:
         QTimer.singleShot(5000, refresh_status)
 
     try:
-        from PySide6.QtCore import SLOT, QObject, Slot
+        from PySide6.QtCore import SLOT
         from PySide6.QtDBus import QDBusConnection
 
         # PySide6's QDBusConnection.connect has NO overload taking a bare
@@ -963,9 +1053,6 @@ def run_tray() -> None:
             e,
         )
 
-    import threading
-
-    idle_stop = threading.Event()
     cfg = Config.load()
 
     # Reverse-open listener self-heal at tray startup (#691). The listener was
@@ -982,7 +1069,7 @@ def run_tray() -> None:
         except Exception as e:  # noqa: BLE001 -- never block/crash tray startup
             log.debug("reverse-open listener ensure at tray start failed: %s", e)
 
-    threading.Thread(target=_ensure_reverse_open_listener, daemon=True).start()
+    _start_worker(_ensure_reverse_open_listener, "winpodx-reverse-open-ensure")
 
     if cfg.pod.idle_timeout > 0:
         from winpodx.core.daemon import run_idle_monitor
@@ -1016,15 +1103,14 @@ def run_tray() -> None:
     ).start()
 
     def on_tray_activate(reason: int) -> None:
-        # Qt slot: any uncaught exception here aborts the event loop and kills
-        # the tray, so catch broadly (not just RuntimeError).
+        # Same path as the menu entry: readiness runs off the GUI thread and
+        # every failure is logged + toasted by _run_in_thread. Nothing may
+        # raise out of this slot, or the tray event loop would abort.
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            try:
-                launch_app(Config.load())
-            except Exception as e:  # noqa: BLE001 -- never crash the tray
-                tray.showMessage("WinPodX Error", str(e), QSystemTrayIcon.MessageIcon.Critical)
+            on_desktop()
 
     tray.activated.connect(on_tray_activate)
 
+    app.aboutToQuit.connect(closing.set)
     app.aboutToQuit.connect(idle_stop.set)
     sys.exit(app.exec())
