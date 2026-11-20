@@ -1106,5 +1106,6 @@
   "X11 display recovered from the Wayland session for RemoteApp (not verified here).": "RemoteApp 실행에 필요한 X11 디스플레이를 Wayland 세션에서 복구했습니다(여기서는 검증되지 않았습니다).",
   "configured (not verified — run `winpodx doctor`)": "구성됨(검증되지 않음 — `winpodx doctor`를 실행하세요)",
   "missing — VM setup can continue; RemoteApp needs X11/XWayland": "없음 — VM 설치는 계속할 수 있으며 RemoteApp에는 X11/XWayland가 필요합니다",
-  "  · X11 display: {status}": "  · X11 디스플레이: {status}"
+  "  · X11 display: {status}": "  · X11 디스플레이: {status}",
+  "The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.": "데스크톱 세션이 이미 실행 중이지만 해당 창을 활성화하지 못했습니다. 기존 FreeRDP 창으로 전환하세요."
 }

@@ -1249,5 +1249,6 @@
   "Leave blank to use the default storage directory.": "留空则使用默认存储目录。",
   "Local Windows ISO": "本地 Windows ISO",
   "Replacement ISO selection is unavailable on reinstall.": "重新安装时不能选择替换 ISO。",
-  "Leave blank to download Windows.": "留空则下载 Windows。"
+  "Leave blank to download Windows.": "留空则下载 Windows。",
+  "The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.": "桌面会话已在运行，但无法激活其窗口。请切换到现有的 FreeRDP 窗口。"
 }

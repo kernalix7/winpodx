@@ -1044,5 +1044,6 @@
   "Leave blank to use the default storage directory.": "空欄のままにすると既定のストレージディレクトリを使います。",
   "Local Windows ISO": "ローカル Windows ISO",
   "Replacement ISO selection is unavailable on reinstall.": "再インストール時は代替 ISO を選択できません。",
-  "Leave blank to download Windows.": "空欄のままにすると Windows をダウンロードします。"
+  "Leave blank to download Windows.": "空欄のままにすると Windows をダウンロードします。",
+  "The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.": "デスクトップセッションは既に実行中ですが、そのウィンドウをアクティブにできませんでした。既存の FreeRDP ウィンドウに切り替えてください。"
 }
