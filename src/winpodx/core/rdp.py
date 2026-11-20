@@ -1116,6 +1116,98 @@ def _find_existing_session(app_name: str) -> RDPSession | None:
     return RDPSession(app_name=app_name)
 
 
+def _focus_existing_desktop(session: RDPSession) -> bool:
+    """Request activation of a tracked desktop's PID-owned X11/XWayland window."""
+    from winpodx.core.process import is_freerdp_pid
+
+    try:
+        pid = int(session.pid_file.read_text().strip())
+        if pid <= 0 or not is_freerdp_pid(pid):
+            return False
+        env = resolve_x11_environment().env
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    if not env.get("DISPLAY"):
+        return False
+
+    wmctrl = shutil.which("wmctrl")
+    if wmctrl:
+        try:
+            windows = subprocess.run(
+                [wmctrl, "-lp"], capture_output=True, text=True, timeout=3, check=False, env=env
+            )
+            if windows.returncode == 0:
+                for line in windows.stdout.splitlines():
+                    fields = line.split(None, 3)
+                    if (
+                        len(fields) >= 3
+                        and fields[2] == str(pid)
+                        and re.fullmatch(r"0x[0-9a-fA-F]+", fields[0])
+                        and int(fields[0], 16) > 0
+                    ):
+                        activated = subprocess.run(
+                            [wmctrl, "-i", "-a", fields[0]],
+                            capture_output=True,
+                            text=True,
+                            timeout=3,
+                            check=False,
+                            env=env,
+                        )
+                        if activated.returncode == 0:
+                            return True
+                        break
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    xdotool = shutil.which("xdotool")
+    if xdotool:
+        try:
+            windows = subprocess.run(
+                [xdotool, "search", "--onlyvisible", "--pid", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+                env=env,
+            )
+            if windows.returncode == 0:
+                for window in windows.stdout.splitlines():
+                    if re.fullmatch(r"[0-9]+", window) and int(window) > 0:
+                        return (
+                            subprocess.run(
+                                [xdotool, "windowactivate", window],
+                                capture_output=True,
+                                text=True,
+                                timeout=3,
+                                check=False,
+                                env=env,
+                            ).returncode
+                            == 0
+                        )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return False
+
+
+def _reuse_existing_session(session: RDPSession) -> RDPSession:
+    if session.app_name == "desktop":
+        if _focus_existing_desktop(session):
+            log.info("Requested activation of the existing RDP desktop window")
+        else:
+            from winpodx.desktop.notify import send_notification
+
+            message = tr(
+                "The desktop session is already running, but its window could not be activated. "
+                "Switch to the existing FreeRDP window."
+            )
+            log.warning("%s", message)
+            try:
+                send_notification("WinPodX", message)
+            except (OSError, subprocess.SubprocessError):
+                log.debug("Could not deliver the existing-desktop notification", exc_info=True)
+    return session
+
+
 def _reaper_thread(session: RDPSession) -> None:
     """Wait for process exit and clean up the PID file."""
     proc = session.process
@@ -1244,7 +1336,7 @@ def _spawn_detached(
         os.close(lock_raw)
         existing = _find_existing_session(session.app_name)
         if existing is not None:
-            return existing
+            return _reuse_existing_session(existing)
         raise RuntimeError(f"Could not acquire lock for {session.app_name}")
 
     # stderr=PIPE would SIGPIPE-kill the detached client once the CLI parent
@@ -1711,7 +1803,7 @@ def launch_app(
     existing = _find_existing_session(app_name)
     if existing is not None:
         if not (file_path and app_executable):
-            return existing
+            return _reuse_existing_session(existing)
         # #675/#680: "Open with <app>" while the app is already running. We do
         # NOT try to deliver the file into the live session anymore. The guest
         # runs multi-session RDP (fSingleSessionPerUser=0), so a transient

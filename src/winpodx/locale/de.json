@@ -1044,5 +1044,6 @@
   "Leave blank to use the default storage directory.": "Leer lassen, um das Standard-Speicherverzeichnis zu verwenden.",
   "Local Windows ISO": "Lokale Windows-ISO",
   "Replacement ISO selection is unavailable on reinstall.": "Beim Neuinstallieren kann keine Ersatz-ISO gewählt werden.",
-  "Leave blank to download Windows.": "Leer lassen, um Windows herunterzuladen."
+  "Leave blank to download Windows.": "Leer lassen, um Windows herunterzuladen.",
+  "The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.": "Die Desktop-Sitzung läuft bereits, aber ihr Fenster konnte nicht aktiviert werden. Wechseln Sie zum vorhandenen FreeRDP-Fenster."
 }

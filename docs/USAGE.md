@@ -14,6 +14,12 @@ winpodx app run desktop           # Full Windows desktop
 
 Or just click an app icon in your application menu — WinPodX registers every discovered Windows app as a `.desktop` entry the first time the pod boots.
 
+### Reopening the full desktop
+
+Reopening **Full Desktop** from the CLI, tray, or GUI reuses the tracked FreeRDP client. WinPodX invokes optional `wmctrl` or `xdotool` to request activation of that client's PID-owned X11/XWayland window, not another window with a similar title or class. These tools are not installed automatically and are not required to launch the desktop.
+
+If the tools cannot request activation, WinPodX logs a warning and displays *The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.* The running session stays tracked and no duplicate client is started. A compositor, especially on Wayland, may also ignore an otherwise successful activation request; switch to the existing window manually in that case.
+
 ## CLI reference
 
 ```bash

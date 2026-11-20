@@ -1044,5 +1044,6 @@
   "Leave blank to use the default storage directory.": "Lascia vuoto per usare la directory di archiviazione predefinita.",
   "Local Windows ISO": "ISO Windows locale",
   "Replacement ISO selection is unavailable on reinstall.": "La selezione di un'ISO sostitutiva non è disponibile durante la reinstallazione.",
-  "Leave blank to download Windows.": "Lascia vuoto per scaricare Windows."
+  "Leave blank to download Windows.": "Lascia vuoto per scaricare Windows.",
+  "The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.": "La sessione desktop è già in esecuzione, ma non è stato possibile attivarne la finestra. Passa alla finestra FreeRDP esistente."
 }
