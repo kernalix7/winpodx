@@ -290,6 +290,7 @@ class TestRotatePasswordAtomicity:
                 "winpodx.core.rotation._verify_windows_password",
                 return_value=True,
             ),
+            patch("winpodx.core.rotation._sync_windows_autologon", return_value=False),
         ):
             from winpodx.core.pod import PodState, PodStatus
 

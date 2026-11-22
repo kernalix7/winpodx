@@ -253,11 +253,14 @@ def test_marker_kept_when_rotation_partially_applied(_rotate_cfg, monkeypatch):
         lambda cfg: PodStatus(state=PodState.RUNNING),
     )
 
-    # First exec (apply new pw) succeeds; rollback exec (set old pw back) fails.
+    from winpodx.core.transport.base import ExecResult
+
+    # Change, verify, and autologon sync succeed; the rollback is rejected.
     transport = MagicMock()
     transport.exec.side_effect = [
         _ok_result(),
-        _ok_result(),
+        ExecResult(rc=0, stdout="password accepted\n", stderr=""),
+        ExecResult(rc=0, stdout="WINPODX_AUTOLOGON_STATUS=10\n", stderr=""),
         _fail_result(rc=1, stderr="rollback failed"),
     ]
     monkeypatch.setattr("winpodx.core.transport.dispatch", MagicMock(return_value=transport))

@@ -36,16 +36,19 @@ time out at 45s. See ``docs/TRANSPORT_ABC.md`` for the full rationale.
 
 from __future__ import annotations
 
+import base64
+import copy
 import logging
 import os
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
 from winpodx.core.compose import generate_compose, generate_compose_to, generate_password
 from winpodx.core.config import Config
 from winpodx.core.pod import PodState, pod_status
-from winpodx.utils.paths import config_dir
+from winpodx.utils.paths import bundle_dir, config_dir
 
 log = logging.getLogger(__name__)
 
@@ -210,6 +213,52 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
     return True
 
 
+def _sync_windows_autologon(cfg: Config, password: str) -> bool:
+    """Sync a matching enabled local autologon secret; return whether it was written."""
+    from winpodx.core.transport import dispatch
+    from winpodx.core.transport.base import TransportAuthError, TransportError, TransportUnavailable
+    from winpodx.core.windows_exec import WindowsExecError, run_in_windows
+
+    def literal(value: str) -> str:
+        # Keep credentials as data even with Unicode quotes or line breaks,
+        # and keep the script ASCII for the FreeRDP transport.
+        encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+        return f"([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}')))"
+
+    script = bundle_dir() / "scripts/windows/sync_autologon_secret.ps1"
+    try:
+        payload = script.read_text(encoding="utf-8")
+    except OSError:
+        raise RotationError("Autologon synchronization script is unavailable") from None
+    payload += (
+        f"\nInvoke-WinpodxAutologonSync -UserName {literal(cfg.rdp.user)} "
+        f"-Domain {literal(cfg.rdp.domain)} -Password {literal(password)}\n"
+    )
+    try:
+        try:
+            transport = dispatch(cfg, prefer="agent")
+        except TransportUnavailable:
+            auth_cfg = copy.copy(cfg)
+            auth_cfg.rdp = replace(cfg.rdp, password=password)
+            result = run_in_windows(auth_cfg, payload, description="sync-autologon", timeout=60)
+        else:
+            result = transport.exec(payload, description="sync-autologon", timeout=60)
+    except TransportAuthError:
+        raise RotationError("Autologon synchronization authentication failed") from None
+    except (TransportError, WindowsExecError):
+        raise RotationError("Autologon synchronization outcome is unknown") from None
+
+    if result.rc == 0 and not result.stderr:
+        status = result.stdout.rstrip("\r\n")
+        if status == "WINPODX_AUTOLOGON_STATUS=0":
+            return False
+        if status == "WINPODX_AUTOLOGON_STATUS=10":
+            return True
+        if status == "WINPODX_AUTOLOGON_STATUS=11":
+            raise RotationError("Windows could not synchronize its autologon secret")
+    raise RotationError("Autologon synchronization outcome is unknown")
+
+
 def _auto_rotate_password(cfg: Config) -> Config:
     """Rotate RDP password if older than max_age."""
     if _rotation_marker_path().exists():
@@ -287,9 +336,15 @@ def _prepare_rotation_compose(cfg: Config, new_password: str, updated_at: str) -
     return candidate
 
 
-def _restore_password_rotation(cfg: Config, old_password: str, old_updated: str) -> bool:
+def _restore_password_rotation(
+    cfg: Config, old_password: str, old_updated: str, *, restore_autologon: bool = False
+) -> bool:
     try:
         guest_restored = _change_windows_password(cfg, old_password)
+        if guest_restored and restore_autologon:
+            guest_restored = _verify_windows_password(cfg, old_password)
+            if guest_restored:
+                _sync_windows_autologon(cfg, old_password)
     except RotationError as e:
         log.error("Password rollback channel outcome is unknown: %s", e)
         return False
@@ -354,6 +409,9 @@ def rotate_password(cfg: Config, new_password: str) -> bool:
                     "Candidate password was not accepted and rollback is incomplete"
                 )
             return False
+        # Keep the pending marker if sync fails or is interrupted. Recovery
+        # must reconcile the secret before publishing the verified password.
+        restore_autologon = _sync_windows_autologon(cfg, new_password)
 
         cfg.rdp.password = new_password
         cfg.rdp.password_updated = updated_at
@@ -361,12 +419,16 @@ def rotate_password(cfg: Config, new_password: str) -> bool:
             cfg.save()
             os.replace(candidate, compose_path)
         except KeyboardInterrupt:
-            if not _restore_password_rotation(cfg, old_password, old_updated):
+            if not _restore_password_rotation(
+                cfg, old_password, old_updated, restore_autologon=restore_autologon
+            ):
                 log.error("Password rotation interrupted and rollback is incomplete")
             raise
         except OSError as e:
             log.error("Failed to persist password rotation: %s", e)
-            if _restore_password_rotation(cfg, old_password, old_updated):
+            if _restore_password_rotation(
+                cfg, old_password, old_updated, restore_autologon=restore_autologon
+            ):
                 return False
             raise RotationError("Password rotation rollback is incomplete") from e
 
@@ -450,6 +512,11 @@ def _recover_pending_rotation(cfg: Config) -> Config | None:
         except RotationError:
             return None
         recovered_password = old_password
+    try:
+        _sync_windows_autologon(cfg, recovered_password)
+    except RotationError as e:
+        log.error("Pending password rotation could not synchronize autologon: %s", e)
+        return None
     cfg.rdp.password = recovered_password
     cfg.rdp.password_updated = datetime.now(timezone.utc).isoformat()
     try:

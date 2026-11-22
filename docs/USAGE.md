@@ -232,6 +232,8 @@ Use `winpodx rotate-password` — never reuse `winpodx setup` for this. The two 
 | `winpodx setup` (rerun) | Preserved as-is (since v0.5.5) | Not touched |
 | `winpodx setup` (fresh install, no prior config) | Generated / prompted | Applied on first boot via dockur `USERNAME`/`PASSWORD` env vars |
 
+Manual and automatic rotation update the Windows autologon secret only if autologon is already enabled for the same local account. Rotation does not enable autologon or change `AutoLogonCount`. If synchronization fails, leave the VM running and resolve the error before rebooting. The pending rotation is retained so the next app launch can retry synchronization before saving the credential.
+
 Re-running `winpodx setup` to bump cores / RAM / `win_version` is safe and will not touch your credentials. On pre-v0.5.5 releases the wizard reprompted for the password every run and silently overwrote `winpodx.toml` — but dockur honors the password env var only on first boot, so the host config desynced from the Windows guest account and the next RDP launch failed with `LOGON_FAILED_BAD_PASSWORD`.
 
 ### Recovering from a desynced password (pre-v0.5.5 lockout)
