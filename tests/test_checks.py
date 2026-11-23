@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -534,6 +539,154 @@ def test_probe_disk_free_thresholds(monkeypatch, free_gb, status):
 
     assert out.status == status
     assert f"{free_gb:.1f}/100 GiB free" == out.detail
+
+
+# --- guest_summary PowerShell payload (#895) ---
+#
+# The probe's rc comes from the payload's $LASTEXITCODE, which `query session`
+# sets to 1 even when it prints the table. These tests pin the script-boundary
+# fix: the reset is narrow (a later failure still fails), and the session count
+# only matches real `rdp-tcp#<n>` rows on a localized guest.
+
+# German-labelled `query session` output: the listener state reads "Abhör.",
+# a console user's name contains "rdp", and three rows are real RDP sessions.
+_QUERY_SESSION_TABLE = """\
+ SITZUNGSNAME      BENUTZERNAME             ID  STATUS    TYP         GERÄT
+ services                                    0  Getrennt
+>console           RDPUser                   1  Aktiv
+ rdp-tcp                                 65536  Abhör.
+ rdp-tcp#8other     not-rdp                  6  Aktiv
+ rdp-tcp#0         WPX-User                  2  Aktiv
+ rdp-tcp#12        other                     3  Aktiv
+>rdp-tcp#3         WPX-User                  4  Aktiv
+"""
+
+_CIM_STUB = """\
+function Get-CimInstance {
+    param(
+        [string]$ClassName,
+        [string]$Filter,
+        [System.Management.Automation.ActionPreference]$ErrorAction
+    )
+    switch ($ClassName) {
+        'Win32_OperatingSystem' {
+            [pscustomobject]@{
+                Caption = 'Microsoft Windows 11 Pro'
+                BuildNumber = '26200'
+                LastBootUpTime = (Get-Date).AddHours(-0.8)
+            }
+        }
+        'Win32_ComputerSystem' { [pscustomobject]@{ UserName = 'HOST\\WPX-User' } }
+        'Win32_LogicalDisk' { [pscustomobject]@{ FreeSpace = 45113556992 } }
+    }
+}
+"""
+
+
+def _pwsh_or_skip() -> str:
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("pwsh not installed on this host")
+    return pwsh
+
+
+def _install_query_fixture(bin_dir: Path, table: str = _QUERY_SESSION_TABLE) -> None:
+    """Put a native `query` on PATH that prints `table` and exits 1.
+
+    The non-zero exit is what the reporter saw: full output, rc=1. Only a real
+    native command sets $LASTEXITCODE, so a shell script is the faithful stub.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "query"
+    script.write_text(f"#!/bin/sh\ncat <<'TABLE'\n{table}TABLE\nexit 1\n", encoding="utf-8")
+    script.chmod(0o755)
+
+
+def _run_guest_summary(
+    pwsh: str, payload: str, tmp_path: Path, bin_dir: Path
+) -> subprocess.CompletedProcess[str]:
+    """Run the real payload through agent.ps1's `& script; exit $LASTEXITCODE`.
+
+    CIM cmdlets do not exist on Linux pwsh, so the Win32 queries are stubbed in
+    front of the payload; `query` stays a real native process so the exit-code
+    leak goes through the same boundary the guest agent uses.
+    """
+    payload_file = tmp_path / "summary.ps1"
+    payload_file.write_text(_CIM_STUB + "\n" + payload + "\n", encoding="utf-8")
+    launcher = tmp_path / "launcher.ps1"
+    launcher.write_text(
+        f"& '{payload_file}'\n$rc = $LASTEXITCODE\nif ($null -eq $rc) {{ $rc = 0 }}\nexit $rc\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    return subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-File", str(launcher)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+
+
+def test_guest_summary_payload_rc0_on_localized_table(tmp_path):
+    pwsh = _pwsh_or_skip()
+    bin_dir = tmp_path / "bin"
+    _install_query_fixture(bin_dir)
+
+    proc = _run_guest_summary(pwsh, checks._GUEST_SUMMARY_SCRIPT, tmp_path, bin_dir)
+
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload == {
+        "os": "Microsoft Windows 11 Pro",
+        "build": "26200",
+        "uptime_h": 0.8,
+        "user": "HOST\\WPX-User",
+        "c_free_gb": 42.0,
+        "sessions": 3,
+    }
+
+
+def test_guest_summary_payload_rc0_without_session_rows(tmp_path):
+    """Empty `query session` output (still rc=1) must not fail the payload."""
+    pwsh = _pwsh_or_skip()
+    bin_dir = tmp_path / "bin"
+    _install_query_fixture(bin_dir, table="")
+
+    proc = _run_guest_summary(pwsh, checks._GUEST_SUMMARY_SCRIPT, tmp_path, bin_dir)
+
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload["sessions"] == 0
+
+
+def test_probe_guest_summary_keeps_warn_on_real_exec_failure(monkeypatch):
+    """A payload-side reset must not make the host ignore a nonzero rc."""
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.agent import ExecResult
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.RUNNING))
+
+    class _Client:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def exec(self, *_a, **_k):
+            return ExecResult(
+                rc=1,
+                stdout='{"os":"Windows 11","build":"26200","sessions":1}',
+                stderr="",
+            )
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _Client)
+    out = checks.probe_guest_summary(_FakeCfg())
+
+    assert out.status == "warn"
+    assert "rc=1" in out.detail
+    assert "stderr=''" in out.detail
 
 
 # --- Helpers ---

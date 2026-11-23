@@ -181,6 +181,47 @@ def probe_guest_exec(cfg: Config) -> Probe:
     return Probe("guest_exec", status, detail, ms)
 
 
+# PowerShell payload for probe_guest_summary — one JSON object so the host
+# parses it in one shot. Kept module-level so tests can exercise the *actual*
+# script boundary (pwsh + a fixture `query`/CIM) without a Windows guest.
+#
+# The optional `query session` is a native command, and a native exit code
+# survives as $LASTEXITCODE, which agent.ps1 forwards as the whole /exec rc.
+# `query session` exits 1 even when it prints the table (localized Windows),
+# so a healthy summary used to arrive as rc=1 and was discarded before the
+# JSON was parsed (#895 — same leak class as #866). Reset it right after that
+# one optional call: a reset, not a blanket `exit 0`, so a later terminating
+# failure still fails the run.
+#
+# `sessions` counts real `rdp-tcp#<n>` session rows only. The bare `rdp-tcp`
+# listener line and any username containing "rdp" are not sessions, and
+# matching the (untranslated) session-name column keeps the count independent
+# of the guest UI language.
+_GUEST_SUMMARY_SCRIPT: str = (
+    "$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue;"
+    "$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue;"
+    "$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\""
+    " -ErrorAction SilentlyContinue;"
+    "$sessions = @(query session 2>$null"
+    " | Where-Object { $_ -match '^\\s*>?\\s*rdp-tcp#\\d+(?:\\s|$)' }).Count;"
+    "$global:LASTEXITCODE = 0;"
+    "$obj = @{"
+    "  os = if ($os) { $os.Caption.Trim() } else { '?' };"
+    "  build = if ($os) { $os.BuildNumber } else { '?' };"
+    "  uptime_h = if ($os) {"
+    "    [math]::Round((New-TimeSpan -Start $os.LastBootUpTime"
+    " -End (Get-Date)).TotalHours, 1)"
+    "  } else { 0 };"
+    "  user = if ($cs) { $cs.UserName } else { '' };"
+    "  c_free_gb = if ($disk) {"
+    "    [math]::Round($disk.FreeSpace / 1GB, 1)"
+    "  } else { 0 };"
+    "  sessions = [int]$sessions;"
+    "};"
+    "$obj | ConvertTo-Json -Compress"
+)
+
+
 def probe_guest_summary(cfg: Config) -> Probe:
     """Single /exec call that returns a JSON snapshot of guest state.
 
@@ -203,40 +244,16 @@ def probe_guest_summary(cfg: Config) -> Probe:
         except Exception:  # noqa: BLE001
             return "skip", "pod state unknown"
 
-        # Single PowerShell payload — emit one JSON object so the host
-        # parses it in one shot. Keep the script short; agent.ps1 logs
-        # the payload hash for forensics, and longer scripts inflate
-        # /exec latency.
-        script = (
-            "$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue;"
-            "$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue;"
-            "$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\""
-            " -ErrorAction SilentlyContinue;"
-            "$sessions = (query session 2>$null | Where-Object { $_ -match 'rdp' }"
-            " | Measure-Object).Count;"
-            "$obj = @{"
-            "  os = if ($os) { $os.Caption.Trim() } else { '?' };"
-            "  build = if ($os) { $os.BuildNumber } else { '?' };"
-            "  uptime_h = if ($os) {"
-            "    [math]::Round((New-TimeSpan -Start $os.LastBootUpTime"
-            " -End (Get-Date)).TotalHours, 1)"
-            "  } else { 0 };"
-            "  user = if ($cs) { $cs.UserName } else { '' };"
-            "  c_free_gb = if ($disk) {"
-            "    [math]::Round($disk.FreeSpace / 1GB, 1)"
-            "  } else { 0 };"
-            "  sessions = [int]$sessions;"
-            "};"
-            "$obj | ConvertTo-Json -Compress"
-        )
-
         client = AgentClient(cfg)
         try:
-            result = client.exec(script, timeout=45.0)
+            result = client.exec(_GUEST_SUMMARY_SCRIPT, timeout=45.0)
         except AgentTimeoutError as e:
             return "warn", f"agent warming up or busy: {e}"
         except AgentError as e:
             return "fail", f"exec failed: {e}"
+        # rc is still authoritative here: the payload resets $LASTEXITCODE
+        # after its optional `query session`, so a nonzero rc now means the
+        # script really failed rather than leaking a tolerated native exit.
         if result.rc != 0:
             return "warn", f"rc={result.rc} stderr={result.stderr.strip()[:80]!r}"
         try:
