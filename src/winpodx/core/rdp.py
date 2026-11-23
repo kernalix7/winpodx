@@ -776,10 +776,15 @@ def build_rdp_command(
         cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
 
-    # TLS for all backends. install.bat forces SecurityLayer=2 on the
-    # guest side; matching /sec:tls on the client avoids the NLA path
-    # that would otherwise need credentials cached in CredSSP.
-    cmd.append("/sec:tls")
+    # Managed guests only. install.bat forces SecurityLayer=2 on the guest
+    # side; matching /sec:tls on the client avoids the NLA path that would
+    # otherwise need credentials cached in CredSSP. A manual backend points at
+    # a Windows PC WinPodX did not provision: stock Windows enables NLA by
+    # default, and a forced TLS-only client is rejected. Leave /sec unset there
+    # so FreeRDP negotiates the host's policy. /sec is not in the extra_flags
+    # allowlist, so callers cannot override this either way.
+    if cfg.pod.backend in ("podman", "docker"):
+        cmd.append("/sec:tls")
 
     if cfg.rdp.ip in ("127.0.0.1", "localhost", "::1"):
         cmd.append("/cert:ignore")

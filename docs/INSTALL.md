@@ -51,6 +51,8 @@ WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/
 
 Manual mode installs the binary + desktop entry + icon only -- no `winpodx setup`, no `winpodx provision`, no app discovery, no reverse-open setup. The next bare `winpodx` invocation offers three terminal setup options; `winpodx gui` opens the six-page setup wizard:
 
+> **This `--manual` flag is not the `manual` backend.** To connect WinPodX to an existing Windows PC instead of creating a local VM, see [Using an existing Windows PC](USAGE.md#using-an-existing-windows-pc-manual-rdp-backend).
+
 - **Auto** -- host-detected defaults, non-interactive (= what default `install.sh` would have done)
 - **Customize** -- wizard mode (pick every knob); equivalent to `winpodx setup --customize`
 - **Skip** -- exits without changes; re-runs the prompt on next invocation

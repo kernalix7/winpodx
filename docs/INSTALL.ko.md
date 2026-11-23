@@ -51,6 +51,8 @@ WINPODX_MANUAL=1 curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/
 
 Manual 모드는 바이너리·desktop entry·아이콘만 설치하며 프로비저닝을 건너뜁니다. 다음 bare `winpodx` 실행은 터미널 설정 선택 세 가지를 제공하고, `winpodx gui`는 여섯 페이지 설치 마법사를 엽니다:
 
+> **이 `--manual` 플래그는 `manual` 백엔드가 아닙니다.** 로컬 VM 대신 기존 Windows PC에 연결하려면 [기존 Windows PC 사용](USAGE.ko.md#기존-windows-pc-사용-manual-rdp-백엔드)을 참고하세요.
+
 - **Auto** — 호스트 감지 default, non-interactive (= 기본 `install.sh` 가 했을 것)
 - **Customize** — wizard 모드 (모든 knob 선택); `winpodx setup --customize` 와 동등
 - **Skip** — 변경 없이 종료; 다음 실행시 prompt 재발
