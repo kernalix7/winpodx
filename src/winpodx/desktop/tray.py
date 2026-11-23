@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QMenu
 
     from winpodx.core.app import AppInfo
+    from winpodx.core.devices import HostDevice
+    from winpodx.core.process import TrackedProcess
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +88,85 @@ def _tray_launch_kwargs(app_info: AppInfo) -> dict[str, object]:
     }
 
 
+_UNSET_MENU_SIGNATURE = object()
+
+
+class _TrayMenuState:
+    """Last content signature successfully rendered into one tray submenu.
+
+    Tray submenus are refreshed eagerly at startup, from ``aboutToShow`` and
+    from the 30 s status timer. Rebuilding an unchanged ``QMenu`` (``clear()``
+    + re-add) makes Qt emit ``LayoutUpdated`` for that submenu over
+    ``com.canonical.dbusmenu``. GNOME's AppIndicator extension recreates the
+    submenu item on every layout update, so the submenu collapses the moment
+    it is opened (#909). Keep a signature of the rendered content and skip the
+    rebuild when it did not change.
+    """
+
+    __slots__ = ("signature",)
+
+    def __init__(self) -> None:
+        self.signature: object = _UNSET_MENU_SIGNATURE
+
+    def matches(self, signature: object) -> bool:
+        return self.signature != _UNSET_MENU_SIGNATURE and self.signature == signature
+
+
+def _apps_menu_signature(apps: Iterable[AppInfo]) -> tuple[object, ...]:
+    """Identity of the rendered Launch App menu, including launch parameters.
+
+    The label alone is not enough: an app can keep its display name while its
+    launch URI, default arguments or per-app RDP overrides change. A retained
+    QAction carries the launcher built from the *old* values, so those values
+    must participate in the signature.
+    """
+    return tuple(
+        (
+            app_info.name,
+            app_info.full_name,
+            app_info.executable,
+            app_info.launch_uri,
+            app_info.wm_class_hint,
+            app_info.args,
+            app_info.icon_path,
+            # App profiles validate overrides to scalar values.
+            dict(app_info.rdp_overrides),
+        )
+        for app_info in apps
+    )
+
+
+def _sessions_menu_signature(sessions: Iterable[TrackedProcess]) -> tuple[str, ...]:
+    """Semantic target of each Terminate Session entry.
+
+    ``app_name`` is what ``kill_session`` targets; enumeration order is not
+    meaningful and must not force a rebuild.
+    """
+    return tuple(sorted(session.app_name for session in sessions))
+
+
+def _devices_menu_signature(
+    usb: Iterable[HostDevice], assigned: set[str]
+) -> tuple[tuple[str, str, bool], ...]:
+    """USB bind identity + display label + checked state for each entry."""
+    signature: list[tuple[str, str, bool]] = []
+    for host in usb:
+        dc = host.to_device_config()
+        signature.append((dc.key, host.label or dc.did, dc.key in assigned))
+    return tuple(signature)
+
+
+def _only_device_checks_changed(
+    previous: object, current: tuple[tuple[str, str, bool], ...]
+) -> bool:
+    if not isinstance(previous, tuple) or len(previous) != len(current):
+        return False
+    return all(
+        isinstance(old, tuple) and len(old) == 3 and old[:2] == new[:2]
+        for old, new in zip(previous, current)
+    )
+
+
 def _enable_native_menu_scrolling(menu: QMenu) -> None:
     from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleHintReturn, QStyleOption, QWidget
 
@@ -114,6 +195,7 @@ def _refresh_tray_apps_menu(
     apps_menu: QMenu,
     make_launcher: Callable[[AppInfo], Callable[[], None]],
     on_desktop: Callable[[], None],
+    state: _TrayMenuState | None = None,
 ) -> bool:
     from PySide6.QtGui import QAction
 
@@ -121,9 +203,13 @@ def _refresh_tray_apps_menu(
 
     try:
         available_apps = _visible_tray_apps(list_available_apps())
+        signature = _apps_menu_signature(available_apps)
     except Exception as e:  # noqa: BLE001 -- preserve the last good tray menu
         log.warning("tray app menu refresh failed: %s", e)
         return False
+
+    if state is not None and state.matches(signature):
+        return True
 
     _enable_native_menu_scrolling(apps_menu)
     apps_menu.clear()
@@ -142,7 +228,115 @@ def _refresh_tray_apps_menu(
     desktop_action = QAction(tr("Full Desktop"), apps_menu)
     desktop_action.triggered.connect(on_desktop)
     apps_menu.addAction(desktop_action)
+    if state is not None:
+        state.signature = signature
     return True
+
+
+def _refresh_sessions_menu(
+    sessions_menu: QMenu,
+    make_kill: Callable[[str], Callable[[], None]],
+    state: _TrayMenuState | None = None,
+) -> None:
+    """Refresh the Terminate Session submenu only when its targets changed."""
+    from PySide6.QtGui import QAction
+
+    try:
+        from winpodx.core.process import list_active_sessions
+
+        active = list(list_active_sessions())
+        signature = _sessions_menu_signature(active)
+    except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
+        log.warning("sessions menu: enumeration failed: %s", e)
+        active = []
+        signature = ()
+
+    if state is not None and state.matches(signature):
+        return
+
+    sessions_menu.clear()
+    # Parent each QAction to the submenu (#573). A parentless QAction added
+    # via addAction() is kept on the *Python* side only; when this closure
+    # returns, the local refs drop and PySide6 garbage-collects the actions,
+    # so the submenu ends up empty — which DBusMenu/Plasma exports as a
+    # submenu with ZERO children that can't be opened (confirmed via
+    # `dbusmenu GetLayout`: Terminate/USB had no children while the eagerly
+    # built Launch App / Maintenance submenus did). Giving the QAction a C++
+    # parent (the menu) makes it outlive the closure.
+    if not active:
+        empty = QAction(tr("(no active sessions)"), sessions_menu)
+        empty.setEnabled(False)
+        sessions_menu.addAction(empty)
+    else:
+        for s in active:
+            act = QAction(tr("Terminate: {name}").format(name=s.app_name), sessions_menu)
+            act.triggered.connect(make_kill(s.app_name))
+            sessions_menu.addAction(act)
+
+    if state is not None:
+        state.signature = signature
+
+
+def _refresh_devices_menu(
+    devices_menu: QMenu,
+    make_toggle: Callable[[HostDevice], Callable[[bool], None]],
+    state: _TrayMenuState | None = None,
+) -> None:
+    """Refresh the USB Devices submenu only when its content changed.
+
+    A checked-state-only change updates the existing QActions in place rather
+    than clearing them: rebuilding would emit another ``LayoutUpdated`` for a
+    submenu that GNOME is already showing.
+    """
+    from PySide6.QtGui import QAction
+
+    from winpodx.core import devices as D
+    from winpodx.core.config import Config
+
+    try:
+        cfg = Config.load()
+        assigned = {d.key for d in D.parse_entries(cfg.pod.devices) if d.dtype == "usb"}
+        usb = list(D.list_host_usb())
+        signature = _devices_menu_signature(usb, assigned)
+    except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
+        log.warning("device menu: enumeration failed: %s", e)
+        usb = []
+        signature = ()
+
+    previous = state.signature if state is not None else _UNSET_MENU_SIGNATURE
+    if not signature and previous == signature:
+        return
+
+    if state is not None and _only_device_checks_changed(previous, signature):
+        actions = devices_menu.actions()
+        if len(actions) == len(signature):
+            for action, (_, _, checked) in zip(actions, signature):
+                # A failed toggle can leave the UI out of sync even when the
+                # persisted assignment did not change.
+                if action.isChecked() != checked:
+                    action.setChecked(checked)
+            state.signature = signature
+            return
+
+    devices_menu.clear()
+    # Parent QActions to the submenu so they survive this closure (#573) —
+    # see _refresh_sessions_menu for the GC / empty-DBusMenu-children detail.
+    if not usb:
+        empty = QAction(tr("(no USB devices detected)"), devices_menu)
+        empty.setEnabled(False)
+        devices_menu.addAction(empty)
+    else:
+        for host, (_, label, checked) in zip(usb, signature):
+            act = QAction(label, devices_menu)
+            act.setCheckable(True)
+            act.setChecked(checked)
+            # `triggered` (not `toggled`) fires only on user clicks, so the
+            # programmatic setChecked above doesn't kick off a spurious op.
+            act.triggered.connect(make_toggle(host))
+            devices_menu.addAction(act)
+
+    if state is not None:
+        state.signature = signature
 
 
 def _acquire_tray_lock() -> bool:
@@ -559,6 +753,7 @@ def run_tray() -> None:
     menu.addSeparator()
 
     apps_menu = QMenu(tr("Launch App"))
+    apps_menu_state = _TrayMenuState()
 
     def _launch_from_tray(app_info: AppInfo | None = None) -> None:
         """Launch through the readiness preflight, off the GUI thread (#901).
@@ -599,7 +794,7 @@ def run_tray() -> None:
         _launch_from_tray()
 
     def _rebuild_apps_menu() -> None:
-        _refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop)
+        _refresh_tray_apps_menu(apps_menu, make_launcher, on_desktop, apps_menu_state)
 
     # Discovery, Hide/Show, installs and removals can change the app set while
     # the long-lived tray is running. Refresh immediately before it is opened.
@@ -610,8 +805,10 @@ def run_tray() -> None:
 
     # Terminate-session submenu (#450): lists the tracked .cproc RDP sessions;
     # each entry SIGTERMs that session via core.process.kill_session — the same
-    # path as `winpodx app kill`. Rebuilt on open so it reflects live sessions.
+    # path as `winpodx app kill`. Refreshed on open so it reflects live
+    # sessions; unchanged targets keep the existing actions (#909).
     sessions_menu = QMenu(tr("Terminate Session"))
+    sessions_menu_state = _TrayMenuState()
 
     def _make_session_kill(app_name: str):
         def handler() -> None:
@@ -630,31 +827,7 @@ def run_tray() -> None:
         return handler
 
     def _rebuild_sessions_menu() -> None:
-        sessions_menu.clear()
-        try:
-            from winpodx.core.process import list_active_sessions
-
-            active = list_active_sessions()
-        except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
-            log.warning("sessions menu: enumeration failed: %s", e)
-            active = []
-        # Parent each QAction to the submenu (#573). A parentless QAction added
-        # via addAction() is kept on the *Python* side only; when this closure
-        # returns, the local refs drop and PySide6 garbage-collects the actions,
-        # so the submenu ends up empty — which DBusMenu/Plasma exports as a
-        # submenu with ZERO children that can't be opened (confirmed via
-        # `dbusmenu GetLayout`: Terminate/USB had no children while the eagerly
-        # built Launch App / Maintenance submenus did). Giving the QAction a C++
-        # parent (the menu) makes it outlive the closure.
-        if not active:
-            empty = QAction(tr("(no active sessions)"), sessions_menu)
-            empty.setEnabled(False)
-            sessions_menu.addAction(empty)
-            return
-        for s in active:
-            act = QAction(tr("Terminate: {name}").format(name=s.app_name), sessions_menu)
-            act.triggered.connect(_make_session_kill(s.app_name))
-            sessions_menu.addAction(act)
+        _refresh_sessions_menu(sessions_menu, _make_session_kill, sessions_menu_state)
 
     # Refresh on open via aboutToShow so the list is current the instant the
     # user opens it — without this the submenu only refreshed on the 30 s timer
@@ -662,8 +835,10 @@ def run_tray() -> None:
     # follow-up; reporter saw ~10-12 s). The earlier worry that aboutToShow
     # broke opening under Plasma was a misdiagnosis — the real cause was the
     # parentless-QAction GC fixed above; with the actions parented, aboutToShow
-    # is safe and re-fills the live list on each open. The timer rebuild stays
-    # as a fallback for hosts that don't deliver the nested aboutToShow.
+    # is safe. The helper only clears the submenu when the semantic session set
+    # changes, so an unchanged refresh emits no LayoutUpdated (#909). The timer
+    # rebuild stays as a fallback for hosts that don't deliver the nested
+    # aboutToShow.
     sessions_menu.aboutToShow.connect(_rebuild_sessions_menu)
     _rebuild_sessions_menu()
     menu.addMenu(sessions_menu)
@@ -673,9 +848,12 @@ def run_tray() -> None:
     # USB device switcher (#300). A checkable entry per host USB device:
     # checked == redirected to the Windows guest. Toggling runs the
     # persist + live attach/detach off the UI thread (live op can take a
-    # few seconds and may pop a pkexec prompt). The submenu is rebuilt on
-    # every open so it tracks hot-plugged devices + the current assignment.
+    # few seconds and may pop a pkexec prompt). The submenu is refreshed on
+    # every open so it tracks hot-plugged devices + the current assignment;
+    # unchanged content is left alone and a checked-only change updates the
+    # existing actions in place (#909).
     devices_menu = QMenu(tr("USB Devices"))
+    devices_menu_state = _TrayMenuState()
 
     def _make_device_toggle(host: D.HostDevice):
         dc = host.to_device_config()
@@ -714,30 +892,7 @@ def run_tray() -> None:
         return handler
 
     def _rebuild_devices_menu() -> None:
-        devices_menu.clear()
-        try:
-            cfg = Config.load()
-            assigned = {d.key for d in D.parse_entries(cfg.pod.devices) if d.dtype == "usb"}
-            usb = D.list_host_usb()
-        except Exception as e:  # noqa: BLE001 — never crash the tray on enumeration
-            log.warning("device menu: enumeration failed: %s", e)
-            usb, assigned = [], set()
-        # Parent QActions to the submenu so they survive this closure (#573) —
-        # see _rebuild_sessions_menu for the GC / empty-DBusMenu-children detail.
-        if not usb:
-            empty = QAction(tr("(no USB devices detected)"), devices_menu)
-            empty.setEnabled(False)
-            devices_menu.addAction(empty)
-            return
-        for host in usb:
-            dc = host.to_device_config()
-            act = QAction(host.label or dc.did, devices_menu)
-            act.setCheckable(True)
-            act.setChecked(dc.key in assigned)
-            # `triggered` (not `toggled`) fires only on user clicks, so the
-            # programmatic setChecked above doesn't kick off a spurious op.
-            act.triggered.connect(_make_device_toggle(host))
-            devices_menu.addAction(act)
+        _refresh_devices_menu(devices_menu, _make_device_toggle, devices_menu_state)
 
     # Refresh on open (parented actions make aboutToShow safe) + timer fallback,
     # so hot-plugged USB devices show without waiting for the next tick — see the

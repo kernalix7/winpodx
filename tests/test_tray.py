@@ -1007,3 +1007,203 @@ def test_quit_waits_for_in_flight_readiness_before_final_stop(
         release.set()
         _drop_threads(threads)
         tray_runtime.app.processEvents()
+
+
+# --- #909: unchanged submenu refreshes stay idempotent ------------------------
+
+
+_MENU_QAPP = None
+
+
+def _menu_qapp():
+    global _MENU_QAPP
+    from PySide6.QtWidgets import QApplication
+
+    _MENU_QAPP = QApplication.instance() or QApplication([])
+    return _MENU_QAPP
+
+
+def test_sessions_menu_refreshes_only_when_semantic_targets_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMenu
+
+    _menu_qapp()
+    sessions = [SimpleNamespace(app_name="Microsoft Word")]
+    monkeypatch.setattr("winpodx.core.process.list_active_sessions", lambda: list(sessions))
+    menu = QMenu()
+    state = tray._TrayMenuState()
+    killed: list[str] = []
+
+    def make_kill(app_name: str):
+        return lambda: killed.append(app_name)
+
+    tray._refresh_sessions_menu(menu, make_kill, state)
+    first_actions = list(menu.actions())
+    assert [action.text() for action in first_actions] == ["Terminate: Microsoft Word"]
+
+    # A new enumeration with the same semantic target must leave the submenu
+    # (and its handler) untouched.
+    sessions[:] = [SimpleNamespace(app_name="Microsoft Word")]
+    tray._refresh_sessions_menu(menu, make_kill, state)
+
+    assert menu.actions() == first_actions
+    first_actions[0].trigger()
+    assert killed == ["Microsoft Word"]
+
+    # A real target change still rebuilds.
+    sessions.append(SimpleNamespace(app_name="Calculator"))
+    tray._refresh_sessions_menu(menu, make_kill, state)
+
+    assert menu.actions()[0] is not first_actions[0]
+    assert [action.text() for action in menu.actions()] == [
+        "Terminate: Microsoft Word",
+        "Terminate: Calculator",
+    ]
+    menu.actions()[1].trigger()
+    assert killed[-1] == "Calculator"
+
+
+def test_sessions_menu_enumeration_error_keeps_the_empty_state_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from PySide6.QtWidgets import QMenu
+
+    _menu_qapp()
+    menu = QMenu()
+    state = tray._TrayMenuState()
+
+    def fail_listing():
+        raise OSError("process table unavailable")
+
+    monkeypatch.setattr("winpodx.core.process.list_active_sessions", fail_listing)
+    with caplog.at_level(logging.WARNING, logger=tray.__name__):
+        tray._refresh_sessions_menu(menu, lambda _name: lambda: None, state)
+        first_actions = list(menu.actions())
+        tray._refresh_sessions_menu(menu, lambda _name: lambda: None, state)
+
+    assert [action.text() for action in first_actions] == ["(no active sessions)"]
+    assert menu.actions() == first_actions
+    assert "process table unavailable" in caplog.text
+
+    monkeypatch.setattr(
+        "winpodx.core.process.list_active_sessions",
+        lambda: [SimpleNamespace(app_name="Calculator")],
+    )
+    tray._refresh_sessions_menu(menu, lambda _name: lambda: None, state)
+
+    assert [action.text() for action in menu.actions()] == ["Terminate: Calculator"]
+
+
+def test_devices_menu_updates_checked_state_without_rebuilding_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMenu
+
+    from winpodx.core.devices import DeviceConfig, HostDevice
+
+    _menu_qapp()
+    hosts = [HostDevice("usb", "1234:5678", "Webcam")]
+    assigned: list[DeviceConfig] = []
+    cfg = SimpleNamespace(pod=SimpleNamespace(devices=[]))
+    monkeypatch.setattr("winpodx.core.config.Config.load", lambda: cfg)
+    monkeypatch.setattr("winpodx.core.devices.list_host_usb", lambda: list(hosts))
+    monkeypatch.setattr("winpodx.core.devices.parse_entries", lambda _entries: list(assigned))
+    menu = QMenu()
+    state = tray._TrayMenuState()
+    toggles: list[tuple[str, bool]] = []
+
+    def make_toggle(host: HostDevice):
+        dc = host.to_device_config()
+        return lambda checked: toggles.append((dc.key, checked))
+
+    tray._refresh_devices_menu(menu, make_toggle, state)
+    original = menu.actions()[0]
+    assert original.text() == "Webcam"
+    assert original.isCheckable() is True
+    assert original.isChecked() is False
+
+    # Only the checked state changed: update it on the existing QAction, and
+    # keep the handler bound to the same bind identity.
+    assigned.append(DeviceConfig("usb", "1234:5678", "Webcam"))
+    tray._refresh_devices_menu(menu, make_toggle, state)
+
+    assert menu.actions() == [original]
+    assert original.isChecked() is True
+    original.trigger()
+    assert toggles == [("usb:1234:5678", False)]
+    # If detach fails, the stored assignment remains checked. The next
+    # refresh restores the checkmark without replacing the menu action.
+    assert original.isChecked() is False
+    tray._refresh_devices_menu(menu, make_toggle, state)
+    assert menu.actions() == [original]
+    assert original.isChecked() is True
+    assert toggles == [("usb:1234:5678", False)]
+
+    # A bind-identity/label change is a real content change and rebuilds.
+    hosts[0] = HostDevice("usb", "9999:0001", "Keyboard")
+    assigned.clear()
+    tray._refresh_devices_menu(menu, make_toggle, state)
+
+    assert menu.actions()[0] is not original
+    assert [action.text() for action in menu.actions()] == ["Keyboard"]
+    assert menu.actions()[0].isCheckable() is True
+
+
+def test_devices_menu_enumeration_error_keeps_the_empty_state_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from PySide6.QtWidgets import QMenu
+
+    from winpodx.core.devices import HostDevice
+
+    _menu_qapp()
+    menu = QMenu()
+    state = tray._TrayMenuState()
+    cfg = SimpleNamespace(pod=SimpleNamespace(devices=[]))
+    monkeypatch.setattr("winpodx.core.config.Config.load", lambda: cfg)
+
+    def fail_listing():
+        raise OSError("lsusb unavailable")
+
+    monkeypatch.setattr("winpodx.core.devices.list_host_usb", fail_listing)
+    monkeypatch.setattr("winpodx.core.devices.parse_entries", lambda _entries: [])
+    with caplog.at_level(logging.WARNING, logger=tray.__name__):
+        tray._refresh_devices_menu(menu, lambda _host: lambda _checked: None, state)
+        first_actions = list(menu.actions())
+        tray._refresh_devices_menu(menu, lambda _host: lambda _checked: None, state)
+
+    assert [action.text() for action in first_actions] == ["(no USB devices detected)"]
+    assert menu.actions() == first_actions
+    assert "lsusb unavailable" in caplog.text
+
+    monkeypatch.setattr(
+        "winpodx.core.devices.list_host_usb",
+        lambda: [HostDevice("usb", "abcd:1234", "Keyboard")],
+    )
+    tray._refresh_devices_menu(menu, lambda _host: lambda _checked: None, state)
+
+    assert [action.text() for action in menu.actions()] == ["Keyboard"]
+
+
+def test_submenus_skip_rebuild_on_unchanged_open_and_timer(tray_runtime) -> None:
+    from winpodx.core.devices import HostDevice
+
+    tray_runtime.sessions = [SimpleNamespace(app_name="Calculator")]
+    tray_runtime.usb = [HostDevice("usb", "abcd:1234", "Keyboard")]
+    tray_runtime.timer.timeout.emit()
+
+    menus = {
+        title: _find_menu(tray_runtime.menu, title)
+        for title in ("Launch App", "Terminate Session", "USB Devices")
+    }
+    before = {title: list(menu.actions()) for title, menu in menus.items()}
+
+    for menu in menus.values():
+        menu.aboutToShow.emit()
+    tray_runtime.timer.timeout.emit()
+
+    for title, menu in menus.items():
+        assert menu.actions() == before[title]
