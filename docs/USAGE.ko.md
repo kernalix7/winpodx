@@ -235,6 +235,8 @@ Overall: OK
 | `winpodx setup` (재실행) | 그대로 보존 (v0.5.5 이상) | 변경 안 함 |
 | `winpodx setup` (신규 설치, 기존 config 없음) | 생성/입력 받음 | 첫 부팅 시 dockur `USERNAME`/`PASSWORD` env var 로 적용 |
 
+수동·자동 비밀번호 회전은 같은 로컬 계정에 자동 로그인이 이미 활성화돼 있을 때만 Windows 자동 로그인 암호를 갱신합니다. 자동 로그인을 새로 켜거나 `AutoLogonCount`를 바꾸지 않습니다. 동기화가 실패하면 VM을 켜 둔 채 오류를 해결한 뒤 재부팅하세요. 다음 앱 실행이 암호를 저장하기 전에 동기화를 다시 시도할 수 있도록 회전 대기 상태를 유지합니다.
+
 cores / RAM / `win_version` 만 바꾸려고 `winpodx setup` 재실행은 안전, 자격증명 건드리지 않음. v0.5.5 이전 릴리스에서는 wizard 가 매번 비밀번호를 reprompt 하고 `winpodx.toml` 을 조용히 덮어썼습니다 — 하지만 dockur 는 첫 부팅에만 password env var 를 적용하므로 호스트 config 와 Windows guest 계정이 desync 되어 다음 RDP launch 가 `LOGON_FAILED_BAD_PASSWORD` 로 실패했습니다.
 
 ### desync 된 비밀번호에서 복구 (v0.5.5 이전 lockout)

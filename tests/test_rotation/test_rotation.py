@@ -17,6 +17,15 @@ def _rotation_cfg(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     from winpodx.core.config import Config
+    from winpodx.core.transport.base import ExecResult
+
+    class GuestWithoutAutologon:
+        def exec(self, _script, **_kwargs):
+            return ExecResult(rc=0, stdout="WINPODX_AUTOLOGON_STATUS=0\n", stderr="")
+
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch", lambda *_a, **_kw: GuestWithoutAutologon()
+    )
 
     cfg = Config()
     cfg.rdp.user = "User"
@@ -320,6 +329,15 @@ def test_rotation_save_failure_rolls_guest_back_with_new_credential(_rotation_cf
     from winpodx.core.config import Config
 
     guest_calls: list[tuple[str, str]] = []
+    autologon_passwords = []
+
+    def sync_autologon(_cfg, password):
+        assert guest_calls[-1][1] == password
+        assert rotation._rotation_marker_path().exists()
+        autologon_passwords.append(password)
+        return True
+
+    monkeypatch.setattr(rotation, "_sync_windows_autologon", sync_autologon)
 
     def change_password(cfg, password):
         guest_calls.append((cfg.rdp.password, password))
@@ -344,6 +362,7 @@ def test_rotation_save_failure_rolls_guest_back_with_new_credential(_rotation_cf
         ("old-password", "new-password"),
         ("new-password", "old-password"),
     ]
+    assert autologon_passwords == ["new-password", "old-password"]
     assert Config.load().rdp.password == "old-password"
     assert "old-password" in (Config.path().parent / "compose.yaml").read_text()
     assert not rotation._rotation_marker_path().exists()
@@ -456,4 +475,47 @@ def test_restart_recovers_verified_candidate_before_new_rotation(_rotation_cfg, 
     rotate.assert_not_called()
     assert result.rdp.password == "new-password"
     assert Config.load().rdp.password == "new-password"
+    assert not marker.exists()
+
+
+def test_interrupted_autologon_update_is_reconciled_before_saving(_rotation_cfg, monkeypatch):
+    from winpodx.core import rotation
+    from winpodx.core.config import Config
+    from winpodx.core.transport.base import ExecResult, TransportUnavailable
+
+    candidate = "new-password"
+    guest_password = _rotation_cfg.rdp.password
+    marker = rotation._rotation_marker_path()
+    _rotation_cfg.rdp.password_max_age = 0
+    _rotation_cfg.save()
+
+    def change(_cfg, password):
+        nonlocal guest_password
+        guest_password = password
+        return True
+
+    class Agent:
+        interrupted = True
+
+        def exec(self, _script, **_kwargs):
+            assert guest_password == candidate
+            assert Config.load().rdp.password == "old-password"
+            assert marker.exists()
+            if self.interrupted:
+                raise TransportUnavailable("Lost the guest response after submission")
+            return ExecResult(rc=0, stdout="WINPODX_AUTOLOGON_STATUS=10\n", stderr="")
+
+    agent = Agent()
+    monkeypatch.setattr(rotation, "_change_windows_password", change)
+    monkeypatch.setattr(rotation, "_verify_windows_password", lambda _cfg, pw: pw == guest_password)
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda *_a, **_kw: agent)
+    with pytest.raises(rotation.RotationError, match="outcome is unknown"):
+        rotation.rotate_password(_rotation_cfg, candidate)
+    assert guest_password == candidate
+    assert Config.load().rdp.password == "old-password"
+    assert marker.exists()
+
+    agent.interrupted = False
+    rotation.maybe_rotate(_rotation_cfg)
+    assert Config.load().rdp.password == candidate
     assert not marker.exists()
