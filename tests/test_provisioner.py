@@ -396,6 +396,7 @@ def test_ensure_ready_recovers_pending_rotation_before_launch(
 ):
     from winpodx.core import provisioner, rotation
     from winpodx.core.config import Config
+    from winpodx.core.transport.base import ExecResult
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     cfg = Config()
@@ -405,12 +406,25 @@ def test_ensure_ready_recovers_pending_rotation_before_launch(
     marker = rotation._rotation_marker_path()
     marker.write_text("old-password\nnew-password\n", encoding="utf-8")
     monkeypatch.setattr(provisioner, "check_rdp_port", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        rotation, "_verify_windows_password", lambda _cfg, password: password == "new-password"
-    )
+    guest_calls = []
+
+    class GuestAgent:
+        def exec(self, _script, *, description, timeout):
+            if description == "verify-password":
+                guest_calls.append(description)
+                return ExecResult(rc=0, stdout="password accepted\n", stderr="")
+            if description == "sync-autologon":
+                assert Config.load().rdp.password == configured_password
+                assert marker.exists()
+                guest_calls.append(description)
+                return ExecResult(rc=0, stdout="WINPODX_AUTOLOGON_STATUS=10\n", stderr="")
+            pytest.fail(f"Unexpected guest operation: {description}")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", lambda *_a, **_kw: GuestAgent())
 
     ready = provisioner.ensure_ready(cfg)
 
+    assert guest_calls == ["verify-password", "sync-autologon"]
     assert ready.rdp.password == "new-password"
     assert Config.load().rdp.password == "new-password"
     assert not marker.exists()
