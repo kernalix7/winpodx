@@ -323,3 +323,112 @@ def test_refresh_tray_apps_menu_repeated_refreshes_keep_a_flat_menu_without_dupl
     names = _direct_app_names(menu)
     assert names == [f"app-{index:02d}" for index in range(1, 55)]
     assert len(names) == len(set(names))
+
+
+# --- #909: unchanged refreshes must not clear/readd the submenu ---------------
+
+
+def test_refresh_tray_apps_menu_skips_rebuild_when_content_is_unchanged(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apps = [_app("notepad"), _app("calculator")]
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: list(apps))
+    menu = QMenu()
+    state = tray._TrayMenuState()
+    captured: list[AppInfo] = []
+    launcher = _launcher_factory(captured)
+
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None, state) is True
+    first_actions = list(menu.actions())
+
+    # A fresh, equal app list models the normal aboutToShow / 30 s refresh.
+    # clear()+re-add would emit LayoutUpdated and collapse the GNOME submenu.
+    apps[:] = [_app("notepad"), _app("calculator")]
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None, state) is True
+
+    assert all(current is previous for current, previous in zip(menu.actions(), first_actions))
+
+    # The retained actions still launch through their original handlers.
+    first_actions[0].trigger()
+    assert [app.name for app in captured] == ["calculator"]
+
+
+def test_refresh_tray_apps_menu_rebuilds_when_only_launch_parameters_change(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_info = _app("calc", full_name="Calculator")
+    app_info.args = "--first"
+    apps = [app_info]
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: list(apps))
+    menu = QMenu()
+    state = tray._TrayMenuState()
+    seen: list[dict[str, object]] = []
+    built_args: list[str] = []
+
+    def make_launcher(candidate: AppInfo) -> Callable[[], None]:
+        built_args.append(candidate.args)
+
+        def launch() -> None:
+            seen.append(tray._tray_launch_kwargs(candidate))
+
+        return launch
+
+    assert tray._refresh_tray_apps_menu(menu, make_launcher, lambda: None, state) is True
+    first_actions = list(menu.actions())
+    assert first_actions[0].text() == "Calculator"
+    assert built_args == ["--first"]
+
+    # Same launch contract: no second handler build.
+    assert tray._refresh_tray_apps_menu(menu, make_launcher, lambda: None, state) is True
+    assert built_args == ["--first"]
+    assert menu.actions() == first_actions
+
+    # Same labels, different launch contract: the snapshot must include the
+    # launch parameters, not just the visible names.
+    replacement = _app("calc", full_name="Calculator")
+    replacement.args = "--second"
+    apps[:] = [replacement]
+
+    assert tray._refresh_tray_apps_menu(menu, make_launcher, lambda: None, state) is True
+    rebuilt_actions = list(menu.actions())
+    assert built_args == ["--first", "--second"]
+    assert rebuilt_actions[0] is not first_actions[0]
+    assert rebuilt_actions[0].text() == "Calculator"
+    rebuilt_actions[0].trigger()
+    assert seen[-1]["default_args"] == "--second"
+
+    # If the listing mutates a previously returned profile, its old
+    # overrides must not change in the cached signature as well.
+    replacement.rdp_overrides["scale"] = 150
+    assert tray._refresh_tray_apps_menu(menu, make_launcher, lambda: None, state) is True
+    assert menu.actions()[0] is not rebuilt_actions[0]
+    menu.actions()[0].trigger()
+    assert seen[-1]["rdp_overrides"] == {"scale": 150}
+
+
+def test_refresh_tray_apps_menu_failure_keeps_last_signature_and_actions(
+    qt_app: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apps = [_app("notepad")]
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: list(apps))
+    menu = QMenu()
+    state = tray._TrayMenuState()
+    launcher = _launcher_factory([])
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None, state) is True
+    previous_actions = list(menu.actions())
+
+    def fail_listing() -> list[AppInfo]:
+        raise OSError("catalog unavailable")
+
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", fail_listing)
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None, state) is False
+    assert menu.actions() == previous_actions
+
+    # A transient failure must not poison the snapshot: the next successful
+    # refresh with the same content still skips the rebuild.
+    monkeypatch.setattr("winpodx.core.app.list_available_apps", lambda: list(apps))
+    assert tray._refresh_tray_apps_menu(menu, launcher, lambda: None, state) is True
+    assert menu.actions() == previous_actions
