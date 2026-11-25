@@ -164,8 +164,8 @@ def test_password_filter_passes_through_clean_records():
 # H6
 
 
-@pytest.mark.parametrize("backend_name", ["podman", "docker", "libvirt", "manual"])
-def test_sec_tls_applied_for_all_backends(backend_name, monkeypatch):
+@pytest.mark.parametrize("backend_name", ["podman", "docker"])
+def test_sec_tls_applied_for_managed_backends(backend_name, monkeypatch):
     from winpodx.core.rdp import build_rdp_command
 
     monkeypatch.setattr(
@@ -179,6 +179,29 @@ def test_sec_tls_applied_for_all_backends(backend_name, monkeypatch):
 
     cmd, _ = build_rdp_command(cfg)
     assert "/sec:tls" in cmd, f"/sec:tls missing for backend {backend_name!r}"
+
+
+def test_manual_backend_leaves_security_negotiation_to_host(monkeypatch):
+    """A stock Windows PC defaults to NLA, which a forced TLS-only client
+    (``/sec:tls``) cannot use. The manual backend must omit /sec so FreeRDP
+    negotiates, while keeping TOFU for the remote certificate (#900)."""
+    from winpodx.core.rdp import build_rdp_command
+
+    monkeypatch.setattr(
+        "winpodx.core.rdp.find_freerdp",
+        lambda *a, **k: ("/usr/bin/xfreerdp3", "xfreerdp"),
+    )
+    cfg = Config()
+    cfg.rdp.user = "User"
+    cfg.rdp.password = "p"
+    cfg.rdp.ip = "192.168.1.50"
+    cfg.rdp.port = 3389
+    cfg.pod.backend = "manual"
+
+    cmd, _ = build_rdp_command(cfg)
+    assert "/sec:tls" not in cmd
+    assert "/cert:tofu" in cmd
+    assert "/v:192.168.1.50:3389" in cmd
 
 
 # H10

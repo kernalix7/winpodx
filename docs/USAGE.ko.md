@@ -20,6 +20,29 @@ CLI, 트레이, GUI에서 **Full Desktop**을 다시 실행하면 추적 중인 
 
 도구로 활성화를 요청하지 못하면 경고 로그와 *데스크톱 세션이 이미 실행 중이지만 해당 창을 활성화하지 못했습니다. 기존 FreeRDP 창으로 전환하세요.* 알림을 표시합니다. 실행 중인 세션의 추적을 유지하고 중복 클라이언트를 시작하지 않습니다. 특히 Wayland에서는 도구가 성공을 반환해도 컴포지터가 활성화 요청을 무시할 수 있습니다. 이 경우 기존 창으로 직접 전환하세요.
 
+## 기존 Windows PC 사용 (manual RDP 백엔드)
+
+`manual` 백엔드를 사용하면 로컬 VM을 만들거나 관리하지 않고 기존 Windows PC의 전체 데스크톱을 열 수 있습니다. Linux에 FreeRDP 3 이상을 설치하세요. Windows Pro, Enterprise, Education 또는 Server에서 **설정 → 시스템 → 원격 데스크톱**을 켜고 계정의 접속을 허용하세요. Windows Home은 RDP 호스트로 사용할 수 없습니다. 네트워크 수준 인증(NLA)은 켜 두고, 신뢰하는 LAN이나 VPN에서만 RDP 포트 접근을 허용하세요.
+
+`${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/winpodx.toml`에 아래 키를 추가하거나 수정하세요. PC 주소, Windows 계정 비밀번호(PIN 아님), 미리 만들어 둔 Linux 전용 공유 폴더 경로를 사용하세요. 필요하면 `rdp.domain`도 지정하세요. 자격증명이 들어 있는 설정 파일은 `chmod 600`으로 보호하세요.
+
+```toml
+[pod]
+backend = "manual"
+home_share = "/home/you/winpodx-share"
+
+[rdp]
+ip = "192.168.1.50"
+port = 3389  # 로컬 VM 기본값 3390이 아닌 Windows 표준 RDP 포트.
+user = "Alice"
+password = "your-windows-password"
+media_drive_enabled = false
+```
+
+`winpodx app run desktop`을 실행하세요. `manual` 백엔드는 FreeRDP가 PC의 RDP 보안 정책에 맞춰 연결하도록 하므로 NLA를 끌 필요가 없습니다. 위 예시는 홈 드라이브 공유를 지정한 폴더로 제한하고 이동식 미디어 공유를 끕니다. `home_share`를 지정하지 않으면 Linux 홈 폴더 전체가 기본 공유되며, 클립보드 리디렉션도 켜져 있습니다.
+
+WinPodX는 이 PC를 프로비저닝하거나 제어하지 않습니다. 원격 데스크톱을 켠 것만으로 개별 RemoteApp 창, WinPodX 앱 검색, reverse-open을 사용할 수 있는 것은 아닙니다. Windows 클라이언트 에디션은 RDP 연결 중 로컬 화면이 잠길 수 있습니다.
+
 ## CLI 레퍼런스
 
 ```bash

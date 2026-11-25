@@ -20,6 +20,29 @@ Reopening **Full Desktop** from the CLI, tray, or GUI reuses the tracked FreeRDP
 
 If the tools cannot request activation, WinPodX logs a warning and displays *The desktop session is already running, but its window could not be activated. Switch to the existing FreeRDP window.* The running session stays tracked and no duplicate client is started. A compositor, especially on Wayland, may also ignore an otherwise successful activation request; switch to the existing window manually in that case.
 
+## Using an existing Windows PC (manual RDP backend)
+
+Use the `manual` backend to open the full desktop of an existing Windows PC without creating or managing a local VM. Install FreeRDP 3+ on Linux. On Windows Pro, Enterprise, Education, or Server, enable **Settings → System → Remote Desktop** and allow the account to connect. Windows Home cannot host RDP. Keep Network Level Authentication (NLA) enabled and allow the RDP port only on a trusted LAN or VPN.
+
+Add or update these keys in `${XDG_CONFIG_HOME:-$HOME/.config}/winpodx/winpodx.toml`. Substitute the PC's address, your Windows account password (not a PIN), and an existing, dedicated Linux share directory. Use `rdp.domain` if needed. Keep the config file private (`chmod 600`) if it contains credentials.
+
+```toml
+[pod]
+backend = "manual"
+home_share = "/home/you/winpodx-share"
+
+[rdp]
+ip = "192.168.1.50"
+port = 3389  # Standard Windows RDP port, not the local VM default 3390.
+user = "Alice"
+password = "your-windows-password"
+media_drive_enabled = false
+```
+
+Run `winpodx app run desktop`. The manual backend lets FreeRDP negotiate the PC's RDP security policy; there is no need to disable NLA. The example limits home-drive sharing and disables the removable-media share. Without `home_share`, WinPodX shares your entire Linux home directory by default; clipboard redirection is also enabled.
+
+WinPodX does not provision or control the PC. Enabling Remote Desktop alone does not set up individual RemoteApp windows, WinPodX app discovery, or reverse-open. On Windows client editions, an RDP connection can lock the local console.
+
 ## CLI reference
 
 ```bash
