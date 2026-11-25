@@ -462,6 +462,7 @@ def test_recreate_container_podman_plugin_warns_then_starts(tmp_path: Path, caps
     fake_subprocess = SimpleNamespace(
         run=run,
         CalledProcessError=subprocess.CalledProcessError,
+        TimeoutExpired=subprocess.TimeoutExpired,
     )
     with (
         patch("winpodx.cli.setup_cmd.find_podman_compose", return_value=None),
@@ -489,6 +490,7 @@ def test_recreate_container_docker_failure_raises(tmp_path: Path, capsys) -> Non
     fake_subprocess = SimpleNamespace(
         run=MagicMock(side_effect=lambda *args, **kwargs: next(results)),
         CalledProcessError=subprocess.CalledProcessError,
+        TimeoutExpired=subprocess.TimeoutExpired,
     )
     with (
         patch("winpodx.cli.setup_cmd.shutil.which", return_value="/usr/bin/docker-compose"),
@@ -498,6 +500,75 @@ def test_recreate_container_docker_failure_raises(tmp_path: Path, capsys) -> Non
     ):
         setup_cmd._recreate_container(cfg)
     assert "Failed to start container: pull denied" in capsys.readouterr().out
+
+
+_SLOW_COMPOSE_LINE = {
+    "up": "Trying to pull ghcr.io/dockur/windows:latest...\nQA_PRIVATE_REGISTRY_TOKEN",
+    "down": "Stopping container winpodx-windows...",
+}
+
+
+def _write_fake_podman_compose(tmp_path: Path, *, slow_phase: str | None = None) -> Path:
+    """Write a standalone podman-compose stand-in for real subprocess runs.
+
+    ``slow_phase`` names the subcommand that echoes one line and then sleeps
+    (via ``exec`` so the timeout kill hits it directly). Other subcommands
+    exit 0 immediately. No container runtime, network, or image is needed.
+    """
+    slow_case = ""
+    if slow_phase is not None:
+        slow_case = (
+            f'if [ "$1" = "{slow_phase}" ]; then\n'
+            f"  echo '{_SLOW_COMPOSE_LINE[slow_phase]}'\n"
+            "  exec sleep 30\n"
+            "fi\n"
+        )
+    script = tmp_path / "podman-compose"
+    script.write_text(f"#!/bin/sh\n{slow_case}exit 0\n", encoding="utf-8")
+    script.chmod(0o755)
+    return script
+
+
+@pytest.mark.parametrize(
+    ("slow_phase", "expected_phase"),
+    [
+        ("up", "starting the Windows container (compose up -d)"),
+        ("down", "stopping the existing container (compose down)"),
+    ],
+)
+def test_recreate_container_timeout_reports_phase_and_advice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+    slow_phase: str,
+    expected_phase: str,
+) -> None:
+    """#903: a real timed-out compose run must raise actionable text, not
+    ``subprocess.TimeoutExpired``, and must say which phase timed out."""
+    cfg = Config()
+    cfg.pod.backend = "podman"
+    fake_compose = _write_fake_podman_compose(tmp_path, slow_phase=slow_phase)
+    monkeypatch.setenv(setup_cmd.COMPOSE_TIMEOUT_ENV_VAR, "1")
+    with (
+        patch("winpodx.cli.setup_cmd.find_podman_compose", return_value=str(fake_compose)),
+        patch("winpodx.cli.setup_cmd.config_dir", return_value=tmp_path),
+        patch("winpodx.backend._hostenv.host_env", return_value=None),
+        pytest.raises(setup_cmd.ComposeTimeoutError) as excinfo,
+    ):
+        setup_cmd._recreate_container(cfg)
+
+    message = str(excinfo.value)
+    assert "Compose timed out after 1s" in message
+    assert expected_phase in message
+    assert "WINPODX_COMPOSE_TIMEOUT_SECS=3600" in message
+    assert "A value of 0 disables the timeout" in message
+    assert "podman ps -a" in message
+    if slow_phase == "up":
+        assert "contains image pull activity" in message
+        assert "QA_PRIVATE_REGISTRY_TOKEN" not in message
+        assert "Running compose up -d (timeout 1s)" in capsys.readouterr().out
+    else:
+        assert "Running compose up -d" not in capsys.readouterr().out
 
 
 def _gui_setup_outcome(exc: SystemExit) -> tuple[bool, str]:
