@@ -152,9 +152,11 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
     Tries AgentTransport first (fast HTTP, bypasses xfreerdp3's broken
     bidirectional drive redirect on cachyos). If the agent isn't
-    reachable, falls back to ``run_in_windows`` (FreeRDP RemoteApp).
-    Auth failures on the agent are NOT followed by FreeRDP fallback —
-    those indicate config drift, not transient channel state.
+    reachable, falls back to ``run_in_windows`` (FreeRDP RemoteApp),
+    except under the agent-only policy where that channel is forbidden
+    and the change is reported as not attempted. Auth failures on the
+    agent are NOT followed by FreeRDP fallback — those indicate config
+    drift, not transient channel state.
 
     Runs ``net user <User> <new>`` on the guest. On success the caller
     updates cfg.password. The existing rotation rollback marker
@@ -179,11 +181,23 @@ def _change_windows_password(cfg: Config, new_password: str) -> bool:
 
     from winpodx.core.transport import dispatch
     from winpodx.core.transport.base import TransportAuthError, TransportError, TransportUnavailable
+    from winpodx.core.transport.policy import agent_required
     from winpodx.core.windows_exec import WindowsExecError, run_in_windows
 
     try:
         transport = dispatch(cfg, prefer="agent")
     except TransportUnavailable:
+        # Under the agent-only policy (install/migrate scopes and
+        # WINPODX_REQUIRE_AGENT=1) ``run_in_windows`` refuses to run, so the
+        # legacy fallback can never submit the change. Falling through would
+        # mislabel this pre-submission outage as "outcome unknown" and leave
+        # the rotation marker behind; report the skip instead.
+        if agent_required():
+            log.warning(
+                "Agent transport is required but unavailable; "
+                "skipping the FreeRDP password-change fallback"
+            )
+            return False
         log.info("Agent unavailable for password rotation; falling back to FreeRDP")
         try:
             result = run_in_windows(cfg, payload, description="rotate-password", timeout=120)

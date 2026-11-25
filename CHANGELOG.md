@@ -23,6 +23,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Tray app entries, **Full Desktop**, and double-clicking the tray icon now run the same readiness preflight as CLI app launches before opening RDP, with failures recorded in the log and reported by notification instead of blocking silently. The tray stays responsive while readiness runs, and Quit waits for in-flight readiness before the final pod stop so a pending launch cannot restart the pod afterwards (#901). Thanks @danielabelski.
 - Repeated Full Desktop launches now request activation of the tracked FreeRDP window by PID via optional `wmctrl`/`xdotool`, with a warning and notification if the tools cannot activate it. The existing client and session tracking are preserved (#902). Thanks @danielabelski.
 - Keep the existing Windows autologon secret in sync when rotating a matching local account's password, without enabling autologon or changing its count (#894). Thanks @danielabelski.
+- Do not leave a pending password rotation when the required agent is unavailable before the change is submitted and the agent-only policy forbids falling back to FreeRDP (#904). Thanks @mpierce4131.
 - Allow FreeRDP to negotiate the external Windows host's security policy in manual mode rather than forcing managed-guest TLS. Document connecting to an existing Windows PC and limiting folder sharing (#900). Thanks @unisons.
 
 ## [0.12.1] - 2026-10-12

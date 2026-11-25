@@ -441,3 +441,38 @@ def test_verify_freerdp_fallback_restores_config_on_channel_failure(_rotate_cfg,
 
     assert seen == ["candidate-password"]
     assert _rotate_cfg.rdp.password == "old-password"
+
+
+def test_auto_rotation_under_agent_only_outage_skips_without_pending_marker(
+    _rotate_cfg, monkeypatch, caplog
+):
+    from datetime import datetime, timedelta, timezone
+
+    from winpodx.core import rotation
+    from winpodx.core.pod import PodState, PodStatus
+    from winpodx.core.transport.base import TransportUnavailable
+    from winpodx.core.transport.policy import agent_only
+
+    _rotate_cfg.rdp.password_max_age = 1
+    _rotate_cfg.rdp.password_updated = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    _rotate_cfg.save()
+
+    monkeypatch.delenv("WINPODX_REQUIRE_AGENT", raising=False)
+    monkeypatch.setattr(
+        "winpodx.core.transport.dispatch",
+        MagicMock(side_effect=TransportUnavailable("agent down")),
+    )
+    monkeypatch.setattr(
+        "winpodx.core.rotation.pod_status",
+        lambda cfg: PodStatus(state=PodState.RUNNING),
+    )
+    rin = MagicMock()
+    monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", rin)
+
+    with agent_only():
+        result = rotation._auto_rotate_password(_rotate_cfg)
+
+    rin.assert_not_called()
+    assert result.rdp.password == "old-password"
+    assert not rotation._rotation_marker_path().exists()
+    assert "Password rotation skipped" in caplog.text
