@@ -26,6 +26,8 @@ from winpodx.utils.deps import check_all, find_podman_compose
 from winpodx.utils.paths import config_dir
 
 if TYPE_CHECKING:
+    import subprocess
+
     from winpodx.setup_wizard.storage import StorageValidationError
 
 COMPOSE_TIMEOUT_DEFAULT_SECS = 1800
@@ -63,6 +65,78 @@ def _compose_timeout_secs() -> int | None:
     if timeout == 0:
         return None
     return timeout
+
+
+class ComposeTimeoutError(RuntimeError):
+    """A compose command exceeded the configured compose timeout.
+
+    Subclasses ``RuntimeError`` so existing callers that treat compose
+    failures as ordinary errors (the GUI recreate phase renders
+    ``str(exc)``) keep working. ``handle_setup`` converts it to a clean
+    exit message so a timeout never surfaces as a raw
+    ``subprocess.TimeoutExpired`` traceback (#903).
+    """
+
+
+def _compose_timeout_text(timeout: float | None) -> str:
+    """Render a compose timeout for user-facing messages."""
+    if timeout is None:
+        return tr("no cap")
+    return f"{timeout:g}s"
+
+
+def _timeout_exc_text(exc: "subprocess.TimeoutExpired") -> str:
+    """Return whatever output ``subprocess.run`` captured before the timeout."""
+    parts: list[str] = []
+    for stream in (exc.output, exc.stderr):
+        if stream is None:
+            continue
+        if isinstance(stream, bytes):
+            stream = stream.decode("utf-8", errors="replace")
+        parts.append(stream)
+    return "".join(parts)
+
+
+def _compose_timeout_error(
+    exc: "subprocess.TimeoutExpired", *, phase: str, backend: str
+) -> ComposeTimeoutError:
+    """Report where compose timed out without echoing provider output."""
+    output = _timeout_exc_text(exc)
+    lowered = output.lower()
+    pulling = any(
+        hint in lowered
+        for hint in (
+            "trying to pull",
+            "pulling",
+            "copying blob",
+            "getting image source signatures",
+        )
+    )
+    if pulling:
+        detail = tr(
+            "The captured output contains image pull activity, but does not "
+            "establish whether the pull or a later step stalled."
+        )
+    else:
+        detail = tr(
+            "The command did not finish within the limit; its captured output "
+            "does not show an image pull in progress."
+        )
+    message = tr(
+        "Compose timed out after {timeout} while {phase}.\n"
+        "{detail}\n"
+        "If the first image pull is progressing slowly, rerun the same setup "
+        "command with WINPODX_COMPOSE_TIMEOUT_SECS=3600. A value of 0 disables "
+        "the timeout.\n"
+        "Check `{backend} info` and `{backend} ps -a` to see whether the "
+        "container runtime is responsive and a container was created."
+    ).format(
+        timeout=_compose_timeout_text(exc.timeout),
+        phase=phase,
+        detail=detail,
+        backend=backend,
+    )
+    return ComposeTimeoutError(message)
 
 
 def _ensure_oem_token_staged() -> None:
@@ -1408,7 +1482,15 @@ def handle_setup(
             raise SystemExit(1)
 
         _generate_compose(cfg)
-        _recreate_container(cfg)
+        try:
+            _recreate_container(cfg)
+        except ComposeTimeoutError as exc:
+            # #903: the timeout is actionable text now, not a raw
+            # subprocess.TimeoutExpired traceback. SystemExit(str) prints the
+            # message without a traceback and exits 1 (install.sh's
+            # captured-output path reports the failure); the GUI SetupWorker
+            # catches SystemExit and shows the same text.
+            raise SystemExit(str(exc)) from None
 
     from winpodx.display.scaling import detect_raw_scale, detect_scale_factor
 
@@ -1615,14 +1697,21 @@ def _recreate_container(cfg: Config) -> None:
     print(tr("\nRecreating container with new settings..."))
     compose_timeout = _compose_timeout_secs()
     # compose down may fail on fresh setup when no container exists yet
-    down = sp.run(
-        [*compose_cmd, "down"],
-        cwd=compose_path.parent,
-        capture_output=True,
-        text=True,
-        timeout=compose_timeout,
-        env=env,
-    )
+    try:
+        down = sp.run(
+            [*compose_cmd, "down"],
+            cwd=compose_path.parent,
+            capture_output=True,
+            text=True,
+            timeout=compose_timeout,
+            env=env,
+        )
+    except sp.TimeoutExpired as exc:
+        raise _compose_timeout_error(
+            exc,
+            phase=tr("stopping the existing container (compose down)"),
+            backend=backend,
+        ) from None
     if down.returncode != 0 and down.stderr:
         stderr = down.stderr.strip()
         if stderr and "no such" not in stderr.lower():
@@ -1631,21 +1720,31 @@ def _recreate_container(cfg: Config) -> None:
                     rc=down.returncode, stderr=stderr
                 )
             )
-    timeout_text = tr("no cap") if compose_timeout is None else f"{compose_timeout}s"
+    timeout_text = _compose_timeout_text(compose_timeout)
     print(
         tr(
             "Running compose up -d (timeout {timeout}). "
             "First-time image pull can take 10+ minutes on slow connections."
         ).format(timeout=timeout_text)
     )
-    result = sp.run(
-        [*compose_cmd, "up", "-d"],
-        cwd=compose_path.parent,
-        capture_output=True,
-        text=True,
-        timeout=compose_timeout,
-        env=env,
-    )
+    # Keep capture_output for the existing non-zero-exit message contract;
+    # the timeout diagnostic below reports the captured pull state instead
+    # of letting subprocess.TimeoutExpired escape as a traceback (#903).
+    try:
+        result = sp.run(
+            [*compose_cmd, "up", "-d"],
+            cwd=compose_path.parent,
+            capture_output=True,
+            text=True,
+            timeout=compose_timeout,
+            env=env,
+        )
+    except sp.TimeoutExpired as exc:
+        raise _compose_timeout_error(
+            exc,
+            phase=tr("starting the Windows container (compose up -d)"),
+            backend=backend,
+        ) from None
     if result.returncode == 0:
         print(tr("Container started."))
     else:
