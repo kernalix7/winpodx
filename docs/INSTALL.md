@@ -390,6 +390,8 @@ Whichever path you used, check what you're running with `winpodx --version`. If 
 
 On Wayland, `rdp.freerdp_source = "auto"` prefers **SDL3 FreeRDP 3.33.1 or newer** for Windows **RemoteApp** when that client can open the native Wayland display. It does not need XWayland. To opt out, run `winpodx config set rdp.freerdp_source native` (prefers `xfreerdp` when installed) or select `flatpak`. Full-desktop client selection is unchanged.
 
+On Wayland, `install.sh` checks for a compatible SDL3 client separately from the base FreeRDP dependency. In auto mode it can install a missing client from enabled distro repositories even if `xfreerdp` is already present. Fedora and Arch include the SDL client in `freerdp`; Debian-based distros and openSUSE may ship a separate SDL package. If no compatible package is available or the optional installation fails, the installer continues with the existing fallback. `--skip-deps` disables the optional install too.
+
 The `xfreerdp` fallback, including the FreeRDP Flatpak, still needs X11. On Wayland, that means:
 
 - Most desktop environments ship built-in **XWayland** — nothing to do.

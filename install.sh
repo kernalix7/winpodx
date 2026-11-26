@@ -606,9 +606,11 @@ pkg_name() {
 }
 
 install_pkg() {
-    local pkg="$1"
-    local actual
-    actual=$(pkg_name "$pkg")
+    install_named_pkg "$(pkg_name "$1")"
+}
+
+install_named_pkg() {
+    local actual="$1"
     log "Installing $actual..."
 
     if command -v zypper >/dev/null 2>&1; then
@@ -625,6 +627,112 @@ install_pkg() {
         return 1
     fi
 }
+
+# Match the runtime selector in core/rdp.py, but probe without opening a window.
+SDL_RAIL_MIN_VERSION=3.33.1
+SDL_FREERDP_NAMES=(sdl3-freerdp sdl-freerdp3 sdl-freerdp)
+
+sdl_rail_version_ok() {
+    local version="${1#*:}"
+    [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)($|[+._-]) ]] || return 1
+    [ "$(printf '%s\n' "${BASH_REMATCH[1]}" "$SDL_RAIL_MIN_VERSION" | LC_ALL=C sort -V | head -n 1)" = "$SDL_RAIL_MIN_VERSION" ]
+}
+
+installed_sdl_rail_version() {
+    local name path build version
+    for name in "${SDL_FREERDP_NAMES[@]}"; do
+        path=$(command -v "$name") || continue
+        build=$(SDL_VIDEODRIVER=dummy timeout 5 "$path" /buildconfig 2>&1) || continue
+        [[ " $build " =~ [[:space:]]WITH_CLIENT_SDL3=ON[[:space:]] ]] || continue
+        [[ " $build " =~ [[:space:]]WITH_WAYLAND=ON[[:space:]] ]] || continue
+        if [ "$name" != sdl3-freerdp ] \
+            && [[ " $build " =~ [[:space:]]WITH_CLIENT_SDL2=ON[[:space:]] ]]; then
+            continue
+        fi
+        [[ "$build" =~ FreeRDP\ version(\ \[[^]]+\])?[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+) ]] || continue
+        version="${BASH_REMATCH[2]}"
+        if sdl_rail_version_ok "$version"; then
+            printf '%s\n' "$version"
+            return
+        fi
+    done
+    return 1
+}
+
+wants_sdl_rail() {
+    local session="${XDG_SESSION_TYPE:-}"
+    [ "$WINPODX_FREERDP_SOURCE" = auto ] || return 1
+    case "${session,,}" in
+        x11) return 1 ;;
+        wayland) ;;
+        *) [ -n "${WAYLAND_DISPLAY:-}" ] || return 1 ;;
+    esac
+    case "${SDL_VIDEODRIVER:-}" in
+        ""|wayland) ;;
+        *) return 1 ;;
+    esac
+    [ -f "$PRIOR_CONFIG" ] || return 0
+
+    # Upgrades preserve the saved client and single-monitor preferences.
+    local python=python3
+    [ ! -x "$VENV_PY" ] || python="$VENV_PY"
+    "$python" - "$PRIOR_CONFIG" <<'PY' 2>/dev/null
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+with open(sys.argv[1], "rb") as config:
+    rdp = tomllib.load(config).get("rdp", {})
+sys.exit(0 if rdp.get("freerdp_source", "auto") == "auto" and rdp.get("multimon") != "off" else 1)
+PY
+}
+
+sdl_rail_repo_package() {
+    local package version candidates
+    case "$DISTRO" in
+        fedora)
+            # The freerdp RPM includes xfreerdp and SDL3. Request a specific
+            # repository version to upgrade an older installed RPM.
+            candidates=$(timeout 25 dnf -q repoquery --available --arch "$ARCH" \
+                --latest-limit=1 --queryformat '%{version} %{name}-%{version}-%{release}.%{arch}\n' \
+                freerdp 2>/dev/null) || return 1
+            while read -r version package; do
+                if sdl_rail_version_ok "$version" && [ -n "$package" ]; then
+                    printf '%s\n' "$package"
+                    return
+                fi
+            done <<< "$candidates"
+            ;;
+        ubuntu|debian|linuxmint|pop)
+            # Debian renamed the SDL package. Older suites may still have
+            # freerdp3-sdl, or no compatible version of either package.
+            for package in freerdp-sdl freerdp3-sdl; do
+                version=$(LC_ALL=C apt-cache policy "$package" 2>/dev/null \
+                    | awk '$1 == "Candidate:" {print $2}')
+                if sdl_rail_version_ok "$version"; then
+                    printf '%s=%s\n' "$package" "$version"
+                    return
+                fi
+            done
+            ;;
+        arch|manjaro|endeavouros)
+            version=$(LC_ALL=C pacman -Si freerdp 2>/dev/null \
+                | awk '$1 == "Version" && $2 == ":" {print $3}')
+            if sdl_rail_version_ok "$version"; then
+                printf '%s\n' freerdp
+                return
+            fi
+            ;;
+        opensuse*|sles)
+            # Let zypper enforce the minimum against its enabled repos.
+            printf 'freerdp-sdl>=%s\n' "$SDL_RAIL_MIN_VERSION"
+            return
+            ;;
+    esac
+    return 1
+}
+
 
 # --- Atomic Fedora (Silverblue / Kinoite / Sericea / Bluefin / Bazzite / ...) ---
 #
@@ -762,9 +870,9 @@ DOCKER_PRESENT=false
 command -v docker >/dev/null 2>&1 && DOCKER_PRESENT=true
 # FreeRDP detection — track native client, Flatpak client, and the Flatpak
 # runtime separately so the install policy + Custom mode can choose a source.
-# Mirrors core/rdp.py:find_freerdp's accepted native set.
+# Include the versioned SDL3 name recognized by the launcher.
 FREERDP_NATIVE_PRESENT=false
-for _c in xfreerdp3 xfreerdp sdl-freerdp3 sdl-freerdp wlfreerdp3 wlfreerdp; do
+for _c in xfreerdp3 xfreerdp "${SDL_FREERDP_NAMES[@]}" wlfreerdp3 wlfreerdp; do
     if command -v "$_c" >/dev/null 2>&1; then FREERDP_NATIVE_PRESENT=true; break; fi
 done
 FLATPAK_PRESENT=false
@@ -774,12 +882,8 @@ if [ "$FLATPAK_PRESENT" = true ] \
     && flatpak list --app --columns=application 2>/dev/null | grep -qx 'com.freerdp.FreeRDP'; then
     FREERDP_FLATPAK_PRESENT=true
 fi
-# Any client (native or Flatpak) satisfies the requirement, so we never pull a
-# redundant native package when a client is already present (#269). winpodx's
-# launcher prefers the FLATPAK client when both are present (core/rdp.py
-# auto order is flatpak-first, #401) — so the reported "kind" mirrors that:
-# flatpak wins the label when both exist, so it matches the client the
-# launcher will actually use.
+# Any existing client satisfies the base dependency. Native Wayland
+# RemoteApp suitability is checked separately in the install plan.
 FREERDP_PRESENT=false
 FREERDP_KIND=""
 if [ "$FREERDP_FLATPAK_PRESENT" = true ]; then
@@ -928,7 +1032,7 @@ if [ "$INSTALL_MODE" = "c" ]; then
     fi
     if [ -z "${WINPODX_FREERDP_SOURCE:-}" ] && [ "$INTERACTIVE" = true ]; then
         echo    "FreeRDP client source?"
-        echo    "  [A]uto     prefer the Flatpak when present, else native (recommended)"
+        echo    "  [A]uto     use compatible SDL3 for Wayland RemoteApps when available (recommended)"
         echo    "  [N]ative   distro freerdp3 package"
         echo    "  [F]latpak  com.freerdp.FreeRDP via Flatpak (better on distros with a broken native freerdp3-x11)"
         echo -n "Choice [A/n/f]: "
@@ -1108,14 +1212,8 @@ case "${WINPODX_BACKEND:-podman}" in
 esac
 
 # FreeRDP is required for every backend (the launcher shells out to it).
-# Source resolution (auto | native | flatpak). Custom mode may set
-# WINPODX_FREERDP_SOURCE; default auto. winpodx's launcher prefers the FLATPAK
-# client when present (flatpak-first auto order, #401). install.sh still
-# installs the lightweight NATIVE package when NO client is present at all --
-# pulling the whole Flatpak runtime during install is heavy, and the launcher
-# uses whatever is there. An already-present Flatpak is reused (never install a
-# redundant client). Only an explicit `--freerdp-source flatpak` (Custom)
-# installs the Flatpak. The resolved value -> `winpodx setup --freerdp-source`.
+# Use any existing client for the base dependency. Install the native
+# package if none exists; only an explicit Flatpak selection installs Flatpak.
 WINPODX_FREERDP_SOURCE="${WINPODX_FREERDP_SOURCE:-auto}"
 INSTALL_FREERDP_FLATPAK=false
 case "$WINPODX_FREERDP_SOURCE" in
@@ -1126,13 +1224,24 @@ case "$WINPODX_FREERDP_SOURCE" in
             [ "$FLATPAK_PRESENT" = false ] && MISSING+=("flatpak")
         fi
         ;;
-    *)  # auto: the launcher prefers an existing Flatpak (flatpak-first), but
-        # install the lightweight native package only when NO client (native
-        # or Flatpak) is present — an existing Flatpak is reused, never a
-        # redundant install.
+    *)
         [ "$FREERDP_PRESENT" = false ] && MISSING+=("freerdp")
         ;;
 esac
+
+SDL_FREERDP_PACKAGE=
+SDL_FREERDP_PLAN=
+if wants_sdl_rail; then
+    if sdl_version=$(installed_sdl_rail_version); then
+        SDL_FREERDP_PLAN="use existing ($sdl_version)"
+    elif [ -n "$WINPODX_SKIP_DEPS" ]; then
+        SDL_FREERDP_PLAN="skip (--skip-deps)"
+    elif SDL_FREERDP_PACKAGE=$(sdl_rail_repo_package); then
+        SDL_FREERDP_PLAN="try $SDL_FREERDP_PACKAGE if still needed (optional)"
+    else
+        SDL_FREERDP_PLAN="no compatible package found in enabled repos; keep FreeRDP fallback"
+    fi
+fi
 
 # python3 is mandatory (venv host interpreter).
 [ "$PYTHON3_PRESENT" = false ] && MISSING+=("python3")
@@ -1219,10 +1328,13 @@ elif [ "$INSTALL_FREERDP_FLATPAK" = true ]; then
 else
     log "  FreeRDP:     install native package"
 fi
+[ -z "$SDL_FREERDP_PLAN" ] || log "  Wayland SDL3: $SDL_FREERDP_PLAN"
 log "  KVM:         $(yesno "$KVM_PRESENT") /dev/kvm  [host virtualization — required, not installed]"
 log "  GUI:         $([ -n "$WINPODX_NO_GUI" ] && echo 'no (--no-gui)' || echo 'yes (PySide6, into venv)')"
 if [ "${#MISSING[@]}" -gt 0 ]; then
     log "  Will install: ${MISSING[*]}  (via distro package manager, sudo)"
+elif [ -n "$SDL_FREERDP_PACKAGE" ]; then
+    log "  Required packages: none — SDL3 is optional"
 else
     log "  Will install: nothing — all required system packages already present"
 fi
@@ -1235,25 +1347,29 @@ fi
 log "======================================================"
 echo ""
 
-if [ ${#MISSING[@]} -gt 0 ]; then
+if [ ${#MISSING[@]} -gt 0 ] || [ -n "$SDL_FREERDP_PACKAGE" ]; then
     if [ -n "$WINPODX_SKIP_DEPS" ]; then
         err "--skip-deps is set but required tools are missing: ${MISSING[*]}"
         err "Install them manually and re-run, or drop --skip-deps."
         exit 1
     fi
-    log "Missing: ${MISSING[*]}"
+    [ "${#MISSING[@]}" -eq 0 ] || log "Missing: ${MISSING[*]}"
     echo ""
     echo "  The following will be installed via $(command -v zypper || command -v dnf || command -v apt-get || command -v pacman):"
     for dep in "${MISSING[@]}"; do
         echo "    - $(pkg_name "$dep")"
     done
+    [ -z "$SDL_FREERDP_PACKAGE" ] || echo "    - $SDL_FREERDP_PACKAGE (optional Wayland SDL3)"
     echo ""
     if [ "$INTERACTIVE" = true ]; then
         echo -n "  Proceed with installation? (Y/n): "
         read -r answer < "$TTY_DEV"
         if [[ "$answer" =~ ^[Nn] ]]; then
-            err "Aborted. Install dependencies manually and try again."
-            exit 1
+            if [ "${#MISSING[@]}" -ne 0 ]; then
+                err "Aborted. Install dependencies manually and try again."
+                exit 1
+            fi
+            SDL_FREERDP_PACKAGE=
         fi
     else
         log "  Non-interactive — proceeding with package install."
@@ -1270,7 +1386,20 @@ if [ ${#MISSING[@]} -gt 0 ]; then
         err "$INSTALL_FAIL package(s) failed to install. Fix manually and re-run."
         exit 1
     fi
-    log "All dependencies installed successfully"
+    if [ -n "$SDL_FREERDP_PACKAGE" ]; then
+        # Fedora/Arch may already have supplied SDL3 with required FreeRDP.
+        if ! sdl_version=$(installed_sdl_rail_version); then
+            if install_named_pkg "$SDL_FREERDP_PACKAGE"; then
+                sdl_version=$(installed_sdl_rail_version) || sdl_version=
+            fi
+        fi
+        if [ -n "$sdl_version" ]; then
+            log "Wayland SDL3 FreeRDP $sdl_version is available."
+        else
+            warn "Could not install Wayland SDL3 FreeRDP $SDL_RAIL_MIN_VERSION or newer; keeping the FreeRDP fallback."
+        fi
+    fi
+    log "All required dependencies are available"
 else
     log "All dependencies OK"
 fi

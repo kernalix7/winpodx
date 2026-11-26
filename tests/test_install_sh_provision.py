@@ -11,7 +11,9 @@ which is exactly the duplication the unification killed.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -307,23 +309,115 @@ def test_custom_mode_picks_freerdp_source(script: str) -> None:
 
 
 def test_freerdp_flatpak_not_installed_redundantly(script: str) -> None:
-    # When a FreeRDP client (native or Flatpak) is already present, no client is
-    # pulled. With NO client present, auto installs the NATIVE package (native
-    # is preferred); only an explicit `--freerdp-source flatpak` installs the
-    # Flatpak (INSTALL_FREERDP_FLATPAK).
+    # Auto mode never installs Flatpak itself. A native SDL3 client can be
+    # added separately for Wayland RemoteApps.
     assert "FREERDP_FLATPAK_PRESENT" in script
     assert "FREERDP_NATIVE_PRESENT" in script
     assert "INSTALL_FREERDP_FLATPAK" in script
     assert "com.freerdp.FreeRDP" in script
 
 
-def test_prints_install_plan_before_acting(script: str) -> None:
-    # After the mode + dependency sources are resolved, install.sh prints a
-    # plan summary (mode / backend / FreeRDP action / GUI / packages / VM)
-    # before installing anything, so the run is transparent.
-    assert "install plan" in script
-    # The plan must be emitted before the package-install loop runs.
-    assert script.index("install plan") < script.index("if [ ${#MISSING[@]} -gt 0 ]; then")
+@pytest.mark.parametrize(
+    ("session", "client", "repo", "option", "install", "message"),
+    [
+        ("wayland", "", "3.33.1", "", True, "is available"),
+        ("wayland", "", "3.33.1", "fresh", True, "is available"),
+        ("wayland", "sdl2", "3.33.1", "", True, "is available"),
+        ("wayland", "sdl3", "3.33.1", "", False, "use existing (3.33.1)"),
+        ("wayland", "", "3.33.0", "", False, "no compatible package"),
+        ("wayland", "", "3.33.1", "fail", True, "keeping the FreeRDP fallback"),
+        ("wayland", "", "3.33.1", "skip", False, "skip (--skip-deps)"),
+        ("wayland", "", "3.33.1", "native", False, ""),
+        ("x11", "", "3.33.1", "", False, ""),
+    ],
+)
+def test_fedora_wayland_installer_supplements_xfreerdp(
+    tmp_path, session, client, repo, option, install, message
+):
+    text = _INSTALL_SH.read_text(encoding="utf-8")
+    helpers = text[text.index("# Map generic dependency") : text.index("# --- Atomic Fedora")]
+    plan = text[text.index("# FreeRDP is required") : text.index("# Install the Flatpak FreeRDP")]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for tool in ("awk", "cp", "head", "sort", "timeout"):
+        (bin_dir / tool).symlink_to(shutil.which(tool))
+
+    def fake(name, body):
+        path = bin_dir / name
+        path.write_text(f"#!/bin/bash\nset -eu\n{body}\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    fake(
+        "sdl-fixture",
+        """
+test "$1" = /buildconfig
+test "$SDL_VIDEODRIVER" = dummy
+printf 'FreeRDP version [sdl-freerdp] 3.33.1\\nWITH_CLIENT_SDL3=ON WITH_WAYLAND=ON\\n'
+""",
+    )
+    if client == "sdl3":
+        (bin_dir / "sdl-freerdp").symlink_to(bin_dir / "sdl-fixture")
+    elif client == "sdl2":
+        fake("sdl-freerdp", "printf 'FreeRDP version 3.33.1\\nWITH_CLIENT_SDL2=ON\\n'")
+    fake("dnf", 'printf "%s freerdp-%s-1.fc45.x86_64\\n" "$REPO_VERSION" "$REPO_VERSION"')
+    fake(
+        "sudo",
+        """
+test "$#" = 4 && test "$1 $2 $3" = "dnf install -y"
+printf '%s\\n' "$4" >> "$FIXTURE/transactions"
+printf 'package transaction: %s\\n' "$4"
+test "$OPTION" != fail
+cp "$FIXTURE/bin/sdl-fixture" "$FIXTURE/bin/sdl-freerdp"
+""",
+    )
+    prior_config = tmp_path / "winpodx.toml"
+    if option == "native":
+        prior_config.write_text('[rdp]\nfreerdp_source = "native"\n', encoding="utf-8")
+    harness = f"""set -euo pipefail
+log() {{ printf '%s\\n' "$*"; }}
+warn() {{ printf '%s\\n' "$*"; }}
+err() {{ printf '%s\\n' "$*" >&2; }}
+yesno() {{ printf '%s\\n' "$1"; }}
+tool_version() {{ :; }}
+DISTRO=fedora ARCH=x86_64
+FREERDP_PRESENT=true FREERDP_KIND=native FREERDP_FLATPAK_PRESENT=false
+[ "$OPTION" != fresh ] || FREERDP_PRESENT=false
+PYTHON3_PRESENT=true VENV_PROBE_OK=true KVM_PRESENT=true
+WINPODX_BACKEND=manual WINPODX_NO_GUI=1 INSTALL_MODE=a INTERACTIVE=false
+MISSING=()
+{helpers}
+{plan}
+echo 'continued to provisioning'
+"""
+    env = {
+        "PATH": str(bin_dir),
+        "FIXTURE": str(tmp_path),
+        "XDG_SESSION_TYPE": session,
+        "REPO_VERSION": repo,
+        "OPTION": option,
+        "WINPODX_SKIP_DEPS": "1" if option == "skip" else "",
+        "PRIOR_CONFIG": str(prior_config),
+        "VENV_PY": sys.executable,
+    }
+    if "LD_LIBRARY_PATH" in os.environ:
+        env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH"]
+    result = subprocess.run(
+        [shutil.which("bash"), "-c", harness], env=env, capture_output=True, text=True, timeout=15
+    )
+    transaction = tmp_path / "transactions"
+    assert result.returncode == 0, result.stderr
+    assert "continued to provisioning" in result.stdout
+    if message:
+        assert message in result.stdout
+    else:
+        assert "Wayland SDL3:" not in result.stdout
+    packages = transaction.read_text().splitlines() if transaction.exists() else []
+    expected_package = "freerdp" if option == "fresh" else f"freerdp-{repo}-1.fc45.x86_64"
+    assert packages == ([expected_package] if install else [])
+    if install:
+        assert result.stdout.index("Wayland SDL3: try ") < result.stdout.index(
+            "package transaction:"
+        )
 
 
 def test_upgrade_skips_the_mode_prompt(script: str) -> None:
