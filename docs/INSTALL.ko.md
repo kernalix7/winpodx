@@ -364,6 +364,8 @@ sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm
 
 Wayland에서 `rdp.freerdp_source = "auto"`는 네이티브 Wayland 디스플레이에 연결할 수 있는 **SDL3 FreeRDP 3.33.1 이상**을 Windows **RemoteApp**에 우선 사용합니다. XWayland는 필요 없습니다. 기존 클라이언트를 우선하려면 `winpodx config set rdp.freerdp_source native`를 실행해 설치된 `xfreerdp`를 우선하거나, `flatpak`을 선택하세요. 전체 데스크톱의 클라이언트 선택은 그대로입니다.
 
+Wayland에서 `install.sh`는 기본 FreeRDP 의존성과 별개로 호환 SDL3 클라이언트를 확인합니다. 자동 모드에서는 `xfreerdp`가 이미 설치돼 있어도 활성화된 배포판 저장소에서 필요한 SDL3 클라이언트를 설치할 수 있습니다. Fedora와 Arch는 `freerdp`에 SDL을 포함하며, Debian 계열과 openSUSE는 별도 SDL 패키지를 제공할 수 있습니다. 호환 버전이 없거나 선택적 설치가 실패하면 기존 FreeRDP 대체 경로로 설치를 계속합니다. `--skip-deps`는 선택적 설치에도 적용됩니다.
+
 FreeRDP Flatpak을 비롯한 `xfreerdp` 대체 경로에만 X11이 필요합니다. Wayland에서는 다음을 확인하세요:
 
 - 대부분의 데스크톱 환경은 **XWayland**를 내장하고 있으므로 할 일이 없습니다.

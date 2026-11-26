@@ -16,6 +16,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Changed
 
 - Prefer SDL3 FreeRDP 3.33.1+ for native Wayland RemoteApps in auto mode. SDL sends each monitor separately without `/span` or XWayland. X11, full desktop, and explicit client sources keep their existing selection. Thanks @kernalix7 for testing.
+- On Wayland, `install.sh` can install the missing SDL3 FreeRDP 3.33.1+ client from enabled distro repositories in auto mode, even when X11 FreeRDP is already present. An unavailable client does not block installation. Thanks @kernalix7 for reporting the gap.
 
 ### Fixed
 
