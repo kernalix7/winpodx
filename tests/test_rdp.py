@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import socket
+from subprocess import CompletedProcess
+
 import pytest
 
 from winpodx.core.config import Config
@@ -1953,6 +1956,71 @@ def test_freerdp_version_accepts_major_minor(monkeypatch):
     result = type("Result", (), {"stdout": "FreeRDP version 3.27\n", "stderr": ""})()
     monkeypatch.setattr(rdp_mod.subprocess, "run", lambda *a, **k: result)
     assert rdp_mod.freerdp_version() == (3, 27, 0)
+
+
+@pytest.mark.parametrize(
+    ("session", "source", "app", "monitor_mode", "build", "uses_sdl"),
+    [
+        ("wayland", "auto", True, "span", "3.33.1 sdl3", True),
+        ("wayland", "auto", True, "multimon", "3.33.1 sdl3", True),
+        ("wayland", "auto", True, "off", "3.33.1 sdl3", False),
+        ("wayland", "auto", True, "span", "3.33.0 sdl3", False),
+        ("wayland", "auto", True, "span", "3.33.1 sdl2", False),
+        ("wayland", "auto", True, "span", "3.33.1 incompatible", False),
+        ("wayland", "native", True, "span", "3.33.1 sdl3", False),
+        ("wayland", "auto", False, "span", "3.33.1 sdl3", False),
+        ("x11", "auto", True, "span", "3.33.1 sdl3", False),
+    ],
+)
+def test_wayland_remoteapp_client_and_layout(
+    monkeypatch, tmp_path, session, source, app, monitor_mode, build, uses_sdl
+):
+    from winpodx.core import rdp
+
+    monkeypatch.setenv("XDG_SESSION_TYPE", session)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wl")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("SDL_VIDEODRIVER", raising=False)
+    monkeypatch.setattr(rdp, "_FREERDP_CACHE", {})
+    monkeypatch.setattr(rdp, "_FREERDP_VERSION_CACHE", rdp._UNPROBED)
+    monkeypatch.setattr(rdp, "_auto_kbd_flag", lambda cfg: None)
+    monkeypatch.setattr("winpodx.display.layout.has_mixed_scale", lambda: False)
+    paths = {"sdl-freerdp": "/bin/sdl-freerdp", "xfreerdp": "/bin/xfreerdp"}
+    monkeypatch.setattr(rdp.shutil, "which", paths.get)
+
+    version, frontend = build.split()
+
+    def run(args, *, env=None, **_kwargs):
+        if args[0] == paths["xfreerdp"]:
+            return CompletedProcess(args, 0, "FreeRDP version 3.33.1", "")
+        assert env["SDL_VIDEODRIVER"] == "wayland"
+        assert env["WAYLAND_DISPLAY"] == str(tmp_path / "wl")
+        if frontend == "incompatible":
+            return CompletedProcess(args, 1, "", "SDL_Init failed")
+        options = f"WITH_CLIENT_{frontend.upper()}=ON WITH_WAYLAND=ON"
+        return CompletedProcess(args, 0, f"FreeRDP version [sdl-freerdp] {version}\n{options}", "")
+
+    monkeypatch.setattr(rdp.subprocess, "run", run)
+    cfg = Config()
+    cfg.pod.backend = "manual"
+    cfg.rdp.user = "tester"
+    cfg.rdp.password = "fixture-password"
+    cfg.rdp.freerdp_source = source
+    cfg.rdp.multimon = monitor_mode
+    # A user-supplied legacy /span must not sneak into the SDL command.
+    extra = "/span" if uses_sdl else ""
+    with socket.socket(socket.AF_UNIX) as wayland_socket:
+        wayland_socket.bind(str(tmp_path / "wl"))
+        cmd, _ = build_rdp_command(
+            cfg,
+            app_executable=r"C:\Windows\notepad.exe" if app else None,
+            extra_args=extra,
+        )
+
+    assert cmd[0] == paths["sdl-freerdp" if uses_sdl else "xfreerdp"]
+    assert ("/span" in cmd) == (app and monitor_mode == "span" and not uses_sdl)
+    assert ("/multimon" in cmd) == (app and monitor_mode == "multimon")
+    assert ("/dynamic-resolution" in cmd) == (not app)
 
 
 def test_find_freerdp_auto_prefers_current_native(monkeypatch):

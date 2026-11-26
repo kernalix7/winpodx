@@ -13,6 +13,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 - Add advisory X11 display diagnostics to doctor, setup, and the GUI. Full doctor checks local connectivity and authentication; quick checks do not open an X client. Bridge installation and startup remain host responsibilities (#911). Thanks @kernalix7.
 
+### Changed
+
+- Prefer SDL3 FreeRDP 3.33.1+ for native Wayland RemoteApps in auto mode. SDL sends each monitor separately without `/span` or XWayland. X11, full desktop, and explicit client sources keep their existing selection. Thanks @kernalix7 for testing.
+
 ### Fixed
 
 - Report which compose phase timed out during setup and how to diagnose it, rather than printing a `subprocess.TimeoutExpired` traceback. The diagnostic notes image-pull activity without exposing provider output, and `WINPODX_COMPOSE_TIMEOUT_SECS=0` still disables the timeout (#903). Thanks @a012-alex.

@@ -13,6 +13,10 @@
 
 - doctor, setup, GUI에 참고용 X11 디스플레이 진단을 추가했습니다. 전체 doctor는 로컬 연결과 인증을 검사하며, 빠른 검사는 X 클라이언트를 열지 않습니다. 브리지 설치·기동은 호스트 설정으로 유지합니다 (#911). @kernalix7 기여.
 
+### Changed
+
+- 자동 모드에서 네이티브 Wayland RemoteApp은 SDL3 FreeRDP 3.33.1 이상을 우선합니다. `/span`이나 XWayland 없이 모니터 배치를 개별 전달합니다. X11, 전체 데스크톱, 명시적으로 선택한 클라이언트는 기존 동작을 유지합니다. @kernalix7 검증.
+
 ### Fixed
 
 - 설치 중 `subprocess.TimeoutExpired` 트레이스백 대신 시간이 초과된 compose 단계와 진단 방법을 안내합니다. 공급자 출력을 노출하지 않고 이미지 다운로드 기록 여부를 알리며, `WINPODX_COMPOSE_TIMEOUT_SECS=0`은 기존과 같이 시간 제한을 해제합니다 (#903). @a012-alex 제보.

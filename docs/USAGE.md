@@ -216,13 +216,13 @@ The disk bump is gated: the dockur disk is sparse, so a larger advertised size c
 
 ## Multi-monitor
 
-Multi-monitor RAIL is on by default (`cfg.rdp.multimon`, default `"span"`): a remote-app window keeps working input when you drag it onto a second monitor. Values:
+Native Wayland RemoteApps using SDL3 FreeRDP advertise each connected monitor automatically. `rdp.multimon` controls the strategy:
 
 | `cfg.rdp.multimon` | Effect |
 |---|---|
-| `span` (default) | Span the RDP session across all monitors so a remote-app window stays interactive on any of them |
-| `multimon` | Use FreeRDP's discrete `/multimon` mode (diagnostic only; currently breaks RAIL input with rdprrap) |
-| `off` | Single-monitor only |
+| `span` (default) | Automatic discrete monitor layout on SDL3 Wayland; request `/span` on the legacy path |
+| `multimon` | Explicitly request FreeRDP's `/multimon` mode |
+| `off` | Use the legacy path without a multi-monitor flag; SDL3 otherwise advertises all outputs automatically |
 
 Change it with `winpodx config set rdp.multimon off` or via the GUI Settings page.
 
@@ -344,7 +344,7 @@ port = 3390
 scale = 100                  # Auto-detected from your DE
 dpi = 0                      # Windows DPI % (0 = auto)
 multimon = "span"            # Multi-monitor RAIL: span | multimon | off
-freerdp_source = "auto"      # auto = RAIL-ready native, otherwise Flatpak; force native | flatpak
+freerdp_source = "auto"      # Prefer SDL3 for Wayland RemoteApp; native | flatpak to opt out
 media_drive_enabled = true    # false = do not expose host removable media as \\tsclient\media
 extra_flags = ""             # Additional FreeRDP flags (allowlisted); e.g.
                              #   "+multitouch" — touchscreen / stylus / pen

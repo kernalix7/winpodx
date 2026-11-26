@@ -26,6 +26,7 @@ _FREERDP_ARGV0 = (
     b"wlfreerdp3",
     b"sdl-freerdp",
     b"sdl-freerdp3",
+    b"sdl3-freerdp",
 )
 
 

@@ -215,13 +215,13 @@ GUI에서도 선택 가능: **Settings → Bare-metal compatibility**. 어느 �
 
 ## 멀티모니터
 
-멀티모니터 RAIL 기본 on (`cfg.rdp.multimon`, 기본 `"span"`): 원격 앱 창을 두 번째 모니터로 끌어도 입력이 계속 동작. 값:
+SDL3 FreeRDP를 사용하는 네이티브 Wayland RemoteApp은 연결된 모니터를 개별적으로 자동 전달합니다. `rdp.multimon` 설정:
 
 | `cfg.rdp.multimon` | 효과 |
 |---|---|
-| `span` (기본) | RDP 세션을 모든 모니터에 걸쳐 span — 원격 앱 창이 어느 모니터에서든 인터랙티브 유지 |
-| `multimon` | FreeRDP 의 개별 `/multimon` 모드 (모니터별 geometry) 사용 |
-| `off` | 단일 모니터만 |
+| `span` (기본) | SDL3 Wayland는 모니터 배치를 자동 전달하고, 기존 경로는 `/span` 요청 |
+| `multimon` | FreeRDP의 `/multimon` 모드를 명시적으로 요청 |
+| `off` | 기존 경로에서 멀티모니터 플래그를 생략. SDL3는 기본적으로 모든 출력을 전달 |
 
 `winpodx config set rdp.multimon off` 또는 GUI Settings 페이지로 변경.
 
@@ -347,7 +347,7 @@ port = 3390
 scale = 100                  # DE 에서 자동 감지
 dpi = 0                      # Windows DPI % (0 = 자동)
 multimon = "span"            # 멀티모니터 RAIL: span | multimon | off
-freerdp_source = "auto"      # auto = RAIL 호환 native 우선, 아니면 Flatpak; native | flatpak 강제 가능
+freerdp_source = "auto"      # Wayland RemoteApp에서 SDL3 우선; native | flatpak으로 변경 가능
 media_drive_enabled = true    # false = 호스트 이동식 미디어를 \\tsclient\media로 공유 안 함
 extra_flags = ""             # 추가 FreeRDP 플래그 (allowlist); 예:
                              #   "+multitouch" — 터치스크린 / 스타일러스 / 펜을

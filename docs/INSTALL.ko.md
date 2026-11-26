@@ -232,7 +232,8 @@ WinPodX는 0.6.0부터 Thin x86_64 AppImage 모델을 사용합니다. Python, W
 
 0.12.0 후보 레시피는 Ubuntu 24.04의 FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, Python `3.11.17+20261009`, PySide6 `6.12.0`을 사용합니다. 출처 수집기는 소유 패키지, 라이선스 텍스트, wheel URL, 다운로드 해시를 기록합니다. 구현된 소스 파이프라인은 Qt/PySide, CPython, PyPI, Ubuntu, AppImage 런타임 원본을 SHA256 검증·미러링해 소스/용도 색인, 라이선스, 입력 잠금, 레시피와 함께 `winpodx-appimage-sources.tar.gz`에 담고, 태그 빌드에서 바이너리와 함께 아카이브, `PROVENANCE.json`, `SOURCE-OFFER.txt`, `SHA256SUMS`를 첨부합니다. 각 아티팩트에는 고유한 출처 및 소스 제공 기록이 있으며, 이는 포괄적인 법적 적합성이나 보안 승인을 의미하지 않습니다. 잠기지 않은 Alpine apk 입력은 런타임 재구성의 한계입니다. 모든 네이티브 구성 요소의 바이트 단위 동일 재구성을 주장하지 않습니다.
 
-> **FreeRDP 클라이언트 선택.** 클라이언트 소스는 설정할 수 있습니다. auto 모드는 RAIL 최소 버전을 충족한 네이티브 `xfreerdp`를 우선합니다. 그렇지 않으면 Flatpak을 시도하고, Flatpak이 없으면 네이티브 클라이언트를 대안으로 유지합니다.
+> **FreeRDP 클라이언트 선택.** auto 모드는 Wayland RemoteApp에서 호환되는 네이티브 SDL3를 우선합니다. 그 외에는 RAIL 최소 버전을 충족하는 네이티브 `xfreerdp`, Flatpak, 구버전 네이티브 클라이언트 순으로 선택합니다.
+> 요구사항과 설정 방법은 [Wayland와 X11](#wayland와-x11-windows-remoteapp-창)을 참고하세요.
 
 호스트 측 요구사항:
 
@@ -361,15 +362,15 @@ sudo dnf install ./winpodx-<version>-0.noarch.el10.rpm
 
 ## Wayland와 X11 (Windows RemoteApp 창)
 
-Windows **RemoteApp** 창은 WinPodX가 우선하는 `xfreerdp` 클라이언트(RAIL)가 그리며, X11이 필요합니다. Flatpak 경로도 `xfreerdp`를 명시적으로 선택합니다. 네이티브 SDL/RAIL 지원과 클라이언트 선택 정책 변경은 #299에서 별도로 다룹니다. 이번 수정은 클라이언트 선택을 바꾸거나 upstream SDL에 RAIL 지원이 없다고 단정하지 않습니다.
+Wayland에서 `rdp.freerdp_source = "auto"`는 네이티브 Wayland 디스플레이에 연결할 수 있는 **SDL3 FreeRDP 3.33.1 이상**을 Windows **RemoteApp**에 우선 사용합니다. XWayland는 필요 없습니다. 기존 클라이언트를 우선하려면 `winpodx config set rdp.freerdp_source native`를 실행해 설치된 `xfreerdp`를 우선하거나, `flatpak`을 선택하세요. 전체 데스크톱의 클라이언트 선택은 그대로입니다.
 
-Wayland 세션에서는 호스트에 동작하는 X11/XWayland 경로가 필요합니다:
+FreeRDP Flatpak을 비롯한 `xfreerdp` 대체 경로에만 X11이 필요합니다. Wayland에서는 다음을 확인하세요:
 
 - 대부분의 데스크톱 환경은 **XWayland**를 내장하고 있으므로 할 일이 없습니다.
 - 사용 가능한 XWayland가 없는 Wayland 세션에는 **`xwayland-satellite`** 같은 브리지와 올바른 `DISPLAY`, 필요한 `XAUTHORITY`가 있어야 합니다. 이는 **일회성 호스트 설정**이며 WinPodX가 브리지나 운영체제 의존성을 설치·시작하지는 않습니다. `xhost +`로 접근 제어를 끄거나 X11을 TCP로 노출하지 마세요. 복구한 변수는 FreeRDP와 X11 창 보정 작업에 전달하며 부모 프로세스의 전역 환경을 바꾸지 않습니다.
-- X11 디스플레이가 없는 것은 차단 조건이 아니라 **참고 정보**입니다. Windows VM 설치와 agent 전용 CLI는 X11 없이도 동작하며, RemoteApp 창(및 설정에 따라 전체 데스크톱 클라이언트)만 이를 필요로 합니다.
+- X11 디스플레이가 없어도 Windows VM 설치, 에이전트 전용 CLI, 네이티브 Wayland RemoteApp은 동작합니다.
 
-LXC/Incus에서 Wayland 소켓만 전달해도 X11에 접근할 수 있게 되는 것은 **아닙니다**. 로컬 브리지를 구성하거나 기존 X11 소켓과 그에 맞는 인증 정보를 컨테이너 안에서 안전하게 사용할 수 있도록 설정해야 합니다.
+LXC/Incus에서 전달한 Wayland 소켓은 호환 SDL3 클라이언트에서 사용할 수 있지만 X11 접근을 제공하지는 않습니다. `xfreerdp`가 필요하면 로컬 브리지를 구성하거나 기존 X11 소켓과 인증 정보를 컨테이너 안에서 안전하게 제공하세요.
 
 GUI·트레이보다 늦게 시작된 브리지의 환경은 X11이 이미 동작하는 셸에서 다음과 같이 등록할 수 있습니다:
 
