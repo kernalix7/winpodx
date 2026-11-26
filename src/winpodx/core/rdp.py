@@ -14,11 +14,13 @@ import sys
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from winpodx.core.config import Config
 from winpodx.core.i18n import tr
 from winpodx.core.url_schemes import sanitize_url_arg, url_scheme_of
+from winpodx.display.detector import session_type
 from winpodx.display.x11 import resolve_x11_environment
 from winpodx.utils.paths import runtime_dir
 
@@ -206,6 +208,8 @@ _FREERDP_VERSION_CACHE: object = _UNPROBED
 # logon framebuffer (#546, #332, #733, #785). Advisory only: the same binary
 # drives full-desktop sessions and plenty of apps fine.
 FREERDP_RAIL_FLOOR = (3, 6, 0)
+_SDL_WAYLAND_RAIL_FLOOR = (3, 33, 1)
+_SDL_CLIENT_NAMES = ("sdl3-freerdp", "sdl-freerdp3", "sdl-freerdp")
 
 
 def _probe_freerdp_version(found: tuple[str, str]) -> tuple[int, int, int] | None:
@@ -218,19 +222,15 @@ def _probe_freerdp_version(found: tuple[str, str]) -> tuple[int, int, int] | Non
     except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return None
 
-    # FreeRDP --version prints "This is FreeRDP version <major>.<minor>.<patch>".
-    # Be forgiving about which stream it lands on and what surrounds it.
-    blob = (result.stdout or "") + (result.stderr or "")
-    match = re.search(r"FreeRDP version\s+(\d+)\.(\d+)\.(\d+)", blob)
-    if match is None:
-        # Some builds print only "<major>.<minor>"; the major is what the
-        # launcher gates on, so accept that shape too.
-        match = re.search(r"FreeRDP version\s+(\d+)\.(\d+)", blob)
-        if match is None:
-            return None
-        return (int(match.group(1)), int(match.group(2)), 0)
+    return _parse_freerdp_version((result.stdout or "") + (result.stderr or ""))
 
-    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+def _parse_freerdp_version(output: str) -> tuple[int, int, int] | None:
+    # /buildconfig can include the frontend name before the version.
+    match = re.search(r"FreeRDP version(?: \[[^\]]+\])?\s+(\d+)\.(\d+)(?:\.(\d+))?", output)
+    if match is None:
+        return None
+    return int(match[1]), int(match[2]), int(match[3] or "0")
 
 
 def freerdp_version() -> tuple[int, int, int] | None:
@@ -295,21 +295,64 @@ def freerdp_major_version() -> int:
 
 
 def _find_native_freerdp() -> tuple[str, str] | None:
-    """First available native FreeRDP binary.
-
-    WinPodX prefers ``xfreerdp`` for its current RemoteApp path and keeps SDL
-    as a fallback. Native SDL RAIL support and client policy are tracked in
-    #299; this preference is not a claim about upstream SDL capabilities.
-    """
-    probes: tuple[tuple[tuple[str, ...], str], ...] = (
-        (("xfreerdp3", "xfreerdp"), "xfreerdp"),
-        (("sdl-freerdp3", "sdl-freerdp"), "sdl"),
-    )
+    """First available native FreeRDP binary, with the legacy X11 preference."""
+    probes = ((("xfreerdp3", "xfreerdp"), "xfreerdp"), (_SDL_CLIENT_NAMES, "sdl"))
     for names, kind in probes:
         for name in names:
             path = shutil.which(name)
             if path:
                 return (path, kind)
+    return None
+
+
+@lru_cache(maxsize=8)
+def _sdl_wayland_has_rail(binary: str, socket: str) -> bool:
+    # SDL initializes video for /buildconfig, so this also checks that the
+    # binary can open the Wayland display without XWayland.
+    try:
+        result = subprocess.run(
+            [binary, "/buildconfig"],
+            env={**os.environ, "SDL_VIDEODRIVER": "wayland", "WAYLAND_DISPLAY": socket},
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode:
+        return False
+    output = result.stdout + result.stderr
+    version = _parse_freerdp_version(output)
+    options = output.split()
+    return (
+        version is not None
+        and version >= _SDL_WAYLAND_RAIL_FLOOR
+        and "WITH_CLIENT_SDL3=ON" in options
+        and "WITH_WAYLAND=ON" in options
+        # Don't mistake a non-versioned SDL2 binary for SDL3 in a dual build.
+        and (Path(binary).name == "sdl3-freerdp" or "WITH_CLIENT_SDL2=ON" not in options)
+    )
+
+
+def _find_wayland_sdl() -> tuple[str, str] | None:
+    if session_type() != "wayland" or os.environ.get("SDL_VIDEODRIVER", "") not in ("", "wayland"):
+        return None
+    display = os.environ.get("WAYLAND_DISPLAY")
+    if not display:
+        return None
+    socket = Path(display)
+    if not socket.is_absolute():
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        if not runtime:
+            return None
+        socket = Path(runtime) / socket
+    if not socket.is_socket():
+        return None
+    for name in _SDL_CLIENT_NAMES:
+        binary = shutil.which(name)
+        if binary and _sdl_wayland_has_rail(binary, str(socket)):
+            return binary, "sdl-wayland"
     return None
 
 
@@ -363,10 +406,12 @@ def _find_flatpak_freerdp() -> tuple[str, str] | None:
     return None
 
 
-def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
+def find_freerdp(prefer: str = "auto", *, remoteapp: bool = False) -> tuple[str, str] | None:
     """Locate a FreeRDP 3+ client, honouring a source preference.
 
     ``prefer``:
+      * With ``remoteapp=True``, ``"auto"`` first tries SDL3 FreeRDP
+        3.33.1+ on the current native Wayland display.
       * ``"auto"`` (default) — prefer native ``xfreerdp`` when it meets the
         RAIL version floor, otherwise use the self-contained Flatpak client.
         An older native client remains the fallback when Flatpak is absent.
@@ -380,6 +425,8 @@ def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
     so a mid-session install is still picked up.
     """
     pref = prefer if prefer in ("auto", "native", "flatpak") else "auto"
+    if pref == "auto" and remoteapp and (sdl := _find_wayland_sdl()) is not None:
+        return sdl
     cached = _FREERDP_CACHE.get(pref)
     if cached is not None:
         return cached
@@ -404,6 +451,18 @@ def find_freerdp(prefer: str = "auto") -> tuple[str, str] | None:
     if found is not None:
         _FREERDP_CACHE[pref] = found
     return found
+
+
+def _select_launch_client(
+    cfg: Config, is_remoteapp: bool, multimon_override: str | None
+) -> tuple[str, str] | None:
+    monitor_mode = multimon_override if multimon_override is not None else cfg.rdp.multimon
+    # SDL advertises every output automatically and cannot implement the
+    # the legacy single-monitor "off" strategy.
+    return find_freerdp(
+        prefer=cfg.rdp.freerdp_source,
+        remoteapp=is_remoteapp and monitor_mode != "off",
+    )
 
 
 def _resolve_password(cfg: Config) -> str:
@@ -503,8 +562,9 @@ def build_rdp_command(
     extra_args: str = "",
     scale_override: int | None = None,
     multimon_override: str | None = None,
+    _client: tuple[str, str] | None = None,
 ) -> tuple[list[str], str]:
-    """Build the xfreerdp command line for launching an app.
+    """Build the FreeRDP command line for launching an app.
 
     For classic Win32 apps, pass ``app_executable`` (and optionally
     ``file_path``). For UWP/MSIX apps, pass ``launch_uri`` containing
@@ -519,7 +579,9 @@ def build_rdp_command(
     ``cfg.rdp.multimon`` for this launch WITHOUT mutating the shared ``cfg``.
     With both left ``None`` the emitted argv is byte-for-byte unchanged.
     """
-    found = find_freerdp(prefer=getattr(cfg.rdp, "freerdp_source", "auto"))
+    is_remoteapp = bool(app_executable or launch_uri)
+    monitor_mode = multimon_override if multimon_override is not None else cfg.rdp.multimon
+    found = _client or _select_launch_client(cfg, is_remoteapp, multimon_override)
     if not found:
         raise RuntimeError("FreeRDP 3+ not found. Install xfreerdp3 or xfreerdp.")
 
@@ -594,36 +656,14 @@ def build_rdp_command(
         "/dynamic-resolution",
     ]
 
-    # If an App launches, remove default dynamic-resolution flag
-    if (app_executable or launch_uri) and "/dynamic-resolution" in cmd:
+    if is_remoteapp:
         cmd.remove("/dynamic-resolution")
 
-    # Multi-monitor RAIL: without a desktop big enough to cover every host
-    # monitor, a RAIL window dragged onto a second monitor lands at coords
-    # outside the (single-monitor) session desktop, so input/repaint desync
-    # and clicks miss. "/span" sizes the session desktop to the bounding box
-    # of all host monitors -- one wide rectangle, NO per-monitor
-    # MonitorDefArray (which rdprrap can't handle, so "/multimon" kills input
-    # entirely). Scoped to RAIL app launches; the full-desktop path keeps
-    # /dynamic-resolution instead. cfg.rdp.multimon "off" disables it for
-    # non-rectangular layouts.
-    #
-    # /span only works when the monitors run at the SAME scale. With mixed
-    # fractional scales (e.g. a hi-DPI laptop + a 100% external) the logical
-    # rectangles don't tile (sub-pixel-rounding gap) so /span is refused at
-    # pre_connect, AND FreeRDP RAIL + XWayland can't map a window dragged onto
-    # the differently-scaled monitor -- it freezes / goes unresponsive (an
-    # upstream limit no client flag fixes). So when the scales differ we pin
-    # the session to a single monitor: the app is stable on the primary, and
-    # the only real fix for using both is to set them to the same scale.
-    if app_executable or launch_uri:
-        # #692: a per-app multimon override wins over the global cfg value.
-        _multimon = (
-            multimon_override
-            if multimon_override is not None
-            else getattr(cfg.rdp, "multimon", "span")
-        )
-        if _multimon == "span":
+    # SDL3 RAIL announces each Wayland output itself. /span flattens the
+    # layout and is rejected with /app on FreeRDP 3.33.1+.
+    # Keep the legacy X11 monitor strategy and the explicit /multimon option.
+    if is_remoteapp:
+        if monitor_mode == "span" and variant != "sdl-wayland":
             from winpodx.display.layout import has_mixed_scale
 
             if has_mixed_scale() is True:
@@ -637,7 +677,7 @@ def build_rdp_command(
                 # No /span: single (primary) monitor desktop, stable there.
             else:
                 cmd.append("/span")
-        elif _multimon == "multimon":
+        elif monitor_mode == "multimon":
             cmd.append("/multimon")
 
     # Share a directory as \\tsclient\media when enabled so the guest's USB
@@ -716,7 +756,7 @@ def build_rdp_command(
         #
         # ``freerdp_major_version()`` caches the probe so this branch
         # only spawns the version-check subprocess once per process.
-        if freerdp_major_version() >= 3:
+        if variant == "sdl-wayland" or freerdp_major_version() >= 3:
             if file_path and not url_scheme_of(file_path):
                 # #833: a real Win32 file open (anything that is NOT a
                 # routable scheme -- including the denylisted file: URI,
@@ -800,6 +840,10 @@ def build_rdp_command(
     # so callers can't smuggle unsafe flags via this path.
     if extra_args:
         cmd += _filter_extra_flags(extra_args)
+
+    if variant == "sdl-wayland" and "/span" in cmd:
+        log.warning("Ignoring /span for native Wayland RemoteApp; SDL handles the monitor layout.")
+        cmd = [flag for flag in cmd if flag != "/span"]
 
     # #660: auto-propagate cfg.pod.keyboard to FreeRDP as /kbd:layout, but only
     # when the user hasn't already supplied a /kbd via extra_flags (their flag
@@ -1838,6 +1882,8 @@ def launch_app(
         )
         # fall through to the cold RAIL spawn below.
 
+    is_remoteapp = bool(launch_uri or app_executable)
+    found = _select_launch_client(cfg, is_remoteapp, multimon_override)
     cmd, password = build_rdp_command(
         cfg,
         app_executable=app_executable,
@@ -1848,16 +1894,15 @@ def launch_app(
         extra_args=extra_args,
         scale_override=scale_override,
         multimon_override=multimon_override,
+        _client=found,
     )
 
-    # WinPodX's native/Flatpak xfreerdp RemoteApp path needs X11. Reuse a
-    # configured bridge without changing this process's environment. Keep SDL
-    # and full-desktop launches unchanged; native SDL policy is tracked in #299.
-    is_remoteapp = launch_uri is not None or app_executable is not None
-    found = find_freerdp(prefer=getattr(cfg.rdp, "freerdp_source", "auto"))
     kind = found[1] if found else ""
+    needs_x11_helpers = is_remoteapp and kind != "sdl-wayland"
     child_env = None
-    if is_remoteapp and kind in ("xfreerdp", "flatpak"):
+    if kind == "sdl-wayland":
+        child_env = {**os.environ, "SDL_VIDEODRIVER": "wayland"}
+    elif is_remoteapp and kind in ("xfreerdp", "flatpak"):
         child_env = resolve_x11_environment().env
         if not child_env.get("DISPLAY"):
             raise RuntimeError(
@@ -1884,7 +1929,7 @@ def launch_app(
     # (#785). The wait above only helps when the guest agent answers; on an old
     # FreeRDP the window can still come up blank or painted with the logon
     # screen, and users hit that long before they think to run doctor.
-    if is_remoteapp:
+    if needs_x11_helpers:
         rail_warning = freerdp_rail_warning()
         if rail_warning:
             log.warning("%s", rail_warning)
@@ -1929,7 +1974,7 @@ def launch_app(
         # Probe the X-screen extent with the SAME resolved environment the
         # client runs with (#911): xrandr must see the display xfreerdp will
         # use, and a Wayland launcher must not mutate os.environ to get there.
-        extent = detect_x_screen_extent(environ=child_env)
+        extent = detect_x_screen_extent(environ=child_env) if kind != "sdl-wayland" else None
         if extent is not None and not any(f.startswith("/size:") for f in cmd):
             width, height = extent
             cmd.append(f"/size:{width}x{height}")
@@ -1940,6 +1985,8 @@ def launch_app(
                 width,
                 height,
             )
+        elif kind == "sdl-wayland":
+            log.warning("FreeRDP rejected /multimon; retrying with SDL's automatic layout.")
         else:
             log.warning(
                 "FreeRDP pre_connect rejected the multi-monitor span (host "
@@ -1967,7 +2014,7 @@ def launch_app(
     # connected (Office keeps its process resident, so the process-reaper never
     # fires). RemoteApp only -- a full desktop session has no RAIL.<wm_class>
     # window and must never be reaped on window-absence.
-    if is_remoteapp:
+    if needs_x11_helpers:
         threading.Thread(
             target=_window_reaper,
             args=(session, session.app_name, child_env),
@@ -1980,7 +2027,7 @@ def launch_app(
     # would kill a daemon thread (that's why #680's reaper moved to the tray).
     # The helper outlives us and does both jobs. RemoteApp only (a full desktop
     # has no RAIL.<wm_class> window to touch).
-    if is_remoteapp:
+    if needs_x11_helpers:
         setup_args = [sys.executable, "-m", "winpodx.desktop.window_setup", session.app_name]
         if app_icon:
             setup_args += ["--icon", app_icon]

@@ -56,9 +56,8 @@ _KVM_NODE = "/dev/kvm"
 def check_freerdp() -> DepCheck:
     """Check for any available FreeRDP binary.
 
-    Delegates to :func:`winpodx.core.rdp.find_freerdp` so the dep check accepts
-    the same set of binaries the launcher will actually try: xfreerdp3,
-    xfreerdp, sdl-freerdp3, sdl-freerdp, and the Flatpak fallback.
+    Delegates to :func:`winpodx.core.rdp.find_freerdp` to check for the same
+    native clients or Flatpak fallback the launcher uses.
     """
     from winpodx.core.rdp import find_freerdp
 

@@ -17,8 +17,8 @@ port = 3390
 scale = 100               # 100 / 140 / 180 — RemoteApp scale (auto-detected from the DE)
 dpi = 0                   # 0 = let Windows decide; 100–300 = explicit Windows DPI %
 extra_flags = ""          # extra xfreerdp flags (validated against an allowlist)
-freerdp_source = "auto"   # auto | native | flatpak
-multimon = "span"         # span | off | multimon — multi-monitor RAIL strategy
+freerdp_source = "auto"   # auto prefers compatible SDL3 for Wayland RemoteApp; native | flatpak
+multimon = "span"         # span (automatic on SDL3 Wayland) | off (legacy client) | multimon
 media_drive_enabled = true # false = do not expose host removable media as \\tsclient\media
 
 [pod]

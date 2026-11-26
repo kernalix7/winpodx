@@ -227,9 +227,7 @@ def _check_install_source() -> Finding:
 
 def _check_freerdp() -> Finding:
     # Delegate to winpodx.utils.deps.check_freerdp so doctor sees the same
-    # set of binaries the launcher does (xfreerdp3 / xfreerdp / sdl-freerdp3
-    # / sdl-freerdp + Flatpak). Pre-0.6.0 doctor only looked for the first
-    # two and reported MISSING on hosts that had the others.
+    # set of native binaries and the Flatpak fallback as the launcher.
     from winpodx.utils.deps import check_freerdp
 
     dep = check_freerdp()
@@ -268,8 +266,7 @@ def _check_freerdp() -> Finding:
     return Finding(
         "fail",
         "freerdp not found on PATH",
-        detail=dep.note
-        or "Looked for xfreerdp3 / xfreerdp / sdl-freerdp3 / sdl-freerdp; none resolved.",
+        detail=dep.note or "Looked for xfreerdp, SDL FreeRDP and the FreeRDP Flatpak.",
         suggestion="Install via your distro package manager (freerdp / freerdp3 / freerdp-x11).",
     )
 
@@ -306,13 +303,13 @@ def _check_x11(quick: bool = False) -> Finding:
             "warn",
             tr("no X11 display configured"),
             detail=tr(
-                "Windows VM setup and agent-only CLI do not need X11, but Windows "
-                "RemoteApp windows (xfreerdp) do: under Wayland they need an "
-                "X11/XWayland bridge for this user session."
+                "Windows VM setup, agent-only CLI, and native Wayland RemoteApp with "
+                "SDL3 FreeRDP do not need X11. When using xfreerdp, RemoteApp windows "
+                "need an X11/XWayland bridge for this user session."
             ),
             suggestion=tr(
-                "Set up the X11 bridge for your session (host responsibility; "
-                "WinPodX does not install or start one) and re-run `winpodx doctor` — "
+                "If using xfreerdp, set up the X11 bridge for your session "
+                "(WinPodX does not install or start one) and re-run `winpodx doctor` — "
                 "see 'Wayland and X11' in docs/INSTALL.md."
             ),
         )

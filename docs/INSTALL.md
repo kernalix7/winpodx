@@ -229,7 +229,8 @@ WinPodX uses a Thin x86_64 AppImage model introduced in 0.6.0. It bundles Python
 
 The 0.12.0 candidate recipe uses Ubuntu 24.04 FreeRDP `3.32.1+dfsg-0ubuntu0.24.04.1`, Python `3.11.17+20261009`, and PySide6 `6.12.0`. Its provenance collector records package ownership, license texts, wheel URLs, and download hashes. The implemented source pipeline SHA256-verifies and mirrors Qt/PySide, CPython, PyPI, Ubuntu, and AppImage runtime originals into `winpodx-appimage-sources.tar.gz`, with a source/use index, licenses, input locks, and recipes; tag builds attach the archive, `PROVENANCE.json`, `SOURCE-OFFER.txt`, and `SHA256SUMS` alongside the binary. Each artifact has its own provenance and source-delivery record; this is not blanket legal or security clearance. Unlocked Alpine apk inputs limit runtime reconstruction, and byte-identical reconstruction of every native component is not claimed.
 
-> **FreeRDP client selection.** The client source is configurable. Auto mode prefers native `xfreerdp` when it meets the RAIL version floor; otherwise it tries Flatpak, with the native client retained as fallback when Flatpak is absent.
+> **FreeRDP client selection.** Auto mode first tries a compatible native SDL3 client for Wayland RemoteApps. Otherwise it prefers native `xfreerdp` when it meets the RAIL version floor, then Flatpak, then an older native client.
+> See [Wayland and X11](#wayland-and-x11-windows-remoteapp-windows) for requirements and overrides.
 
 Host-side requirements:
 
@@ -387,15 +388,15 @@ Whichever path you used, check what you're running with `winpodx --version`. If 
 
 ## Wayland and X11 (Windows RemoteApp windows)
 
-Windows **RemoteApp** windows are drawn by WinPodX's preferred `xfreerdp` client (RAIL), which needs X11. The Flatpak path explicitly selects `xfreerdp`. Native SDL/RAIL support and client-selection changes are tracked separately in #299; this fix does not change client selection or claim that upstream SDL lacks RAIL.
+On Wayland, `rdp.freerdp_source = "auto"` prefers **SDL3 FreeRDP 3.33.1 or newer** for Windows **RemoteApp** when that client can open the native Wayland display. It does not need XWayland. To opt out, run `winpodx config set rdp.freerdp_source native` (prefers `xfreerdp` when installed) or select `flatpak`. Full-desktop client selection is unchanged.
 
-On a Wayland session this means the host needs a working X11/XWayland path:
+The `xfreerdp` fallback, including the FreeRDP Flatpak, still needs X11. On Wayland, that means:
 
 - Most desktop environments ship built-in **XWayland** — nothing to do.
 - Wayland sessions without usable XWayland need a bridge such as **`xwayland-satellite`**, with `DISPLAY` and any required `XAUTHORITY` available. This is **one-time host setup**: WinPodX does not install or start a bridge or its OS dependencies. Do not disable access control with `xhost +` or expose X11 over TCP. Recovered variables reach FreeRDP and X11 window helpers, not the parent process's global environment.
-- A missing X11 display is an **advisory**, not a blocker: Windows VM setup and agent-only CLI operations work without it — only RemoteApp windows (and, depending on your setup, the full-desktop client) need it.
+- A missing X11 display is advisory: Windows VM setup, agent-only CLI operations, and native Wayland RemoteApps do not need it.
 
-Inside LXC/Incus, forwarding only a Wayland socket does **not** provide X11 access. Configure a local bridge, or securely provide the existing X11 socket and matching authentication inside the container.
+Inside LXC/Incus, a forwarded Wayland socket can serve a compatible SDL3 client but does not provide X11 access. If you need `xfreerdp`, configure a local bridge or securely provide the existing X11 socket and matching authentication inside the container.
 
 If a working bridge starts after the GUI/tray, publish its environment from a shell where X11 already works:
 
