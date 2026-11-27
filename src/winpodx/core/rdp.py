@@ -641,6 +641,10 @@ def build_rdp_command(
         f"/v:{cfg.rdp.ip}:{cfg.rdp.port}",
         f"/u:{cfg.rdp.user}",
     ]
+    if variant == "sdl-wayland":
+        # WinPodX reports launch failures itself; don't flash SDL's progress
+        # window before the RemoteApp appears. FreeRDP stderr is still logged.
+        cmd.append("-sdl-connection-dialog")
 
     if cfg.rdp.domain:
         cmd.append(f"/d:{cfg.rdp.domain}")

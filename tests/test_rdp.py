@@ -2018,6 +2018,7 @@ def test_wayland_remoteapp_client_and_layout(
         )
 
     assert cmd[0] == paths["sdl-freerdp" if uses_sdl else "xfreerdp"]
+    assert ("-sdl-connection-dialog" in cmd) == uses_sdl
     assert ("/span" in cmd) == (app and monitor_mode == "span" and not uses_sdl)
     assert ("/multimon" in cmd) == (app and monitor_mode == "multimon")
     assert ("/dynamic-resolution" in cmd) == (not app)
