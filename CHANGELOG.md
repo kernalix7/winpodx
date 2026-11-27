@@ -20,6 +20,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 
+- Stop SDL3 FreeRDP's transient connection window from flashing when opening a native Wayland RemoteApp. FreeRDP errors are still logged. Thanks @kernalix7 for reporting it.
 - Report which compose phase timed out during setup and how to diagnose it, rather than printing a `subprocess.TimeoutExpired` traceback. The diagnostic notes image-pull activity without exposing provider output, and `WINPODX_COMPOSE_TIMEOUT_SECS=0` still disables the timeout (#903). Thanks @a012-alex.
 - Keep the **Launch App**, **Terminate Session**, and **USB Devices** tray submenus open on GNOME/AppIndicator by skipping the `clear()` and re-add refresh when their content is unchanged, comparing launch parameters, session targets, USB bind identity, and checked state. Changed content still refreshes, and a checked-only USB change updates the existing action in place (#909). Thanks @sundaysfantasy.
 - GNOME reverse-open of guest-local files now answers the GVfs Domain prompt before the password (#896, #898). Thanks @DBVamsi.

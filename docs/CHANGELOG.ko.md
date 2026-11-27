@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- 네이티브 Wayland RemoteApp을 열 때 SDL3 FreeRDP의 임시 연결창이 나타나지 않도록 수정했습니다. FreeRDP 오류는 계속 로그에 기록합니다. @kernalix7 제보.
 - 설치 중 `subprocess.TimeoutExpired` 트레이스백 대신 시간이 초과된 compose 단계와 진단 방법을 안내합니다. 공급자 출력을 노출하지 않고 이미지 다운로드 기록 여부를 알리며, `WINPODX_COMPOSE_TIMEOUT_SECS=0`은 기존과 같이 시간 제한을 해제합니다 (#903). @a012-alex 제보.
 - 내용이 바뀌지 않았으면 `clear()` 후 다시 추가하는 새로 고침을 건너뛰어 GNOME/AppIndicator에서 **Launch App**, **Terminate Session**, **USB Devices** 트레이 하위 메뉴가 열리도록 수정했습니다. 실행 매개변수, 세션 대상, USB 바인딩 ID, 체크 상태를 비교하며 실제 변경은 반영하고, USB 체크 상태만 바뀐 경우에는 기존 액션을 그대로 갱신합니다 (#909). @sundaysfantasy 기여.
 - GNOME에서 게스트 로컬 파일을 reverse-open할 때 GVfs의 Domain 질문에 답한 뒤 비밀번호를 전달하도록 수정했습니다 (#896, #898). @DBVamsi 기여.
